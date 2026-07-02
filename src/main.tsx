@@ -110,7 +110,7 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
-import { isPWA, isTauri } from "./lib/tauri";
+import { isNativeMobile, isPWA, isTauri } from "./lib/tauri";
 import { initLocalStorageSync } from "./lib/localStorageSync";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 
@@ -221,28 +221,24 @@ try {
   // Settings not yet available or parse error — Inter is already loaded statically.
 }
 
-// Initialize localStorage -> Yjs sync (shared state across devices).
-// Runs on every profile: PWA installs AND Tauri (desktop + mobile). This is
-// the bridge that actually moves app state (documents, settings, collections,
-// highlights …) through the yjs doc so cross-device sync delivers data, not
-// just an idle WebSocket. It is the difference between "joined the room" and
-// "synced my library" — the reason scan-to-join needs it.
-// (Previously gated to PWA-only to avoid desktop write amplification, but that
-// also left desktop + mobile with a connected-but-empty doc — see main.tsx
-// commit history on this block.)
-if (isPWA() || isTauri()) {
+const shouldAutoStartHeavySync = !isNativeMobile();
+
+// Initialize localStorage -> Yjs sync (shared state across devices). Native
+// mobile skips this startup bridge for now: large rooms can allocate hundreds
+// of MB during boot, which can crash Android before the UI is usable. Users can
+// still open the app and we can reintroduce mobile sync as an explicit action
+// once the provider is chunked/lazy enough for phone memory limits.
+if (isPWA() || (isTauri() && shouldAutoStartHeavySync)) {
   initLocalStorageSync().catch((error) => {
     console.error("[main.tsx] Failed to initialize local storage sync:", error);
   });
 }
 
-// Boot the Yjs sync provider on every Tauri profile (desktop + mobile). The
-// provider itself (getYjsSync) is the part we need everywhere; the localStorage
-// mirroring above is intentionally PWA-only. Without this, yjs sync never
-// initializes on Android/iOS (it only started lazily if a file-sync hook
-// happened to mount), so scan-to-join would "join" a dormant sync stack. See
-// overhaul-cross-device-sync tasks.md section 8 (Tauri enablement).
-if (isTauri()) {
+// Boot the Yjs sync provider on desktop Tauri. Native mobile intentionally
+// avoids this eager chain because it also starts file sync, auto-download,
+// document/card/RSS/podcast replication, and migration. That startup fan-out is
+// too memory-hungry for Android when a sync room is large.
+if (isTauri() && shouldAutoStartHeavySync) {
   import("./lib/yjsSync")
     .then(({ getYjsSync }) => getYjsSync())
     .then(() =>

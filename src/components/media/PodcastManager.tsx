@@ -411,6 +411,19 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   selectedFeedIdRef.current = selectedFeedId;
 
   const selectedFeed = feeds.find((f) => f.id === selectedFeedId) ?? null;
+  const podcastArtworkUrl = useCallback((url?: string | null, size = 160) => {
+    if (!url) return undefined;
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname.includes("mzstatic.com")) {
+        parsed.pathname = parsed.pathname.replace(/\d+x\d+bb\.(jpg|png|webp)$/i, `${size}x${size}bb.$1`);
+        return parsed.toString();
+      }
+      return url;
+    } catch {
+      return url;
+    }
+  }, []);
 
   const loadFeeds = useCallback(async () => {
     try {
@@ -712,6 +725,20 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   };
 
   const totalUnplayed = feeds.reduce((acc, feed) => acc + (feed.unplayedCount ?? 0), 0);
+  const filteredEpisodes = selectedFeed ? getFilteredEpisodes() : [];
+
+  const getEpisodeProgressPercent = (episode: PodcastEpisode) => {
+    if (episode.played) return 100;
+    if (!episode.duration || episode.duration <= 0 || !episode.playbackPosition) return 0;
+    return Math.max(0, Math.min(100, Math.round((episode.playbackPosition / episode.duration) * 100)));
+  };
+
+  const getEpisodeProgressLabel = (episode: PodcastEpisode) => {
+    if (episode.played) return "Played";
+    const percent = getEpisodeProgressPercent(episode);
+    if (percent > 0) return `${percent}% played`;
+    return "Not started";
+  };
 
   // Feed context menu handler
   const handleFeedContextMenu = useCallback(
@@ -1187,8 +1214,10 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                         {/* Cover art */}
                         {feed.imageUrl ? (
                           <img
-                            src={feed.imageUrl}
+                            src={podcastArtworkUrl(feed.imageUrl, 120)}
                             alt={feed.title}
+                            loading="lazy"
+                            decoding="async"
                             className="w-12 h-12 rounded-lg object-cover flex-shrink-0 shadow-md border border-white/5 transition-transform duration-300 group-hover:scale-105"
                           />
                         ) : (
@@ -1247,10 +1276,10 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
               {/* Feed Header */}
               <div className="relative overflow-hidden p-4 sm:p-8 border-b border-border bg-card/70 backdrop-blur-md transition-all duration-500">
                 {/* Dynamic Cover Art Backdrop Glow */}
-                {selectedFeed.imageUrl && (
+                {!isMobile && selectedFeed.imageUrl && (
                   <div
                     className="absolute inset-0 -z-10 bg-cover bg-center scale-110 blur-3xl opacity-[0.14] dark:opacity-[0.22] transition-all duration-700 select-none pointer-events-none"
-                    style={{ backgroundImage: `url(${selectedFeed.imageUrl})` }}
+                    style={{ backgroundImage: `url(${podcastArtworkUrl(selectedFeed.imageUrl, 320)})` }}
                   />
                 )}
                 <div className="flex flex-col gap-4 relative z-10">
@@ -1269,13 +1298,17 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                   <div className="flex items-start gap-4 sm:gap-6">
                     {selectedFeed.imageUrl ? (
                       <div className="relative group flex-shrink-0 select-none">
-                        <div
-                          className="absolute inset-0 rounded-2xl bg-cover bg-center blur-md opacity-50 scale-95 translate-y-1.5 transition-all duration-300 group-hover:scale-100 group-hover:translate-y-2.5 group-hover:blur-lg"
-                          style={{ backgroundImage: `url(${selectedFeed.imageUrl})` }}
-                        />
+                        {!isMobile && (
+                          <div
+                            className="absolute inset-0 rounded-2xl bg-cover bg-center blur-md opacity-50 scale-95 translate-y-1.5 transition-all duration-300 group-hover:scale-100 group-hover:translate-y-2.5 group-hover:blur-lg"
+                            style={{ backgroundImage: `url(${podcastArtworkUrl(selectedFeed.imageUrl, 320)})` }}
+                          />
+                        )}
                         <img
-                          src={selectedFeed.imageUrl}
+                          src={podcastArtworkUrl(selectedFeed.imageUrl, isMobile ? 160 : 320)}
                           alt={selectedFeed.title}
+                          loading="eager"
+                          decoding="async"
                           className="relative w-20 h-20 sm:w-28 sm:h-28 rounded-2xl object-cover border border-white/10 dark:border-white/5 shadow-xl transition-transform duration-300 group-hover:-translate-y-0.5"
                         />
                       </div>
@@ -1372,7 +1405,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                       <option value="title">By Title</option>
                     </select>
                     <span className="text-sm text-muted-foreground">
-                      {getFilteredEpisodes().length} episodes
+                      {filteredEpisodes.length} episodes
                     </span>
                     <div className="ml-auto relative">
                       <MagnifyingGlass className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -1396,7 +1429,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
 
                   {/* Episodes */}
                   <div className="space-y-2">
-                    {getFilteredEpisodes().map((episode) => (
+                    {filteredEpisodes.map((episode) => (
                       <div
                         key={episode.id}
                         className={cn(
@@ -1414,7 +1447,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                           <button
                             onClick={() => handlePlayEpisode(selectedFeed, episode)}
                             className="flex-shrink-0 w-10 h-10 bg-primary text-primary-foreground rounded-full hover:opacity-90 transition-opacity flex items-center justify-center"
-                            title={playingEpisode?.episode.id === episode.id ? "Pause" : "Play"}
+                            title={getEpisodeProgressPercent(episode) > 0 && !episode.played ? "Resume episode" : "Play episode"}
                           >
                             {playingEpisode?.episode.id === episode.id ? (
                               <Pause className="w-5 h-5" fill="currentColor" />
@@ -1528,9 +1561,25 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
 
                           {/* Episode info */}
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-sm font-medium text-foreground mb-1">
-                              {episode.title}
-                            </h3>
+                            <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <h3 className="text-sm font-medium text-foreground min-w-0 flex-1 truncate">
+                                {episode.title}
+                              </h3>
+                              {getEpisodeProgressPercent(episode) > 0 && (
+                                <span className={cn(
+                                  "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                                  episode.played ? "bg-primary/10 text-primary" : "bg-secondary text-secondary-foreground"
+                                )}>
+                                  {getEpisodeProgressLabel(episode)}
+                                </span>
+                              )}
+                              {downloadedEpisodes.has(episode.id) && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-green-600">
+                                  <HardDrive className="w-3 h-3" />
+                                  Offline
+                                </span>
+                              )}
+                            </div>
                             {episode.description && (
                               <div
                                 className="text-xs text-muted-foreground line-clamp-2 mb-2 prose prose-sm max-w-none [&_a]:text-primary [&_a]:underline"
@@ -1549,13 +1598,22 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                               )}
                               {episode.playbackPosition > 0 && (episode.duration || 0) > 0 && !episode.played && (
                                 <span className="text-primary">
-                                  {Math.round(
-                                    (episode.playbackPosition / (episode.duration || 1)) * 100
-                                  )}
-                                  % played
+                                  Resume at {formatDuration(episode.playbackPosition)}
                                 </span>
                               )}
                             </div>
+
+                            {getEpisodeProgressPercent(episode) > 0 && (
+                              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className={cn(
+                                    "h-full rounded-full transition-all duration-300",
+                                    episode.played ? "bg-primary/80" : "bg-primary"
+                                  )}
+                                  style={{ width: `${getEpisodeProgressPercent(episode)}%` }}
+                                />
+                              </div>
+                            )}
 
                             {/* Transcription progress bar */}
                             {(() => {
@@ -1633,7 +1691,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                       </div>
                     ))}
 
-                    {getFilteredEpisodes().length === 0 && (
+                    {filteredEpisodes.length === 0 && (
                       <div className="text-center py-8 text-muted-foreground">
                         <MagnifyingGlass className="w-8 h-8 mx-auto mb-2 opacity-50" />
                         <p>{episodeSearch.trim()
@@ -1680,11 +1738,32 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
             }}
           />
           <div className="flex items-center justify-between px-4 py-2 border-b border-border flex-shrink-0">
-            <div className="flex-1 min-w-0 mr-4">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-0.5">Now Playing</span>
-              <span className="text-sm font-medium text-foreground block truncate" title={playingEpisode.episode.title}>
-                {playingEpisode.episode.title}
-              </span>
+            <div className="flex min-w-0 flex-1 items-center gap-3 mr-4">
+              {playingEpisode.episode.imageUrl || playingEpisode.feed.imageUrl ? (
+                <img
+                  src={podcastArtworkUrl(playingEpisode.episode.imageUrl || playingEpisode.feed.imageUrl, 120) || ""}
+                  alt=""
+                  loading="eager"
+                  decoding="async"
+                  className="h-10 w-10 flex-shrink-0 rounded-md object-cover border border-border"
+                />
+              ) : (
+                <div className="h-10 w-10 flex-shrink-0 rounded-md bg-muted flex items-center justify-center border border-border">
+                  <Rss className="h-5 w-5 text-muted-foreground" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block mb-0.5">Now Playing</span>
+                <span className="text-sm font-medium text-foreground block truncate" title={playingEpisode.episode.title}>
+                  {playingEpisode.episode.title}
+                </span>
+                <span className="text-xs text-muted-foreground block truncate">
+                  {playingEpisode.feed.title}
+                  {getEpisodeProgressPercent(playingEpisode.episode) > 0 && !playingEpisode.episode.played
+                    ? ` · ${getEpisodeProgressLabel(playingEpisode.episode)}`
+                    : ""}
+                </span>
+              </div>
             </div>
 
             {/* Episode controls */}
@@ -1845,7 +1924,10 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
               filePath: downloadedEpisodes.get(playingEpisode.episode.id) || "",
               fileType: "audio",
               content: "",
-              coverImageUrl: playingEpisode.episode.imageUrl || playingEpisode.feed.imageUrl,
+              coverImageUrl: podcastArtworkUrl(
+                playingEpisode.episode.imageUrl || playingEpisode.feed.imageUrl,
+                isMobile ? 320 : 600
+              ),
               metadata: {},
               createdAt: playingEpisode.episode.publishedDate
                 ? new Date(playingEpisode.episode.publishedDate).toISOString()
@@ -1860,6 +1942,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
             autoPlayOnOpen={true}
             initialSeekTime={playerInitialSeekTime}
             onBack={() => setPlayingEpisode(null)}
+            hideTitleHeader={true}
           />
           </div>
         </div>
@@ -1943,8 +2026,10 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                         {/* Cover art */}
                         {result.imageUrl ? (
                           <img
-                            src={result.imageUrl}
+                            src={podcastArtworkUrl(result.imageUrl, 160)}
                             alt={result.title}
+                            loading="lazy"
+                            decoding="async"
                             className="w-16 h-16 rounded object-cover flex-shrink-0"
                           />
                         ) : (
