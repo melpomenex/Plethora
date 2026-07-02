@@ -85,6 +85,8 @@ interface AudiobookViewerProps {
   onEpisodeEnded?: () => void;
   /** Back/exit handler (mobile top-bar back chevron). */
   onBack?: () => void;
+  /** Hide the large repeated title block when a parent podcast shell already labels the episode. */
+  hideTitleHeader?: boolean;
 }
 
 interface AudiobookBookmark {
@@ -244,6 +246,7 @@ export function AudiobookViewer({
   podcastTitle,
   onEpisodeEnded,
   onBack,
+  hideTitleHeader = false,
 }: AudiobookViewerProps) {
   const internalAudioRef = useRef<HTMLAudioElement>(null);
   const audioRef = externalAudioRef ?? internalAudioRef;
@@ -1971,7 +1974,7 @@ export function AudiobookViewer({
     )}>
       {/* Mobile top bar: back chevron + title + details. Rendered only on mobile
           (PodcastManager supplies its own external bar on desktop-style mounts). */}
-      {isMobile && (
+      {isMobile && !hideTitleHeader && (
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border bg-card/80 backdrop-blur-md flex-shrink-0 safe-top">
           <button
             onClick={() => onBack?.()}
@@ -2002,7 +2005,7 @@ export function AudiobookViewer({
       )}
 
       {/* Mobile details panel (toggled by the info button). */}
-      {isMobile && showMobileDetails && (
+      {isMobile && !hideTitleHeader && showMobileDetails && (
         <div className="px-4 py-3 border-b border-border bg-card/60 flex-shrink-0 space-y-1.5 text-sm">
           <p className="font-medium text-foreground">{episodeTitle || document.title}</p>
           {podcastTitle && <p className="text-muted-foreground">{podcastTitle}</p>}
@@ -2244,10 +2247,14 @@ export function AudiobookViewer({
               </div>
               
               {/* Info */}
-              <h1 className="text-xl font-bold text-center mb-1">{episodeTitle || document.title}</h1>
-              <p className="text-muted-foreground text-center mb-2">
-                {podcastTitle || metadata.author || document.metadata?.author}
-              </p>
+              {!hideTitleHeader && (
+                <>
+                  <h1 className="text-xl font-bold text-center mb-1">{episodeTitle || document.title}</h1>
+                  <p className="text-muted-foreground text-center mb-2">
+                    {podcastTitle || metadata.author || document.metadata?.author}
+                  </p>
+                </>
+              )}
               
               {/* Multi-part indicator */}
               {multiPartInfo && (
@@ -2267,7 +2274,10 @@ export function AudiobookViewer({
           </div>
           
           {/* Controls */}
-          <div className="border-t border-border bg-card p-4">
+          <div className={cn(
+            "border-t border-border bg-card p-4",
+            isMobile && "pb-[calc(5rem+env(safe-area-inset-bottom))]"
+          )}>
             {/* Progress bar */}
             <div className="mb-4">
               <div 
