@@ -73,6 +73,10 @@ interface TranscriptSyncProps {
    * Whether to show paragraph-level grouping for better readability
    */
   groupParagraphs?: boolean;
+  /**
+   * Render a denser touch layout for constrained mobile video/transcript splits.
+   */
+  compact?: boolean;
 }
 
 export function TranscriptSync({
@@ -93,6 +97,7 @@ export function TranscriptSync({
   onSearchStateChange,
   highlightedSegmentId,
   groupParagraphs: _groupParagraphs = true,
+  compact = false,
 }: TranscriptSyncProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState<number>(-1);
@@ -323,12 +328,12 @@ export function TranscriptSync({
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-card border border-border rounded-lg overflow-hidden">
+    <div className={`flex flex-col h-full min-h-0 bg-card border border-border overflow-hidden ${compact ? "rounded-t-lg rounded-b-none border-b-0" : "rounded-lg"}`}>
       {/* Header — omitted when the parent supplies its own toolbar (showHeader={false}) */}
       {showHeader && (
-      <div className="flex-shrink-0 p-4 border-b border-border bg-card/50 backdrop-blur-sm">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+      <div className={`flex-shrink-0 border-b border-border bg-card/50 backdrop-blur-sm ${compact ? "p-3" : "p-4"}`}>
+        <div className={`flex items-center justify-between ${compact ? "mb-2" : "mb-3"}`}>
+          <h3 className={`${compact ? "text-base" : "text-lg"} font-semibold text-foreground flex items-center gap-2`}>
             Transcript
             <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
               {filteredSegments.length} segments
@@ -367,7 +372,7 @@ export function TranscriptSync({
             }}
             onKeyDown={handleKeyDown}
             placeholder="Search transcript..."
-            className="w-full pl-9 pr-8 py-2 bg-background border border-border rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+            className={`w-full pl-9 pr-8 bg-background border border-border rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all ${compact ? "py-1.5" : "py-2"}`}
           />
           {effectiveSearchQuery && (
             <button
@@ -387,7 +392,7 @@ export function TranscriptSync({
       {/* Transcript segments */}
       <div
         ref={containerRef}
-        className={`${className} overflow-y-auto overscroll-contain p-4 space-y-1`}
+        className={`${className} overflow-y-auto overscroll-contain ${compact ? "p-2.5 pb-4" : "p-4"} space-y-1`}
         data-transcript-scroll="true"
         onMouseUp={handleSelection}
         onKeyUp={handleSelection}
@@ -424,12 +429,12 @@ export function TranscriptSync({
                     : isHighlighted
                     ? "bg-amber-500/10 border-l-4 border-l-amber-500 border-y border-r border-amber-500/20"
                     : "bg-transparent hover:bg-muted/40 border-l-4 border-l-transparent border-y border-r border-transparent"
-                } ${isParagraphStart ? "mt-4 first:mt-0" : ""}`}
+                } ${isParagraphStart ? (compact ? "mt-3 first:mt-0" : "mt-4 first:mt-0") : ""}`}
                 role="option"
                 tabIndex={0}
                 aria-selected={isActive}
               >
-                <div className="flex items-start gap-3 p-3">
+                <div className={`flex items-start ${compact ? "gap-2 p-2.5" : "gap-3 p-3"}`}>
                   {/* Timestamp with play button */}
                   {showTimestamps && (
                     <button
@@ -465,7 +470,7 @@ export function TranscriptSync({
                     )}
 
                     {/* Text */}
-                    <span className={`text-sm ${
+                    <span className={`${compact ? "text-[15px] leading-6" : "text-sm"} ${
                       isActive 
                         ? "text-foreground font-medium" 
                         : "text-foreground/90"
@@ -486,7 +491,7 @@ export function TranscriptSync({
       </div>
 
       {/* Footer with stats */}
-      <div className="flex-shrink-0 px-4 py-2.5 border-t border-border bg-muted/30 text-xs text-muted-foreground flex items-center justify-between">
+      <div className={`flex-shrink-0 border-t border-border bg-muted/30 text-xs text-muted-foreground flex items-center justify-between ${compact ? "px-3 py-2" : "px-4 py-2.5"}`}>
         <div className="flex items-center gap-2">
           <span className="font-medium">
             {filteredSegments.length.toLocaleString()}

@@ -162,6 +162,7 @@ export function YouTubeViewer({
   const [normalizedVideoId, setNormalizedVideoId] = useState(() => extractYouTubeVideoId(videoId) ?? "");
   const networkDebugEnabled = useMemo(() => isNetworkDebugEnabled(), []);
   const effectiveTranscriptSearchQuery = transcriptSearchQuery ?? initialTranscriptHighlightQuery ?? "";
+  const isCompactMobile = compactOnMobile && isNativeMobile();
 
   // SponsorBlock state
   const [segments, setSegments] = useState<SponsorBlockSegment[]>([]);
@@ -1090,7 +1091,7 @@ export function YouTubeViewer({
     // iframe — keeping part of the screen iframe-free lets the user swipe there
     // to advance, matching every other item type. The split is draggable
     // (mobileVideoHeightPct); no effect on desktop.
-    if (compactOnMobile && isNativeMobile()) {
+    if (isCompactMobile) {
       return { height: `${mobileVideoHeightPct}vh`, maxHeight: `${mobileVideoHeightPct}vh`, flex: "none" };
     }
     if (transcriptLayout === 'side' && showTranscript) {
@@ -1116,7 +1117,7 @@ export function YouTubeViewer({
       {/* Video Player Container */}
       <div
         ref={containerRef}
-        className={`relative bg-black flex-shrink-0 transition-all duration-300 ${transcriptLayout === 'side' && showTranscript ? 'h-full' : 'w-full'}`}
+        className={`relative bg-black flex-shrink-0 overflow-hidden transition-all duration-300 ${transcriptLayout === 'side' && showTranscript ? 'h-full' : 'w-full'}`}
         style={getVideoContainerStyle()}
       >
         {/* Premium SponsorBlock Skip Notification Overlay */}
@@ -1213,25 +1214,37 @@ export function YouTubeViewer({
             )}
           </div>
         ) : (
-          <div className="absolute inset-0 w-full h-full bg-gradient-to-b from-gray-900 to-black flex items-center justify-center">
-            <div className="text-center p-6 max-w-xl w-full">
+          <div className="absolute inset-0 w-full h-full bg-gradient-to-b from-gray-900 to-black flex items-center justify-center overflow-hidden">
+            <div className={cn(
+              "text-center max-w-xl w-full min-h-0",
+              isCompactMobile ? "h-full p-3 flex flex-col justify-center gap-3" : "p-6"
+            )}>
               {/* Thumbnail */}
               <div 
-                className="relative mb-6 group cursor-pointer rounded-xl overflow-hidden shadow-2xl"
+                className={cn(
+                  "relative group cursor-pointer rounded-xl overflow-hidden shadow-2xl flex-shrink min-h-0",
+                  isCompactMobile ? "mb-0" : "mb-6"
+                )}
                 onClick={handlePlayVideo}
               >
                 <img
                   src={`https://img.youtube.com/vi/${normalizedVideoId}/maxresdefault.jpg`}
                   alt={displayTitle}
-                  className="w-full aspect-video object-cover"
+                  className={cn(
+                    "w-full aspect-video object-cover",
+                    isCompactMobile && "max-h-[34vh]"
+                  )}
                   onError={(e) => {
                     (e.target as HTMLImageElement).src = `https://img.youtube.com/vi/${normalizedVideoId}/hqdefault.jpg`;
                   }}
                 />
                 {/* Play button overlay */}
                 <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors flex items-center justify-center">
-                  <div className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                    <Play className="w-10 h-10 text-white ml-1" />
+                  <div className={cn(
+                    "bg-red-600 rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform",
+                    isCompactMobile ? "w-14 h-14" : "w-20 h-20"
+                  )}>
+                    <Play className={cn("text-white ml-1", isCompactMobile ? "w-7 h-7" : "w-10 h-10")} />
                   </div>
                 </div>
                 {/* Resume badge */}
@@ -1252,39 +1265,56 @@ export function YouTubeViewer({
               </div>
 
               {/* Title */}
-              <h3 className="text-white text-lg font-semibold mb-2 line-clamp-2">
+              <h3 className={cn(
+                "text-white font-semibold line-clamp-2 flex-shrink-0",
+                isCompactMobile ? "text-sm leading-snug mb-0" : "text-lg mb-2"
+              )}>
                 {displayTitle}
               </h3>
 
               {/* Action buttons */}
-              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <div className={cn(
+                "flex justify-center flex-shrink-0",
+                isCompactMobile ? "flex-row gap-2" : "flex-col sm:flex-row gap-3"
+              )}>
                 <button
                   onClick={() => {
                     if (inlinePlaybackLikelyUnsupported && !forceInlinePlayback) return;
                     handlePlayVideo();
                   }}
-                  className="inline-flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg transition-colors font-medium shadow-lg shadow-red-600/20"
+                  className={cn(
+                    "inline-flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium shadow-lg shadow-red-600/20",
+                    isCompactMobile ? "flex-1 min-w-0 px-3 py-2 text-sm" : "px-6 py-3"
+                  )}
                 >
-                  <Play className="w-5 h-5" />
-                  {startTime > 0 ? t("viewer.resumeFrom", { time: formatTime(startTime) }) : t("viewer.playVideo")}
+                  <Play className={cn("flex-shrink-0", isCompactMobile ? "w-4 h-4" : "w-5 h-5")} />
+                  <span className="truncate">{startTime > 0 ? t("viewer.resumeFrom", { time: formatTime(startTime) }) : t("viewer.playVideo")}</span>
                 </button>
                 
                 <button
                   onClick={handleShare}
-                  className="inline-flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-lg transition-colors font-medium border border-gray-700"
+                  className={cn(
+                    "inline-flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors font-medium border border-gray-700",
+                    isCompactMobile ? "w-11 px-0 py-2" : "px-6 py-3"
+                  )}
+                  title={t("viewer.share")}
                 >
-                  <ShareNetwork className="w-5 h-5" />
-                  {t("viewer.share")}
+                  <ShareNetwork className={cn(isCompactMobile ? "w-4 h-4" : "w-5 h-5")} />
+                  {!isCompactMobile && t("viewer.share")}
                 </button>
 
                 <a
                   href={getYouTubeWatchURL(normalizedVideoId)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-lg transition-colors font-medium border border-gray-700"
+                  className={cn(
+                    "inline-flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors font-medium border border-gray-700",
+                    isCompactMobile ? "w-11 px-0 py-2" : "px-6 py-3"
+                  )}
+                  title={t("viewer.browser")}
                 >
-                  <ArrowSquareOut className="w-5 h-5" />
-                  {t("viewer.browser")}
+                  <ArrowSquareOut className={cn(isCompactMobile ? "w-4 h-4" : "w-5 h-5")} />
+                  {!isCompactMobile && t("viewer.browser")}
                 </a>
               </div>
 
@@ -1354,7 +1384,7 @@ export function YouTubeViewer({
 
       {/* Mobile vertical split handle — drag up to grow the transcript,
           down to grow the video. Only in compact (queue) mobile mode. */}
-      {compactOnMobile && isNativeMobile() && showTranscript && (
+      {isCompactMobile && showTranscript && (
         <div
           className={`w-full h-2.5 flex-shrink-0 relative z-10 ${isResizingMobileSplit ? 'bg-primary' : 'bg-border'} cursor-ns-resize transition-colors`}
           onMouseDown={handleMobileSplitResizeStart}
@@ -1384,18 +1414,22 @@ export function YouTubeViewer({
 
       {/* Content area with transcript toggle */}
       <div 
-        className="flex flex-col min-h-0 overflow-hidden"
+        className={cn(
+          "flex flex-col min-h-0 overflow-hidden",
+          isCompactMobile && "pb-[calc(76px+env(safe-area-inset-bottom,0px))]"
+        )}
         style={transcriptLayout === 'side' && showTranscript ? { width: transcriptWidth } : { flex: 1 }}
       >
         {/* Video info and transcript */}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {/* Video info header */}
-          <div className="p-4 border-b border-border flex-shrink-0">
-            <div className="flex items-start justify-between">
+          <div className={cn("border-b border-border flex-shrink-0", isCompactMobile ? "p-2.5" : "p-4")}>
+            <div className={cn("flex justify-between gap-2", isCompactMobile ? "items-center" : "items-start")}>
               <div className="flex-1 min-w-0">
-                <h2 className="text-lg font-semibold text-foreground line-clamp-2 mb-1">
+                <h2 className={cn("font-semibold text-foreground line-clamp-2", isCompactMobile ? "text-sm leading-snug" : "text-lg mb-1")}>
                   {displayTitle}
                 </h2>
+                {!isCompactMobile && (
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
                   {duration > 0 && <span>{t("viewer.duration", { duration: formatDuration(duration) })}</span>}
                   {segments.length > 0 && (
@@ -1405,9 +1439,10 @@ export function YouTubeViewer({
                     </span>
                   )}
                 </div>
+                )}
               </div>
 
-              <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              <div className={cn("flex items-center flex-shrink-0", isCompactMobile ? "gap-1" : "gap-2 ml-4")}>
                 {startTime >= 3 && (
                   <button
                     onClick={() => {
@@ -1426,7 +1461,7 @@ export function YouTubeViewer({
                     title={t("viewer.resumeFrom", { time: formatTime(startTime) })}
                   >
                     <Clock className="w-4 h-4" />
-                    <span className="font-medium">{t("viewer.resume")}</span>
+                    {!isCompactMobile && <span className="font-medium">{t("viewer.resume")}</span>}
                     <span className="text-xs text-muted-foreground tabular-nums">
                       {formatTime(startTime)}
                     </span>
@@ -1438,18 +1473,19 @@ export function YouTubeViewer({
                   <button
                     onClick={() => setShowVideoFeatures(!showVideoFeatures)}
                     className={cn(
-                      "px-3 py-1.5 text-sm rounded-md transition-colors flex items-center gap-2",
+                      "text-sm rounded-md transition-colors flex items-center gap-2",
+                      isCompactMobile ? "p-2" : "px-3 py-1.5",
                       showVideoFeatures ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80 text-foreground"
                     )}
                     title={t("viewer.videoFeatures")}
                   >
                     <Stack className="w-4 h-4" />
-                    <span className="font-medium">{t("viewer.panels")}</span>
+                    {!isCompactMobile && <span className="font-medium">{t("viewer.panels")}</span>}
                   </button>
                 )}
 
                 {/* Layout toggle - only show when transcript is visible */}
-                {showTranscript && (
+                {showTranscript && !isCompactMobile && (
                   <button
                     onClick={() => setTranscriptLayout(transcriptLayout === 'below' ? 'side' : 'below')}
                     className="px-3 py-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md transition-colors flex items-center gap-2"
@@ -1462,9 +1498,13 @@ export function YouTubeViewer({
                 {/* Transcript toggle button */}
                 <button
                   onClick={() => setShowTranscript(!showTranscript)}
-                  className="px-3 py-1.5 text-sm bg-muted hover:bg-muted/80 rounded-md transition-colors flex items-center gap-2"
+                  className={cn(
+                    "text-sm bg-muted hover:bg-muted/80 rounded-md transition-colors flex items-center gap-2",
+                    isCompactMobile ? "p-2" : "px-3 py-1.5"
+                  )}
+                  title={showTranscript ? t("viewer.hideTranscript") : t("viewer.showTranscript")}
                 >
-                  <span className="font-medium">{showTranscript ? t("viewer.hideTranscript") : t("viewer.showTranscript")}</span>
+                  {!isCompactMobile && <span className="font-medium">{showTranscript ? t("viewer.hideTranscript") : t("viewer.showTranscript")}</span>}
                   <span className="text-xs text-muted-foreground">
                     {showTranscript ? "▼" : "▶"}
                   </span>
@@ -1515,6 +1555,7 @@ export function YouTubeViewer({
                   onSearchStateChange={onTranscriptSearchStateChange}
                   highlightQuery={effectiveTranscriptSearchQuery}
                   highlightedSegmentId={initialTranscriptSegmentId}
+                  compact={isCompactMobile}
                 />
               )}
             </div>

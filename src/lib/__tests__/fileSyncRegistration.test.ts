@@ -202,6 +202,18 @@ describe("registerImportedFileSync", () => {
     expect(manifest.addFile).not.toHaveBeenCalled();
     expect(transferManager.registerLocalFileLoader).not.toHaveBeenCalled();
   });
+
+  it("skips audio and video files", async () => {
+    const audioDoc = makeDoc({ fileType: "audio", filePath: "/data/podcast.mp3" });
+    const videoDoc = makeDoc({ fileType: "video", filePath: "/data/video.mp4" });
+
+    const audioFileId = await registerImportedFileSync(audioDoc);
+    const videoFileId = await registerImportedFileSync(videoDoc);
+
+    expect(audioFileId).toBeNull();
+    expect(videoFileId).toBeNull();
+    expect(mocks.invokeCommand).not.toHaveBeenCalled();
+  });
 });
 
 describe("registerExistingFilesSync", () => {
@@ -266,5 +278,20 @@ describe("registerExistingFilesSync", () => {
     expect(mocks.invokeCommand).toHaveBeenCalledTimes(1);
     expect(mocks.invokeCommand.mock.calls[0][0]).toBe("hash_document_file");
     expect(transferManager.registerLocalFileLoader).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips audio and video files", async () => {
+    const manifest = makeManifestMock();
+    const transferManager = makeTransferManagerMock();
+    mocks.getFileManifest.mockReturnValue(manifest);
+    mocks.getFileTransferManager.mockReturnValue(transferManager);
+
+    await registerExistingFilesSync([
+      makeDoc({ id: "doc-audio", fileId: "file-audio", fileType: "audio", filePath: "/data/podcast.mp3" }),
+      makeDoc({ id: "doc-video", fileId: "file-video", fileType: "video", filePath: "/data/video.mp4" }),
+    ]);
+
+    expect(mocks.invokeCommand).not.toHaveBeenCalled();
+    expect(transferManager.registerLocalFileLoader).not.toHaveBeenCalled();
   });
 });

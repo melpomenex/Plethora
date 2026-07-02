@@ -58,7 +58,7 @@ import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { startTranscription } from "../../api/transcription";
-import { convertFileSrc, isTauri, listen } from "../../lib/tauri";
+import { convertFileSrc, invokeCommand, isTauri, listen } from "../../lib/tauri";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { readDocumentFile, updateDocument as updateDocumentApi, updateDocumentProgressAuto, updateDocumentContent, getDocument } from "../../api/documents";
 import { getDocumentPosition, saveDocumentPosition, timePosition } from "../../api/position";
@@ -511,17 +511,30 @@ export function AudiobookViewer({
     let cancelled = false;
     void (async () => {
       try {
+        // On native mobile, resolve a URL through the local streaming media
+        // server (get_media_stream_url) instead of the Tauri asset protocol
+        // (convertFileSrc). On Android the asset protocol buffers the entire
+        // file into a Java WebResourceResponse body, which OOMs for large
+        // audiobooks/podcasts (see src-tauri/src/media_server.rs). The media
+        // server honours HTTP Range requests so only the needed bytes stream.
+        const resolvePlaybackUrl = async (path: string): Promise<string> => {
+          if (isNativeMobile()) {
+            return invokeCommand<string>("get_media_stream_url", { filePath: path });
+          }
+          return convertFileSrc(path);
+        };
+
         // m4b files need transcoding via prepareAudiobookPlayback
         if (ext === "m4b") {
           const preparedPath = await audiobookApi.prepareAudiobookPlayback(document.filePath);
-          const preparedUrl = await convertFileSrc(preparedPath);
+          const preparedUrl = await resolvePlaybackUrl(preparedPath);
           if (!cancelled) {
             setPreparedPlaybackPath(preparedPath);
             setPreparedPlaybackSrc(preparedUrl);
           }
         } else {
-          // Other audio formats (mp3, etc.) can play directly via convertFileSrc
-          const url = await convertFileSrc(document.filePath);
+          // Other audio formats (mp3, etc.) can play directly
+          const url = await resolvePlaybackUrl(document.filePath);
           if (!cancelled) {
             setPreparedPlaybackPath(document.filePath);
             setPreparedPlaybackSrc(url);
@@ -556,7 +569,12 @@ export function AudiobookViewer({
         const localPath = await getDownloadedEpisodePath(episodeId);
         if (localPath) {
           if (!cancelled) {
-            const localUrl = await convertFileSrc(localPath);
+            // Mobile: stream via the local media server (Range requests) — the
+            // Tauri asset protocol (convertFileSrc) buffers the whole file into
+            // the Java heap on Android and OOMs on large podcasts.
+            const localUrl = isNativeMobile()
+              ? await invokeCommand<string>("get_media_stream_url", { filePath: localPath })
+              : await convertFileSrc(localPath);
             setPodcastLocalSrc(localUrl);
             setIsDownloading(false);
           }
@@ -584,12 +602,14 @@ export function AudiobookViewer({
           unlistenProgress = unlisten;
 
           const downloadedPath = await downloadEpisodeAudio(episodeId, remoteAudioUrl, undefined);
-          
+
           if (!cancelled) {
-            const localUrl = await convertFileSrc(downloadedPath);
+            const localUrl = isNativeMobile()
+              ? await invokeCommand<string>("get_media_stream_url", { filePath: downloadedPath })
+              : await convertFileSrc(downloadedPath);
             setPodcastLocalSrc(localUrl);
             setIsDownloading(false);
-            
+
             // Auto play if requested
             if (shouldPlayAfterDownloadRef.current || autoPlayOnOpen) {
               pendingAutoplayAfterDownloadRef.current = true;
@@ -1157,7 +1177,15 @@ export function AudiobookViewer({
 
     setHasTriedFallback(true);
 
-    // For podcast episodes with a remote URL, download via backend and play locally via blob URL (to support macOS)
+    // On native mobile, reading the whole audio file into a JS byte array via
+    // readDocumentFile() causes OutOfMemoryError for large files (a ~180MB
+    // podcast allocates a fixed ~189MB Uint8Array and blows the 512MB Java
+    // heap). Instead, hand the <audio> element a URL served by the local
+    // streaming media server (src-tauri/src/media_server.rs), which honours
+    // HTTP Range requests so the WebView only fetches the bytes it needs.
+    // This mirrors the strategy already used by localMediaSource.ts on mobile.
+
+    // For podcast episodes with a remote URL, prefer the local download.
     if (isTauri() && remoteAudioUrl && episodeId) {
       try {
         showInfo(t("viewer.loadingAudio"), t("viewer.directPlaybackFailed"));
@@ -1165,31 +1193,46 @@ export function AudiobookViewer({
         if (!localPath) {
           localPath = await downloadEpisodeAudio(episodeId, remoteAudioUrl, undefined);
         }
-        
+
         if (localPath) {
-          try {
-            const base64Data = await readDocumentFile(localPath);
-            if (base64Data) {
-              const binaryString = atob(base64Data);
-              const bytes = new Uint8Array(binaryString.length);
-              for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+          // Mobile: stream via the local media server (Range requests, bounded memory).
+          if (isNativeMobile()) {
+            try {
+              const streamUrl = await invokeCommand<string>("get_media_stream_url", { filePath: localPath });
+              if (streamUrl) {
+                setFallbackSrc((prev) => {
+                  if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+                  return streamUrl;
+                });
+                return true;
               }
-              const mimeType = getAudioMimeType(localPath);
-              const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-              setFallbackSrc((prev) => {
-                if (prev?.startsWith("blob:")) {
-                  URL.revokeObjectURL(prev);
-                }
-                return blobUrl;
-              });
-              return true;
+            } catch (streamErr) {
+              console.warn("[AudiobookViewer] Mobile stream fallback failed, trying remote stream:", streamErr);
             }
-          } catch (blobErr) {
-            console.warn("[AudiobookViewer] Local blob fallback failed, falling back to streaming:", blobErr);
+          } else {
+            // Desktop: blob URL is safe (no mobile heap ceiling) and supports macOS.
+            try {
+              const base64Data = await readDocumentFile(localPath);
+              if (base64Data) {
+                const binaryString = atob(base64Data);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                  bytes[i] = binaryString.charCodeAt(i);
+                }
+                const mimeType = getAudioMimeType(localPath);
+                const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+                setFallbackSrc((prev) => {
+                  if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+                  return blobUrl;
+                });
+                return true;
+              }
+            } catch (blobErr) {
+              console.warn("[AudiobookViewer] Local blob fallback failed, falling back to streaming:", blobErr);
+            }
           }
         }
-        
+
         // Streaming fallback
         setFallbackSrc(remoteAudioUrl);
         return true;
@@ -1211,6 +1254,22 @@ export function AudiobookViewer({
 
     try {
       showInfo(t("viewer.loadingAudio"), t("viewer.directPlaybackFailed"));
+
+      // Mobile: stream via the local media server to avoid loading the whole
+      // file into the Java heap. readDocumentFile() on a large audiobook/
+      // podcast reliably OOMs Android (see media_server.rs module docs).
+      if (isNativeMobile()) {
+        const streamUrl = await invokeCommand<string>("get_media_stream_url", { filePath: playbackFilePath });
+        if (streamUrl) {
+          setFallbackSrc((prev) => {
+            if (prev?.startsWith("blob:")) URL.revokeObjectURL(prev);
+            return streamUrl;
+          });
+          return true;
+        }
+        throw new Error("media server unavailable");
+      }
+
       const base64Data = await readDocumentFile(playbackFilePath);
       if (!base64Data) {
         throw new Error("Empty file data");

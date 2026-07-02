@@ -256,7 +256,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
       )}
 
       {/* Side Rating Controls */}
-      {(showRatingButtons || itemType === "flashcard" || itemType === "extract") && (
+      {!isMobile && (showRatingButtons || itemType === "flashcard" || itemType === "extract") && (
         <div className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 pointer-events-auto">
           {itemType === "flashcard" || itemType === "extract" ? (
             <button type="button" onClick={onDismiss} disabled={isRating} className="group p-3 rounded-full bg-slate-500/80 backdrop-blur-sm hover:bg-slate-500 hover:scale-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" title={labels?.dismissTitle ?? "Dismiss"}>
@@ -306,7 +306,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
       )}
 
       {/* Bottom Navigation (desktop/PWA layout — vertical carets) */}
-      {true && (
+      {!isMobile && (
         <div className={cn("absolute left-1/2 -translate-x-1/2 flex flex-col gap-2 pointer-events-auto", isTouchDevice ? "bottom-[calc(24px+env(safe-area-inset-bottom,0px))]" : "bottom-6")}>
           <button onClick={onGoToPrevious} disabled={currentIndex === 0} className={cn("p-3 rounded-full bg-black/40 backdrop-blur-sm hover:bg-black/60 transition-all shadow-lg", currentIndex === 0 && "opacity-30 cursor-not-allowed")} title={labels?.previousDocument ?? "Previous"}>
             <CaretUp className="w-6 h-6 text-white" />
@@ -317,16 +317,16 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
         </div>
       )}
 
-      {/* Mobile Bottom Action Bar — disabled in favor of desktop/PWA layout */}
-      {false && isMobile && (
-        <div className="absolute bottom-0 left-0 right-0 pointer-events-auto pb-[max(16px,env(safe-area-inset-bottom,0px))] bg-black/80">
-          <div className="flex items-center gap-2 px-3 pb-3 pt-2 bg-gradient-to-t from-black/80 via-black/60 to-transparent">
+      {/* Mobile Bottom Action Bar */}
+      {isMobile && (
+        <div className="absolute left-0 right-0 pointer-events-auto bottom-[calc(56px+env(safe-area-inset-bottom,0px))] px-3 pb-2">
+          <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/70 px-3 py-2 shadow-2xl backdrop-blur-md">
             {/* Previous */}
             <button
               onClick={onGoToPrevious}
               disabled={currentIndex === 0}
               className={cn(
-                "flex flex-col items-center justify-center gap-0.5 min-w-[48px] py-1.5 px-2 rounded-lg text-white text-[10px] font-medium transition-colors",
+                "flex flex-col items-center justify-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl text-white text-[10px] font-medium transition-colors",
                 currentIndex === 0 ? "opacity-30" : "active:bg-white/10"
               )}
               title={labels?.previousDocument ?? "Previous"}
@@ -360,12 +360,24 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
               </div>
             )}
 
+            {!showRatingButtons && (
+              <button
+                onClick={onDismiss}
+                disabled={isRating}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-500/90 active:bg-slate-600 text-white text-sm font-semibold shadow-lg disabled:opacity-50 transition-colors"
+                title={labels?.dismissTitle ?? "Dismiss"}
+              >
+                <EyeSlash className="w-5 h-5" />
+                {labels?.dismissLabel ?? "Dismiss"}
+              </button>
+            )}
+
             {/* Dismiss (documents only) */}
             {showRatingButtons && itemType === "document" && (
               <button
                 onClick={onDismiss}
                 disabled={isRating}
-                className="flex flex-col items-center justify-center gap-0.5 min-w-[48px] py-1.5 px-2 rounded-lg text-white/80 text-[10px] font-medium active:bg-white/10 transition-colors disabled:opacity-50"
+                className="flex flex-col items-center justify-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl text-white/80 text-[10px] font-medium active:bg-white/10 transition-colors disabled:opacity-50"
                 title={labels?.dismissTitle ?? "Dismiss"}
               >
                 <EyeSlash className="w-6 h-6" />
@@ -377,7 +389,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
               onClick={onGoToNext}
               disabled={currentIndex === totalItems - 1}
               className={cn(
-                "flex flex-col items-center justify-center gap-0.5 min-w-[48px] py-1.5 px-2 rounded-lg text-white text-[10px] font-medium transition-colors",
+                "flex flex-col items-center justify-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl text-white text-[10px] font-medium transition-colors",
                 currentIndex === totalItems - 1 ? "opacity-30" : "active:bg-white/10"
               )}
               title={labels?.nextDocument ?? "Next"}
@@ -389,13 +401,13 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
       )}
 
       {/* Progress Bar (sits at the very bottom on desktop; raised just above the safe area on touch devices) */}
-      <div className={cn("absolute left-0 right-0 h-1 bg-black/20 pointer-events-none", isTouchDevice ? "bottom-[env(safe-area-inset-bottom,0px)]" : "bottom-0")}>
+      <div className={cn("absolute left-0 right-0 h-1 bg-black/20 pointer-events-none", isMobile ? "bottom-[calc(56px+env(safe-area-inset-bottom,0px))]" : isTouchDevice ? "bottom-[env(safe-area-inset-bottom,0px)]" : "bottom-0")}>
         <div className="h-full bg-primary transition-all duration-300" style={{ width: `${((currentIndex + 1 + sessionOffset) / (totalItems + sessionOffset)) * 100}%` }} />
       </div>
 
       {/* Help Text (auto-hides after a few seconds; see showHint) */}
       {helpText && showHint && (
-        <div className={cn("absolute left-1/2 -translate-x-1/2 text-white text-xs bg-black/40 backdrop-blur-sm px-3 py-1 rounded-lg pointer-events-none transition-opacity duration-500", isTouchDevice ? "bottom-[calc(80px+env(safe-area-inset-bottom,0px))]" : "bottom-20")}>
+        <div className={cn("absolute left-1/2 -translate-x-1/2 text-white text-xs bg-black/40 backdrop-blur-sm px-3 py-1 rounded-lg pointer-events-none transition-opacity duration-500", isMobile ? "bottom-[calc(126px+env(safe-area-inset-bottom,0px))]" : isTouchDevice ? "bottom-[calc(80px+env(safe-area-inset-bottom,0px))]" : "bottom-20")}>
           {helpText}
         </div>
       )}
