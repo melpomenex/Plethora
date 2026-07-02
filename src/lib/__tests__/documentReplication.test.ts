@@ -348,3 +348,42 @@ describe("republishDocumentPosition", () => {
     expect(map.get("doc-byid")?.progressPercent).toBe(42);
   });
 });
+
+describe("store reload coalescing", () => {
+  // Regression for the startup-lag root cause: handleRemoteDocument used to end
+  // with `await loadDocuments()` per incoming row, so the init map-replay over
+  // N room rows (and any later multi-doc burst) fired N full SQLite reloads +
+  // N React re-renders + N registerExistingFilesSync re-hash sweeps. The fix
+  // debounces the in-memory refresh so a burst collapses to one reload; the
+  // per-row upsert into SQLite is unchanged. Fake timers drive the 200ms window.
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("collapses a burst of document upserts into a single store reload", async () => {
+    mocks.loadDocuments.mockClear();
+    mocks.localDocuments = []; // every row looks new → every one upserts.
+
+    // Simulate the init map-replay / a multi-doc sync burst: 10 distinct rows
+    // arrive back-to-back. The fake map observer fires synchronously on set(),
+    // so each set() runs handleRemoteDocument immediately (each upserts to
+    // SQLite, then schedules — rather than awaits — the store refresh).
+    const burstIds = Array.from({ length: 10 }, (_, i) => `doc-burst-${i}`);
+    for (const id of burstIds) {
+      map.set(id, makeDoc(id, { fileType: "epub" }));
+    }
+
+    // Within the debounce window: each upsert has run, but NO reload yet —
+    // that's the regression. Previously each row awaited its own loadDocuments().
+    await vi.advanceTimersByTimeAsync(100);
+    expect(mocks.loadDocuments).not.toHaveBeenCalled();
+
+    // Cross the 200ms threshold: exactly ONE reload fires for the whole burst,
+    // no matter how many rows arrived during the window.
+    await vi.advanceTimersByTimeAsync(150);
+    expect(mocks.loadDocuments).toHaveBeenCalledTimes(1);
+  });
+});
