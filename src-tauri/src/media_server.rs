@@ -71,6 +71,12 @@ async fn stream_handler(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let file_path = PathBuf::from(&params.path);
+    let range_hdr = headers.get(header::RANGE).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+    eprintln!(
+        "media_server: /stream request path={} range={:?}",
+        file_path.display(),
+        range_hdr
+    );
 
     // ── open file ──────────────────────────────────────────────────────
     let file = match tokio::fs::File::open(&file_path).await {

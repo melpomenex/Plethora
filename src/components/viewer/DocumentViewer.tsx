@@ -29,7 +29,7 @@ import {
 } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useDocumentStore, useTabsStore, useQueueStore } from "../../stores";
-import { isTauri } from "../../lib/tauri";
+import { convertFileSrc, isNativeMobile, isTauri } from "../../lib/tauri";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import { clearInvalidSyncedFilePath } from "../../lib/fileSyncRegistration";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -1783,6 +1783,21 @@ export function DocumentViewer({
         return;
       }
       try {
+        // On native mobile, reading a whole PDF into a JS Uint8Array via
+        // readDocumentFile() OOMs Android for large files (a ~180MB document
+        // allocates a fixed ~189MB array and blows the 512MB Java heap at
+        // launch when a document tab is session-restored as active). Instead,
+        // hand pdf.js a streaming URL (convertFileSrc) so the viewer fetches
+        // only the pages it needs. EPUBs intentionally keep the direct byte
+        // path below: epub.js resolves zipped spine resources more reliably
+        // from an ArrayBuffer than from Android/Tauri asset URLs.
+        if (isNativeMobile() && inferredType === "pdf") {
+          const url = await convertFileSrc(doc.filePath);
+          setPdfUrl(url);
+          setIsLoading(false);
+          return;
+        }
+
         // Load file data directly via backend for both PDFs and EPUBs in Tauri.
         // The convertFileSrc URL approach causes WebKit/CORS errors on Linux (WebKitGTK)
         // because epubjs uses XMLHttpRequest internally, which is blocked on asset://.

@@ -810,6 +810,27 @@ pub async fn read_document_file(
     let canonical = std::fs::canonicalize(&file_path)
         .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
 
+    let file_size = std::fs::metadata(&canonical).map(|m| m.len()).unwrap_or(0);
+
+    // On Android, base64-encoding a large file into a single JS string and then
+    // atob()'ing it into a Uint8Array reliably blows the WebView's Java heap
+    // (a 142MB podcast => ~189MB allocation => OutOfMemoryError at launch).
+    // Refuse files above a conservative threshold so callers fall back to their
+    // streaming paths (AudiobookViewer / localMediaSource use the local media
+    // server with HTTP Range support; PDF/EPUB viewers accept a file URL). This
+    // is a hard backstop — the preferred streaming fixes live in the JS layer.
+    #[cfg(target_os = "android")]
+    {
+        const MAX_INLINED_BYTES: u64 = 16 * 1024 * 1024; // 16 MiB
+        if file_size > MAX_INLINED_BYTES {
+            return Err(IncrementumError::Internal(format!(
+                "File too large to read into memory on mobile ({} bytes); use the streaming media server instead. Path: {}",
+                file_size,
+                canonical.display()
+            )));
+        }
+    }
+
     let bytes = match fs::read(&canonical) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

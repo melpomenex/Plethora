@@ -46,6 +46,12 @@ export async function registerImportedFileSync(
   // native file to hash.
   if (!isTauri()) return null;
 
+  // Skip audio and video files. These are large media files (podcast episodes,
+  // audiobooks, etc.) that should not be synced via the WebRTC / file-service
+  // P2P file sync. Reading them into memory as base64 in the JS thread causes
+  // Out Of Memory crashes on mobile.
+  if (doc.fileType === "audio" || doc.fileType === "video") return null;
+
   // Already registered (e.g. re-import of a known file). Keep the existing id.
   if (doc.fileId) return doc.fileId;
 
@@ -151,6 +157,10 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
       // hash_document_file would fail with "Invalid path" for every such doc
       // on every startup — noisy and wasteful. They sync as rows, not files.
       if (!doc || !doc.filePath || isPortableFilePath(doc.filePath, doc.fileType)) continue;
+
+      // Skip audio and video files. Hashing and uploading large media files on
+      // boot blocks the CPU and crashes WebViews due to high memory allocation.
+      if (doc.fileType === "audio" || doc.fileType === "video") continue;
 
       let fileId = doc.fileId;
       let localInfo: { contentHash: string; sizeBytes: number } | null = null;

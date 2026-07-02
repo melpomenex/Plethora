@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.63.0] - 2026-07-02
+
+### Added
+- **Mobile streaming for audiobooks, podcasts, and PDFs** — Large audio files and PDFs now play through a local streaming media server that honours HTTP Range requests, so only the bytes needed for the current position are fetched instead of buffering the whole file into memory. Audiobooks and podcasts resolve a streaming URL on native mobile, and PDFs are handed to pdf.js as a streaming URL. This prevents the Android WebView from running out of memory on large media (a 142 MB podcast previously forced a ~189 MB allocation and crashed at launch).
+- **Compact mobile layouts for video, transcript, and scroll queue** — YouTube/video, transcript, and the optimal-queue scroll overlay now render denser touch layouts on native mobile, including a dedicated mobile bottom action bar for queue controls.
+
+### Fixed & Improved
+- **Library no longer lags when syncing a populated room** — Every incoming document row from sync used to trigger its own full library reload — a SQLite read, a re-render of every library component, and a re-hash/re-publish sweep of local files — once per row. On a cold boot with a populated sync room, a burst of N documents produced N sequential reloads: the dominant cause of startup lag. Reloads are now coalesced into a single refresh once the sync burst settles, so a large library mirrors across devices without freezing the app.
+- **Hard backstop against reading huge files into memory on mobile** — A Rust-level guard now refuses to inline files larger than 16 MiB into the JS thread on Android, so callers fall back to their streaming paths instead of crashing the WebView with an `OutOfMemoryError`.
+- **Audio and video files no longer enter P2P file sync** — Podcast episodes, audiobooks, and other large media are skipped by the file-sync registration and hashing paths, so they're never base64-encoded into the JS thread or uploaded through the peer-to-peer transfer layer.
+
 ## [1.62.1] - 2026-07-02
 
 ### Fixed & Improved
