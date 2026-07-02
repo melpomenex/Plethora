@@ -161,6 +161,33 @@ const POSITION_REPUBLISH_DEBOUNCE_MS = 1500;
 const pendingPositionRepublish = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
+ * Trailing debounce for the in-memory document-store refresh after a remote
+ * upsert. `handleRemoteDocument` runs once per incoming Yjs map entry, and the
+ * init map-replay (`forEach` over every row in the room) fires it for ALL rows
+ * on cold boot. Without coalescing, N rows trigger N sequential
+ * `loadDocuments()` calls — each a full SQLite read + a Zustand `set` that
+ * re-renders every library component + a `registerExistingFilesSync` sweep that
+ * re-hashes every local file and re-publishes every doc back to Yjs. That
+ * N×(reload + re-render + re-hash) storm is the dominant startup-lag cause.
+ *
+ * The remote row is already persisted to SQLite by `upsert_synced_document`
+ * before this fires, so deferring only the in-memory refresh by 200ms keeps the
+ * library-update latency imperceptible while collapsing any burst (init replay
+ * or a multi-doc import on another device) into a single reload. Chosen below
+ * the other debounce windows in this stack (350/400/500ms) so they can't compound.
+ */
+const STORE_RELOAD_DEBOUNCE_MS = 200;
+let storeReloadTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleDocumentStoreReload(): void {
+  if (storeReloadTimer) clearTimeout(storeReloadTimer);
+  storeReloadTimer = setTimeout(() => {
+    storeReloadTimer = null;
+    void useDocumentStore.getState().loadDocuments();
+  }, STORE_RELOAD_DEBOUNCE_MS);
+}
+
+/**
  * Re-publish a document to the shared `documents` map after a reading-position
  * change, so other devices in the room learn the new CFI / page / scroll /
  * time position. This is the missing link for cross-device position sync:
@@ -310,8 +337,11 @@ async function handleRemoteDocument(docId: string): Promise<void> {
     }
 
     await invokeCommand("upsert_synced_document", { document: docToUpsert });
-    // Reload so the new row shows in the library.
-    await useDocumentStore.getState().loadDocuments();
+    // Coalesce the in-memory library refresh: reload once after the burst
+    // settles, not once per row. Each incoming row previously triggered its own
+    // loadDocuments() (full SQLite read + React re-render + registerExisting-
+    // FilesSync re-hash sweep); on cold boot N rows = N reloads = the lag.
+    scheduleDocumentStoreReload();
   } catch (err) {
     console.warn("[documentReplication] upsert failed", docId, err);
   }
