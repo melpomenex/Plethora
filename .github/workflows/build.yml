@@ -59,6 +59,16 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Disable updater signing for non-release builds
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          $configPath = "src-tauri\tauri.conf.json"
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          $config.plugins.updater.active = $false
+          $config | ConvertTo-Json -Depth 32 | Set-Content $configPath
+          Write-Host "Updater signing disabled for PR build"
+
       - name: Build Tauri application (Windows)
         run: npx tauri build --bundles nsis
         env:

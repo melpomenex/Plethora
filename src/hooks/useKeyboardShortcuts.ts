@@ -105,6 +105,33 @@ export function useGlobalShortcuts() {
     window.dispatchEvent(new CustomEvent("command-palette-open"));
   }, []);
 
+  const toggleSidebar = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("toggle-sidebar"));
+  }, []);
+
+  const extractText = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("extract-text"));
+  }, []);
+
+  const navigateToDashboard = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("navigate", { detail: "/dashboard" }));
+  }, []);
+
+  const navigateToPrevDocument = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("document-prev"));
+  }, []);
+
+  const navigateToNextDocument = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("document-next"));
+  }, []);
+
+  const importDocument = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" }));
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("import-document"));
+    }, 0);
+  }, []);
+
   const shortcuts: ShortcutGroup[] = [
     {
       name: "Navigation",
@@ -134,10 +161,28 @@ export function useGlobalShortcuts() {
           handler: navigateToAnalytics,
         },
         {
+          key: "d",
+          metaKey: true,
+          description: "Navigate to Dashboard",
+          handler: navigateToDashboard,
+        },
+        {
           key: ",",
           metaKey: true,
           description: "Navigate to Settings",
           handler: navigateToSettings,
+        },
+        {
+          key: "o",
+          metaKey: true,
+          description: "Import document",
+          handler: importDocument,
+        },
+        {
+          key: "n",
+          metaKey: true,
+          description: "Import document",
+          handler: importDocument,
         },
       ],
     },
@@ -157,97 +202,47 @@ export function useGlobalShortcuts() {
           description: "Open command palette",
           handler: openCommandPalette,
         },
+        {
+          key: "b",
+          metaKey: true,
+          description: "Toggle sidebar",
+          handler: toggleSidebar,
+        },
+        {
+          key: "e",
+          metaKey: true,
+          description: "Extract text",
+          handler: extractText,
+        },
+        {
+          key: "[",
+          metaKey: true,
+          description: "Previous document",
+          handler: navigateToPrevDocument,
+        },
+        {
+          key: "]",
+          metaKey: true,
+          description: "Next document",
+          handler: navigateToNextDocument,
+        },
       ],
     },
   ];
 
   useKeyboardShortcuts(shortcuts);
 
-  // Bridge native Tauri shortcuts/events to the DOM
+  // Bridge the macOS Edit menu accelerators (Cmd+K / Cmd+P) to the DOM.
+  // These are app-local menu items and only fire when Incrementum is focused.
   useEffect(() => {
     if (!isTauri()) return;
 
     let unlistenPaletteOpen: (() => void) | null = null;
-    let unlistenShortcutNative: (() => void) | null = null;
 
     const setupTauriShortcutListeners = async () => {
       try {
-
-        unlistenPaletteOpen = await listen<string>("command-palette-open", (event) => {
+        unlistenPaletteOpen = await listen<string>("command-palette-open", () => {
           window.dispatchEvent(new CustomEvent("command-palette-open"));
-        });
-
-        unlistenShortcutNative = await listen<string>("global-shortcut-native", (event) => {
-          try {
-            const parsed = JSON.parse(event.payload);
-            const { key, ctrl, alt, shift, meta } = parsed;
-
-            // Map code (like KeyQ, KeyS, Comma, BracketLeft) to KeyboardEvent.key / code
-            let keyChar = "";
-            if (key.startsWith("Key")) {
-              keyChar = key.slice(3).toLowerCase();
-            } else if (key === "Comma") {
-              keyChar = ",";
-            } else if (key === "BracketLeft") {
-              keyChar = "[";
-            } else if (key === "BracketRight") {
-              keyChar = "]";
-            } else if (key === "Slash") {
-              keyChar = "/";
-            } else {
-              keyChar = key.toLowerCase();
-            }
-
-            // Create and dispatch synthetic KeyboardEvent
-            const keyboardEvent = new KeyboardEvent("keydown", {
-              key: keyChar,
-              code: key,
-              ctrlKey: ctrl,
-              altKey: alt,
-              shiftKey: shift,
-              metaKey: meta,
-              bubbles: true,
-              cancelable: true,
-            });
-            window.dispatchEvent(keyboardEvent);
-
-            // Also keep the existing custom event navigation fallback for compatibility
-            switch (key) {
-              case "KeyQ":
-                window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" }));
-                break;
-              case "KeyR":
-                window.dispatchEvent(new CustomEvent("navigate", { detail: "/review" }));
-                break;
-              case "KeyD":
-                window.dispatchEvent(new CustomEvent("navigate", { detail: "/dashboard" }));
-                break;
-              case "Comma":
-                window.dispatchEvent(new CustomEvent("navigate", { detail: "/settings" }));
-                break;
-              case "KeyO":
-              case "KeyN":
-                window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" }));
-                window.setTimeout(() => {
-                  window.dispatchEvent(new CustomEvent("import-document"));
-                }, 0);
-                break;
-              case "KeyB":
-                window.dispatchEvent(new CustomEvent("toggle-sidebar"));
-                break;
-              case "KeyE":
-                window.dispatchEvent(new CustomEvent("extract-text"));
-                break;
-              case "BracketLeft":
-                window.dispatchEvent(new CustomEvent("document-prev"));
-                break;
-              case "BracketRight":
-                window.dispatchEvent(new CustomEvent("document-next"));
-                break;
-            }
-          } catch (err) {
-            console.error("Failed to parse global shortcut native payload:", err);
-          }
         });
       } catch (err) {
         console.error("Failed to setup Tauri shortcut event listeners:", err);
@@ -258,7 +253,6 @@ export function useGlobalShortcuts() {
 
     return () => {
       if (unlistenPaletteOpen) unlistenPaletteOpen();
-      if (unlistenShortcutNative) unlistenShortcutNative();
     };
   }, []);
 
