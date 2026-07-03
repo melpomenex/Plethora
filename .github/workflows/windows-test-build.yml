@@ -57,6 +57,15 @@ jobs:
       - name: Build sidecar binaries (if missing)
         run: node scripts/download-sidecars.js
 
+      - name: Disable updater signing for test builds
+        shell: pwsh
+        run: |
+          $configPath = "src-tauri\tauri.conf.json"
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          $config.plugins.updater.active = $false
+          $config | ConvertTo-Json -Depth 32 | Set-Content $configPath
+          Write-Host "Updater signing disabled for test build"
+
       - name: Build Tauri application (Windows)
         uses: tauri-apps/tauri-action@v0
         with:

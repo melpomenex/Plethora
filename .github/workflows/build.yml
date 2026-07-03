@@ -60,14 +60,13 @@ jobs:
         run: npm run build
 
       - name: Disable updater signing for non-release builds
-        if: github.event_name == 'pull_request'
         shell: pwsh
         run: |
           $configPath = "src-tauri\tauri.conf.json"
           $config = Get-Content $configPath -Raw | ConvertFrom-Json
           $config.plugins.updater.active = $false
           $config | ConvertTo-Json -Depth 32 | Set-Content $configPath
-          Write-Host "Updater signing disabled for PR build"
+          Write-Host "Updater signing disabled for non-release build"
 
       - name: Build Tauri application (Windows)
         run: npx tauri build --bundles nsis
@@ -225,6 +224,21 @@ jobs:
 
       - name: Build sidecar binaries (if missing)
         run: node scripts/download-sidecars.js
+
+      - name: Disable updater signing for non-release builds
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const configPath = "src-tauri/tauri.conf.json";
+          const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+          config.plugins ??= {};
+          config.plugins.updater ??= {};
+          config.plugins.updater.active = false;
+          fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+          console.log("Updater signing disabled for non-release build");
+          NODE
 
       - name: Build Tauri application
         run: npx tauri build ${{ matrix.tauri_args }}

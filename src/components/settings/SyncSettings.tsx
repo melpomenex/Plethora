@@ -40,6 +40,15 @@ import {
 // (requires the forked relay deployed at sync.readsync.org — see task 1.8a).
 const SYNC_ENCRYPTION_UI_ENABLED = false;
 
+const DEFAULT_SYNC_SETTINGS = {
+  enabled: false,
+  provider: "dropbox" as const,
+  interval: 3600,
+  onStartup: false,
+  autoDownloadMode: "wifi-only" as const,
+  yjs: { enabled: false, url: "" },
+};
+
 export function SyncSettings() {
   const { t } = useI18n();
   const [roomId, setRoomId] = useState("");
@@ -58,14 +67,15 @@ export function SyncSettings() {
   const [revealSecret, setRevealSecret] = useState(false);
 
   const { settings, updateSettings } = useSettingsStore();
-  const syncSettings = settings.sync;
+  const syncSettings = settings.sync ?? DEFAULT_SYNC_SETTINGS;
+  const yjsSettings = syncSettings.yjs ?? DEFAULT_SYNC_SETTINGS.yjs;
   const autoDownloadMode = syncSettings?.autoDownloadMode ?? "wifi-only";
 
-  const [customUrl, setCustomUrl] = useState(syncSettings?.yjs?.url || "");
+  const [customUrl, setCustomUrl] = useState(yjsSettings.url || "");
 
   useEffect(() => {
-    setCustomUrl(syncSettings?.yjs?.url || "");
-  }, [syncSettings?.yjs?.url]);
+    setCustomUrl(yjsSettings.url || "");
+  }, [yjsSettings.url]);
 
   useEffect(() => {
     setRoomId(getSyncRoomId());
@@ -123,7 +133,7 @@ export function SyncSettings() {
         sync: {
           ...syncSettings,
           yjs: {
-            ...syncSettings.yjs,
+            ...yjsSettings,
             url: targetUrl,
           },
         },
@@ -493,14 +503,14 @@ export function SyncSettings() {
               <input
                 type="checkbox"
                 className="sr-only peer"
-                checked={syncSettings.yjs.enabled}
+                checked={yjsSettings.enabled}
                 onChange={async (e) => {
                   const isChecked = e.target.checked;
                   updateSettings({
                     sync: {
                       ...syncSettings,
                       yjs: {
-                        ...syncSettings.yjs,
+                        ...yjsSettings,
                         enabled: isChecked,
                       },
                     },
@@ -514,7 +524,7 @@ export function SyncSettings() {
             </label>
           </div>
 
-          {syncSettings.yjs.enabled && (
+          {yjsSettings.enabled && (
             <div className="mt-4 pt-4 border-t border-border space-y-2">
               <label className="block text-xs font-medium text-foreground">
                 {t("syncSettings.endpoint")} (WebSocket)
