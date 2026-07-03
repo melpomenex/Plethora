@@ -68,6 +68,20 @@ jobs:
           echo "TAURI_SIGNING_IDENTITY=-" >> $GITHUB_ENV
           echo "APPLE_SIGNING_IDENTITY=-" >> $GITHUB_ENV
 
+      - name: Disable updater signing for testing builds
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const configPath = "src-tauri/tauri.conf.json";
+          const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+          config.plugins ??= {};
+          config.plugins.updater ??= {};
+          config.plugins.updater.active = false;
+          fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+          console.log("Updater signing disabled for testing build");
+          NODE
+
       - name: Build Tauri application
         uses: tauri-apps/tauri-action@v0
         with:

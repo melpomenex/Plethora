@@ -4,6 +4,10 @@ import { FileManifest } from "../file-manifest";
 import { FileTransferManager } from "../file-transfer";
 import type { WebsocketProvider } from "y-websocket";
 
+vi.mock("../yjs-file-service", () => ({
+  downloadRoomFile: vi.fn().mockRejectedValue(new Error("not on file service")),
+}));
+
 const DEVICE_ID_KEY = "incrementum_device_id";
 
 function makeProvider() {
@@ -48,6 +52,9 @@ describe("FileTransferManager downloads", () => {
     manager = new FileTransferManager(makeProvider(), manifest);
 
     const download = manager.requestFile("file-1");
+    await vi.waitFor(() => {
+      expect(manager?.getActiveTransfers().inbound[0]).toBeTruthy();
+    });
     const transfer = manager.getActiveTransfers().inbound[0];
     expect(transfer).toBeTruthy();
 

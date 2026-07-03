@@ -21,12 +21,19 @@ struct PickFolderOptions: Decodable {
   var extensions: [String]?
 }
 
+/// Must match DEFAULT_EXTENSIONS in src/lib.rs.
+private let defaultFolderImportExtensions: Set<String> = [
+  "pdf", "epub", "md", "markdown", "txt", "html", "htm", "json",
+  "mp3", "wav", "m4a", "m4b", "aac", "ogg", "flac", "opus", "wma",
+  "mp4", "webm", "mov", "mkv", "avi", "m4v",
+]
+
 public class FolderImportPlugin: Plugin {
 
   /// Held while the document picker is on screen so the completion handler
   /// can resolve the originating `Invoke`.
   private var pendingInvoke: Invoke?
-  private var extensions: Set<String> = Self.defaultExtensions
+  private var extensions: Set<String> = defaultFolderImportExtensions
 
   @objc public func pickFolderDocuments(_ invoke: Invoke) throws {
     let args = try invoke.parseArgs(PickFolderOptions.self)
@@ -111,11 +118,7 @@ public class FolderImportPlugin: Plugin {
   }
 
   /// Must match DEFAULT_EXTENSIONS in src/lib.rs.
-  static var defaultExtensions: Set<String> = [
-    "pdf", "epub", "md", "markdown", "txt", "html", "htm", "json",
-    "mp3", "wav", "m4a", "m4b", "aac", "ogg", "flac", "opus", "wma",
-    "mp4", "webm", "mov", "mkv", "avi", "m4v",
-  ]
+  static let defaultExtensions: Set<String> = defaultFolderImportExtensions
 }
 
 // MARK: - UIDocumentPickerDelegate
