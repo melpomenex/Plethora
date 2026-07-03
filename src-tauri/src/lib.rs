@@ -399,14 +399,12 @@ pub fn run() {
         // in folder mode, staging files into app-private storage.
         .plugin(incrementum_folder_import::init());
 
-    // Global shortcuts are desktop-only (not available on iOS/Android)
+    // Updater + process (relaunch after install) are desktop-only.
+    // The plugin reads its config from the `plugins.updater` block in
+    // tauri.conf.json. `tauri-plugin-process` provides the relaunch
+    // command invoked from the frontend after a successful update.
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
-        builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
-        // Updater + process (relaunch after install) are desktop-only.
-        // The plugin reads its config from the `plugins.updater` block in
-        // tauri.conf.json. `tauri-plugin-process` provides the relaunch
-        // command invoked from the frontend after a successful update.
         builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
         builder = builder.plugin(tauri_plugin_process::init());
     }
@@ -489,30 +487,15 @@ pub fn run() {
                 }
             }
 
-            let key_str = match id {
-                "accel-k" => "KeyK",
-                "accel-p" => "KeyP",
-                "accel-q" => "KeyQ",
-                "accel-r" => "KeyR",
-                "accel-d" => "KeyD",
-                "accel-o" => "KeyO",
-                "accel-n" => "KeyN",
-                "accel-comma" => "Comma",
-                "accel-slash" => "Slash",
-                _ => return,
-            };
+            if !matches!(id, "accel-k" | "accel-p") {
+                return;
+            }
 
-            tracing::info!("[cmd+key] emitting global-shortcut to webview: {}", key_str);
-            if let Some(_window) = app.get_webview_window("main") {
-                let event_name = if matches!(key_str, "KeyK" | "KeyP") {
-                    "command-palette-open"
-                } else {
-                    "global-shortcut-native"
-                };
-                match app.emit_to("main", event_name, key_str) {
-                    Ok(()) => tracing::info!("[cmd+key] emit_to succeeded"),
-                    Err(e) => tracing::error!("[cmd+key] emit_to FAILED: {}", e),
-                };
+            tracing::info!("[cmd+key] emitting command-palette-open to webview");
+            if app.get_webview_window("main").is_some() {
+                if let Err(e) = app.emit_to("main", "command-palette-open", id) {
+                    tracing::error!("[cmd+key] emit_to FAILED: {}", e);
+                }
             }
         });
     }
@@ -526,94 +509,6 @@ pub fn run() {
             // Register managed state for one-shot startup notices before any
             // code that might set one (e.g. database recovery) runs.
             startup_notice::register(&app_handle);
-
-            // Register global keyboard shortcuts to prevent webview engines
-            // (webkit2gtk on Linux, WebView2 on Windows, WKWebView on macOS)
-            // from intercepting Ctrl/Cmd+key combos before JavaScript.
-            // Desktop-only: global shortcuts are not available on iOS/Android.
-            #[cfg(not(any(target_os = "ios", target_os = "android")))]
-            {
-                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-
-                let gs = app.global_shortcut();
-
-                let shortcut_defs: &[(Modifiers, Code)] = &[
-                    // Ctrl+key (Linux/Windows)
-                    (Modifiers::CONTROL, Code::KeyQ),
-                    (Modifiers::CONTROL, Code::KeyR),
-                    (Modifiers::CONTROL, Code::KeyD),
-                    (Modifiers::CONTROL, Code::KeyK),
-                    (Modifiers::CONTROL, Code::KeyP),
-                    (Modifiers::CONTROL, Code::Comma),
-                    (Modifiers::CONTROL, Code::KeyO),
-                    (Modifiers::CONTROL, Code::KeyN),
-                    (Modifiers::CONTROL, Code::Slash),
-                    (Modifiers::CONTROL, Code::KeyB),
-                    (Modifiers::CONTROL, Code::KeyF),
-                    (Modifiers::CONTROL, Code::KeyS),
-                    (Modifiers::CONTROL, Code::KeyE),
-                    (Modifiers::CONTROL, Code::BracketLeft),
-                    (Modifiers::CONTROL, Code::BracketRight),
-                    (Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyF),
-                    (Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyS),
-                    // Cmd+key (macOS)
-                    (Modifiers::SUPER, Code::KeyQ),
-                    (Modifiers::SUPER, Code::KeyR),
-                    (Modifiers::SUPER, Code::KeyD),
-                    (Modifiers::SUPER, Code::KeyK),
-                    (Modifiers::SUPER, Code::KeyP),
-                    (Modifiers::SUPER, Code::Comma),
-                    (Modifiers::SUPER, Code::KeyO),
-                    (Modifiers::SUPER, Code::KeyN),
-                    (Modifiers::SUPER, Code::Slash),
-                    (Modifiers::SUPER, Code::KeyB),
-                    (Modifiers::SUPER, Code::KeyF),
-                    (Modifiers::SUPER, Code::KeyS),
-                    (Modifiers::SUPER, Code::KeyE),
-                    (Modifiers::SUPER, Code::BracketLeft),
-                    (Modifiers::SUPER, Code::BracketRight),
-                    (Modifiers::SUPER | Modifiers::SHIFT, Code::KeyF),
-                    (Modifiers::SUPER | Modifiers::SHIFT, Code::KeyS),
-                ];
-
-                let shortcuts: Vec<Shortcut> = shortcut_defs
-                    .iter()
-                    .map(|(mods, code)| Shortcut::new(Some(*mods), *code))
-                    .collect();
-
-                let shortcut_app = app_handle.clone();
-                if let Err(e) = gs.on_shortcuts(shortcuts, move |_app, shortcut, event| {
-                    if event.state != ShortcutState::Pressed {
-                        return;
-                    }
-                    let key_str = format!("{:?}", shortcut.key);
-                    tracing::debug!("global-shortcut fired: {}", key_str);
-                    if let Some(window) = shortcut_app.get_webview_window("main") {
-                        let ctrl = shortcut.mods.contains(Modifiers::CONTROL);
-                        let alt = shortcut.mods.contains(Modifiers::ALT);
-                        let shift = shortcut.mods.contains(Modifiers::SHIFT);
-                        let meta = shortcut.mods.contains(Modifiers::SUPER);
-
-                        let payload = format!(
-                            "{{\"key\":\"{}\",\"ctrl\":{},\"alt\":{},\"shift\":{},\"meta\":{}}}",
-                            key_str, ctrl, alt, shift, meta
-                        );
-
-                        let event_name = if matches!(key_str.as_str(), "KeyK" | "KeyP") && meta && !ctrl && !shift && !alt {
-                            "command-palette-open"
-                        } else {
-                            "global-shortcut-native"
-                        };
-                        let _ = shortcut_app.emit_to("main", event_name, &payload);
-                    }
-                }) {
-                    tracing::warn!("Failed to register global shortcuts: {}", e);
-                } else {
-                    tracing::info!("global shortcuts registered ({} shortcuts)", shortcut_defs.len());
-                }
-
-                log_startup(&app_handle, "startup: global shortcuts registered");
-            }
 
             let result: anyhow::Result<()> = tauri::async_runtime::block_on(async {
                 let app_dir = app
