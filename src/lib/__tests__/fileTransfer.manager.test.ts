@@ -4,6 +4,18 @@ import { FileManifest } from "../file-manifest";
 import { FileTransferManager } from "../file-transfer";
 import type { WebsocketProvider } from "y-websocket";
 
+// requestFile() tries the HTTP file-service before falling back to the P2P
+// chunked path this test exercises. Without this mock, the real fetch() runs
+// against a non-existent server in the test env: it rejects asynchronously,
+// so the P2P transfer record (which the test reads synchronously right after
+// calling requestFile) hasn't been created yet → `inbound[0]` is undefined.
+// Mocking the file-service download to reject makes requestFile fall through
+// to the P2P path synchronously, preserving the test's original intent.
+vi.mock("../yjs-file-service", () => ({
+  downloadRoomFile: vi.fn().mockRejectedValue(new Error("no file-service in tests")),
+  getSyncRoomId: vi.fn().mockReturnValue("test-room"),
+}));
+
 const DEVICE_ID_KEY = "incrementum_device_id";
 
 function makeProvider() {
@@ -48,6 +60,11 @@ describe("FileTransferManager downloads", () => {
     manager = new FileTransferManager(makeProvider(), manifest);
 
     const download = manager.requestFile("file-1");
+    // requestFile() first awaits the HTTP file-service download (mocked to
+    // reject above), then falls back to the P2P path that registers the
+    // inbound transfer. Yield to let that await settle before reading state.
+    await Promise.resolve();
+    await Promise.resolve();
     const transfer = manager.getActiveTransfers().inbound[0];
     expect(transfer).toBeTruthy();
 

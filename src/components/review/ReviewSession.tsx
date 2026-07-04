@@ -662,15 +662,15 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
             ) : isAnswerShown ? (
               <>
                 {/* Card with answer shown */}
-                <div className="flex-1 overflow-y-auto min-h-0">
-                  <div className="min-h-full flex items-center">
+                <div className="flex-none overflow-visible md:flex-1 md:overflow-y-auto md:min-h-0">
+                  <div className="w-full flex flex-col justify-start md:min-h-full md:justify-center">
                     <div className="w-full">
-                  <ReviewCard
-                    card={currentCard as Exclude<ReviewSessionItem, ReviewDocumentItem>}
-                    showAnswer={true}
-                    onShowAnswer={() => {}}
-                    onInteractionResultChange={setInteractionResult}
-                  />
+                      <ReviewCard
+                        card={currentCard as Exclude<ReviewSessionItem, ReviewDocumentItem>}
+                        showAnswer={true}
+                        onShowAnswer={() => {}}
+                        onInteractionResultChange={setInteractionResult}
+                      />
                     </div>
                   </div>
                 </div>

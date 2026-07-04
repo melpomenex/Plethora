@@ -39,6 +39,9 @@ const mocks = vi.hoisted(() => {
     // build (isNativeMobile = true) to exercise the scanner flow.
     isNativeMobile: vi.fn().mockReturnValue(true),
     isPWA: vi.fn().mockReturnValue(false),
+    // Captures the fire-and-forget startSyncSubsystems() call the join handler
+    // makes so a test can assert it was invoked.
+    startSyncSubsystems: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -73,11 +76,24 @@ vi.mock("../../../lib/sync/roomCrypto", () => ({
 vi.mock("../../../lib/tauri", () => ({
   isNativeMobile: mocks.isNativeMobile,
   isPWA: mocks.isPWA,
+  // A native mobile build is also a Tauri build (the Android/iOS webview is
+  // hosted by Tauri). The join handler only starts the sync subsystems when
+  // isTauri() is true, so the mock must reflect that for the scan-to-join
+  // (mobile) path to exercise the wiring.
+  isTauri: vi.fn().mockReturnValue(true),
+}));
+
+vi.mock("../../../lib/startSyncSubsystems", () => ({
+  // The join flow calls startSyncSubsystems() fire-and-forget. Capture the call
+  // so a test can assert mobile-style "bring replication up on join" behavior
+  // without depending on the real (heavy) sync chain.
+  startSyncSubsystems: mocks.startSyncSubsystems,
 }));
 
 vi.mock("../../../stores/settingsStore", () => ({
   useSettingsStore: () => ({
-    settings: { sync: { autoDownloadMode: "wifi-only" } },
+    // Include yjs.enabled so the real-time-sync toggle renders without crashing.
+    settings: { sync: { autoDownloadMode: "wifi-only", yjs: { enabled: false } } },
     updateSettings: vi.fn(),
   }),
 }));
@@ -123,10 +139,14 @@ describe("SyncSettings scan-to-join", () => {
       accepted = !!(await lastOnDetected!("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"));
     });
 
-    expect(accepted).toBe(true);
-    expect(mocks.setSyncRoomId).toHaveBeenCalledWith("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
-    expect(mocks.rejoinRoom).toHaveBeenCalledWith("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
-  });
+  expect(accepted).toBe(true);
+  expect(mocks.setSyncRoomId).toHaveBeenCalledWith("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
+  expect(mocks.rejoinRoom).toHaveBeenCalledWith("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
+  // Joining a room must bring up the replication chain (cards/docs/feeds) so the
+  // device actually receives the room's state. This is the mobile bug fix: boot
+  // defers the chain, so an explicit sync action has to start it.
+  expect(mocks.startSyncSubsystems).toHaveBeenCalled();
+});
 
   it("returns false (keeps scanner open) for an empty scanned value", async () => {
     mocks.isNativeMobile.mockReturnValue(true);

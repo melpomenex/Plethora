@@ -15,6 +15,7 @@ import {
 import { createNewSyncRoomId, getSyncRoomId, setSyncRoomId, rejoinRoom, updateYjsSyncStatus } from "../../lib/yjsSync";
 import { useI18n } from "../../lib/i18n";
 import { isNativeMobile, isPWA } from "../../lib/tauri";
+import { startSyncSubsystems } from "../../lib/startSyncSubsystems";
 import { QRCodeCanvas } from "qrcode.react";
 import { SyncQrScanner } from "./SyncQrScanner";
 import { SyncedFilesManifestPanel } from "../sync/SyncedFilesManifestPanel";
@@ -178,6 +179,14 @@ export function SyncSettings() {
         setEncryptionEnabled(true);
         setRoomSecret(parsed.roomSecret);
         setJoinRoomId("");
+        // Replication observers must be attached before rejoinRoom connects to
+        // the new room, so we receive the room's existing state on join. Await
+        // (idempotent no-op when boot already started the chain).
+        try {
+          await startSyncSubsystems();
+        } catch (err) {
+          console.warn("[SyncSettings] subsystems start failed before room join", err);
+        }
         await rejoinRoom(parsed.roomId);
         setRoomMessage("Joined encrypted room and connected.");
         return { ok: true };
@@ -195,6 +204,13 @@ export function SyncSettings() {
       setSyncRoomId(raw);
       setRoomId(raw);
       setJoinRoomId("");
+      // Replication observers must be attached before rejoinRoom connects to
+      // the new room, so we receive the room's existing state on join.
+      try {
+        await startSyncSubsystems();
+      } catch (err) {
+        console.warn("[SyncSettings] subsystems start failed before room join", err);
+      }
       await rejoinRoom(raw);
       setRoomMessage("Sync code applied and connected.");
       return { ok: true };
@@ -505,6 +521,21 @@ export function SyncSettings() {
                       },
                     },
                   });
+                  if (isChecked) {
+                    // Bring up the replication chain (cards/docs/feeds/file-sync)
+                    // BEFORE reconnecting the websocket provider. The observers
+                    // attach to the shared Yjs doc; if they aren't registered
+                    // when the provider connects, the inbound room state still
+                    // merges into the doc but the per-key handlers only fire on
+                    // later mutations + the ensure*Ready() replay. Awaiting here
+                    // guarantees the receive path is wired when connect happens.
+                    // Idempotent: a no-op when boot already started the chain.
+                    try {
+                      await startSyncSubsystems();
+                    } catch (err) {
+                      console.warn("[SyncSettings] subsystems start failed; reconnecting anyway", err);
+                    }
+                  }
                   await updateYjsSyncStatus().catch((err) =>
                     console.error("[SyncSettings] failed to update sync status", err)
                   );
