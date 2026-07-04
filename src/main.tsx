@@ -112,6 +112,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
 import { isNativeMobile, isPWA, isTauri } from "./lib/tauri";
 import { initLocalStorageSync } from "./lib/localStorageSync";
+import { startSyncSubsystems } from "./lib/startSyncSubsystems";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 
 import { MainLayout } from "./components/layout/MainLayout";
@@ -223,66 +224,61 @@ try {
 
 const shouldAutoStartHeavySync = !isNativeMobile();
 
-// Initialize localStorage -> Yjs sync (shared state across devices). Native
-// mobile skips this startup bridge for now: large rooms can allocate hundreds
-// of MB during boot, which can crash Android before the UI is usable. Users can
-// still open the app and we can reintroduce mobile sync as an explicit action
-// once the provider is chunked/lazy enough for phone memory limits.
+// Initialize localStorage -> Yjs sync (shared state across devices). On native
+// mobile we still start it, but only as part of the deferred heavy-sync chain
+// below (not eagerly at boot) — large rooms can allocate hundreds of MB during
+// boot, which has crashed Android before the UI was usable.
 if (isPWA() || (isTauri() && shouldAutoStartHeavySync)) {
   initLocalStorageSync().catch((error) => {
     console.error("[main.tsx] Failed to initialize local storage sync:", error);
   });
 }
 
-// Boot the Yjs sync provider on desktop Tauri. Native mobile intentionally
-// avoids this eager chain because it also starts file sync, auto-download,
-// document/card/RSS/podcast replication, and migration. That startup fan-out is
-// too memory-hungry for Android when a sync room is large.
-if (isTauri() && shouldAutoStartHeavySync) {
-  import("./lib/yjsSync")
-    .then(({ getYjsSync }) => getYjsSync())
-    .then(() =>
-      // Initialize the file-sync subsystem (FileManifest + FileTransferManager)
-      // once the shared yjs doc is ready. Without this, the manifest/transfer
-      // singletons are never constructed and imported files can't be discovered
-      // or pulled across devices. Idempotent via ensureFileSyncReady's guard.
-      import("./lib/useFileSync")
-        .then(({ ensureFileSyncReady }) => ensureFileSyncReady())
-        // Start the auto-download watcher (honors sync.autoDownloadMode).
-        .then(() => import("./lib/autoFileSyncDownload"))
-        .then(({ startAutoFileSyncDownload }) => startAutoFileSyncDownload())
-        // Initialize document-row replication: subscribes to the shared yjs
-        // 'documents' map and upserts remote rows into local SQLite so the
-        // library mirrors across devices (SQLite is per-device; without this,
-        // imported docs never appear on other devices even with file sync).
-        .then(() => import("./lib/documentReplication"))
-        .then(({ ensureDocumentReplicationReady }) => ensureDocumentReplicationReady())
-        // Initialize flashcard + review-history replication: subscribes to the
-        // shared 'learningItems' and 'reviews' maps so a card reviewed on one
-        // device appears with its new schedule on every device (the paramount
-        // cross-device case). No-op outside Tauri.
-        .then(() => import("./lib/sync/entities/flashcards"))
-        .then(({ ensureFlashcardSyncReady }) => ensureFlashcardSyncReady())
-        // Initialize RSS replication (feeds + article read/queued state).
-        .then(() => import("./lib/sync/entities/rss"))
-        .then(({ ensureRssSyncReady }) => ensureRssSyncReady())
-        // Initialize podcast replication (feeds + episode position/played/
-        // download-intent). Audio bytes are never replicated — each device
-        // downloads from the feed URL; we sync only state + intent.
-        .then(() => import("./lib/sync/entities/podcasts"))
-        .then(({ ensurePodcastSyncReady }) => ensurePodcastSyncReady())
-        // Backfill: on first sync-room join, publish the local library into the
-        // shared doc so other devices receive it. Background, non-blocking.
-        .then(() => import("./lib/sync/migrate"))
-        .then(({ runSyncMigrationIfNeeded }) =>
-          runSyncMigrationIfNeeded().catch((e) =>
-            console.warn("[main.tsx] sync migration failed (non-fatal)", e),
-          ),
-        ),
-    )
-    .catch((error) => {
-      console.error("[main.tsx] Failed to initialize Yjs sync on Tauri:", error);
-    });
+// Boot the full Yjs sync subsystem chain (provider → file sync → auto-download
+// → document/card/RSS/podcast replication → first-join backfill).
+//
+// Desktop: eager — the chain is cheap on desktop memory and the user expects a
+// mirrored library immediately on launch.
+//
+// Native mobile: DEFERRED past first paint. The eager chain previously caused
+// OutOfMemoryError on Android (~189MB allocation against a 512MB Java heap
+// during boot — see commit 524f087a). Deferring to idle keeps that allocation
+// off the bootstrap critical path: the React tree mounts and the UI is
+// interactive before the (large) sync room is pulled into the WebView heap.
+// Sync still comes up automatically — just not during the splash. The user can
+// also force it on immediately via the SyncSettings real-time-sync toggle,
+// which calls startSyncSubsystems() directly.
+if (isTauri()) {
+  const bootSync = () => {
+    startSyncSubsystems()
+      .then(() => {
+        // localStorage bridge depends on the shared yjs doc created above; start
+        // it once the subsystem chain is up so settings/collections mirror too.
+        if (isPWA() || isTauri()) {
+          return initLocalStorageSync();
+        }
+      })
+      .catch((error) => {
+        console.error("[main.tsx] Failed to initialize Yjs sync subsystems:", error);
+      });
+  };
+
+  if (shouldAutoStartHeavySync) {
+    bootSync();
+  } else {
+    // Mobile: defer until the browser is idle. requestIdleCallback is widely
+    // available in modern Android WebView; fall back to a short setTimeout so
+    // we still come up reasonably quickly on WebViews that lack it.
+    type IdleWindow = Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    };
+    const win = window as IdleWindow;
+    if (typeof win.requestIdleCallback === "function") {
+      win.requestIdleCallback(() => bootSync(), { timeout: 3000 });
+    } else {
+      setTimeout(bootSync, 1500);
+    }
+  }
 }
 
 // Dev/Tauri: ensure no service worker or cache is present to avoid stale assets.
