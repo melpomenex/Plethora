@@ -54,6 +54,7 @@ import {
   MagnifyingGlass,
   PaperPlaneTilt,
   PencilSimple,
+  Plus,
   Quotes,
   Scissors,
   Scroll,
@@ -2675,16 +2676,50 @@ function DocumentSelector({
 function DeckSelector({
   decks,
   selectedId,
+  suggestedName,
   onSelect,
+  onCreateDeck,
 }: {
   decks: { id: string; name: string; tagFilters: string[] }[];
   selectedId: string | null;
+  suggestedName?: string;
   onSelect: (id: string | null) => void;
+  onCreateDeck: (name: string) => string | null;
 }) {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newDeckName, setNewDeckName] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const selectedDeck = decks.find((d) => d.id === selectedId);
+  const defaultDeckName = suggestedName?.trim() || "";
+
+  useEffect(() => {
+    if (isOpen && isCreating) {
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [isOpen, isCreating]);
+
+  const beginCreate = () => {
+    setIsCreating(true);
+    setNewDeckName(defaultDeckName);
+  };
+
+  const cancelCreate = () => {
+    setIsCreating(false);
+    setNewDeckName("");
+  };
+
+  const submitCreate = () => {
+    const name = newDeckName.trim() || defaultDeckName || t("flashcardStudio.untitledDeck");
+    const deckId = onCreateDeck(name);
+    if (!deckId) return;
+    onSelect(deckId);
+    setIsCreating(false);
+    setNewDeckName("");
+    setIsOpen(false);
+  };
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -2716,6 +2751,55 @@ function DeckSelector({
 
       {isOpen && (
         <div className="absolute top-full left-0 mt-2 w-64 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+          <div className="border-b border-border p-2">
+            {isCreating ? (
+              <div className="space-y-2">
+                <input
+                  ref={inputRef}
+                  value={newDeckName}
+                  onChange={(e) => setNewDeckName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      submitCreate();
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      cancelCreate();
+                    }
+                  }}
+                  placeholder={t("flashcardStudio.deckNamePlaceholder")}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/40"
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={cancelCreate}
+                    className="rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    {t("flashcardStudio.cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitCreate}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    {t("flashcardStudio.createDeck")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={beginCreate}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+              >
+                <Plus className="h-4 w-4" />
+                <span>{t("flashcardStudio.newDeck")}</span>
+              </button>
+            )}
+          </div>
           <div className="max-h-64 overflow-y-auto">
             <button
               onClick={() => {
@@ -2732,6 +2816,11 @@ function DeckSelector({
                 {t("flashcardStudio.noDeck")}
               </span>
             </button>
+            {decks.length === 0 && !isCreating && (
+              <div className="px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+                {t("flashcardStudio.noDecksHint")}
+              </div>
+            )}
             {decks.map((deck) => (
               <button
                 key={deck.id}
@@ -2772,7 +2861,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const { t } = useI18n();
   const toast = useToast();
   const { documents, loadDocuments } = useDocumentStore();
-  const { decks, activeDeckIds } = useStudyDeckStore();
+  const { decks, activeDeckIds, addDeck } = useStudyDeckStore();
   const providers = useLLMProvidersStore((state) => state.providers);
   const enabledProviders = useMemo(() => providers.filter((p) => p.enabled), [providers]);
   const maxTokens = useSettingsStore((state) => state.settings.ai.maxTokens) || 4000;
@@ -3131,6 +3220,28 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     if (!selectedDeck) return [];
     return selectedDeck.tagFilters.length > 0 ? selectedDeck.tagFilters : [selectedDeck.name];
   }, [selectedDeck]);
+
+  const suggestedDeckName = useMemo(() => {
+    const title = selectedDocument?.title?.trim();
+    if (!title) return "";
+    return title.replace(/\s*\([^)]*\)\s*$/, "").trim() || title;
+  }, [selectedDocument]);
+
+  const handleCreateDeck = useCallback((name: string) => {
+    const trimmed = name.trim() || t("flashcardStudio.untitledDeck");
+    addDeck(trimmed, [trimmed], selectedDocument?.id);
+    const createdOrMatched = useStudyDeckStore
+      .getState()
+      .decks.find((deck) => deck.name.trim().toLowerCase() === trimmed.toLowerCase());
+    if (createdOrMatched) {
+      toast.success(
+        t("flashcardStudio.deckReady"),
+        t("flashcardStudio.deckReadyDesc", { name: createdOrMatched.name })
+      );
+      return createdOrMatched.id;
+    }
+    return null;
+  }, [addDeck, selectedDocument?.id, t, toast]);
 
   const contextContent = useMemo(() => {
     if (!selectedDocumentText) return undefined;
@@ -4087,7 +4198,9 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
           <DeckSelector
             decks={decks}
             selectedId={selectedDeckId}
+            suggestedName={suggestedDeckName}
             onSelect={setSelectedDeckId}
+            onCreateDeck={handleCreateDeck}
           />
 
           {selectedDeck && deckTags.length > 0 && (
