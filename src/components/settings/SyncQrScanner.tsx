@@ -19,12 +19,17 @@ export function SyncQrScanner({ onDetected, onClose }: SyncQrScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   // useRef rather than state so the QrScanner callback (captured once on mount)
-  // always reads the latest onDetected without re-creating the scanner.
+  // always reads the latest onDetected/onClose/t without re-creating the scanner.
   const onDetectedRef = useRef(onDetected);
   onDetectedRef.current = onDetected;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const tRef = useRef(t);
+  tRef.current = t;
 
   useEffect(() => {
     let scanner: QrScanner | null = null;
+    let cancelled = false;
 
     const start = async () => {
       if (!videoRef.current) {
@@ -39,13 +44,13 @@ export function SyncQrScanner({ onDetected, onClose }: SyncQrScannerProps) {
             try {
               const accepted = await onDetectedRef.current(result.data);
               if (accepted) {
-                onClose();
+                onCloseRef.current();
               }
               // If not accepted, the scanner keeps running so the user can
               // re-scan. The caller is responsible for surfacing why (via
               // throw → we set `error` below, or its own UI).
             } catch (err) {
-              const msg = err instanceof Error ? err.message : t("settings.syncQrInvalidCode");
+              const msg = err instanceof Error ? err.message : tRef.current("settings.syncQrInvalidCode");
               setError(msg);
             }
           },
@@ -58,18 +63,38 @@ export function SyncQrScanner({ onDetected, onClose }: SyncQrScannerProps) {
         );
 
         await scanner.start();
+        // Guard against a teardown that raced ahead while start() was awaiting
+        // camera permission + MediaStream setup. Without this, the cleanup's
+        // stop()/destroy() runs, then the resolved promise continues with a
+        // "ghost" scanner whose video has already been torn down — the next
+        // play() throws "play() request was interrupted by pause()".
+        if (cancelled) {
+          scanner.stop();
+          scanner.destroy();
+          scanner = null;
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : t("settings.syncQrCameraFailed"));
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : tRef.current("settings.syncQrCameraFailed"));
+        }
       }
     };
 
     start();
 
     return () => {
+      cancelled = true;
       scanner?.stop();
       scanner?.destroy();
+      scanner = null;
     };
-  }, [onClose, t]);
+    // Empty deps: the scanner is created once on mount and destroyed on unmount.
+    // Callbacks and t are read via refs so identity changes don't re-run this
+    // effect (which previously raced teardown against start() and caused the
+    // "play() interrupted by pause()" error on first open — see useI18n, which
+    // returns a fresh `t` function each render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/70 p-4">
