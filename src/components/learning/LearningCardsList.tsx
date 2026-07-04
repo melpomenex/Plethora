@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   ArrowsClockwise,
   Brain,
@@ -7,6 +7,11 @@ import {
   FloppyDisk,
   Pencil,
   Trash,
+  X,
+  Tag,
+  Flame,
+  Gauge,
+  Folder,
 } from "@phosphor-icons/react";
 import {
   getLearningItems,
@@ -45,6 +50,75 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
   const [showAnswers, setShowAnswers] = useState<Record<string, boolean>>({});
   const [qualityByCard, setQualityByCard] = useState<Record<string, ReturnType<typeof analyzeCardQuality>>>({});
   const [prereqByCard, setPrereqByCard] = useState<Record<string, string[]>>({});
+
+  // Custom Save as Smart Deck Modal States
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [deckName, setDeckName] = useState("");
+  const [deckType, setDeckType] = useState<"all" | "tags" | "cram" | "difficulty">("all");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedDifficulties, setSelectedDifficulties] = useState<number[]>([4, 5]);
+
+  const docTags = useMemo(() => {
+    const tags = new Set<string>();
+    for (const card of cards) {
+      if (card.tags) {
+        for (const tag of card.tags) {
+          if (tag.trim()) tags.add(tag.trim());
+        }
+      }
+    }
+    return Array.from(tags);
+  }, [cards]);
+
+  const handleOpenSaveModal = async () => {
+    const doc = await getDocument(documentId);
+    setDeckName(doc?.title || "New Deck");
+    setDeckType("all");
+    setSelectedTags(docTags);
+    setSelectedDifficulties([4, 5]);
+    setIsModalOpen(true);
+  };
+
+  const handleSaveDeck = () => {
+    const trimmedName = deckName.trim();
+    if (!trimmedName) {
+      toast.error("Deck name cannot be empty");
+      return;
+    }
+
+    let tagFilters: string[] = [];
+    if (deckType === "tags") {
+      tagFilters = selectedTags;
+      if (tagFilters.length === 0) {
+        toast.error("Please select at least one tag");
+        return;
+      }
+    }
+
+    const deckId = useStudyDeckStore.getState().addDeck(
+      trimmedName,
+      tagFilters,
+      documentId,
+      deckType,
+      deckType === "difficulty" ? selectedDifficulties : [],
+      []
+    );
+
+    toast.success(`Deck "${trimmedName}" created successfully!`);
+    setIsModalOpen(false);
+
+    // Select the deck in the review store and open the deck manager view
+    useReviewStore.getState().setSelectedDeckId(deckId);
+    useReviewStore.getState().setReviewTabMode("deck-manager");
+
+    useTabsStore.getState().addTab({
+      title: t("learningCards.studyNow"),
+      icon: "🧠",
+      type: "review",
+      content: ReviewTab,
+      closable: true,
+    });
+  };
 
   useEffect(() => {
     const loadCards = async () => {
@@ -156,20 +230,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
             {t("learningCards.print")}
           </button>
           <button
-            onClick={async () => {
-              const doc = await getDocument(documentId);
-              const docTitle = doc?.title || "New Deck";
-              const deckName = prompt("Deck name", docTitle);
-              if (!deckName || !deckName.trim()) return;
-              const allTags = new Set<string>();
-              for (const card of cards) {
-                for (const tag of card.tags) {
-                  allTags.add(tag);
-                }
-              }
-              useStudyDeckStore.getState().addDeck(deckName.trim(), [...allTags], documentId);
-              toast.success(`Deck "${deckName.trim()}" created with ${allTags.size} tag${allTags.size !== 1 ? "s" : ""}`);
-            }}
+            onClick={handleOpenSaveModal}
             className="px-3 py-1.5 text-sm border border-border text-foreground rounded-md hover:bg-muted transition-colors flex items-center gap-1.5"
           >
             <FloppyDisk className="w-3.5 h-3.5" />
@@ -423,6 +484,203 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
         className="flex-1"
         estimateSize={280}
       />
+
+      {/* Save as Smart Deck Custom Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 flex flex-col space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-primary" />
+                <h3 className="text-lg font-bold text-foreground">Save as Smart Deck</h3>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 hover:bg-muted text-muted-foreground rounded-full transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Input Name */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Deck Name
+              </label>
+              <input
+                type="text"
+                value={deckName}
+                onChange={(e) => setDeckName(e.target.value)}
+                className="w-full bg-background border border-border focus:border-primary rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none transition-colors"
+                placeholder="Enter deck name..."
+              />
+            </div>
+
+            {/* Smart Deck Types */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
+                Select Smart Deck Strategy
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {/* Option 1: All Cards */}
+                <button
+                  onClick={() => setDeckType("all")}
+                  className={cn(
+                    "flex items-start gap-3 p-3 border rounded-xl text-left transition-all hover:bg-muted/50",
+                    deckType === "all"
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border bg-card"
+                  )}
+                >
+                  <Folder className={cn("w-5.5 h-5.5 mt-0.5", deckType === "all" ? "text-primary" : "text-muted-foreground")} />
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">All Document Cards</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">Includes all current and future cards of this document.</div>
+                  </div>
+                </button>
+
+                {/* Option 2: Tag Filtered */}
+                <button
+                  onClick={() => setDeckType("tags")}
+                  className={cn(
+                    "flex items-start gap-3 p-3 border rounded-xl text-left transition-all hover:bg-muted/50",
+                    deckType === "tags"
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border bg-card"
+                  )}
+                >
+                  <Tag className={cn("w-5.5 h-5.5 mt-0.5", deckType === "tags" ? "text-primary" : "text-muted-foreground")} />
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Tag Filtered</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">Focus only on cards matching specific tags/topics.</div>
+                  </div>
+                </button>
+
+                {/* Option 3: Cram / Priority */}
+                <button
+                  onClick={() => setDeckType("cram")}
+                  className={cn(
+                    "flex items-start gap-3 p-3 border rounded-xl text-left transition-all hover:bg-muted/50",
+                    deckType === "cram"
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border bg-card"
+                  )}
+                >
+                  <Flame className={cn("w-5.5 h-5.5 mt-0.5", deckType === "cram" ? "text-primary" : "text-muted-foreground")} />
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Cram / High Priority</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">Includes only due, new, learning, or lapsed cards.</div>
+                  </div>
+                </button>
+
+                {/* Option 4: Difficulty Focused */}
+                <button
+                  onClick={() => setDeckType("difficulty")}
+                  className={cn(
+                    "flex items-start gap-3 p-3 border rounded-xl text-left transition-all hover:bg-muted/50",
+                    deckType === "difficulty"
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border bg-card"
+                  )}
+                >
+                  <Gauge className={cn("w-5.5 h-5.5 mt-0.5", deckType === "difficulty" ? "text-primary" : "text-muted-foreground")} />
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Difficulty Focused</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">Filter by card complexity or review difficulty level.</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Custom Condition Panels */}
+            {deckType === "tags" && (
+              <div className="border border-border rounded-xl p-4 bg-muted/20 space-y-2 animate-in slide-in-from-top-2 duration-200">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
+                  Select Tags to Include ({selectedTags.length})
+                </label>
+                {docTags.length === 0 ? (
+                  <div className="text-xs text-muted-foreground italic">No tags found on this document's cards.</div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 max-h-[150px] overflow-y-auto pr-1">
+                    {docTags.map((tag) => {
+                      const isSelected = selectedTags.includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          onClick={() => {
+                            setSelectedTags((prev) =>
+                              isSelected ? prev.filter((t) => t !== tag) : [...prev, tag]
+                            );
+                          }}
+                          className={cn(
+                            "px-2.5 py-1 text-xs border rounded-full transition-all flex items-center gap-1",
+                            isSelected
+                              ? "bg-primary border-primary text-primary-foreground font-medium"
+                              : "bg-background border-border text-muted-foreground hover:border-muted-foreground"
+                          )}
+                        >
+                          #{tag}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {deckType === "difficulty" && (
+              <div className="border border-border rounded-xl p-4 bg-muted/20 space-y-2 animate-in slide-in-from-top-2 duration-200">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
+                  Select Difficulty Levels
+                </label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map((lvl) => {
+                    const isSelected = selectedDifficulties.includes(lvl);
+                    const lvlLabel = lvl <= 2 ? "Easy" : lvl <= 4 ? "Medium" : "Hard";
+                    return (
+                      <button
+                        key={lvl}
+                        onClick={() => {
+                          setSelectedDifficulties((prev) =>
+                            isSelected ? prev.filter((d) => d !== lvl) : [...prev, lvl]
+                          );
+                        }}
+                        className={cn(
+                          "flex-1 py-2 border rounded-lg text-center transition-all flex flex-col items-center justify-center",
+                          isSelected
+                            ? "bg-primary border-primary text-primary-foreground font-semibold shadow-sm"
+                            : "bg-background border-border text-muted-foreground hover:border-muted-foreground"
+                        )}
+                      >
+                        <span className="text-sm">{lvl}/5</span>
+                        <span className="text-[10px] opacity-80">{lvlLabel}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="px-4 py-2 border border-border text-foreground hover:bg-muted text-sm font-medium rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveDeck}
+                className="px-4 py-2 bg-primary text-primary-foreground hover:opacity-90 text-sm font-semibold rounded-lg transition-opacity flex items-center gap-1.5"
+              >
+                <FloppyDisk className="w-4 h-4" />
+                Create Deck
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

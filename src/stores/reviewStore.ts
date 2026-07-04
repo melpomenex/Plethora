@@ -138,6 +138,12 @@ interface ReviewState {
   setReviewMode: (mode: "normal" | "cram") => void;
   setPendingReviewMetadata: (metadata: ReviewState["pendingReviewMetadata"]) => void;
   undoLastReview: () => Promise<void>;
+
+  // Global tab navigation and selection state
+  reviewTabMode: "home" | "session" | "deck-manager";
+  selectedDeckId: string | null;
+  setReviewTabMode: (mode: "home" | "session" | "deck-manager") => void;
+  setSelectedDeckId: (deckId: string | null) => void;
 }
 
 type ReviewUndoSnapshot = {
@@ -198,8 +204,12 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   lastUndoError: null,
   pendingReviewMetadata: null,
   reviewEventLog: [],
+  reviewTabMode: "home",
+  selectedDeckId: null,
 
   // Actions
+  setReviewTabMode: (mode) => set({ reviewTabMode: mode }),
+  setSelectedDeckId: (deckId) => set({ selectedDeckId: deckId }),
   loadQueue: async () => {
     set({ isLoading: true, error: null });
     try {
@@ -605,6 +615,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       lastUndoError: null,
       pendingReviewMetadata: null,
       reviewEventLog: [],
+      reviewTabMode: "home",
     });
     clearStoredSession();
   },

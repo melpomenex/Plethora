@@ -27,6 +27,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
+import { useReviewStore } from "../../stores/reviewStore";
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
 import { useConfirmDialog, ConfirmDialog } from "../common/ConfirmDialog";
@@ -58,10 +59,18 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   const toast = useToast();
   const confirmDialog = useConfirmDialog();
   const { decks, updateDeck, removeDeck, addDeck } = useStudyDeckStore();
+  const { selectedDeckId, setSelectedDeckId } = useReviewStore();
 
   const [allCards, setAllCards] = useState<LearningItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedDeckId, setExpandedDeckId] = useState<string | null>(null);
+  const [expandedDeckId, setExpandedDeckId] = useState<string | null>(selectedDeckId);
+
+  useEffect(() => {
+    if (selectedDeckId) {
+      setExpandedDeckId(selectedDeckId);
+      setSelectedDeckId(null);
+    }
+  }, [selectedDeckId, setSelectedDeckId]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
 
