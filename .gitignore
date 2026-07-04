@@ -75,6 +75,8 @@ Study/
 
 # Secrets
 yjs-sync/.env
+# yjs-sync relay is deployed separately; its lockfile is a local install artifact
+yjs-sync/package-lock.json
 
 # NotebookLM runtime (bundled Python + Playwright - too large for repo)
 src-tauri/bin/notebooklm-runtime/**/*

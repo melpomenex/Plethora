@@ -6,6 +6,7 @@ import type { WebsocketProvider } from "y-websocket";
 
 vi.mock("../yjs-file-service", () => ({
   downloadRoomFile: vi.fn().mockRejectedValue(new Error("not on file service")),
+  getSyncRoomId: vi.fn().mockReturnValue("test-room"),
 }));
 
 const DEVICE_ID_KEY = "incrementum_device_id";

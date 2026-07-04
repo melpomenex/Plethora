@@ -75,6 +75,7 @@ pub struct LearningItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum ItemType {
     Flashcard,
     Cloze,
@@ -83,6 +84,7 @@ pub enum ItemType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ItemState {
     New,
     Learning,
