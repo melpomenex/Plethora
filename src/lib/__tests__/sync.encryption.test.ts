@@ -5,6 +5,10 @@ import {
   deriveSubKeys,
   encryptState,
   decryptState,
+  encryptFile,
+  decryptFile,
+  encryptMetadata,
+  decryptMetadata,
   encryptChunk,
   decryptChunk,
   hmacManifest,
@@ -29,8 +33,18 @@ function toHex(bytes: Uint8Array): string {
 
 function randomBytes(n: number): Uint8Array {
   const b = new Uint8Array(n);
-  crypto.getRandomValues(b);
+  // crypto.getRandomValues has a 64 KiB cap per call; fill in chunks.
+  const CHUNK = 65536;
+  for (let i = 0; i < n; i += CHUNK) {
+    crypto.getRandomValues(b.subarray(i, Math.min(i + CHUNK, n)));
+  }
   return b;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
 }
 
 beforeEach(() => {
@@ -212,6 +226,110 @@ describe('chunk encryption (AES-GCM, random nonce per chunk)', () => {
     await expect(decryptChunk(ciphertext, wrongNonce, fileKey)).rejects.toBeInstanceOf(
       DecryptError,
     );
+  });
+});
+
+describe('file encryption (AES-GCM, random nonce, packed buffer)', () => {
+  it('round-trips: decryptFile(encryptFile(x)) === x', async () => {
+    const { fileKey } = await deriveKeys();
+    // A PDF-sized payload.
+    const sample = randomBytes(2 * 1024 * 1024);
+    const packed = await encryptFile(sample, fileKey);
+    const decrypted = await decryptFile(packed, fileKey);
+    expect(toHex(decrypted)).toBe(toHex(sample));
+  });
+
+  it('round-trips an empty file', async () => {
+    const { fileKey } = await deriveKeys();
+    const empty = new Uint8Array(0);
+    const packed = await encryptFile(empty, fileKey);
+    const decrypted = await decryptFile(packed, fileKey);
+    expect(decrypted.length).toBe(0);
+  });
+
+  it('uses a fresh random nonce per call (ciphertexts differ for same plaintext)', async () => {
+    const { fileKey } = await deriveKeys();
+    const sample = randomBytes(4096);
+    const a = await encryptFile(sample, fileKey);
+    const b = await encryptFile(sample, fileKey);
+    expect(toHex(a)).not.toBe(toHex(b));
+    // Both decrypt back to the original.
+    expect(toHex(await decryptFile(a, fileKey))).toBe(toHex(sample));
+    expect(toHex(await decryptFile(b, fileKey))).toBe(toHex(sample));
+  });
+
+  it('produces a packed buffer of length nonce(12) + plaintext + tag(16)', async () => {
+    const { fileKey } = await deriveKeys();
+    const sample = randomBytes(1000);
+    const packed = await encryptFile(sample, fileKey);
+    expect(packed.length).toBe(12 + 1000 + 16);
+  });
+
+  it('fails with DecryptError on a wrong key (cross-room)', async () => {
+    const keys1 = await deriveKeys('passphrase-A', 'room-A');
+    const keys2 = await deriveKeys('passphrase-B', 'room-B');
+    const sample = randomBytes(256);
+    const packed = await encryptFile(sample, keys1.fileKey);
+    await expect(decryptFile(packed, keys2.fileKey)).rejects.toBeInstanceOf(DecryptError);
+  });
+
+  it('fails with DecryptError on tampered ciphertext', async () => {
+    const { fileKey } = await deriveKeys();
+    const sample = randomBytes(256);
+    const packed = await encryptFile(sample, fileKey);
+    const tampered = packed.slice();
+    // Flip a byte in the ciphertext region (past the nonce).
+    tampered[tampered.length - 1] ^= 0x01;
+    await expect(decryptFile(tampered, fileKey)).rejects.toBeInstanceOf(DecryptError);
+  });
+
+  it('fails with DecryptError on tampered nonce', async () => {
+    const { fileKey } = await deriveKeys();
+    const sample = randomBytes(64);
+    const packed = await encryptFile(sample, fileKey);
+    const tampered = packed.slice();
+    tampered[0] ^= 0x80;
+    await expect(decryptFile(tampered, fileKey)).rejects.toBeInstanceOf(DecryptError);
+  });
+
+  it('fails with DecryptError on a payload too short to contain nonce+tag', async () => {
+    const { fileKey } = await deriveKeys();
+    await expect(decryptFile(new Uint8Array(10), fileKey)).rejects.toBeInstanceOf(DecryptError);
+  });
+});
+
+describe('metadata encryption (JSON-in-AES-GCM, base64 framing)', () => {
+  it('round-trips a metadata object', async () => {
+    const { fileKey } = await deriveKeys();
+    const meta = { filename: '私のメモ.pdf', contentType: 'application/pdf', sizeBytes: 12345 };
+    const packed = await encryptMetadata(meta, fileKey);
+    expect(typeof packed).toBe('string');
+    const recovered = (await decryptMetadata(packed, fileKey)) as typeof meta;
+    expect(recovered).toEqual(meta);
+  });
+
+  it('produces standard base64 (decodable by atob)', async () => {
+    const { fileKey } = await deriveKeys();
+    const packed = await encryptMetadata({ a: 1 }, fileKey);
+    // Should not throw — valid standard base64.
+    expect(() => atob(packed)).not.toThrow();
+  });
+
+  it('fails with DecryptError under a wrong key', async () => {
+    const keys1 = await deriveKeys('passphrase-A', 'room-A');
+    const keys2 = await deriveKeys('passphrase-B', 'room-B');
+    const packed = await encryptMetadata({ filename: 'x' }, keys1.fileKey);
+    await expect(decryptMetadata(packed, keys2.fileKey)).rejects.toBeInstanceOf(DecryptError);
+  });
+
+  it('fails with DecryptError on a tampered base64 blob', async () => {
+    const { fileKey } = await deriveKeys();
+    const packed = await encryptMetadata({ filename: 'x' }, fileKey);
+    // Decode, flip a byte, re-encode.
+    const bytes = Uint8Array.from(atob(packed), (c) => c.charCodeAt(0));
+    bytes[bytes.length - 1] ^= 0x01;
+    const tampered = bytesToBase64(bytes);
+    await expect(decryptMetadata(tampered, fileKey)).rejects.toBeInstanceOf(DecryptError);
   });
 });
 

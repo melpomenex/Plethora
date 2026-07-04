@@ -67,6 +67,13 @@ export async function registerImportedFileSync(
 
     // Hash the file on disk (Rust) — returns [sha256-hex, sizeBytes] without
     // ferrying the whole file over IPC.
+    //
+    // This is a plaintext-content hash. It is safe to store in the manifest
+    // because the manifest rides the Yjs state doc, which is itself E2EE
+    // (state sub-key) once a room key is set — so the relay and file-service
+    // never see it. We deliberately do NOT hash the ciphertext: a random
+    // per-upload nonce makes ciphertext hashes differ across devices/uploads,
+    // which would defeat the cross-device dedup that `findByHash` exists for.
     const [contentHash, sizeBytes] = await invokeCommand<[string, number]>(
       "hash_document_file",
       { filePath: doc.filePath },
