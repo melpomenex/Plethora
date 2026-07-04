@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.64.1] - 2026-07-04
+
+### Fixed & Improved
+
+- **Enabling encryption no longer crashes with a CSP violation** — Clicking "Enable encryption" ran Argon2id key derivation via `hash-wasm`, which compiles WebAssembly at runtime. The production Content Security Policy's `script-src` omitted `'wasm-unsafe-eval'`, so WASM instantiation was blocked and the entire enable-encryption flow threw. The CSP now permits `'wasm-unsafe-eval'` — the narrow modern directive that allows only WebAssembly compilation (it does not enable `eval()`).
+- **QR scanner camera works on first open** — The first time you opened the QR scanner it failed with "play() request was interrupted by pause()" and you had to close and reopen it; subsequent opens worked until app restart. The scanner effect's dependencies included `t` (a function with a new identity every render), so React re-ran the effect mid-mount, racing teardown against the in-flight camera startup and tearing down a video element that `play()` was still resolving against. Callbacks are now held in refs and the scanner is created exactly once on mount, with a cancellation guard so a close-during-startup cleans up cleanly instead of leaving a ghost.
+- **Sync settings now fully translated** — The encryption panel, status labels, file-sync section, and all toast/confirm messages in Settings → Sync were hardcoded English (including some keys that already existed in the dictionaries but were never wired to the component). Added 44 keys and translated everything across German, Spanish, Chinese, French, and Japanese.
+
 ## [1.64.0] - 2026-07-04
 
 ### Added
