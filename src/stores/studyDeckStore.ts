@@ -10,8 +10,15 @@ interface StudyDeckState {
   activeDeckIds: string[];
   toggleDeckSelection: (deckId: string | null) => void;
   clearDeckSelection: () => void;
-  addDeck: (name: string, tagFilters?: string[], documentId?: string) => void;
-  updateDeck: (deckId: string, updates: Partial<Pick<StudyDeck, "name" | "tagFilters">>) => void;
+  addDeck: (
+    name: string,
+    tagFilters?: string[],
+    documentId?: string,
+    filterType?: "all" | "tags" | "cram" | "difficulty",
+    difficultyFilters?: number[],
+    stateFilters?: string[]
+  ) => string;
+  updateDeck: (deckId: string, updates: Partial<StudyDeck>) => void;
   removeDeck: (deckId: string) => void;
   seedFromDocuments: (documents: Document[]) => void;
   ensureDecksExist: (deckNames: string[]) => string[];
@@ -37,14 +44,27 @@ export const useStudyDeckStore = create<StudyDeckState>()(
         set({ activeDeckIds: [] });
       },
 
-      addDeck: (name, tagFilters = [], documentId) => {
+      addDeck: (
+        name,
+        tagFilters = [],
+        documentId,
+        filterType = "all",
+        difficultyFilters = [],
+        stateFilters = []
+      ) => {
         const trimmed = name.trim() || "Untitled Deck";
-        // Dedup: if a deck with the same name already exists, just merge tags
+        // Dedup: if a deck with the same name already exists, just merge tags or update settings
         const existing = get().decks.find((d) => d.name.toLowerCase() === trimmed.toLowerCase());
         if (existing) {
           const mergedTags = normalizeTagList([...existing.tagFilters, ...(tagFilters || [])]);
-          get().updateDeck(existing.id, { tagFilters: mergedTags });
-          return;
+          get().updateDeck(existing.id, {
+            tagFilters: mergedTags,
+            ...(documentId && { documentId }),
+            filterType,
+            difficultyFilters,
+            stateFilters,
+          });
+          return existing.id;
         }
         const now = new Date().toISOString();
         const deck: StudyDeck = {
@@ -52,10 +72,14 @@ export const useStudyDeckStore = create<StudyDeckState>()(
           name: trimmed,
           tagFilters: normalizeTagList(tagFilters),
           ...(documentId && { documentId }),
+          filterType,
+          difficultyFilters,
+          stateFilters,
           createdAt: now,
           updatedAt: now,
         };
         set((state) => ({ decks: [...state.decks, deck] }));
+        return deck.id;
       },
 
       updateDeck: (deckId, updates) => {

@@ -29,27 +29,75 @@ export function matchesDeckTags(tags: string[], deck: StudyDeck | null): boolean
   return false;
 }
 
-export function matchesDeck<T extends { tags: string[]; document_id?: string }>(
-  item: T,
-  deck: StudyDeck | null
-): boolean {
+export function matchesDeck<
+  T extends {
+    tags: string[];
+    document_id?: string;
+    documentId?: string;
+    difficulty?: number;
+    state?: string;
+  }
+>(item: T, deck: StudyDeck | null): boolean {
   if (!deck) return true;
-  if (deck.documentId && item.document_id && deck.documentId !== item.document_id) return false;
-  return matchesDeckTags(item.tags, deck);
+
+  const itemDocId = item.document_id || item.documentId;
+
+  // 1. If deck is document-bound, filter by document
+  if (deck.documentId) {
+    if (!itemDocId || deck.documentId !== itemDocId) {
+      return false;
+    }
+  }
+
+  // 2. Filter by smart deck type
+  const filterType = deck.filterType || (deck.tagFilters && deck.tagFilters.length > 0 ? "tags" : "all");
+
+  if (filterType === "cram") {
+    const itemDueDate = (item as any).due_date || (item as any).dueDate;
+    const isDue = itemDueDate ? new Date(itemDueDate).getTime() <= Date.now() : true;
+    const itemState = item.state ? item.state.toLowerCase() : "";
+    const isNewOrLearning = itemState === "new" || itemState === "learning" || itemState === "relearning";
+    const lapses = (item as any).lapses || 0;
+    
+    if (!isDue && !isNewOrLearning && lapses === 0) {
+      return false;
+    }
+  } else if (filterType === "difficulty") {
+    if (deck.difficultyFilters && deck.difficultyFilters.length > 0) {
+      if (item.difficulty === undefined || !deck.difficultyFilters.includes(item.difficulty)) {
+        return false;
+      }
+    }
+  } else if (filterType === "tags") {
+    return matchesDeckTags(item.tags, deck);
+  }
+
+  // If filterType is "all", it belongs to the document (checked above) and has no tag restriction
+  return true;
 }
 
-export function filterByDeck<T extends { tags: string[]; document_id?: string }>(
-  items: T[],
-  deck: StudyDeck | null
-): T[] {
+export function filterByDeck<
+  T extends {
+    tags: string[];
+    document_id?: string;
+    documentId?: string;
+    difficulty?: number;
+    state?: string;
+  }
+>(items: T[], deck: StudyDeck | null): T[] {
   if (!deck) return items;
   return items.filter((item) => matchesDeck(item, deck));
 }
 
-export function filterByDecks<T extends { tags: string[]; document_id?: string }>(
-  items: T[],
-  decks: StudyDeck[]
-): T[] {
+export function filterByDecks<
+  T extends {
+    tags: string[];
+    document_id?: string;
+    documentId?: string;
+    difficulty?: number;
+    state?: string;
+  }
+>(items: T[], decks: StudyDeck[]): T[] {
   if (decks.length === 0) return items;
   return items.filter((item) => decks.some((deck) => matchesDeck(item, deck)));
 }

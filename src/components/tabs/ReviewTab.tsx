@@ -1,35 +1,39 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useReviewStore } from "../../stores/reviewStore";
 import { ReviewHome } from "../../components/review/ReviewHome";
 import { ReviewSession } from "../../components/review/ReviewSession";
 import { DeckManager } from "../../components/review/DeckManager";
 
-type Mode = "home" | "session" | "deck-manager";
-
 export function ReviewTab() {
-  const { loadQueue, resetSession, queue, currentCard } = useReviewStore();
-  const [mode, setMode] = useState<Mode>("home");
+  const {
+    loadQueue,
+    resetSession,
+    queue,
+    currentCard,
+    reviewTabMode,
+    setReviewTabMode
+  } = useReviewStore();
 
   const handleStartReview = async () => {
     await loadQueue();
-    const { queue } = useReviewStore.getState();
-    if (queue.length > 0) {
-      setMode("session");
+    const { queue: nextQueue } = useReviewStore.getState();
+    if (nextQueue.length > 0) {
+      setReviewTabMode("session");
     }
   };
 
   const handleExit = () => {
     resetSession();
-    setMode("home");
+    setReviewTabMode("home");
   };
 
   useEffect(() => {
     if (queue.length > 0 && currentCard) {
-      setMode("session");
-    } else if (queue.length === 0 && mode === "session") {
-      setMode("home");
+      setReviewTabMode("session");
+    } else if (queue.length === 0 && reviewTabMode === "session") {
+      setReviewTabMode("home");
     }
-  }, [queue.length, currentCard, mode]);
+  }, [queue.length, currentCard, reviewTabMode, setReviewTabMode]);
 
   useEffect(() => {
     return () => {
@@ -37,18 +41,18 @@ export function ReviewTab() {
     };
   }, [resetSession]);
 
-  if (mode === "session") {
+  if (reviewTabMode === "session") {
     return <ReviewSession onExit={handleExit} />;
   }
 
-  if (mode === "deck-manager") {
-    return <DeckManager onBack={() => setMode("home")} onStartReview={handleStartReview} />;
+  if (reviewTabMode === "deck-manager") {
+    return <DeckManager onBack={() => setReviewTabMode("home")} onStartReview={handleStartReview} />;
   }
 
   return (
     <ReviewHome
       onStartReview={handleStartReview}
-      onOpenDeckManager={() => setMode("deck-manager")}
+      onOpenDeckManager={() => setReviewTabMode("deck-manager")}
     />
   );
 }

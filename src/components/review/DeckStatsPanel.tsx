@@ -14,6 +14,7 @@ import {
 import type { LearningItem } from "../../api/learning-items";
 import type { StudyDeck } from "../../types/study-decks";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useDocumentStore } from "../../stores/documentStore";
 
 interface DeckStatsPanelProps {
   cards: LearningItem[];
@@ -206,6 +207,34 @@ export function DeckStatsPanel({
             <span className="text-muted-foreground">Name</span>
             <span className="font-medium">{deck.name}</span>
           </div>
+          {deck.documentId && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Document</span>
+              <span className="font-medium truncate max-w-[140px]" title={useDocumentStore.getState().documents.find((d) => d.id === deck.documentId)?.title || "Unknown Document"}>
+                {useDocumentStore.getState().documents.find((d) => d.id === deck.documentId)?.title || "Unknown Document"}
+              </span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Filter Type</span>
+            <span className="font-medium">
+              {deck.filterType === "all"
+                ? "All Document Cards"
+                : deck.filterType === "cram"
+                ? "Cram / Priority"
+                : deck.filterType === "difficulty"
+                ? "Difficulty Focused"
+                : "Tag-Filtered Cards"}
+            </span>
+          </div>
+          {deck.filterType === "difficulty" && deck.difficultyFilters && deck.difficultyFilters.length > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Difficulties</span>
+              <span className="font-medium">
+                {deck.difficultyFilters.map(d => `${d}/5`).join(", ")}
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Tags</span>
             <span className="text-xs text-foreground truncate max-w-[140px]" title={deck.tagFilters.join(", ")}>
