@@ -2702,6 +2702,69 @@ export const de: Dict = {
   "syncSettings.new": "Neu",
   "syncSettings.nextSync": "Nächster Sync:",
   "syncSettings.noSyncHistory": "Noch kein Sync-Verlauf",
+
+  // Gerätesynchronisation: Verschlüsselungs-Panel + Benachrichtigungen (Einstellungen → Sync).
+  "syncSettings.statusEncrypted": "Verschlüsselt",
+  "syncSettings.statusTlsOnly": "Nur TLS — nicht Ende-zu-Ende verschlüsselt",
+  "syncSettings.statusNotSyncing": "Nicht synchronisiert",
+  "syncSettings.e2eTitle": "Ende-zu-Ende-Verschlüsselung",
+  "syncSettings.e2eRoomSecret": "Raum-Geheimnis",
+  "syncSettings.e2eRoomSecretHidden": "Raum-Geheimnis (versteckt)",
+  "syncSettings.e2eSecretShareWarning":
+    "Teile dieses Geheimnis (oder den QR-Code oben) mit einem Gerät, dem du vertraust. Jeder, der es hat, kann deine synchronisierten Daten lesen.",
+  "syncSettings.e2eResetKey": "Schlüssel zurücksetzen",
+  "syncSettings.e2eDisable": "Deaktivieren",
+  "syncSettings.e2eShow": "Anzeigen",
+  "syncSettings.e2eHide": "Verbergen",
+  "syncSettings.e2eDisabledDesc":
+    "Deine synchronisierten Daten (Lesestatus, Karteikarten und hochgeladene Dateien) sind derzeit vom Relay-Server lesbar. Aktiviere einen Raum-Schlüssel, um dieses Gerät und deine hochgeladenen Dateien Ende-zu-Ende zu verschlüsseln, und teile das Geheimnis dann mit deinen anderen Geräten.",
+  "syncSettings.e2eEnable": "Verschlüsselung aktivieren",
+  "syncSettings.scanQrEncryptedDesc":
+    "Scannen, um mit Verschlüsselung beizutreten. Das Geheimnis ist in diesem Code eingebettet — halte es privat.",
+  "syncSettings.e2eFooterDesc":
+    "Deine Lesedaten werden über einen geteilten Raum synchronisiert. Halte deinen Sync-Code privat — jeder, der ihn hat, kann dieselben Daten synchronisieren. Wenn Verschlüsselung aktiviert ist, werden deine Daten auf deinem Gerät verschlüsselt, bevor sie es jemals verlassen.",
+  "syncSettings.appliedUrlMsg": "Sync-Server-URL angewendet: {url}",
+  "syncSettings.failedApplyUrlMsg": "Sync-Server-URL konnte nicht angewendet werden: {error}",
+  "syncSettings.copiedCodeMsg": "Sync-Code in die Zwischenablage kopiert.",
+  "syncSettings.failedCopyMsg": "Kopieren fehlgeschlagen. Du kannst ihn manuell auswählen und kopieren.",
+  "syncSettings.enterCodeMsg": "Gib einen Sync-Code ein, um beizutreten.",
+  "syncSettings.joinedEncryptedMsg": "Verschlüsseltem Raum beigetreten und verbunden.",
+  "syncSettings.failedJoinMsg": "Beitreten fehlgeschlagen: {error}",
+  "syncSettings.codeAppliedMsg": "Sync-Code angewendet und verbunden.",
+  "syncSettings.confirmNewCode":
+    "Neuen Sync-Code erstellen? Dadurch wird die Synchronisation mit Geräten auf dem alten Code gestoppt.",
+  "syncSettings.newCodeEncryptMsg":
+    "Neuer Sync-Code erstellt. Verschlüsselung erneut aktivieren und mit deinen Geräten teilen.",
+  "syncSettings.newCodeMsg": "Neuer Sync-Code erstellt. Teile ihn mit deinen anderen Geräten.",
+  "syncSettings.encryptionEnabledMsg":
+    "Verschlüsselung aktiviert und verbunden. Teile das Geheimnis unten (per QR oder Kopie) mit deinen anderen Geräten.",
+  "syncSettings.failedEnableEncryptionMsg": "Verschlüsselung konnte nicht aktiviert werden: {error}",
+  "syncSettings.confirmDisableEncryption":
+    "Verschlüsselung auf diesem Gerät deaktivieren? Die Synchronisation wird im Nur-TLS-Modus fortgesetzt.",
+  "syncSettings.encryptionDisabledMsg": "Verschlüsselung deaktiviert und verbunden.",
+  "syncSettings.failedDisableMsg": "Deaktivieren fehlgeschlagen: {error}",
+  "syncSettings.confirmResetKey":
+    "Neuen Verschlüsselungsschlüssel generieren? Du musst das neue Geheimnis mit jedem Gerät teilen, das diesen Raum synchronisiert.",
+  "syncSettings.keyResetMsg":
+    "Neuer Verschlüsselungsschlüssel generiert. Teile das Geheimnis unten mit deinen Geräten.",
+  "syncSettings.failedResetKeyMsg": "Schlüssel konnte nicht zurückgesetzt werden: {error}",
+  "syncSettings.secretCopiedMsg": "Verschlüsselungs-Geheimnis in die Zwischenablage kopiert.",
+  "syncSettings.failedCopySecretMsg": "Kopieren fehlgeschlagen. Wähle den Geheimnistext manuell aus.",
+  "syncSettings.invalidCodeMsg": "Ungültiger Sync-Code: {error}",
+  "syncSettings.fileSyncSectionDesc":
+    "Dateien, die an deine Dokumente angehängt sind, werden über denselben Raum zwischen deinen Geräten synchronisiert. Lege fest, wie aggressiv neue Dateien auf dieses Gerät geladen werden sollen.",
+  "syncSettings.autoDownloadAlwaysDesc":
+    "Dateien werden automatisch heruntergeladen, wenn sie von anderen Geräten angekündigt werden",
+  "syncSettings.autoDownloadWifiDesc":
+    "Dateien warten auf WLAN, bevor sie auf Mobilgeräten heruntergeladen werden",
+  "syncSettings.autoDownloadManualDesc":
+    "Dateien erscheinen mit einer Download-Schaltfläche — du wählst, was heruntergeladen wird",
+  "syncSettings.syncNotActiveHint":
+    "Synchronisation ist noch nicht aktiv. Für dieses Gerät wurde ein Sync-Code generiert — teile ihn mit deinen anderen Geräten (oder scanne deren Code), um die Synchronisation zu starten.",
+  "syncSettings.pasteCodePlaceholder": "Sync-Code einfügen...",
+  "syncSettings.applyUrlBtn": "Anwenden",
+  "syncSettings.endpointHint":
+    "Freilassen, um den Standardserver (wss://sync.readsync.org) zu verwenden. Wenn du einen selbst gehosteten yjs-sync-Server verwendest, gib deinen WebSocket-Endpunkt an.",
   "syncSettings.quickSettings": "Schnelleinstellungen",
   "syncSettings.reloadAfterJoin":
     "Nach dem Beitreten zu einem Code, lade die App auf diesem Gerät neu.",

@@ -2698,6 +2698,69 @@ export const es: Dict = {
   "syncSettings.new": "Nuevo",
   "syncSettings.nextSync": "Próxima sincronización:",
   "syncSettings.noSyncHistory": "Aún no hay historial de sincronización",
+
+  // Panel de cifrado de sincronización entre dispositivos + notificaciones (Ajustes → Sync).
+  "syncSettings.statusEncrypted": "Cifrado",
+  "syncSettings.statusTlsOnly": "Solo TLS — no cifrado de extremo a extremo",
+  "syncSettings.statusNotSyncing": "No sincronizando",
+  "syncSettings.e2eTitle": "Cifrado de extremo a extremo",
+  "syncSettings.e2eRoomSecret": "Secreto de sala",
+  "syncSettings.e2eRoomSecretHidden": "Secreto de sala (oculto)",
+  "syncSettings.e2eSecretShareWarning":
+    "Comparte este secreto (o el código QR de arriba) con un dispositivo de confianza. Cualquiera que lo tenga puede leer tus datos sincronizados.",
+  "syncSettings.e2eResetKey": "Restablecer clave",
+  "syncSettings.e2eDisable": "Desactivar",
+  "syncSettings.e2eShow": "Mostrar",
+  "syncSettings.e2eHide": "Ocultar",
+  "syncSettings.e2eDisabledDesc":
+    "Tus datos sincronizados (estado de lectura, tarjetas y archivos subidos) son actualmente legibles por el servidor relay. Activa una clave de sala para cifrar de extremo a extremo este dispositivo y tus archivos subidos, luego comparte el secreto con tus otros dispositivos.",
+  "syncSettings.e2eEnable": "Activar cifrado",
+  "syncSettings.scanQrEncryptedDesc":
+    "Escanea para unirte con cifrado. El secreto está integrado en este código — manténlo privado.",
+  "syncSettings.e2eFooterDesc":
+    "Tus datos de lectura se sincronizan en una sala compartida. Mantén tu código de sincronización privado — cualquiera que lo tenga puede sincronizar los mismos datos. Cuando el cifrado está activado, tus datos se cifran en tu dispositivo antes de salir.",
+  "syncSettings.appliedUrlMsg": "URL del servidor de sincronización aplicada: {url}",
+  "syncSettings.failedApplyUrlMsg": "No se pudo aplicar la URL del servidor de sincronización: {error}",
+  "syncSettings.copiedCodeMsg": "Código de sincronización copiado al portapapeles.",
+  "syncSettings.failedCopyMsg": "Error al copiar. Aún puedes seleccionarlo y copiarlo manualmente.",
+  "syncSettings.enterCodeMsg": "Introduce un código de sincronización para unirte.",
+  "syncSettings.joinedEncryptedMsg": "Sala cifrada unida y conectada.",
+  "syncSettings.failedJoinMsg": "Error al unirse: {error}",
+  "syncSettings.codeAppliedMsg": "Código de sincronización aplicado y conectado.",
+  "syncSettings.confirmNewCode":
+    "¿Crear un nuevo código de sincronización? Esto detendrá la sincronización con los dispositivos que usan el código anterior.",
+  "syncSettings.newCodeEncryptMsg":
+    "Nuevo código de sincronización creado. Reactiva el cifrado y compártelo con tus dispositivos.",
+  "syncSettings.newCodeMsg": "Nuevo código de sincronización creado. Compártelo con tus otros dispositivos.",
+  "syncSettings.encryptionEnabledMsg":
+    "Cifrado activado y conectado. Comparte el secreto de abajo (vía QR o copia) con tus otros dispositivos.",
+  "syncSettings.failedEnableEncryptionMsg": "No se pudo activar el cifrado: {error}",
+  "syncSettings.confirmDisableEncryption":
+    "¿Desactivar el cifrado en este dispositivo? La sincronización continuará en modo solo TLS.",
+  "syncSettings.encryptionDisabledMsg": "Cifrado desactivado y conectado.",
+  "syncSettings.failedDisableMsg": "Error al desactivar: {error}",
+  "syncSettings.confirmResetKey":
+    "¿Generar una nueva clave de cifrado? Tendrás que compartir el nuevo secreto con cada dispositivo que sincronice esta sala.",
+  "syncSettings.keyResetMsg":
+    "Nueva clave de cifrado generada. Comparte el secreto de abajo con tus dispositivos.",
+  "syncSettings.failedResetKeyMsg": "No se pudo restablecer la clave: {error}",
+  "syncSettings.secretCopiedMsg": "Secreto de cifrado copiado al portapapeles.",
+  "syncSettings.failedCopySecretMsg": "Error al copiar. Selecciona el texto del secreto manualmente.",
+  "syncSettings.invalidCodeMsg": "Código de sincronización no válido: {error}",
+  "syncSettings.fileSyncSectionDesc":
+    "Los archivos adjuntos a tus documentos se sincronizan entre tus dispositivos a través de la misma sala. Configura la aggressividad con la que los nuevos archivos se descargan en este dispositivo.",
+  "syncSettings.autoDownloadAlwaysDesc":
+    "Los archivos se descargarán automáticamente cuando sean anunciados por otros dispositivos",
+  "syncSettings.autoDownloadWifiDesc":
+    "Los archivos esperarán al WiFi antes de descargarse en el móvil",
+  "syncSettings.autoDownloadManualDesc":
+    "Los archivos aparecerán con un botón de descarga — tú eliges qué descargar",
+  "syncSettings.syncNotActiveHint":
+    "La sincronización aún no está activa. Se ha generado un código de sincronización para este dispositivo — compártelo con tus otros dispositivos (o escanea su código) para empezar a sincronizar.",
+  "syncSettings.pasteCodePlaceholder": "Pegar código de sincronización...",
+  "syncSettings.applyUrlBtn": "Aplicar",
+  "syncSettings.endpointHint":
+    "Déjalo en blanco para usar el servidor predeterminado (wss://sync.readsync.org). Si usas un servidor yjs-sync autoalojado, especifica tu endpoint WebSocket.",
   "syncSettings.quickSettings": "Ajustes rápidos",
   "syncSettings.reloadAfterJoin":
     "Después de unirte a un código, recarga la app en este dispositivo.",

@@ -2851,6 +2851,67 @@ export const en: Dict = {
   "syncSettings.syncLog": "Sync Log",
   "syncSettings.noSyncHistory": "No sync history yet",
 
+  // Device-sync encryption panel + toasts (Settings → Sync).
+  "syncSettings.statusEncrypted": "Encrypted",
+  "syncSettings.statusTlsOnly": "TLS only — not end-to-end encrypted",
+  "syncSettings.statusNotSyncing": "Not syncing",
+  "syncSettings.e2eTitle": "End-to-end encryption",
+  "syncSettings.e2eRoomSecret": "Room secret",
+  "syncSettings.e2eRoomSecretHidden": "Room secret (hidden)",
+  "syncSettings.e2eSecretShareWarning":
+    "Share this secret (or the QR above) with a device you trust. Anyone with it can read your synced data.",
+  "syncSettings.e2eResetKey": "Reset key",
+  "syncSettings.e2eDisable": "Disable",
+  "syncSettings.e2eShow": "Show",
+  "syncSettings.e2eHide": "Hide",
+  "syncSettings.e2eDisabledDesc":
+    "Your synced data (reading state, flashcards, and uploaded files) is currently readable by the relay server. Enable a room key to end-to-end-encrypt this device and your uploaded files, then share the secret with your other devices.",
+  "syncSettings.e2eEnable": "Enable encryption",
+  "syncSettings.scanQrEncryptedDesc":
+    "Scan to join with encryption. The secret is embedded in this code — keep it private.",
+  "syncSettings.e2eFooterDesc":
+    "Your reading data is synced over a shared room. Keep your sync code private — anyone with it can sync the same data. When encryption is enabled, your data is encrypted on your device before it ever leaves.",
+  "syncSettings.appliedUrlMsg": "Applied sync server URL: {url}",
+  "syncSettings.failedApplyUrlMsg": "Failed to apply sync server URL: {error}",
+  "syncSettings.copiedCodeMsg": "Copied sync code to clipboard.",
+  "syncSettings.failedCopyMsg": "Failed to copy. You can still select and copy it manually.",
+  "syncSettings.enterCodeMsg": "Enter a sync code to join.",
+  "syncSettings.joinedEncryptedMsg": "Joined encrypted room and connected.",
+  "syncSettings.failedJoinMsg": "Failed to join: {error}",
+  "syncSettings.codeAppliedMsg": "Sync code applied and connected.",
+  "syncSettings.confirmNewCode":
+    "Create a new sync code? This will stop syncing with devices on the old code.",
+  "syncSettings.newCodeEncryptMsg":
+    "New sync code created. Re-enable encryption and share with your devices.",
+  "syncSettings.newCodeMsg": "New sync code created. Share it with your other devices.",
+  "syncSettings.encryptionEnabledMsg":
+    "Encryption enabled and connected. Share the secret below (via QR or copy) with your other devices.",
+  "syncSettings.failedEnableEncryptionMsg": "Failed to enable encryption: {error}",
+  "syncSettings.confirmDisableEncryption":
+    "Disable encryption on this device? Sync will continue in TLS-only mode.",
+  "syncSettings.encryptionDisabledMsg": "Encryption disabled and connected.",
+  "syncSettings.failedDisableMsg": "Failed to disable: {error}",
+  "syncSettings.confirmResetKey":
+    "Generate a new encryption key? You'll need to share the new secret with every device that syncs this room.",
+  "syncSettings.keyResetMsg": "New encryption key generated. Share the secret below with your devices.",
+  "syncSettings.failedResetKeyMsg": "Failed to reset key: {error}",
+  "syncSettings.secretCopiedMsg": "Encryption secret copied to clipboard.",
+  "syncSettings.failedCopySecretMsg": "Failed to copy. Select the secret text manually.",
+  "syncSettings.invalidCodeMsg": "Invalid sync code: {error}",
+  "syncSettings.fileSyncSectionDesc":
+    "Files attached to your documents sync across your devices through the same room. Set how aggressively new files should be pulled onto this device.",
+  "syncSettings.autoDownloadAlwaysDesc":
+    "Files will be downloaded automatically when announced by other devices",
+  "syncSettings.autoDownloadWifiDesc": "Files will wait for WiFi before downloading on mobile",
+  "syncSettings.autoDownloadManualDesc":
+    "Files will appear with a download button - you choose what to download",
+  "syncSettings.syncNotActiveHint":
+    "Sync is not active yet. A sync code has been generated for this device — share it with your other devices (or scan their code) to start syncing.",
+  "syncSettings.pasteCodePlaceholder": "Paste sync code...",
+  "syncSettings.applyUrlBtn": "Apply",
+  "syncSettings.endpointHint":
+    "Leave blank to use the default server (wss://sync.readsync.org). If using a self-hosted yjs-sync server, specify your websocket endpoint.",
+
   "ttsSettings.title": "Text To Speech",
   "ttsSettings.desc": "Provider-backed speech generation with built-in and custom voices.",
   "ttsSettings.provider": "Provider",
