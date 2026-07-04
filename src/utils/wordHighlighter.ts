@@ -7,6 +7,17 @@ interface HighlightRange {
   endOffset: number;
 }
 
+interface IndexedTextChar {
+  node: Text;
+  offset: number;
+  normalizedIndex: number;
+}
+
+interface IndexedText {
+  chars: IndexedTextChar[];
+  normalizedText: string;
+}
+
 export class WordHighlighter {
   private container: HTMLElement | null = null;
   private enabled = false;
@@ -188,7 +199,9 @@ export class WordHighlighter {
         const parentDoc = win.parent.document;
         const docScroll = parentDoc.querySelector("[data-document-scroll-container]");
         if (docScroll) return docScroll as HTMLElement;
-      } catch {}
+      } catch {
+        // Ignore inaccessible parent frames.
+      }
     }
 
     return null;
@@ -249,44 +262,89 @@ export class WordHighlighter {
       }
     }
 
-    const fullText = textNodes.map((n) => n.textContent || "").join("");
-    const searchStart = this.findRelevantOffset(fullText, searchText);
+    const indexedText = this.buildIndexedText(textNodes);
+    const normalizedSearchText = this.normalizeForMatch(searchText);
+    const normalizedStartChar = this.normalizePrefixForOffset(searchText.slice(0, startChar)).length;
+    const normalizedEndChar = this.normalizePrefixForOffset(searchText.slice(0, endChar)).length;
+    const searchStart = this.findRelevantOffset(indexedText.normalizedText, normalizedSearchText);
     if (searchStart < 0) return [];
 
-    const targetStart = searchStart + startChar;
-    const targetEnd = searchStart + Math.min(endChar, searchText.length);
+    const targetStart = searchStart + normalizedStartChar;
+    const targetEnd = searchStart + Math.min(normalizedEndChar, normalizedSearchText.length);
+    const matchingChars = indexedText.chars.filter(
+      (entry) => entry.normalizedIndex >= targetStart && entry.normalizedIndex < targetEnd
+    );
+    if (matchingChars.length === 0) return [];
 
-    const ranges: HighlightRange[] = [];
-    let accumulated = 0;
-
-    for (const textNode of textNodes) {
-      const nodeText = textNode.textContent || "";
-      const nodeStart = accumulated;
-      const nodeEnd = accumulated + nodeText.length;
-
-      if (nodeEnd > targetStart && nodeStart < targetEnd) {
-        ranges.push({
-          node: textNode,
-          startOffset: Math.max(0, targetStart - nodeStart),
-          endOffset: Math.min(nodeText.length, targetEnd - nodeStart),
-        });
+    const rangesByNode = new Map<Text, { startOffset: number; endOffset: number }>();
+    for (const entry of matchingChars) {
+      const existing = rangesByNode.get(entry.node);
+      if (!existing) {
+        rangesByNode.set(entry.node, { startOffset: entry.offset, endOffset: entry.offset + 1 });
+      } else {
+        existing.startOffset = Math.min(existing.startOffset, entry.offset);
+        existing.endOffset = Math.max(existing.endOffset, entry.offset + 1);
       }
-
-      accumulated = nodeEnd;
-      if (accumulated >= targetEnd) break;
     }
 
-    return ranges;
+    return Array.from(rangesByNode.entries()).map(([node, range]) => ({
+      node,
+      startOffset: range.startOffset,
+      endOffset: range.endOffset,
+    }));
   }
 
   private findRelevantOffset(fullText: string, searchText: string): number {
-    const idx = fullText.indexOf(searchText);
+    const normalizedSearch = this.normalizeForMatch(searchText);
+    const idx = fullText.indexOf(normalizedSearch);
     if (idx >= 0) return idx;
 
-    const searchTrimmed = searchText.replace(/\s+/g, " ").trim();
-    const firstWord = searchTrimmed.split(/\s+/)[0];
+    const firstSentence = normalizedSearch.match(/^[^.!?]+[.!?]?/)?.[0]?.trim();
+    if (firstSentence && firstSentence.length >= 16) {
+      const sentenceIdx = fullText.indexOf(firstSentence);
+      if (sentenceIdx >= 0) return sentenceIdx;
+    }
+
+    const firstWord = normalizedSearch.split(/\s+/)[0];
     if (!firstWord) return -1;
     return fullText.indexOf(firstWord);
+  }
+
+  private normalizeForMatch(value: string): string {
+    return value.replace(/\s+/g, " ").trim();
+  }
+
+  private normalizePrefixForOffset(value: string): string {
+    return value.replace(/\s+/g, " ").replace(/^ /, "");
+  }
+
+  private buildIndexedText(textNodes: Text[]): IndexedText {
+    const chars: IndexedTextChar[] = [];
+    let normalizedText = "";
+    let pendingSpace: IndexedTextChar | null = null;
+
+    for (const node of textNodes) {
+      const value = node.textContent || "";
+      for (let offset = 0; offset < value.length; offset++) {
+        const char = value[offset];
+        if (/\s/.test(char)) {
+          pendingSpace = { node, offset, normalizedIndex: normalizedText.length };
+          continue;
+        }
+
+        if (pendingSpace && normalizedText.length > 0) {
+          pendingSpace.normalizedIndex = normalizedText.length;
+          chars.push(pendingSpace);
+          normalizedText += " ";
+        }
+
+        chars.push({ node, offset, normalizedIndex: normalizedText.length });
+        normalizedText += char;
+        pendingSpace = null;
+      }
+    }
+
+    return { chars, normalizedText: normalizedText.trim() };
   }
 
   private applyHighlights(ranges: HighlightRange[], className: string): void {
@@ -313,13 +371,11 @@ export class WordHighlighter {
         if (after) fragment.appendChild(doc.createTextNode(after));
 
         parent.replaceChild(fragment, textNode);
-        parent.normalize();
 
         if (!scrolled) {
           const scrollContainer = this.findScrollableContainer(span);
           if (scrollContainer) {
             const spanRect = span.getBoundingClientRect();
-            const containerRect = scrollContainer.getBoundingClientRect();
             const containerHeight = scrollContainer.clientHeight || (doc.defaultView || window).innerHeight;
             const spanHeight = spanRect.height || 20;
 
