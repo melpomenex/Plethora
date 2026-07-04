@@ -249,7 +249,6 @@ export function ReaderTTSControls({
   const advancingRef = useRef(false);
 
   // Word highlighting
-  const [highlightOn, setHighlightOn] = useState(false);
   const [wordOffset, setWordOffset] = useState(0);
   const rafRef = useRef<number | null>(null);
 
@@ -352,7 +351,7 @@ export function ReaderTTSControls({
                 visibleElements.push(el);
               }
             }
-          } catch (e) {
+          } catch {
             // Ignore iframe cross-origin access issues
           }
         }
@@ -976,7 +975,6 @@ export function ReaderTTSControls({
 
           <button
             onClick={() => {
-              setHighlightOn(!highlightOn);
               onHighlightToggle?.();
             }}
             className={cn(

@@ -446,7 +446,6 @@ export function DocumentViewer({
   const [epubAdvanceSignal, setEpubAdvanceSignal] = useState(0);
 
   // Word highlighting state
-  const [ttsChunkText, setTtsChunkText] = useState("");
   const [wordHighlightEnabled, setWordHighlightEnabled] = useState(false);
   const [epubIframeWindow, setEpubIframeWindow] = useState<Window | null>(null);
   // Mirror epubIframeWindow into a ref so imperative handlers (e.g.
@@ -3432,10 +3431,6 @@ export function DocumentViewer({
     }, 100);
   }, [docType]);
 
-  const handleTTSChunkStart = useCallback((_chunkIndex: number, text: string) => {
-    setTtsChunkText(text);
-  }, []);
-
   useEffect(() => {
     if (docType === "pdf" || docType === "epub") return;
     if (docType === "markdown") {
@@ -5894,8 +5889,6 @@ export function DocumentViewer({
             highlightQuery={jumpHighlightQuery}
             highlightPageNumber={initialJump?.kind === "pdf" ? initialJump.pageNumber : undefined}
             highlightTextQuote={jumpTextQuote}
-            ttsQuery={ttsChunkText}
-            ttsHighlightEnabled={wordHighlightEnabled}
           />
           )
         ) : docType === "epub" && (fileData || epubUrl) ? (
@@ -6434,7 +6427,6 @@ export function DocumentViewer({
                   : null,
             }}
             onChunkChange={handleTTSChunkChange}
-            onChunkStart={handleTTSChunkStart}
             highlightEnabled={wordHighlightEnabled}
             onHighlightToggle={() => setWordHighlightEnabled((v) => !v)}
             highlightContainerRef={highlightContainerRef}
