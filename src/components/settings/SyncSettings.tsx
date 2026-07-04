@@ -201,7 +201,13 @@ export function SyncSettings() {
         } catch (err) {
           console.warn("[SyncSettings] subsystems start failed before room join", err);
         }
-        await rejoinRoom(parsed.roomId);
+        // forceProviderRebuild: the user may already be on this room (e.g.
+        // joining an encrypted room whose ID matches the current plaintext
+        // room). Without this, rejoinRoom short-circuits at the same-room
+        // check and the just-cached secret never takes effect — the live
+        // provider keeps running plaintext. Mirrors the handleEnableEncryption
+        // fix for the scan/paste-join path.
+        await rejoinRoom(parsed.roomId, { forceProviderRebuild: true });
         setRoomMessage(t("syncSettings.joinedEncryptedMsg"));
         return { ok: true };
       } catch (err) {
