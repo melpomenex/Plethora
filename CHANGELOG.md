@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.63.1] - 2026-07-04
+
+### Fixed & Improved
+
+- **Synced flashcards now arrive correctly on the receiving device** — The Rust `ItemType` / `ItemState` enums had no `#[serde(rename_all)]`, so serde expected PascalCase variant names (`Flashcard`) while the sync publisher and local SQLite used lowercase (`flashcard`). Every `upsert_synced_learning_item` call from cross-device replication failed with `unknown variant`. Both enums now use `#[serde(rename_all = "lowercase")]`, matching the wire format the publisher sends and the format already used throughout the SQLite layer.
+- **Mobile sync subsystems now actually initialize** — The previous mobile gate (`shouldAutoStartHeavySync = !isNativeMobile()`) blocked the entire Yjs sync boot chain on native mobile to avoid a boot-time OOM, but the reintroduction as an explicit user action never landed — so flashcards, documents, RSS, and podcasts never replicated to or from the phone. The boot chain is now extracted into an idempotent `startSyncSubsystems()` that desktop runs eagerly at launch and mobile defers past first paint via `requestIdleCallback` (with a `setTimeout` fallback). The SyncSettings real-time-sync toggle and room-join flow also start the chain immediately on a first-time enable, so turning sync on brings up the replication observers before the provider connects.
+- **Review answers no longer truncated off-screen on mobile** — The "Show Answer" view used `flex items-center` inside a bounded scroll container, which is a classic flexbox centering gotcha: when the answer exceeded the viewport height, vertical centering pushed the top of the content above the scroll origin where it was unreachable. Mobile now uses `flex-none overflow-visible` + `justify-start` so long answers flow naturally and scroll from the top, while desktop retains the centered layout.
+- **Pre-existing test failures fixed** — `SyncSettings.join.test.tsx` crashed on render because its mocked settings store omitted the `yjs` field; `fileTransfer.manager.test.ts` read the inbound transfer record synchronously after a now-async file-service probe that hadn't settled. Both are fixed, bringing the full suite green (886 passing, 1 skipped).
+
 ## [1.63.0] - 2026-07-02
 
 ### Added
