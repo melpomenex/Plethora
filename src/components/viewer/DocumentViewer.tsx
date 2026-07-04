@@ -872,12 +872,32 @@ export function DocumentViewer({
   }, [activeExtractSelection, toast]);
 
   const { extracts, loadExtracts } = useExtractStore();
-  
+
   useEffect(() => {
     if (currentDocument?.id) {
       loadExtracts(currentDocument.id);
     }
   }, [currentDocument?.id, loadExtracts]);
+
+  // Cross-device sync: when an extract arrives from another device, reload this
+  // document's extracts so the minimap / highlights / extract count update live
+  // without a manual navigation. The store also self-refreshes, but this ensures
+  // the *current* document's extracts are reloaded even if the store's last
+  // loaded document differed.
+  const currentDocumentIdRef = useRef<string | undefined>(currentDocument?.id);
+  currentDocumentIdRef.current = currentDocument?.id;
+  useEffect(() => {
+    const handler = () => {
+      const docId = currentDocumentIdRef.current;
+      if (docId) loadExtracts(docId);
+    };
+    window.addEventListener("incrementum:synced-extract", handler);
+    window.addEventListener("incrementum:synced-extract-deleted", handler);
+    return () => {
+      window.removeEventListener("incrementum:synced-extract", handler);
+      window.removeEventListener("incrementum:synced-extract-deleted", handler);
+    };
+  }, [loadExtracts]);
   
   const minimapSegments: MinimapSegment[] = useMemo(() => {
     const segments: MinimapSegment[] = [];

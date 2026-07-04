@@ -6,7 +6,16 @@ export async function createCollection(
   icon?: string,
   color?: string
 ): Promise<Collection> {
-  return await invoke<Collection>('create_collection', { name, icon, color });
+  const res = await invoke<Collection>('create_collection', { name, icon, color });
+  void (async () => {
+    try {
+      const { publishCollection } = await import("../lib/sync/entities/collections");
+      await publishCollection(res);
+    } catch (e) {
+      console.warn("Failed to publish collection creation", e);
+    }
+  })();
+  return res;
 }
 
 export async function getCollections(): Promise<Collection[]> {
@@ -23,11 +32,29 @@ export async function updateCollection(
   icon?: string,
   color?: string
 ): Promise<Collection> {
-  return await invoke<Collection>('update_collection', { id, name, icon, color });
+  const res = await invoke<Collection>('update_collection', { id, name, icon, color });
+  void (async () => {
+    try {
+      const { publishCollection } = await import("../lib/sync/entities/collections");
+      await publishCollection(res);
+    } catch (e) {
+      console.warn("Failed to publish collection update", e);
+    }
+  })();
+  return res;
 }
 
 export async function deleteCollection(id: string): Promise<void> {
-  return await invoke('delete_collection', { id });
+  const res = await invoke<void>('delete_collection', { id });
+  void (async () => {
+    try {
+      const { publishCollectionDeleted } = await import("../lib/sync/entities/collections");
+      await publishCollectionDeleted(id);
+    } catch (e) {
+      console.warn("Failed to publish collection deletion", e);
+    }
+  })();
+  return res;
 }
 
 export async function getActiveCollection(): Promise<string> {

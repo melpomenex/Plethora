@@ -1812,6 +1812,96 @@ pub const MIGRATIONS: &[Migration] = &[
             WHERE updated_at IS NULL;
         "#,
     ),
+    Migration::new(
+        "054_dedupe_podcast_episodes",
+        r#"
+        -- One-time cleanup of podcast episode rows that were duplicated by the
+        -- cross-device sync bug fixed alongside this migration. The receiver
+        -- used to trust each device's random episode id, so the same logical
+        -- episode arrived N times (once per publishing device) and created N
+        -- rows. upsert_synced_podcast_episode now resolves the canonical row
+        -- by (feed_id, guid) [or (feed_id, audio_url) when guid is missing],
+        -- but existing installs already carry the duplicates — this collapses
+        -- them.
+        --
+        -- Strategy per (feed_id, guid) [guid non-null] and per (feed_id,
+        -- audio_url) [guid null]: pick a single keeper (the oldest row, which
+        -- holds the longest playback/played history), fold the best state from
+        -- every duplicate into it, repoint transcript segments, then drop the
+        -- rest. Played wins if any copy is played; the latest non-null
+        -- played_at/position clock + the max playback_position survive.
+
+        -- guid-bearing episodes: pick the keeper (lowest rowid = oldest insert).
+        CREATE TEMP TABLE _ep_dedupe_guid AS
+        SELECT keeper_id, dupe_id FROM (
+            SELECT
+                (SELECT id FROM podcast_episodes e2
+                   WHERE e2.feed_id = e.feed_id AND e2.guid = e.guid AND e.guid IS NOT NULL AND e.guid != ''
+                   ORDER BY rowid ASC LIMIT 1) AS keeper_id,
+                e.id AS dupe_id
+            FROM podcast_episodes e
+            WHERE e.guid IS NOT NULL AND e.guid != ''
+        ) WHERE keeper_id IS NOT NULL AND dupe_id IS NOT NULL AND keeper_id != dupe_id;
+
+        -- NULL/empty-guid episodes: dedupe by (feed_id, audio_url).
+        CREATE TEMP TABLE _ep_dedupe_url AS
+        SELECT keeper_id, dupe_id FROM (
+            SELECT
+                (SELECT id FROM podcast_episodes e2
+                   WHERE e2.feed_id = e.feed_id AND e2.audio_url = e.audio_url
+                     AND (e2.guid IS NULL OR e2.guid = '')
+                   ORDER BY rowid ASC LIMIT 1) AS keeper_id,
+                e.id AS dupe_id
+            FROM podcast_episodes e
+            WHERE e.guid IS NULL OR e.guid = ''
+        ) WHERE keeper_id IS NOT NULL AND dupe_id IS NOT NULL AND keeper_id != dupe_id;
+
+        -- Fold the most-progressed playback state from each dupe onto its
+        -- keeper. Played wins if ANY copy is played; position takes the max;
+        -- clocks take the latest non-null.
+        UPDATE podcast_episodes
+        SET played = 1
+        WHERE id IN (SELECT keeper_id FROM _ep_dedupe_guid)
+          AND EXISTS (SELECT 1 FROM _ep_dedupe_guid d
+                      JOIN podcast_episodes dupe ON dupe.id = d.dupe_id
+                      WHERE d.keeper_id = podcast_episodes.id AND dupe.played = 1);
+        UPDATE podcast_episodes
+        SET played = 1
+        WHERE id IN (SELECT keeper_id FROM _ep_dedupe_url)
+          AND EXISTS (SELECT 1 FROM _ep_dedupe_url d
+                      JOIN podcast_episodes dupe ON dupe.id = d.dupe_id
+                      WHERE d.keeper_id = podcast_episodes.id AND dupe.played = 1);
+
+        UPDATE podcast_episodes
+        SET playback_position = (
+                SELECT MAX(dupe.playback_position) FROM _ep_dedupe_guid d
+                JOIN podcast_episodes dupe ON dupe.id = d.dupe_id
+                WHERE d.keeper_id = podcast_episodes.id
+            )
+        WHERE id IN (SELECT keeper_id FROM _ep_dedupe_guid);
+        UPDATE podcast_episodes
+        SET playback_position = (
+                SELECT MAX(dupe.playback_position) FROM _ep_dedupe_url d
+                JOIN podcast_episodes dupe ON dupe.id = d.dupe_id
+                WHERE d.keeper_id = podcast_episodes.id
+            )
+        WHERE id IN (SELECT keeper_id FROM _ep_dedupe_url);
+
+        -- Repoint transcript segments onto the keeper, then delete the dupes.
+        UPDATE podcast_transcript_segments
+        SET episode_id = (SELECT keeper_id FROM _ep_dedupe_guid WHERE dupe_id = podcast_transcript_segments.episode_id)
+        WHERE episode_id IN (SELECT dupe_id FROM _ep_dedupe_guid);
+        UPDATE podcast_transcript_segments
+        SET episode_id = (SELECT keeper_id FROM _ep_dedupe_url WHERE dupe_id = podcast_transcript_segments.episode_id)
+        WHERE episode_id IN (SELECT dupe_id FROM _ep_dedupe_url);
+
+        DELETE FROM podcast_episodes WHERE id IN (SELECT dupe_id FROM _ep_dedupe_guid);
+        DELETE FROM podcast_episodes WHERE id IN (SELECT dupe_id FROM _ep_dedupe_url);
+
+        DROP TABLE _ep_dedupe_guid;
+        DROP TABLE _ep_dedupe_url;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

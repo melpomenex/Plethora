@@ -27,6 +27,9 @@ const mocks = vi.hoisted(() => {
     ensureFileSyncReady: record("ensureFileSyncReady"),
     startAutoFileSyncDownload: record("startAutoFileSyncDownload"),
     ensureDocumentReplicationReady: record("ensureDocumentReplicationReady"),
+    ensureCollectionSyncReady: record("ensureCollectionSyncReady"),
+    ensureExtractSyncReady: record("ensureExtractSyncReady"),
+    ensureConversationSyncReady: record("ensureConversationSyncReady"),
     ensureFlashcardSyncReady: record("ensureFlashcardSyncReady"),
     ensureRssSyncReady: record("ensureRssSyncReady"),
     ensurePodcastSyncReady: record("ensurePodcastSyncReady"),
@@ -36,13 +39,25 @@ const mocks = vi.hoisted(() => {
 
 // Each entity module is mocked to surface its ensure/start function. The
 // dynamic imports inside startSyncSubsystems resolve to these.
-vi.mock("../yjsSync", () => ({ getYjsSync: mocks.getYjsSync }));
+vi.mock("../yjsSync", () => ({
+  getYjsSync: mocks.getYjsSync,
+  registerRoomChangeListener: vi.fn(() => () => {}),
+}));
 vi.mock("../useFileSync", () => ({ ensureFileSyncReady: mocks.ensureFileSyncReady }));
 vi.mock("../autoFileSyncDownload", () => ({
   startAutoFileSyncDownload: mocks.startAutoFileSyncDownload,
 }));
 vi.mock("../documentReplication", () => ({
   ensureDocumentReplicationReady: mocks.ensureDocumentReplicationReady,
+}));
+vi.mock("../sync/entities/collections", () => ({
+  ensureCollectionSyncReady: mocks.ensureCollectionSyncReady,
+}));
+vi.mock("../sync/entities/extracts", () => ({
+  ensureExtractSyncReady: mocks.ensureExtractSyncReady,
+}));
+vi.mock("../sync/entities/conversations", () => ({
+  ensureConversationSyncReady: mocks.ensureConversationSyncReady,
 }));
 vi.mock("../sync/entities/flashcards", () => ({
   ensureFlashcardSyncReady: mocks.ensureFlashcardSyncReady,
@@ -87,6 +102,9 @@ describe("startSyncSubsystems", () => {
       "ensureFileSyncReady",
       "startAutoFileSyncDownload",
       "ensureDocumentReplicationReady",
+      "ensureCollectionSyncReady",
+      "ensureExtractSyncReady",
+      "ensureConversationSyncReady",
       "ensureFlashcardSyncReady",
       "ensureRssSyncReady",
       "ensurePodcastSyncReady",

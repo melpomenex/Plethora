@@ -324,7 +324,7 @@ impl Repository {
 
         sqlx::query(
             r#"
-            INSERT OR REPLACE INTO documents (
+            INSERT INTO documents (
                 id, title, file_path, file_type, content, content_hash,
                 total_pages, current_page, current_scroll_percent, current_cfi, current_view_state,
                 position_json, progress_percent,
@@ -333,6 +333,35 @@ impl Repository {
                 extract_count, learning_item_count, priority_rating, priority_slider, priority_score,
                 is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)
+            ON CONFLICT(id) DO UPDATE SET
+                title = excluded.title,
+                file_path = excluded.file_path,
+                file_type = excluded.file_type,
+                content = excluded.content,
+                content_hash = excluded.content_hash,
+                total_pages = excluded.total_pages,
+                current_page = excluded.current_page,
+                current_scroll_percent = excluded.current_scroll_percent,
+                current_cfi = excluded.current_cfi,
+                current_view_state = excluded.current_view_state,
+                position_json = excluded.position_json,
+                progress_percent = excluded.progress_percent,
+                category = excluded.category,
+                tags = excluded.tags,
+                date_added = excluded.date_added,
+                date_modified = excluded.date_modified,
+                date_last_reviewed = excluded.date_last_reviewed,
+                extract_count = excluded.extract_count,
+                learning_item_count = excluded.learning_item_count,
+                priority_rating = excluded.priority_rating,
+                priority_slider = excluded.priority_slider,
+                priority_score = excluded.priority_score,
+                is_archived = excluded.is_archived,
+                is_favorite = excluded.is_favorite,
+                is_dismissed = excluded.is_dismissed,
+                metadata = excluded.metadata,
+                cover_image_url = excluded.cover_image_url,
+                cover_image_source = excluded.cover_image_source
             "#,
         )
         .bind(&document.id)
@@ -1301,6 +1330,116 @@ impl Repository {
 
         Ok(extract.clone())
     }
+
+    pub async fn upsert_synced_extract(&self, extract: &Extract) -> Result<Extract> {
+        let tags_json = serde_json::to_string(&extract.tags)?;
+        let (stability, difficulty) = extract.memory_state.as_ref()
+            .map(|s| (Some(s.stability), Some(s.difficulty)))
+            .unwrap_or((None, None));
+        let selection_context_json = match &extract.selection_context {
+            Some(value) => Some(serde_json::to_string(value)?),
+            None => None,
+        };
+        let progressive_summaries_json = extract.progressive_summaries.as_ref().map(serde_json::to_string).transpose()?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO extracts (
+                id, collection_id, document_id, content, html_content, source_url, page_title, page_number,
+                selection_context, highlight_color, notes, progressive_disclosure_level,
+                max_disclosure_level, progressive_summaries, date_created, date_modified,
+                tags, category, memory_state_stability, memory_state_difficulty,
+                next_review_date, last_review_date, review_count, reps, source_hash, priority_score, is_dismissed
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
+            ON CONFLICT(id) DO UPDATE SET
+                collection_id = excluded.collection_id,
+                document_id = excluded.document_id,
+                content = excluded.content,
+                html_content = excluded.html_content,
+                source_url = excluded.source_url,
+                page_title = excluded.page_title,
+                page_number = excluded.page_number,
+                selection_context = excluded.selection_context,
+                highlight_color = excluded.highlight_color,
+                notes = excluded.notes,
+                progressive_disclosure_level = excluded.progressive_disclosure_level,
+                max_disclosure_level = excluded.max_disclosure_level,
+                progressive_summaries = excluded.progressive_summaries,
+                date_created = excluded.date_created,
+                date_modified = excluded.date_modified,
+                tags = excluded.tags,
+                category = excluded.category,
+                memory_state_stability = excluded.memory_state_stability,
+                memory_state_difficulty = excluded.memory_state_difficulty,
+                next_review_date = excluded.next_review_date,
+                last_review_date = excluded.last_review_date,
+                review_count = excluded.review_count,
+                reps = excluded.reps,
+                source_hash = excluded.source_hash,
+                priority_score = excluded.priority_score,
+                is_dismissed = excluded.is_dismissed
+            "#,
+        )
+        .bind(&extract.id)
+        .bind(&extract.collection_id)
+        .bind(&extract.document_id)
+        .bind(&extract.content)
+        .bind(&extract.html_content)
+        .bind(&extract.source_url)
+        .bind(&extract.page_title)
+        .bind(extract.page_number)
+        .bind(selection_context_json)
+        .bind(&extract.highlight_color)
+        .bind(&extract.notes)
+        .bind(extract.progressive_disclosure_level)
+        .bind(extract.max_disclosure_level)
+        .bind(&progressive_summaries_json)
+        .bind(extract.date_created)
+        .bind(extract.date_modified)
+        .bind(&tags_json)
+        .bind(&extract.category)
+        .bind(stability)
+        .bind(difficulty)
+        .bind(extract.next_review_date)
+        .bind(extract.last_review_date)
+        .bind(extract.review_count)
+        .bind(extract.reps)
+        .bind(&extract.source_hash)
+        .bind(extract.priority_score)
+        .bind(extract.is_dismissed)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(extract.clone())
+    }
+
+    pub async fn upsert_synced_collection(&self, collection: &Collection) -> Result<Collection> {
+        sqlx::query(
+            r#"
+            INSERT INTO collections (id, name, icon, color, is_default, created_at, modified_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                icon = excluded.icon,
+                color = excluded.color,
+                is_default = excluded.is_default,
+                created_at = excluded.created_at,
+                modified_at = excluded.modified_at
+            "#,
+        )
+        .bind(&collection.id)
+        .bind(&collection.name)
+        .bind(&collection.icon)
+        .bind(&collection.color)
+        .bind(collection.is_default)
+        .bind(collection.created_at)
+        .bind(collection.updated_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(collection.clone())
+    }
+
 
     pub async fn update_extract_disclosure_level(
         &self,

@@ -36,7 +36,7 @@ import { copyToClipboard, generateSingleMessageMarkdown, type ConversationMessag
 import { useI18n } from "../../lib/i18n";
 import { getAssistantContextErrorMessage, type ResolvedAssistantContext } from "../../utils/assistantContext";
 import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
-import { invokeCommand } from "../../lib/tauri";
+import { invokeCommand, isTauri } from "../../lib/tauri";
 
 export interface AssistantContext {
   type: "document" | "web" | "video" | "general";
@@ -378,6 +378,7 @@ export function AssistantPanel({
   const lastContextSignatureRef = useRef<string | null>(null);
   const activeConversationKeyRef = useRef<string>("general");
   const historyDraftRef = useRef("");
+  const publishConversationTimerRef = useRef<number | null>(null);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
 
   const attachImage = async (file: File) => {
@@ -528,7 +529,58 @@ export function AssistantPanel({
       updatedAt: Date.now(),
     };
     writeStoredConversations(conversations);
+
+    // Cross-device sync: publish this conversation to the shared Yjs doc so the
+    // same chat appears beside the item on every device in the room. Debounced
+    // (500ms trailing) so a burst of UI updates — typing in the input, a tool
+    // call resolving — collapses to one publish rather than one per keystroke.
+    // Images are stripped by the entity before they hit the wire.
+    if (isTauri()) {
+      if (publishConversationTimerRef.current !== null) {
+        window.clearTimeout(publishConversationTimerRef.current);
+      }
+      publishConversationTimerRef.current = window.setTimeout(() => {
+        publishConversationTimerRef.current = null;
+        void (async () => {
+          try {
+            const { publishConversation } = await import("../../lib/sync/entities/conversations");
+            // Re-read the just-written entry so we publish exactly what landed.
+            const fresh = readStoredConversations()[key];
+            if (fresh) {
+              await publishConversation(key, { messages: fresh.messages, input: fresh.input });
+            }
+          } catch (err) {
+            console.warn("[assistant] failed to publish conversation", err);
+          }
+        })();
+      }, 500);
+    }
   }, [messages, input]);
+
+  // When a conversation arrives from another device, reload the active
+  // conversation from localStorage (the entity already wrote it there) so the
+  // chat mirrors across devices in near-real-time. Guarded so we don't clobber
+  // an in-flight interaction: skip while a request is loading, or when the
+  // input is focused+dirty (the user is mid-typing) and the remote key matches.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { key?: string } | undefined;
+      const activeKey = activeConversationKeyRef.current;
+      if (detail?.key && detail.key !== activeKey) return;
+      if (isLoading) return;
+      if (isInputFocused && input.trim().length > 0) return;
+      const stored = readStoredConversations()[activeKey];
+      setMessages(stored?.messages ?? []);
+      // Don't overwrite a dirty input draft with the remote draft.
+      if (!isInputFocused) setInput(stored?.input ?? "");
+    };
+    window.addEventListener("incrementum:synced-conversation", handler);
+    window.addEventListener("incrementum:synced-conversation-deleted", handler);
+    return () => {
+      window.removeEventListener("incrementum:synced-conversation", handler);
+      window.removeEventListener("incrementum:synced-conversation-deleted", handler);
+    };
+  }, [isLoading, isInputFocused, input]);
 
   useEffect(() => {
     localStorage.setItem("assistant-llm-provider", selectedProvider);
