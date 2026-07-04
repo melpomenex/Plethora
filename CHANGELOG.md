@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.64.0] - 2026-07-04
+
+### Added
+
+- **End-to-end encryption for synced files** — Uploaded documents (PDFs, EPUBs) are now AES-GCM-encrypted on your device before they ever reach the sync server, under the same room key that already encrypts your reading state. The server stores only ciphertext plus an opaque encrypted-metadata blob; filenames and content types no longer leak. Enable a room key in Settings → Sync → "Enable encryption" to turn it on; devices that scan your QR join encrypted automatically. The crypto reuses the existing Argon2id → HKDF sub-key derivation (`fileKey`), so no new key management — one secret protects state and files.
+- **End-to-end encryption UI is now visible** — The "Enable encryption" panel in Settings → Sync is no longer hidden behind a feature flag. Rooms without a key are labelled "TLS only — not end-to-end encrypted" with a clear upgrade path, and enabling encryption on the current room now takes effect immediately (no app restart).
+
+### Fixed & Improved
+
+- **Sync server is now zero-knowledge** — The relay no longer applies plaintext sync frames to a server-side document: type-0 frames are refused outright, awareness is forwarded opaquely without being stored, and LevelDB persistence is disabled. A misconfigured or legacy client cannot push plaintext into the relay even if it tries. The hardened posture is pinned by a new `testPlaintextSyncRefused` integration test.
+- **Encrypted async sync no longer depends on the server holding plaintext** — With LevelDB disabled, the encrypted frame-log (a rolling ciphertext-only record per room) becomes the sole server-side persistence layer, which was its original design. Devices that join after the writer went offline receive the encrypted backlog on connect; the relay still cannot decrypt any of it.
+- **Word highlighter refactor** — The TTS word-highlighting logic is reworked with a dedicated test suite, and dead state/props (`highlightOn`, `ttsChunkText`, `ttsQuery`, `onChunkStart`) are removed from `ReaderTTSControls` and `DocumentViewer`.
+
 ## [1.63.1] - 2026-07-04
 
 ### Fixed & Improved
