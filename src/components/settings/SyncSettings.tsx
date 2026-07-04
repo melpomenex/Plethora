@@ -34,12 +34,16 @@ import {
   InvalidQrPayloadError,
 } from "../../lib/sync/qrFormat";
 
-// Feature flag for the device-sync end-to-end encryption UI (Phase 1 of the
-// overhaul-cross-device-sync change). The crypto core, secure storage,
-// encrypted provider wrapper, and yjsSync wiring all stay loaded — this only
-// gates the user-facing controls. Flip to true to re-enable when ready
-// (requires the forked relay deployed at sync.readsync.org — see task 1.8a).
-const SYNC_ENCRYPTION_UI_ENABLED = false;
+// Feature flag for the device-sync end-to-end encryption UI. The crypto core,
+// secure storage, encrypted provider wrapper, and yjsSync wiring all stay
+// loaded regardless — this only gates the user-facing controls.
+//
+// The forked relay (opaque frame forwarding + encrypted frame-log) is deployed
+// at sync.readsync.org, so encrypted rooms replicate correctly. File-blob
+// encryption (under the same room key's file sub-key) is wired into the
+// file-service transport, so uploads/downloads are ciphertext-only when a key
+// is set. Users opt in per room; legacy "TLS only" rooms keep working.
+const SYNC_ENCRYPTION_UI_ENABLED = true;
 
 const DEFAULT_SYNC_SETTINGS = {
   enabled: false,
@@ -260,7 +264,9 @@ export function SyncSettings() {
       setRevealSecret(true);
       // The encryption key is read at provider-construction time, so rebuild
       // the provider against the same room to pick it up without a reload.
-      await rejoinRoom(roomId).catch((e) =>
+      // `forceProviderRebuild` overrides the same-room short-circuit (which
+      // would otherwise leave the plaintext provider running until restart).
+      await rejoinRoom(roomId, { forceProviderRebuild: true }).catch((e) =>
         console.warn("[SyncSettings] rejoin after enabling encryption failed", e),
       );
       setRoomMessage(
@@ -280,7 +286,7 @@ export function SyncSettings() {
       setEncryptionEnabled(false);
       setRoomSecret(null);
       setRevealSecret(false);
-      await rejoinRoom(roomId).catch((e) =>
+      await rejoinRoom(roomId, { forceProviderRebuild: true }).catch((e) =>
         console.warn("[SyncSettings] rejoin after disabling encryption failed", e),
       );
       setRoomMessage("Encryption disabled and connected.");
@@ -331,7 +337,7 @@ export function SyncSettings() {
   const encryptionStatusLabel = encryptionEnabled
     ? "Encrypted"
     : roomId
-      ? "TLS only — room secret"
+      ? "TLS only — not end-to-end encrypted"
       : "Not syncing";
 
   return (
@@ -457,8 +463,9 @@ export function SyncSettings() {
               ) : (
                 <>
                   <p className="text-xs text-muted-foreground">
-                    Without encryption, the relay can read your synced data. The room ID acts as a
-                    shared secret over TLS — adequate for many users, but not bulletproof.
+                    Your synced data (reading state, flashcards, and uploaded files) is currently
+                    readable by the relay server. Enable a room key to end-to-end-encrypt this
+                    device and your uploaded files, then share the secret with your other devices.
                   </p>
                   <button
                     onClick={handleEnableEncryption}

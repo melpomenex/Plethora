@@ -164,6 +164,80 @@ async function testUnknownTypeNotAppliedToServerDoc(port) {
   }
 }
 
+async function testPlaintextSyncRefused(port) {
+  // The relay must refuse plaintext sync frames (type 0): it should neither
+  // apply them to its server-side Yjs doc NOR forward them to peers. This
+  // pins the "hard refuse plaintext" property — a misconfigured or legacy
+  // client cannot push plaintext into the relay's doc (zero-knowledge
+  // invariant), and cannot smuggle plaintext to a peer that expects only
+  // encrypted 0x10 frames.
+  const sender = connect(port, '/test-room-plaintext-refused')
+  const receiver = connect(port, '/test-room-plaintext-refused')
+  try {
+    await Promise.all([
+      new Promise((r) => sender.addEventListener('open', r, { once: true })),
+      new Promise((r) => receiver.addEventListener('open', r, { once: true })),
+    ])
+
+    // Drain the server's initial sync-step-1 so it doesn't get confused with
+    // a forwarded plaintext frame.
+    await nextMessage(receiver, (b) => b.length > 0).catch(() => null)
+    await nextMessage(sender, (b) => b.length > 0).catch(() => null)
+
+    // Construct a type-0 (messageSync) sync-step-2 frame carrying a real Yjs
+    // update. Format: [0x00 (messageSync), 0x02 (sync-step-2), <update bytes>].
+    // The update bytes here are arbitrary — the point is the relay should drop
+    // the whole frame before parsing the payload.
+    const plaintextSync = new Uint8Array([
+      0x00, // messageSync (type 0)
+      0x02, // sync step 2 (update)
+      0x01, 0x02, 0x03, 0x04, // dummy update payload
+    ])
+    sender.send(plaintextSync)
+
+    // Wait briefly to give the relay a chance to (mis)handle the frame.
+    await new Promise((r) => setTimeout(r, 300))
+
+    // 1) The receiver should NOT have been forwarded the plaintext frame.
+    //    The only messages it has received so far are the initial
+    //    sync-step-1. We assert no type-0 frame other than the server's
+    //    initial handshake has arrived by checking that any message received
+    //    from here on (within a short window) does not match our payload.
+    const stray = await nextMessage(
+      receiver,
+      (b) => b.length >= 5 && b[0] === 0x00 && b[1] === 0x02,
+      800,
+    ).then(
+      () => true,
+      () => false,
+    )
+    if (stray) {
+      throw new Error('relay forwarded a plaintext sync frame to a peer (expected refused)')
+    }
+
+    // 2) Connect a fresh observer and confirm the server's doc is still
+    //    empty — proving the plaintext update was not applied.
+    const observer = connect(port, '/test-room-plaintext-refused')
+    try {
+      await new Promise((r) => observer.addEventListener('open', r, { once: true }))
+      const firstMessage = await nextMessage(observer, (b) => b.length > 0, 2000)
+      if (firstMessage[0] !== 0x00) {
+        throw new Error(`expected sync-step-1 (type 0), got type ${firstMessage[0]}`)
+      }
+      if (firstMessage.length > 16) {
+        throw new Error(
+          `sync-step-1 suspiciously large (${firstMessage.length} bytes) — server may have applied the plaintext frame`,
+        )
+      }
+    } finally {
+      observer.close()
+    }
+  } finally {
+    sender.close()
+    receiver.close()
+  }
+}
+
 async function main() {
   console.log('Spawning forked relay and running opaque-forwarding tests...')
   await withServer(async (port) => {
@@ -174,6 +248,10 @@ async function main() {
     console.log('  test 2: unknown-type frame NOT applied to server Yjs doc')
     await testUnknownTypeNotAppliedToServerDoc(port)
     console.log('  ✓ server doc remains empty for the unknown frame')
+
+    console.log('  test 3: plaintext sync frame (type 0) refused — not applied, not forwarded')
+    await testPlaintextSyncRefused(port)
+    console.log('  ✓ plaintext frame dropped; zero-knowledge invariant holds')
   })
   console.log('All opaque-forwarding tests passed.')
 }

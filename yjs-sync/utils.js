@@ -202,16 +202,30 @@ const messageListener = (conn, doc, message) => {
     const decoder = decoding.createDecoder(message)
     const messageType = decoding.readVarUint(decoder)
     switch (messageType) {
+      // FORK: refuse plaintext sync frames. The encrypted-state wrapper
+      // (src/lib/sync/encryptedProvider.ts) re-types every sync frame to
+      // 0x10 before it hits the wire, so a correctly-configured client never
+      // sends type 0 here. A type-0 frame therefore means either a legacy
+      // plaintext client or a misconfigured/malicious peer. We drop it
+      // outright rather than calling readSyncMessage, so the relay CANNOT
+      // apply plaintext updates to its own Yjs doc — the zero-knowledge
+      // property holds even if a client tries to push plaintext. The
+      // encrypted path (type 0x10) is forwarded by the default case below.
       case messageSync:
-        encoding.writeVarUint(encoder, messageSync)
-        syncProtocol.readSyncMessage(decoder, encoder, doc, conn)
-
-        if (encoding.length(encoder) > 1) {
-          send(doc, conn, encoding.toUint8Array(encoder))
-        }
+        console.warn(
+          `[relay] refusing plaintext sync frame (type 0) in room ${doc.name}; encrypted rooms use type 0x10`,
+        )
         break
       case messageAwareness: {
-        awarenessProtocol.applyAwarenessUpdate(doc.awareness, decoding.readVarUint8Array(decoder), conn)
+        // FORK: forward awareness opaquely to peers WITHOUT applying it to
+        // the server-side awareness instance, so the relay holds no presence
+        // state. Awareness carries only ephemeral cursor/presence (no
+        // document content) and is never persisted. It remains plaintext on
+        // the wire by client design; encrypting it would require a new
+        // sub-key and provider changes (see encryptedProvider.ts header).
+        doc.conns.forEach((_, c) => {
+          if (c !== conn) send(doc, c, message)
+        })
         break
       }
       // FORK: opaque-forwarding default case. Stock y-websocket silently

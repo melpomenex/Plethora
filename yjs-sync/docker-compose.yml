@@ -8,15 +8,19 @@ services:
           npm init -y >/dev/null 2>&1;
         fi;
         npm install --no-save y-websocket@^1.5.4 >/dev/null 2>&1;
-        YPERSISTENCE=/data PORT=1234 HOST=0.0.0.0 node --max-old-space-size=4096 server.js
+        PORT=1234 HOST=0.0.0.0 node --max-old-space-size=4096 server.js
       "
     environment:
-      - YPERSISTENCE=/data
       - PORT=1234
       # Durable rolling log of encrypted sync frames (task 1.8b). Enables async
       # state sync: a device that joins after the writer went offline receives
       # the backlog. Lives under the persisted /data volume. See frameLog.js.
       - FRAME_LOG_DIR=/data/frame-log
+      # YPERSISTENCE is deliberately UNSET for zero-knowledge operation. When
+      # set, the relay stores plaintext CRDT state in LevelDB under this path,
+      # which defeats the end-to-end-encryption threat model. Encrypted rooms
+      # persist via FRAME_LOG_DIR (ciphertext only) + each client's local
+      # IndexedDB replica. Do not re-enable unless you accept plaintext-at-rest.
     volumes:
       - yjs_data:/data
       - yjs_app:/app

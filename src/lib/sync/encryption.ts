@@ -143,39 +143,113 @@ function nextStateNonce(devicePrefix: Uint8Array): Uint8Array {
   return nonce;
 }
 
-export async function encryptState(
-  update: Uint8Array,
-  stateKey: CryptoKey,
+/**
+ * Pack `nonce || ciphertext+tag` into one buffer. Shared by encryptState
+ * (counter nonce for ordered sync updates) and encryptFile (random nonce for
+ * whole-file blobs). The packed format is what both the state and file
+ * transports put on the wire.
+ */
+async function sealAesGcm(
+  plaintext: Uint8Array,
+  nonce: Uint8Array,
+  key: CryptoKey,
 ): Promise<Uint8Array> {
-  const devicePrefix = await getDevicePrefix();
-  const nonce = nextStateNonce(devicePrefix);
-
   const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, stateKey, update),
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, plaintext),
   );
-
   const out = new Uint8Array(nonce.length + ciphertext.length);
   out.set(nonce, 0);
   out.set(ciphertext, nonce.length);
   return out;
 }
 
-export async function decryptState(
+/**
+ * Unpack and decrypt a `nonce || ciphertext+tag` buffer. Throws DecryptError
+ * on any failure (wrong key, tampering, truncated payload).
+ */
+async function openAesGcm(
   packed: Uint8Array,
-  stateKey: CryptoKey,
+  key: CryptoKey,
+  label: string,
 ): Promise<Uint8Array> {
   if (packed.length < AES_GCM_NONCE_BYTES + AES_GCM_TAG_BYTES) {
-    throw new DecryptError('decryptState: payload too short');
+    throw new DecryptError(`${label}: payload too short`);
   }
   const nonce = packed.slice(0, AES_GCM_NONCE_BYTES);
   const ciphertext = packed.slice(AES_GCM_NONCE_BYTES);
   try {
     return new Uint8Array(
-      await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce }, stateKey, ciphertext),
+      await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce }, key, ciphertext),
     );
   } catch {
-    throw new DecryptError('decryptState: decryption failed (wrong key or tampering)');
+    throw new DecryptError(`${label}: decryption failed (wrong key or tampering)`);
   }
+}
+
+export async function encryptState(
+  update: Uint8Array,
+  stateKey: CryptoKey,
+): Promise<Uint8Array> {
+  const devicePrefix = await getDevicePrefix();
+  const nonce = nextStateNonce(devicePrefix);
+  return sealAesGcm(update, nonce, stateKey);
+}
+
+export async function decryptState(
+  packed: Uint8Array,
+  stateKey: CryptoKey,
+): Promise<Uint8Array> {
+  return openAesGcm(packed, stateKey, 'decryptState');
+}
+
+/**
+ * Encrypt a whole file blob under the file sub-key with a fresh random nonce.
+ * Returns `nonce(12) || ciphertext+tag`. This is the format the file-service
+ * stores verbatim — the server never sees the nonce separately or the
+ * plaintext. Used by `uploadRoomFile` before POSTing.
+ *
+ * Unlike `encryptState`, the nonce is fully random rather than counter-based:
+ * file uploads are infrequent and not ordered, and a random nonce avoids any
+ * dependency on per-device counter state for blob confidentiality.
+ */
+export async function encryptFile(
+  plaintext: Uint8Array,
+  fileKey: CryptoKey,
+): Promise<Uint8Array> {
+  const nonce = new Uint8Array(AES_GCM_NONCE_BYTES);
+  crypto.getRandomValues(nonce);
+  return sealAesGcm(plaintext, nonce, fileKey);
+}
+
+export async function decryptFile(
+  packed: Uint8Array,
+  fileKey: CryptoKey,
+): Promise<Uint8Array> {
+  return openAesGcm(packed, fileKey, 'decryptFile');
+}
+
+/**
+ * Encrypt a JSON-serializable metadata object (filename, content-type, etc.)
+ * under the file key. Returns base64 so it fits cleanly in a multipart form
+ * field or HTTP header alongside the ciphertext blob. The server stores this
+ * opaquely and never decrypts — the client recovers filename/type on download.
+ */
+export async function encryptMetadata(
+  metadata: unknown,
+  fileKey: CryptoKey,
+): Promise<string> {
+  const json = new TextEncoder().encode(JSON.stringify(metadata));
+  const packed = await encryptFile(json, fileKey);
+  return bytesToBase64(packed);
+}
+
+export async function decryptMetadata(
+  packedB64: string,
+  fileKey: CryptoKey,
+): Promise<unknown> {
+  const packed = base64ToBytes(packedB64);
+  const json = await decryptFile(packed, fileKey);
+  return JSON.parse(new TextDecoder().decode(json));
 }
 
 export async function encryptChunk(
@@ -243,6 +317,22 @@ async function hkdfSha256(
     length * 8,
   );
   return new Uint8Array(bits);
+}
+
+// base64 (standard alphabet, with padding) helpers for metadata framing.
+// Standard rather than url-safe because the value travels in a multipart
+// form field / header, both of which tolerate '+' and '/'.
+function bytesToBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const s = atob(b64);
+  const bytes = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
+  return bytes;
 }
 
 export const __test = {

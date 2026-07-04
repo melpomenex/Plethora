@@ -86,20 +86,13 @@ const storage = multer.diskStorage({
   },
 });
 
+// No MIME allowlist: encrypted uploads arrive as application/octet-stream and
+// the server cannot sniff content types from ciphertext. Content-type
+// validation (when relevant) is the client's responsibility, done before
+// encryption. The 100 MB size cap is the only remaining transport limit.
 const upload = multer({
   storage,
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
-  fileFilter: (_req, file, cb) => {
-    const allowedTypes = new Set([
-      "application/pdf",
-      "application/epub+zip",
-      "text/html",
-      "text/markdown",
-      "text/plain",
-    ]);
-    if (allowedTypes.has(file.mimetype) || file.originalname.endsWith(".epub")) return cb(null, true);
-    cb(new Error("Invalid file type"));
-  },
 });
 
 app.post("/files/:room", upload.single("file"), async (req, res) => {
@@ -111,14 +104,26 @@ app.post("/files/:room", upload.single("file"), async (req, res) => {
   const { meta } = filePaths(room, id);
   const now = new Date().toISOString();
 
+  // `encMetadata` (optional) is an opaque client-encrypted blob carrying
+  // {filename, contentType, ...}. The server stores it verbatim and NEVER
+  // decrypts — it has no key. On GET it is echoed back via the
+  // X-Encrypted-Metadata header so the originating client can recover the
+  // original filename/type after decrypting the blob.
+  const encMetadata = typeof req.body.encMetadata === "string" ? req.body.encMetadata : null;
+
   const metadata = {
     id,
     room,
-    filename: req.file.originalname,
-    contentType: req.file.mimetype,
+    // Plaintext filename/contentType are kept ONLY for legacy (pre-encryption)
+    // uploads. New encrypted uploads leave these unset and store the real
+    // values inside encMetadata instead, so the server cannot read document
+    // titles or infer content from type.
+    filename: encMetadata ? undefined : req.file.originalname,
+    contentType: encMetadata ? undefined : req.file.mimetype,
     sizeBytes: req.file.size,
     createdAt: now,
     deletedAt: null,
+    encMetadata,
   };
 
   await writeMeta(meta, metadata);
@@ -161,9 +166,23 @@ app.get("/files/:room/:id", async (req, res) => {
     console.warn("Failed to update lastAccessedAt metadata:", err);
   });
 
-  // Use absolute path for sendFile.
-  res.setHeader("Content-Type", m.contentType || "application/octet-stream");
-  res.setHeader("Content-Disposition", `attachment; filename="${(m.filename || "file").replace(/"/g, "")}"`);
+  if (m.encMetadata) {
+    // Encrypted upload: serve opaque ciphertext. The client recovers the
+    // real filename/content-type by decrypting the metadata blob carried in
+    // the X-Encrypted-Metadata header. We deliberately do NOT set
+    // Content-Type to the original (the server doesn't know it and shouldn't
+    // leak it).
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${id}.bin"`);
+    res.setHeader("X-Encrypted-Metadata", m.encMetadata);
+  } else {
+    // Legacy plaintext upload (pre-encryption): preserve original behavior.
+    res.setHeader("Content-Type", m.contentType || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${(m.filename || "file").replace(/"/g, "")}"`,
+    );
+  }
   res.sendFile(path.resolve(blob), (err) => {
     if (err) res.status(404).end();
   });

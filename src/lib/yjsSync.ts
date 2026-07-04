@@ -565,7 +565,10 @@ export async function updateYjsSyncStatus(): Promise<YjsSyncState> {
   return instance;
 }
 
-export async function rejoinRoom(roomId: string): Promise<YjsSyncState> {
+export async function rejoinRoom(
+  roomId: string,
+  opts?: { forceProviderRebuild?: boolean },
+): Promise<YjsSyncState> {
   if (!roomId) throw new Error("rejoinRoom: roomId is required");
 
   const currentRoom = instance?.room;
@@ -575,6 +578,14 @@ export async function rejoinRoom(roomId: string): Promise<YjsSyncState> {
 
   if (currentRoom === roomId) {
     if (currentUrl !== targetUrl) {
+      return updateYjsSyncStatus();
+    }
+    // If the caller explicitly asked for a provider rebuild (e.g. the
+    // encryption key just changed and we need to re-read it at provider-
+    // construction time), tear down and rebuild against the SAME room without
+    // wiping the shared IndexedDB. Without this, toggling encryption on the
+    // current room would silently no-op until a full app reload.
+    if (opts?.forceProviderRebuild && instance) {
       return updateYjsSyncStatus();
     }
     // Already on the requested room and URL. Avoid the IndexedDB wipe below.
