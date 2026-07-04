@@ -6,6 +6,10 @@
 import { invokeCommand as invoke } from "../lib/tauri";
 import { Document, Extract, LearningItem } from "../types/document";
 import {
+  createExtract,
+  deleteExtract,
+} from "../api/extracts";
+import {
   OperationType,
   UndoableCommandBase,
 } from "../stores/undoRedoStore";
@@ -81,7 +85,10 @@ export class DeleteExtractCommand extends UndoableCommandBase {
       throw new Error("Extract not found");
     }
 
-    await invoke("delete_extract", { id: this.extractId });
+    // Route through the api/extracts wrapper so the delete publishes to the
+    // sync room (a direct invoke("delete_extract") would leave other devices'
+    // copies behind).
+    await deleteExtract(this.extractId);
     this.onSuccess?.();
   }
 
@@ -90,13 +97,14 @@ export class DeleteExtractCommand extends UndoableCommandBase {
       throw new Error("Cannot undo: extract data not available");
     }
 
-    await invoke("create_extract", {
-      extract: {
-        documentId: this.deletedExtract.documentId,
-        pageTitle: this.deletedExtract.pageTitle,
-        content: this.deletedExtract.content,
-        dateCreated: this.deletedExtract.dateCreated,
-      },
+    await createExtract({
+      document_id: this.deletedExtract.documentId,
+      content: this.deletedExtract.content,
+      note: this.deletedExtract.notes,
+      tags: this.deletedExtract.tags,
+      category: this.deletedExtract.category,
+      color: this.deletedExtract.highlightColor,
+      page_number: this.deletedExtract.pageNumber,
     });
   }
 
@@ -138,15 +146,17 @@ export class BulkDeleteExtractsCommand extends UndoableCommandBase {
   }
 
   async undo(): Promise<void> {
-    // Restore all extracts
+    // Restore all extracts via the api wrapper (correct arg shape + publishes
+    // each restore to the sync room).
     for (const extract of this.deletedExtracts) {
-      await invoke("create_extract", {
-        extract: {
-          documentId: extract.documentId,
-          pageTitle: extract.pageTitle,
-          content: extract.content,
-          dateCreated: extract.dateCreated,
-        },
+      await createExtract({
+        document_id: extract.documentId,
+        content: extract.content,
+        note: extract.notes,
+        tags: extract.tags,
+        category: extract.category,
+        color: extract.highlightColor,
+        page_number: extract.pageNumber,
       });
     }
   }
@@ -309,8 +319,17 @@ export class CreateExtractCommand extends UndoableCommandBase {
   }
 
   async execute(): Promise<void> {
-    const created = await invoke<Extract>("create_extract", {
-      extract: this.extract,
+    // Route through the api/extracts wrapper: it uses the correct Tauri arg
+    // shape AND publishes the new extract to the sync room. The old direct
+    // invoke() used a non-existent `pageTitle` arg and never published.
+    const created = await createExtract({
+      document_id: this.extract.documentId,
+      content: this.extract.content,
+      note: this.extract.notes,
+      tags: this.extract.tags,
+      category: this.extract.category,
+      color: this.extract.highlightColor,
+      page_number: this.extract.pageNumber,
     });
     this.createdExtractId = created.id;
     this.onSuccess?.();
@@ -321,7 +340,7 @@ export class CreateExtractCommand extends UndoableCommandBase {
       throw new Error("Cannot undo: extract was not created");
     }
 
-    await invoke("delete_extract", { id: this.createdExtractId });
+    await deleteExtract(this.createdExtractId);
   }
 
   async redo(): Promise<void> {

@@ -20,7 +20,8 @@ use uuid::Uuid;
 
 use crate::commands::Result;
 use crate::database::Repository;
-use crate::models::LearningItem;
+use crate::models::{LearningItem, Extract};
+use crate::models::collection::Collection;
 
 /// Wire shape for an RSS article's synced state (field-level LWW). Only the
 /// load-bearing user state is carried — `is_read`/`is_queued` plus their
@@ -146,7 +147,7 @@ pub async fn upsert_synced_learning_item(
 
     sqlx::query(
         r#"
-        INSERT OR REPLACE INTO learning_items (
+        INSERT INTO learning_items (
             id, collection_id, extract_id, document_id, item_type, question,
             answer, cloze_text, cloze_ranges, difficulty, interval,
             ease_factor, due_date, date_created, date_modified,
@@ -155,6 +156,34 @@ pub async fn upsert_synced_learning_item(
             memory_state_stability, memory_state_difficulty,
             algorithm_type, algorithm_state, updated_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
+        ON CONFLICT(id) DO UPDATE SET
+            collection_id = excluded.collection_id,
+            extract_id = excluded.extract_id,
+            document_id = excluded.document_id,
+            item_type = excluded.item_type,
+            question = excluded.question,
+            answer = excluded.answer,
+            cloze_text = excluded.cloze_text,
+            cloze_ranges = excluded.cloze_ranges,
+            difficulty = excluded.difficulty,
+            interval = excluded.interval,
+            ease_factor = excluded.ease_factor,
+            due_date = excluded.due_date,
+            date_created = excluded.date_created,
+            date_modified = excluded.date_modified,
+            last_review_date = excluded.last_review_date,
+            review_count = excluded.review_count,
+            lapses = excluded.lapses,
+            state = excluded.state,
+            is_suspended = excluded.is_suspended,
+            tags = excluded.tags,
+            image_asset_ids = excluded.image_asset_ids,
+            interaction_metadata = excluded.interaction_metadata,
+            memory_state_stability = excluded.memory_state_stability,
+            memory_state_difficulty = excluded.memory_state_difficulty,
+            algorithm_type = excluded.algorithm_type,
+            algorithm_state = excluded.algorithm_state,
+            updated_at = excluded.updated_at
         "#,
     )
     .bind(&item.id)
@@ -302,11 +331,25 @@ pub async fn upsert_synced_rss_feed(
 
     sqlx::query(
         r#"
-        INSERT OR REPLACE INTO rss_feeds (
+        INSERT INTO rss_feeds (
             id, url, title, description, category, update_interval,
             last_fetched, is_active, date_added, auto_queue,
             auto_fetch_full_content, collection_id, updated_at, deleted_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+        ON CONFLICT(id) DO UPDATE SET
+            url = excluded.url,
+            title = excluded.title,
+            description = excluded.description,
+            category = excluded.category,
+            update_interval = excluded.update_interval,
+            last_fetched = excluded.last_fetched,
+            is_active = excluded.is_active,
+            date_added = excluded.date_added,
+            auto_queue = excluded.auto_queue,
+            auto_fetch_full_content = excluded.auto_fetch_full_content,
+            collection_id = excluded.collection_id,
+            updated_at = excluded.updated_at,
+            deleted_at = excluded.deleted_at
         "#,
     )
     .bind(&id)
@@ -492,11 +535,26 @@ pub async fn upsert_synced_podcast_feed(
 
     sqlx::query(
         r#"
-        INSERT OR REPLACE INTO podcast_feeds (
+        INSERT INTO podcast_feeds (
             id, title, description, image_url, author, language, link, feed_url,
             last_fetched, subscribed_at, sort_order, auto_transcribe,
             transcribe_language, updated_at, deleted_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+        ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            description = excluded.description,
+            image_url = excluded.image_url,
+            author = excluded.author,
+            language = excluded.language,
+            link = excluded.link,
+            feed_url = excluded.feed_url,
+            last_fetched = excluded.last_fetched,
+            subscribed_at = excluded.subscribed_at,
+            sort_order = excluded.sort_order,
+            auto_transcribe = excluded.auto_transcribe,
+            transcribe_language = excluded.transcribe_language,
+            updated_at = excluded.updated_at,
+            deleted_at = excluded.deleted_at
         "#,
     )
     .bind(&id)
@@ -522,11 +580,47 @@ pub async fn upsert_synced_podcast_feed(
 /// Upsert a synced podcast episode. Creates the episode row if missing (so a
 /// feed's episodes appear on a freshly-installed device), then applies the
 /// field-LWW-resolved played/position/download_intent state + clocks.
+///
+/// CRITICAL dedup: each device assigns its own random UUID when it parses a
+/// feed (see `insert_podcast_episode`), so the SAME logical episode arrives
+/// under different `ep.id` values from different devices. Naively trusting
+/// `ep.id` (the original `INSERT OR IGNORE ... id = ep.id`) created one row
+/// per publishing device — a podcast subscribed on three devices triplicated
+/// every episode on each receiver. We resolve the canonical id by the episode's
+/// *natural* key first — `(feed_id, guid)` when a guid is present, else
+/// `(feed_id, audio_url)` — exactly mirroring how `upsert_synced_podcast_feed`
+/// dedupes by `feed_url`. SQLite treats NULL guids as distinct under UNIQUE,
+/// so we must not rely on the `UNIQUE(feed_id, guid)` index alone for episodes
+/// whose guid is missing.
 #[tauri::command]
 pub async fn upsert_synced_podcast_episode(
     ep: SyncedPodcastEpisode,
     repo: State<'_, Repository>,
 ) -> Result<()> {
+    // Resolve the canonical local id for this logical episode. Prefer guid
+    // (the RSS-standard episode identity); fall back to audio_url (universally
+    // present, unique within a feed in practice).
+    let existing: Option<(String,)> = if ep.guid.as_deref().filter(|g| !g.is_empty()).is_some() {
+        sqlx::query_as(
+            "SELECT id FROM podcast_episodes WHERE feed_id = ?1 AND guid = ?2 AND id != ?3",
+        )
+        .bind(&ep.feed_id)
+        .bind(&ep.guid)
+        .bind(&ep.id)
+        .fetch_optional(repo.pool())
+        .await?
+    } else {
+        sqlx::query_as(
+            "SELECT id FROM podcast_episodes WHERE feed_id = ?1 AND audio_url = ?2 AND id != ?3",
+        )
+        .bind(&ep.feed_id)
+        .bind(&ep.audio_url)
+        .bind(&ep.id)
+        .fetch_optional(repo.pool())
+        .await?
+    };
+    let id = existing.map(|(i,)| i).unwrap_or_else(|| ep.id.clone());
+
     // Insert the episode row if missing. Transcript columns stay NULL — each
     // device transcribes independently (transcription is device-local compute).
     sqlx::query(
@@ -536,7 +630,7 @@ pub async fn upsert_synced_podcast_episode(
             playback_position, date_added)
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0.0, ?13)"#,
     )
-    .bind(&ep.id)
+    .bind(&id)
     .bind(&ep.feed_id)
     .bind(&ep.guid)
     .bind(&ep.title)
@@ -571,7 +665,7 @@ pub async fn upsert_synced_podcast_episode(
     .bind(&ep.download_intent_at)
     .bind(&ep.download_intent_device)
     .bind(&ep.updated_at)
-    .bind(&ep.id)
+    .bind(&id)
     .execute(repo.pool())
     .await?;
     Ok(())
@@ -645,3 +739,68 @@ pub async fn count_review_results(
     };
     Ok(count.0)
 }
+
+/// Insert or replace an extract received from another device via sync.
+/// Trusts the incoming id; conflict resolution by `date_modified` happens on the
+/// caller side.
+#[tauri::command]
+pub async fn upsert_synced_extract(
+    extract: Extract,
+    repo: State<'_, Repository>,
+) -> Result<Extract> {
+    let upserted = repo.upsert_synced_extract(&extract).await?;
+    Ok(upserted)
+}
+
+/// Delete an extract received from another device via sync.
+#[tauri::command]
+pub async fn delete_synced_extract(
+    id: String,
+    repo: State<'_, Repository>,
+) -> Result<()> {
+    repo.delete_extract(&id).await?;
+    Ok(())
+}
+
+/// Read an extract by id for the sync conflict check.
+#[tauri::command]
+pub async fn get_synced_extract(
+    id: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<Extract>> {
+    let row = repo.get_extract(&id).await?;
+    Ok(row)
+}
+
+/// Insert or replace a collection received from another device via sync.
+/// Trusts the incoming id; conflict resolution by `updated_at` happens on the
+/// caller side.
+#[tauri::command]
+pub async fn upsert_synced_collection(
+    collection: Collection,
+    repo: State<'_, Repository>,
+) -> Result<Collection> {
+    let upserted = repo.upsert_synced_collection(&collection).await?;
+    Ok(upserted)
+}
+
+/// Delete a collection received from another device via sync.
+#[tauri::command]
+pub async fn delete_synced_collection(
+    id: String,
+    repo: State<'_, Repository>,
+) -> Result<()> {
+    repo.delete_collection(&id).await?;
+    Ok(())
+}
+
+/// Read a collection by id for the sync conflict check.
+#[tauri::command]
+pub async fn get_synced_collection(
+    id: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<Collection>> {
+    let row = repo.get_collection(&id).await?;
+    Ok(row)
+}
+

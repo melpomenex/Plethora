@@ -113,7 +113,16 @@ export async function createExtract(input: CreateExtractInput): Promise<Extract>
     selectionContext: input.selection_context,
     maxDisclosureLevel: input.max_disclosure_level,
   });
-  return normalizeExtract(extract);
+  const normalized = normalizeExtract(extract);
+  void (async () => {
+    try {
+      const { publishExtract } = await import("../lib/sync/entities/extracts");
+      await publishExtract(normalized);
+    } catch (e) {
+      console.warn("Failed to publish extract creation", e);
+    }
+  })();
+  return normalized;
 }
 
 /**
@@ -129,7 +138,16 @@ export async function updateExtract(input: UpdateExtractInput): Promise<Extract>
     color: input.color,
     maxDisclosureLevel: input.max_disclosure_level,
   });
-  return normalizeExtract(extract);
+  const normalized = normalizeExtract(extract);
+  void (async () => {
+    try {
+      const { publishExtract } = await import("../lib/sync/entities/extracts");
+      await publishExtract(normalized);
+    } catch (e) {
+      console.warn("Failed to publish extract update", e);
+    }
+  })();
+  return normalized;
 }
 
 /**
@@ -137,6 +155,27 @@ export async function updateExtract(input: UpdateExtractInput): Promise<Extract>
  */
 export async function deleteExtract(id: string): Promise<void> {
   await invokeCommand("delete_extract", { id });
+  void (async () => {
+    try {
+      const { publishExtractDeleted } = await import("../lib/sync/entities/extracts");
+      await publishExtractDeleted(id);
+    } catch (e) {
+      console.warn("Failed to publish extract deletion", e);
+    }
+  })();
+}
+
+// Helper to publish an extract by fetching it first (for lifecycle updates that don't return the extract)
+async function publishExtractById(id: string): Promise<void> {
+  try {
+    const ext = await getExtract(id);
+    if (ext) {
+      const { publishExtract } = await import("../lib/sync/entities/extracts");
+      await publishExtract(ext);
+    }
+  } catch (e) {
+    console.warn("Failed to publish extract by id", id, e);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +187,7 @@ export async function deleteExtract(id: string): Promise<void> {
  */
 export async function forgetExtract(id: string): Promise<void> {
   await invokeCommand("forget_extract", { extractId: id, extract_id: id });
+  void publishExtractById(id);
 }
 
 /**
@@ -160,6 +200,7 @@ export async function dismissExtract(id: string, dismissed?: boolean): Promise<v
     extract_id: id,
     dismissed: dismissed ?? true,
   });
+  void publishExtractById(id);
 }
 
 /**
@@ -167,6 +208,7 @@ export async function dismissExtract(id: string, dismissed?: boolean): Promise<v
  */
 export async function graduateExtract(id: string): Promise<void> {
   await invokeCommand("graduate_extract", { extractId: id, extract_id: id });
+  void publishExtractById(id);
 }
 
 /**
@@ -178,4 +220,5 @@ export async function setExtractPriority(id: string, priorityScore: number): Pro
     priorityScore,
     priority_score: priorityScore,
   });
+  void publishExtractById(id);
 }

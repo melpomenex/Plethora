@@ -51,6 +51,19 @@ export function startSyncSubsystems(): Promise<void> {
     const { ensureDocumentReplicationReady } = await import("./documentReplication");
     await ensureDocumentReplicationReady();
 
+    // 4b. Collection replication.
+    const { ensureCollectionSyncReady } = await import("./sync/entities/collections");
+    await ensureCollectionSyncReady();
+
+    // 4c. Extract replication.
+    const { ensureExtractSyncReady } = await import("./sync/entities/extracts");
+    await ensureExtractSyncReady();
+
+    // 4d. Assistant side-panel conversation replication. Syncs the per-document
+    //     chat that lives in localStorage (images stripped — see the entity).
+    const { ensureConversationSyncReady } = await import("./sync/entities/conversations");
+    await ensureConversationSyncReady();
+
     // 5. Flashcard + review-history replication (the paramount cross-device
     //    case). Subscribes to the shared 'learningItems' and 'reviews' maps so a
     //    card reviewed on one device appears with its new schedule on every

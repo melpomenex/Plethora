@@ -427,19 +427,22 @@ export async function importAppState(
           continue;
         }
 
-        const extractData = {
-          ...extract,
-          documentId: newDocumentId,
-          id: undefined, // Let backend generate new ID
-        };
-
-        if (isTauri()) {
-          const { invokeCommand } = await import("../lib/tauri");
-          await invokeCommand("create_extract", { extract: extractData });
-        } else {
-          const { browserInvoke } = await import("../lib/browser-backend");
-          await browserInvoke("create_extract", { extract: extractData });
-        }
+        // Route through the api/extracts wrapper: the create_extract command
+        // (both Tauri and browser-backend) expects individual fields
+        // (documentId, content, ...), NOT an `{ extract }` envelope — the
+        // previous shape silently failed. The wrapper also publishes the new
+        // extract to the sync room, which is correct for a backup restore
+        // (those extracts are now part of this device's library).
+        const { createExtract } = await import("../api/extracts");
+        await createExtract({
+          document_id: newDocumentId,
+          content: String(extract.content ?? ""),
+          note: extract.notes,
+          tags: Array.isArray(extract.tags) ? extract.tags : undefined,
+          category: extract.category,
+          color: extract.highlightColor,
+          page_number: extract.pageNumber,
+        });
 
         result.stats.extractsImported++;
 

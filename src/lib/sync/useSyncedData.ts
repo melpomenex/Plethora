@@ -41,6 +41,16 @@ export function useOnAnySyncedEvent(handler: () => void): void {
       "incrementum:synced-rss-article",
       "incrementum:synced-podcast-feed",
       "incrementum:synced-podcast-episode",
+      // Extracts + collections: when a row arrives from another device, stores
+      // and the open DocumentViewer minimap must reload so the new row is
+      // visible without a manual navigate-away-and-back.
+      "incrementum:synced-extract",
+      "incrementum:synced-extract-deleted",
+      "incrementum:synced-collection",
+      "incrementum:synced-collection-deleted",
+      // Assistant side-panel conversations (per-document chat).
+      "incrementum:synced-conversation",
+      "incrementum:synced-conversation-deleted",
     ];
     for (const ev of events) window.addEventListener(ev, wrapped);
     return () => {
