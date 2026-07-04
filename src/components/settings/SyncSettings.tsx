@@ -144,18 +144,18 @@ export function SyncSettings() {
         },
       });
       await updateYjsSyncStatus();
-      setRoomMessage(`Applied sync server URL: ${targetUrl || "Default (wss://sync.readsync.org)"}`);
+      setRoomMessage(t("syncSettings.appliedUrlMsg", { url: targetUrl || "Default (wss://sync.readsync.org)" }));
     } catch (err) {
-      setRoomMessage(`Failed to apply sync server URL: ${(err as Error).message}`);
+      setRoomMessage(t("syncSettings.failedApplyUrlMsg", { error: (err as Error).message }));
     }
   };
 
   const handleCopyRoom = async () => {
     try {
       await navigator.clipboard.writeText(roomId);
-      setRoomMessage("Copied sync code to clipboard.");
+      setRoomMessage(t("syncSettings.copiedCodeMsg"));
     } catch {
-      setRoomMessage("Failed to copy. You can still select and copy it manually.");
+      setRoomMessage(t("syncSettings.failedCopyMsg"));
     }
   };
 
@@ -177,8 +177,8 @@ export function SyncSettings() {
   ): Promise<{ ok: boolean; error?: string }> => {
     const raw = (valueOverride ?? joinRoomId).trim();
     if (!raw) {
-      setRoomMessage("Enter a sync code to join.");
-      return { ok: false, error: "Enter a sync code to join." };
+      setRoomMessage(t("syncSettings.enterCodeMsg"));
+      return { ok: false, error: t("syncSettings.enterCodeMsg") };
     }
 
     // New-format payloads (`incrementum-sync:v1:<roomId>:<secret>`) carry
@@ -202,13 +202,13 @@ export function SyncSettings() {
           console.warn("[SyncSettings] subsystems start failed before room join", err);
         }
         await rejoinRoom(parsed.roomId);
-        setRoomMessage("Joined encrypted room and connected.");
+        setRoomMessage(t("syncSettings.joinedEncryptedMsg"));
         return { ok: true };
       } catch (err) {
         const msg =
           err instanceof InvalidQrPayloadError
-            ? `Invalid sync code: ${err.message}`
-            : `Failed to join: ${(err as Error).message}`;
+            ? t("syncSettings.invalidCodeMsg", { error: err.message })
+            : t("syncSettings.failedJoinMsg", { error: (err as Error).message });
         setRoomMessage(msg);
         return { ok: false, error: msg };
       }
@@ -226,17 +226,17 @@ export function SyncSettings() {
         console.warn("[SyncSettings] subsystems start failed before room join", err);
       }
       await rejoinRoom(raw);
-      setRoomMessage("Sync code applied and connected.");
+      setRoomMessage(t("syncSettings.codeAppliedMsg"));
       return { ok: true };
     } catch (err) {
-      const msg = `Failed to join: ${(err as Error).message}`;
+      const msg = t("syncSettings.failedJoinMsg", { error: (err as Error).message });
       setRoomMessage(msg);
       return { ok: false, error: msg };
     }
   };
 
   const handleRotateRoom = async () => {
-    if (!confirm("Create a new sync code? This will stop syncing with devices on the old code.")) {
+    if (!confirm(t("syncSettings.confirmNewCode"))) {
       return;
     }
     const next = createNewSyncRoomId();
@@ -250,9 +250,9 @@ export function SyncSettings() {
       );
       setEncryptionEnabled(false);
       setRoomSecret(null);
-      setRoomMessage("New sync code created. Re-enable encryption and share with your devices.");
+      setRoomMessage(t("syncSettings.newCodeEncryptMsg"));
     } else {
-      setRoomMessage("New sync code created. Share it with your other devices.");
+      setRoomMessage(t("syncSettings.newCodeMsg"));
     }
   };
 
@@ -269,16 +269,14 @@ export function SyncSettings() {
       await rejoinRoom(roomId, { forceProviderRebuild: true }).catch((e) =>
         console.warn("[SyncSettings] rejoin after enabling encryption failed", e),
       );
-      setRoomMessage(
-        "Encryption enabled and connected. Share the secret below (via QR or copy) with your other devices.",
-      );
+      setRoomMessage(t("syncSettings.encryptionEnabledMsg"));
     } catch (err) {
-      setRoomMessage(`Failed to enable encryption: ${(err as Error).message}`);
+      setRoomMessage(t("syncSettings.failedEnableEncryptionMsg", { error: (err as Error).message }));
     }
   };
 
   const handleDisableEncryption = async () => {
-    if (!confirm("Disable encryption on this device? Sync will continue in TLS-only mode.")) {
+    if (!confirm(t("syncSettings.confirmDisableEncryption"))) {
       return;
     }
     try {
@@ -289,17 +287,15 @@ export function SyncSettings() {
       await rejoinRoom(roomId, { forceProviderRebuild: true }).catch((e) =>
         console.warn("[SyncSettings] rejoin after disabling encryption failed", e),
       );
-      setRoomMessage("Encryption disabled and connected.");
+      setRoomMessage(t("syncSettings.encryptionDisabledMsg"));
     } catch (err) {
-      setRoomMessage(`Failed to disable: ${(err as Error).message}`);
+      setRoomMessage(t("syncSettings.failedDisableMsg", { error: (err as Error).message }));
     }
   };
 
   const handleResetEncryption = async () => {
     if (
-      !confirm(
-        "Generate a new encryption key? You'll need to share the new secret with every device that syncs this room.",
-      )
+      !confirm(t("syncSettings.confirmResetKey"))
     ) {
       return;
     }
@@ -307,9 +303,9 @@ export function SyncSettings() {
       const secret = await enableEncryption(roomId);
       setRoomSecret(secret);
       setRevealSecret(true);
-      setRoomMessage("New encryption key generated. Share the secret below with your devices.");
+      setRoomMessage(t("syncSettings.keyResetMsg"));
     } catch (err) {
-      setRoomMessage(`Failed to reset key: ${(err as Error).message}`);
+      setRoomMessage(t("syncSettings.failedResetKeyMsg", { error: (err as Error).message }));
     }
   };
 
@@ -317,9 +313,9 @@ export function SyncSettings() {
     if (!roomSecret) return;
     try {
       await navigator.clipboard.writeText(roomSecret);
-      setRoomMessage("Encryption secret copied to clipboard.");
+      setRoomMessage(t("syncSettings.secretCopiedMsg"));
     } catch {
-      setRoomMessage("Failed to copy. Select the secret text manually.");
+      setRoomMessage(t("syncSettings.failedCopySecretMsg"));
     }
   };
 
@@ -335,10 +331,10 @@ export function SyncSettings() {
   }, [roomId, encryptionEnabled, roomSecret]);
 
   const encryptionStatusLabel = encryptionEnabled
-    ? "Encrypted"
+    ? t("syncSettings.statusEncrypted")
     : roomId
-      ? "TLS only — not end-to-end encrypted"
-      : "Not syncing";
+      ? t("syncSettings.statusTlsOnly")
+      : t("syncSettings.statusNotSyncing");
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
@@ -357,8 +353,7 @@ export function SyncSettings() {
       <div className="bg-card border border-border rounded-lg p-6">
         <h3 className="text-lg font-semibold text-foreground mb-2">{t("syncSettings.deviceSync")}</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Use this sync code to connect your own devices. Anyone with the code can sync the
-          same data.
+          {t("syncSettings.deviceSyncDesc")}
         </p>
         <div className="space-y-3">
           <div>
@@ -373,13 +368,13 @@ export function SyncSettings() {
                 onClick={handleCopyRoom}
                 className="px-3 py-2 bg-muted text-foreground rounded text-xs"
               >
-                Copy
+                {t("syncSettings.copy")}
               </button>
               <button
                 onClick={handleRotateRoom}
                 className="px-3 py-2 bg-destructive text-destructive-foreground rounded text-xs"
               >
-                New
+                {t("syncSettings.new")}
               </button>
             </div>
           </div>
@@ -388,8 +383,8 @@ export function SyncSettings() {
               <QRCodeCanvas value={qrPayload} size={120} />
               <div className="text-xs text-muted-foreground">
                 {SYNC_ENCRYPTION_UI_ENABLED && encryptionEnabled
-                  ? "Scan to join with encryption. The secret is embedded in this code — keep it private."
-                  : "Scan this QR code on your phone to join the same sync room."}
+                  ? t("syncSettings.scanQrEncryptedDesc")
+                  : t("syncSettings.scanQrDesc")}
               </div>
             </div>
           )}
@@ -407,7 +402,7 @@ export function SyncSettings() {
                   ) : (
                     <LockOpen className="w-4 h-4 text-amber-500" />
                   )}
-                  <span>End-to-end encryption</span>
+                  <span>{t("syncSettings.e2eTitle")}</span>
                 </div>
                 <span className="text-xs text-muted-foreground">{encryptionStatusLabel}</span>
               </div>
@@ -417,7 +412,9 @@ export function SyncSettings() {
                   {roomSecret && (
                     <div className="space-y-1">
                       <label className="block text-xs text-muted-foreground">
-                        Room secret {revealSecret ? "" : "(hidden)"}
+                        {revealSecret
+                          ? t("syncSettings.e2eRoomSecret")
+                          : t("syncSettings.e2eRoomSecretHidden")}
                       </label>
                       <div className="flex gap-2">
                         <input
@@ -430,18 +427,17 @@ export function SyncSettings() {
                           onClick={() => setRevealSecret((v) => !v)}
                           className="px-2 py-1 bg-muted text-foreground rounded text-xs"
                         >
-                          {revealSecret ? "Hide" : "Show"}
+                          {revealSecret ? t("syncSettings.e2eHide") : t("syncSettings.e2eShow")}
                         </button>
                         <button
                           onClick={handleCopySecret}
                           className="px-2 py-1 bg-muted text-foreground rounded text-xs flex items-center gap-1"
                         >
-                          <Copy className="w-3 h-3" /> Copy
+                          <Copy className="w-3 h-3" /> {t("syncSettings.copy")}
                         </button>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Share this secret (or the QR above) with a device you trust. Anyone with it
-                        can read your synced data.
+                        {t("syncSettings.e2eSecretShareWarning")}
                       </p>
                     </div>
                   )}
@@ -450,28 +446,26 @@ export function SyncSettings() {
                       onClick={handleResetEncryption}
                       className="flex-1 px-2 py-1 bg-muted text-foreground rounded text-xs flex items-center justify-center gap-1"
                     >
-                      <Key className="w-3 h-3" /> Reset key
+                      <Key className="w-3 h-3" /> {t("syncSettings.e2eResetKey")}
                     </button>
                     <button
                       onClick={handleDisableEncryption}
                       className="flex-1 px-2 py-1 bg-destructive text-destructive-foreground rounded text-xs"
                     >
-                      Disable
+                      {t("syncSettings.e2eDisable")}
                     </button>
                   </div>
                 </>
               ) : (
                 <>
                   <p className="text-xs text-muted-foreground">
-                    Your synced data (reading state, flashcards, and uploaded files) is currently
-                    readable by the relay server. Enable a room key to end-to-end-encrypt this
-                    device and your uploaded files, then share the secret with your other devices.
+                    {t("syncSettings.e2eDisabledDesc")}
                   </p>
                   <button
                     onClick={handleEnableEncryption}
                     className="w-full px-3 py-2 bg-primary text-primary-foreground rounded text-xs flex items-center justify-center gap-1"
                   >
-                    <Lock className="w-3 h-3" /> Enable encryption
+                    <Lock className="w-3 h-3" /> {t("syncSettings.e2eEnable")}
                   </button>
                 </>
               )}
@@ -484,20 +478,20 @@ export function SyncSettings() {
                 className="flex-1 px-3 py-2 bg-background border border-border rounded text-xs font-mono"
                 value={joinRoomId}
                 onChange={(e) => setJoinRoomId(e.target.value)}
-                placeholder="Paste sync code..."
+                placeholder={t("syncSettings.pasteCodePlaceholder")}
               />
               <button
                 onClick={() => { void handleJoinRoom(); }}
-                className="px-3 py-2 bg-primary text-primary-foreground rounded text-xs"
-              >
-                Join
-              </button>
+                  className="px-3 py-2 bg-primary text-primary-foreground rounded text-xs"
+                >
+                  {t("syncSettings.join")}
+                </button>
               {!showQr && (
                 <button
                   onClick={() => setShowScanner(true)}
                   className="px-3 py-2 bg-muted text-foreground rounded text-xs flex items-center gap-1"
                 >
-                  <Scan className="w-3.5 h-3.5" /> Scan
+                  <Scan className="w-3.5 h-3.5" /> {t("syncSettings.scan")}
                 </button>
               )}
             </div>
@@ -584,11 +578,11 @@ export function SyncSettings() {
                   onClick={handleApplyUrl}
                   className="px-3 py-2 bg-primary hover:bg-primary/95 text-primary-foreground font-medium rounded text-xs transition-colors"
                 >
-                  Apply
+                  {t("syncSettings.applyUrlBtn")}
                 </button>
               </div>
               <p className="text-xs text-muted-foreground">
-                Leave blank to use the default server (<code className="font-mono text-foreground">wss://sync.readsync.org</code>). If using a self-hosted yjs-sync server, specify your websocket endpoint.
+                {t("syncSettings.endpointHint")}
               </p>
             </div>
           )}
@@ -626,15 +620,14 @@ export function SyncSettings() {
           <h3 className="text-lg font-semibold text-foreground">{t("syncSettings.fileSync")}</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          Files attached to your documents sync across your devices through the same room. Set how
-          aggressively new files should be pulled onto this device.
+          {t("syncSettings.fileSyncSectionDesc")}
         </p>
 
         <div className="space-y-4">
           {/* Auto-download setting */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
-              Auto-download files from other devices
+              {t("syncSettings.autoDownloadFiles")}
             </label>
             <select
               value={autoDownloadMode}
@@ -649,28 +642,28 @@ export function SyncSettings() {
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground"
             >
               <option value="always">
-                Always - Download all files automatically
+                {t("syncSettings.alwaysDownload")}
               </option>
               <option value="wifi-only">
-                WiFi only - Auto-download only on WiFi (mobile)
+                {t("syncSettings.wifiOnly")}
               </option>
               <option value="manual">
-                Manual - Never auto-download, request each file manually
+                {t("syncSettings.manualDownload")}
               </option>
             </select>
             <p className="text-xs text-muted-foreground mt-1">
               {autoDownloadMode === "always" && (
                 <span className="flex items-center gap-1">
-                  <Download className="w-3 h-3" /> Files will be downloaded automatically when announced by other devices
+                  <Download className="w-3 h-3" /> {t("syncSettings.autoDownloadAlwaysDesc")}
                 </span>
               )}
               {autoDownloadMode === "wifi-only" && (
                 <span className="flex items-center gap-1">
-                  <WifiHigh className="w-3 h-3" /> Files will wait for WiFi before downloading on mobile
+                  <WifiHigh className="w-3 h-3" /> {t("syncSettings.autoDownloadWifiDesc")}
                 </span>
               )}
               {autoDownloadMode === "manual" && (
-                <span>Files will appear with a download button - you choose what to download</span>
+                <span>{t("syncSettings.autoDownloadManualDesc")}</span>
               )}
             </p>
           </div>
@@ -683,8 +676,7 @@ export function SyncSettings() {
           <div className="flex items-center gap-3">
             <CloudSlash className="w-5 h-5 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              Sync is not active yet. A sync code has been generated for this device — share it with
-              your other devices (or scan their code) to start syncing.
+              {t("syncSettings.syncNotActiveHint")}
             </p>
           </div>
         </div>
@@ -697,9 +689,7 @@ export function SyncSettings() {
           <div className="text-sm text-muted-foreground">
             <p className="font-medium text-foreground mb-1">{t("syncSettings.e2eEncryption")}</p>
             <p>
-              Your reading data is synced over a shared room. Keep your sync code private — anyone
-              with it can sync the same data. When encryption is enabled, your data is encrypted on
-              your device before it ever leaves.
+              {t("syncSettings.e2eFooterDesc")}
             </p>
           </div>
         </div>

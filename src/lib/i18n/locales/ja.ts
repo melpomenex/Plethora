@@ -2649,6 +2649,65 @@ export const ja: Dict = {
   "syncSettings.new": "新規",
   "syncSettings.nextSync": "次回同期:",
   "syncSettings.noSyncHistory": "同期履歴はまだありません",
+
+  // デバイス同期の暗号化パネル + 通知（設定 → 同期）。
+  "syncSettings.statusEncrypted": "暗号化済み",
+  "syncSettings.statusTlsOnly": "TLS のみ — エンドツーエンド暗号化なし",
+  "syncSettings.statusNotSyncing": "同期していません",
+  "syncSettings.e2eTitle": "エンドツーエンド暗号化",
+  "syncSettings.e2eRoomSecret": "ルームシークレット",
+  "syncSettings.e2eRoomSecretHidden": "ルームシークレット（非表示）",
+  "syncSettings.e2eSecretShareWarning":
+    "このシークレット（または上記のQRコード）を信頼するデバイスと共有してください。これを持つ人は誰でも同期データを読み取れます。",
+  "syncSettings.e2eResetKey": "キーをリセット",
+  "syncSettings.e2eDisable": "無効化",
+  "syncSettings.e2eShow": "表示",
+  "syncSettings.e2eHide": "非表示",
+  "syncSettings.e2eDisabledDesc":
+    "現在、同期データ（閲覧状態、フラッシュカード、アップロードしたファイル）はリレーサーバーが読み取れる状態です。ルームキーを有効化してこのデバイスとアップロードファイルをエンドツーエンド暗号化し、そのシークレットを他のデバイスと共有してください。",
+  "syncSettings.e2eEnable": "暗号化を有効化",
+  "syncSettings.scanQrEncryptedDesc":
+    "スキャンして暗号化で参加。シークレットがこのコードに埋め込まれています — 非公開にしてください。",
+  "syncSettings.e2eFooterDesc":
+    "閲覧データは共有ルーム経由で同期されます。同期コードは非公開にしてください — 持っていれば誰でも同じデータを同期できます。暗号化を有効にすると、データがデバイスを離れる前にデバイス上で暗号化されます。",
+  "syncSettings.appliedUrlMsg": "同期サーバーURLを適用しました：{url}",
+  "syncSettings.failedApplyUrlMsg": "同期サーバーURLの適用に失敗しました：{error}",
+  "syncSettings.copiedCodeMsg": "同期コードをクリップボードにコピーしました。",
+  "syncSettings.failedCopyMsg": "コピーに失敗しました。手動で選択してコピーできます。",
+  "syncSettings.enterCodeMsg": "参加するには同期コードを入力してください。",
+  "syncSettings.joinedEncryptedMsg": "暗号化ルームに参加して接続しました。",
+  "syncSettings.failedJoinMsg": "参加に失敗しました：{error}",
+  "syncSettings.codeAppliedMsg": "同期コードを適用して接続しました。",
+  "syncSettings.confirmNewCode":
+    "新しい同期コードを作成しますか？古いコードを使用しているデバイスとの同期が停止します。",
+  "syncSettings.newCodeEncryptMsg":
+    "新しい同期コードを作成しました。暗号化を再度有効化し、デバイスと共有してください。",
+  "syncSettings.newCodeMsg": "新しい同期コードを作成しました。他のデバイスと共有してください。",
+  "syncSettings.encryptionEnabledMsg":
+    "暗号化を有効化して接続しました。下記のシークレット（QRまたはコピー）を他のデバイスと共有してください。",
+  "syncSettings.failedEnableEncryptionMsg": "暗号化の有効化に失敗しました：{error}",
+  "syncSettings.confirmDisableEncryption":
+    "このデバイスで暗号化を無効化しますか？同期はTLSのみのモードで継続します。",
+  "syncSettings.encryptionDisabledMsg": "暗号化を無効化して接続しました。",
+  "syncSettings.failedDisableMsg": "無効化に失敗しました：{error}",
+  "syncSettings.confirmResetKey":
+    "新しい暗号化キーを生成しますか？このルームを同期するすべてのデバイスと新しいシークレットを共有する必要があります。",
+  "syncSettings.keyResetMsg": "新しい暗号化キーを生成しました。下記のシークレットをデバイスと共有してください。",
+  "syncSettings.failedResetKeyMsg": "キーのリセットに失敗しました：{error}",
+  "syncSettings.secretCopiedMsg": "暗号化シークレットをクリップボードにコピーしました。",
+  "syncSettings.failedCopySecretMsg": "コピーに失敗しました。シークレットテキストを手動で選択してください。",
+  "syncSettings.invalidCodeMsg": "無効な同期コード：{error}",
+  "syncSettings.fileSyncSectionDesc":
+    "ドキュメントに添付されたファイルは、同じルームを通じてデバイス間で同期されます。新しいファイルをこのデバイスに取得する頻度を設定してください。",
+  "syncSettings.autoDownloadAlwaysDesc": "他のデバイスから通知されたファイルは自動的にダウンロードされます",
+  "syncSettings.autoDownloadWifiDesc": "モバイルでは、ファイルはWiFi接続を待ってからダウンロードされます",
+  "syncSettings.autoDownloadManualDesc": "ファイルにダウンロードボタンが表示されます — ダウンロードするものを選択します",
+  "syncSettings.syncNotActiveHint":
+    "同期はまだアクティブではありません。このデバイスの同期コードが生成されました — 他のデバイスと共有する（または相手のコードをスキャンする）ことで同期を開始できます。",
+  "syncSettings.pasteCodePlaceholder": "同期コードを貼り付け...",
+  "syncSettings.applyUrlBtn": "適用",
+  "syncSettings.endpointHint":
+    "デフォルトサーバー（wss://sync.readsync.org）を使用する場合は空欄のままにしてください。自己ホストのyjs-syncサーバーを使用する場合は、WebSocketエンドポイントを指定してください。",
   "syncSettings.quickSettings": "クイック設定",
   "syncSettings.reloadAfterJoin":
     "コードに参加した後、このデバイスでアプリをリロードしてください。",

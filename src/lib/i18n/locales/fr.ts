@@ -2715,6 +2715,69 @@ export const fr: Dict = {
   "syncSettings.new": "Nouveau",
   "syncSettings.nextSync": "Prochaine sync :",
   "syncSettings.noSyncHistory": "Pas encore d'historique de synchronisation",
+
+  // Panneau de chiffrement de la synchronisation entre appareils + notifications (Paramètres → Sync).
+  "syncSettings.statusEncrypted": "Chiffré",
+  "syncSettings.statusTlsOnly": "TLS uniquement — non chiffré de bout en bout",
+  "syncSettings.statusNotSyncing": "Non synchronisé",
+  "syncSettings.e2eTitle": "Chiffrement de bout en bout",
+  "syncSettings.e2eRoomSecret": "Secret de salle",
+  "syncSettings.e2eRoomSecretHidden": "Secret de salle (masqué)",
+  "syncSettings.e2eSecretShareWarning":
+    "Partagez ce secret (ou le QR code ci-dessus) avec un appareil de confiance. Toute personne le possédant peut lire vos données synchronisées.",
+  "syncSettings.e2eResetKey": "Réinitialiser la clé",
+  "syncSettings.e2eDisable": "Désactiver",
+  "syncSettings.e2eShow": "Afficher",
+  "syncSettings.e2eHide": "Masquer",
+  "syncSettings.e2eDisabledDesc":
+    "Vos données synchronisées (état de lecture, cartes mémo et fichiers téléversés) sont actuellement lisibles par le serveur relais. Activez une clé de salle pour chiffrer de bout en bout cet appareil et vos fichiers téléversés, puis partagez le secret avec vos autres appareils.",
+  "syncSettings.e2eEnable": "Activer le chiffrement",
+  "syncSettings.scanQrEncryptedDesc":
+    "Scannez pour rejoindre avec chiffrement. Le secret est intégré dans ce code — gardez-le privé.",
+  "syncSettings.e2eFooterDesc":
+    "Vos données de lecture sont synchronisées via une salle partagée. Gardez votre code de synchronisation privé — quiconque le possède peut synchroniser les mêmes données. Lorsque le chiffrement est activé, vos données sont chiffrées sur votre appareil avant de quitter.",
+  "syncSettings.appliedUrlMsg": "URL du serveur de synchronisation appliquée : {url}",
+  "syncSettings.failedApplyUrlMsg": "Échec de l'application de l'URL du serveur de synchronisation : {error}",
+  "syncSettings.copiedCodeMsg": "Code de synchronisation copié dans le presse-papiers.",
+  "syncSettings.failedCopyMsg": "Échec de la copie. Vous pouvez toujours le sélectionner et le copier manuellement.",
+  "syncSettings.enterCodeMsg": "Saisissez un code de synchronisation pour rejoindre.",
+  "syncSettings.joinedEncryptedMsg": "Salle chiffrée rejointe et connectée.",
+  "syncSettings.failedJoinMsg": "Échec de l'adhésion : {error}",
+  "syncSettings.codeAppliedMsg": "Code de synchronisation appliqué et connecté.",
+  "syncSettings.confirmNewCode":
+    "Créer un nouveau code de synchronisation ? Cela arrêtera la synchronisation avec les appareils sur l'ancien code.",
+  "syncSettings.newCodeEncryptMsg":
+    "Nouveau code de synchronisation créé. Réactivez le chiffrement et partagez-le avec vos appareils.",
+  "syncSettings.newCodeMsg": "Nouveau code de synchronisation créé. Partagez-le avec vos autres appareils.",
+  "syncSettings.encryptionEnabledMsg":
+    "Chiffrement activé et connecté. Partagez le secret ci-dessous (par QR ou copie) avec vos autres appareils.",
+  "syncSettings.failedEnableEncryptionMsg": "Échec de l'activation du chiffrement : {error}",
+  "syncSettings.confirmDisableEncryption":
+    "Désactiver le chiffrement sur cet appareil ? La synchronisation continuera en mode TLS uniquement.",
+  "syncSettings.encryptionDisabledMsg": "Chiffrement désactivé et connecté.",
+  "syncSettings.failedDisableMsg": "Échec de la désactivation : {error}",
+  "syncSettings.confirmResetKey":
+    "Générer une nouvelle clé de chiffrement ? Vous devrez partager le nouveau secret avec chaque appareil qui synchronise cette salle.",
+  "syncSettings.keyResetMsg":
+    "Nouvelle clé de chiffrement générée. Partagez le secret ci-dessous avec vos appareils.",
+  "syncSettings.failedResetKeyMsg": "Échec de la réinitialisation de la clé : {error}",
+  "syncSettings.secretCopiedMsg": "Secret de chiffrement copié dans le presse-papiers.",
+  "syncSettings.failedCopySecretMsg": "Échec de la copie. Sélectionnez le texte du secret manuellement.",
+  "syncSettings.invalidCodeMsg": "Code de synchronisation invalide : {error}",
+  "syncSettings.fileSyncSectionDesc":
+    "Les fichiers joints à vos documents se synchronisent entre vos appareils via la même salle. Définissez l'agressivité avec laquelle les nouveaux fichiers doivent être téléchargés sur cet appareil.",
+  "syncSettings.autoDownloadAlwaysDesc":
+    "Les fichiers seront téléchargés automatiquement lorsqu'ils sont annoncés par d'autres appareils",
+  "syncSettings.autoDownloadWifiDesc":
+    "Les fichiers attendront le WiFi avant d'être téléchargés sur mobile",
+  "syncSettings.autoDownloadManualDesc":
+    "Les fichiers apparaîtront avec un bouton de téléchargement — vous choisissez quoi télécharger",
+  "syncSettings.syncNotActiveHint":
+    "La synchronisation n'est pas encore active. Un code de synchronisation a été généré pour cet appareil — partagez-le avec vos autres appareils (ou scannez leur code) pour commencer à synchroniser.",
+  "syncSettings.pasteCodePlaceholder": "Coller le code de synchronisation...",
+  "syncSettings.applyUrlBtn": "Appliquer",
+  "syncSettings.endpointHint":
+    "Laissez vide pour utiliser le serveur par défaut (wss://sync.readsync.org). Si vous utilisez un serveur yjs-sync auto-hébergé, spécifiez votre point de terminaison WebSocket.",
   "syncSettings.quickSettings": "Paramètres rapides",
   "syncSettings.reloadAfterJoin":
     "Après avoir rejoint un code, rechargez l'application sur cet appareil.",

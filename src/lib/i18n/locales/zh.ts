@@ -2734,6 +2734,62 @@ export const zh: Dict = {
   "syncSettings.new": "新",
   "syncSettings.nextSync": "下次同步：",
   "syncSettings.noSyncHistory": "暂无同步历史",
+
+  // 设备同步加密面板 + 提示消息（设置 → 同步）。
+  "syncSettings.statusEncrypted": "已加密",
+  "syncSettings.statusTlsOnly": "仅 TLS — 非端到端加密",
+  "syncSettings.statusNotSyncing": "未同步",
+  "syncSettings.e2eTitle": "端到端加密",
+  "syncSettings.e2eRoomSecret": "房间密钥",
+  "syncSettings.e2eRoomSecretHidden": "房间密钥（已隐藏）",
+  "syncSettings.e2eSecretShareWarning":
+    "将此密钥（或上方的二维码）分享给你信任的设备。任何持有它的人都可以读取你同步的数据。",
+  "syncSettings.e2eResetKey": "重置密钥",
+  "syncSettings.e2eDisable": "禁用",
+  "syncSettings.e2eShow": "显示",
+  "syncSettings.e2eHide": "隐藏",
+  "syncSettings.e2eDisabledDesc":
+    "你同步的数据（阅读进度、闪卡和上传的文件）目前可被中继服务器读取。启用房间密钥以对此设备和你的上传文件进行端到端加密，然后与其他设备分享该密钥。",
+  "syncSettings.e2eEnable": "启用加密",
+  "syncSettings.scanQrEncryptedDesc":
+    "扫描以加入加密房间。密钥已嵌入此码中 —— 请妥善保管。",
+  "syncSettings.e2eFooterDesc":
+    "你的阅读数据通过共享房间同步。请保密你的同步码 —— 任何持有它的人都可以同步相同的数据。启用加密后，数据会在离开设备之前先在设备上加密。",
+  "syncSettings.appliedUrlMsg": "已应用同步服务器地址：{url}",
+  "syncSettings.failedApplyUrlMsg": "应用同步服务器地址失败：{error}",
+  "syncSettings.copiedCodeMsg": "同步码已复制到剪贴板。",
+  "syncSettings.failedCopyMsg": "复制失败。你仍可手动选择并复制。",
+  "syncSettings.enterCodeMsg": "输入同步码以加入。",
+  "syncSettings.joinedEncryptedMsg": "已加入加密房间并连接。",
+  "syncSettings.failedJoinMsg": "加入失败：{error}",
+  "syncSettings.codeAppliedMsg": "同步码已应用并连接。",
+  "syncSettings.confirmNewCode": "创建新的同步码？这将停止与使用旧码的设备同步。",
+  "syncSettings.newCodeEncryptMsg": "已创建新同步码。请重新启用加密并与你的设备分享。",
+  "syncSettings.newCodeMsg": "已创建新同步码。请与你的其他设备分享。",
+  "syncSettings.encryptionEnabledMsg":
+    "加密已启用并连接。请将下方的密钥（通过二维码或复制）与你的其他设备分享。",
+  "syncSettings.failedEnableEncryptionMsg": "启用加密失败：{error}",
+  "syncSettings.confirmDisableEncryption": "在此设备上禁用加密？同步将继续以仅 TLS 模式运行。",
+  "syncSettings.encryptionDisabledMsg": "加密已禁用并连接。",
+  "syncSettings.failedDisableMsg": "禁用失败：{error}",
+  "syncSettings.confirmResetKey":
+    "生成新的加密密钥？你需要与同步此房间的每台设备分享新密钥。",
+  "syncSettings.keyResetMsg": "已生成新的加密密钥。请将下方的密钥与你的设备分享。",
+  "syncSettings.failedResetKeyMsg": "重置密钥失败：{error}",
+  "syncSettings.secretCopiedMsg": "加密密钥已复制到剪贴板。",
+  "syncSettings.failedCopySecretMsg": "复制失败。请手动选择密钥文本。",
+  "syncSettings.invalidCodeMsg": "无效的同步码：{error}",
+  "syncSettings.fileSyncSectionDesc":
+    "附加到文档的文件通过同一房间在你的设备间同步。设置新文件应被拉取到此设备的积极程度。",
+  "syncSettings.autoDownloadAlwaysDesc": "当其他设备通知时，文件将自动下载",
+  "syncSettings.autoDownloadWifiDesc": "在移动设备上，文件将等待 WiFi 后再下载",
+  "syncSettings.autoDownloadManualDesc": "文件将显示下载按钮 —— 由你选择下载内容",
+  "syncSettings.syncNotActiveHint":
+    "同步尚未激活。已为此设备生成同步码 —— 与你的其他设备分享它（或扫描它们的码）以开始同步。",
+  "syncSettings.pasteCodePlaceholder": "粘贴同步码...",
+  "syncSettings.applyUrlBtn": "应用",
+  "syncSettings.endpointHint":
+    "留空以使用默认服务器（wss://sync.readsync.org）。如果使用自托管的 yjs-sync 服务器，请指定你的 WebSocket 端点。",
   "syncSettings.quickSettings": "快速设置",
   "syncSettings.reloadAfterJoin": "加入代码后，在此设备上重新加载应用。",
   "syncSettings.realtimeSync": "实时同步",
