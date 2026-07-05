@@ -448,7 +448,6 @@ export function EPUBViewer({
         background-color: transparent !important;
       }
       .epub-persisted-highlight {
-        background-color: rgba(255, 235, 59, 0.5) !important;
         border-radius: 0.12rem !important;
       }
       .epub-sync-highlight {
@@ -1516,12 +1515,22 @@ export function EPUBViewer({
 
     for (const highlight of persistedHighlights) {
       try {
+        // epub.js renders highlights as SVG <rect> elements, not DOM spans.
+        // The color must be passed as the SVG `fill` attribute (a CSS
+        // `background-color` here is a no-op on SVG, which is why every color
+        // previously collapsed to epub.js's default `fill="yellow"`).
+        // Override fill-opacity to 1 so the rgba's own alpha is the only
+        // alpha applied (epub.js defaults fill-opacity to 0.3, which would
+        // multiply with the rgba alpha and wash the colors out).
         rendition.annotations?.highlight?.(
           highlight.cfiRange,
           {},
           undefined,
           "epub-persisted-highlight",
-          { "background-color": normalizeHighlightColor(highlight.color) }
+          {
+            fill: normalizeHighlightColor(highlight.color),
+            "fill-opacity": "1",
+          }
         );
         activePersistedHighlightsRef.current.push(highlight.cfiRange);
       } catch (error) {
