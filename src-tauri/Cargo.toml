@@ -158,6 +158,11 @@ xcap = { version = "0.8", optional = true }
 # shows "localhost:9527 could not be loaded". Mobile uses the bundled
 # frontendDist via tauri:// instead (see the `custom-protocol-mobile` feature).
 tauri-plugin-localhost = "2"
+# Desktop-only: persists window size/position/maximized state to disk and
+# restores it on next launch, so the app reopens where the user left it.
+# Mobile platforms don't have freely positionable windows, so it's gated to
+# desktop targets.
+tauri-plugin-window-state = "2"
 
 [features]
 # Disable custom-protocol to use http://localhost instead of tauri://

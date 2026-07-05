@@ -425,6 +425,14 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_localhost::Builder::new(LOCALHOST_PORT).build());
     }
 
+    // Desktop-only: persist the main window's size, position and maximized
+    // state across launches so the app reopens where the user left it. Mobile
+    // targets don't have freely positionable windows, so it's gated to desktop.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+    }
+
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     {
         builder = builder.menu(|app| {
