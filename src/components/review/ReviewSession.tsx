@@ -305,7 +305,19 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      if (!containerRef.current?.contains(e.target as Node)) return;
+      // When no inner element is focused (e.g. right after the auto-focused
+      // "Show Answer" button unmounts on flip), the event target falls back to
+      // <body>/<html>. Allow those through so rating keys (1-4) keep working;
+      // only bail when focus is genuinely inside another app surface.
+      const target = e.target as Node | null;
+      if (
+        target &&
+        target !== document.body &&
+        target !== document.documentElement &&
+        !containerRef.current?.contains(target)
+      ) {
+        return;
+      }
       const mod = e.metaKey || e.ctrlKey;
       const lowerKey = e.key.toLowerCase();
 

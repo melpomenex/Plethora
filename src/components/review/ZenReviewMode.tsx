@@ -349,7 +349,18 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      if (!containerRef.current?.contains(e.target as Node)) return;
+      // Allow through when focus has fallen back to <body>/<html> (e.g. after
+      // the auto-focused "Show Answer" button unmounts on flip), so rating
+      // keys (1-4) still work. Only bail when focus is in another surface.
+      const target = e.target as Node | null;
+      if (
+        target &&
+        target !== document.body &&
+        target !== document.documentElement &&
+        !containerRef.current?.contains(target)
+      ) {
+        return;
+      }
       
       if (e.key === "Escape") {
         onExit();
