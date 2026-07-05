@@ -102,8 +102,8 @@ export function SpreadPreviewChart({
             contentStyle={{
               fontSize: 12,
               borderRadius: 8,
-              border: "1px solid hsl(var(--border))",
-              backgroundColor: "hsl(var(--popover))",
+              border: "1px solid var(--color-border)",
+              backgroundColor: "var(--color-popover)",
             }}
             formatter={(value: number, name: string) => [
               value,

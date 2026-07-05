@@ -46,8 +46,8 @@ export function WorkloadTrendChart({ workloadData }: WorkloadTrendChartProps) {
             contentStyle={{
               fontSize: "11px",
               borderRadius: "6px",
-              border: "1px solid hsl(var(--border))",
-              backgroundColor: "hsl(var(--popover))",
+              border: "1px solid var(--color-border)",
+              backgroundColor: "var(--color-popover)",
             }}
           />
           <Area

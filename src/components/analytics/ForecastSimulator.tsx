@@ -149,8 +149,8 @@ export function ForecastSimulator() {
               <YAxis tick={{ fontSize: 10 }} width={36} />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
+                  backgroundColor: "var(--color-popover)",
+                  border: "1px solid var(--color-border)",
                   borderRadius: 8,
                   fontSize: 12,
                 }}

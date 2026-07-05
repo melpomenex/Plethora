@@ -282,7 +282,7 @@ export function ItemDetailsPopover({
       {isOpen && (
         <div
           className={cn(
-            "fixed inset-x-4 bottom-4 max-w-lg mx-auto md:absolute md:inset-x-auto md:bottom-auto md:top-full md:mt-2 md:w-96 md:max-w-none md:mx-0 z-50 rounded-xl border border-border bg-background text-popover-foreground shadow-xl",
+            "fixed inset-x-4 bottom-4 max-w-lg mx-auto md:absolute md:inset-x-auto md:bottom-auto md:top-full md:mt-2 md:w-96 md:max-w-none md:mx-0 z-50 rounded-xl border border-border bg-popover text-popover-foreground shadow-xl",
             align === "right" ? "md:right-0 md:left-auto" : "md:left-0 md:right-auto"
           )}
         >
@@ -419,7 +419,7 @@ export function ItemDetailsPopover({
                   {showRaw ? t("itemDetails.hideRawData") : t("itemDetails.showRawData")}
                 </button>
                 {showRaw && (
-                  <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-background p-2 text-[10px] text-foreground">
+                  <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-popover p-2 text-[10px] text-foreground">
 {JSON.stringify(details.raw, null, 2)}
                   </pre>
                 )}
