@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.64.2] - 2026-07-05
+
+### Fixed & Improved
+
+- **All EPUB highlight colors now render, not just yellow** — epub.js renders highlights as SVG `<rect>` elements filled by the SVG `fill` attribute, not DOM spans styled by CSS. The persisted-highlight render call passed the chosen color as `{ "background-color": <rgba> }`, which is a no-op on SVG, so epub.js's default `fill="yellow"` always won — every highlight rendered yellow regardless of the color you picked (green/blue/pink/purple were silently dropped). The color is now passed as the SVG `fill` attribute (with `fill-opacity: 1` so the rgba's own alpha is the only alpha applied, instead of compounding with epub.js's default `0.3`). A stray `!important` yellow background rule that masked the issue is also removed.
+- **Floating popovers are no longer see-through on scenic themes** — The queue "Details" popover (and the analytics workload-day popover) used `bg-background`, which the seven scenic themes (`solar-sanctuary`, `serene-meadow`, `rainy-library`, `cyber-drive`, `stardust-void`, `biolume-abyss`, `cozy-windowpane`) force to `transparent !important` for non-app-shell elements — leaving the popover nearly fully transparent and its text unreadable. They now use `bg-popover`, the token every other working popover in the app uses and which the scenic themes don't override. Three recharts tooltips that referenced non-existent `hsl(var(--popover))` / `hsl(var(--border))` tokens (this codebase uses Tailwind v4 `--color-popover` / `--color-border`) are also fixed, reconnecting the chart tooltips to the active theme.
+- **Review rating keyboard shortcuts (1–4) work again** — Pressing 1/2/3/4 to rate a card during review silently did nothing. The keydown handler is registered on `window` and gated on `containerRef.contains(e.target)`, but the auto-focused "Show Answer" button unmounts when the answer is revealed, so the browser resets focus to `<body>` — and `<body>` is not inside the container, so the handler bailed out before reaching the rating block. Mouse clicks still worked because their target was the in-container button. The guard now lets `document.body` / `document.documentElement` through (the legitimate fallbacks when nothing is focused) while still bailing when focus is genuinely inside another surface. Fixed in both `ReviewSession` and `ZenReviewMode`, which shared the same guard.
+
 ## [1.64.1] - 2026-07-04
 
 ### Fixed & Improved
