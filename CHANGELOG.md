@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.65.0] - 2026-07-06
+
+### Added
+
+- **Cross-device sync for podcast transcripts, positions, and queue states** — Podcast data now replicates across devices alongside your other reading state. Episode playback positions, played state, and queue download intent were already syncing, but transcripts (status, text, error, transcribed-at, and per-segment word timings) were never published and never arrived on the receiving device. Saving a transcript or its segments now publishes the full episode row, and incoming transcript changes are observed and applied locally — so an episode transcribed on desktop shows up fully transcribed (and seekable by segment) on your phone.
+
+### Fixed & Improved
+
+- **macOS About / Hide / Quit menu items now behave as native** — The About, Hide, and Quit entries in the macOS app menu were built as plain `MenuItem`s with custom IDs, so they rendered with the right labels but never invoked the OS behavior — and a guard short-circuited their events, leaving them effectively inert. They are now `PredefinedMenuItem`s (about/hide/quit), which Tauri routes to the OS-native handlers, so About opens the standard about panel, Cmd+H hides the app, and Cmd+Q quits — and the bypass guard that masked the broken custom handlers is removed.
+- **Sync no longer fails to start on mobile, and room keys persist across restarts on desktop** — `secureStorage` called the Tauri keyring commands on every platform gated only on `isTauri()`, but on native mobile those Rust commands try to reach a platform keychain that isn't available, throwing on every room-key get/set/clear and breaking the mobile sync boot chain. Keyring access is now gated on `isTauri() && !isNativeMobile()` so mobile falls through to its in-memory/IndexedDB path. On desktop, the `keyring` crate is now built with the `apple-native`, `windows-native`, and `sync-secret-service` features, so the room key/secret is written to the real OS keychain and survives app restarts instead of being lost.
+
 ## [1.64.2] - 2026-07-05
 
 ### Fixed & Improved
