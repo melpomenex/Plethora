@@ -164,6 +164,16 @@ export async function getQueueStats(): Promise<QueueStats> {
  */
 export async function postponeItem(itemId: string, days: number, itemType?: string): Promise<void> {
   await invokeCommand("postpone_item", { itemId, days, itemType: itemType ?? null });
+  if (itemType !== "document") {
+    void (async () => {
+      try {
+        const { publishCardById } = await import("../lib/sync/entities/flashcards");
+        await publishCardById(itemId);
+      } catch (err) {
+        console.warn("[queue] postponeItem sync failed", err);
+      }
+    })();
+  }
 }
 
 /** Result of a bulk load-management operation (advance / load-balance / easy-days). */
@@ -177,7 +187,18 @@ export interface LoadManagementResult {
  * closer to today. Memory state is preserved.
  */
 export async function advanceItem(itemId: string, days: number, itemType?: string): Promise<boolean> {
-  return await invokeCommand<boolean>("advance_item", { itemId, days, itemType: itemType ?? null });
+  const res = await invokeCommand<boolean>("advance_item", { itemId, days, itemType: itemType ?? null });
+  if (res && itemType !== "document") {
+    void (async () => {
+      try {
+        const { publishCardById } = await import("../lib/sync/entities/flashcards");
+        await publishCardById(itemId);
+      } catch (err) {
+        console.warn("[queue] advanceItem sync failed", err);
+      }
+    })();
+  }
+  return res;
 }
 
 /**
@@ -185,7 +206,27 @@ export async function advanceItem(itemId: string, days: number, itemType?: strin
  * Useful for "I have time now, let me get ahead" cramming.
  */
 export async function advanceDueQueue(days?: number): Promise<LoadManagementResult> {
-  return await invokeCommand<LoadManagementResult>("advance_due_queue", { days: days ?? null });
+  let beforeHlc: string | null = null;
+  try {
+    const { nowHLC } = await import("../lib/sync/syncClock");
+    beforeHlc = nowHLC();
+  } catch {
+    /* ignore */
+  }
+
+  const res = await invokeCommand<LoadManagementResult>("advance_due_queue", { days: days ?? null });
+
+  if (beforeHlc) {
+    void (async () => {
+      try {
+        const { publishRecentlyModifiedCards } = await import("../lib/sync/entities/flashcards");
+        await publishRecentlyModifiedCards(beforeHlc!);
+      } catch (err) {
+        console.warn("[queue] advanceDueQueue sync failed", err);
+      }
+    })();
+  }
+  return res;
 }
 
 /**
@@ -197,10 +238,30 @@ export async function loadBalanceQueue(
   windowDays?: number,
   targetPerDay?: number
 ): Promise<LoadManagementResult> {
-  return await invokeCommand<LoadManagementResult>("load_balance_queue", {
+  let beforeHlc: string | null = null;
+  try {
+    const { nowHLC } = await import("../lib/sync/syncClock");
+    beforeHlc = nowHLC();
+  } catch {
+    /* ignore */
+  }
+
+  const res = await invokeCommand<LoadManagementResult>("load_balance_queue", {
     windowDays: windowDays ?? null,
     targetPerDay: targetPerDay ?? null,
   });
+
+  if (beforeHlc) {
+    void (async () => {
+      try {
+        const { publishRecentlyModifiedCards } = await import("../lib/sync/entities/flashcards");
+        await publishRecentlyModifiedCards(beforeHlc!);
+      } catch (err) {
+        console.warn("[queue] loadBalanceQueue sync failed", err);
+      }
+    })();
+  }
+  return res;
 }
 
 /**
@@ -211,31 +272,84 @@ export async function applyEasyDays(
   windowDays?: number,
   easyDays?: number[]
 ): Promise<LoadManagementResult> {
-  return await invokeCommand<LoadManagementResult>("apply_easy_days", {
+  let beforeHlc: string | null = null;
+  try {
+    const { nowHLC } = await import("../lib/sync/syncClock");
+    beforeHlc = nowHLC();
+  } catch {
+    /* ignore */
+  }
+
+  const res = await invokeCommand<LoadManagementResult>("apply_easy_days", {
     windowDays: windowDays ?? null,
     easyDays: easyDays ?? null,
   });
+
+  if (beforeHlc) {
+    void (async () => {
+      try {
+        const { publishRecentlyModifiedCards } = await import("../lib/sync/entities/flashcards");
+        await publishRecentlyModifiedCards(beforeHlc!);
+      } catch (err) {
+        console.warn("[queue] applyEasyDays sync failed", err);
+      }
+    })();
+  }
+  return res;
 }
 
 /**
  * Bulk suspend items
  */
 export async function bulkSuspendItems(itemIds: string[]): Promise<BulkOperationResult> {
-  return await invokeCommand<BulkOperationResult>("bulk_suspend_items", { itemIds });
+  const res = await invokeCommand<BulkOperationResult>("bulk_suspend_items", { itemIds });
+  void (async () => {
+    try {
+      const { publishCardById } = await import("../lib/sync/entities/flashcards");
+      for (const id of res.succeeded) {
+        await publishCardById(id);
+      }
+    } catch (err) {
+      console.warn("[queue] bulkSuspendItems sync failed", err);
+    }
+  })();
+  return res;
 }
 
 /**
  * Bulk unsuspend items
  */
 export async function bulkUnsuspendItems(itemIds: string[]): Promise<BulkOperationResult> {
-  return await invokeCommand<BulkOperationResult>("bulk_unsuspend_items", { itemIds });
+  const res = await invokeCommand<BulkOperationResult>("bulk_unsuspend_items", { itemIds });
+  void (async () => {
+    try {
+      const { publishCardById } = await import("../lib/sync/entities/flashcards");
+      for (const id of res.succeeded) {
+        await publishCardById(id);
+      }
+    } catch (err) {
+      console.warn("[queue] bulkUnsuspendItems sync failed", err);
+    }
+  })();
+  return res;
 }
 
 /**
  * Bulk delete items
  */
 export async function bulkDeleteItems(itemIds: string[]): Promise<BulkOperationResult> {
-  return await invokeCommand<BulkOperationResult>("bulk_delete_items", { itemIds });
+  const res = await invokeCommand<BulkOperationResult>("bulk_delete_items", { itemIds });
+  void (async () => {
+    try {
+      const { publishCardDeleted } = await import("../lib/sync/entities/flashcards");
+      for (const id of res.succeeded) {
+        await publishCardDeleted(id);
+      }
+    } catch (err) {
+      console.warn("[queue] bulkDeleteItems sync failed", err);
+    }
+  })();
+  return res;
 }
 
 /**

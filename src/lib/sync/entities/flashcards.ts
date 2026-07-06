@@ -269,6 +269,76 @@ export async function publishCard(row: SyncedLearningItem): Promise<void> {
 }
 
 /**
+ * Publish card deletion (tombstone) to Yjs.
+ */
+export async function publishCardDeleted(id: string): Promise<void> {
+  await getCardsMap().delete(id);
+}
+
+/**
+ * Fetch a card by ID from the local database and publish it.
+ */
+export async function publishCardById(id: string): Promise<void> {
+  try {
+    const raw = await invokeCommand<Record<string, unknown> | null>("get_learning_item", { itemId: id });
+    if (raw) {
+      const synced = toSyncedLearningItem(raw);
+      synced.updated_at = nowHLC();
+      synced.updatedAt = synced.updated_at;
+      await publishCard(synced);
+    }
+  } catch (err) {
+    console.warn("[sync:flashcards] publishCardById failed", id, err);
+  }
+}
+
+/**
+ * Publish a list of cards to Yjs in batches of 50.
+ */
+export async function publishCards(cards: unknown[]): Promise<void> {
+  if (!Array.isArray(cards) || cards.length === 0) return;
+  const BATCH = 50;
+  for (let i = 0; i < cards.length; i += BATCH) {
+    const slice = cards.slice(i, i + BATCH);
+    await Promise.all(
+      slice.map(async (row) => {
+        try {
+          const synced = toSyncedLearningItem(row as Record<string, unknown>);
+          synced.updated_at = nowHLC();
+          synced.updatedAt = synced.updated_at;
+          await publishCard(synced);
+        } catch (err) {
+          console.warn("[sync:flashcards] publishCards batch item failed", err);
+        }
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+  }
+}
+
+/**
+ * Find all learning items modified in the database since a specific HLC
+ * timestamp and publish them.
+ */
+export async function publishRecentlyModifiedCards(sinceHlc: string): Promise<void> {
+  try {
+    const rawItems = await invokeCommand<unknown[]>("get_all_learning_items").catch(() => []);
+    if (!Array.isArray(rawItems)) return;
+
+    const modified = rawItems.filter((row: any) => {
+      const synced = toSyncedLearningItem(row as Record<string, unknown>);
+      return synced.updated_at && synced.updated_at > sinceHlc;
+    });
+
+    if (modified.length > 0) {
+      await publishCards(modified);
+    }
+  } catch (err) {
+    console.warn("[sync:flashcards] publishRecentlyModifiedCards failed", err);
+  }
+}
+
+/**
  * Record + publish a review event. Builds the deterministic id, stamps the sync
  * clock, and publishes to the append-only `reviews` map. Called by the review
  * submit path right after the local Tauri write succeeds. Fire-and-forget.

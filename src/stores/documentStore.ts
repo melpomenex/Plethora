@@ -10,7 +10,7 @@ import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
 import { registerImportedFileSync, registerExistingFilesSync } from "../lib/fileSyncRegistration";
-import { publishDocument } from "../lib/documentReplication";
+import { publishDocument, deleteDocumentSync } from "../lib/documentReplication";
 import { registerRoomChangeListener } from "../lib/yjsSync";
 
 /**
@@ -203,6 +203,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       documents: state.documents.filter((doc) => doc.id !== id),
       currentDocument: state.currentDocument?.id === id ? null : state.currentDocument,
     }));
+    await deleteDocumentSync(id);
   },
 
   /**
@@ -230,6 +231,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         newPending.delete(id);
         return { pendingDeletions: newPending };
       });
+
+      await deleteDocumentSync(id);
 
       return { success: true };
     } catch (error) {
@@ -276,20 +279,23 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
    * the UI can surface them. Returns the backend's result summary.
    */
   bulkDelete: async (ids) => {
-    if (ids.length === 0) {
-      return { succeeded: [], failed: [], errors: [] };
-    }
-    const result = await documentsApi.bulkDeleteDocuments(ids);
-    const removed = new Set(result.succeeded);
-    set((state) => ({
-      documents: state.documents.filter((doc) => !removed.has(doc.id)),
-      currentDocument:
-        state.currentDocument && removed.has(state.currentDocument.id)
-          ? null
-          : state.currentDocument,
-    }));
-    return result;
-  },
+      if (ids.length === 0) {
+        return { succeeded: [], failed: [], errors: [] };
+      }
+      const result = await documentsApi.bulkDeleteDocuments(ids);
+      const removed = new Set(result.succeeded);
+      set((state) => ({
+        documents: state.documents.filter((doc) => !removed.has(doc.id)),
+        currentDocument:
+          state.currentDocument && removed.has(state.currentDocument.id)
+            ? null
+            : state.currentDocument,
+      }));
+      for (const id of result.succeeded) {
+        await deleteDocumentSync(id);
+      }
+      return result;
+    },
 
   /**
    * Optimistic update - applies changes immediately, rolls back on failure

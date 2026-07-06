@@ -258,4 +258,19 @@ export function resetSyncMigrationFlag(): void {
   for (const k of keys) window.localStorage.removeItem(k);
 }
 
+/**
+ * Reset the migration/seeding flag and trigger the sync subsystem start & migration re-run
+ * to backfill all local items to Yjs. Used after successful database/archive imports.
+ */
+export async function triggerReSeed(): Promise<void> {
+  resetSyncMigrationFlag();
+  try {
+    const { startSyncSubsystems } = await import("../startSyncSubsystems");
+    await startSyncSubsystems();
+    await runSyncMigrationIfNeeded();
+  } catch (err) {
+    console.warn("[sync-migration] failed to trigger re-seed:", err);
+  }
+}
+
 export const __migrateTest = { MIGRATION_FLAG, resetSyncMigrationFlag };

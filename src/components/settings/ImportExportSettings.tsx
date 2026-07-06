@@ -275,11 +275,20 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
 
           restoreLocalStorage(parsed.payload.localStorage);
           onChange();
+          void (async () => {
+            try {
+              const { triggerReSeed } = await import("../../lib/sync/migrate");
+              await triggerReSeed();
+            } catch (e) {
+              console.warn("[ImportExportSettings] triggerReSeed failed", e);
+            }
+          })();
           return;
         } catch (error) {
           console.warn("Not a collection archive, falling back to legacy import.", error);
         }
       }
+
       if (fileName.endsWith(".db")) {
         const filePath = (importFile as File & { path?: string }).path;
         if (filePath) {
@@ -304,20 +313,28 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
 
       if (fileName.endsWith(".apkg")) {
         const filePath = (importFile as File & { path?: string }).path;
+        let imported: unknown[] = [];
         if (filePath) {
-          const imported = await invokeCommand<unknown[]>("import_anki_package_to_learning_items", {
+          imported = await invokeCommand<unknown[]>("import_anki_package_to_learning_items", {
             apkgPath: filePath,
           });
-          alert(`Imported ${imported.length} Anki card(s) as learning items`);
-          onChange();
-          return;
+        } else {
+          const apkgBytes = new Uint8Array(await importFile.arrayBuffer());
+          imported = await invokeCommand<unknown[]>("import_anki_package_bytes_to_learning_items", {
+            apkgBytes: Array.from(apkgBytes),
+          });
         }
-
-        const apkgBytes = new Uint8Array(await importFile.arrayBuffer());
-        const imported = await invokeCommand<unknown[]>("import_anki_package_bytes_to_learning_items", {
-          apkgBytes: Array.from(apkgBytes),
-        });
         alert(`Imported ${imported.length} Anki card(s) as learning items`);
+        if (imported.length > 0) {
+          void (async () => {
+            try {
+              const { publishCards } = await import("../../lib/sync/entities/flashcards");
+              await publishCards(imported);
+            } catch (err) {
+              console.warn("[ImportExportSettings] apkg sync publish failed", err);
+            }
+          })();
+        }
         onChange();
         return;
       }
@@ -345,6 +362,14 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
           `Review Results: ${summary.reviewResults}`
         );
         onChange();
+        void (async () => {
+          try {
+            const { triggerReSeed } = await import("../../lib/sync/migrate");
+            await triggerReSeed();
+          } catch (e) {
+            console.warn("[ImportExportSettings] legacy import triggerReSeed failed", e);
+          }
+        })();
         return;
       }
 
