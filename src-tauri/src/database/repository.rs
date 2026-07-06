@@ -331,8 +331,9 @@ impl Repository {
                 category, tags,
                 date_added, date_modified, date_last_reviewed,
                 extract_count, learning_item_count, priority_rating, priority_slider, priority_score,
-                is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)
+                is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source,
+                next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 file_path = excluded.file_path,
@@ -361,7 +362,14 @@ impl Repository {
                 is_dismissed = excluded.is_dismissed,
                 metadata = excluded.metadata,
                 cover_image_url = excluded.cover_image_url,
-                cover_image_source = excluded.cover_image_source
+                cover_image_source = excluded.cover_image_source,
+                next_reading_date = excluded.next_reading_date,
+                reading_count = excluded.reading_count,
+                stability = excluded.stability,
+                difficulty = excluded.difficulty,
+                reps = excluded.reps,
+                total_time_spent = excluded.total_time_spent,
+                consecutive_count = excluded.consecutive_count
             "#,
         )
         .bind(&document.id)
@@ -393,6 +401,13 @@ impl Repository {
         .bind(metadata_json)
         .bind(&document.cover_image_url)
         .bind(&document.cover_image_source)
+        .bind(document.next_reading_date)
+        .bind(document.reading_count)
+        .bind(document.stability)
+        .bind(document.difficulty)
+        .bind(document.reps)
+        .bind(document.total_time_spent)
+        .bind(document.consecutive_count)
         .execute(&self.pool)
         .await?;
 

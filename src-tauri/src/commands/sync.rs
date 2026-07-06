@@ -468,6 +468,7 @@ pub async fn get_synced_rss_article_state(
 /// Wire shape for a synced podcast feed (whole-row LWW on updated_at + tombstone
 /// via deleted_at). Subscribing/unsubscribing propagates across devices.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncedPodcastFeed {
     pub id: String,
     pub title: String,
@@ -486,12 +487,22 @@ pub struct SyncedPodcastFeed {
     pub deleted_at: Option<String>,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncedTranscriptSegment {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+    pub word_timings_json: Option<String>,
+}
+
 /// Wire shape for a synced podcast episode. The high-churn fields (`played`,
 /// `playback_position`, `download_intent`) each resolve by their own per-field
 /// clock; `download_intent` is the synced "should be downloaded" flag — each
 /// device honors it subject to its own wifi/storage settings; audio bytes are
 /// NEVER replicated.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncedPodcastEpisode {
     pub id: String,
     pub feed_id: String,
@@ -515,6 +526,11 @@ pub struct SyncedPodcastEpisode {
     pub download_intent_device: Option<String>,
     pub date_added: String,
     pub updated_at: String,
+    pub transcript_text: Option<String>,
+    pub transcript_status: Option<String>,
+    pub transcript_error: Option<String>,
+    pub transcribed_at: Option<String>,
+    pub segments: Option<Vec<SyncedTranscriptSegment>>,
 }
 
 /// Upsert a synced podcast feed (whole-row LWW already resolved by the TS
@@ -621,14 +637,14 @@ pub async fn upsert_synced_podcast_episode(
     };
     let id = existing.map(|(i,)| i).unwrap_or_else(|| ep.id.clone());
 
-    // Insert the episode row if missing. Transcript columns stay NULL — each
-    // device transcribes independently (transcription is device-local compute).
+    // Insert the episode row if missing.
     sqlx::query(
         r#"INSERT OR IGNORE INTO podcast_episodes
            (id, feed_id, guid, title, description, published_date, duration,
             audio_url, audio_type, file_size, image_url, link, played,
-            playback_position, date_added)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0.0, ?13)"#,
+            playback_position, date_added, transcript_text, transcript_status,
+            transcript_error, transcribed_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0.0, ?13, ?14, ?15, ?16, ?17)"#,
     )
     .bind(&id)
     .bind(&ep.feed_id)
@@ -643,6 +659,10 @@ pub async fn upsert_synced_podcast_episode(
     .bind(&ep.image_url)
     .bind(&ep.link)
     .bind(&ep.date_added)
+    .bind(&ep.transcript_text)
+    .bind(&ep.transcript_status)
+    .bind(&ep.transcript_error)
+    .bind(&ep.transcribed_at)
     .execute(repo.pool())
     .await?;
 
@@ -652,8 +672,12 @@ pub async fn upsert_synced_podcast_episode(
             played = ?1, played_at = ?2, unplayed_at = ?3,
             playback_position = ?4, position_updated_at = ?5,
             download_intent = ?6, download_intent_at = ?7, download_intent_device = ?8,
-            updated_at = ?9
-        WHERE id = ?10
+            updated_at = ?9,
+            transcript_text = ?10,
+            transcript_status = ?11,
+            transcript_error = ?12,
+            transcribed_at = ?13
+        WHERE id = ?14
         "#,
     )
     .bind(ep.played)
@@ -665,9 +689,38 @@ pub async fn upsert_synced_podcast_episode(
     .bind(&ep.download_intent_at)
     .bind(&ep.download_intent_device)
     .bind(&ep.updated_at)
+    .bind(&ep.transcript_text)
+    .bind(&ep.transcript_status)
+    .bind(&ep.transcript_error)
+    .bind(&ep.transcribed_at)
     .bind(&id)
     .execute(repo.pool())
     .await?;
+
+    if let Some(segs) = ep.segments {
+        // Delete existing segments
+        sqlx::query("DELETE FROM podcast_transcript_segments WHERE episode_id = ?1")
+            .bind(&id)
+            .execute(repo.pool())
+            .await?;
+        // Insert new segments
+        for (index, seg) in segs.into_iter().enumerate() {
+            sqlx::query(
+                r#"INSERT INTO podcast_transcript_segments
+                   (episode_id, segment_index, start_ms, end_ms, text, word_timings_json)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#
+            )
+            .bind(&id)
+            .bind(index as i32)
+            .bind(seg.start_ms)
+            .bind(seg.end_ms)
+            .bind(&seg.text)
+            .bind(&seg.word_timings_json)
+            .execute(repo.pool())
+            .await?;
+        }
+    }
+
     Ok(())
 }
 
@@ -682,7 +735,8 @@ pub async fn get_synced_podcast_episode(
                   audio_url, audio_type, file_size, image_url, link, played,
                   played_at, unplayed_at, playback_position, position_updated_at,
                   download_intent, download_intent_at, download_intent_device,
-                  date_added, updated_at
+                  date_added, updated_at,
+                  transcript_text, transcript_status, transcript_error, transcribed_at
            FROM podcast_episodes WHERE id = ?1"#,
     )
     .bind(&id)
@@ -691,6 +745,29 @@ pub async fn get_synced_podcast_episode(
     match row {
         Some(row) => {
             use sqlx::Row;
+            let transcript_status: Option<String> = row.try_get("transcript_status").ok();
+            let mut segments = None;
+            if let Some(ref status) = transcript_status {
+                if status == "done" {
+                    let seg_rows = sqlx::query(
+                        "SELECT start_ms, end_ms, text, word_timings_json FROM podcast_transcript_segments WHERE episode_id = ?1 ORDER BY segment_index ASC"
+                    )
+                    .bind(&id)
+                    .fetch_all(repo.pool())
+                    .await?;
+                    let mut segs = Vec::new();
+                    for r in seg_rows {
+                        segs.push(SyncedTranscriptSegment {
+                            start_ms: r.try_get("start_ms")?,
+                            end_ms: r.try_get("end_ms")?,
+                            text: r.try_get("text")?,
+                            word_timings_json: r.try_get("word_timings_json").ok(),
+                        });
+                    }
+                    segments = Some(segs);
+                }
+            }
+
             Ok(Some(SyncedPodcastEpisode {
                 id: row.try_get("id")?,
                 feed_id: row.try_get("feed_id")?,
@@ -714,6 +791,11 @@ pub async fn get_synced_podcast_episode(
                 download_intent_device: row.try_get("download_intent_device").ok(),
                 date_added: row.try_get("date_added").ok().unwrap_or_default(),
                 updated_at: row.try_get("updated_at").ok().unwrap_or_default(),
+                transcript_text: row.try_get("transcript_text").ok(),
+                transcript_status: row.try_get("transcript_status").ok(),
+                transcript_error: row.try_get("transcript_error").ok(),
+                transcribed_at: row.try_get("transcribed_at").ok(),
+                segments,
             }))
         }
         None => Ok(None),
