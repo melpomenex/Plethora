@@ -796,7 +796,17 @@ export async function savePodcastTranscriptSegments(
   segments: SaveSegmentInput[],
 ): Promise<void> {
   if (isTauri()) {
-    return invokeCommand<void>("save_podcast_transcript_segments", { episodeId, segments });
+    await invokeCommand<void>("save_podcast_transcript_segments", { episodeId, segments });
+    try {
+      const { publishPodcastEpisode } = await import("../lib/sync/entities/podcasts");
+      const row = await loadEpisodeForSync(episodeId);
+      if (row) {
+        await publishPodcastEpisode(row);
+      }
+    } catch (err) {
+      console.warn("[podcast] sync publish transcript segments failed", err);
+    }
+    return;
   }
   console.warn("[Browser] savePodcastTranscriptSegments: no-op in browser fallback mode");
 }
@@ -811,12 +821,22 @@ export async function savePodcastTranscript(
   transcript?: string,
 ): Promise<void> {
   if (isTauri()) {
-    return invokeCommand<void>("save_podcast_transcript", {
+    await invokeCommand<void>("save_podcast_transcript", {
       episodeId,
       status,
       error: error ?? null,
       transcript: transcript ?? null,
     });
+    try {
+      const { publishPodcastEpisode } = await import("../lib/sync/entities/podcasts");
+      const row = await loadEpisodeForSync(episodeId);
+      if (row) {
+        await publishPodcastEpisode(row);
+      }
+    } catch (err) {
+      console.warn("[podcast] sync publish transcript failed", err);
+    }
+    return;
   }
   if (shouldUseHttp()) {
     const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/transcript`, {

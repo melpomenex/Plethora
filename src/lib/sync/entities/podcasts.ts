@@ -24,7 +24,7 @@
 
 import { createReplicatedMap, type ReplicatedMap } from "../replicatedMap";
 import { nowHLC } from "../syncClock";
-import { invokeCommand, isTauri } from "../../tauri";
+import { invokeCommand, isTauri, listen } from "../../tauri";
 
 // --- wire types (camelCase — the Rust podcast models use rename_all=camelCase) ---
 
@@ -44,6 +44,13 @@ export interface SyncedPodcastFeed {
   transcribeLanguage: string | null;
   updatedAt: string;
   deletedAt: string | null;
+}
+
+export interface SyncedTranscriptSegment {
+  startMs: number;
+  endMs: number;
+  text: string;
+  wordTimingsJson: string | null;
 }
 
 export interface SyncedPodcastEpisode {
@@ -69,6 +76,11 @@ export interface SyncedPodcastEpisode {
   downloadIntentDevice: string | null;
   dateAdded: string;
   updatedAt: string;
+  transcriptText: string | null;
+  transcriptStatus: string | null;
+  transcriptError: string | null;
+  transcribedAt: string | null;
+  segments: SyncedTranscriptSegment[] | null;
 }
 
 // --- singletons -------------------------------------------------------------
@@ -104,6 +116,10 @@ function getEpisodesMap(): ReplicatedMap<SyncedPodcastEpisode> {
         ["played", "playedAt"],
         ["playbackPosition", "positionUpdatedAt"],
         ["downloadIntent", "downloadIntentAt"],
+        ["transcriptStatus", "transcribedAt"],
+        ["transcriptText", "transcribedAt"],
+        ["transcriptError", "transcribedAt"],
+        ["segments", "transcribedAt"],
       ],
       getLocal: async (key) => {
         try {
@@ -192,10 +208,40 @@ export async function publishEpisodeDownloadIntent(args: {
   await getEpisodesMap().publish(row.id, row);
 }
 
+/** Publish a podcast episode updates (e.g. transcripts). */
+export async function publishPodcastEpisode(row: SyncedPodcastEpisode): Promise<void> {
+  await getEpisodesMap().publish(row.id, row);
+}
+
+let transcriptionListenerAttached = false;
+
 /** Warm up the maps on app boot. */
 export async function ensurePodcastSyncReady(): Promise<void> {
   if (!isTauri()) return;
   await Promise.all([getFeedsMap().ensureReady(), getEpisodesMap().ensureReady()]);
+
+  if (!transcriptionListenerAttached) {
+    transcriptionListenerAttached = true;
+    void listen<{ episodeId: string }>("podcast://transcription-complete", async (e) => {
+      const episodeId = e.payload.episodeId;
+      try {
+        const row = await invokeCommand<SyncedPodcastEpisode | null>(
+          "get_synced_podcast_episode",
+          { id: episodeId },
+        );
+        if (row) {
+          const clock = nowHLC();
+          await getEpisodesMap().publish(episodeId, {
+            ...row,
+            transcribedAt: clock,
+            updatedAt: clock,
+          });
+        }
+      } catch (err) {
+        console.warn("[podcast-sync] failed to publish synced transcript on completion", err);
+      }
+    });
+  }
 }
 
 export const __podcastSyncTest = {
