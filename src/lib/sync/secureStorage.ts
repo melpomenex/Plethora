@@ -22,7 +22,7 @@
  *   touches IndexedDB.
  */
 
-import { isTauri } from '../tauri.js';
+import { isTauri, isNativeMobile } from '../tauri.js';
 import { invokeCommand } from '../tauri.js';
 
 const KEYRING_SERVICE = 'incrementum-sync';
@@ -51,7 +51,7 @@ export async function setCachedRoomKey(roomKey: Uint8Array): Promise<void> {
   if (roomKey.length !== 32) {
     throw new Error(`setCachedRoomKey: expected 32-byte room key, got ${roomKey.length}`);
   }
-  if (isTauri()) {
+  if (isTauri() && !isNativeMobile()) {
     await invokeCommand('secure_storage_set', {
       service: KEYRING_SERVICE,
       account: KEYRING_ACCOUNT_KEY,
@@ -63,7 +63,7 @@ export async function setCachedRoomKey(roomKey: Uint8Array): Promise<void> {
 }
 
 export async function getCachedRoomKey(): Promise<Uint8Array | null> {
-  if (isTauri()) {
+  if (isTauri() && !isNativeMobile()) {
     const value = await invokeCommand<string | null>('secure_storage_get', {
       service: KEYRING_SERVICE,
       account: KEYRING_ACCOUNT_KEY,
@@ -75,7 +75,7 @@ export async function getCachedRoomKey(): Promise<Uint8Array | null> {
 }
 
 export async function clearCachedRoomKey(): Promise<void> {
-  if (isTauri()) {
+  if (isTauri() && !isNativeMobile()) {
     await invokeCommand('secure_storage_clear', {
       service: KEYRING_SERVICE,
       account: KEYRING_ACCOUNT_KEY,
@@ -99,7 +99,7 @@ export async function clearCachedRoomKey(): Promise<void> {
 export async function setCachedRoomSecret(secret: string): Promise<void> {
   if (!secret) throw new Error('setCachedRoomSecret: secret is required');
   const bytes = new TextEncoder().encode(secret);
-  if (isTauri()) {
+  if (isTauri() && !isNativeMobile()) {
     await invokeCommand('secure_storage_set', {
       service: KEYRING_SERVICE,
       account: KEYRING_ACCOUNT_SECRET,
@@ -112,7 +112,7 @@ export async function setCachedRoomSecret(secret: string): Promise<void> {
 
 export async function getCachedRoomSecret(): Promise<string | null> {
   let bytes: Uint8Array | null;
-  if (isTauri()) {
+  if (isTauri() && !isNativeMobile()) {
     const value = await invokeCommand<string | null>('secure_storage_get', {
       service: KEYRING_SERVICE,
       account: KEYRING_ACCOUNT_SECRET,
@@ -127,7 +127,7 @@ export async function getCachedRoomSecret(): Promise<string | null> {
 }
 
 export async function clearCachedRoomSecret(): Promise<void> {
-  if (isTauri()) {
+  if (isTauri() && !isNativeMobile()) {
     await invokeCommand('secure_storage_clear', {
       service: KEYRING_SERVICE,
       account: KEYRING_ACCOUNT_SECRET,

@@ -133,7 +133,7 @@ dotenvy = "0.15"
 dirs = "5.0"
 
 # OS keychain for OAuth token persistence
-keyring = "3"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 # Encrypted fallback key derivation
 pbkdf2 = "0.12"
