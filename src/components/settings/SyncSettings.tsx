@@ -8,7 +8,6 @@ import {
   HardDrive,
   Key,
   Lock,
-  LockOpen,
   Scan,
   WifiHigh,
 } from "@phosphor-icons/react";
@@ -23,9 +22,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import {
   enableEncryption,
   enableEncryptionWithSecret,
-  disableEncryption,
-  isEncryptionEnabled,
-  getCachedRoomSecretOrNull,
+  ensureEncryptionEnabled,
 } from "../../lib/sync/roomCrypto";
 import {
   encodeSyncQrPayload,
@@ -33,17 +30,6 @@ import {
   isSyncQrPayload,
   InvalidQrPayloadError,
 } from "../../lib/sync/qrFormat";
-
-// Feature flag for the device-sync end-to-end encryption UI. The crypto core,
-// secure storage, encrypted provider wrapper, and yjsSync wiring all stay
-// loaded regardless — this only gates the user-facing controls.
-//
-// The forked relay (opaque frame forwarding + encrypted frame-log) is deployed
-// at sync.readsync.org, so encrypted rooms replicate correctly. File-blob
-// encryption (under the same room key's file sub-key) is wired into the
-// file-service transport, so uploads/downloads are ciphertext-only when a key
-// is set. Users opt in per room; legacy "TLS only" rooms keep working.
-const SYNC_ENCRYPTION_UI_ENABLED = true;
 
 const DEFAULT_SYNC_SETTINGS = {
   enabled: false,
@@ -62,12 +48,10 @@ export function SyncSettings() {
   const [showQr, setShowQr] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
 
-  // Encryption state. `encryptionEnabled` reflects whether a derived room key
-  // is cached on this device — if so, sync runs through EncryptedWebsocketProvider.
-  // `roomSecret` is the user-shareable string (used to populate the QR). It is
-  // null when encryption is off OR when we know a key is cached but the secret
-  // isn't (e.g. user set it via an older build that didn't persist the secret).
-  const [encryptionEnabled, setEncryptionEnabled] = useState(false);
+  // Encryption is always on (the relay refuses plaintext sync frames and the
+  // boot path auto-provisions a key). The only piece the UI surfaces is the
+  // room secret, which the user needs to pair another device via QR or copy.
+  // `roomSecret` is null only until the secret finishes loading/provisioning.
   const [roomSecret, setRoomSecret] = useState<string | null>(null);
   const [revealSecret, setRevealSecret] = useState(false);
 
@@ -83,24 +67,20 @@ export function SyncSettings() {
   }, [yjsSettings.url]);
 
   useEffect(() => {
-    setRoomId(getSyncRoomId());
-    if (SYNC_ENCRYPTION_UI_ENABLED) {
-      void loadEncryptionState();
-    }
+    const loadedRoom = getSyncRoomId();
+    setRoomId(loadedRoom);
+    // Encryption is mandatory; make sure a secret is provisioned and cached
+    // so the QR below carries the full `incrementum-sync:v1:<room>:<secret>`
+    // payload. Idempotent — no-op if boot already provisioned one.
+    void loadRoomSecret(loadedRoom);
   }, []);
 
-  async function loadEncryptionState() {
+  async function loadRoomSecret(room: string) {
     try {
-      const enabled = await isEncryptionEnabled();
-      setEncryptionEnabled(enabled);
-      if (enabled) {
-        const secret = await getCachedRoomSecretOrNull();
-        setRoomSecret(secret);
-      } else {
-        setRoomSecret(null);
-      }
+      const secret = await ensureEncryptionEnabled(room);
+      setRoomSecret(secret);
     } catch (err) {
-      console.warn("[SyncSettings] failed to load encryption state", err);
+      console.warn("[SyncSettings] failed to provision/load encryption secret", err);
     }
   }
 
@@ -181,61 +161,44 @@ export function SyncSettings() {
       return { ok: false, error: t("syncSettings.enterCodeMsg") };
     }
 
-    // New-format payloads (`incrementum-sync:v1:<roomId>:<secret>`) carry
-    // both the room ID and the encryption secret. Legacy plain room IDs are
-    // accepted as-is — sync runs in "TLS only" mode for them.
-    if (SYNC_ENCRYPTION_UI_ENABLED && isSyncQrPayload(raw)) {
-      try {
-        const parsed = parseSyncQrPayload(raw);
-        await enableEncryptionWithSecret(parsed.roomId, parsed.roomSecret);
-        setSyncRoomId(parsed.roomId);
-        setRoomId(parsed.roomId);
-        setEncryptionEnabled(true);
-        setRoomSecret(parsed.roomSecret);
-        setJoinRoomId("");
-        // Replication observers must be attached before rejoinRoom connects to
-        // the new room, so we receive the room's existing state on join. Await
-        // (idempotent no-op when boot already started the chain).
-        try {
-          await startSyncSubsystems();
-        } catch (err) {
-          console.warn("[SyncSettings] subsystems start failed before room join", err);
-        }
-        // forceProviderRebuild: the user may already be on this room (e.g.
-        // joining an encrypted room whose ID matches the current plaintext
-        // room). Without this, rejoinRoom short-circuits at the same-room
-        // check and the just-cached secret never takes effect — the live
-        // provider keeps running plaintext. Mirrors the handleEnableEncryption
-        // fix for the scan/paste-join path.
-        await rejoinRoom(parsed.roomId, { forceProviderRebuild: true });
-        setRoomMessage(t("syncSettings.joinedEncryptedMsg"));
-        return { ok: true };
-      } catch (err) {
-        const msg =
-          err instanceof InvalidQrPayloadError
-            ? t("syncSettings.invalidCodeMsg", { error: err.message })
-            : t("syncSettings.failedJoinMsg", { error: (err as Error).message });
-        setRoomMessage(msg);
-        return { ok: false, error: msg };
-      }
+    // Encryption is mandatory, so joining another device's room requires its
+    // full invite payload (`incrementum-sync:v1:<roomId>:<secret>`). A bare
+    // room ID alone can't work — this device would provision its own key and
+    // could never decrypt the peer's frames. Guide the user toward the
+    // invite code / QR instead of silently joining an incompatible room.
+    if (!isSyncQrPayload(raw)) {
+      const msg = t("syncSettings.needInviteCodeMsg");
+      setRoomMessage(msg);
+      return { ok: false, error: msg };
     }
 
     try {
-      setSyncRoomId(raw);
-      setRoomId(raw);
+      const parsed = parseSyncQrPayload(raw);
+      await enableEncryptionWithSecret(parsed.roomId, parsed.roomSecret);
+      setSyncRoomId(parsed.roomId);
+      setRoomId(parsed.roomId);
+      setRoomSecret(parsed.roomSecret);
       setJoinRoomId("");
       // Replication observers must be attached before rejoinRoom connects to
-      // the new room, so we receive the room's existing state on join.
+      // the new room, so we receive the room's existing state on join. Await
+      // (idempotent no-op when boot already started the chain).
       try {
         await startSyncSubsystems();
       } catch (err) {
         console.warn("[SyncSettings] subsystems start failed before room join", err);
       }
-      await rejoinRoom(raw);
-      setRoomMessage(t("syncSettings.codeAppliedMsg"));
+      // forceProviderRebuild: the user may already be on this room with a
+      // different (or auto-provisioned) key cached. Without this, rejoinRoom
+      // short-circuits at the same-room check and the just-cached secret
+      // never takes effect.
+      await rejoinRoom(parsed.roomId, { forceProviderRebuild: true });
+      setRoomMessage(t("syncSettings.joinedEncryptedMsg"));
       return { ok: true };
     } catch (err) {
-      const msg = t("syncSettings.failedJoinMsg", { error: (err as Error).message });
+      const msg =
+        err instanceof InvalidQrPayloadError
+          ? t("syncSettings.invalidCodeMsg", { error: err.message })
+          : t("syncSettings.failedJoinMsg", { error: (err as Error).message });
       setRoomMessage(msg);
       return { ok: false, error: msg };
     }
@@ -247,65 +210,28 @@ export function SyncSettings() {
     }
     const next = createNewSyncRoomId();
     setRoomId(next);
-    // Rotating the room ID invalidates any cached encryption key (the key
-    // is derived from the secret + roomId, so the old key won't match the
-    // new room). Clear it so the user re-enables encryption explicitly.
-    if (SYNC_ENCRYPTION_UI_ENABLED && encryptionEnabled) {
-      await disableEncryption().catch((e) =>
-        console.warn("[SyncSettings] failed to clear encryption on room rotate", e),
-      );
-      setEncryptionEnabled(false);
-      setRoomSecret(null);
+    // Encryption is always on. Provision a fresh key for the new room (the
+    // old room's key is derived from secret+roomId and won't match) and show
+    // it so the user can pair their other devices with the new room.
+    try {
+      const secret = await ensureEncryptionEnabled(next);
+      setRoomSecret(secret);
+      setRevealSecret(true);
       setRoomMessage(t("syncSettings.newCodeEncryptMsg"));
-    } else {
+    } catch (err) {
+      console.warn("[SyncSettings] failed to provision encryption on room rotate", err);
       setRoomMessage(t("syncSettings.newCodeMsg"));
     }
   };
 
-  const handleEnableEncryption = async () => {
-    try {
-      const secret = await enableEncryption(roomId);
-      setEncryptionEnabled(true);
-      setRoomSecret(secret);
-      setRevealSecret(true);
-      // The encryption key is read at provider-construction time, so rebuild
-      // the provider against the same room to pick it up without a reload.
-      // `forceProviderRebuild` overrides the same-room short-circuit (which
-      // would otherwise leave the plaintext provider running until restart).
-      await rejoinRoom(roomId, { forceProviderRebuild: true }).catch((e) =>
-        console.warn("[SyncSettings] rejoin after enabling encryption failed", e),
-      );
-      setRoomMessage(t("syncSettings.encryptionEnabledMsg"));
-    } catch (err) {
-      setRoomMessage(t("syncSettings.failedEnableEncryptionMsg", { error: (err as Error).message }));
-    }
-  };
-
-  const handleDisableEncryption = async () => {
-    if (!confirm(t("syncSettings.confirmDisableEncryption"))) {
+  const handleRotateKey = async () => {
+    if (!confirm(t("syncSettings.confirmResetKey"))) {
       return;
     }
     try {
-      await disableEncryption();
-      setEncryptionEnabled(false);
-      setRoomSecret(null);
-      setRevealSecret(false);
-      await rejoinRoom(roomId, { forceProviderRebuild: true }).catch((e) =>
-        console.warn("[SyncSettings] rejoin after disabling encryption failed", e),
-      );
-      setRoomMessage(t("syncSettings.encryptionDisabledMsg"));
-    } catch (err) {
-      setRoomMessage(t("syncSettings.failedDisableMsg", { error: (err as Error).message }));
-    }
-  };
-
-  const handleResetEncryption = async () => {
-    if (
-      !confirm(t("syncSettings.confirmResetKey"))
-    ) {
-      return;
-    }
-    try {
+      // Generate a brand-new secret + key for the current room. Every other
+      // device syncing this room must re-pair using the new secret shown
+      // below — the old one no longer decrypts newly-encrypted frames.
       const secret = await enableEncryption(roomId);
       setRoomSecret(secret);
       setRevealSecret(true);
@@ -325,22 +251,16 @@ export function SyncSettings() {
     }
   };
 
-  // QR payload reflects the room + optional secret. When encryption is on
-  // AND we have the secret cached, produce the new format so scanning peers
-  // join encrypted automatically. Otherwise emit the bare roomId for
-  // back-compat with older builds.
+  // Encryption is always on, so whenever we have the secret cached the QR
+  // carries the full invite payload (room + secret) and a scanning peer
+  // joins encrypted automatically. Before the secret loads, fall back to the
+  // bare roomId so the QR renders immediately rather than flickering empty.
   const qrPayload = useMemo(() => {
-    if (SYNC_ENCRYPTION_UI_ENABLED && encryptionEnabled && roomSecret) {
+    if (roomSecret) {
       return encodeSyncQrPayload(roomId, roomSecret);
     }
     return roomId;
-  }, [roomId, encryptionEnabled, roomSecret]);
-
-  const encryptionStatusLabel = encryptionEnabled
-    ? t("syncSettings.statusEncrypted")
-    : roomId
-      ? t("syncSettings.statusTlsOnly")
-      : t("syncSettings.statusNotSyncing");
+  }, [roomId, roomSecret]);
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
@@ -388,95 +308,71 @@ export function SyncSettings() {
             <div className="flex items-center gap-4 rounded-lg border border-border bg-muted/30 p-3">
               <QRCodeCanvas value={qrPayload} size={120} />
               <div className="text-xs text-muted-foreground">
-                {SYNC_ENCRYPTION_UI_ENABLED && encryptionEnabled
-                  ? t("syncSettings.scanQrEncryptedDesc")
-                  : t("syncSettings.scanQrDesc")}
+                {t("syncSettings.scanQrEncryptedDesc")}
               </div>
             </div>
           )}
 
-          {/* Encryption management — gated by SYNC_ENCRYPTION_UI_ENABLED.
-              The supporting modules (encryption, secureStorage,
-              encryptedProvider, qrFormat, roomCrypto) stay loaded; only
-              the user-facing controls are hidden. */}
-          {SYNC_ENCRYPTION_UI_ENABLED && (
-            <div className="rounded-lg border border-border p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  {encryptionEnabled ? (
-                    <Lock className="w-4 h-4 text-green-500" />
-                  ) : (
-                    <LockOpen className="w-4 h-4 text-amber-500" />
-                  )}
-                  <span>{t("syncSettings.e2eTitle")}</span>
-                </div>
-                <span className="text-xs text-muted-foreground">{encryptionStatusLabel}</span>
+          {/* End-to-end encryption is always on. This panel exposes the room
+              secret used to pair another device (QR/copy) and a key-rotation
+              control; there is no enable/disable toggle by design — the relay
+              refuses plaintext sync frames, so encryption is not optional. */}
+          <div className="rounded-lg border border-border p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Lock className="w-4 h-4 text-green-500" />
+                <span>{t("syncSettings.e2eTitle")}</span>
               </div>
+              <span className="text-xs text-muted-foreground">
+                {t("syncSettings.statusEncrypted")}
+              </span>
+            </div>
 
-              {encryptionEnabled ? (
-                <>
-                  {roomSecret && (
-                    <div className="space-y-1">
-                      <label className="block text-xs text-muted-foreground">
-                        {revealSecret
-                          ? t("syncSettings.e2eRoomSecret")
-                          : t("syncSettings.e2eRoomSecretHidden")}
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          className="flex-1 px-2 py-1 bg-background border border-border rounded text-xs font-mono"
-                          type={revealSecret ? "text" : "password"}
-                          value={roomSecret}
-                          readOnly
-                        />
-                        <button
-                          onClick={() => setRevealSecret((v) => !v)}
-                          className="px-2 py-1 bg-muted text-foreground rounded text-xs"
-                        >
-                          {revealSecret ? t("syncSettings.e2eHide") : t("syncSettings.e2eShow")}
-                        </button>
-                        <button
-                          onClick={handleCopySecret}
-                          className="px-2 py-1 bg-muted text-foreground rounded text-xs flex items-center gap-1"
-                        >
-                          <Copy className="w-3 h-3" /> {t("syncSettings.copy")}
-                        </button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {t("syncSettings.e2eSecretShareWarning")}
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      onClick={handleResetEncryption}
-                      className="flex-1 px-2 py-1 bg-muted text-foreground rounded text-xs flex items-center justify-center gap-1"
-                    >
-                      <Key className="w-3 h-3" /> {t("syncSettings.e2eResetKey")}
-                    </button>
-                    <button
-                      onClick={handleDisableEncryption}
-                      className="flex-1 px-2 py-1 bg-destructive text-destructive-foreground rounded text-xs"
-                    >
-                      {t("syncSettings.e2eDisable")}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    {t("syncSettings.e2eDisabledDesc")}
-                  </p>
+            {roomSecret ? (
+              <div className="space-y-1">
+                <label className="block text-xs text-muted-foreground">
+                  {revealSecret
+                    ? t("syncSettings.e2eRoomSecret")
+                    : t("syncSettings.e2eRoomSecretHidden")}
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 px-2 py-1 bg-background border border-border rounded text-xs font-mono"
+                    type={revealSecret ? "text" : "password"}
+                    value={roomSecret}
+                    readOnly
+                  />
                   <button
-                    onClick={handleEnableEncryption}
-                    className="w-full px-3 py-2 bg-primary text-primary-foreground rounded text-xs flex items-center justify-center gap-1"
+                    onClick={() => setRevealSecret((v) => !v)}
+                    className="px-2 py-1 bg-muted text-foreground rounded text-xs"
                   >
-                    <Lock className="w-3 h-3" /> {t("syncSettings.e2eEnable")}
+                    {revealSecret ? t("syncSettings.e2eHide") : t("syncSettings.e2eShow")}
                   </button>
-                </>
-              )}
-            </div>
-          )}
+                  <button
+                    onClick={handleCopySecret}
+                    className="px-2 py-1 bg-muted text-foreground rounded text-xs flex items-center gap-1"
+                  >
+                    <Copy className="w-3 h-3" /> {t("syncSettings.copy")}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t("syncSettings.e2eSecretShareWarning")}
+                </p>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={handleRotateKey}
+                    className="flex-1 px-2 py-1 bg-muted text-foreground rounded text-xs flex items-center justify-center gap-1"
+                  >
+                    <Key className="w-3 h-3" /> {t("syncSettings.e2eResetKey")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {t("syncSettings.e2eLoadingSecret")}
+              </p>
+            )}
+          </div>
           <div>
             <label className="block text-xs text-muted-foreground mb-1">{t("syncSettings.joinCode")}</label>
             <div className="flex gap-2">

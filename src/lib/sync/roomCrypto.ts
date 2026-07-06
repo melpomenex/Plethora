@@ -93,6 +93,27 @@ export async function isEncryptionEnabled(): Promise<boolean> {
 }
 
 /**
+ * Guarantee encryption is enabled on this device for the given room. Returns
+ * the room secret (the user-shareable string for pairing other devices via
+ * QR or copy).
+ *
+ * - If a room key is already cached, returns the cached secret unchanged.
+ * - If not, generates a fresh strong secret, derives the room key via
+ *   Argon2id, and persists both to secure storage, then returns the secret.
+ *
+ * Encryption is mandatory for sync (the relay refuses plaintext sync frames),
+ * so the boot path and room-join path call this to provision silently rather
+ * than asking the user to opt in. Idempotent: provisioning runs at most once
+ * per device; subsequent calls short-circuit on the cached key.
+ */
+export async function ensureEncryptionEnabled(roomId: string): Promise<string> {
+  if (!roomId) throw new Error('ensureEncryptionEnabled: roomId is required');
+  const existing = await getCachedRoomSecret();
+  if (existing) return existing;
+  return enableEncryption(roomId);
+}
+
+/**
  * Load the cached room secret (for QR generation) or null if none cached.
  */
 export async function getCachedRoomSecretOrNull(): Promise<string | null> {

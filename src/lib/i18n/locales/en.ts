@@ -2864,6 +2864,7 @@ export const en: Dict = {
   "syncSettings.e2eDisable": "Disable",
   "syncSettings.e2eShow": "Show",
   "syncSettings.e2eHide": "Hide",
+  "syncSettings.e2eLoadingSecret": "Loading encryption secret…",
   "syncSettings.e2eDisabledDesc":
     "Your synced data (reading state, flashcards, and uploaded files) is currently readable by the relay server. Enable a room key to end-to-end-encrypt this device and your uploaded files, then share the secret with your other devices.",
   "syncSettings.e2eEnable": "Enable encryption",
@@ -2876,6 +2877,8 @@ export const en: Dict = {
   "syncSettings.copiedCodeMsg": "Copied sync code to clipboard.",
   "syncSettings.failedCopyMsg": "Failed to copy. You can still select and copy it manually.",
   "syncSettings.enterCodeMsg": "Enter a sync code to join.",
+  "syncSettings.needInviteCodeMsg":
+    "That looks like a room ID, not an invite code. Open Sync settings on your other device and copy the full invite code (or scan its QR code) — it includes the encryption key needed to join.",
   "syncSettings.joinedEncryptedMsg": "Joined encrypted room and connected.",
   "syncSettings.failedJoinMsg": "Failed to join: {error}",
   "syncSettings.codeAppliedMsg": "Sync code applied and connected.",

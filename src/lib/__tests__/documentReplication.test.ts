@@ -271,6 +271,36 @@ describe("documentReplication conflict resolution", () => {
       );
     });
   });
+
+  it("deletes a local SQLite document and cleans up sync file loader when a tombstone is received", async () => {
+    const localDoc = makeDoc("doc-tombstoned", { fileId: "file-123", dateModified: "2026-01-01T00:00:00.000Z" });
+    mocks.localDocuments = [localDoc];
+    mocks.getDocument.mockResolvedValue(localDoc);
+
+    const mockUnregister = vi.fn();
+    const mockDeleteCached = vi.fn();
+
+    vi.doMock("../useFileSync", () => ({
+      ensureFileSyncReady: vi.fn().mockResolvedValue(undefined),
+      getFileTransferManager: () => ({
+        unregisterLocalFile: mockUnregister,
+      }),
+    }));
+    vi.doMock("../file-transfer", () => ({
+      deleteCachedFile: mockDeleteCached,
+    }));
+
+    map.set("doc-tombstoned", { _deleted: true, deletedAt: "1719878400000.0", deletedBy: "peer-1" } as any);
+
+    await vi.waitFor(() => {
+      const call = mocks.invokeCommand.mock.calls.find(
+        (c) => c[0] === "delete_document" && (c[1] as { id: string }).id === "doc-tombstoned"
+      );
+      expect(call).toBeTruthy();
+      expect(mockUnregister).toHaveBeenCalledWith("file-123");
+      expect(mockDeleteCached).toHaveBeenCalledWith("file-123");
+    });
+  });
 });
 
 describe("republishDocumentPosition", () => {

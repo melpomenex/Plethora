@@ -96,7 +96,7 @@ export async function getAllLearningItems(): Promise<LearningItem[]> {
  * Create a new learning item
  */
 export async function createLearningItem(input: CreateLearningItemInput): Promise<LearningItem> {
-  return await invokeCommand<LearningItem>("create_learning_item", {
+  const item = await invokeCommand<LearningItem>("create_learning_item", {
     itemType: input.item_type,
     question: input.question,
     answer: input.answer,
@@ -108,6 +108,19 @@ export async function createLearningItem(input: CreateLearningItemInput): Promis
     interactionMetadata: input.interaction_metadata,
     allowDuplicate: input.allow_duplicate,
   });
+  void (async () => {
+    try {
+      const { publishCard, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
+      const { nowHLC } = await import("../lib/sync/syncClock");
+      const synced = toSyncedLearningItem(item as unknown as Record<string, unknown>);
+      synced.updated_at = nowHLC();
+      synced.updatedAt = synced.updated_at;
+      await publishCard(synced);
+    } catch (err) {
+      console.warn("[learning-items] sync publish failed (non-fatal)", err);
+    }
+  })();
+  return item;
 }
 
 export async function checkSemanticDuplicateCandidates(
@@ -129,9 +142,18 @@ export async function checkSemanticDuplicateCandidates(
  * return the already-saved items.
  */
 export async function generateLearningItemsFromExtract(extractId: string): Promise<LearningItem[]> {
-  return await invokeCommand<LearningItem[]>("generate_learning_items_from_extract", {
+  const items = await invokeCommand<LearningItem[]>("generate_learning_items_from_extract", {
     extractId,
   });
+  void (async () => {
+    try {
+      const { publishCards } = await import("../lib/sync/entities/flashcards");
+      await publishCards(items);
+    } catch (err) {
+      console.warn("[learning-items] generate sync publish failed (non-fatal)", err);
+    }
+  })();
+  return items;
 }
 
 export async function updateLearningItemContentWithVersion(
@@ -140,12 +162,25 @@ export async function updateLearningItemContentWithVersion(
   answer?: string,
   reason?: string
 ): Promise<LearningItem> {
-  return await invokeCommand<LearningItem>("update_learning_item_content_with_version", {
+  const item = await invokeCommand<LearningItem>("update_learning_item_content_with_version", {
     itemId,
     question,
     answer,
     reason,
   });
+  void (async () => {
+    try {
+      const { publishCard, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
+      const { nowHLC } = await import("../lib/sync/syncClock");
+      const synced = toSyncedLearningItem(item as unknown as Record<string, unknown>);
+      synced.updated_at = nowHLC();
+      synced.updatedAt = synced.updated_at;
+      await publishCard(synced);
+    } catch (err) {
+      console.warn("[learning-items] update sync publish failed (non-fatal)", err);
+    }
+  })();
+  return item;
 }
 
 export async function getLearningItemVersions(itemId: string): Promise<CardVersionEntry[]> {
@@ -153,10 +188,23 @@ export async function getLearningItemVersions(itemId: string): Promise<CardVersi
 }
 
 export async function revertLearningItemVersion(itemId: string, versionId: string): Promise<LearningItem> {
-  return await invokeCommand<LearningItem>("revert_learning_item_version", {
+  const item = await invokeCommand<LearningItem>("revert_learning_item_version", {
     itemId,
     versionId,
   });
+  void (async () => {
+    try {
+      const { publishCard, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
+      const { nowHLC } = await import("../lib/sync/syncClock");
+      const synced = toSyncedLearningItem(item as unknown as Record<string, unknown>);
+      synced.updated_at = nowHLC();
+      synced.updatedAt = synced.updated_at;
+      await publishCard(synced);
+    } catch (err) {
+      console.warn("[learning-items] revert sync publish failed (non-fatal)", err);
+    }
+  })();
+  return item;
 }
 
 export async function exportMnemosyne(outputPath?: string): Promise<string> {

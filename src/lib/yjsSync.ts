@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { EncryptedWebsocketProvider } from "./sync/encryptedProvider";
-import { getCachedSubKeys } from "./sync/roomCrypto";
+import { getCachedSubKeys, ensureEncryptionEnabled } from "./sync/roomCrypto";
 import { useSettingsStore } from "../stores/settingsStore";
 
 type YjsSyncState = {
@@ -360,12 +360,19 @@ export function getYjsSyncInstance(): YjsSyncState | null {
 }
 
 /**
- * Construct the WebSocket provider for the sync doc. If a cached room key is
- * present (set via the SyncSettings → roomCrypto.enableEncryption flow), the
- * returned provider wraps y-websocket in EncryptedWebsocketProvider so all
- * sync payloads are AES-GCM-encrypted on the wire. If no key is cached, sync
- * runs in "TLS only" mode (plain WebsocketProvider — confidentiality depends
- * on TLS plus the room ID as a bearer secret).
+ * Construct the WebSocket provider for the sync doc.
+ *
+ * Sync is ALWAYS end-to-end encrypted. The forked relay refuses plaintext
+ * sync frames (it drops type-0 messages at yjs-sync/utils.js), so a plaintext
+ * provider would silently fail to replicate anyway — we don't pretend
+ * otherwise. Instead, if no room key is cached yet, we silently provision one
+ * via `ensureEncryptionEnabled` (generates a 32-byte secret, derives the room
+ * key with Argon2id, persists both to the OS keychain / encrypted IndexedDB).
+ * On a fresh device this is invisible; the user only sees the secret when they
+ * open Settings → Sync to pair another device.
+ *
+ * If provisioning fails (e.g. keychain genuinely unavailable), we throw rather
+ * than fall back to plaintext. Let `getYjsSync`'s error path surface it.
  *
  * The wrapper's underlying provider is a real WebsocketProvider instance
  * using a polyfilled WebSocket, so all WebsocketProvider API (events,
@@ -377,12 +384,21 @@ async function buildProvider(
   room: string,
   doc: Y.Doc,
 ): Promise<WebsocketProvider> {
-  const subKeys = await getCachedSubKeys(room).catch((err) => {
-    console.warn("[YjsSync] failed to load cached sub-keys; falling back to plaintext", err);
+  let subKeys = await getCachedSubKeys(room).catch((err) => {
+    console.warn("[YjsSync] failed to load cached sub-keys; will re-provision", err);
     return null;
   });
   if (!subKeys) {
-    return new WebsocketProvider(url, room, doc, { connect: true });
+    // Encryption is mandatory for sync to function. Provision a key on this
+    // device if one isn't cached, then re-read. The secret is returned but
+    // not needed here — it's surfaced via the SyncSettings UI for pairing.
+    await ensureEncryptionEnabled(room);
+    subKeys = await getCachedSubKeys(room);
+  }
+  if (!subKeys) {
+    throw new Error(
+      "[YjsSync] failed to establish an encryption key for the room; sync cannot start",
+    );
   }
   const wrapper = new EncryptedWebsocketProvider(
     WebsocketProvider,

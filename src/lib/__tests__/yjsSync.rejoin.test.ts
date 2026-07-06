@@ -7,7 +7,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
  * y-websocket / y-indexeddb / the crypto layer are mocked so these tests
  * exercise the orchestration logic (tear down old instance, write room ID,
  * rebuild against new room) rather than real Yjs replication. The crypto
- * mocks return null sub-keys so buildProvider takes the plain-provider branch.
+ * mock returns non-null sub-keys so buildProvider takes the encrypted-provider
+ * branch (sync is always encrypted); the EncryptedWebsocketProvider mock
+ * delegates to the same MockWebsocketProvider so room/construction tracking
+ * still works.
  */
 
 // --- Mocks --------------------------------------------------------------
@@ -58,14 +61,38 @@ vi.mock("y-indexeddb", () => ({
 }));
 
 vi.mock("../sync/roomCrypto", () => ({
-  // null → buildProvider takes the plain WebsocketProvider branch.
-  getCachedSubKeys: vi.fn().mockResolvedValue(null),
+  // Non-null sub-keys so buildProvider takes the EncryptedWebsocketProvider
+  // branch (the plaintext fallback was removed — sync is always encrypted).
+  getCachedSubKeys: vi.fn().mockResolvedValue({
+    stateKey: {},
+    fileKey: {},
+    manifestAuthKey: {},
+  }),
+  // Auto-provisioning should never trigger in these tests because sub-keys
+  // are always cached; keep it as a spy so any accidental call is visible.
+  ensureEncryptionEnabled: vi.fn().mockResolvedValue("auto-secret"),
 }));
 
-// Prevent the corruption check from installing a real window.onerror handler
-// and from touching storage in unexpected ways.
+// EncryptedWebsocketProvider wraps a real WebsocketProvider internally. For
+// these orchestration tests we don't care about encryption — we just need the
+// inner provider to be our MockWebsocketProvider so room/construction tracking
+// keeps working. The mock stashes the inner provider on `provider` exactly the
+// way the real wrapper does, and exposes the diagnostic __encrypted flag the
+// yjsSync module reads. Must be a real class so `new EncryptedWebsocketProvider`
+// works (vi.fn().mockImplementation is not reliably `new`-able).
 vi.mock("../sync/encryptedProvider", () => ({
-  EncryptedWebsocketProvider: vi.fn(),
+  EncryptedWebsocketProvider: class {
+    provider: MockWebsocketProvider;
+    constructor(_Wp: unknown, url: string, room: string, _doc: unknown) {
+      this.provider = new MockWebsocketProvider(url, room);
+      Object.defineProperty(this.provider, "__encrypted", {
+        value: true,
+        configurable: false,
+        enumerable: false,
+        writable: false,
+      });
+    }
+  },
 }));
 
 // --- Setup ---------------------------------------------------------------

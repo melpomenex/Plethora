@@ -40,6 +40,14 @@ export class DeleteDocumentCommand extends UndoableCommandBase {
     }
 
     await invoke("delete_document", { id: this.documentId });
+
+    try {
+      const { deleteDocumentSync } = await import("../lib/documentReplication");
+      await deleteDocumentSync(this.documentId);
+    } catch (e) {
+      console.warn("Failed to publish document delete sync", e);
+    }
+
     this.onSuccess?.();
   }
 
@@ -48,11 +56,16 @@ export class DeleteDocumentCommand extends UndoableCommandBase {
       throw new Error("Cannot undo: document data not available");
     }
 
-    await invoke("create_document", {
-      title: this.deletedDocument.title,
-      filePath: this.deletedDocument.filePath,
-      fileType: this.deletedDocument.fileType,
+    await invoke("upsert_synced_document", {
+      document: this.deletedDocument,
     });
+
+    try {
+      const { publishDocument } = await import("../lib/documentReplication");
+      await publishDocument(this.deletedDocument);
+    } catch (e) {
+      console.warn("Failed to publish document restore sync", e);
+    }
   }
 
   async redo(): Promise<void> {
@@ -192,6 +205,14 @@ export class DeleteLearningItemCommand extends UndoableCommandBase {
     }
 
     await invoke("delete_item", { id: this.itemId });
+    void (async () => {
+      try {
+        const { publishCardDeleted } = await import("../lib/sync/entities/flashcards");
+        await publishCardDeleted(this.itemId);
+      } catch (err) {
+        console.warn("[undoableCommands] DeleteLearningItemCommand sync delete failed", err);
+      }
+    })();
     this.onSuccess?.();
   }
 
@@ -203,6 +224,18 @@ export class DeleteLearningItemCommand extends UndoableCommandBase {
     await invoke("create_learning_item", {
       item: this.deletedItem,
     });
+    void (async () => {
+      try {
+        const { publishCard, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
+        const { nowHLC } = await import("../lib/sync/syncClock");
+        const synced = toSyncedLearningItem(this.deletedItem as unknown as Record<string, unknown>);
+        synced.updated_at = nowHLC();
+        synced.updatedAt = synced.updated_at;
+        await publishCard(synced);
+      } catch (err) {
+        console.warn("[undoableCommands] DeleteLearningItemCommand sync undo failed", err);
+      }
+    })();
   }
 
   async redo(): Promise<void> {
@@ -231,6 +264,16 @@ export class BulkDeleteItemsCommand extends UndoableCommandBase {
     this.deletedItems = allItems.filter((i) => this.itemIds.includes(i.id));
 
     await invoke("bulk_delete_items", { itemIds: this.itemIds });
+    void (async () => {
+      try {
+        const { publishCardDeleted } = await import("../lib/sync/entities/flashcards");
+        for (const id of this.itemIds) {
+          await publishCardDeleted(id);
+        }
+      } catch (err) {
+        console.warn("[undoableCommands] BulkDeleteItemsCommand sync delete failed", err);
+      }
+    })();
     this.onSuccess?.();
   }
 
@@ -241,6 +284,14 @@ export class BulkDeleteItemsCommand extends UndoableCommandBase {
         item: item,
       });
     }
+    void (async () => {
+      try {
+        const { publishCards } = await import("../lib/sync/entities/flashcards");
+        await publishCards(this.deletedItems);
+      } catch (err) {
+        console.warn("[undoableCommands] BulkDeleteItemsCommand sync undo failed", err);
+      }
+    })();
   }
 
   async redo(): Promise<void> {

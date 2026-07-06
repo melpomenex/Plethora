@@ -68,8 +68,10 @@ vi.mock("../../../lib/yjsSync", () => ({
 vi.mock("../../../lib/sync/roomCrypto", () => ({
   enableEncryption: vi.fn().mockResolvedValue("generated-secret"),
   enableEncryptionWithSecret: mocks.enableEncryptionWithSecret,
-  disableEncryption: vi.fn().mockResolvedValue(undefined),
-  isEncryptionEnabled: vi.fn().mockResolvedValue(false),
+  // Encryption is always on; the mount effect calls ensureEncryptionEnabled to
+  // provision/load a secret for the QR. Resolve with a stable value so the
+  // QR payload branch renders without driving real crypto.
+  ensureEncryptionEnabled: vi.fn().mockResolvedValue("auto-secret"),
   getCachedRoomSecretOrNull: vi.fn().mockResolvedValue(null),
 }));
 
@@ -119,7 +121,7 @@ async function renderToScanner() {
 }
 
 describe("SyncSettings scan-to-join", () => {
-  it("joins a scanned bare room id without a manual Join tap", async () => {
+  it("joins a scanned full invite code without a manual Join tap", async () => {
     // Simulate a native mobile build so the Scan button renders.
     mocks.isNativeMobile.mockReturnValue(true);
 
@@ -133,20 +135,51 @@ describe("SyncSettings scan-to-join", () => {
 
     await waitFor(() => expect(lastOnDetected).not.toBeNull());
 
-    // Simulate a scan of a bare room id.
+    // Simulate a scan of a full invite payload (room + secret). Encryption is
+    // mandatory, so this is the only form that can join a room — a bare room
+    // id would provision a different key and never decrypt peer frames.
+    const roomId = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6";
+    const invite = `incrementum-sync:v1:${roomId}:YWJjZGVmZ2hpamtsbW5vcHFyc3R1dng`;
     let accepted = false;
+    await act(async () => {
+      accepted = !!(await lastOnDetected!(invite));
+    });
+
+    expect(accepted).toBe(true);
+    expect(mocks.enableEncryptionWithSecret).toHaveBeenCalledWith(
+      roomId,
+      expect.any(String),
+    );
+    expect(mocks.setSyncRoomId).toHaveBeenCalledWith(roomId);
+    expect(mocks.rejoinRoom).toHaveBeenCalledWith(roomId, { forceProviderRebuild: true });
+    // Joining a room must bring up the replication chain (cards/docs/feeds) so the
+    // device actually receives the room's state. This is the mobile bug fix: boot
+    // defers the chain, so an explicit sync action has to start it.
+    expect(mocks.startSyncSubsystems).toHaveBeenCalled();
+  });
+
+  it("rejects a bare room id (no encryption secret) and keeps the scanner open", async () => {
+    // Encryption is mandatory, so a bare room id can't join — the device would
+    // auto-provision its own key and be unable to decrypt the peer's frames.
+    mocks.isNativeMobile.mockReturnValue(true);
+
+    render(React.createElement(SyncSettings));
+    const scanButtons = screen.getAllByRole("button", { name: /scan/i });
+    await act(async () => {
+      scanButtons[0]?.click();
+    });
+    await waitFor(() => expect(lastOnDetected).not.toBeNull());
+
+    let accepted = true;
     await act(async () => {
       accepted = !!(await lastOnDetected!("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"));
     });
 
-  expect(accepted).toBe(true);
-  expect(mocks.setSyncRoomId).toHaveBeenCalledWith("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
-  expect(mocks.rejoinRoom).toHaveBeenCalledWith("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
-  // Joining a room must bring up the replication chain (cards/docs/feeds) so the
-  // device actually receives the room's state. This is the mobile bug fix: boot
-  // defers the chain, so an explicit sync action has to start it.
-  expect(mocks.startSyncSubsystems).toHaveBeenCalled();
-});
+    expect(accepted).toBe(false);
+    expect(mocks.setSyncRoomId).not.toHaveBeenCalled();
+    expect(mocks.rejoinRoom).not.toHaveBeenCalled();
+    expect(mocks.enableEncryptionWithSecret).not.toHaveBeenCalled();
+  });
 
   it("returns false (keeps scanner open) for an empty scanned value", async () => {
     mocks.isNativeMobile.mockReturnValue(true);

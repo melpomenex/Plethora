@@ -35,6 +35,8 @@ import { getYjsSync } from "./yjsSync";
 import type { Document } from "../types";
 import { useDocumentStore } from "../stores/documentStore";
 import { getDocument, getDocuments } from "../api/documents";
+import { writeTombstone, isTombstone } from "./sync/tombstone";
+import { getDeviceId } from "./file-manifest";
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
@@ -150,6 +152,20 @@ export async function publishDocument(doc: Document): Promise<void> {
 }
 
 /**
+ * Publish a deletion (tombstone) to Yjs so other devices delete their local copies.
+ */
+export async function deleteDocumentSync(docId: string): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    await ensureDocumentReplicationReady();
+    if (!documentsMap) return;
+    writeTombstone(documentsMap, docId, getDeviceId());
+  } catch (err) {
+    console.warn("[documentReplication] delete publish failed", docId, err);
+  }
+}
+
+/**
  * Trailing debounce window for position re-publishes. Reading-position saves
  * fire frequently (scroll/timeupdate/relocate tick many times per second), and
  * every publish appends a Y.Map entry that the CRDT retains forever as a
@@ -247,6 +263,31 @@ async function handleRemoteDocument(docId: string): Promise<void> {
   if (!remote) return; // entry was deleted; deletion sync is out of scope here.
 
   const localDocs = useDocumentStore.getState().documents ?? [];
+
+  if (isTombstone(remote)) {
+    try {
+      const local = localDocs.find((d) => d.id === docId) || (await getDocument(docId).catch(() => null));
+      if (local) {
+        await invokeCommand("delete_document", { id: docId });
+        const fileId = local.fileId;
+        if (fileId) {
+          try {
+            const { getFileTransferManager, ensureFileSyncReady } = await import("./useFileSync");
+            const { deleteCachedFile } = await import("./file-transfer");
+            await ensureFileSyncReady();
+            getFileTransferManager().unregisterLocalFile(fileId);
+            await deleteCachedFile(fileId);
+          } catch (e) {
+            console.warn("[documentReplication] failed to clean up sync files on remote delete", e);
+          }
+        }
+        scheduleDocumentStoreReload();
+      }
+    } catch (err) {
+      console.warn("[documentReplication] failed to apply remote delete", docId, err);
+    }
+    return;
+  }
 
   // Dedupe by fileId: each book has one sync-manifest fileId shared across
   // devices, but each device originally created its own document row with its

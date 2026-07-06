@@ -225,6 +225,7 @@ export async function convertAnkiCardsToLearningItems(
 export async function importAnkiPackageFromPicker(
   filePath: string
 ): Promise<unknown[]> {
+  let imported: unknown[];
   if (isNativeMobile()) {
     const file = getBrowserFile(filePath);
     if (!file) {
@@ -233,16 +234,29 @@ export async function importAnkiPackageFromPicker(
     const bytes = new Uint8Array(await file.arrayBuffer());
     // Tauri IPC deserializes Vec<u8> from a JSON array of numbers, so pass a
     // plain array (not a Uint8Array/Buffer) to round-trip cleanly.
-    return await invokeCommand<unknown[]>(
+    imported = await invokeCommand<unknown[]>(
       "import_anki_package_bytes_to_learning_items",
       { apkgBytes: Array.from(bytes) }
     );
+  } else {
+    imported = await invokeCommand<unknown[]>(
+      "import_anki_package_to_learning_items",
+      { apkgPath: filePath }
+    );
   }
 
-  return await invokeCommand<unknown[]>(
-    "import_anki_package_to_learning_items",
-    { apkgPath: filePath }
-  );
+  if (Array.isArray(imported) && imported.length > 0) {
+    void (async () => {
+      try {
+        const { publishCards } = await import("../lib/sync/entities/flashcards");
+        await publishCards(imported);
+      } catch (err) {
+        console.warn("[ankiImport] sync publish failed (non-fatal)", err);
+      }
+    })();
+  }
+
+  return imported;
 }
 
 /**
