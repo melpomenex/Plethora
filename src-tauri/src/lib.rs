@@ -447,11 +447,11 @@ pub fn run() {
                     "Incrementum",
                     true,
                     &[
-                        &MenuItem::with_id(app, "about", "About Incrementum", true, None::<&str>)?,
+                        &PredefinedMenuItem::about(app, Some("About Incrementum"), None)?,
                         &PredefinedMenuItem::separator(app)?,
-                        &MenuItem::with_id(app, "hide", "Hide Incrementum", true, Some("Cmd+H"))?,
+                        &PredefinedMenuItem::hide(app, Some("Hide Incrementum"))?,
                         &PredefinedMenuItem::separator(app)?,
-                        &MenuItem::with_id(app, "quit", "Quit Incrementum", true, Some("Cmd+Q"))?,
+                        &PredefinedMenuItem::quit(app, Some("Quit Incrementum"))?,
                     ],
                 )?;
                 menu.append(&app_submenu)?;
@@ -486,14 +486,6 @@ pub fn run() {
         }).on_menu_event(|app, event| {
             let id = event.id.as_ref();
             tracing::info!("[cmd+key] menu event fired: {}", id);
-
-            #[cfg(target_os = "macos")]
-            {
-                if matches!(id, "quit" | "hide" | "about") {
-                    tracing::info!("[cmd+key] skipping built-in macOS menu item: {}", id);
-                    return;
-                }
-            }
 
             if !matches!(id, "accel-k" | "accel-p") {
                 return;
