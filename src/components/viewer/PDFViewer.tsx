@@ -544,6 +544,7 @@ export function PDFViewer({
   const pdfNavStabilityDebugRef = useRef(false);
   const pdfTextSelectionGestureActiveRef = useRef(false);
   const showSelectionPopupRef = useRef(false);
+  const ignoreSelectionChangeRef = useRef(false);
   const isTauriRuntime = isTauri();
 
   // Position persistence refs
@@ -1961,8 +1962,8 @@ export function PDFViewer({
     // empty/collapsed AFTER mouseup (e.g. the user clicks empty space, which
     // also fires selectionchange before mousedown in some WebViews).
     const handleSelectionChange = () => {
-      // While a drag is in progress, never touch state.
-      if (pdfTextSelectionGestureActiveRef.current) return;
+      // While a drag is in progress or we are committing a selection, never touch state.
+      if (pdfTextSelectionGestureActiveRef.current || ignoreSelectionChangeRef.current) return;
       const selection = window.getSelection();
       const hasSelection =
         selection !== null &&
@@ -1982,6 +1983,11 @@ export function PDFViewer({
       // The drag is over. Reset the gesture flag so post-mouseup
       // selectionchange events are honored again (e.g. an external clear).
       pdfTextSelectionGestureActiveRef.current = false;
+      
+      // Set the ignore flag to filter out transient collapsed-selection events
+      // during the asynchronously scheduled commitSelection and React re-render.
+      ignoreSelectionChangeRef.current = true;
+
       // Let the browser finalize the selection range before reading it.
       // WKWebView in particular can report a stale/collapsed selection at
       // the instant mouseup fires; a short delay lets it settle.
@@ -1994,6 +2000,11 @@ export function PDFViewer({
           clearSelectionUi();
           onSelectionChange("", null);
         }
+        
+        // Reset the ignore flag after a short delay to let browser events stabilize
+        setTimeout(() => {
+          ignoreSelectionChangeRef.current = false;
+        }, 200);
       }, 0);
     };
 
