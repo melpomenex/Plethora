@@ -23,6 +23,7 @@ interface RSSDashboardProps {
   onSelectFeed: (feed: Feed) => void;
   onOpenDiscover: () => void;
   onOpenAddFeed: () => void;
+  onImportOPML: () => void;
   onOpenSemanticGraph: () => void;
   onOpenShortcutsHelp: () => void;
   onSyncAll: () => void;
@@ -37,6 +38,7 @@ export function RSSDashboard({
   onSelectFeed,
   onOpenDiscover,
   onOpenAddFeed,
+  onImportOPML,
   onOpenSemanticGraph,
   onOpenShortcutsHelp,
   onSyncAll,
@@ -207,7 +209,7 @@ export function RSSDashboard({
 
               {/* Import OPML */}
               <button 
-                onClick={onOpenAddFeed} // In RSSReader OPML import is inside a settings menu, but we can reuse discover/add options
+                onClick={onImportOPML}
                 className="flex items-center gap-3 p-3 rounded-xl border border-border/50 bg-card hover:bg-muted/40 text-left transition-all duration-200 group hover:-translate-y-0.5"
               >
                 <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500 group-hover:bg-blue-500 group-hover:text-white transition-all duration-200">

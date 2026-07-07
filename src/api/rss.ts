@@ -1697,18 +1697,21 @@ export async function toggleItemFavoriteAuto(feedId: string, itemId: string): Pr
 /**
  * Unified importOPML - works in both Tauri and Web mode
  */
-export async function importOpmlAuto(opmlContent: string): Promise<Feed[]> {
+export async function importOpmlAuto(
+  opmlContent: string
+): Promise<{ count: number; feeds?: Feed[] }> {
   if (shouldUseHttpBackend()) {
     try {
-      await importOpmlViaHttp(opmlContent);
-      // Return empty array since the backend handles the import
-      return [];
+      const res = await importOpmlViaHttp(opmlContent);
+      return { count: res.imported };
     } catch (error) {
       console.warn("[RSS] HTTP OPML import failed, falling back to local import.", error);
-      return importOPML(opmlContent);
+      const feeds = importOPML(opmlContent);
+      return { count: feeds.length, feeds };
     }
   }
-  return importOPML(opmlContent);
+  const feeds = importOPML(opmlContent);
+  return { count: feeds.length, feeds };
 }
 
 /**
