@@ -33,7 +33,11 @@
  * The PDF.js canvas renders the visual document here.
  */
 [data-pdf-page] canvas {
-  position: relative;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
   z-index: 1;
   display: block;
 }
@@ -145,6 +149,12 @@
   /* Improve text selection reliability */
   touch-action: auto;
   -webkit-touch-callout: default;
+  /* Reset layout parameters to prevent vertical/horizontal misalignment */
+  line-height: 1 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  box-sizing: content-box !important;
 }
 
 /* BR elements */
