@@ -1,6 +1,6 @@
 //! Tauri commands for position tracking, bookmarks, and reading sessions
 
-use crate::models::position::{DocumentPosition, Bookmark};
+use crate::models::position::{Bookmark, DocumentPosition};
 use crate::services::PositionService;
 use tauri::State;
 
@@ -11,7 +11,9 @@ pub async fn get_document_position(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<Option<DocumentPosition>, String> {
     let service = PositionService::new(repo.pool().clone());
-    service.get_position(&document_id).await
+    service
+        .get_position(&document_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -23,7 +25,9 @@ pub async fn save_document_position(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<(), String> {
     let service = PositionService::new(repo.pool().clone());
-    service.save_position(&document_id, &position).await
+    service
+        .save_position(&document_id, &position)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -35,10 +39,14 @@ pub async fn get_document_progress(
 ) -> Result<Option<f32>, String> {
     let service = PositionService::new(repo.pool().clone());
     // Try unified progress first, fall back to legacy calculation
-    let progress = service.get_progress(&document_id).await
+    let progress = service
+        .get_progress(&document_id)
+        .await
         .map_err(|e| e.to_string())?;
     if progress.is_none() {
-        let legacy = service.calculate_progress_from_legacy(&document_id).await
+        let legacy = service
+            .calculate_progress_from_legacy(&document_id)
+            .await
             .map_err(|e| e.to_string())?;
         Ok(Some(legacy))
     } else {
@@ -55,7 +63,9 @@ pub async fn create_bookmark(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<Bookmark, String> {
     let service = PositionService::new(repo.pool().clone());
-    service.create_bookmark(&document_id, &name, &position).await
+    service
+        .create_bookmark(&document_id, &name, &position)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -66,7 +76,9 @@ pub async fn list_bookmarks(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<Vec<Bookmark>, String> {
     let service = PositionService::new(repo.pool().clone());
-    service.list_bookmarks(&document_id).await
+    service
+        .list_bookmarks(&document_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -77,7 +89,9 @@ pub async fn delete_bookmark(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<(), String> {
     let service = PositionService::new(repo.pool().clone());
-    service.delete_bookmark(&bookmark_id).await
+    service
+        .delete_bookmark(&bookmark_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -89,7 +103,9 @@ pub async fn start_reading_session(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<crate::models::position::ReadingSession, String> {
     let service = PositionService::new(repo.pool().clone());
-    service.start_reading_session(&document_id, progress_start).await
+    service
+        .start_reading_session(&document_id, progress_start)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -101,7 +117,9 @@ pub async fn end_reading_session(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<(), String> {
     let service = PositionService::new(repo.pool().clone());
-    service.end_reading_session(&session_id, progress_end).await
+    service
+        .end_reading_session(&session_id, progress_end)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -112,7 +130,9 @@ pub async fn get_active_session(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<Option<crate::models::position::ReadingSession>, String> {
     let service = PositionService::new(repo.pool().clone());
-    service.get_active_session(&document_id).await
+    service
+        .get_active_session(&document_id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -123,7 +143,9 @@ pub async fn get_documents_with_progress(
     repo: State<'_, crate::database::Repository>,
 ) -> Result<Vec<(String, f32, String, i32)>, String> {
     let service = PositionService::new(repo.pool().clone());
-    service.get_documents_with_progress(limit).await
+    service
+        .get_documents_with_progress(limit)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -135,6 +157,8 @@ pub async fn get_daily_reading_stats(
 ) -> Result<Vec<(String, u32, u32)>, String> {
     let service = PositionService::new(repo.pool().clone());
     let days_to_fetch = days.unwrap_or(30);
-    service.get_daily_stats(days_to_fetch).await
+    service
+        .get_daily_stats(days_to_fetch)
+        .await
         .map_err(|e| e.to_string())
 }

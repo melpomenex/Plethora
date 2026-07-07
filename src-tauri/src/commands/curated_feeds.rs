@@ -526,7 +526,12 @@ pub fn get_curated_feeds() -> Vec<CuratedFeed> {
 }
 
 /// Shorthand for creating CuratedFeed entries
-fn cf(title: &'static str, feed_url: &'static str, site_url: &'static str, category: &'static str) -> CuratedFeed {
+fn cf(
+    title: &'static str,
+    feed_url: &'static str,
+    site_url: &'static str,
+    category: &'static str,
+) -> CuratedFeed {
     CuratedFeed {
         title: title.to_string(),
         feed_url: feed_url.to_string(),

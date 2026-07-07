@@ -1,11 +1,11 @@
 //! Extract review commands
 
-use tauri::State;
 use crate::database::Repository;
 use crate::error::Result;
-use crate::models::{Extract, LearningItem, ItemType, MemoryState};
+use crate::models::{Extract, ItemType, LearningItem, MemoryState};
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
+use tauri::State;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractReviewResult {
@@ -22,48 +22,54 @@ pub async fn submit_extract_review(
     _time_taken: i32,
     repo: State<'_, Repository>,
 ) -> Result<Extract> {
-    let mut extract = repo.get_extract(&extract_id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id)))?;
+    let mut extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id))
+    })?;
 
     let now = Utc::now();
-    
+
     if extract.memory_state.is_none() {
         extract.memory_state = Some(MemoryState {
-            stability: 0.5, // Initial stability (in days)
+            stability: 0.5,  // Initial stability (in days)
             difficulty: 5.0, // Initial difficulty
         });
     }
-    
-    let mut memory = extract.memory_state.expect("memory_state must be set for review");
-    
+
+    let mut memory = extract
+        .memory_state
+        .expect("memory_state must be set for review");
+
     // Simplified FSRS logic for extracts (prioritize reading over precise memory retention)
     // Extracts are usually "read and processed", not memorized verbatim
     let new_interval_days = match rating {
         1 => 1.0, // Again: Review tomorrow
-        2 => { // Hard: maintain or slight increase
+        2 => {
+            // Hard: maintain or slight increase
             memory.difficulty = (memory.difficulty + 1.0).min(10.0);
             (memory.stability * 1.2).max(1.0)
-        },
-        3 => { // Good: standard increase
+        }
+        3 => {
+            // Good: standard increase
             memory.stability = (memory.stability * 2.5).max(1.0);
             memory.stability
-        },
-        4 => { // Easy: large increase (processed well)
+        }
+        4 => {
+            // Easy: large increase (processed well)
             memory.stability = (memory.stability * 4.0).max(1.0);
             memory.difficulty = (memory.difficulty - 1.0).max(1.0);
             memory.stability
-        },
+        }
         _ => memory.stability,
     };
-    
+
     memory.stability = new_interval_days;
     let memory_stability = memory.stability;
     let memory_difficulty = memory.difficulty;
     extract.memory_state = Some(memory);
-    
+
     // Calculate new date
     let next_date = now + Duration::days(new_interval_days as i64);
-    
+
     repo.update_extract_scheduling(
         &extract.id,
         Some(next_date),
@@ -72,17 +78,16 @@ pub async fn submit_extract_review(
         Some(extract.review_count + 1),
         Some(extract.reps + 1),
         Some(now),
-    ).await?;
+    )
+    .await?;
 
     // Advance progressive disclosure level for Good/Easy ratings
     if (rating == 3 || rating == 4)
         && extract.max_disclosure_level > 0
         && extract.progressive_disclosure_level < extract.max_disclosure_level
     {
-        repo.update_extract_disclosure_level(
-            &extract.id,
-            extract.progressive_disclosure_level + 1,
-        ).await?;
+        repo.update_extract_disclosure_level(&extract.id, extract.progressive_disclosure_level + 1)
+            .await?;
     }
 
     // Refresh object to return
@@ -90,7 +95,7 @@ pub async fn submit_extract_review(
     extract.review_count += 1;
     extract.reps += 1;
     extract.last_review_date = Some(now);
-    
+
     Ok(extract)
 }
 
@@ -102,9 +107,10 @@ pub async fn create_cloze_from_extract(
     cloze_ranges: Vec<(usize, usize)>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    let extract = repo.get_extract(&extract_id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id)))?;
-        
+    let extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id))
+    })?;
+
     let mut item = LearningItem::from_extract(
         extract.id.clone(),
         extract.document_id.clone(),
@@ -112,24 +118,22 @@ pub async fn create_cloze_from_extract(
         "Cloze Deletion".to_string(), // Placeholder question, real content is in cloze_text
         None,
     );
-    
+
     item.cloze_text = Some(cloze_text);
     item.cloze_ranges = Some(cloze_ranges);
     item.tags = extract.tags.clone();
-    
+
     // Add "cloze" tag if not present
     if !item.tags.iter().any(|t| t == "cloze") {
         item.tags.push("cloze".to_string());
     }
-    
+
     repo.create_learning_item(&item).await
 }
 
 /// Get all extracts that are due for review or are new
 #[tauri::command]
-pub async fn get_reviewable_extracts(
-    repo: State<'_, Repository>,
-) -> Result<Vec<Extract>> {
+pub async fn get_reviewable_extracts(repo: State<'_, Repository>) -> Result<Vec<Extract>> {
     let now = Utc::now();
     let due_extracts = repo.get_due_extracts(&now).await?;
     let new_extracts = repo.get_new_extracts().await?;
@@ -144,10 +148,7 @@ pub async fn get_reviewable_extracts(
 /// Forget an extract: reset its memory state and return it to the new queue.
 /// (SuperMemo-style Forget lifecycle action.)
 #[tauri::command]
-pub async fn forget_extract(
-    extract_id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn forget_extract(extract_id: String, repo: State<'_, Repository>) -> Result<()> {
     repo.forget_extract(&extract_id).await
 }
 
@@ -167,10 +168,7 @@ pub async fn dismiss_extract(
 /// signalling mastered material that has left active rotation.
 /// (SuperMemo-style Done lifecycle action.)
 #[tauri::command]
-pub async fn graduate_extract(
-    extract_id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn graduate_extract(extract_id: String, repo: State<'_, Repository>) -> Result<()> {
     let far_future = Utc::now() + Duration::days(365 * 5);
     repo.graduate_extract(&extract_id, far_future).await
 }
@@ -183,9 +181,10 @@ pub async fn create_qa_from_extract(
     answer: String,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    let extract = repo.get_extract(&extract_id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id)))?;
-        
+    let extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id))
+    })?;
+
     let mut item = LearningItem::from_extract(
         extract.id.clone(),
         extract.document_id.clone(),
@@ -193,8 +192,8 @@ pub async fn create_qa_from_extract(
         question,
         Some(answer),
     );
-    
+
     item.tags = extract.tags.clone();
-    
+
     repo.create_learning_item(&item).await
 }

@@ -78,47 +78,47 @@ const MATRIX_STRIDE_S: usize = MATRIX_DIM; // 21
 /// Gated by per-item flags: algorithm_branch == 1.
 const FSRS_PARAMS: [f64; 35] = [
     // Expert 1 (power-law) parameters
-    0.9286298950420208,        // [0]  power-law base
-    347.85204578386566,        // [1]  time denominator for weight
-    0.30270230764837086,       // [2]  stability denominator for weight
+    0.9286298950420208,  // [0]  power-law base
+    347.85204578386566,  // [1]  time denominator for weight
+    0.30270230764837086, // [2]  stability denominator for weight
     // Expert 2/3 weight params
-    0.4078726801204931,        // [3]  expert 2 weight param
-    767.8438603670941,         // [4]  expert 3 weight param
+    0.4078726801204931, // [3]  expert 2 weight param
+    767.8438603670941,  // [4]  expert 3 weight param
     // Initial difficulty per grade (0-5)
-    7.894742385544259,         // [5]
-    4.08242569493503,          // [6]
-    1.996431220980246,         // [7]
-    9.170585471775675,         // [8]
-    1.1425608073008684,        // [9]
-    17.65771045770738,         // [10]
+    7.894742385544259,  // [5]
+    4.08242569493503,   // [6]
+    1.996431220980246,  // [7]
+    9.170585471775675,  // [8]
+    1.1425608073008684, // [9]
+    17.65771045770738,  // [10]
     // Initial stability per grade (0-5, plus 2 extra)
-    77.77877780253718,         // [11]
-    0.5921926894783989,        // [12]
-    0.6895479373487655,        // [13]
-    0.6472785530963361,        // [14]
-    0.4208423230793679,        // [15]
-    0.5186353666458963,        // [16]
-    0.27244747048223983,       // [17]
-    0.3261492383691367,        // [18]
+    77.77877780253718,   // [11]
+    0.5921926894783989,  // [12]
+    0.6895479373487655,  // [13]
+    0.6472785530963361,  // [14]
+    0.4208423230793679,  // [15]
+    0.5186353666458963,  // [16]
+    0.27244747048223983, // [17]
+    0.3261492383691367,  // [18]
     // Lapse stability (grade < 3)
-    1.680034668443124,         // [19] lapse decay rate
-    5.928185533585771,         // [20] lapse weight param
-    2.0150955428514656,        // [21] lapse multiplier
-    0.2555216135743039,        // [22] lapse retrov correction
-    1.9926553104343092,        // [23] lapse retrov weight
+    1.680034668443124,  // [19] lapse decay rate
+    5.928185533585771,  // [20] lapse weight param
+    2.0150955428514656, // [21] lapse multiplier
+    0.2555216135743039, // [22] lapse retrov correction
+    1.9926553104343092, // [23] lapse retrov weight
     // Difficulty update
-    95.04137758278812,         // [24] d decay param
-    42.21989471200275,         // [25] d stability factor
+    95.04137758278812, // [24] d decay param
+    42.21989471200275, // [25] d stability factor
     // Recall stability (grade >= 3)
-    3.1089639864486682,        // [26] recall base factor
-    1.3558071518966488,        // [27] recall stability param
-    0.9250460852489478,        // [28] hard bonus base
-    0.8538692150895362,        // [29] hard bonus weight
-    0.9559110660552212,        // [30] hard bonus ratio
-    -0.6915519353695037,       // [31] recall time exponent
-    1.0037797256248404,        // [32] recall grade factor
-    1.393910494789472,         // [33] recall base offset
-    0.12374729387559685,       // [34] recall grade mult
+    3.1089639864486682,  // [26] recall base factor
+    1.3558071518966488,  // [27] recall stability param
+    0.9250460852489478,  // [28] hard bonus base
+    0.8538692150895362,  // [29] hard bonus weight
+    0.9559110660552212,  // [30] hard bonus ratio
+    -0.6915519353695037, // [31] recall time exponent
+    1.0037797256248404,  // [32] recall grade factor
+    1.393910494789472,   // [33] recall base offset
+    0.12374729387559685, // [34] recall grade mult
 ];
 
 // =============================================================================
@@ -334,8 +334,16 @@ pub(crate) fn fsrs_review_kernel(s: f64, d: f64, t: f64, grade: i32) -> (f64, f6
 
 /// FUN_00ceb590: Initialize a new FSRS item.
 pub fn fsrs_init_item(grade: i32, stability: f64, flag: bool) -> SM20State {
-    let d = if !(0..=5).contains(&grade) { FSRS_PARAMS[5] } else { FSRS_PARAMS[6 + grade as usize] };
-    let s_factor = if !(0..=5).contains(&grade) { FSRS_PARAMS[12] } else { FSRS_PARAMS[13 + grade as usize] };
+    let d = if !(0..=5).contains(&grade) {
+        FSRS_PARAMS[5]
+    } else {
+        FSRS_PARAMS[6 + grade as usize]
+    };
+    let s_factor = if !(0..=5).contains(&grade) {
+        FSRS_PARAMS[12]
+    } else {
+        FSRS_PARAMS[13 + grade as usize]
+    };
 
     SM20State {
         version: 2,
@@ -446,12 +454,15 @@ fn apply_rounding(interval: f64, flags: i32) -> f64 {
 // =============================================================================
 
 /// FUN_00ccf070: Version 2 interval (SM-19 compatible).
-pub(crate) fn interval_v2(rep_fraction: f64, stability_transformed: f64, difficulty_fraction: f64) -> f64 {
+pub(crate) fn interval_v2(
+    rep_fraction: f64,
+    stability_transformed: f64,
+    difficulty_fraction: f64,
+) -> f64 {
     let scale = V2_STABILITY_SCALE_MIN
         + (V2_STABILITY_SCALE_MAX - V2_STABILITY_SCALE_MIN) * (V2_ANCHOR - rep_fraction);
     let power = V2_REP_POWER_OFFSET + rep_fraction * (V2_REP_POWER_COEFF - V2_REP_POWER_OFFSET);
-    let base =
-        (scale - V2_BASE_OFFSET) * stability_transformed.powf(power) + V2_BASE_BIAS;
+    let base = (scale - V2_BASE_OFFSET) * stability_transformed.powf(power) + V2_BASE_BIAS;
     let penalty = (rep_fraction * V2_PENALTY_SLOPE + V2_PENALTY_INTERCEPT).min(V2_PENALTY_CLAMP);
     let exponent = -penalty * difficulty_fraction;
     base * exp2_clamped(exponent)
@@ -468,13 +479,18 @@ pub(crate) fn interval_v6(p1: f64, _p2: f64, p3: f64, p4: f64, p5: f64, p6: f64)
 }
 
 /// FUN_00ce1900: Bayesian prior — initial interval per matrix cell.
-fn interval_initial(rep_fraction: f64, stability_transformed: f64, difficulty_fraction: f64) -> f64 {
+fn interval_initial(
+    rep_fraction: f64,
+    stability_transformed: f64,
+    difficulty_fraction: f64,
+) -> f64 {
     let scale = INIT_STABILITY_SCALE_MIN
         + (INIT_STABILITY_SCALE_MAX - INIT_STABILITY_SCALE_MIN) * (INIT_ANCHOR - rep_fraction);
     let power =
         INIT_REP_POWER_OFFSET + rep_fraction * (INIT_REP_POWER_COEFF - INIT_REP_POWER_OFFSET);
     let base = (scale - INIT_BASE_SUB) * stability_transformed.powf(power) + INIT_BASE_ADD;
-    let penalty = (rep_fraction * INIT_PENALTY_SLOPE + INIT_PENALTY_INTERCEPT).min(INIT_PENALTY_CLAMP);
+    let penalty =
+        (rep_fraction * INIT_PENALTY_SLOPE + INIT_PENALTY_INTERCEPT).min(INIT_PENALTY_CLAMP);
     let exponent = -penalty * difficulty_fraction;
     let result = base * exp2_clamped(exponent);
     let result = apply_rounding(result, 4); // wide mode
@@ -577,7 +593,8 @@ pub fn record_review(
     let old_interval = interval_matrix[idx];
 
     count_matrix[idx] = old_count + 1;
-    interval_matrix[idx] = (old_interval * old_count as f64 + interval_used) / (old_count + 1) as f64;
+    interval_matrix[idx] =
+        (old_interval * old_count as f64 + interval_used) / (old_count + 1) as f64;
 }
 
 // =============================================================================
@@ -615,7 +632,14 @@ pub(crate) fn compute_next_interval(
             stab_xform,
             repetition as f64,
         ),
-        6 => interval_v6(stab_xform, 0.8, stab_xform, repetition as f64, diff_frac, 0.9),
+        6 => interval_v6(
+            stab_xform,
+            0.8,
+            stab_xform,
+            repetition as f64,
+            diff_frac,
+            0.9,
+        ),
         _ => interval_v2(rep_frac, stab_xform, diff_frac),
     };
 
@@ -708,9 +732,19 @@ fn review_classic(state: &SM20State, rating: i32, elapsed_days: f64) -> SM20Revi
     }
 
     let repetition = (state.repetition + 1).clamp(1, 20);
-    let new_stability =
-        compute_next_interval(state.stability, state.difficulty, repetition, state.version, None, None);
-    let interval_days = clamp(new_stability * success_multiplier(rating), 1.0, STABILITY_MAX);
+    let new_stability = compute_next_interval(
+        state.stability,
+        state.difficulty,
+        repetition,
+        state.version,
+        None,
+        None,
+    );
+    let interval_days = clamp(
+        new_stability * success_multiplier(rating),
+        1.0,
+        STABILITY_MAX,
+    );
 
     let next_state = SM20State {
         version: state.version,
@@ -739,8 +773,16 @@ fn review_fsrs(state: &SM20State, rating: i32, elapsed_days: f64) -> SM20ReviewR
     let (new_s, new_d, interval, _easiness) =
         fsrs_review_kernel(state.stability, state.difficulty, elapsed_days, rating);
 
-    let repetition = if rating <= 1 { 0 } else { (state.repetition + 1).clamp(1, 20) };
-    let lapses = if rating <= 1 { state.lapses + 1 } else { state.lapses };
+    let repetition = if rating <= 1 {
+        0
+    } else {
+        (state.repetition + 1).clamp(1, 20)
+    };
+    let lapses = if rating <= 1 {
+        state.lapses + 1
+    } else {
+        state.lapses
+    };
 
     let next_state = SM20State {
         version: state.version,
@@ -1116,8 +1158,12 @@ mod tests {
         assert!((d_frac - 0.5).abs() < 1e-10);
 
         let cases: [(u32, f64); 6] = [
-            (1, 4.410375), (3, 4.136039), (5, 3.830098),
-            (10, 2.912187), (15, 1.744452), (20, 0.282890),
+            (1, 4.410375),
+            (3, 4.136039),
+            (5, 3.830098),
+            (10, 2.912187),
+            (15, 1.744452),
+            (20, 0.282890),
         ];
         for (rep, expected) in cases {
             let rep_frac = repetition_to_fraction(rep);

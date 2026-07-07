@@ -21,21 +21,23 @@ impl PositionService {
         document_id: &str,
         position: &DocumentPosition,
     ) -> Result<()> {
-        let position_json = serde_json::to_string(position)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to serialize position: {}", e)))?;
+        let position_json = serde_json::to_string(position).map_err(|e| {
+            IncrementumError::Internal(format!("Failed to serialize position: {}", e))
+        })?;
 
         // Try to get progress from position, or calculate from document's total_pages
         let progress = if let Some(p) = position.progress_percent() {
             p
         } else if let DocumentPosition::Page { page, .. } = position {
             // For page positions, look up total_pages from the document and calculate progress
-            let total_pages: Option<i32> = sqlx::query_scalar(
-                "SELECT total_pages FROM documents WHERE id = ?1"
-            )
-            .bind(document_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to get total_pages: {}", e)))?;
+            let total_pages: Option<i32> =
+                sqlx::query_scalar("SELECT total_pages FROM documents WHERE id = ?1")
+                    .bind(document_id)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| {
+                        IncrementumError::Internal(format!("Failed to get total_pages: {}", e))
+                    })?;
 
             if let Some(total) = total_pages {
                 if total > 0 {
@@ -70,7 +72,7 @@ impl PositionService {
     /// Get the saved position for a document
     pub async fn get_position(&self, document_id: &str) -> Result<Option<DocumentPosition>> {
         let row = sqlx::query_as::<_, (Option<String>,)>(
-            "SELECT position_json FROM documents WHERE id = ?1"
+            "SELECT position_json FROM documents WHERE id = ?1",
         )
         .bind(document_id)
         .fetch_optional(&self.pool)
@@ -78,8 +80,9 @@ impl PositionService {
         .map_err(|e| IncrementumError::Internal(format!("Failed to get position: {}", e)))?;
 
         if let Some((Some(json),)) = row {
-            let position: DocumentPosition = serde_json::from_str(&json)
-                .map_err(|e| IncrementumError::Internal(format!("Failed to deserialize position: {}", e)))?;
+            let position: DocumentPosition = serde_json::from_str(&json).map_err(|e| {
+                IncrementumError::Internal(format!("Failed to deserialize position: {}", e))
+            })?;
             Ok(Some(position))
         } else {
             Ok(None)
@@ -89,7 +92,7 @@ impl PositionService {
     /// Get progress percentage for a document
     pub async fn get_progress(&self, document_id: &str) -> Result<Option<f32>> {
         let row = sqlx::query_as::<_, (Option<f64>,)>(
-            "SELECT progress_percent FROM documents WHERE id = ?1"
+            "SELECT progress_percent FROM documents WHERE id = ?1",
         )
         .bind(document_id)
         .fetch_optional(&self.pool)
@@ -101,12 +104,9 @@ impl PositionService {
 
     /// Calculate overall progress from legacy position fields
     /// This is used as a fallback when position_json is not available
-    pub async fn calculate_progress_from_legacy(
-        &self,
-        document_id: &str,
-    ) -> Result<f32> {
+    pub async fn calculate_progress_from_legacy(&self, document_id: &str) -> Result<f32> {
         let row = sqlx::query_as::<_, (Option<i32>, Option<f64>, Option<i32>)>(
-            "SELECT current_page, current_scroll_percent, total_pages FROM documents WHERE id = ?1"
+            "SELECT current_page, current_scroll_percent, total_pages FROM documents WHERE id = ?1",
         )
         .bind(document_id)
         .fetch_optional(&self.pool)
@@ -137,8 +137,9 @@ impl PositionService {
         position: &DocumentPosition,
     ) -> Result<Bookmark> {
         let id = Uuid::new_v4().to_string();
-        let position_json = serde_json::to_string(position)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to serialize position: {}", e)))?;
+        let position_json = serde_json::to_string(position).map_err(|e| {
+            IncrementumError::Internal(format!("Failed to serialize position: {}", e))
+        })?;
         let position_type = position.type_name().to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
 
@@ -180,8 +181,9 @@ impl PositionService {
 
         let mut bookmarks = Vec::new();
         for (id, name, position_json, thumbnail, created_at) in rows {
-            let position: DocumentPosition = serde_json::from_str(&position_json)
-                .map_err(|e| IncrementumError::Internal(format!("Failed to deserialize position: {}", e)))?;
+            let position: DocumentPosition = serde_json::from_str(&position_json).map_err(|e| {
+                IncrementumError::Internal(format!("Failed to deserialize position: {}", e))
+            })?;
             let created = chrono::DateTime::parse_from_rfc3339(&created_at)
                 .map_err(|e| IncrementumError::Internal(format!("Failed to parse date: {}", e)))?
                 .with_timezone(&chrono::Utc);
@@ -247,21 +249,16 @@ impl PositionService {
     }
 
     /// End a reading session
-    pub async fn end_reading_session(
-        &self,
-        session_id: &str,
-        progress_end: f32,
-    ) -> Result<()> {
+    pub async fn end_reading_session(&self, session_id: &str, progress_end: f32) -> Result<()> {
         let ended_at = chrono::Utc::now().to_rfc3339();
 
         // Calculate duration
-        let session_info = sqlx::query_as::<_, (String,)>(
-            "SELECT started_at FROM reading_sessions WHERE id = ?1"
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get session: {}", e)))?;
+        let session_info =
+            sqlx::query_as::<_, (String,)>("SELECT started_at FROM reading_sessions WHERE id = ?1")
+                .bind(session_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| IncrementumError::Internal(format!("Failed to get session: {}", e)))?;
 
         if let Some((started_at,)) = session_info {
             let start = chrono::DateTime::parse_from_rfc3339(&started_at)
@@ -300,11 +297,22 @@ impl PositionService {
         .await
         .map_err(|e| IncrementumError::Internal(format!("Failed to get active session: {}", e)))?;
 
-        if let Some((id, doc_id, started_at, ended_at, duration, pages_read, progress_start, progress_end)) = row {
+        if let Some((
+            id,
+            doc_id,
+            started_at,
+            ended_at,
+            duration,
+            pages_read,
+            progress_start,
+            progress_end,
+        )) = row
+        {
             let started = chrono::DateTime::parse_from_rfc3339(&started_at)
                 .map_err(|e| IncrementumError::Internal(format!("Failed to parse date: {}", e)))?
                 .with_timezone(&chrono::Utc);
-            let ended = ended_at.and_then(|d| chrono::DateTime::parse_from_rfc3339(&d).ok())
+            let ended = ended_at
+                .and_then(|d| chrono::DateTime::parse_from_rfc3339(&d).ok())
                 .map(|d| d.with_timezone(&chrono::Utc));
 
             Ok(Some(ReadingSession {
@@ -348,9 +356,12 @@ impl PositionService {
         .bind(limit_val)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get documents with progress: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to get documents with progress: {}", e))
+        })?;
 
-        Ok(rows.into_iter()
+        Ok(rows
+            .into_iter()
             .map(|(id, progress, title, date_modified)| {
                 (id, progress as f32, title, date_modified as i32)
             })

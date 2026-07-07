@@ -4,8 +4,8 @@
 //! script to handle Cloudflare challenges and JavaScript-based download flows.
 
 use crate::error::Result;
-use serde::{Deserialize, Serialize};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -84,7 +84,6 @@ pub struct BookSearchResult {
     pub file_size: Option<String>,
 }
 
-
 /// Internal state for Anna's Archive client
 #[derive(Clone)]
 pub struct AnnaArchiveClient {
@@ -109,7 +108,8 @@ impl AnnaArchiveClient {
 
     /// Get the current mirror URL
     fn get_current_mirror(&self) -> &'static str {
-        ANNAS_ARCHIVE_MIRRORS.get(self.current_mirror_index)
+        ANNAS_ARCHIVE_MIRRORS
+            .get(self.current_mirror_index)
             .copied()
             .unwrap_or(ANNAS_ARCHIVE_MIRRORS[0])
     }
@@ -155,22 +155,24 @@ impl AnnaArchiveClient {
 
         Err(crate::error::IncrementumError::Internal(format!(
             "Failed to search books after trying all mirrors. Last error: {}",
-            last_error.as_ref().map(|e| e.to_string()).unwrap_or_else(|| "Unknown error".to_string())
+            last_error
+                .as_ref()
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "Unknown error".to_string())
         )))
     }
 
     /// Fetch search results from a URL
     async fn fetch_search_results(&self, url: &str) -> Result<Vec<BookSearchResult>> {
-        let response = self.http_client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| crate::error::IncrementumError::Internal(format!("Network error: {}", e)))?;
+        let response = self.http_client.get(url).send().await.map_err(|e| {
+            crate::error::IncrementumError::Internal(format!("Network error: {}", e))
+        })?;
 
         if !response.status().is_success() {
-            return Err(crate::error::IncrementumError::Internal(
-                format!("HTTP error: {}", response.status())
-            ));
+            return Err(crate::error::IncrementumError::Internal(format!(
+                "HTTP error: {}",
+                response.status()
+            )));
         }
 
         let html = response.text().await.map_err(|e| {
@@ -181,14 +183,18 @@ impl AnnaArchiveClient {
     }
 
     /// Filter out non-books and deduplicate results
-    fn filter_and_deduplicate(&self, results: Vec<BookSearchResult>, limit: usize) -> Vec<BookSearchResult> {
+    fn filter_and_deduplicate(
+        &self,
+        results: Vec<BookSearchResult>,
+        limit: usize,
+    ) -> Vec<BookSearchResult> {
         let mut seen = HashSet::new();
         let mut filtered = Vec::new();
 
         for book in results {
             // Skip journal articles and non-books
             let title_lower = book.title.to_lowercase();
-            if title_lower.contains("journal") 
+            if title_lower.contains("journal")
                 || title_lower.contains("issue")
                 || title_lower.contains("volume")
                 || title_lower.contains("vol.")
@@ -198,9 +204,13 @@ impl AnnaArchiveClient {
             }
 
             // Deduplicate by title + author + year
-            let key = format!("{}-{}-{}", 
+            let key = format!(
+                "{}-{}-{}",
                 book.title.to_lowercase(),
-                book.author.as_ref().map(|a| a.to_lowercase()).unwrap_or_default(),
+                book.author
+                    .as_ref()
+                    .map(|a| a.to_lowercase())
+                    .unwrap_or_default(),
                 book.year.unwrap_or(0)
             );
 
@@ -215,26 +225,33 @@ impl AnnaArchiveClient {
     /// Parse Anna's Archive search results
     fn parse_annas_archive_results(&self, html: &str) -> Result<Vec<BookSearchResult>> {
         let mut results = Vec::new();
-        
+
         // Anna's Archive uses <a> tags with class "js-vim-focus" for results
         // Use a more robust item matching that handles varying attribute order and multiple items
-        let item_re = Regex::new(r#"(?s)<a\s+[^>]*?class="[^"]*js-vim-focus[^"]*"[^>]*?>(.*?)</a>"#).expect("valid regex");
+        let item_re =
+            Regex::new(r#"(?s)<a\s+[^>]*?class="[^"]*js-vim-focus[^"]*"[^>]*?>(.*?)</a>"#)
+                .expect("valid regex");
         let href_re = Regex::new(r#"href="([^"]+?)""#).expect("valid regex");
         let title_re = Regex::new(r#"(?s)<h3[^>]*?>(.*?)</h3>"#).expect("valid regex");
         // Look for metadata div first (has more distinct structure)
-        let meta_div_re = Regex::new(r#"(?s)<div\s+[^>]*?class="[^"]*?text-gray-500[^"]*?"[^>]*?>(.*?)</div>"#).expect("valid regex");
+        let meta_div_re =
+            Regex::new(r#"(?s)<div\s+[^>]*?class="[^"]*?text-gray-500[^"]*?"[^>]*?>(.*?)</div>"#)
+                .expect("valid regex");
         // Author is typically an italic div or a div right after title
-        let italic_div_re = Regex::new(r#"(?s)<div\s+[^>]*?class="[^"]*?italic[^"]*?"[^>]*?>(.*?)</div>"#).expect("valid regex");
-        
+        let italic_div_re =
+            Regex::new(r#"(?s)<div\s+[^>]*?class="[^"]*?italic[^"]*?"[^>]*?>(.*?)</div>"#)
+                .expect("valid regex");
+
         for caps in item_re.captures_iter(html) {
             let full_match = caps.get(0).map(|m| m.as_str()).unwrap_or("");
             let content = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-            
-            let href = href_re.captures(full_match)
+
+            let href = href_re
+                .captures(full_match)
                 .and_then(|c| c.get(1))
                 .map(|m| m.as_str())
                 .unwrap_or("");
-                
+
             if href.is_empty() {
                 continue;
             }
@@ -245,12 +262,13 @@ impl AnnaArchiveClient {
                 None
             };
 
-            let title_raw = title_re.captures(content)
+            let title_raw = title_re
+                .captures(content)
                 .and_then(|c| c.get(1))
                 .map(|m| strip_html_tags(m.as_str()))
                 .unwrap_or_else(|| "Unknown Title".to_string());
             let title = title_raw.split_whitespace().collect::<Vec<_>>().join(" ");
-                
+
             let mut result = BookSearchResult {
                 id: md5.clone().unwrap_or_else(|| href.to_string()),
                 title: title.clone(),
@@ -270,14 +288,19 @@ impl AnnaArchiveClient {
             for meta_caps in meta_div_re.captures_iter(content) {
                 let meta_text = strip_html_tags(meta_caps.get(1).map(|m| m.as_str()).unwrap_or(""));
                 let cleaned = meta_text.split_whitespace().collect::<Vec<_>>().join(" ");
-                if cleaned.contains('·') || cleaned.contains('|') || cleaned.matches(',').count() > 1 || cleaned.contains('•') {
+                if cleaned.contains('·')
+                    || cleaned.contains('|')
+                    || cleaned.matches(',').count() > 1
+                    || cleaned.contains('•')
+                {
                     self.parse_metadata_string(&cleaned, &mut result);
                 }
             }
 
             // 2. Try to find author (italic div)
             if let Some(author_caps) = italic_div_re.captures(content) {
-                let author_text = strip_html_tags(author_caps.get(1).map(|m| m.as_str()).unwrap_or(""));
+                let author_text =
+                    strip_html_tags(author_caps.get(1).map(|m| m.as_str()).unwrap_or(""));
                 let cleaned = author_text.split_whitespace().collect::<Vec<_>>().join(" ");
                 if !cleaned.is_empty() && cleaned != title && cleaned.len() < 100 {
                     result.author = Some(cleaned);
@@ -292,7 +315,11 @@ impl AnnaArchiveClient {
 
             if result.cover_url.is_none() {
                 if let Some(ref md5_val) = result.md5 {
-                    result.cover_url = Some(format!("{}/covers/{}.jpg", self.get_current_mirror(), md5_val));
+                    result.cover_url = Some(format!(
+                        "{}/covers/{}.jpg",
+                        self.get_current_mirror(),
+                        md5_val
+                    ));
                 }
             }
 
@@ -308,7 +335,7 @@ impl AnnaArchiveClient {
         // We handle multiple possible separators
         let separators = ['·', ',', '|', '·', '•'];
         let mut parts: Vec<String> = Vec::new();
-        
+
         let mut current = String::new();
         for c in meta.chars() {
             if separators.contains(&c) {
@@ -323,16 +350,16 @@ impl AnnaArchiveClient {
         if !current.trim().is_empty() {
             parts.push(current.trim().to_string());
         }
-        
+
         for part in parts {
             let part_lower = part.to_lowercase();
-            
+
             // Language: "English [en]"
             if part.contains('[') && part.contains(']') {
                 result.language = Some(part);
                 continue;
             }
-            
+
             // Format: "EPUB", "PDF"
             if let Some(format) = BookFormat::from_extension(&part) {
                 if !result.formats.contains(&format) {
@@ -340,13 +367,13 @@ impl AnnaArchiveClient {
                 }
                 continue;
             }
-            
+
             // Size: "2.0MB"
             if part_lower.contains("kb") || part_lower.contains("mb") || part_lower.contains("gb") {
                 result.file_size = Some(part);
                 continue;
             }
-            
+
             // Year: "2003"
             if let Ok(year) = part.parse::<i32>() {
                 if year > 1800 && year < 2100 {
@@ -355,7 +382,7 @@ impl AnnaArchiveClient {
                 }
             }
         }
-        
+
         // Final format fallback: if we still have no formats, try scanning the raw string for known extensions
         if result.formats.is_empty() {
             for ext in ["epub", "pdf", "mobi", "azw3", "djvu", "cbz", "cbr"] {
@@ -452,21 +479,14 @@ fn get_download_script_path() -> Result<std::path::PathBuf> {
 /// Find the system Python 3 binary
 fn find_python3() -> Result<std::path::PathBuf> {
     for name in &["python3", "python"] {
-        if let Ok(output) = std::process::Command::new(name)
-            .arg("--version")
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new(name).arg("--version").output() {
             if output.status.success() {
                 return Ok(std::path::PathBuf::from(name));
             }
         }
     }
 
-    let candidates = [
-        "/usr/bin/python3",
-        "/usr/local/bin/python3",
-        "/bin/python3",
-    ];
+    let candidates = ["/usr/bin/python3", "/usr/local/bin/python3", "/bin/python3"];
     for path in &candidates {
         if std::path::Path::new(path).exists() {
             return Ok(std::path::PathBuf::from(path));
@@ -494,27 +514,30 @@ pub async fn download_book(
         } else {
             let path_buf = std::path::PathBuf::from(&path);
             if path_buf.extension().is_some() {
-                let parent = path_buf.parent().unwrap_or_else(|| {
-                    std::path::Path::new(".")
-                });
+                let parent = path_buf
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."));
                 // Canonicalize to prevent path traversal
-                std::fs::canonicalize(parent).unwrap_or_else(|_| {
-                    std::env::temp_dir().join("incrementum-downloads")
-                })
+                std::fs::canonicalize(parent)
+                    .unwrap_or_else(|_| std::env::temp_dir().join("incrementum-downloads"))
             } else {
                 // Canonicalize to prevent path traversal
-                std::fs::canonicalize(&path_buf).unwrap_or_else(|_| {
-                    std::env::temp_dir().join("incrementum-downloads")
-                })
+                std::fs::canonicalize(&path_buf)
+                    .unwrap_or_else(|_| std::env::temp_dir().join("incrementum-downloads"))
             }
         }
     } else {
         std::env::temp_dir().join("incrementum-downloads")
     };
 
-    tokio::fs::create_dir_all(&download_dir).await.map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to create download directory: {}", e))
-    })?;
+    tokio::fs::create_dir_all(&download_dir)
+        .await
+        .map_err(|e| {
+            crate::error::IncrementumError::Internal(format!(
+                "Failed to create download directory: {}",
+                e
+            ))
+        })?;
 
     let args = [
         script.to_string_lossy().to_string(),
@@ -542,8 +565,12 @@ pub async fn download_book(
             .output(),
     )
     .await
-    .map_err(|_| crate::error::IncrementumError::Internal("Download timed out after 5 minutes".to_string()))?
-    .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to run download script: {}", e)))?;
+    .map_err(|_| {
+        crate::error::IncrementumError::Internal("Download timed out after 5 minutes".to_string())
+    })?
+    .map_err(|e| {
+        crate::error::IncrementumError::Internal(format!("Failed to run download script: {}", e))
+    })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -552,19 +579,23 @@ pub async fn download_book(
         let error_msg = if stderr.contains("ModuleNotFoundError") && stderr.contains("playwright") {
             "Playwright is not installed. Install with: pip install playwright && playwright install chromium".to_string()
         } else if !stderr.is_empty() {
-            format!("Download error: {}", stderr.chars().take(500).collect::<String>())
+            format!(
+                "Download error: {}",
+                stderr.chars().take(500).collect::<String>()
+            )
         } else {
             "Download failed with no output".to_string()
         };
         return Err(crate::error::IncrementumError::Internal(error_msg));
     }
 
-    let result: serde_json::Value = serde_json::from_str(&stdout)
-        .map_err(|e| crate::error::IncrementumError::Internal(format!(
+    let result: serde_json::Value = serde_json::from_str(&stdout).map_err(|e| {
+        crate::error::IncrementumError::Internal(format!(
             "Failed to parse download result: {}. Output: {}",
             e,
             stdout.chars().take(200).collect::<String>()
-        )))?;
+        ))
+    })?;
 
     if result["success"].as_bool().unwrap_or(false) {
         Ok(DownloadResult {
@@ -581,10 +612,7 @@ pub async fn download_book(
                 "{}. Install with: pip install playwright && playwright install chromium",
                 error_msg
             ),
-            "cloudflare_blocked" => format!(
-                "{}. Try again later or use a VPN.",
-                error_msg
-            ),
+            "cloudflare_blocked" => format!("{}. Try again later or use a VPN.", error_msg),
             _ => error_msg.to_string(),
         };
 
@@ -595,7 +623,10 @@ pub async fn download_book(
 /// Get available Anna's Archive mirrors
 #[tauri::command]
 pub fn get_available_mirrors() -> Vec<String> {
-    ANNAS_ARCHIVE_MIRRORS.iter().map(|s| s.to_string()).collect()
+    ANNAS_ARCHIVE_MIRRORS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 #[cfg(test)]
@@ -695,7 +726,7 @@ mod tests {
                 </div>
             </a>
         "#;
-        
+
         let results = client.parse_annas_archive_results(html).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Test Book Title");

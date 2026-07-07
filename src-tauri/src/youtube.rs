@@ -4,8 +4,8 @@
 //! through the yt-dlp command-line tool.
 
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use std::path::PathBuf;
+use std::process::Command;
 use tauri::{AppHandle, State};
 
 use crate::database::Repository;
@@ -73,9 +73,9 @@ pub fn build_transcript_text_with_chapters(
 
     for segment in segments {
         // Find which chapter this segment belongs to
-        let matched_chapter_idx = chapters.iter().position(|ch| {
-            segment.start >= ch.start_time && segment.start < ch.end_time
-        });
+        let matched_chapter_idx = chapters
+            .iter()
+            .position(|ch| segment.start >= ch.start_time && segment.start < ch.end_time);
 
         if let Some(idx) = matched_chapter_idx {
             if current_chapter_index != Some(idx) {
@@ -131,9 +131,7 @@ impl Default for DownloadOptions {
 /// Check if yt-dlp is installed
 pub fn check_ytdlp_installed() -> Result<bool, String> {
     // Reuse the same binary resolution logic as the actual yt-dlp commands.
-    let output = ytdlp_command()?
-        .arg("--version")
-        .output();
+    let output = ytdlp_command()?.arg("--version").output();
 
     match output {
         Ok(output) => Ok(output.status.success()),
@@ -161,15 +159,15 @@ fn get_ytdlp_install_path() -> Result<PathBuf, String> {
         .ok_or("Could not find data directory")?
         .join("incrementum")
         .join("bin");
-    
+
     std::fs::create_dir_all(&app_dir)
         .map_err(|e| format!("Failed to create bin directory: {}", e))?;
-    
+
     #[cfg(target_os = "windows")]
     let binary_name = "yt-dlp.exe";
     #[cfg(not(target_os = "windows"))]
     let binary_name = "yt-dlp";
-    
+
     Ok(app_dir.join(binary_name))
 }
 
@@ -223,33 +221,43 @@ fn sanitize_python_env(cmd: &mut Command) {
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 pub async fn setup_ytdlp() -> Result<String, String> {
     let install_path = get_ytdlp_install_path()?;
-    
+
     // Determine download URL based on platform
     let download_url = {
         #[cfg(target_os = "windows")]
-        { "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" }
+        {
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+        }
         #[cfg(target_os = "macos")]
-        { "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" }
+        {
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+        }
         #[cfg(target_os = "linux")]
-        { "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" }
+        {
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+        }
     };
-    
+
     // Download the binary
     let response = reqwest::get(download_url)
         .await
         .map_err(|e| format!("Failed to download yt-dlp: {}", e))?;
-    
+
     if !response.status().is_success() {
-        return Err(format!("Download failed with status: {}", response.status()));
+        return Err(format!(
+            "Download failed with status: {}",
+            response.status()
+        ));
     }
-    
-    let bytes = response.bytes()
+
+    let bytes = response
+        .bytes()
         .await
         .map_err(|e| format!("Failed to read download data: {}", e))?;
-    
+
     std::fs::write(&install_path, bytes)
         .map_err(|e| format!("Failed to write yt-dlp binary: {}", e))?;
-    
+
     // Make it executable on Unix systems
     #[cfg(not(target_os = "windows"))]
     {
@@ -261,10 +269,10 @@ pub async fn setup_ytdlp() -> Result<String, String> {
         std::fs::set_permissions(&install_path, perms)
             .map_err(|e| format!("Failed to set permissions: {}", e))?;
     }
-    
+
     // Verify installation
     let version = get_ytdlp_version_from_path(&install_path)?;
-    
+
     Ok(version)
 }
 
@@ -309,11 +317,7 @@ pub fn get_ytdlp_version() -> Result<String, String> {
 /// Extract video info using yt-dlp
 pub fn extract_video_info(url: &str) -> Result<YouTubeVideoInfo, String> {
     let output = ytdlp_command()?
-        .args([
-            "--dump-json",
-            "--no-playlist",
-            url,
-        ])
+        .args(["--dump-json", "--no-playlist", url])
         .output()
         .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
 
@@ -357,7 +361,12 @@ fn parse_video_json(json: &serde_json::Value) -> YouTubeVideoInfo {
 
     // Format publish date
     let publish_date = if upload_date.len() >= 8 {
-        format!("{}-{}-{}", &upload_date[0..4], &upload_date[4..6], &upload_date[6..8])
+        format!(
+            "{}-{}-{}",
+            &upload_date[0..4],
+            &upload_date[4..6],
+            &upload_date[6..8]
+        )
     } else {
         String::new()
     };
@@ -382,12 +391,7 @@ fn parse_video_json(json: &serde_json::Value) -> YouTubeVideoInfo {
 /// Get available formats for a video
 pub fn get_video_formats(url: &str) -> Result<Vec<YouTubeFormat>, String> {
     let output = ytdlp_command()?
-        .args([
-            "--dump-json",
-            "--list-formats",
-            "--no-playlist",
-            url,
-        ])
+        .args(["--dump-json", "--list-formats", "--no-playlist", url])
         .output()
         .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
 
@@ -399,9 +403,7 @@ pub fn get_video_formats(url: &str) -> Result<Vec<YouTubeFormat>, String> {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
-    let formats = json["formats"]
-        .as_array()
-        .ok_or("No formats found")?;
+    let formats = json["formats"].as_array().ok_or("No formats found")?;
 
     let result = formats
         .iter()
@@ -409,10 +411,22 @@ pub fn get_video_formats(url: &str) -> Result<Vec<YouTubeFormat>, String> {
             Some(YouTubeFormat {
                 format_id: f["format_id"].as_str()?.to_string(),
                 ext: f["ext"].as_str()?.to_string(),
-                quality: f["format_note"].as_str().or(f["format"].as_str()).unwrap_or("unknown").to_string(),
+                quality: f["format_note"]
+                    .as_str()
+                    .or(f["format"].as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
                 filesize: f["filesize"].as_u64(),
-                vcodec: f["vcodec"].as_str().or(f["vcodec"].as_str()).unwrap_or("none").to_string(),
-                acodec: f["acodec"].as_str().or(f["acodec"].as_str()).unwrap_or("none").to_string(),
+                vcodec: f["vcodec"]
+                    .as_str()
+                    .or(f["vcodec"].as_str())
+                    .unwrap_or("none")
+                    .to_string(),
+                acodec: f["acodec"]
+                    .as_str()
+                    .or(f["acodec"].as_str())
+                    .unwrap_or("none")
+                    .to_string(),
                 width: f["width"].as_u64().map(|w| w as u32),
                 height: f["height"].as_u64().map(|h| h as u32),
                 fps: f["fps"].as_u64().map(|f| f as u32),
@@ -436,13 +450,22 @@ pub async fn download_video(
     let output_path = output_dir.join(&options.output_template);
 
     let mut name_cmd = ytdlp_command()?;
-    name_cmd.args(["--get-filename", "-o", output_path.to_str().expect("output path is valid UTF-8"), url]);
-    let name_output = name_cmd.output().map_err(|e| format!("Failed to run yt-dlp to get filename: {}", e))?;
+    name_cmd.args([
+        "--get-filename",
+        "-o",
+        output_path.to_str().expect("output path is valid UTF-8"),
+        url,
+    ]);
+    let name_output = name_cmd
+        .output()
+        .map_err(|e| format!("Failed to run yt-dlp to get filename: {}", e))?;
     if !name_output.status.success() {
         let err = String::from_utf8_lossy(&name_output.stderr);
         return Err(format!("Failed to determine download filename: {}", err));
     }
-    let final_filepath_str = String::from_utf8_lossy(&name_output.stdout).trim().to_string();
+    let final_filepath_str = String::from_utf8_lossy(&name_output.stdout)
+        .trim()
+        .to_string();
     let final_filepath = PathBuf::from(&final_filepath_str);
 
     let video_id = extract_video_id(url);
@@ -456,13 +479,20 @@ pub async fn download_video(
     let mut download_filepath = final_filepath.clone();
     if !segments.is_empty() {
         // Download to a temporary raw file first
-        let ext = final_filepath.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
+        let ext = final_filepath
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("mp4");
         download_filepath = final_filepath.with_extension(format!("raw.{}", ext));
     }
 
     let mut cmd = ytdlp_command()?;
     cmd.arg("-f").arg(&options.format);
-    cmd.arg("-o").arg(download_filepath.to_str().expect("download path is valid UTF-8"));
+    cmd.arg("-o").arg(
+        download_filepath
+            .to_str()
+            .expect("download path is valid UTF-8"),
+    );
 
     if options.subtitles {
         cmd.arg("--write-subs");
@@ -477,7 +507,8 @@ pub async fn download_video(
 
     cmd.arg(url);
 
-    let output = cmd.output()
+    let output = cmd
+        .output()
         .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
 
     if !output.status.success() {
@@ -488,7 +519,14 @@ pub async fn download_video(
     // Cut sponsored segments if present
     if !segments.is_empty() {
         println!("[SponsorBlock] Cutting downloaded YouTube video...");
-        match crate::sponsorblock::cut_audio_file(app_handle, &download_filepath, &final_filepath, &segments).await {
+        match crate::sponsorblock::cut_audio_file(
+            app_handle,
+            &download_filepath,
+            &final_filepath,
+            &segments,
+        )
+        .await
+        {
             Ok(cuts) => {
                 if let Some(ref vid) = video_id {
                     let _ = crate::sponsorblock::save_cuts_metadata(vid, &cuts);
@@ -500,9 +538,13 @@ pub async fn download_video(
                 let _ = std::fs::remove_file(&download_filepath);
             }
             Err(e) => {
-                eprintln!("[SponsorBlock] YouTube video cutting failed: {}. Falling back to uncut.", e);
-                std::fs::rename(&download_filepath, &final_filepath)
-                    .map_err(|rename_err| format!("Failed to save uncut fallback file: {}", rename_err))?;
+                eprintln!(
+                    "[SponsorBlock] YouTube video cutting failed: {}. Falling back to uncut.",
+                    e
+                );
+                std::fs::rename(&download_filepath, &final_filepath).map_err(|rename_err| {
+                    format!("Failed to save uncut fallback file: {}", rename_err)
+                })?;
             }
         }
     }
@@ -512,33 +554,34 @@ pub async fn download_video(
 
 /// Try to run yt-dlp with browser cookies from common browsers
 fn try_with_browser_cookies(url: &str, args: &[&str]) -> Result<std::process::Output, String> {
-    let browsers = ["chrome", "firefox", "safari", "edge", "brave", "vivaldi", "opera"];
-    
+    let browsers = [
+        "chrome", "firefox", "safari", "edge", "brave", "vivaldi", "opera",
+    ];
+
     // First try without cookies
     let output = ytdlp_command()?
         .args(args)
         .arg(url)
         .output()
         .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
-    
+
     // If successful or not a bot error, return as-is
     let stderr = String::from_utf8_lossy(&output.stderr);
     if output.status.success() && !stderr.contains("Sign in to confirm") {
         return Ok(output);
     }
-    
+
     // Try with each browser's cookies
     for browser in &browsers {
-        let cookie_output = ytdlp_command()
-            .and_then(|mut cmd| {
-                cmd.args(args)
-                    .arg("--cookies-from-browser")
-                    .arg(browser)
-                    .arg(url);
-                cmd.output()
-                    .map_err(|e| format!("Failed to run yt-dlp: {}", e))
-            });
-        
+        let cookie_output = ytdlp_command().and_then(|mut cmd| {
+            cmd.args(args)
+                .arg("--cookies-from-browser")
+                .arg(browser)
+                .arg(url);
+            cmd.output()
+                .map_err(|e| format!("Failed to run yt-dlp: {}", e))
+        });
+
         match cookie_output {
             Ok(result) => {
                 let result_stderr = String::from_utf8_lossy(&result.stderr);
@@ -548,69 +591,79 @@ fn try_with_browser_cookies(url: &str, args: &[&str]) -> Result<std::process::Ou
                     return Ok(result);
                 }
                 // If browser not found error, try next browser
-                if result_stderr.contains("could not find") || result_stderr.contains("not installed") {
+                if result_stderr.contains("could not find")
+                    || result_stderr.contains("not installed")
+                {
                     continue;
                 }
             }
             Err(_) => continue,
         }
     }
-    
+
     if !output.status.success() || stderr.contains("Sign in to confirm") {
-        return Err(
-            "YouTube is requiring sign-in to access this video.\n\n\
+        return Err("YouTube is requiring sign-in to access this video.\n\n\
             To fix this:\n\
             1. Open YouTube in your browser (Chrome, Firefox, Safari, or Edge)\n\
             2. Watch any video for 10-20 seconds\n\
             3. Try again in the app\n\n\
-            The app will automatically use your browser cookies if available.".to_string()
-        );
+            The app will automatically use your browser cookies if available."
+            .to_string());
     }
-    
+
     Ok(output)
 }
 
 /// Extract transcript using yt-dlp
-pub fn extract_transcript(url: &str, language: Option<&str>) -> Result<Vec<TranscriptSegment>, String> {
+pub fn extract_transcript(
+    url: &str,
+    language: Option<&str>,
+) -> Result<Vec<TranscriptSegment>, String> {
     let temp_dir = std::env::temp_dir();
     let lang = language.unwrap_or("en");
 
     // Try to get video info with browser cookies first (helps avoid bot detection)
-    let info_output = try_with_browser_cookies(url, &[
-        "--print", "%(id)s",
-        "--no-playlist",
-    ])?;
+    let info_output = try_with_browser_cookies(url, &["--print", "%(id)s", "--no-playlist"])?;
 
-    let video_id = String::from_utf8_lossy(&info_output.stdout).trim().to_string();
+    let video_id = String::from_utf8_lossy(&info_output.stdout)
+        .trim()
+        .to_string();
 
     // Download subtitles using yt-dlp with browser cookies
     let output_template = format!("{}/%(id)s", temp_dir.to_string_lossy());
     let subtitle_args = vec![
         "--write-subs",
         "--write-auto-subs",
-        "--sub-langs", lang,
-        "--sub-format", "vtt",
+        "--sub-langs",
+        lang,
+        "--sub-format",
+        "vtt",
         "--skip-download",
         "--no-playlist",
-        "-o", &output_template,
+        "-o",
+        &output_template,
     ];
-    
+
     let output = try_with_browser_cookies(url, &subtitle_args)?;
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     // If subtitles aren't available, return empty rather than error
-    if !output.status.success() && (
-        stderr.contains("Subtitles not available") 
-        || stderr.contains("video doesn't have subtitles")
-        || stderr.contains("Could not find automatic captions")
-    ) {
+    if !output.status.success()
+        && (stderr.contains("Subtitles not available")
+            || stderr.contains("video doesn't have subtitles")
+            || stderr.contains("Could not find automatic captions"))
+    {
         return Ok(vec![]);
     }
 
     // Look for subtitle files with various naming patterns
     let subtitle_patterns = [
         format!("{}.{lang}.vtt", video_id),
-        format!("{}.{}.vtt", video_id, lang.split('-').next().unwrap_or(lang)),
+        format!(
+            "{}.{}.vtt",
+            video_id,
+            lang.split('-').next().unwrap_or(lang)
+        ),
         format!("{}.vtt", video_id),
     ];
 
@@ -628,8 +681,8 @@ pub fn extract_transcript(url: &str, language: Option<&str>) -> Result<Vec<Trans
     }
 
     // Also check for any files starting with video_id in temp dir
-    let subtitle_files = std::fs::read_dir(&temp_dir)
-        .map_err(|e| format!("Failed to read temp dir: {}", e))?;
+    let subtitle_files =
+        std::fs::read_dir(&temp_dir).map_err(|e| format!("Failed to read temp dir: {}", e))?;
 
     for entry in subtitle_files.flatten() {
         let path = entry.path();
@@ -641,7 +694,7 @@ pub fn extract_transcript(url: &str, language: Option<&str>) -> Result<Vec<Trans
                     } else {
                         parse_srt(&content)
                     };
-                    
+
                     let _ = std::fs::remove_file(&path);
 
                     if !parsed.is_empty() {
@@ -711,7 +764,12 @@ fn parse_timestamp_line(line: &str) -> Option<(f64, f64)> {
     }
 
     let start = parse_vtt_timestamp(parts[0].trim())?;
-    let end = parse_vtt_timestamp(parts[1].split_whitespace().next().unwrap_or(parts[1].trim()))?;
+    let end = parse_vtt_timestamp(
+        parts[1]
+            .split_whitespace()
+            .next()
+            .unwrap_or(parts[1].trim()),
+    )?;
 
     Some((start, end))
 }
@@ -779,7 +837,8 @@ fn parse_srt(content: &str) -> Vec<TranscriptSegment> {
         let ts_line = lines.get(1).unwrap_or(&"");
         if let Some((start, end)) = parse_srt_timestamp_line(ts_line) {
             // Collect remaining lines as text
-            let text: String = lines[2..].iter()
+            let text: String = lines[2..]
+                .iter()
                 .map(|l| l.trim())
                 .filter(|l| !l.is_empty())
                 .map(clean_vtt_text)
@@ -835,15 +894,13 @@ fn parse_srt_timestamp(ts: &str) -> Option<f64> {
 }
 
 /// Search YouTube (requires API key for full results)
-pub fn search_youtube(query: &str, _api_key: Option<&str>) -> Result<Vec<serde_json::Value>, String> {
+pub fn search_youtube(
+    query: &str,
+    _api_key: Option<&str>,
+) -> Result<Vec<serde_json::Value>, String> {
     // yt-dlp can do basic search without API key
     let output = ytdlp_command()?
-        .args([
-            "ytsearch5:",
-            query,
-            "--dump-json",
-            "--flat-playlist",
-        ])
+        .args(["ytsearch5:", query, "--dump-json", "--flat-playlist"])
         .output()
         .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
 
@@ -855,22 +912,22 @@ pub fn search_youtube(query: &str, _api_key: Option<&str>) -> Result<Vec<serde_j
     let json: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
-    let entries = json["entries"]
-        .as_array()
-        .ok_or("No search results")?;
+    let entries = json["entries"].as_array().ok_or("No search results")?;
 
     Ok(entries.clone())
 }
 
 /// Get playlist info
-/// 
+///
 /// Uses --flat-playlist to get simplified video list, then fetches detailed info
 pub fn get_playlist_info(url: &str) -> Result<serde_json::Value, String> {
     eprintln!("[yt-dlp] Fetching playlist info for: {}", url);
-    
+
     // Try with browser cookies first (helps with authentication and rate limiting)
-    let browsers = ["chrome", "firefox", "safari", "edge", "brave", "vivaldi", "opera"];
-    
+    let browsers = [
+        "chrome", "firefox", "safari", "edge", "brave", "vivaldi", "opera",
+    ];
+
     // First try without cookies - use --flat-playlist for simplified output
     // but we need to handle multiple JSON lines
     let output = ytdlp_command()
@@ -886,9 +943,12 @@ pub fn get_playlist_info(url: &str) -> Result<serde_json::Value, String> {
 
     match output {
         Ok(output) if output.status.success() => {
-            eprintln!("[yt-dlp] Success without cookies, output size: {} bytes", output.stdout.len());
+            eprintln!(
+                "[yt-dlp] Success without cookies, output size: {} bytes",
+                output.stdout.len()
+            );
             let stdout_str = String::from_utf8_lossy(&output.stdout);
-            
+
             let mut entries = Vec::new();
             for line in stdout_str.lines() {
                 if line.trim().is_empty() {
@@ -899,11 +959,11 @@ pub fn get_playlist_info(url: &str) -> Result<serde_json::Value, String> {
                     Err(e) => eprintln!("[yt-dlp] Failed to parse line: {} - Error: {}", line, e),
                 }
             }
-            
+
             if entries.is_empty() {
                 return Err("No videos found in playlist".to_string());
             }
-            
+
             // Construct a playlist object from the entries
             let playlist = serde_json::json!({
                 "title": entries.first().and_then(|e| e["playlist_title"].as_str()).unwrap_or("Unknown Playlist"),
@@ -912,7 +972,7 @@ pub fn get_playlist_info(url: &str) -> Result<serde_json::Value, String> {
                 "description": entries.first().and_then(|e| e["description"].as_str()).unwrap_or(""),
                 "entries": entries,
             });
-            
+
             return Ok(playlist);
         }
         Ok(output) => {
@@ -920,15 +980,21 @@ pub fn get_playlist_info(url: &str) -> Result<serde_json::Value, String> {
             eprintln!("[yt-dlp] Failed without cookies: {}", stderr);
             let trimmed = stderr.trim();
             if !trimmed.is_empty() {
-                return Err(format!("Failed to get playlist info from yt-dlp: {}", trimmed));
+                return Err(format!(
+                    "Failed to get playlist info from yt-dlp: {}",
+                    trimmed
+                ));
             }
         }
         Err(e) => {
             eprintln!("[yt-dlp] Command failed: {}", e);
-            return Err(format!("Failed to run yt-dlp: {}. Make sure yt-dlp is installed and in your PATH.", e));
+            return Err(format!(
+                "Failed to run yt-dlp: {}. Make sure yt-dlp is installed and in your PATH.",
+                e
+            ));
         }
     }
-    
+
     // Try with each browser's cookies
     for browser in &browsers {
         eprintln!("[yt-dlp] Trying with {} cookies...", browser);
@@ -944,12 +1010,12 @@ pub fn get_playlist_info(url: &str) -> Result<serde_json::Value, String> {
                 url,
             ])
             .output();
-        
+
         match output {
             Ok(output) if output.status.success() => {
                 eprintln!("[yt-dlp] Success with {} cookies", browser);
                 let stdout_str = String::from_utf8_lossy(&output.stdout);
-                
+
                 let mut entries = Vec::new();
                 for line in stdout_str.lines() {
                     if line.trim().is_empty() {
@@ -959,7 +1025,7 @@ pub fn get_playlist_info(url: &str) -> Result<serde_json::Value, String> {
                         entries.push(video);
                     }
                 }
-                
+
                 if !entries.is_empty() {
                     let playlist = serde_json::json!({
                         "title": entries.first().and_then(|e| e["playlist_title"].as_str()).unwrap_or("Unknown Playlist"),
@@ -987,12 +1053,13 @@ pub fn get_playlist_info(url: &str) -> Result<serde_json::Value, String> {
             }
         }
     }
-    
+
     Err("Failed to get playlist info. This could be because:\n\
         1. The playlist is private or doesn't exist\n\
         2. YouTube is requiring authentication - try watching the playlist in your browser first\n\
         3. yt-dlp needs to be updated (run: yt-dlp -U)\n\
-        4. Your IP might be rate-limited by YouTube".to_string())
+        4. Your IP might be rate-limited by YouTube"
+        .to_string())
 }
 
 /// Extract video ID from URL
@@ -1073,9 +1140,8 @@ pub async fn get_youtube_transcript_internal(
     repo: &Repository,
 ) -> Result<Vec<TranscriptSegment>, String> {
     if let Some(video_id) = extract_video_id(url) {
-        if let Ok(Some((_transcript, segments_json))) = repo
-            .get_youtube_transcript_by_video_id(&video_id)
-            .await
+        if let Ok(Some((_transcript, segments_json))) =
+            repo.get_youtube_transcript_by_video_id(&video_id).await
         {
             return parse_transcript_segments(&segments_json);
         }
@@ -1085,11 +1151,10 @@ pub async fn get_youtube_transcript_internal(
     let lang = language.map(|l| l.to_string());
 
     // Use spawn_blocking to avoid blocking the async runtime
-    let segments = tokio::task::spawn_blocking(move || {
-        extract_transcript(&url_clone, lang.as_deref())
-    })
-    .await
-    .map_err(|e| format!("Failed to join transcript task: {}", e))??;
+    let segments =
+        tokio::task::spawn_blocking(move || extract_transcript(&url_clone, lang.as_deref()))
+            .await
+            .map_err(|e| format!("Failed to join transcript task: {}", e))??;
 
     if let Some(video_id) = extract_video_id(url) {
         let transcript = build_transcript_text(&segments);
@@ -1111,7 +1176,13 @@ pub async fn get_youtube_transcript(
     document_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<TranscriptSegment>, String> {
-    get_youtube_transcript_internal(&url, language.as_deref(), document_id.as_deref(), repo.inner()).await
+    get_youtube_transcript_internal(
+        &url,
+        language.as_deref(),
+        document_id.as_deref(),
+        repo.inner(),
+    )
+    .await
 }
 
 /// Tauri command: Extract transcript by videoId
@@ -1124,7 +1195,13 @@ pub async fn get_youtube_transcript_by_id(
 ) -> Result<Vec<TranscriptSegment>, String> {
     // Construct YouTube URL from video ID
     let url = format!("https://www.youtube.com/watch?v={}", video_id);
-    get_youtube_transcript_internal(&url, language.as_deref(), document_id.as_deref(), repo.inner()).await
+    get_youtube_transcript_internal(
+        &url,
+        language.as_deref(),
+        document_id.as_deref(),
+        repo.inner(),
+    )
+    .await
 }
 
 /// Tauri command: Search YouTube
@@ -1154,19 +1231,25 @@ pub async fn import_youtube_video_internal(
     repo: &Repository,
 ) -> Result<Document, String> {
     // First, verify yt-dlp is available
-    let ytdlp_available = check_ytdlp_installed()
-        .map_err(|e| format!("Failed to check yt-dlp: {}", e))?;
+    let ytdlp_available =
+        check_ytdlp_installed().map_err(|e| format!("Failed to check yt-dlp: {}", e))?;
 
     if !ytdlp_available {
-        return Err("yt-dlp is not installed. Please install it to import YouTube videos.".to_string());
+        return Err(
+            "yt-dlp is not installed. Please install it to import YouTube videos.".to_string(),
+        );
     }
 
-    let info = extract_video_info(url)
-        .map_err(|e| format!("Failed to fetch video info: {}", e))?;
+    let info = extract_video_info(url).map_err(|e| format!("Failed to fetch video info: {}", e))?;
 
     let video_id = &info.id;
 
-    let mut doc = Document::with_collection(info.title.clone(), format!("https://www.youtube.com/watch?v={}", video_id), FileType::Youtube, collection_id);
+    let mut doc = Document::with_collection(
+        info.title.clone(),
+        format!("https://www.youtube.com/watch?v={}", video_id),
+        FileType::Youtube,
+        collection_id,
+    );
 
     // Set YouTube-specific fields
     // Note: category is not set to avoid foreign key constraint issues
@@ -1185,7 +1268,11 @@ pub async fn import_youtube_video_internal(
     doc.metadata = Some(DocumentMetadata {
         author: Some(info.channel),
         subject: None,
-        keywords: if info.tags.is_empty() { None } else { Some(info.tags) },
+        keywords: if info.tags.is_empty() {
+            None
+        } else {
+            Some(info.tags)
+        },
         created_at: Some(created_at),
         modified_at: None,
         file_size: None,
@@ -1201,14 +1288,19 @@ pub async fn import_youtube_video_internal(
         ..Default::default()
     });
 
-    let mut created = repo.create_document(&doc).await
+    let mut created = repo
+        .create_document(&doc)
+        .await
         .map_err(|e| format!("Failed to save document to database: {}", e))?;
 
     // Auto-fetch and save chapters from YouTube (non-blocking, fail gracefully)
-    let chapters = get_youtube_chapters_internal(url, Some(&created.id), repo).await.unwrap_or_default();
+    let chapters = get_youtube_chapters_internal(url, Some(&created.id), repo)
+        .await
+        .unwrap_or_default();
 
     // Auto-fetch and save transcript from YouTube (non-blocking, fail gracefully)
-    if let Ok(segments) = get_youtube_transcript_internal(url, None, Some(&created.id), repo).await {
+    if let Ok(segments) = get_youtube_transcript_internal(url, None, Some(&created.id), repo).await
+    {
         if !segments.is_empty() {
             let structured_transcript = if !chapters.is_empty() {
                 build_transcript_text_with_chapters(&segments, &chapters)
@@ -1216,14 +1308,26 @@ pub async fn import_youtube_video_internal(
                 build_transcript_text(&segments)
             };
 
-            let content_hash = Some(crate::processor::generate_content_hash(&structured_transcript));
+            let content_hash = Some(crate::processor::generate_content_hash(
+                &structured_transcript,
+            ));
             let mut metadata = created.metadata.clone().unwrap_or_default();
             metadata.word_count = Some(structured_transcript.split_whitespace().count() as i32);
             metadata.source = Some("youtube".to_string());
             metadata.site_name = Some("YouTube".to_string());
             metadata.fetched_at = Some(chrono::Utc::now());
 
-            if repo.update_document_content(&created.id, &structured_transcript, content_hash.clone(), None, Some(metadata.clone())).await.is_ok() {
+            if repo
+                .update_document_content(
+                    &created.id,
+                    &structured_transcript,
+                    content_hash.clone(),
+                    None,
+                    Some(metadata.clone()),
+                )
+                .await
+                .is_ok()
+            {
                 created.content = Some(structured_transcript);
                 created.content_hash = content_hash;
                 created.metadata = Some(metadata);
@@ -1328,9 +1432,12 @@ fn parse_timestamp_to_seconds(timestamp: &str) -> Option<f64> {
     Some((hours * 3600 + minutes * 60 + seconds) as f64)
 }
 
-fn parse_chapters_from_description(description: &str, duration: Option<f64>) -> Vec<YouTubeChapter> {
+fn parse_chapters_from_description(
+    description: &str,
+    duration: Option<f64>,
+) -> Vec<YouTubeChapter> {
     let re = match regex::Regex::new(
-        r"(?m)^\s*(?:[-*]\s*)?(?P<ts>\d{1,2}:\d{2}(?::\d{2})?)\s*(?:-|\||:)?\s*(?P<title>.+?)\s*$"
+        r"(?m)^\s*(?:[-*]\s*)?(?P<ts>\d{1,2}:\d{2}(?::\d{2})?)\s*(?:-|\||:)?\s*(?P<title>.+?)\s*$",
     ) {
         Ok(value) => value,
         Err(_) => return vec![],
@@ -1364,7 +1471,11 @@ fn parse_chapters_from_description(description: &str, duration: Option<f64>) -> 
         return chapters;
     }
 
-    chapters.sort_by(|a, b| a.start_time.partial_cmp(&b.start_time).unwrap_or(std::cmp::Ordering::Equal));
+    chapters.sort_by(|a, b| {
+        a.start_time
+            .partial_cmp(&b.start_time)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     chapters.dedup_by(|a, b| a.start_time == b.start_time);
 
     chapters
@@ -1373,11 +1484,7 @@ fn parse_chapters_from_description(description: &str, duration: Option<f64>) -> 
 /// Extract chapters from a YouTube video URL
 pub fn extract_chapters(url: &str) -> Result<Vec<YouTubeChapter>, String> {
     let output = ytdlp_command()?
-        .args([
-            "--dump-json",
-            "--no-playlist",
-            url,
-        ])
+        .args(["--dump-json", "--no-playlist", url])
         .output()
         .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
 
@@ -1401,11 +1508,9 @@ pub async fn get_youtube_chapters_internal(
 
     let url_clone = url.to_string();
     // Extract chapters from YouTube (blocking call)
-    let youtube_chapters = spawn_blocking(move || {
-        extract_chapters(&url_clone)
-    })
-    .await
-    .map_err(|e| format!("Failed to join task: {}", e))??;
+    let youtube_chapters = spawn_blocking(move || extract_chapters(&url_clone))
+        .await
+        .map_err(|e| format!("Failed to join task: {}", e))??;
 
     if youtube_chapters.is_empty() {
         return Ok(vec![]);
@@ -1441,7 +1546,8 @@ pub async fn get_youtube_chapters_internal(
             }
         }
 
-        repo.set_video_chapters(doc_id, &video_chapters).await
+        repo.set_video_chapters(doc_id, &video_chapters)
+            .await
             .map_err(|e| format!("Failed to save chapters: {}", e))?;
     }
 

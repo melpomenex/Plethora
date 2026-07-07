@@ -119,7 +119,10 @@ impl DocumentSegmenter {
         // 3. Use AI to understand context
 
         let mut segments = Vec::new();
-        let paragraphs: Vec<&str> = content.split("\n\n").filter(|s| !s.trim().is_empty()).collect();
+        let paragraphs: Vec<&str> = content
+            .split("\n\n")
+            .filter(|s| !s.trim().is_empty())
+            .collect();
 
         let mut current_segment = String::new();
         let mut current_start = 0;
@@ -132,29 +135,31 @@ impl DocumentSegmenter {
             // If adding this paragraph would exceed target length significantly,
             // and we have enough content, start a new segment
             if current_word_count > self.config.min_length
-                && current_word_count + para_word_count > self.config.target_length + self.config.overlap
-                && !current_segment.is_empty() {
-                    segments.push(self.create_segment(
-                        segment_index,
-                        &current_segment,
-                        current_start,
-                        current_start + current_segment.len(),
-                    ));
-                    segment_index += 1;
-                    current_start += current_segment.len();
+                && current_word_count + para_word_count
+                    > self.config.target_length + self.config.overlap
+                && !current_segment.is_empty()
+            {
+                segments.push(self.create_segment(
+                    segment_index,
+                    &current_segment,
+                    current_start,
+                    current_start + current_segment.len(),
+                ));
+                segment_index += 1;
+                current_start += current_segment.len();
 
-                    if self.config.overlap > 0 {
-                        let mut overlap_words: Vec<&str> = current_segment
-                            .split_whitespace()
-                            .rev()
-                            .take(self.config.overlap)
-                            .collect();
-                        overlap_words.reverse();
-                        current_segment = overlap_words.join(" ") + " ";
-                    } else {
-                        current_segment = String::new();
-                    }
+                if self.config.overlap > 0 {
+                    let mut overlap_words: Vec<&str> = current_segment
+                        .split_whitespace()
+                        .rev()
+                        .take(self.config.overlap)
+                        .collect();
+                    overlap_words.reverse();
+                    current_segment = overlap_words.join(" ") + " ";
+                } else {
+                    current_segment = String::new();
                 }
+            }
 
             current_segment.push_str(para);
             current_segment.push_str("\n\n");
@@ -176,7 +181,10 @@ impl DocumentSegmenter {
     /// Paragraph-based segmentation
     fn segment_paragraph(&self, content: &str) -> Result<SegmentationResult> {
         let mut segments = Vec::new();
-        let paragraphs: Vec<&str> = content.split("\n\n").filter(|s| !s.trim().is_empty()).collect();
+        let paragraphs: Vec<&str> = content
+            .split("\n\n")
+            .filter(|s| !s.trim().is_empty())
+            .collect();
 
         let mut current_segment = String::new();
         let mut current_start = 0;
@@ -262,7 +270,6 @@ impl DocumentSegmenter {
 
     /// Smart adaptive segmentation
     fn segment_smart(&self, content: &str) -> Result<SegmentationResult> {
-
         // Detect structure markers
         let header_pattern = regex::Regex::new(r"^(#{1,3}\s|Chapter\s|Part\s|\d+\.\d+\s)")
             .unwrap_or_else(|_| regex::Regex::new(r"^#").unwrap());
@@ -278,7 +285,10 @@ impl DocumentSegmenter {
             let is_header = header_pattern.is_match(line.trim());
             let line_words = line.split_whitespace().count();
 
-            if is_header && !current_segment_lines.is_empty() && current_length > self.config.min_length {
+            if is_header
+                && !current_segment_lines.is_empty()
+                && current_length > self.config.min_length
+            {
                 let segment_content = current_segment_lines.join("\n");
                 segments.push(self.create_segment(
                     segment_index,
@@ -298,9 +308,9 @@ impl DocumentSegmenter {
 
             if current_length >= self.config.max_length && !is_header {
                 // Find a good break point (empty line or sentence end)
-                let break_point = current_segment_lines
-                    .iter()
-                    .rposition(|l| l.trim().is_empty() || l.ends_with('.') || l.ends_with('!') || l.ends_with('?'));
+                let break_point = current_segment_lines.iter().rposition(|l| {
+                    l.trim().is_empty() || l.ends_with('.') || l.ends_with('!') || l.ends_with('?')
+                });
 
                 if let Some(pos) = break_point {
                     if pos < current_segment_lines.len() - 1 {
@@ -314,7 +324,10 @@ impl DocumentSegmenter {
                         segment_index += 1;
                         current_start += segment_content.len();
                         current_segment_lines = current_segment_lines[pos + 1..].to_vec();
-                        current_length = current_segment_lines.iter().map(|l| l.split_whitespace().count()).sum();
+                        current_length = current_segment_lines
+                            .iter()
+                            .map(|l| l.split_whitespace().count())
+                            .sum();
                     }
                 }
             }
@@ -345,16 +358,13 @@ impl DocumentSegmenter {
         let word_count = content.split_whitespace().count();
 
         // Try to detect chapter title from first line
-        let chapter_title = content
-            .lines()
-            .next()
-            .and_then(|line| {
-                if line.starts_with('#') || line.starts_with("Chapter") || line.starts_with("Part") {
-                    Some(line.trim().to_string())
-                } else {
-                    None
-                }
-            });
+        let chapter_title = content.lines().next().and_then(|line| {
+            if line.starts_with('#') || line.starts_with("Chapter") || line.starts_with("Part") {
+                Some(line.trim().to_string())
+            } else {
+                None
+            }
+        });
 
         let mut metadata = HashMap::new();
         metadata.insert("method".to_string(), format!("{:?}", self.config.method));
@@ -409,18 +419,32 @@ pub async fn extract_key_points(text: &str, max_points: usize) -> Result<Vec<Str
         .collect();
 
     // Simple heuristic: sentences with "important", "key", "main", "critical"
-    let key_indicators = ["important", "key", "main", "critical", "essential", "significant", "fundamental"];
+    let key_indicators = [
+        "important",
+        "key",
+        "main",
+        "critical",
+        "essential",
+        "significant",
+        "fundamental",
+    ];
 
-    let mut scored = sentences.iter().enumerate().map(|(i, s)| {
-        let score = key_indicators.iter()
-            .filter(|kw| s.to_lowercase().contains(**kw))
-            .count();
-        (i, s, score)
-    }).collect::<Vec<_>>();
+    let mut scored = sentences
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let score = key_indicators
+                .iter()
+                .filter(|kw| s.to_lowercase().contains(**kw))
+                .count();
+            (i, s, score)
+        })
+        .collect::<Vec<_>>();
 
     scored.sort_by(|a, b| b.2.cmp(&a.2));
 
-    Ok(scored.into_iter()
+    Ok(scored
+        .into_iter()
         .take(max_points)
         .map(|(_, s, _)| s.trim().to_string())
         .collect())
@@ -457,7 +481,8 @@ mod tests {
             max_length: 500,
         });
 
-        let content = "This is paragraph one.\n\nThis is paragraph two.\n\nThis is paragraph three.";
+        let content =
+            "This is paragraph one.\n\nThis is paragraph two.\n\nThis is paragraph three.";
         let result = segmenter.segment(content).unwrap();
 
         assert_eq!(result.segment_count, 3);

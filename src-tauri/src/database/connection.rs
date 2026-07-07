@@ -1,6 +1,6 @@
 //! Database connection management
 
-use sqlx::{Sqlite, SqlitePool, sqlite::SqliteConnectOptions, pool::PoolOptions};
+use sqlx::{pool::PoolOptions, sqlite::SqliteConnectOptions, Sqlite, SqlitePool};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
@@ -128,7 +128,16 @@ impl Database {
 
         // Close the pool if any subsequent step fails so we don't leave a
         // half-initialized connection pool around after returning an error.
-        let integrity = sqlx::query_as::<_, (String,)>("PRAGMA integrity_check")
+        //
+        // `quick_check` (not `integrity_check`) on purpose: it verifies the
+        // same structural integrity that matters for deciding whether the DB
+        // is safe to open — b-tree page structure, page counts, freelist —
+        // but skips the expensive cross-check that every table row also
+        // appears in its indexes. On a ~100MB DB that cross-check dominates
+        // (a full integrity_check took >1s here and blocked the main thread,
+        // since this runs inside block_on in the setup hook). quick_check
+        // detects the same corruption that triggers quarantine below.
+        let integrity = sqlx::query_as::<_, (String,)>("PRAGMA quick_check")
             .fetch_one(&pool)
             .await;
         match integrity {
@@ -157,10 +166,7 @@ impl Database {
     async fn quarantine_corrupt_files(path: &Path) -> std::result::Result<(), std::io::Error> {
         let timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
 
-        async fn quarantine(
-            p: &Path,
-            timestamp: &str,
-        ) -> std::result::Result<(), std::io::Error> {
+        async fn quarantine(p: &Path, timestamp: &str) -> std::result::Result<(), std::io::Error> {
             if !p.exists() {
                 return Ok(());
             }
@@ -363,15 +369,21 @@ mod tests {
         // All three files should have been moved aside; none of the originals
         // should remain at their original names.
         assert!(
-            entries.iter().any(|n| n.starts_with("incrementum.db.corrupt.")),
+            entries
+                .iter()
+                .any(|n| n.starts_with("incrementum.db.corrupt.")),
             "main db should be quarantined, got: {entries:?}"
         );
         assert!(
-            entries.iter().any(|n| n.starts_with("incrementum.db-wal.corrupt.")),
+            entries
+                .iter()
+                .any(|n| n.starts_with("incrementum.db-wal.corrupt.")),
             "wal sidecar should be quarantined, got: {entries:?}"
         );
         assert!(
-            entries.iter().any(|n| n.starts_with("incrementum.db-shm.corrupt.")),
+            entries
+                .iter()
+                .any(|n| n.starts_with("incrementum.db-shm.corrupt.")),
             "shm sidecar should be quarantined, got: {entries:?}"
         );
         assert!(

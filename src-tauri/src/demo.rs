@@ -2,19 +2,18 @@
 //!
 //! This module handles automatic import of demo content on first run.
 
+use crate::database::Repository;
+use crate::error::{IncrementumError, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::error::{Result, IncrementumError};
-use crate::database::Repository;
 
 /// Check if demo content should be imported
 pub async fn should_import_demo_content(repo: &Repository) -> Result<bool> {
     // Keep startup probe minimal: we only need to know if any rows exist.
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM learning_items WHERE is_suspended = false"
-    )
-    .fetch_one(repo.pool())
-    .await?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM learning_items WHERE is_suspended = false")
+            .fetch_one(repo.pool())
+            .await?;
 
     // Only import demo content if database has no active learning items.
     Ok(count == 0)
@@ -27,15 +26,12 @@ pub fn get_demo_content_dir() -> PathBuf {
     }
 
     // Default to demo/ directory relative to project root
-    let mut path = std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."));
+    let mut path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
     // If we're in development, look for demo/ in project root
     // If we're in production (Tauri app), look in resources
     if path.ends_with("incrementum-tauri") || path.ends_with("src-tauri") {
-        path = path.parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or(path);
+        path = path.parent().map(|p| p.to_path_buf()).unwrap_or(path);
     }
 
     path.push("demo");
@@ -64,13 +60,15 @@ pub fn get_demo_apkg_files() -> Result<Vec<PathBuf>> {
         return Ok(Vec::new());
     }
 
-    let entries = fs::read_dir(&apkg_dir)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot read demo apkg directory: {}", e)))?;
+    let entries = fs::read_dir(&apkg_dir).map_err(|e| {
+        IncrementumError::NotFound(format!("Cannot read demo apkg directory: {}", e))
+    })?;
 
     let mut apkg_files = Vec::new();
     for entry in entries {
-        let entry = entry
-            .map_err(|e| IncrementumError::NotFound(format!("Cannot read directory entry: {}", e)))?;
+        let entry = entry.map_err(|e| {
+            IncrementumError::NotFound(format!("Cannot read directory entry: {}", e))
+        })?;
         let path = entry.path();
 
         if path.extension().and_then(|s| s.to_str()) == Some("apkg") {
@@ -90,13 +88,15 @@ pub fn get_demo_book_files() -> Result<Vec<PathBuf>> {
         return Ok(Vec::new());
     }
 
-    let entries = fs::read_dir(&books_dir)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot read demo books directory: {}", e)))?;
+    let entries = fs::read_dir(&books_dir).map_err(|e| {
+        IncrementumError::NotFound(format!("Cannot read demo books directory: {}", e))
+    })?;
 
     let mut book_files = Vec::new();
     for entry in entries {
-        let entry = entry
-            .map_err(|e| IncrementumError::NotFound(format!("Cannot read directory entry: {}", e)))?;
+        let entry = entry.map_err(|e| {
+            IncrementumError::NotFound(format!("Cannot read directory entry: {}", e))
+        })?;
         let path = entry.path();
 
         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
@@ -154,13 +154,18 @@ pub async fn check_and_import_demo_content(repo: &Repository) -> Result<bool> {
         imported_count += 1;
     }
 
-    eprintln!("Demo content import complete: {} files found", imported_count);
+    eprintln!(
+        "Demo content import complete: {} files found",
+        imported_count
+    );
 
     Ok(imported_count > 0)
 }
 
 #[tauri::command]
-pub async fn import_demo_content_manually(repo: tauri::State<'_, crate::database::Repository>) -> Result<String> {
+pub async fn import_demo_content_manually(
+    repo: tauri::State<'_, crate::database::Repository>,
+) -> Result<String> {
     let demo_dir = get_demo_content_dir();
 
     if !demo_dir.is_dir() {
@@ -176,7 +181,10 @@ pub async fn import_demo_content_manually(repo: tauri::State<'_, crate::database
     } else {
         result.push_str(&format!("- Found {} .apkg file(s)\n", apkg_files.len()));
         for path in &apkg_files {
-            result.push_str(&format!("  * {}\n", path.file_name().unwrap_or_default().to_string_lossy()));
+            result.push_str(&format!(
+                "  * {}\n",
+                path.file_name().unwrap_or_default().to_string_lossy()
+            ));
         }
     }
 
@@ -186,11 +194,16 @@ pub async fn import_demo_content_manually(repo: tauri::State<'_, crate::database
     } else {
         result.push_str(&format!("- Found {} book file(s)\n", book_files.len()));
         for path in &book_files {
-            result.push_str(&format!("  * {}\n", path.file_name().unwrap_or_default().to_string_lossy()));
+            result.push_str(&format!(
+                "  * {}\n",
+                path.file_name().unwrap_or_default().to_string_lossy()
+            ));
         }
     }
 
-    result.push_str("\nNote: Manual import of demo content will be implemented in a future update.\n");
+    result.push_str(
+        "\nNote: Manual import of demo content will be implemented in a future update.\n",
+    );
     result.push_str("Demo content is automatically imported on first run with an empty database.");
 
     Ok(result)

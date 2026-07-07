@@ -79,7 +79,10 @@ pub trait EmbeddingProvider: Send + Sync + std::fmt::Debug {
     async fn generate_embedding(&self, text: &str) -> Result<EmbeddingResponse, String>;
 
     /// Generate embeddings for multiple texts (batch)
-    async fn generate_embeddings_batch(&self, texts: &[String]) -> Result<Vec<EmbeddingResponse>, String>;
+    async fn generate_embeddings_batch(
+        &self,
+        texts: &[String],
+    ) -> Result<Vec<EmbeddingResponse>, String>;
 
     /// Check if provider is available
     fn is_available(&self) -> bool;
@@ -194,7 +197,11 @@ impl EmbeddingProvider for OpenAIEmbeddingProvider {
             .as_array()
             .ok_or("Missing embedding in response")?
             .iter()
-            .map(|v| v.as_f64().ok_or("Invalid embedding value").map(|value| value as f32))
+            .map(|v| {
+                v.as_f64()
+                    .ok_or("Invalid embedding value")
+                    .map(|value| value as f32)
+            })
             .collect::<Result<_, _>>()
             .map_err(|e| e.to_string())?;
 
@@ -207,7 +214,10 @@ impl EmbeddingProvider for OpenAIEmbeddingProvider {
         })
     }
 
-    async fn generate_embeddings_batch(&self, texts: &[String]) -> Result<Vec<EmbeddingResponse>, String> {
+    async fn generate_embeddings_batch(
+        &self,
+        texts: &[String],
+    ) -> Result<Vec<EmbeddingResponse>, String> {
         let url = "https://api.openai.com/v1/embeddings";
 
         let body = json!({
@@ -238,9 +248,7 @@ impl EmbeddingProvider for OpenAIEmbeddingProvider {
 
         let tokens = json["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32;
 
-        let data = json["data"]
-            .as_array()
-            .ok_or("Missing data in response")?;
+        let data = json["data"].as_array().ok_or("Missing data in response")?;
 
         let mut responses = Vec::new();
         for item in data {
@@ -248,7 +256,11 @@ impl EmbeddingProvider for OpenAIEmbeddingProvider {
                 .as_array()
                 .ok_or("Missing embedding in response")?
                 .iter()
-                .map(|v| v.as_f64().ok_or("Invalid embedding value").map(|value| value as f32))
+                .map(|v| {
+                    v.as_f64()
+                        .ok_or("Invalid embedding value")
+                        .map(|value| value as f32)
+                })
                 .collect::<Result<_, _>>()
                 .map_err(|e| e.to_string())?;
 
@@ -386,7 +398,11 @@ impl EmbeddingProvider for CohereEmbeddingProvider {
             .as_array()
             .ok_or("Missing embedding in response")?
             .iter()
-            .map(|v| v.as_f64().ok_or("Invalid embedding value").map(|value| value as f32))
+            .map(|v| {
+                v.as_f64()
+                    .ok_or("Invalid embedding value")
+                    .map(|value| value as f32)
+            })
             .collect::<Result<_, _>>()
             .map_err(|e| e.to_string())?;
 
@@ -403,7 +419,10 @@ impl EmbeddingProvider for CohereEmbeddingProvider {
         })
     }
 
-    async fn generate_embeddings_batch(&self, texts: &[String]) -> Result<Vec<EmbeddingResponse>, String> {
+    async fn generate_embeddings_batch(
+        &self,
+        texts: &[String],
+    ) -> Result<Vec<EmbeddingResponse>, String> {
         let url = "https://api.cohere.ai/v1/embed";
 
         let body = json!({
@@ -451,7 +470,11 @@ impl EmbeddingProvider for CohereEmbeddingProvider {
                 .as_array()
                 .ok_or("Invalid embedding data")?
                 .iter()
-                .map(|v| v.as_f64().ok_or("Invalid embedding value").map(|value| value as f32))
+                .map(|v| {
+                    v.as_f64()
+                        .ok_or("Invalid embedding value")
+                        .map(|value| value as f32)
+                })
                 .collect::<Result<_, _>>()
                 .map_err(|e| e.to_string())?;
 
@@ -536,9 +559,7 @@ impl OpenRouterEmbeddingProvider {
             .await
             .map_err(|e| format!("Failed to parse response: {}", e))?;
 
-        let models_data = json["data"]
-            .as_array()
-            .ok_or("Missing data in response")?;
+        let models_data = json["data"].as_array().ok_or("Missing data in response")?;
 
         let mut models = Vec::new();
         for model_data in models_data {
@@ -552,10 +573,7 @@ impl OpenRouterEmbeddingProvider {
                 continue;
             }
 
-            let name = model_data["name"]
-                .as_str()
-                .unwrap_or(&id)
-                .to_string();
+            let name = model_data["name"].as_str().unwrap_or(&id).to_string();
 
             // Try to get pricing
             let price_per_million = model_data["pricing"]
@@ -673,7 +691,11 @@ impl EmbeddingProvider for OpenRouterEmbeddingProvider {
             .as_array()
             .ok_or("Missing embedding in response")?
             .iter()
-            .map(|v| v.as_f64().ok_or("Invalid embedding value").map(|value| value as f32))
+            .map(|v| {
+                v.as_f64()
+                    .ok_or("Invalid embedding value")
+                    .map(|value| value as f32)
+            })
             .collect::<Result<_, _>>()
             .map_err(|e| e.to_string())?;
 
@@ -686,7 +708,10 @@ impl EmbeddingProvider for OpenRouterEmbeddingProvider {
         })
     }
 
-    async fn generate_embeddings_batch(&self, texts: &[String]) -> Result<Vec<EmbeddingResponse>, String> {
+    async fn generate_embeddings_batch(
+        &self,
+        texts: &[String],
+    ) -> Result<Vec<EmbeddingResponse>, String> {
         let url = "https://openrouter.ai/api/v1/embeddings";
 
         let body = json!({
@@ -713,21 +738,24 @@ impl EmbeddingProvider for OpenRouterEmbeddingProvider {
             return Err(format!("OpenRouter API error {}: {}", status, raw_body));
         }
 
-        let json: serde_json::Value = serde_json::from_str(&raw_body)
-            .map_err(|e| format!("Failed to parse response: {} — body: {}", e, truncate(&raw_body, 500)))?;
+        let json: serde_json::Value = serde_json::from_str(&raw_body).map_err(|e| {
+            format!(
+                "Failed to parse response: {} — body: {}",
+                e,
+                truncate(&raw_body, 500)
+            )
+        })?;
 
         let tokens = json["usage"]["prompt_tokens"].as_u64().unwrap_or(0) as u32;
 
-        let data = json["data"]
-            .as_array()
-            .ok_or_else(|| {
-                format!(
-                    "Missing 'data' array in OpenRouter response (model {}). \
+        let data = json["data"].as_array().ok_or_else(|| {
+            format!(
+                "Missing 'data' array in OpenRouter response (model {}). \
                     The model may not support the embeddings endpoint. Response: {}",
-                    self.model,
-                    truncate(&raw_body, 500)
-                )
-            })?;
+                self.model,
+                truncate(&raw_body, 500)
+            )
+        })?;
 
         let mut responses = Vec::new();
         for item in data {
@@ -735,7 +763,11 @@ impl EmbeddingProvider for OpenRouterEmbeddingProvider {
                 .as_array()
                 .ok_or("Missing embedding in response")?
                 .iter()
-                .map(|v| v.as_f64().ok_or("Invalid embedding value").map(|value| value as f32))
+                .map(|v| {
+                    v.as_f64()
+                        .ok_or("Invalid embedding value")
+                        .map(|value| value as f32)
+                })
                 .collect::<Result<_, _>>()
                 .map_err(|e| e.to_string())?;
 
@@ -872,7 +904,11 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
             .as_array()
             .ok_or("Missing embedding in response")?
             .iter()
-            .map(|v| v.as_f64().ok_or("Invalid embedding value").map(|value| value as f32))
+            .map(|v| {
+                v.as_f64()
+                    .ok_or("Invalid embedding value")
+                    .map(|value| value as f32)
+            })
             .collect::<Result<_, _>>()
             .map_err(|e| e.to_string())?;
 
@@ -886,7 +922,10 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
         })
     }
 
-    async fn generate_embeddings_batch(&self, texts: &[String]) -> Result<Vec<EmbeddingResponse>, String> {
+    async fn generate_embeddings_batch(
+        &self,
+        texts: &[String],
+    ) -> Result<Vec<EmbeddingResponse>, String> {
         // Ollama doesn't support batch embeddings in the same way
         let mut responses = Vec::new();
         for text in texts {

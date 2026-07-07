@@ -3,7 +3,7 @@
 //! This module provides functionality to automatically generate
 //! learning items (flashcards) from document extracts.
 
-use crate::models::{Extract, LearningItem, ItemType};
+use crate::models::{Extract, ItemType, LearningItem};
 
 /// Generator for creating learning items from extracts
 pub struct LearningItemGenerator {
@@ -35,8 +35,9 @@ impl LearningItemGenerator {
         items.extend(self.generate_clozes(extract));
 
         // Generate Q&A items for concept-type extracts
-        if extract.category.as_deref() == Some("Definition") ||
-           extract.category.as_deref() == Some("Concept") {
+        if extract.category.as_deref() == Some("Definition")
+            || extract.category.as_deref() == Some("Concept")
+        {
             if let Some(qa_item) = self.generate_qa(extract) {
                 items.push(qa_item);
             }
@@ -89,7 +90,8 @@ impl LearningItemGenerator {
         // Find the most important word to cloze (prefer nouns/keywords)
         // For simplicity, we'll cloze a word in the middle that's reasonably long
         let middle_idx = words.len() / 2;
-        let cloze_idx = words.iter()
+        let cloze_idx = words
+            .iter()
             .enumerate()
             .skip(middle_idx.saturating_sub(2))
             .take(5)
@@ -101,7 +103,8 @@ impl LearningItemGenerator {
         let hidden_word = words.get(cloze_idx)?;
         let _hint = self.generate_cloze_hint(sentence, cloze_idx);
 
-        let question = words.iter()
+        let question = words
+            .iter()
             .enumerate()
             .map(|(i, w)| {
                 if i == cloze_idx {
@@ -128,8 +131,11 @@ impl LearningItemGenerator {
     fn generate_cloze_hint(&self, sentence: &str, cloze_idx: usize) -> String {
         let words: Vec<&str> = sentence.split_whitespace().collect();
         if let Some(word) = words.get(cloze_idx) {
-            format!("{} letters, starts with '{}'", word.len(),
-                word.chars().next().unwrap_or('_'))
+            format!(
+                "{} letters, starts with '{}'",
+                word.len(),
+                word.chars().next().unwrap_or('_')
+            )
         } else {
             "Answer the missing word".to_string()
         }
@@ -152,10 +158,14 @@ impl LearningItemGenerator {
             content[..dash_pos].trim().to_string()
         } else {
             // Use the extract's category or first few words
-            format!("What is: {}?", content.split_whitespace()
-                .take(5)
-                .collect::<Vec<_>>()
-                .join(" "))
+            format!(
+                "What is: {}?",
+                content
+                    .split_whitespace()
+                    .take(5)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
         };
 
         let answer = if let Some(colon_pos) = content.find(':') {

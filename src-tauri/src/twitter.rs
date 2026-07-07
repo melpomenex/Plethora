@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use tokio::sync::Mutex;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
 
 use crate::database::Repository;
 use crate::models::{Document, DocumentMetadata, FileType};
@@ -79,9 +79,7 @@ fn extract_tweet_id(input: &str) -> Result<String, String> {
     let trimmed = input.trim();
     let no_query = trimmed.split('?').next().unwrap_or(trimmed);
     let parts: Vec<&str> = no_query.trim_end_matches('/').split('/').collect();
-    let idx = parts
-        .iter()
-        .position(|p| p.eq_ignore_ascii_case("status"));
+    let idx = parts.iter().position(|p| p.eq_ignore_ascii_case("status"));
     let id = idx
         .and_then(|i| parts.get(i + 1))
         .ok_or_else(|| "Could not find a tweet id in the URL".to_string())?;
@@ -259,9 +257,7 @@ fn parse_video(result: &serde_json::Value, tweet_id: &str) -> Result<TwitterVide
             None => continue,
         };
 
-        let duration_ms = video_info
-            .get("duration_millis")
-            .and_then(|d| d.as_i64());
+        let duration_ms = video_info.get("duration_millis").and_then(|d| d.as_i64());
         let thumb = m
             .get("media_url_https")
             .and_then(|u| u.as_str())
@@ -322,7 +318,8 @@ fn videos_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "Could not determine data directory".to_string())?
         .join("incrementum")
         .join("videos");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create video directory: {}", e))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create video directory: {}", e))?;
     Ok(dir)
 }
 
@@ -492,7 +489,10 @@ mod tests {
         let info = parse_video(&result, "111").unwrap();
         assert_eq!(info.mp4_url, "https://x.com/720p.mp4");
         assert_eq!(info.duration_secs, Some(12));
-        assert_eq!(info.thumbnail_url.as_deref(), Some("https://pbs.twimg.com/thumb.jpg"));
+        assert_eq!(
+            info.thumbnail_url.as_deref(),
+            Some("https://pbs.twimg.com/thumb.jpg")
+        );
         assert_eq!(info.author, "testuser");
         assert_eq!(info.status_url, "https://x.com/testuser/status/111");
         assert_eq!(info.title, "look at this https://t.co/abc");

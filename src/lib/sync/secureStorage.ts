@@ -51,36 +51,48 @@ export async function setCachedRoomKey(roomKey: Uint8Array): Promise<void> {
   if (roomKey.length !== 32) {
     throw new Error(`setCachedRoomKey: expected 32-byte room key, got ${roomKey.length}`);
   }
-  if (isTauri() && !isNativeMobile()) {
-    await invokeCommand('secure_storage_set', {
-      service: KEYRING_SERVICE,
-      account: KEYRING_ACCOUNT_KEY,
-      value: bytesToBase64(roomKey),
-    });
-    return;
+  if (shouldUseNativeSecureStorage()) {
+    try {
+      await invokeCommand('secure_storage_set', {
+        service: KEYRING_SERVICE,
+        account: KEYRING_ACCOUNT_KEY,
+        value: bytesToBase64(roomKey),
+      });
+      return;
+    } catch (err) {
+      console.warn('[secureStorage] native keychain set failed; falling back to IndexedDB:', err);
+    }
   }
   await webSet(WEB_KEY_RECORD, roomKey);
 }
 
 export async function getCachedRoomKey(): Promise<Uint8Array | null> {
-  if (isTauri() && !isNativeMobile()) {
-    const value = await invokeCommand<string | null>('secure_storage_get', {
-      service: KEYRING_SERVICE,
-      account: KEYRING_ACCOUNT_KEY,
-    });
-    if (!value) return null;
-    return base64ToBytes(value);
+  if (shouldUseNativeSecureStorage()) {
+    try {
+      const value = await invokeCommand<string | null>('secure_storage_get', {
+        service: KEYRING_SERVICE,
+        account: KEYRING_ACCOUNT_KEY,
+      });
+      if (!value) return null;
+      return base64ToBytes(value);
+    } catch (err) {
+      console.warn('[secureStorage] native keychain get failed; falling back to IndexedDB:', err);
+    }
   }
   return webGet(WEB_KEY_RECORD);
 }
 
 export async function clearCachedRoomKey(): Promise<void> {
-  if (isTauri() && !isNativeMobile()) {
-    await invokeCommand('secure_storage_clear', {
-      service: KEYRING_SERVICE,
-      account: KEYRING_ACCOUNT_KEY,
-    });
-    return;
+  if (shouldUseNativeSecureStorage()) {
+    try {
+      await invokeCommand('secure_storage_clear', {
+        service: KEYRING_SERVICE,
+        account: KEYRING_ACCOUNT_KEY,
+      });
+      return;
+    } catch (err) {
+      console.warn('[secureStorage] native keychain clear failed; falling back to IndexedDB:', err);
+    }
   }
   await webClear(WEB_KEY_RECORD);
 }
@@ -99,26 +111,38 @@ export async function clearCachedRoomKey(): Promise<void> {
 export async function setCachedRoomSecret(secret: string): Promise<void> {
   if (!secret) throw new Error('setCachedRoomSecret: secret is required');
   const bytes = new TextEncoder().encode(secret);
-  if (isTauri() && !isNativeMobile()) {
-    await invokeCommand('secure_storage_set', {
-      service: KEYRING_SERVICE,
-      account: KEYRING_ACCOUNT_SECRET,
-      value: bytesToBase64(bytes),
-    });
-    return;
+  if (shouldUseNativeSecureStorage()) {
+    try {
+      await invokeCommand('secure_storage_set', {
+        service: KEYRING_SERVICE,
+        account: KEYRING_ACCOUNT_SECRET,
+        value: bytesToBase64(bytes),
+      });
+      return;
+    } catch (err) {
+      console.warn('[secureStorage] native keychain set failed; falling back to IndexedDB:', err);
+    }
   }
   await webSet(WEB_SECRET_RECORD, bytes);
 }
 
 export async function getCachedRoomSecret(): Promise<string | null> {
   let bytes: Uint8Array | null;
-  if (isTauri() && !isNativeMobile()) {
-    const value = await invokeCommand<string | null>('secure_storage_get', {
-      service: KEYRING_SERVICE,
-      account: KEYRING_ACCOUNT_SECRET,
-    });
-    if (!value) return null;
-    bytes = base64ToBytes(value);
+  if (shouldUseNativeSecureStorage()) {
+    try {
+      const value = await invokeCommand<string | null>('secure_storage_get', {
+        service: KEYRING_SERVICE,
+        account: KEYRING_ACCOUNT_SECRET,
+      });
+      if (value) {
+        bytes = base64ToBytes(value);
+      } else {
+        bytes = await webGet(WEB_SECRET_RECORD);
+      }
+    } catch (err) {
+      console.warn('[secureStorage] native keychain get failed; falling back to IndexedDB:', err);
+      bytes = await webGet(WEB_SECRET_RECORD);
+    }
   } else {
     bytes = await webGet(WEB_SECRET_RECORD);
   }
@@ -127,12 +151,16 @@ export async function getCachedRoomSecret(): Promise<string | null> {
 }
 
 export async function clearCachedRoomSecret(): Promise<void> {
-  if (isTauri() && !isNativeMobile()) {
-    await invokeCommand('secure_storage_clear', {
-      service: KEYRING_SERVICE,
-      account: KEYRING_ACCOUNT_SECRET,
-    });
-    return;
+  if (shouldUseNativeSecureStorage()) {
+    try {
+      await invokeCommand('secure_storage_clear', {
+        service: KEYRING_SERVICE,
+        account: KEYRING_ACCOUNT_SECRET,
+      });
+      return;
+    } catch (err) {
+      console.warn('[secureStorage] native keychain clear failed; falling back to IndexedDB:', err);
+    }
   }
   await webClear(WEB_SECRET_RECORD);
 }
@@ -146,6 +174,21 @@ export async function clearAllCachedSyncCrypto(): Promise<void> {
 }
 
 // ── Web/PWA backend ───────────────────────────────────────────────────────
+
+function shouldUseNativeSecureStorage(): boolean {
+  if (!isTauri() || isNativeMobile()) return false;
+  // Native OS keychain is opt-in on desktop. The Web Worker path handles
+  // Argon2id off the main thread, so the keychain is purely an optimisation
+  // (persists the derived key across restarts) rather than a necessity.
+  // Set localStorage 'incrementum_use_keychain' to '1' to enable.
+  let flag: string | null = null;
+  try {
+    flag = localStorage.getItem('incrementum_use_keychain');
+  } catch {
+    // localStorage may be unavailable in sandboxed/test environments.
+  }
+  return flag === '1';
+}
 
 function bytesToBase64(bytes: Uint8Array): string {
   let s = '';

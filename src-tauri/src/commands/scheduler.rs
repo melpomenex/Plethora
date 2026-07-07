@@ -4,15 +4,14 @@
 
 use tauri::{AppHandle, Manager, State};
 
-use crate::scheduler::{BackupScheduler, SchedulerConfig, SchedulerResult};
-use crate::database::{Database, Repository};
-use crate::cloud::auth_store::CloudAuthProvider;
-use crate::cloud::{CloudProviderType, BackupOptions};
 use crate::backup::BackupManager;
+use crate::cloud::auth_store::CloudAuthProvider;
+use crate::cloud::{BackupOptions, CloudProviderType};
+use crate::database::{Database, Repository};
+use crate::scheduler::{BackupScheduler, SchedulerConfig, SchedulerResult};
 
 // Global scheduler instance - use tokio Mutex for async safety
-static SCHEDULER: tokio::sync::Mutex<Option<BackupScheduler>> =
-    tokio::sync::Mutex::const_new(None);
+static SCHEDULER: tokio::sync::Mutex<Option<BackupScheduler>> = tokio::sync::Mutex::const_new(None);
 
 /// Initialize the backup scheduler
 #[tauri::command]
@@ -36,9 +35,13 @@ pub async fn scheduler_init(
 
     // Attach the first available authenticated provider so the tick can run
     // real backups instead of just logging.
-    let provider = [CloudProviderType::Dropbox, CloudProviderType::GoogleDrive, CloudProviderType::OneDrive]
-        .iter()
-        .find_map(|pt| auth_provider.get_provider(*pt));
+    let provider = [
+        CloudProviderType::Dropbox,
+        CloudProviderType::GoogleDrive,
+        CloudProviderType::OneDrive,
+    ]
+    .iter()
+    .find_map(|pt| auth_provider.get_provider(*pt));
     scheduler.set_provider(provider).await;
 
     let mut guard = SCHEDULER.lock().await;
@@ -65,7 +68,8 @@ async fn load_scheduler_config(repo: &Repository) -> SchedulerConfig {
 #[tauri::command]
 pub async fn scheduler_start() -> Result<(), String> {
     let guard = SCHEDULER.lock().await;
-    let scheduler = guard.as_ref()
+    let scheduler = guard
+        .as_ref()
         .ok_or_else(|| "Scheduler not initialized".to_string())?;
 
     // Clone needed data before dropping guard
@@ -78,7 +82,8 @@ pub async fn scheduler_start() -> Result<(), String> {
 #[tauri::command]
 pub async fn scheduler_stop() -> Result<(), String> {
     let guard = SCHEDULER.lock().await;
-    let scheduler = guard.as_ref()
+    let scheduler = guard
+        .as_ref()
         .ok_or_else(|| "Scheduler not initialized".to_string())?;
 
     let result = scheduler.stop().await;
@@ -90,7 +95,8 @@ pub async fn scheduler_stop() -> Result<(), String> {
 #[tauri::command]
 pub async fn scheduler_update_config(config: SchedulerConfig) -> Result<(), String> {
     let mut guard = SCHEDULER.lock().await;
-    let scheduler = guard.as_mut()
+    let scheduler = guard
+        .as_mut()
         .ok_or_else(|| "Scheduler not initialized".to_string())?;
 
     scheduler.update_config(config).await;
@@ -101,7 +107,8 @@ pub async fn scheduler_update_config(config: SchedulerConfig) -> Result<(), Stri
 #[tauri::command]
 pub async fn scheduler_get_status() -> Result<SchedulerStatus, String> {
     let guard = SCHEDULER.lock().await;
-    let scheduler = guard.as_ref()
+    let scheduler = guard
+        .as_ref()
         .ok_or_else(|| "Scheduler not initialized".to_string())?;
 
     let running = scheduler.is_running().await;
@@ -124,20 +131,26 @@ pub async fn scheduler_trigger_backup(
     let provider_type = CloudProviderType::from_str(&provider_type)
         .ok_or_else(|| format!("Unknown provider type: {}", provider_type))?;
 
-    let provider = auth_provider.get_provider(provider_type)
-        .ok_or_else(|| format!("No authenticated {} provider found. Please authenticate first.", provider_type))?;
+    let provider = auth_provider.get_provider(provider_type).ok_or_else(|| {
+        format!(
+            "No authenticated {} provider found. Please authenticate first.",
+            provider_type
+        )
+    })?;
 
-    let app_dir = app.path().app_data_dir()
+    let app_dir = app
+        .path()
+        .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
     let db_path = app_dir.join("incrementum.db");
 
     let db = Database::from_pool(repo.pool().clone());
-    let manager = BackupManager::new(db, db_path)
-        .map_err(|e| e.to_string())?;
+    let manager = BackupManager::new(db, db_path).map_err(|e| e.to_string())?;
 
     let guard = provider.read().await;
     let options = BackupOptions::default();
-    manager.create_backup(guard.as_ref(), options)
+    manager
+        .create_backup(guard.as_ref(), options)
         .await
         .map(|info| SchedulerResult {
             success: true,

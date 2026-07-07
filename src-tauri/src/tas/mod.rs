@@ -5,8 +5,8 @@
 //! 2. Interference jitter — separate items sharing high-coherence tags
 //! 3. Queue assembly — build the annotated, sorted queue
 
-pub mod maturity;
 pub mod circular;
 pub mod gating;
 pub mod jitter;
+pub mod maturity;
 pub mod queue_assembly;

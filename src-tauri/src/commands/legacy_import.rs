@@ -7,7 +7,7 @@ use tauri::State;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use sqlx::{Row, SqlitePool, sqlite::SqliteConnectOptions};
+use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -32,7 +32,9 @@ pub async fn import_legacy_archive(
 ) -> Result<LegacyImportSummary> {
     let archive_path = PathBuf::from(archive_path);
     if !archive_path.exists() {
-        return Err(IncrementumError::NotFound("Archive file not found".to_string()));
+        return Err(IncrementumError::NotFound(
+            "Archive file not found".to_string(),
+        ));
     }
 
     let ext = archive_path
@@ -84,7 +86,8 @@ fn extract_zip(archive_path: &Path, dest: &Path) -> Result<()> {
         .map_err(|e| IncrementumError::InvalidInput(format!("Invalid ZIP archive: {}", e)))?;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)
+        let mut entry = archive
+            .by_index(i)
             .map_err(|e| IncrementumError::InvalidInput(format!("Invalid ZIP entry: {}", e)))?;
         let entry_path = match entry.enclosed_name() {
             Some(path) => dest.join(path),
@@ -176,14 +179,13 @@ async fn run_legacy_migrations(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await?;
 
-    let applied: Vec<String> = sqlx::query_as::<_, (String,)>(
-        "SELECT name FROM _schema_migrations ORDER BY applied_at",
-    )
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|(name,)| name)
-    .collect();
+    let applied: Vec<String> =
+        sqlx::query_as::<_, (String,)>("SELECT name FROM _schema_migrations ORDER BY applied_at")
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|(name,)| name)
+            .collect();
 
     for migration in MIGRATIONS {
         if applied.contains(&migration.name.to_string()) {
@@ -263,7 +265,9 @@ async fn merge_legacy_database(
     let legacy_docs = sqlx::query("SELECT * FROM documents")
         .fetch_all(legacy_pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read legacy documents: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to read legacy documents: {}", e))
+        })?;
 
     for row in legacy_docs {
         let legacy_id: String = row.try_get("id")?;
@@ -298,7 +302,9 @@ async fn merge_legacy_database(
     let legacy_extracts = sqlx::query("SELECT * FROM extracts")
         .fetch_all(legacy_pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read legacy extracts: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to read legacy extracts: {}", e))
+        })?;
 
     for row in legacy_extracts {
         let _legacy_id: String = row.try_get("id")?;
@@ -326,7 +332,9 @@ async fn merge_legacy_database(
     let legacy_learning_items = sqlx::query("SELECT * FROM learning_items")
         .fetch_all(legacy_pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read legacy learning items: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to read legacy learning items: {}", e))
+        })?;
 
     for row in legacy_learning_items {
         let legacy_id: String = row.try_get("id")?;
@@ -361,7 +369,9 @@ async fn merge_legacy_database(
     let legacy_sessions = sqlx::query("SELECT * FROM review_sessions")
         .fetch_all(legacy_pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read legacy review sessions: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to read legacy review sessions: {}", e))
+        })?;
 
     let mut session_id_map: HashMap<String, String> = HashMap::new();
     for row in legacy_sessions {
@@ -395,7 +405,9 @@ async fn merge_legacy_database(
     let legacy_results = sqlx::query("SELECT * FROM review_results")
         .fetch_all(legacy_pool)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read legacy review results: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to read legacy review results: {}", e))
+        })?;
 
     for row in legacy_results {
         let legacy_id: String = row.try_get("id")?;
@@ -453,9 +465,17 @@ async fn merge_legacy_database(
 }
 
 async fn load_id_set(pool: &SqlitePool, table: &str) -> Result<HashSet<String>> {
-    const ALLOWED_TABLES: &[&str] = &["extracts", "learning_items", "review_sessions", "review_results"];
+    const ALLOWED_TABLES: &[&str] = &[
+        "extracts",
+        "learning_items",
+        "review_sessions",
+        "review_results",
+    ];
     if !ALLOWED_TABLES.contains(&table) {
-        return Err(IncrementumError::Internal(format!("Invalid table name: {}", table)));
+        return Err(IncrementumError::Internal(format!(
+            "Invalid table name: {}",
+            table
+        )));
     }
     let query = format!("SELECT id FROM {}", table);
     let rows = sqlx::query(&query)
@@ -494,7 +514,8 @@ fn parse_document_row(row: &sqlx::sqlite::SqliteRow) -> Result<Document> {
     let image_asset_ids_json: String = row
         .try_get("image_asset_ids")
         .unwrap_or_else(|_| "[]".to_string());
-    let image_asset_ids: Vec<String> = serde_json::from_str(&image_asset_ids_json).unwrap_or_default();
+    let image_asset_ids: Vec<String> =
+        serde_json::from_str(&image_asset_ids_json).unwrap_or_default();
     let interaction_metadata_json: Option<String> = row.try_get("interaction_metadata").ok();
     let interaction_metadata: Option<serde_json::Value> = interaction_metadata_json
         .as_deref()
@@ -511,9 +532,13 @@ fn parse_document_row(row: &sqlx::sqlite::SqliteRow) -> Result<Document> {
         file_path: row.try_get("file_path")?,
         file_type: parse_file_type(&file_type),
         content: row.try_get::<Option<String>, _>("content").unwrap_or(None),
-        content_hash: row.try_get::<Option<String>, _>("content_hash").unwrap_or(None),
+        content_hash: row
+            .try_get::<Option<String>, _>("content_hash")
+            .unwrap_or(None),
         total_pages: row.try_get::<Option<i32>, _>("total_pages").unwrap_or(None),
-        current_page: row.try_get::<Option<i32>, _>("current_page").unwrap_or(None),
+        current_page: row
+            .try_get::<Option<i32>, _>("current_page")
+            .unwrap_or(None),
         current_scroll_percent: row.try_get("current_scroll_percent").ok(),
         current_cfi: row.try_get("current_cfi").ok(),
         current_view_state: row.try_get("current_view_state").ok(),
@@ -523,7 +548,9 @@ fn parse_document_row(row: &sqlx::sqlite::SqliteRow) -> Result<Document> {
         tags,
         date_added: row.try_get("date_added")?,
         date_modified: row.try_get("date_modified")?,
-        date_last_reviewed: row.try_get::<Option<DateTime<Utc>>, _>("date_last_reviewed").unwrap_or(None),
+        date_last_reviewed: row
+            .try_get::<Option<DateTime<Utc>>, _>("date_last_reviewed")
+            .unwrap_or(None),
         extract_count: row.try_get::<i64, _>("extract_count").unwrap_or(0) as i32,
         learning_item_count: row.try_get::<i64, _>("learning_item_count").unwrap_or(0) as i32,
         priority_rating: row.try_get::<i64, _>("priority_rating").unwrap_or(0) as i32,
@@ -553,7 +580,10 @@ fn parse_extract_row(row: &sqlx::sqlite::SqliteRow) -> Result<Extract> {
     let stability: Option<f64> = row.try_get("memory_state_stability").ok();
     let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
     let memory_state = match (stability, difficulty) {
-        (Some(stability), Some(difficulty)) => Some(MemoryState { stability, difficulty }),
+        (Some(stability), Some(difficulty)) => Some(MemoryState {
+            stability,
+            difficulty,
+        }),
         _ => None,
     };
     let selection_context = row
@@ -567,26 +597,40 @@ fn parse_extract_row(row: &sqlx::sqlite::SqliteRow) -> Result<Extract> {
         collection_id: crate::models::collection::DEFAULT_COLLECTION_ID.to_string(),
         document_id: row.try_get("document_id")?,
         content: row.try_get("content")?,
-        html_content: row.try_get::<Option<String>, _>("html_content").ok().flatten(),
-        source_url: row.try_get::<Option<String>, _>("source_url").ok().flatten(),
-        page_title: row.try_get::<Option<String>, _>("page_title").unwrap_or(None),
+        html_content: row
+            .try_get::<Option<String>, _>("html_content")
+            .ok()
+            .flatten(),
+        source_url: row
+            .try_get::<Option<String>, _>("source_url")
+            .ok()
+            .flatten(),
+        page_title: row
+            .try_get::<Option<String>, _>("page_title")
+            .unwrap_or(None),
         page_number: row.try_get::<Option<i32>, _>("page_number").unwrap_or(None),
         selection_context,
-        highlight_color: row.try_get::<Option<String>, _>("highlight_color").unwrap_or(None),
+        highlight_color: row
+            .try_get::<Option<String>, _>("highlight_color")
+            .unwrap_or(None),
         notes: row.try_get::<Option<String>, _>("notes").unwrap_or(None),
-        progressive_disclosure_level: row.try_get::<i64, _>("progressive_disclosure_level").unwrap_or(0) as i32,
+        progressive_disclosure_level: row
+            .try_get::<i64, _>("progressive_disclosure_level")
+            .unwrap_or(0) as i32,
         max_disclosure_level: row.try_get::<i64, _>("max_disclosure_level").unwrap_or(3) as i32,
         date_created: row.try_get("date_created")?,
         date_modified: row.try_get("date_modified")?,
         tags,
         category: row.try_get::<Option<String>, _>("category").unwrap_or(None),
         memory_state,
-        next_review_date: row.try_get::<Option<String>, _>("next_review_date")
+        next_review_date: row
+            .try_get::<Option<String>, _>("next_review_date")
             .ok()
             .flatten()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
             .map(|dt| dt.with_timezone(&chrono::Utc)),
-        last_review_date: row.try_get::<Option<String>, _>("last_review_date")
+        last_review_date: row
+            .try_get::<Option<String>, _>("last_review_date")
             .ok()
             .flatten()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
@@ -608,7 +652,8 @@ fn parse_learning_item_row(row: &sqlx::sqlite::SqliteRow) -> Result<LearningItem
     let image_asset_ids_json: String = row
         .try_get("image_asset_ids")
         .unwrap_or_else(|_| "[]".to_string());
-    let image_asset_ids: Vec<String> = serde_json::from_str(&image_asset_ids_json).unwrap_or_default();
+    let image_asset_ids: Vec<String> =
+        serde_json::from_str(&image_asset_ids_json).unwrap_or_default();
     let interaction_metadata_json: Option<String> = row.try_get("interaction_metadata").ok();
     let interaction_metadata: Option<serde_json::Value> = interaction_metadata_json
         .as_deref()
@@ -617,19 +662,28 @@ fn parse_learning_item_row(row: &sqlx::sqlite::SqliteRow) -> Result<LearningItem
     let stability: Option<f64> = row.try_get("memory_state_stability").ok();
     let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
     let memory_state = match (stability, difficulty) {
-        (Some(stability), Some(difficulty)) => Some(MemoryState { stability, difficulty }),
+        (Some(stability), Some(difficulty)) => Some(MemoryState {
+            stability,
+            difficulty,
+        }),
         _ => None,
     };
 
     Ok(LearningItem {
         id: row.try_get("id")?,
         collection_id: crate::models::collection::DEFAULT_COLLECTION_ID.to_string(),
-        extract_id: row.try_get::<Option<String>, _>("extract_id").unwrap_or(None),
-        document_id: row.try_get::<Option<String>, _>("document_id").unwrap_or(None),
+        extract_id: row
+            .try_get::<Option<String>, _>("extract_id")
+            .unwrap_or(None),
+        document_id: row
+            .try_get::<Option<String>, _>("document_id")
+            .unwrap_or(None),
         item_type: parse_item_type(&item_type_str),
         question: row.try_get("question")?,
         answer: row.try_get::<Option<String>, _>("answer").unwrap_or(None),
-        cloze_text: row.try_get::<Option<String>, _>("cloze_text").unwrap_or(None),
+        cloze_text: row
+            .try_get::<Option<String>, _>("cloze_text")
+            .unwrap_or(None),
         cloze_ranges: None,
         difficulty: row.try_get::<i64, _>("difficulty").unwrap_or(3) as i32,
         interval: row.try_get::<f64, _>("interval").unwrap_or(0.0),
@@ -637,7 +691,9 @@ fn parse_learning_item_row(row: &sqlx::sqlite::SqliteRow) -> Result<LearningItem
         due_date: row.try_get("due_date")?,
         date_created: row.try_get("date_created")?,
         date_modified: row.try_get("date_modified")?,
-        last_review_date: row.try_get::<Option<DateTime<Utc>>, _>("last_review_date").unwrap_or(None),
+        last_review_date: row
+            .try_get::<Option<DateTime<Utc>>, _>("last_review_date")
+            .unwrap_or(None),
         review_count: row.try_get::<i64, _>("review_count").unwrap_or(0) as i32,
         lapses: row.try_get::<i64, _>("lapses").unwrap_or(0) as i32,
         state: parse_item_state(&state_str),

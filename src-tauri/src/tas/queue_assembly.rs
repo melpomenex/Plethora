@@ -1,10 +1,10 @@
 //! Tag-Aware Scheduling — queue assembly
 
-use chrono::{DateTime, Utc};
 use crate::models::TASScheduledItem;
+use crate::models::{TASConfig, Tag, TagStabilityStats};
 use crate::tas::gating::{evaluate_prerequisite_gating, GatingResult};
 use crate::tas::jitter::{apply_interference_jitter, JitterInput};
-use crate::models::{Tag, TagStabilityStats, TASConfig};
+use chrono::{DateTime, Utc};
 
 /// Input to the TAS queue builder: a due item from the existing scheduler
 #[derive(Debug, Clone)]
@@ -32,10 +32,8 @@ pub fn assemble_tas_queue(
     // Phase 1: Prerequisite gating
     let step1: Vec<(TASQueueInput, GatingResult)> = if config.prerequisites.enabled {
         // Build a lookup: tag name → &Tag for gating
-        let tag_by_name: std::collections::HashMap<String, &Tag> = all_tags
-            .values()
-            .map(|t| (t.name.clone(), t))
-            .collect();
+        let tag_by_name: std::collections::HashMap<String, &Tag> =
+            all_tags.values().map(|t| (t.name.clone(), t)).collect();
 
         items
             .into_iter()
@@ -96,9 +94,7 @@ pub fn assemble_tas_queue(
         let jitter_inputs: Vec<JitterInput> = unblocked
             .iter()
             .map(|(item, _gating)| {
-                let due_time = item
-                    .due_time
-                    .unwrap_or(now);
+                let due_time = item.due_time.unwrap_or(now);
                 JitterInput {
                     item_id: item.item_id.clone(),
                     tags: item.tags.clone(),
@@ -147,10 +143,7 @@ pub fn assemble_tas_queue(
         };
 
         // Check if delay has elapsed
-        let is_delayed = jitter
-            .delay_until
-            .map(|dt| dt > now)
-            .unwrap_or(false);
+        let is_delayed = jitter.delay_until.map(|dt| dt > now).unwrap_or(false);
 
         if is_delayed {
             jitter_delayed.push(scheduled);

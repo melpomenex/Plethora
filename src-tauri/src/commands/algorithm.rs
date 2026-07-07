@@ -2,20 +2,18 @@
 
 use crate::algorithms::{
     calculate_priority_score, calculate_review_statistics, compare_algorithms,
-    optimizer::{OptimizationParams, OptimizationResult, ParameterOptimizer, default_fsrs_weights},
-    DocumentScheduler as DocScheduler,
-    IncrementalScheduler,
-    EngagingScheduler, EngagementPreferences,
-    AlgorithmComparison, SM2Params,
+    optimizer::{default_fsrs_weights, OptimizationParams, OptimizationResult, ParameterOptimizer},
+    AlgorithmComparison, DocumentScheduler as DocScheduler, EngagementPreferences,
+    EngagingScheduler, IncrementalScheduler, SM2Params,
 };
 use crate::commands::review::RepositoryExt;
-use crate::error::Result;
 use crate::database::Repository;
+use crate::error::Result;
 use crate::models::{Document, FileType, ReviewRating};
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::State;
-use chrono::{Duration, Utc};
 
 const LONG_CONTENT_THRESHOLD_SECONDS: f64 = 20.0 * 60.0; // 20 minutes
 
@@ -112,7 +110,7 @@ pub struct SM2Calculation {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DocumentRatingRequest {
     pub document_id: String,
-    pub rating: i32, // 1-4 scale (ReviewRating)
+    pub rating: i32,             // 1-4 scale (ReviewRating)
     pub time_taken: Option<i32>, // seconds
 }
 
@@ -130,7 +128,7 @@ pub struct DocumentRatingResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ExtractRatingRequest {
     pub extract_id: String,
-    pub rating: i32, // 1-4 scale (ReviewRating)
+    pub rating: i32,             // 1-4 scale (ReviewRating)
     pub time_taken: Option<i32>, // seconds
 }
 
@@ -204,9 +202,15 @@ pub async fn rate_document(
     request: DocumentRatingRequest,
     repo: State<'_, Repository>,
 ) -> Result<DocumentRatingResponse> {
-    let document = repo.get_document(&request.document_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Document {} not found", request.document_id))
-    })?;
+    let document = repo
+        .get_document(&request.document_id)
+        .await?
+        .ok_or_else(|| {
+            crate::error::IncrementumError::NotFound(format!(
+                "Document {} not found",
+                request.document_id
+            ))
+        })?;
 
     // Create incremental scheduler (optimized for documents/videos)
     let scheduler = IncrementalScheduler::default_params();
@@ -257,7 +261,8 @@ pub async fn rate_document(
         Some(new_reps),
         Some(new_time_spent),
         Some(result.consecutive_count),
-    ).await?;
+    )
+    .await?;
 
     Ok(DocumentRatingResponse {
         next_review_date: result.next_review.to_rfc3339(),
@@ -280,9 +285,15 @@ pub async fn rate_document_engaging(
     preferences: Option<EngagementPreferences>,
     repo: State<'_, Repository>,
 ) -> Result<DocumentRatingResponse> {
-    let document = repo.get_document(&request.document_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Document {} not found", request.document_id))
-    })?;
+    let document = repo
+        .get_document(&request.document_id)
+        .await?
+        .ok_or_else(|| {
+            crate::error::IncrementumError::NotFound(format!(
+                "Document {} not found",
+                request.document_id
+            ))
+        })?;
 
     // Use caller-provided engagement preferences, falling back to defaults
     // when none are supplied (preserves prior behavior).
@@ -293,9 +304,10 @@ pub async fn rate_document_engaging(
 
     let current_stability = document.stability;
     let current_difficulty = document.difficulty;
-    
+
     // Calculate elapsed days since last review
-    let elapsed_days = document.date_last_reviewed
+    let elapsed_days = document
+        .date_last_reviewed
         .map(|lr| (Utc::now() - lr).num_seconds() as f64 / 86400.0)
         .unwrap_or(0.0)
         .max(0.0);
@@ -341,7 +353,8 @@ pub async fn rate_document_engaging(
         Some(new_reps),
         Some(new_time_spent),
         Some(consecutive_count),
-    ).await?;
+    )
+    .await?;
 
     Ok(DocumentRatingResponse {
         next_review_date: result.next_review.to_rfc3339(),
@@ -360,16 +373,23 @@ pub async fn rate_extract(
     request: ExtractRatingRequest,
     repo: State<'_, Repository>,
 ) -> Result<ExtractRatingResponse> {
-    let extract = repo.get_extract(&request.extract_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Extract {} not found", request.extract_id))
-    })?;
+    let extract = repo
+        .get_extract(&request.extract_id)
+        .await?
+        .ok_or_else(|| {
+            crate::error::IncrementumError::NotFound(format!(
+                "Extract {} not found",
+                request.extract_id
+            ))
+        })?;
 
     // Create document scheduler (FSRS works the same for extracts)
     let scheduler = DocScheduler::default_params();
     let now = Utc::now();
 
     // Calculate elapsed days since last review
-    let elapsed_days = extract.last_review_date
+    let elapsed_days = extract
+        .last_review_date
         .map(|lr| (now - lr).num_seconds() as f64 / 86400.0)
         .unwrap_or_else(|| {
             // For new extracts, use days since creation
@@ -387,7 +407,7 @@ pub async fn rate_extract(
         review_rating,
         current_stability,
         current_difficulty,
-        elapsed_days
+        elapsed_days,
     )?;
 
     let new_review_count = extract.review_count + 1;
@@ -402,7 +422,8 @@ pub async fn rate_extract(
         Some(new_review_count),
         Some(new_reps),
         last_review,
-    ).await?;
+    )
+    .await?;
 
     Ok(ExtractRatingResponse {
         next_review_date: result.next_review.to_rfc3339(),
@@ -450,12 +471,8 @@ pub async fn calculate_priority_scores(
             .map(|ms| ms.difficulty)
             .unwrap_or(5.0);
 
-        let score = calculate_priority_score(
-            due_date,
-            item.interval,
-            item.review_count,
-            difficulty,
-        );
+        let score =
+            calculate_priority_score(due_date, item.interval, item.review_count, difficulty);
 
         scored_items.push(PriorityScoreItem {
             item_id: item.id,
@@ -565,9 +582,7 @@ pub struct DueWorkloadForecast {
 
 /// Get review statistics for all items
 #[tauri::command]
-pub async fn get_review_statistics(
-    repo: State<'_, Repository>,
-) -> Result<ReviewStatisticsOutput> {
+pub async fn get_review_statistics(repo: State<'_, Repository>) -> Result<ReviewStatisticsOutput> {
     let items = repo.get_all_learning_items().await?;
     let stats = calculate_review_statistics(&items);
 
@@ -688,7 +703,9 @@ pub async fn simulate_review_forecast(
         let mut review_day = start_day as f64 + interval;
         // Cap follow-up chain at 20 reviews per cohort to bound runtime.
         for _ in 0..20 {
-            if review_day >= horizon as f64 { break; }
+            if review_day >= horizon as f64 {
+                break;
+            }
             let idx = review_day.round() as usize;
             if idx < horizon {
                 added_per_day[idx] += add_rate.round().max(0.0) as i32;
@@ -749,7 +766,7 @@ pub async fn optimize_algorithm_params(
                LAG(timestamp) OVER (PARTITION BY item_id ORDER BY timestamp) AS prev_timestamp
         FROM review_results
         ORDER BY timestamp ASC
-        "#
+        "#,
     )
     .fetch_all(repo.pool())
     .await?;
@@ -852,9 +869,7 @@ pub struct SmartStartResponse {
 /// Returns a varied starting position that considers session continuity
 /// and user engagement patterns
 #[tauri::command]
-pub async fn get_smart_start_position(
-    request: SmartStartRequest,
-) -> Result<SmartStartResponse> {
+pub async fn get_smart_start_position(request: SmartStartRequest) -> Result<SmartStartResponse> {
     let preferences = EngagementPreferences::default();
     let mut scheduler = match request.seed {
         Some(seed) => EngagingScheduler::new(preferences).with_seed(seed),

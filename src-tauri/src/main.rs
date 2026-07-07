@@ -38,10 +38,7 @@ fn main() {
         // Only disable HW accel for software renderers (llvmpipe, softpipe, swrast).
         // Real GPU drivers (Mesa, NVIDIA proprietary) work fine with HW accel.
         let mut needs_workaround = true; // Default to safe behavior
-        if let Ok(output) = std::process::Command::new("glxinfo")
-            .args(&["-B"])
-            .output()
-        {
+        if let Ok(output) = std::process::Command::new("glxinfo").args(&["-B"]).output() {
             if let Ok(renderer) = String::from_utf8(output.stdout) {
                 let is_software = renderer.contains("llvmpipe")
                     || renderer.contains("softpipe")

@@ -1,10 +1,10 @@
 //! Extract commands
 
-use tauri::State;
 use crate::database::Repository;
 use crate::error::Result;
 use crate::models::Extract;
 use sqlx::Row;
+use tauri::State;
 
 #[tauri::command]
 pub async fn get_extracts(
@@ -20,10 +20,7 @@ pub async fn get_extracts(
 }
 
 #[tauri::command]
-pub async fn get_extract(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<Option<Extract>> {
+pub async fn get_extract(id: String, repo: State<'_, Repository>) -> Result<Option<Extract>> {
     let extract = repo.get_extract(&id).await?;
     Ok(extract)
 }
@@ -93,7 +90,9 @@ pub async fn update_extract(
     max_disclosure_level: Option<i32>,
     repo: State<'_, Repository>,
 ) -> Result<Extract> {
-    let mut extract = repo.get_extract(&id).await?
+    let mut extract = repo
+        .get_extract(&id)
+        .await?
         .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Extract {}", id)))?;
 
     if let Some(content) = content {
@@ -127,18 +126,12 @@ pub async fn update_extract(
 }
 
 #[tauri::command]
-pub async fn delete_extract(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn delete_extract(id: String, repo: State<'_, Repository>) -> Result<()> {
     repo.delete_extract(&id).await?;
     Ok(())
 }
 
-async fn append_daily_note_extract_link(
-    extract: &Extract,
-    repo: &Repository,
-) -> Result<()> {
+async fn append_daily_note_extract_link(extract: &Extract, repo: &Repository) -> Result<()> {
     let key = format!("daily_note:{}", chrono::Utc::now().format("%Y-%m-%d"));
     let row = sqlx::query("SELECT value FROM settings WHERE key = ?1")
         .bind(&key)

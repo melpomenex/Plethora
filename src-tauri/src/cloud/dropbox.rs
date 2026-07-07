@@ -5,14 +5,14 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::Deserialize;
 use std::collections::HashMap;
 use url::Url;
 
 use super::provider::{
-    AccountInfo, AuthResult, AuthToken, CloudProvider, CloudProviderType,
-    FileInfo, FileMetadata, StorageQuota,
+    AccountInfo, AuthResult, AuthToken, CloudProvider, CloudProviderType, FileInfo, FileMetadata,
+    StorageQuota,
 };
 use crate::error::AppError;
 
@@ -99,7 +99,8 @@ impl DropboxProvider {
                  2. Create a new app (scoped access)\n\
                  3. Add http://localhost:15173/auth/callback as a redirect URI\n\
                  4. Copy the app key\n\
-                 5. Set the INCREMENTUM_DROPBOX_APP_KEY environment variable".to_string()
+                 5. Set the INCREMENTUM_DROPBOX_APP_KEY environment variable"
+                    .to_string(),
             ));
         }
 
@@ -111,7 +112,8 @@ impl DropboxProvider {
                  1. Go to https://www.dropbox.com/developers/apps\n\
                  2. Select your app\n\
                  3. Copy the app secret\n\
-                 4. Set the INCREMENTUM_DROPBOX_APP_SECRET environment variable".to_string()
+                 4. Set the INCREMENTUM_DROPBOX_APP_SECRET environment variable"
+                    .to_string(),
             ));
         }
 
@@ -146,7 +148,8 @@ impl DropboxProvider {
 
         // Generate code verifier (random 43-128 characters)
         use rand::Rng;
-        const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+        const CHARSET: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
         let code_verifier: String = (0..64)
             .map(|_| {
                 let idx = rand::thread_rng().gen_range(0..CHARSET.len());
@@ -155,8 +158,8 @@ impl DropboxProvider {
             .collect();
 
         // Generate code challenge (SHA256 hash, base64url encoded)
-        use sha2::{Sha256, Digest};
         use base64::Engine;
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(code_verifier.as_bytes());
         let hash = hasher.finalize();
@@ -180,7 +183,8 @@ impl DropboxProvider {
         use base64::Engine;
         let encoded_auth = base64::engine::general_purpose::STANDARD.encode(auth_header);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post("https://api.dropboxapi.com/oauth2/token")
             .header("Authorization", format!("Basic {}", encoded_auth))
             .form(&params)
@@ -190,7 +194,10 @@ impl DropboxProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Token exchange failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Token exchange failed: {}",
+                error_text
+            )));
         }
 
         response
@@ -209,7 +216,8 @@ impl DropboxProvider {
         use base64::Engine;
         let encoded_auth = base64::engine::general_purpose::STANDARD.encode(auth_header);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post("https://api.dropboxapi.com/oauth2/token")
             .header("Authorization", format!("Basic {}", encoded_auth))
             .form(&params)
@@ -219,7 +227,10 @@ impl DropboxProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Token refresh failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Token refresh failed: {}",
+                error_text
+            )));
         }
 
         response
@@ -230,16 +241,22 @@ impl DropboxProvider {
 
     /// Get authenticated request headers
     fn get_auth_headers(&self) -> Result<header::HeaderMap, AppError> {
-        let token = self.auth_token
+        let token = self
+            .auth_token
             .as_ref()
             .ok_or_else(|| AppError::Internal("Not authenticated".to_string()))?;
 
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
-            format!("Bearer {}", token.access_token).parse().expect("valid header value"),
+            format!("Bearer {}", token.access_token)
+                .parse()
+                .expect("valid header value"),
         );
-        headers.insert(header::CONTENT_TYPE, "application/json".parse().expect("valid header value"));
+        headers.insert(
+            header::CONTENT_TYPE,
+            "application/json".parse().expect("valid header value"),
+        );
 
         Ok(headers)
     }
@@ -248,7 +265,8 @@ impl DropboxProvider {
     async fn fetch_account_info(&self) -> Result<AccountInfo, AppError> {
         let headers = self.get_auth_headers()?;
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(format!("{}/users/get_current_account", self.api_base_url()))
             .headers(headers)
             .send()
@@ -257,7 +275,10 @@ impl DropboxProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Account info request failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Account info request failed: {}",
+                error_text
+            )));
         }
 
         let user_info: UserInfo = response
@@ -265,7 +286,8 @@ impl DropboxProvider {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to parse user info: {}", e)))?;
 
-        let space_response = self.http_client
+        let space_response = self
+            .http_client
             .post(format!("{}/users/get_space_usage", self.api_base_url()))
             .headers(self.get_auth_headers()?)
             .send()
@@ -334,7 +356,9 @@ impl CloudProvider for DropboxProvider {
 
         self.auth_token = Some(AuthToken {
             access_token: token_response.access_token.clone(),
-            refresh_token: token_response.refresh_token.unwrap_or(token_response.access_token.clone()),
+            refresh_token: token_response
+                .refresh_token
+                .unwrap_or(token_response.access_token.clone()),
             expires_at,
             token_type: token_response.token_type.unwrap_or("Bearer".to_string()),
         });
@@ -415,14 +439,21 @@ impl CloudProvider for DropboxProvider {
         if data_len < 150 * 1024 * 1024 {
             let upload_path = serde_json::json!({ "path": full_path }).to_string();
 
-            let response = self.http_client
-                .post(format!(
-                    "{}/files/upload",
-                    self.content_base_url()
-                ))
+            let response = self
+                .http_client
+                .post(format!("{}/files/upload", self.content_base_url()))
                 .header("Dropbox-API-Arg", upload_path)
                 .header("Content-Type", "application/octet-stream")
-                .header("Authorization", format!("Bearer {}", self.auth_token.as_ref().expect("dropbox not authenticated").access_token))
+                .header(
+                    "Authorization",
+                    format!(
+                        "Bearer {}",
+                        self.auth_token
+                            .as_ref()
+                            .expect("dropbox not authenticated")
+                            .access_token
+                    ),
+                )
                 .body(data)
                 .send()
                 .await
@@ -437,10 +468,9 @@ impl CloudProvider for DropboxProvider {
                 return Err(AppError::Internal(format!("Upload failed: {}", error_text)));
             }
 
-            let result: FileResult = response
-                .json()
-                .await
-                .map_err(|e| AppError::Internal(format!("Failed to parse upload response: {}", e)))?;
+            let result: FileResult = response.json().await.map_err(|e| {
+                AppError::Internal(format!("Failed to parse upload response: {}", e))
+            })?;
 
             Ok(result.id)
         } else {
@@ -457,20 +487,30 @@ impl CloudProvider for DropboxProvider {
         let full_path = format!("/Incrementum/{}", path.trim_start_matches('/'));
         let arg = serde_json::json!({ "path": full_path }).to_string();
 
-        let response = self.http_client
-            .post(format!(
-                "{}/files/download",
-                self.content_base_url()
-            ))
+        let response = self
+            .http_client
+            .post(format!("{}/files/download", self.content_base_url()))
             .header("Dropbox-API-Arg", arg)
-            .header("Authorization", format!("Bearer {}", self.auth_token.as_ref().expect("dropbox not authenticated").access_token))
+            .header(
+                "Authorization",
+                format!(
+                    "Bearer {}",
+                    self.auth_token
+                        .as_ref()
+                        .expect("dropbox not authenticated")
+                        .access_token
+                ),
+            )
             .send()
             .await
             .map_err(|e| AppError::Internal(format!("Download failed: {}", e)))?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Download failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Download failed: {}",
+                error_text
+            )));
         }
 
         let data = response
@@ -497,9 +537,11 @@ impl CloudProvider for DropboxProvider {
             "path": full_path,
             "recursive": false,
             "include_media_info": false
-        }).to_string();
+        })
+        .to_string();
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(format!("{}/files/list_folder", self.api_base_url()))
             .header("Dropbox-API-Arg", arg)
             .headers(self.get_auth_headers()?)
@@ -509,7 +551,10 @@ impl CloudProvider for DropboxProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("List files failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "List files failed: {}",
+                error_text
+            )));
         }
 
         let list_response: ListFolderResult = response
@@ -541,7 +586,8 @@ impl CloudProvider for DropboxProvider {
         let full_path = format!("/Incrementum/{}", path.trim_start_matches('/'));
         let arg = serde_json::json!({ "path": full_path }).to_string();
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(format!("{}/files/delete_v2", self.api_base_url()))
             .header("Dropbox-API-Arg", arg)
             .headers(self.get_auth_headers()?)
@@ -562,9 +608,11 @@ impl CloudProvider for DropboxProvider {
         let arg = serde_json::json!({
             "path": full_path,
             "include_media_info": false
-        }).to_string();
+        })
+        .to_string();
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(format!("{}/files/get_metadata", self.api_base_url()))
             .header("Dropbox-API-Arg", arg)
             .headers(self.get_auth_headers()?)
@@ -574,7 +622,10 @@ impl CloudProvider for DropboxProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Get metadata failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Get metadata failed: {}",
+                error_text
+            )));
         }
 
         let dropbox_metadata: DropboxFileMetadata = response
@@ -588,7 +639,8 @@ impl CloudProvider for DropboxProvider {
             name: dropbox_metadata.name,
             size: dropbox_metadata.size.unwrap_or(0),
             created_time: dropbox_metadata.client_modified,
-            modified_time: dropbox_metadata.server_modified
+            modified_time: dropbox_metadata
+                .server_modified
                 .or(dropbox_metadata.client_modified)
                 .unwrap_or_else(Utc::now),
             checksum: None,
@@ -600,9 +652,11 @@ impl CloudProvider for DropboxProvider {
         let arg = serde_json::json!({
             "path": full_path,
             "autorename": false
-        }).to_string();
+        })
+        .to_string();
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(format!("{}/files/create_folder_v2", self.api_base_url()))
             .header("Dropbox-API-Arg", arg)
             .headers(self.get_auth_headers()?)
@@ -612,7 +666,10 @@ impl CloudProvider for DropboxProvider {
 
         if !response.status().is_success() && response.status() != 409 {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Create folder failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Create folder failed: {}",
+                error_text
+            )));
         }
 
         let folder_name = if path.contains('/') {
@@ -646,20 +703,37 @@ impl DropboxProvider {
         let arg = serde_json::json!({
             "path": path,
             "mode": "add"
-        }).to_string();
+        })
+        .to_string();
 
-        let start_response = self.http_client
-            .post(format!("{}/files/upload_session/start", self.content_base_url()))
+        let start_response = self
+            .http_client
+            .post(format!(
+                "{}/files/upload_session/start",
+                self.content_base_url()
+            ))
             .header("Dropbox-API-Arg", arg)
             .header("Content-Type", "application/octet-stream")
-            .header("Authorization", format!("Bearer {}", self.auth_token.as_ref().expect("dropbox not authenticated").access_token))
+            .header(
+                "Authorization",
+                format!(
+                    "Bearer {}",
+                    self.auth_token
+                        .as_ref()
+                        .expect("dropbox not authenticated")
+                        .access_token
+                ),
+            )
             .send()
             .await
             .map_err(|e| AppError::Internal(format!("Upload session creation failed: {}", e)))?;
 
         if !start_response.status().is_success() {
             let error_text = start_response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Upload session creation failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Upload session creation failed: {}",
+                error_text
+            )));
         }
 
         let session_id: String = start_response
@@ -681,11 +755,13 @@ impl DropboxProvider {
             let cursor = serde_json::json!({
                 "session_id": session_id,
                 "offset": chunk_start
-            }).to_string();
+            })
+            .to_string();
 
             let close = chunk_end + 1 >= total_size;
 
-            let chunk_response = self.http_client
+            let chunk_response = self
+                .http_client
                 .post(format!(
                     "{}/files/upload_session/append_v2{}",
                     self.content_base_url(),
@@ -693,7 +769,16 @@ impl DropboxProvider {
                 ))
                 .header("Dropbox-API-Arg", cursor)
                 .header("Content-Type", "application/octet-stream")
-                .header("Authorization", format!("Bearer {}", self.auth_token.as_ref().expect("dropbox not authenticated").access_token))
+                .header(
+                    "Authorization",
+                    format!(
+                        "Bearer {}",
+                        self.auth_token
+                            .as_ref()
+                            .expect("dropbox not authenticated")
+                            .access_token
+                    ),
+                )
                 .body(chunk.to_vec())
                 .send()
                 .await
@@ -701,7 +786,10 @@ impl DropboxProvider {
 
             if !chunk_response.status().is_success() && chunk_response.status() != 200 {
                 let error_text = chunk_response.text().await.unwrap_or_default();
-                return Err(AppError::Internal(format!("Chunk upload failed: {}", error_text)));
+                return Err(AppError::Internal(format!(
+                    "Chunk upload failed: {}",
+                    error_text
+                )));
             }
 
             uploaded = chunk_end + 1;
@@ -711,7 +799,9 @@ impl DropboxProvider {
             }
         }
 
-        let metadata = self.get_metadata(path.trim_start_matches("/Incrementum/")).await?;
+        let metadata = self
+            .get_metadata(path.trim_start_matches("/Incrementum/"))
+            .await?;
         Ok(metadata.id)
     }
 }

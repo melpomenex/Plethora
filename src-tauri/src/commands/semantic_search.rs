@@ -6,19 +6,19 @@
 //! - Vector similarity search
 //! - Managing embedding providers (OpenAI, Cohere, OpenRouter, Ollama)
 
+use crate::ai::embeddings::{
+    CohereEmbeddingProvider, EmbeddingModel, EmbeddingProviderType, OllamaEmbeddingProvider,
+    OpenAIEmbeddingProvider, OpenRouterEmbeddingProvider,
+};
 use crate::commands::Result;
 use crate::error::IncrementumError;
-use crate::ai::embeddings::{
-    EmbeddingProviderType, OpenAIEmbeddingProvider, CohereEmbeddingProvider,
-    OpenRouterEmbeddingProvider, OllamaEmbeddingProvider, EmbeddingModel,
-};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::io::{Cursor, Read};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Cursor, Read};
-use std::cmp::Ordering;
 
 /// Semantic search result
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,17 +112,20 @@ impl EmbeddingStore {
             return 0.0;
         }
 
-        let dot_product: f64 = a.iter()
+        let dot_product: f64 = a
+            .iter()
             .zip(b.iter())
             .map(|(x, y)| (*x as f64) * (*y as f64))
             .sum();
 
-        let norm_a: f64 = a.iter()
+        let norm_a: f64 = a
+            .iter()
             .map(|x| (*x as f64) * (*x as f64))
             .sum::<f64>()
             .sqrt();
 
-        let norm_b: f64 = b.iter()
+        let norm_b: f64 = b
+            .iter()
             .map(|x| (*x as f64) * (*x as f64))
             .sum::<f64>()
             .sqrt();
@@ -135,7 +138,8 @@ impl EmbeddingStore {
     }
 
     fn search(&self, query_embedding: &[f32], limit: usize) -> Vec<(String, f64)> {
-        let mut results: Vec<(String, f64)> = self.embeddings
+        let mut results: Vec<(String, f64)> = self
+            .embeddings
             .iter()
             .map(|(id, emb)| {
                 let similarity = Self::cosine_similarity(query_embedding, emb);
@@ -159,7 +163,9 @@ lazy_static::lazy_static! {
 fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(embedding.len() * 4);
     for &val in embedding {
-        bytes.write_f32::<LittleEndian>(val).expect("write to Vec<u8> buffer");
+        bytes
+            .write_f32::<LittleEndian>(val)
+            .expect("write to Vec<u8> buffer");
     }
     bytes
 }
@@ -169,50 +175,73 @@ fn bytes_to_embedding(bytes: &[u8], dimension: usize) -> Vec<f32> {
     let mut cursor = Cursor::new(bytes);
     let mut embedding = Vec::with_capacity(dimension);
     for _ in 0..dimension {
-        embedding.push(cursor.read_f32::<LittleEndian>().expect("read from embedding bytes"));
+        embedding.push(
+            cursor
+                .read_f32::<LittleEndian>()
+                .expect("read from embedding bytes"),
+        );
     }
     embedding
 }
 
 /// Get embedding provider from config
-fn get_provider(config: &EmbeddingConfig) -> Result<Box<dyn crate::ai::embeddings::EmbeddingProvider>> {
+fn get_provider(
+    config: &EmbeddingConfig,
+) -> Result<Box<dyn crate::ai::embeddings::EmbeddingProvider>> {
     match config.provider {
         EmbeddingProviderType::OpenAI => {
-            let api_key = config.openai_api_key.as_ref()
-                .ok_or_else(|| IncrementumError::InvalidInput("OpenAI API key not configured".to_string()))?;
+            let api_key = config.openai_api_key.as_ref().ok_or_else(|| {
+                IncrementumError::InvalidInput("OpenAI API key not configured".to_string())
+            })?;
             let model = config.openai_model.clone();
-            Ok(Box::new(OpenAIEmbeddingProvider::new(api_key.clone(), model)))
+            Ok(Box::new(OpenAIEmbeddingProvider::new(
+                api_key.clone(),
+                model,
+            )))
         }
         EmbeddingProviderType::Cohere => {
-            let api_key = config.cohere_api_key.as_ref()
-                .ok_or_else(|| IncrementumError::InvalidInput("Cohere API key not configured".to_string()))?;
+            let api_key = config.cohere_api_key.as_ref().ok_or_else(|| {
+                IncrementumError::InvalidInput("Cohere API key not configured".to_string())
+            })?;
             let model = config.cohere_model.clone();
-            Ok(Box::new(CohereEmbeddingProvider::new(api_key.clone(), model)))
+            Ok(Box::new(CohereEmbeddingProvider::new(
+                api_key.clone(),
+                model,
+            )))
         }
         EmbeddingProviderType::OpenRouter => {
-            let api_key = config.openrouter_api_key.as_ref()
-                .ok_or_else(|| IncrementumError::InvalidInput("OpenRouter API key not configured".to_string()))?;
-            let model = config.openrouter_model.as_ref()
-                .ok_or_else(|| IncrementumError::InvalidInput("OpenRouter model not specified".to_string()))?;
-            Ok(Box::new(OpenRouterEmbeddingProvider::new(api_key.clone(), model.clone())))
+            let api_key = config.openrouter_api_key.as_ref().ok_or_else(|| {
+                IncrementumError::InvalidInput("OpenRouter API key not configured".to_string())
+            })?;
+            let model = config.openrouter_model.as_ref().ok_or_else(|| {
+                IncrementumError::InvalidInput("OpenRouter model not specified".to_string())
+            })?;
+            Ok(Box::new(OpenRouterEmbeddingProvider::new(
+                api_key.clone(),
+                model.clone(),
+            )))
         }
         EmbeddingProviderType::Ollama => {
-            let base_url = config.ollama_base_url.as_ref()
-                .ok_or_else(|| IncrementumError::InvalidInput("Ollama base URL not configured".to_string()))?;
-            let model = config.ollama_model.as_ref()
-                .ok_or_else(|| IncrementumError::InvalidInput("Ollama model not specified".to_string()))?;
-            Ok(Box::new(OllamaEmbeddingProvider::new(base_url.clone(), model.clone())))
+            let base_url = config.ollama_base_url.as_ref().ok_or_else(|| {
+                IncrementumError::InvalidInput("Ollama base URL not configured".to_string())
+            })?;
+            let model = config.ollama_model.as_ref().ok_or_else(|| {
+                IncrementumError::InvalidInput("Ollama model not specified".to_string())
+            })?;
+            Ok(Box::new(OllamaEmbeddingProvider::new(
+                base_url.clone(),
+                model.clone(),
+            )))
         }
     }
 }
 
 #[tauri::command]
-pub async fn generate_embedding(
-    text: String,
-    config: EmbeddingConfig,
-) -> Result<Vec<f32>> {
+pub async fn generate_embedding(text: String, config: EmbeddingConfig) -> Result<Vec<f32>> {
     let provider = get_provider(&config)?;
-    let response = provider.generate_embedding(&text).await
+    let response = provider
+        .generate_embedding(&text)
+        .await
         .map_err(IncrementumError::Internal)?;
     Ok(response.embedding)
 }
@@ -223,7 +252,9 @@ pub async fn generate_embeddings_batch(
     config: EmbeddingConfig,
 ) -> Result<Vec<Vec<f32>>> {
     let provider = get_provider(&config)?;
-    let responses = provider.generate_embeddings_batch(&texts).await
+    let responses = provider
+        .generate_embeddings_batch(&texts)
+        .await
         .map_err(IncrementumError::Internal)?;
     Ok(responses.into_iter().map(|r| r.embedding).collect())
 }
@@ -239,7 +270,9 @@ pub async fn index_transcript(
     let texts: Vec<String> = chunks.iter().map(|c| c.text.clone()).collect();
 
     // Generate embeddings in batch
-    let responses = provider.generate_embeddings_batch(&texts).await
+    let responses = provider
+        .generate_embeddings_batch(&texts)
+        .await
         .map_err(IncrementumError::Internal)?;
 
     // Store embeddings in memory store
@@ -262,7 +295,9 @@ pub async fn semantic_search(
     config: EmbeddingConfig,
 ) -> Result<Vec<SemanticSearchResult>> {
     let provider = get_provider(&config)?;
-    let query_response = provider.generate_embedding(&query).await
+    let query_response = provider
+        .generate_embedding(&query)
+        .await
         .map_err(IncrementumError::Internal)?;
 
     let store = EMBEDDING_STORE.read().await;
@@ -316,23 +351,18 @@ pub async fn get_embedding_models(
     api_key: Option<String>,
 ) -> Result<Vec<EmbeddingModel>> {
     match provider {
-        EmbeddingProviderType::OpenAI => {
-            Ok(OpenAIEmbeddingProvider::available_models())
-        }
-        EmbeddingProviderType::Cohere => {
-            Ok(CohereEmbeddingProvider::available_models())
-        }
+        EmbeddingProviderType::OpenAI => Ok(OpenAIEmbeddingProvider::available_models()),
+        EmbeddingProviderType::Cohere => Ok(CohereEmbeddingProvider::available_models()),
         EmbeddingProviderType::OpenRouter => {
             if let Some(key) = api_key {
-                OpenRouterEmbeddingProvider::fetch_available_models(&key).await
+                OpenRouterEmbeddingProvider::fetch_available_models(&key)
+                    .await
                     .map_err(IncrementumError::Internal)
             } else {
                 Ok(OpenRouterEmbeddingProvider::common_models())
             }
         }
-        EmbeddingProviderType::Ollama => {
-            Ok(OllamaEmbeddingProvider::common_models())
-        }
+        EmbeddingProviderType::Ollama => Ok(OllamaEmbeddingProvider::common_models()),
     }
 }
 

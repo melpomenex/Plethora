@@ -3,9 +3,9 @@
 //! Provides Tauri commands for OCR operations
 
 use crate::error::{IncrementumError, Result};
-use crate::ocr::OCRConfig;
-use crate::ocr::providers::OCRProviderType;
 use crate::ocr::processor::OCRProcessor;
+use crate::ocr::providers::OCRProviderType;
+use crate::ocr::OCRConfig;
 use lopdf::Document;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -137,7 +137,8 @@ pub async fn init_ocr(config: OCRConfig) -> Result<()> {
 pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
     let processor = {
         let guard = get_processor().lock().await;
-        guard.as_ref()
+        guard
+            .as_ref()
             .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?
             .clone()
     };
@@ -199,7 +200,11 @@ pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
 
     let processing_time_ms = start.elapsed().as_millis() as u64;
     let count = request.image_path.len() as f64;
-    let confidence = if count > 0.0 { total_confidence / count } else { 0.0 };
+    let confidence = if count > 0.0 {
+        total_confidence / count
+    } else {
+        0.0
+    };
 
     Ok(OCRResponse {
         text: combined_text,
@@ -219,7 +224,8 @@ pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
 pub async fn ocr_image_bytes(request: OCRBytesRequest) -> Result<OCRResponse> {
     let processor = {
         let guard = get_processor().lock().await;
-        guard.as_ref()
+        guard
+            .as_ref()
             .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?
             .clone()
     };
@@ -228,7 +234,8 @@ pub async fn ocr_image_bytes(request: OCRBytesRequest) -> Result<OCRResponse> {
     let image_data = base64::Engine::decode(
         &base64::engine::general_purpose::STANDARD,
         request.image_data.as_bytes(),
-    ).map_err(|e| IncrementumError::Internal(format!("Failed to decode base64: {}", e)))?;
+    )
+    .map_err(|e| IncrementumError::Internal(format!("Failed to decode base64: {}", e)))?;
 
     let provider_type = resolve_provider_type(&request.provider, &processor)?;
     let provider = crate::ocr::providers::create_provider(provider_type, processor.get_config())?;
@@ -337,7 +344,8 @@ async fn write_temp_image(bytes: &[u8], extension: &str) -> Result<PathBuf> {
 pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
     let processor = {
         let guard = get_processor().lock().await;
-        guard.as_ref()
+        guard
+            .as_ref()
             .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?
             .clone()
     };
@@ -408,7 +416,7 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
         }
     } else {
         let page_images = extract_pdf_page_images(&doc);
-        
+
         let mut image_map = std::collections::HashMap::new();
         for img in page_images {
             image_map.insert(img.page_number, img);
@@ -455,8 +463,16 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
     }
 
     let processing_time_ms = start.elapsed().as_millis() as u64;
-    let count = if pages.is_empty() { 1.0 } else { pages.len() as f64 };
-    let confidence = if count > 0.0 { total_confidence / count } else { 0.0 };
+    let count = if pages.is_empty() {
+        1.0
+    } else {
+        pages.len() as f64
+    };
+    let confidence = if count > 0.0 {
+        total_confidence / count
+    } else {
+        0.0
+    };
 
     Ok(OCRPdfResponse {
         pages,
@@ -491,29 +507,187 @@ pub fn extract_key_phrases(request: KeyPhraseRequest) -> Result<KeyPhraseRespons
 /// Simple RAKE (Rapid Automatic Keyword Extraction) implementation
 fn extract_phrases_rake(text: &str, max_phrases: usize) -> Vec<KeyPhrase> {
     let stop_words = vec![
-        "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
-        "aren't", "as", "at", "be", "because", "been", "before", "being", "below", "between",
-        "both", "but", "by", "can't", "cannot", "could", "couldn't", "did", "didn't", "do",
-        "does", "doesn't", "doing", "don't", "down", "during", "each", "few", "for", "from",
-        "further", "had", "hadn't", "has", "hasn't", "have", "haven't", "having", "he", "he'd",
-        "he'll", "he's", "her", "here", "here's", "hers", "herself", "him", "himself", "his",
-        "how", "how's", "i", "i'd", "i'll", "i'm", "i've", "if", "in", "into", "is", "isn't",
-        "it", "it's", "its", "itself", "let's", "me", "more", "most", "mustn't", "my", "myself",
-        "no", "nor", "not", "of", "off", "on", "once", "only", "or", "other", "ought", "our",
-        "ours", "ourselves", "out", "over", "own", "same", "shan't", "she", "she'd", "she'll",
-        "she's", "should", "shouldn't", "so", "some", "such", "than", "that", "that's", "the",
-        "their", "theirs", "them", "themselves", "then", "there", "there's", "these", "they",
-        "they'd", "they'll", "they're", "they've", "this", "those", "through", "to", "too",
-        "under", "until", "up", "very", "was", "wasn't", "we", "we'd", "we'll", "we're", "we've",
-        "were", "weren't", "what", "what's", "when", "when's", "where", "where's", "which", "while",
-        "who", "who's", "whom", "why", "why's", "with", "won't", "would", "wouldn't", "you",
-        "you'd", "you'll", "you're", "you've", "your", "yours", "yourself", "yourselves",
+        "a",
+        "about",
+        "above",
+        "after",
+        "again",
+        "against",
+        "all",
+        "am",
+        "an",
+        "and",
+        "any",
+        "are",
+        "aren't",
+        "as",
+        "at",
+        "be",
+        "because",
+        "been",
+        "before",
+        "being",
+        "below",
+        "between",
+        "both",
+        "but",
+        "by",
+        "can't",
+        "cannot",
+        "could",
+        "couldn't",
+        "did",
+        "didn't",
+        "do",
+        "does",
+        "doesn't",
+        "doing",
+        "don't",
+        "down",
+        "during",
+        "each",
+        "few",
+        "for",
+        "from",
+        "further",
+        "had",
+        "hadn't",
+        "has",
+        "hasn't",
+        "have",
+        "haven't",
+        "having",
+        "he",
+        "he'd",
+        "he'll",
+        "he's",
+        "her",
+        "here",
+        "here's",
+        "hers",
+        "herself",
+        "him",
+        "himself",
+        "his",
+        "how",
+        "how's",
+        "i",
+        "i'd",
+        "i'll",
+        "i'm",
+        "i've",
+        "if",
+        "in",
+        "into",
+        "is",
+        "isn't",
+        "it",
+        "it's",
+        "its",
+        "itself",
+        "let's",
+        "me",
+        "more",
+        "most",
+        "mustn't",
+        "my",
+        "myself",
+        "no",
+        "nor",
+        "not",
+        "of",
+        "off",
+        "on",
+        "once",
+        "only",
+        "or",
+        "other",
+        "ought",
+        "our",
+        "ours",
+        "ourselves",
+        "out",
+        "over",
+        "own",
+        "same",
+        "shan't",
+        "she",
+        "she'd",
+        "she'll",
+        "she's",
+        "should",
+        "shouldn't",
+        "so",
+        "some",
+        "such",
+        "than",
+        "that",
+        "that's",
+        "the",
+        "their",
+        "theirs",
+        "them",
+        "themselves",
+        "then",
+        "there",
+        "there's",
+        "these",
+        "they",
+        "they'd",
+        "they'll",
+        "they're",
+        "they've",
+        "this",
+        "those",
+        "through",
+        "to",
+        "too",
+        "under",
+        "until",
+        "up",
+        "very",
+        "was",
+        "wasn't",
+        "we",
+        "we'd",
+        "we'll",
+        "we're",
+        "we've",
+        "were",
+        "weren't",
+        "what",
+        "what's",
+        "when",
+        "when's",
+        "where",
+        "where's",
+        "which",
+        "while",
+        "who",
+        "who's",
+        "whom",
+        "why",
+        "why's",
+        "with",
+        "won't",
+        "would",
+        "wouldn't",
+        "you",
+        "you'd",
+        "you'll",
+        "you're",
+        "you've",
+        "your",
+        "yours",
+        "yourself",
+        "yourselves",
     ];
 
     let stop_word_set: std::collections::HashSet<&str> = stop_words.iter().cloned().collect();
 
     // Split text into sentences
-    let sentences: Vec<&str> = text.split(&['.', '!', '?', '\n'][..])
+    let sentences: Vec<&str> = text
+        .split(&['.', '!', '?', '\n'][..])
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .collect();
@@ -524,8 +698,10 @@ fn extract_phrases_rake(text: &str, max_phrases: usize) -> Vec<KeyPhrase> {
         let mut current_phrase = Vec::new();
 
         for word in words {
-            let clean_word = word.to_lowercase()
-                .chars().filter(|c| c.is_alphabetic() || c.is_whitespace())
+            let clean_word = word
+                .to_lowercase()
+                .chars()
+                .filter(|c| c.is_alphabetic() || c.is_whitespace())
                 .collect::<String>();
 
             if stop_word_set.contains(clean_word.as_str()) || clean_word.len() <= 2 {
@@ -545,7 +721,8 @@ fn extract_phrases_rake(text: &str, max_phrases: usize) -> Vec<KeyPhrase> {
 
     // Score phrases by word frequency and degree
     let mut word_scores: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
-    let mut phrase_degrees: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    let mut phrase_degrees: std::collections::HashMap<String, f64> =
+        std::collections::HashMap::new();
 
     for phrase in &phrases {
         let words: Vec<&str> = phrase.split_whitespace().collect();
@@ -559,10 +736,12 @@ fn extract_phrases_rake(text: &str, max_phrases: usize) -> Vec<KeyPhrase> {
     }
 
     // Calculate final scores
-    let mut scored_phrases: Vec<KeyPhrase> = phrases.into_iter()
+    let mut scored_phrases: Vec<KeyPhrase> = phrases
+        .into_iter()
         .map(|phrase| {
             let words: Vec<&str> = phrase.split_whitespace().collect();
-            let word_score_sum: f64 = words.iter()
+            let word_score_sum: f64 = words
+                .iter()
                 .map(|w| word_scores.get(&w.to_lowercase()).copied().unwrap_or(0.0))
                 .sum();
 
@@ -582,7 +761,11 @@ fn extract_phrases_rake(text: &str, max_phrases: usize) -> Vec<KeyPhrase> {
         .collect();
 
     // Sort by score and limit
-    scored_phrases.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored_phrases.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     scored_phrases.truncate(max_phrases);
 
     scored_phrases
@@ -592,7 +775,8 @@ fn extract_phrases_rake(text: &str, max_phrases: usize) -> Vec<KeyPhrase> {
 #[tauri::command]
 pub async fn get_available_ocr_providers() -> Result<Vec<String>> {
     let guard = get_processor().lock().await;
-    let processor = guard.as_ref()
+    let processor = guard
+        .as_ref()
         .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?;
 
     let providers = processor.get_available_providers();
@@ -603,7 +787,8 @@ pub async fn get_available_ocr_providers() -> Result<Vec<String>> {
 #[tauri::command]
 pub async fn is_provider_available(provider: String) -> Result<bool> {
     let guard = get_processor().lock().await;
-    let processor = guard.as_ref()
+    let processor = guard
+        .as_ref()
         .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?;
 
     let provider_type = parse_provider_type(&provider)?;
@@ -631,7 +816,10 @@ fn parse_provider_type(provider: &str) -> Result<OCRProviderType> {
         "marker" => Ok(OCRProviderType::Marker),
         "nougat" => Ok(OCRProviderType::Nougat),
         "glm" => Ok(OCRProviderType::Glmocr),
-        _ => Err(IncrementumError::Internal(format!("Unknown provider: {}", provider))),
+        _ => Err(IncrementumError::Internal(format!(
+            "Unknown provider: {}",
+            provider
+        ))),
     }
 }
 
@@ -639,7 +827,8 @@ fn parse_provider_type(provider: &str) -> Result<OCRProviderType> {
 #[tauri::command]
 pub async fn get_ocr_config() -> Result<OCRConfig> {
     let guard = get_processor().lock().await;
-    let processor = guard.as_ref()
+    let processor = guard
+        .as_ref()
         .ok_or_else(|| IncrementumError::Internal("OCR processor not initialized".to_string()))?;
 
     Ok(processor.get_config().clone())

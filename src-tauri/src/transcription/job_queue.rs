@@ -1,13 +1,13 @@
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
-use anyhow::Result;
-use tauri::{AppHandle, Manager};
-use crate::database::Repository;
-use super::engine::{TranscriptionEngine, TranscriptSegment};
+use super::engine::{TranscriptSegment, TranscriptionEngine};
 use super::model_manager::ModelManager;
+use crate::database::Repository;
+use anyhow::Result;
 use serde::Serialize;
-use tauri::Emitter;
 use sqlx::Executor;
+use std::sync::{Arc, Mutex};
+use tauri::Emitter;
+use tauri::{AppHandle, Manager};
+use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TranscriptionJob {
@@ -31,7 +31,8 @@ impl JobQueue {
 
         tokio::spawn(async move {
             let engine = TranscriptionEngine::new(app_handle.clone());
-            let model_manager = ModelManager::new(&app_handle).expect("failed to create model manager");
+            let model_manager =
+                ModelManager::new(&app_handle).expect("failed to create model manager");
 
             while let Some(job) = rx.recv().await {
                 {
@@ -39,9 +40,13 @@ impl JobQueue {
                     *active = Some(job.clone());
                 }
 
-                app_handle.emit("transcription://status-change", &job).expect("event emit failed");
+                app_handle
+                    .emit("transcription://status-change", &job)
+                    .expect("event emit failed");
 
-                if let Err(e) = Self::process_job(&job, &engine, &model_manager, &repo, &app_handle).await {
+                if let Err(e) =
+                    Self::process_job(&job, &engine, &model_manager, &repo, &app_handle).await
+                {
                     eprintln!("Error processing transcription job: {:?}", e);
                     let _ = repo.pool().execute(
                         sqlx::query("UPDATE transcripts SET status = 'failed', error_message = ? WHERE book_id = ? AND chapter_id = ?")
@@ -55,7 +60,9 @@ impl JobQueue {
                     let mut active = active_job_inner.lock().expect("job queue mutex poisoned");
                     *active = None;
                 }
-                app_handle.emit("transcription://idle", ()).expect("event emit failed");
+                app_handle
+                    .emit("transcription://idle", ())
+                    .expect("event emit failed");
             }
         });
 
@@ -87,7 +94,9 @@ impl JobQueue {
             .await?;
 
         // 2. Prepare audio (convert to WAV)
-        let wav_path = engine.prepare_audio(std::path::Path::new(&job.audio_path)).await?;
+        let wav_path = engine
+            .prepare_audio(std::path::Path::new(&job.audio_path))
+            .await?;
 
         // 3. Get model path
         let model_path = model_manager.get_model_path(&job.model_id);
@@ -109,11 +118,14 @@ impl JobQueue {
             let app_handle = app_handle_clone.clone();
 
             tokio::spawn(async move {
-                let transcript_id: i64 = sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
-                    .bind(&job.book_id)
-                    .bind(&job.chapter_id)
-                    .fetch_one(repo.pool())
-                    .await.unwrap_or(0);
+                let transcript_id: i64 = sqlx::query_scalar(
+                    "SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?",
+                )
+                .bind(&job.book_id)
+                .bind(&job.chapter_id)
+                .fetch_one(repo.pool())
+                .await
+                .unwrap_or(0);
 
                 if transcript_id > 0 {
                     let _ = sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) VALUES (?, ?, ?, ?, ?)")
@@ -125,25 +137,35 @@ impl JobQueue {
                         .execute(repo.pool())
                         .await;
 
-                    app_handle.emit("transcription://segment", seg).expect("event emit failed");
+                    app_handle
+                        .emit("transcription://segment", seg)
+                        .expect("event emit failed");
                 }
             });
         };
 
         if is_sense_voice {
-            engine.transcribe_sensevoice(&wav_path, &model_path, &job.language, on_segment, None).await?;
+            engine
+                .transcribe_sensevoice(&wav_path, &model_path, &job.language, on_segment, None)
+                .await?;
         } else if is_parakeet {
-            engine.transcribe_parakeet(&wav_path, &model_path, &job.language, on_segment, None).await?;
+            engine
+                .transcribe_parakeet(&wav_path, &model_path, &job.language, on_segment, None)
+                .await?;
         } else {
-            engine.transcribe(&wav_path, &model_path, &job.language, on_segment, None).await?;
+            engine
+                .transcribe(&wav_path, &model_path, &job.language, on_segment, None)
+                .await?;
         }
 
         // 5. Update status to completed
-        sqlx::query("UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?")
-            .bind(&job.book_id)
-            .bind(&job.chapter_id)
-            .execute(repo.pool())
-            .await?;
+        sqlx::query(
+            "UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?",
+        )
+        .bind(&job.book_id)
+        .bind(&job.chapter_id)
+        .execute(repo.pool())
+        .await?;
 
         // 6. Copy transcript text to documents.content for AI assistant access
         let rows: Vec<(String,)> = sqlx::query_as(
@@ -155,7 +177,8 @@ impl JobQueue {
         .await
         .unwrap_or_default();
 
-        let full_text: String = rows.iter()
+        let full_text: String = rows
+            .iter()
             .map(|r| r.0.trim())
             .filter(|t| !t.is_empty())
             .collect::<Vec<_>>()

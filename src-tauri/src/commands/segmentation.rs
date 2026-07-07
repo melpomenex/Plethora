@@ -1,11 +1,13 @@
 //! Segmentation commands
 
-use tauri::State;
 use crate::database::Repository;
 use crate::error::Result;
-use crate::segmentation::{DocumentSegmenter, SegmentConfig, SegmentationMethod, SegmentationResult};
 use crate::models::{Document, DocumentMetadata};
-use chrono::{Utc, Duration};
+use crate::segmentation::{
+    DocumentSegmenter, SegmentConfig, SegmentationMethod, SegmentationResult,
+};
+use chrono::{Duration, Utc};
+use tauri::State;
 
 /// Segment a document into extracts
 #[tauri::command]
@@ -16,12 +18,15 @@ pub async fn segment_document(
     overlap: usize,
     repo: State<'_, Repository>,
 ) -> Result<SegmentationResult> {
-    let doc = repo.get_document(&document_id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound("Document not found".to_string()))?;
+    let doc = repo.get_document(&document_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound("Document not found".to_string())
+    })?;
 
     let content = doc.content.unwrap_or_default();
     if content.is_empty() {
-        return Err(crate::error::IncrementumError::Internal("Document has no content".to_string()));
+        return Err(crate::error::IncrementumError::Internal(
+            "Document has no content".to_string(),
+        ));
     }
 
     let segmentation_method = match method.as_str() {
@@ -55,12 +60,15 @@ pub async fn auto_segment_and_create_extracts(
     overlap: Option<usize>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<String>> {
-    let doc = repo.get_document(&document_id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound("Document not found".to_string()))?;
+    let doc = repo.get_document(&document_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound("Document not found".to_string())
+    })?;
 
     let content = doc.content.unwrap_or_default();
     if content.is_empty() {
-        return Err(crate::error::IncrementumError::Internal("Document has no content".to_string()));
+        return Err(crate::error::IncrementumError::Internal(
+            "Document has no content".to_string(),
+        ));
     }
 
     let mut config = SegmentConfig::default();
@@ -102,7 +110,9 @@ pub async fn auto_segment_and_create_extracts(
         .bind(&now)
         .execute(repo.pool())
         .await
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create extract: {}", e)))?;
+        .map_err(|e| {
+            crate::error::IncrementumError::Internal(format!("Failed to create extract: {}", e))
+        })?;
 
         extract_ids.push(extract_id);
     }
@@ -149,10 +159,7 @@ pub async fn preview_segmentation(
 
 /// Extract key points from text
 #[tauri::command]
-pub async fn extract_key_points_from_text(
-    text: String,
-    max_points: usize,
-) -> Result<Vec<String>> {
+pub async fn extract_key_points_from_text(text: String, max_points: usize) -> Result<Vec<String>> {
     crate::segmentation::extract_key_points(&text, max_points).await
 }
 
@@ -205,9 +212,7 @@ pub async fn get_recommended_segmentation(
             // EPUBs have chapter structure
             (SegmentationMethod::Paragraph, 400, 0)
         }
-        "markdown" => {
-            (SegmentationMethod::Smart, 250, 20)
-        }
+        "markdown" => (SegmentationMethod::Smart, 250, 20),
         _ => {
             // Default: adaptive based on length
             if content_length < 5000 {
@@ -252,8 +257,9 @@ pub async fn split_document(
     archive_parent: bool,
     repo: State<'_, Repository>,
 ) -> Result<Vec<String>> {
-    let parent = repo.get_document(&document_id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound("Parent document not found".to_string()))?;
+    let parent = repo.get_document(&document_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound("Parent document not found".to_string())
+    })?;
 
     let total_chunks = parts.len() as i32;
     let mut child_ids = Vec::with_capacity(parts.len());

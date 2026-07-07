@@ -1,9 +1,9 @@
 //! Analytics commands for dashboard statistics
 
 use crate::database::Repository;
-use tauri::State;
-use chrono::{Utc, Duration, NaiveDate};
+use chrono::{Duration, NaiveDate, Utc};
 use sqlx::Row;
+use tauri::State;
 
 /// Statistics overview for the dashboard
 #[derive(Debug, Clone, serde::Serialize)]
@@ -64,19 +64,24 @@ pub async fn get_dashboard_stats(
     repo: State<'_, Repository>,
 ) -> Result<DashboardStats, String> {
     let pool = repo.pool();
-    let cid = collection_id.unwrap_or_else(|| crate::models::collection::DEFAULT_COLLECTION_ID.to_string());
+    let cid = collection_id
+        .unwrap_or_else(|| crate::models::collection::DEFAULT_COLLECTION_ID.to_string());
 
     let now = Utc::now();
-    let today_start = now.date_naive().and_hms_opt(0, 0, 0)
+    let today_start = now
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
         .expect("invalid time 0:0:0")
         .and_utc();
-    let today_end = now.date_naive().and_hms_opt(23, 59, 59)
+    let today_end = now
+        .date_naive()
+        .and_hms_opt(23, 59, 59)
         .expect("invalid time 23:59:59")
         .and_utc();
 
     // Total cards
     let total_cards: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM learning_items WHERE is_suspended = false AND collection_id = ?"
+        "SELECT COUNT(*) FROM learning_items WHERE is_suspended = false AND collection_id = ?",
     )
     .bind(&cid)
     .fetch_one(pool)
@@ -141,22 +146,20 @@ pub async fn get_dashboard_stats(
     let average_difficulty = avg_diff_row.unwrap_or(0.0);
 
     // Total documents
-    let total_documents: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM documents WHERE collection_id = ?"
-    )
-    .bind(&cid)
-    .fetch_one(pool)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    let total_documents: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM documents WHERE collection_id = ?")
+            .bind(&cid)
+            .fetch_one(pool)
+            .await
+            .map_err(|e: sqlx::Error| e.to_string())?;
 
     // Total extracts
-    let total_extracts: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM extracts WHERE collection_id = ?"
-    )
-    .bind(&cid)
-    .fetch_one(pool)
-    .await
-    .map_err(|e: sqlx::Error| e.to_string())?;
+    let total_extracts: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM extracts WHERE collection_id = ?")
+            .bind(&cid)
+            .fetch_one(pool)
+            .await
+            .map_err(|e: sqlx::Error| e.to_string())?;
 
     Ok(DashboardStats {
         total_cards: total_cards as i32,
@@ -172,14 +175,18 @@ pub async fn get_dashboard_stats(
 }
 
 /// Calculate study streak (consecutive days with reviews)
-async fn calculate_study_streak(
-    pool: &sqlx::Pool<sqlx::Sqlite>,
-) -> Result<i32, String> {
+async fn calculate_study_streak(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<i32, String> {
     let mut streak = 0;
     let mut current_date = Utc::now().date_naive();
 
-    let today_start = current_date.and_hms_opt(0, 0, 0).expect("invalid time 0:0:0").and_utc();
-    let today_end = current_date.and_hms_opt(23, 59, 59).expect("invalid time 23:59:59").and_utc();
+    let today_start = current_date
+        .and_hms_opt(0, 0, 0)
+        .expect("invalid time 0:0:0")
+        .and_utc();
+    let today_end = current_date
+        .and_hms_opt(23, 59, 59)
+        .expect("invalid time 23:59:59")
+        .and_utc();
 
     let reviews_today: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM learning_items WHERE last_review_date >= ? AND last_review_date <= ? AND is_suspended = false"
@@ -197,8 +204,14 @@ async fn calculate_study_streak(
 
     // Count consecutive days backwards
     loop {
-        let day_start = current_date.and_hms_opt(0, 0, 0).expect("invalid time 0:0:0").and_utc();
-        let day_end = current_date.and_hms_opt(23, 59, 59).expect("invalid time 23:59:59").and_utc();
+        let day_start = current_date
+            .and_hms_opt(0, 0, 0)
+            .expect("invalid time 0:0:0")
+            .and_utc();
+        let day_end = current_date
+            .and_hms_opt(23, 59, 59)
+            .expect("invalid time 23:59:59")
+            .and_utc();
 
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM learning_items WHERE last_review_date >= ? AND last_review_date <= ? AND is_suspended = false"
@@ -227,9 +240,7 @@ async fn calculate_study_streak(
 
 /// Get memory statistics
 #[tauri::command]
-pub async fn get_memory_stats(
-    repo: State<'_, Repository>,
-) -> Result<MemoryStats, String> {
+pub async fn get_memory_stats(repo: State<'_, Repository>) -> Result<MemoryStats, String> {
     let pool = repo.pool();
 
     let avg_stability_row: Option<f64> = sqlx::query_scalar(
@@ -250,7 +261,7 @@ pub async fn get_memory_stats(
 
     // Mature cards: interval >= 21 days
     let mature_cards: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM learning_items WHERE interval >= 21 AND is_suspended = false"
+        "SELECT COUNT(*) FROM learning_items WHERE interval >= 21 AND is_suspended = false",
     )
     .fetch_one(pool)
     .await
@@ -266,7 +277,7 @@ pub async fn get_memory_stats(
 
     // New cards: never reviewed
     let new_cards: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM learning_items WHERE review_count = 0 AND is_suspended = false"
+        "SELECT COUNT(*) FROM learning_items WHERE review_count = 0 AND is_suspended = false",
     )
     .fetch_one(pool)
     .await
@@ -292,12 +303,18 @@ pub async fn get_activity_data(
 
     for i in 0..days {
         let date = Utc::now().date_naive() - Duration::days(i as i64);
-        let day_start = date.and_hms_opt(0, 0, 0).expect("invalid time 0:0:0").and_utc();
-        let day_end = date.and_hms_opt(23, 59, 59).expect("invalid time 23:59:59").and_utc();
+        let day_start = date
+            .and_hms_opt(0, 0, 0)
+            .expect("invalid time 0:0:0")
+            .and_utc();
+        let day_end = date
+            .and_hms_opt(23, 59, 59)
+            .expect("invalid time 23:59:59")
+            .and_utc();
 
         // Reviews count
         let reviews_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM review_results WHERE timestamp >= ? AND timestamp <= ?"
+            "SELECT COUNT(*) FROM review_results WHERE timestamp >= ? AND timestamp <= ?",
         )
         .bind(day_start)
         .bind(day_end)
@@ -357,9 +374,7 @@ pub async fn get_activity_data(
 
 /// Get category statistics
 #[tauri::command]
-pub async fn get_category_stats(
-    repo: State<'_, Repository>,
-) -> Result<Vec<CategoryStats>, String> {
+pub async fn get_category_stats(repo: State<'_, Repository>) -> Result<Vec<CategoryStats>, String> {
     let pool = repo.pool();
 
     let rows = sqlx::query(
@@ -372,7 +387,7 @@ pub async fn get_category_stats(
         LEFT JOIN learning_items li ON e.id = li.extract_id AND li.is_suspended = false
         GROUP BY e.category
         ORDER BY card_count DESC
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await
@@ -381,8 +396,12 @@ pub async fn get_category_stats(
     let mut stats = Vec::new();
     for row in rows {
         let category: String = row.try_get("category").expect("missing category column");
-        let card_count: i64 = row.try_get("card_count").expect("missing card_count column");
-        let reviews_count: i64 = row.try_get("reviews_count").expect("missing reviews_count column");
+        let card_count: i64 = row
+            .try_get("card_count")
+            .expect("missing card_count column");
+        let reviews_count: i64 = row
+            .try_get("reviews_count")
+            .expect("missing reviews_count column");
 
         // Calculate retention rate for this category
         let retention_row: Option<f64> = sqlx::query_scalar(
@@ -428,7 +447,7 @@ pub async fn get_leech_dashboard(
         FROM learning_items
         WHERE lapses >= ?1 AND is_suspended = false
         ORDER BY lapses DESC, review_count DESC
-        "#
+        "#,
     )
     .bind(limit_threshold)
     .fetch_all(repo.pool())
@@ -490,16 +509,20 @@ pub async fn get_workload_data(
     repo: State<'_, Repository>,
 ) -> Result<Vec<WorkloadDay>, String> {
     let pool = repo.pool();
-    let start = NaiveDate::parse_from_str(&start_date, "%Y-%m-%d")
-        .map_err(|e| e.to_string())?;
-    let end = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d")
-        .map_err(|e| e.to_string())?;
+    let start = NaiveDate::parse_from_str(&start_date, "%Y-%m-%d").map_err(|e| e.to_string())?;
+    let end = NaiveDate::parse_from_str(&end_date, "%Y-%m-%d").map_err(|e| e.to_string())?;
 
     let mut days = Vec::new();
     let mut current = start;
     while current <= end {
-        let day_start = current.and_hms_opt(0, 0, 0).expect("invalid time 0:0:0").and_utc();
-        let day_end = current.and_hms_opt(23, 59, 59).expect("invalid time 23:59:59").and_utc();
+        let day_start = current
+            .and_hms_opt(0, 0, 0)
+            .expect("invalid time 0:0:0")
+            .and_utc();
+        let day_end = current
+            .and_hms_opt(23, 59, 59)
+            .expect("invalid time 23:59:59")
+            .and_utc();
 
         // Due items count (unsuspended learning items with due_date on this day)
         let due_count: i64 = sqlx::query_scalar(
@@ -513,7 +536,7 @@ pub async fn get_workload_data(
 
         // Reviewed count (review_results on this day)
         let reviewed_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM review_results WHERE timestamp >= ? AND timestamp <= ?"
+            "SELECT COUNT(*) FROM review_results WHERE timestamp >= ? AND timestamp <= ?",
         )
         .bind(day_start)
         .bind(day_end)
@@ -551,10 +574,15 @@ pub async fn get_workload_day_details(
     repo: State<'_, Repository>,
 ) -> Result<Vec<WorkloadDayDetail>, String> {
     let pool = repo.pool();
-    let target = NaiveDate::parse_from_str(&date, "%Y-%m-%d")
-        .map_err(|e| e.to_string())?;
-    let day_start = target.and_hms_opt(0, 0, 0).expect("invalid time 0:0:0").and_utc();
-    let day_end = target.and_hms_opt(23, 59, 59).expect("invalid time 23:59:59").and_utc();
+    let target = NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|e| e.to_string())?;
+    let day_start = target
+        .and_hms_opt(0, 0, 0)
+        .expect("invalid time 0:0:0")
+        .and_utc();
+    let day_end = target
+        .and_hms_opt(23, 59, 59)
+        .expect("invalid time 23:59:59")
+        .and_utc();
     let now = Utc::now();
 
     if target < now.date_naive() {
@@ -574,7 +602,7 @@ pub async fn get_workload_day_details(
             LEFT JOIN documents d ON li.document_id = d.id
             WHERE rr.timestamp >= ? AND rr.timestamp <= ?
             ORDER BY rr.timestamp
-            "#
+            "#,
         )
         .bind(day_start)
         .bind(day_end)
@@ -611,7 +639,7 @@ pub async fn get_workload_day_details(
             LEFT JOIN documents d ON li.document_id = d.id
             WHERE li.due_date >= ? AND li.due_date <= ? AND li.is_suspended = false
             ORDER BY li.due_date
-            "#
+            "#,
         )
         .bind(day_start)
         .bind(day_end)

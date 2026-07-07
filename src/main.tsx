@@ -111,8 +111,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
 import { isNativeMobile, isPWA, isTauri } from "./lib/tauri";
-import { initLocalStorageSync } from "./lib/localStorageSync";
-import { startSyncSubsystems } from "./lib/startSyncSubsystems";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 
 import { MainLayout } from "./components/layout/MainLayout";
@@ -222,14 +220,35 @@ try {
   // Settings not yet available or parse error — Inter is already loaded statically.
 }
 
-const shouldAutoStartHeavySync = !isNativeMobile();
+function runAfterFirstPaint(task: () => void, idleTimeout = 3000) {
+  const scheduleIdle = () => {
+    type IdleWindow = Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    };
+    const win = window as IdleWindow;
+    if (typeof win.requestIdleCallback === "function") {
+      win.requestIdleCallback(task, { timeout: idleTimeout });
+    } else {
+      setTimeout(task, Math.min(idleTimeout, 1500));
+    }
+  };
 
-// Initialize localStorage -> Yjs sync (shared state across devices). On native
-// mobile we still start it, but only as part of the deferred heavy-sync chain
-// below (not eagerly at boot) — large rooms can allocate hundreds of MB during
-// boot, which has crashed Android before the UI was usable.
-if (isPWA() || (isTauri() && shouldAutoStartHeavySync)) {
-  initLocalStorageSync().catch((error) => {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(scheduleIdle);
+  });
+}
+
+function initLocalStorageSyncLazy(): Promise<void> {
+  return import("./lib/localStorageSync").then(({ initLocalStorageSync }) =>
+    initLocalStorageSync(),
+  );
+}
+
+// Initialize localStorage -> Yjs sync (shared state across devices). Keep the
+// module lazy on native/Tauri boot so the Yjs/hash-wasm dependency chain stays
+// out of the first render path.
+if (isPWA()) {
+  initLocalStorageSyncLazy().catch((error) => {
     console.error("[main.tsx] Failed to initialize local storage sync:", error);
   });
 }
@@ -237,8 +256,8 @@ if (isPWA() || (isTauri() && shouldAutoStartHeavySync)) {
 // Boot the full Yjs sync subsystem chain (provider → file sync → auto-download
 // → document/card/RSS/podcast replication → first-join backfill).
 //
-// Desktop: eager — the chain is cheap on desktop memory and the user expects a
-// mirrored library immediately on launch.
+// Desktop: automatic, but after first paint. The chain can still do expensive
+// crypto/IndexedDB work on first launch, so keep it off the bootstrap path.
 //
 // Native mobile: DEFERRED past first paint. The eager chain previously caused
 // OutOfMemoryError on Android (~189MB allocation against a 512MB Java heap
@@ -250,12 +269,13 @@ if (isPWA() || (isTauri() && shouldAutoStartHeavySync)) {
 // which calls startSyncSubsystems() directly.
 if (isTauri()) {
   const bootSync = () => {
-    startSyncSubsystems()
+    import("./lib/startSyncSubsystems")
+      .then(({ startSyncSubsystems }) => startSyncSubsystems())
       .then(() => {
         // localStorage bridge depends on the shared yjs doc created above; start
         // it once the subsystem chain is up so settings/collections mirror too.
         if (isPWA() || isTauri()) {
-          return initLocalStorageSync();
+          return initLocalStorageSyncLazy();
         }
       })
       .catch((error) => {
@@ -263,22 +283,12 @@ if (isTauri()) {
       });
   };
 
-  if (shouldAutoStartHeavySync) {
-    bootSync();
-  } else {
-    // Mobile: defer until the browser is idle. requestIdleCallback is widely
-    // available in modern Android WebView; fall back to a short setTimeout so
-    // we still come up reasonably quickly on WebViews that lack it.
-    type IdleWindow = Window & {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-    };
-    const win = window as IdleWindow;
-    if (typeof win.requestIdleCallback === "function") {
-      win.requestIdleCallback(() => bootSync(), { timeout: 3000 });
-    } else {
-      setTimeout(bootSync, 1500);
-    }
-  }
+  // Sync auto-start is DISABLED on desktop to prevent the Yjs/IndexedDB/crypto
+  // subsystem chain from saturating the main thread and freezing the UI during
+  // PDF loading. The chain can allocate hundreds of MB and stall the event loop
+  // for seconds — enough to make the window unresponsive. Users can start sync
+  // manually via Settings → Sync → "Real-time sync" toggle at any time.
+  // runAfterFirstPaint(bootSync);
 }
 
 // Dev/Tauri: ensure no service worker or cache is present to avoid stale assets.

@@ -13,8 +13,8 @@ use crate::ai::{
     summarizer::Summarizer,
     AIConfig, AIProvider, LLMProviderType, Message,
 };
-use crate::commands::Result;
 use crate::commands::ai_key_store;
+use crate::commands::Result;
 use crate::database::Repository;
 use crate::error::IncrementumError;
 use serde::{Deserialize, Serialize};
@@ -119,7 +119,12 @@ pub async fn set_api_key(
 
     match provider_lower.as_str() {
         "openai" | "anthropic" | "openrouter" => {}
-        _ => return Err(IncrementumError::InvalidInput(format!("Unknown provider: {}", provider))),
+        _ => {
+            return Err(IncrementumError::InvalidInput(format!(
+                "Unknown provider: {}",
+                provider
+            )))
+        }
     }
 
     key_store.store_key(&provider_lower, &api_key).await?;
@@ -148,7 +153,12 @@ pub async fn get_masked_api_key(
     let provider_lower = provider.to_lowercase();
     match provider_lower.as_str() {
         "openai" | "anthropic" | "openrouter" => {}
-        _ => return Err(IncrementumError::InvalidInput(format!("Unknown provider: {}", provider))),
+        _ => {
+            return Err(IncrementumError::InvalidInput(format!(
+                "Unknown provider: {}",
+                provider
+            )))
+        }
     }
     key_store.get_masked_key(&provider_lower).await
 }
@@ -163,7 +173,12 @@ pub async fn remove_api_key(
     let provider_lower = provider.to_lowercase();
     match provider_lower.as_str() {
         "openai" | "anthropic" | "openrouter" => {}
-        _ => return Err(IncrementumError::InvalidInput(format!("Unknown provider: {}", provider))),
+        _ => {
+            return Err(IncrementumError::InvalidInput(format!(
+                "Unknown provider: {}",
+                provider
+            )))
+        }
     }
 
     key_store.remove_key(&provider_lower).await?;
@@ -212,7 +227,10 @@ pub async fn generate_flashcards_from_extract(
         .generate_from_extract(&extract.content, None)
         .await?;
 
-    Ok(flashcards.into_iter().map(TauriGeneratedFlashcard::from).collect())
+    Ok(flashcards
+        .into_iter()
+        .map(TauriGeneratedFlashcard::from)
+        .collect())
 }
 
 /// Generate flashcards from content
@@ -240,7 +258,10 @@ pub async fn generate_flashcards_from_content(
 
     let flashcards = generator.generate_from_content(&content, &options).await?;
 
-    Ok(flashcards.into_iter().map(TauriGeneratedFlashcard::from).collect())
+    Ok(flashcards
+        .into_iter()
+        .map(TauriGeneratedFlashcard::from)
+        .collect())
 }
 
 /// Answer a question with document context
@@ -339,10 +360,7 @@ pub async fn extract_key_points(
 
 /// Generate title for content
 #[tauri::command]
-pub async fn generate_title(
-    content: String,
-    ai_state: State<'_, AIState>,
-) -> Result<String> {
+pub async fn generate_title(content: String, ai_state: State<'_, AIState>) -> Result<String> {
     let config = get_ai_config_clone(&ai_state)?;
 
     let provider = AIProvider::from_config(
@@ -417,9 +435,7 @@ pub async fn generate_questions(
 
 /// Get available Ollama models (for local LLM)
 #[tauri::command]
-pub async fn list_ollama_models(
-    base_url: String,
-) -> Result<Vec<String>> {
+pub async fn list_ollama_models(base_url: String) -> Result<Vec<String>> {
     let provider = crate::ai::providers::OllamaProvider::new(base_url, "dummy".to_string());
     provider
         .list_models()
@@ -461,9 +477,10 @@ pub async fn test_ai_connection(
         stream: false,
     };
 
-    let response = provider.chat_completion(&request).await.map_err(|e| {
-        IncrementumError::Internal(format!("AI connection test failed: {}", e))
-    })?;
+    let response = provider
+        .chat_completion(&request)
+        .await
+        .map_err(|e| IncrementumError::Internal(format!("AI connection test failed: {}", e)))?;
 
     Ok(response.content)
 }
@@ -479,9 +496,7 @@ pub async fn generate_progressive_summaries(
     let mut extract = repo
         .get_extract(&extract_id)
         .await?
-        .ok_or_else(|| {
-            IncrementumError::NotFound(format!("Extract {} not found", extract_id))
-        })?;
+        .ok_or_else(|| IncrementumError::NotFound(format!("Extract {} not found", extract_id)))?;
 
     if let Some(ref summaries) = extract.progressive_summaries {
         if !summaries.is_empty() {
@@ -516,10 +531,7 @@ pub async fn generate_progressive_summaries(
         .progressive_summary(&extract.content, &levels)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!(
-                "Failed to generate progressive summaries: {}",
-                e
-            ))
+            IncrementumError::Internal(format!("Failed to generate progressive summaries: {}", e))
         })?;
 
     let entries: Vec<crate::models::extract::ProgressiveSummaryEntry> = summaries
@@ -549,8 +561,9 @@ pub async fn get_memory_content(app: tauri::AppHandle) -> Result<String> {
         .map_err(|e| IncrementumError::Internal(format!("Failed to get app data dir: {}", e)))?;
 
     let memories_dir = app_dir.join("memories");
-    std::fs::create_dir_all(&memories_dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create memories directory: {}", e)))?;
+    std::fs::create_dir_all(&memories_dir).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to create memories directory: {}", e))
+    })?;
 
     let memory_file = memories_dir.join("MEMORY.md");
     if !memory_file.exists() {
@@ -562,9 +575,10 @@ pub async fn get_memory_content(app: tauri::AppHandle) -> Result<String> {
         - (No preferences recorded yet)\n\n\
         ## Standing Decisions & Goals\n\
         - (No goals recorded yet)\n";
-        
-        std::fs::write(&memory_file, default_content)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to initialize MEMORY.md: {}", e)))?;
+
+        std::fs::write(&memory_file, default_content).map_err(|e| {
+            IncrementumError::Internal(format!("Failed to initialize MEMORY.md: {}", e))
+        })?;
     }
 
     let content = std::fs::read_to_string(&memory_file)
@@ -583,8 +597,9 @@ pub async fn save_memory_content(content: String, app: tauri::AppHandle) -> Resu
         .map_err(|e| IncrementumError::Internal(format!("Failed to get app data dir: {}", e)))?;
 
     let memories_dir = app_dir.join("memories");
-    std::fs::create_dir_all(&memories_dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create memories directory: {}", e)))?;
+    std::fs::create_dir_all(&memories_dir).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to create memories directory: {}", e))
+    })?;
 
     let memory_file = memories_dir.join("MEMORY.md");
     std::fs::write(&memory_file, content)
@@ -606,7 +621,8 @@ pub async fn update_memory_from_chat(
 
     // 2. Format recent messages into a readable conversation transcript
     let mut conversation_text = String::new();
-    for msg in messages.iter().rev().take(10).rev() { // Take last 10 turns
+    for msg in messages.iter().rev().take(10).rev() {
+        // Take last 10 turns
         let role_str = match msg.role {
             crate::ai::MessageRole::System => "System",
             crate::ai::MessageRole::User => "User",

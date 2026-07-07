@@ -3,13 +3,13 @@
 //! Provides offline TTS using the Pocket TTS library from Kyutai Labs.
 //! https://github.com/kyutai-labs/pocket-tts
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::ShellExt;
 use tokio::sync::Mutex;
 
 /// Pocket TTS voice identifiers
@@ -107,9 +107,8 @@ pub async fn check_pocket_tts_available(app_handle: &AppHandle) -> Result<Pocket
         Ok(cmd) => {
             let home = std::env::var("HOME").unwrap_or_default();
             let user = std::env::var("USER").unwrap_or_default();
-            let path = std::env::var("PATH").unwrap_or_else(|_| {
-                "/usr/local/bin:/usr/bin:/bin".to_string()
-            });
+            let path = std::env::var("PATH")
+                .unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".to_string());
             let (mut rx, _) = cmd
                 .env_clear()
                 .env("HOME", &home)
@@ -138,11 +137,14 @@ pub async fn check_pocket_tts_available(app_handle: &AppHandle) -> Result<Pocket
 
             let error = if available {
                 None
-            } else if stderr_buf.contains("ModuleNotFoundError") 
+            } else if stderr_buf.contains("ModuleNotFoundError")
                 || stderr_buf.contains("No module named 'pocket_tts'")
                 || stderr_buf.contains("pocket_tts is not installed")
             {
-                Some("pocket_tts is not installed. Install with: uv tool install pocket-tts".to_string())
+                Some(
+                    "pocket_tts is not installed. Install with: uv tool install pocket-tts"
+                        .to_string(),
+                )
             } else {
                 Some("Pocket TTS sidecar not found".to_string())
             };
@@ -154,14 +156,12 @@ pub async fn check_pocket_tts_available(app_handle: &AppHandle) -> Result<Pocket
                 error,
             })
         }
-        Err(e) => {
-            Ok(PocketTTSStatus {
-                available: false,
-                downloading: false,
-                download_progress: None,
-                error: Some(format!("Sidecar not available: {}", e)),
-            })
-        }
+        Err(e) => Ok(PocketTTSStatus {
+            available: false,
+            downloading: false,
+            download_progress: None,
+            error: Some(format!("Sidecar not available: {}", e)),
+        }),
     }
 }
 
@@ -172,34 +172,35 @@ pub async fn generate_pocket_speech(
     voice: String,
     speed: f64,
 ) -> Result<PocketTTSResult> {
-    let voice_id = PocketVoice::from_str(&voice)
-        .ok_or_else(|| anyhow!("Invalid voice: {}", voice))?;
+    let voice_id =
+        PocketVoice::from_str(&voice).ok_or_else(|| anyhow!("Invalid voice: {}", voice))?;
 
     let cache_dir = app_handle.path().app_cache_dir()?;
     std::fs::create_dir_all(&cache_dir)?;
     let output_path = cache_dir.join(format!("pocket-tts-{}.wav", uuid::Uuid::new_v4()));
 
-    let output_str = output_path.to_str()
+    let output_str = output_path
+        .to_str()
         .ok_or_else(|| anyhow!("Invalid output path"))?;
 
     let shell = app_handle.shell();
-    let cmd = shell.sidecar("pocket-tts")
+    let cmd = shell
+        .sidecar("pocket-tts")
         .map_err(|e| anyhow!("Pocket TTS sidecar not found: {}", e))?;
 
     // For long text, write to a temp file and pass --text-file instead of --text
     // to avoid OS ARG_MAX limits (especially inside AppImages).
     let text_file = cache_dir.join(format!("pocket-tts-input-{}.txt", uuid::Uuid::new_v4()));
     std::fs::write(&text_file, &text)?;
-    let text_file_str = text_file.to_str()
+    let text_file_str = text_file
+        .to_str()
         .ok_or_else(|| anyhow!("Invalid text file path"))?;
 
     // Clear the environment to prevent AppImage LD_LIBRARY_PATH/LD_PRELOAD
     // from corrupting the sidecar's child processes (symbol lookup errors).
     let home = std::env::var("HOME").unwrap_or_default();
     let user = std::env::var("USER").unwrap_or_default();
-    let path = std::env::var("PATH").unwrap_or_else(|_| {
-        "/usr/local/bin:/usr/bin:/bin".to_string()
-    });
+    let path = std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".to_string());
     let xdg_cache = std::env::var("XDG_CACHE_HOME").ok();
     let xdg_config = std::env::var("XDG_CONFIG_HOME").ok();
     let xdg_data = std::env::var("XDG_DATA_HOME").ok();
@@ -210,17 +211,28 @@ pub async fn generate_pocket_speech(
         .env("HOME", &home)
         .env("USER", &user)
         .env("PATH", &path);
-    if let Some(ref v) = xdg_cache { cmd = cmd.env("XDG_CACHE_HOME", v); }
-    if let Some(ref v) = xdg_config { cmd = cmd.env("XDG_CONFIG_HOME", v); }
-    if let Some(ref v) = xdg_data { cmd = cmd.env("XDG_DATA_HOME", v); }
-    if let Some(ref v) = display { cmd = cmd.env("DISPLAY", v); }
+    if let Some(ref v) = xdg_cache {
+        cmd = cmd.env("XDG_CACHE_HOME", v);
+    }
+    if let Some(ref v) = xdg_config {
+        cmd = cmd.env("XDG_CONFIG_HOME", v);
+    }
+    if let Some(ref v) = xdg_data {
+        cmd = cmd.env("XDG_DATA_HOME", v);
+    }
+    if let Some(ref v) = display {
+        cmd = cmd.env("DISPLAY", v);
+    }
 
     let (mut rx, _) = cmd
         .args([
             "generate",
-            "--text-file", text_file_str,
-            "--voice", voice_id.as_str(),
-            "--output-path", output_str,
+            "--text-file",
+            text_file_str,
+            "--voice",
+            voice_id.as_str(),
+            "--output-path",
+            output_str,
         ])
         .spawn()?;
 
@@ -245,7 +257,10 @@ pub async fn generate_pocket_speech(
     }
 
     if !success {
-        return Err(anyhow!("Pocket TTS synthesis failed: {}", stderr_buf.trim()));
+        return Err(anyhow!(
+            "Pocket TTS synthesis failed: {}",
+            stderr_buf.trim()
+        ));
     }
 
     // Read the generated audio file
@@ -254,7 +269,8 @@ pub async fn generate_pocket_speech(
     }
 
     let audio_data = std::fs::read(&output_path)?;
-    let audio_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &audio_data);
+    let audio_base64 =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &audio_data);
 
     let _ = std::fs::remove_file(&output_path);
 

@@ -1,12 +1,12 @@
-use serde::{Serialize, Deserialize};
-use std::path::{Path, PathBuf};
-use std::fs;
-use anyhow::{Result, anyhow};
-use reqwest::Client;
-use sha2::{Sha256, Digest};
+use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::fs;
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
-use tauri::{AppHandle, Manager, Emitter};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ModelProfile {
@@ -90,10 +90,12 @@ impl ModelManager {
         let sidecar_bin_dir = {
             let dev_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin");
             let dev_has_sidecars = std::fs::read_dir(&dev_dir)
-                .map(|entries| entries.filter_map(|e| e.ok()).any(|e| {
-                    e.file_name().to_string_lossy().starts_with("whisper-")
-                        || e.file_name().to_string_lossy().starts_with("sherpa-onnx-")
-                }))
+                .map(|entries| {
+                    entries.filter_map(|e| e.ok()).any(|e| {
+                        e.file_name().to_string_lossy().starts_with("whisper-")
+                            || e.file_name().to_string_lossy().starts_with("sherpa-onnx-")
+                    })
+                })
                 .unwrap_or(false);
             if dev_dir.is_dir() && dev_has_sidecars {
                 Some(dev_dir)
@@ -162,15 +164,23 @@ impl ModelManager {
             },
         ];
 
-        Ok(Self { profiles, models_dir, parakeet_models_dir, sidecar_bin_dir })
+        Ok(Self {
+            profiles,
+            models_dir,
+            parakeet_models_dir,
+            sidecar_bin_dir,
+        })
     }
 
     pub fn list_profiles(&self) -> Vec<ModelProfile> {
-        self.profiles.iter().map(|profile| {
-            let mut updated = profile.clone();
-            updated.installed = self.is_model_installed(&profile.id);
-            updated
-        }).collect()
+        self.profiles
+            .iter()
+            .map(|profile| {
+                let mut updated = profile.clone();
+                updated.installed = self.is_model_installed(&profile.id);
+                updated
+            })
+            .collect()
     }
 
     /// True for any model that runs through the sherpa-onnx sidecar (Parakeet,
@@ -183,7 +193,11 @@ impl ModelManager {
 
     /// Returns the sidecar binary name ("whisper" or "sherpa-onnx") a model needs.
     fn sidecar_for_model(id: &str) -> &'static str {
-        if Self::is_sherpa_model(id) { "sherpa-onnx" } else { "whisper" }
+        if Self::is_sherpa_model(id) {
+            "sherpa-onnx"
+        } else {
+            "whisper"
+        }
     }
 
     /// Resolve the on-disk path of a named sidecar, searching every layout Tauri
@@ -205,10 +219,15 @@ impl ModelManager {
         }
         // Dev source dir (CARGO_MANIFEST_DIR baked at compile time).
         candidates.push(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin").join(format!("{}-{}", name, triple))
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("bin")
+                .join(format!("{}-{}", name, triple)),
         );
         // 3: bundled externalBin — next to the main exe, bare name (no triple).
-        if let Some(exe_dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
+        if let Some(exe_dir) = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+        {
             if cfg!(windows) {
                 candidates.push(exe_dir.join(format!("{}.exe", name)));
             } else {
@@ -227,7 +246,9 @@ impl ModelManager {
             Some(p) => p,
             None => return false,
         };
-        std::fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false)
+        std::fs::metadata(&path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
     }
 
     fn get_parakeet_model_dir(&self, id: &str) -> PathBuf {
@@ -263,7 +284,10 @@ impl ModelManager {
             return self.download_sherpa_model(id, app_handle).await;
         }
 
-        let profile = self.profiles.iter().find(|p| p.id == id)
+        let profile = self
+            .profiles
+            .iter()
+            .find(|p| p.id == id)
             .ok_or_else(|| anyhow!("Model profile not found"))?;
 
         let dest_path = self.get_model_path(id);
@@ -300,12 +324,15 @@ impl ModelManager {
             downloaded += chunk.len() as u64;
 
             let progress = (downloaded as f32 / total_size as f32) * 100.0;
-            app_handle.emit("transcription://download-progress", ModelStatus {
-                id: id.to_string(),
-                installed: false,
-                downloading: true,
-                progress,
-            })?;
+            app_handle.emit(
+                "transcription://download-progress",
+                ModelStatus {
+                    id: id.to_string(),
+                    installed: false,
+                    downloading: true,
+                    progress,
+                },
+            )?;
         }
 
         file.flush().await?;
@@ -355,7 +382,10 @@ impl ModelManager {
     /// system `tar` (universally available on macOS/Linux; Windows 10+ ships tar
     /// in System32) to extract it, then move the model files into `<id>/`.
     async fn download_sherpa_model(&self, id: &str, app_handle: AppHandle) -> Result<()> {
-        let profile = self.profiles.iter().find(|p| p.id == id)
+        let profile = self
+            .profiles
+            .iter()
+            .find(|p| p.id == id)
             .ok_or_else(|| anyhow!("Model profile not found for {}", id))?;
 
         let dest_dir = self.get_parakeet_model_dir(id);
@@ -386,12 +416,15 @@ impl ModelManager {
             hasher.update(&chunk);
             downloaded += chunk.len() as u64;
             let progress = (downloaded as f32 / total_size.max(1) as f32) * 100.0;
-            app_handle.emit("transcription://download-progress", ModelStatus {
-                id: id.to_string(),
-                installed: false,
-                downloading: true,
-                progress,
-            })?;
+            app_handle.emit(
+                "transcription://download-progress",
+                ModelStatus {
+                    id: id.to_string(),
+                    installed: false,
+                    downloading: true,
+                    progress,
+                },
+            )?;
         }
         file.flush().await?;
         drop(file);
@@ -407,12 +440,17 @@ impl ModelManager {
 
         let tar_output = std::process::Command::new("tar")
             .args(["-xjf", temp_archive.to_string_lossy().as_ref()])
-            .arg("-C").arg(&extract_dir)
+            .arg("-C")
+            .arg(&extract_dir)
             .output()
             .map_err(|e| {
                 let _ = fs::remove_file(&temp_archive);
                 let _ = fs::remove_dir_all(&extract_dir);
-                anyhow!("Failed to run tar to extract {}: {}. Ensure `tar` is on PATH.", id, e)
+                anyhow!(
+                    "Failed to run tar to extract {}: {}. Ensure `tar` is on PATH.",
+                    id,
+                    e
+                )
             })?;
 
         let _ = fs::remove_file(&temp_archive);
@@ -420,7 +458,11 @@ impl ModelManager {
         if !tar_output.status.success() {
             let stderr = String::from_utf8_lossy(&tar_output.stderr);
             let _ = fs::remove_dir_all(&extract_dir);
-            return Err(anyhow!("tar extraction failed for {}: {}", id, stderr.trim()));
+            return Err(anyhow!(
+                "tar extraction failed for {}: {}",
+                id,
+                stderr.trim()
+            ));
         }
 
         // 3. Find the extracted top-level directory. Derive the expected name from
@@ -438,15 +480,21 @@ impl ModelManager {
             .filter_map(|e| e.ok())
             .map(|e| e.path())
             .find(|p| {
-                if !p.is_dir() { return false; }
+                if !p.is_dir() {
+                    return false;
+                }
                 if let Some(ref expected) = expected_root_name {
-                    return p.file_name().map(|n| n == expected.as_str()).unwrap_or(false);
+                    return p
+                        .file_name()
+                        .map(|n| n == expected.as_str())
+                        .unwrap_or(false);
                 }
                 false
             })
             .or_else(|| {
                 // Fallback: first dir that actually contains model.int8.onnx.
-                fs::read_dir(&extract_dir).ok()?
+                fs::read_dir(&extract_dir)
+                    .ok()?
                     .filter_map(|e| e.ok())
                     .map(|e| e.path())
                     .find(|p| p.is_dir() && p.join("model.int8.onnx").exists())
@@ -456,7 +504,10 @@ impl ModelManager {
             Some(r) => r,
             None => {
                 let _ = fs::remove_dir_all(&extract_dir);
-                return Err(anyhow!("Extracted tarball for {} did not contain a model dir", id));
+                return Err(anyhow!(
+                    "Extracted tarball for {} did not contain a model dir",
+                    id
+                ));
             }
         };
 
@@ -465,7 +516,7 @@ impl ModelManager {
             let src = root.join(name);
             if src.exists() {
                 fs::rename(&src, dest_dir.join(name))
-                    .or_else(|_| { fs::copy(&src, dest_dir.join(name)).map(|_| ()) })?;
+                    .or_else(|_| fs::copy(&src, dest_dir.join(name)).map(|_| ()))?;
             }
         }
 
@@ -473,7 +524,10 @@ impl ModelManager {
 
         // Final verification.
         if !dest_dir.join("model.int8.onnx").exists() || !dest_dir.join("tokens.txt").exists() {
-            return Err(anyhow!("Model extracted but model.int8.onnx/tokens.txt are missing for {}", id));
+            return Err(anyhow!(
+                "Model extracted but model.int8.onnx/tokens.txt are missing for {}",
+                id
+            ));
         }
 
         app_handle.emit("transcription://download-complete", id.to_string())?;

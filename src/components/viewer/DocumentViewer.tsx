@@ -96,8 +96,10 @@ import { useVimModeStore } from "../../stores/vimModeStore";
 import { buildSelectionContext } from "../../utils/vim/selectionContext";
 import { extractYouTubeVideoId } from "../../utils/youtubeEmbed";
 import {
+  buildPdfSelectionExtractPayload,
   getPdfExtractBlockReason,
   isValidPdfSelection,
+  canUsePdfSelectionAction,
   type PdfTextSelectionCapability,
 } from "./pdfTextSelection";
 import { useI18n } from "../../lib/i18n";
@@ -3528,15 +3530,19 @@ export function DocumentViewer({
 
   const handlePdfHighlightSelection = useCallback((color: string, text: string, context: PdfSelectionContext) => {
     const extractColor = toExtractDialogColor(color);
-    createInstantExtract({
+    const payload = buildPdfSelectionExtractPayload({
       documentId,
-      text,
-      color: extractColor,
-      pageNumber: context.pages[0]?.pageNumber,
+      selectedText: text,
       selectionContext: context,
+      color: extractColor,
     });
+    if (!payload) {
+      toast.info(t("viewer.selectPdfTextFirst"), t("viewer.dragAcrossPdfText"));
+      return;
+    }
+    createInstantExtract(payload);
     dismissSelectionAfterExtract();
-  }, [documentId, createInstantExtract, dismissSelectionAfterExtract]);
+  }, [documentId, createInstantExtract, dismissSelectionAfterExtract, toast, t]);
 
   // Mobile PWA: Create extract from mobile selection (instant, no dialog)
   const handleMobileExtract = () => {
@@ -5899,6 +5905,10 @@ export function DocumentViewer({
             persistedHighlights={persistedDocumentHighlights.pdfHighlights}
             onHighlightSelection={handlePdfHighlightSelection}
             onHighlightSelectionWithDialog={(color, text, context) => {
+              if (!canUsePdfSelectionAction({ selectedText: text, selectionContext: context })) {
+                toast.info(t("viewer.selectPdfTextFirst"), t("viewer.dragAcrossPdfText"));
+                return;
+              }
               setSelectedText(text);
               lastSelectionRef.current = text;
               setSelectionContext(context);

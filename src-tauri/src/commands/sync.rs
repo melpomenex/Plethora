@@ -20,8 +20,8 @@ use uuid::Uuid;
 
 use crate::commands::Result;
 use crate::database::Repository;
-use crate::models::{LearningItem, Extract};
 use crate::models::collection::Collection;
+use crate::models::{Extract, LearningItem};
 
 /// Wire shape for an RSS article's synced state (field-level LWW). Only the
 /// load-bearing user state is carried — `is_read`/`is_queued` plus their
@@ -100,13 +100,11 @@ pub async fn get_or_create_sync_device_id(repo: State<'_, Repository>) -> Result
     // Create. Use UPSERT so two concurrent first-calls don't race.
     let value = Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
-    sqlx::query(
-        "INSERT OR IGNORE INTO sync_device_id (id, value, created_at) VALUES (1, ?1, ?2)",
-    )
-    .bind(&value)
-    .bind(&now)
-    .execute(repo.pool())
-    .await?;
+    sqlx::query("INSERT OR IGNORE INTO sync_device_id (id, value, created_at) VALUES (1, ?1, ?2)")
+        .bind(&value)
+        .bind(&now)
+        .execute(repo.pool())
+        .await?;
 
     // Re-read in case another call won the race (its value is canonical).
     let canonical: Option<(String,)> =
@@ -225,10 +223,7 @@ pub async fn upsert_synced_learning_item(
 /// freshly-installed device also learns the card is gone rather than re-adding
 /// it from a stale local replica.
 #[tauri::command]
-pub async fn delete_synced_learning_item(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn delete_synced_learning_item(id: String, repo: State<'_, Repository>) -> Result<()> {
     sqlx::query("DELETE FROM learning_items WHERE id = ?1")
         .bind(&id)
         .execute(repo.pool())
@@ -708,7 +703,7 @@ pub async fn upsert_synced_podcast_episode(
             sqlx::query(
                 r#"INSERT INTO podcast_transcript_segments
                    (episode_id, segment_index, start_ms, end_ms, text, word_timings_json)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
             )
             .bind(&id)
             .bind(index as i32)
@@ -836,10 +831,7 @@ pub async fn upsert_synced_extract(
 
 /// Delete an extract received from another device via sync.
 #[tauri::command]
-pub async fn delete_synced_extract(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn delete_synced_extract(id: String, repo: State<'_, Repository>) -> Result<()> {
     repo.delete_extract(&id).await?;
     Ok(())
 }
@@ -868,10 +860,7 @@ pub async fn upsert_synced_collection(
 
 /// Delete a collection received from another device via sync.
 #[tauri::command]
-pub async fn delete_synced_collection(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn delete_synced_collection(id: String, repo: State<'_, Repository>) -> Result<()> {
     repo.delete_collection(&id).await?;
     Ok(())
 }
@@ -885,4 +874,3 @@ pub async fn get_synced_collection(
     let row = repo.get_collection(&id).await?;
     Ok(row)
 }
-

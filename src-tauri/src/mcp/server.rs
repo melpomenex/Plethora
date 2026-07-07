@@ -1,9 +1,9 @@
-use super::types::*;
 use super::tools::MCPToolRegistry;
+use super::types::*;
+use crate::database::Repository;
 use serde_json::json;
 use std::io::{self, BufRead, BufReader, Write};
 use std::sync::Arc;
-use crate::database::Repository;
 
 pub struct MCPServer {
     info: MCPServerInfo,
@@ -95,7 +95,10 @@ impl MCPServer {
     }
 
     /// Handle initialize request
-    fn handle_initialize(&self, _params: Option<&serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_initialize(
+        &self,
+        _params: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         Ok(json!({
             "protocolVersion": self.info.protocol_version,
             "capabilities": self.capabilities,
@@ -120,7 +123,10 @@ impl MCPServer {
     }
 
     /// Handle tools/call request
-    fn handle_tools_call(&self, params: Option<&serde_json::Value>) -> Result<serde_json::Value, JsonRpcError> {
+    fn handle_tools_call(
+        &self,
+        params: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value, JsonRpcError> {
         let params = params.ok_or(JsonRpcError::invalid_params())?;
         let name = params["name"]
             .as_str()

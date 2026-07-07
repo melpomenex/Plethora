@@ -1,50 +1,53 @@
 //! Incrementum Tauri application
 #![allow(dead_code, private_interfaces, unused)]
 
-mod error;
-mod models;
-mod database;
-mod services;
-mod commands;
-mod processor;
-mod generator;
-mod podcast;
-mod algorithms;
-mod tas;
 mod ai;
+mod algorithms;
 mod anki;
-mod study_json_import;
-mod kindle_clippings;
-mod supermemo_import;
-mod youtube;
-mod twitter;
-mod integrations;
-mod ocr;
-mod segmentation;
-mod notifications;
-mod mcp;
+mod backup;
+mod battery;
+mod browser_sync_server;
 mod cloud;
 mod cloud_sync;
-mod backup;
-mod scheduler;
+mod commands;
+mod database;
 mod demo;
-mod browser_sync_server;
-mod transcription;
-mod utils;
+mod error;
+mod generator;
+mod integrations;
+mod kindle_clippings;
+mod mcp;
+mod models;
 mod notebooklm;
+mod notifications;
+mod ocr;
 mod pocket_tts;
-mod battery;
+mod podcast;
+mod processor;
+mod scheduler;
+mod segmentation;
+mod services;
+mod study_json_import;
+mod supermemo_import;
+mod tas;
+mod transcription;
+mod twitter;
+mod utils;
+mod youtube;
 // `screenshot` requires the `xcap` crate, which only has a backend on desktop
 // (see the target-specific dependency in Cargo.toml). On android/ios the
 // `screenshot` cargo feature is a no-op and the module is excluded entirely.
-#[cfg(all(feature = "screenshot", not(any(target_os = "android", target_os = "ios"))))]
+#[cfg(all(
+    feature = "screenshot",
+    not(any(target_os = "android", target_os = "ios"))
+))]
 mod screenshot;
 
+mod media_server;
+mod security;
 #[cfg(test)]
 mod security_tests;
-mod security;
 mod sponsorblock;
-mod media_server;
 
 use anyhow::Context;
 use database::Database;
@@ -189,8 +192,8 @@ async fn download_update_apk(
     let cache_dir = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     let apk_path = cache_dir.join("latest_update.apk");
 
-    let mut file = File::create(&apk_path)
-        .map_err(|e| format!("Failed to create local update file: {e}"))?;
+    let mut file =
+        File::create(&apk_path).map_err(|e| format!("Failed to create local update file: {e}"))?;
 
     let mut downloaded: u64 = 0;
     let mut stream = res.bytes_stream();
@@ -208,7 +211,6 @@ async fn download_update_apk(
 
     Ok(apk_path.to_string_lossy().to_string())
 }
-
 
 /// Consume and return any pending one-shot startup notice (e.g. "your database
 /// was reset due to corruption"). Returns `null` when nothing is pending. The
@@ -261,8 +263,17 @@ async fn restore_local_db_backup(
 #[cfg(target_os = "macos")]
 fn apply_platform_vibrancy(window: &tauri::WebviewWindow, theme_id: &str) -> bool {
     use window_vibrancy::{apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial};
-    if theme_id == "liquid-glass" || theme_id == "amber-liquid-glass" || theme_id == "rose-liquid-glass" {
-        apply_vibrancy(window, NSVisualEffectMaterial::UnderWindowBackground, None, None).is_ok()
+    if theme_id == "liquid-glass"
+        || theme_id == "amber-liquid-glass"
+        || theme_id == "rose-liquid-glass"
+    {
+        apply_vibrancy(
+            window,
+            NSVisualEffectMaterial::UnderWindowBackground,
+            None,
+            None,
+        )
+        .is_ok()
     } else {
         let _ = clear_vibrancy(window);
         false
@@ -271,8 +282,11 @@ fn apply_platform_vibrancy(window: &tauri::WebviewWindow, theme_id: &str) -> boo
 
 #[cfg(target_os = "windows")]
 fn apply_platform_vibrancy(window: &tauri::WebviewWindow, theme_id: &str) -> bool {
-    use window_vibrancy::{apply_mica, apply_acrylic, clear_mica, clear_acrylic};
-    if theme_id == "liquid-glass" || theme_id == "amber-liquid-glass" || theme_id == "rose-liquid-glass" {
+    use window_vibrancy::{apply_acrylic, apply_mica, clear_acrylic, clear_mica};
+    if theme_id == "liquid-glass"
+        || theme_id == "amber-liquid-glass"
+        || theme_id == "rose-liquid-glass"
+    {
         if apply_mica(window, None).is_ok() {
             true
         } else {
@@ -295,7 +309,6 @@ fn apply_platform_vibrancy(_window: &tauri::WebviewWindow, _theme_id: &str) -> b
 fn apply_theme_vibrancy(window: tauri::WebviewWindow, theme_id: String) -> bool {
     apply_platform_vibrancy(&window, &theme_id)
 }
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -409,9 +422,7 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_process::init());
     }
 
-    builder = builder
-        .plugin(tauri_plugin_notification::init())
-        ;
+    builder = builder.plugin(tauri_plugin_notification::init());
 
     // Desktop release builds serve the frontend over http://localhost via the
     // tauri-plugin-localhost plugin (a desktop-only dependency). This sidesteps
@@ -420,7 +431,10 @@ pub fn run() {
     // plugin is absent from the dependency graph and the mobile build passes
     // --features custom-protocol, so Tauri serves the bundled frontendDist via
     // tauri:// instead — the mobile WebView can't reach the loopback server.
-    #[cfg(all(not(debug_assertions), not(any(target_os = "android", target_os = "ios"))))]
+    #[cfg(all(
+        not(debug_assertions),
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
     {
         builder = builder.plugin(tauri_plugin_localhost::Builder::new(LOCALHOST_PORT).build());
     }
@@ -436,7 +450,10 @@ pub fn run() {
     // / restored off-screen after a monitor disconnect) that can render the
     // whole window invisible. tauri.conf.json sets `center: true`, so with
     // POSITION disabled the window re-centers safely each launch.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[cfg(all(
+        not(debug_assertions),
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
     {
         builder = builder.plugin(
             tauri_plugin_window_state::Builder::default()
@@ -450,69 +467,83 @@ pub fn run() {
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     {
-        builder = builder.menu(|app| {
-            use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-            let mut menu = Menu::new(app)?;
+        builder = builder
+            .menu(|app| {
+                use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+                let mut menu = Menu::new(app)?;
 
-            #[cfg(target_os = "macos")]
-            {
-                use tauri::menu::Submenu;
-                let app_submenu = Submenu::with_items(
-                    app,
-                    "Incrementum",
-                    true,
-                    &[
-                        &PredefinedMenuItem::about(app, Some("About Incrementum"), None)?,
-                        &PredefinedMenuItem::separator(app)?,
-                        &PredefinedMenuItem::hide(app, Some("Hide Incrementum"))?,
-                        &PredefinedMenuItem::separator(app)?,
-                        &PredefinedMenuItem::quit(app, Some("Quit Incrementum"))?,
-                    ],
-                )?;
-                menu.append(&app_submenu)?;
+                #[cfg(target_os = "macos")]
+                {
+                    use tauri::menu::Submenu;
+                    let app_submenu = Submenu::with_items(
+                        app,
+                        "Incrementum",
+                        true,
+                        &[
+                            &PredefinedMenuItem::about(app, Some("About Incrementum"), None)?,
+                            &PredefinedMenuItem::separator(app)?,
+                            &PredefinedMenuItem::hide(app, Some("Hide Incrementum"))?,
+                            &PredefinedMenuItem::separator(app)?,
+                            &PredefinedMenuItem::quit(app, Some("Quit Incrementum"))?,
+                        ],
+                    )?;
+                    menu.append(&app_submenu)?;
 
-                // Put command palette accelerators in a normal application menu.
-                // NSApplication resolves these before WKWebView can swallow Cmd+K.
-                let edit_submenu = Submenu::with_items(
-                    app,
-                    "Edit",
-                    true,
-                    &[
-                        &MenuItem::with_id(app, "accel-k", "Command Palette", true, Some("Cmd+K"))?,
-                        &MenuItem::with_id(app, "accel-p", "Command Palette (P)", true, Some("Cmd+P"))?,
-                        &PredefinedMenuItem::separator(app)?,
-                        &PredefinedMenuItem::cut(app, None)?,
-                        &PredefinedMenuItem::copy(app, None)?,
-                        &PredefinedMenuItem::paste(app, None)?,
-                        &PredefinedMenuItem::select_all(app, None)?,
-                    ],
-                )?;
-                menu.append(&edit_submenu)?;
-            }
-
-            // Windows: no native menu bar — webview handles keyboard shortcuts directly.
-            #[cfg(target_os = "windows")]
-            {}
-
-            #[cfg(target_os = "linux")]
-            {}
-
-            Ok(menu)
-        }).on_menu_event(|app, event| {
-            let id = event.id.as_ref();
-            tracing::info!("[cmd+key] menu event fired: {}", id);
-
-            if !matches!(id, "accel-k" | "accel-p") {
-                return;
-            }
-
-            tracing::info!("[cmd+key] emitting command-palette-open to webview");
-            if app.get_webview_window("main").is_some() {
-                if let Err(e) = app.emit_to("main", "command-palette-open", id) {
-                    tracing::error!("[cmd+key] emit_to FAILED: {}", e);
+                    // Put command palette accelerators in a normal application menu.
+                    // NSApplication resolves these before WKWebView can swallow Cmd+K.
+                    let edit_submenu = Submenu::with_items(
+                        app,
+                        "Edit",
+                        true,
+                        &[
+                            &MenuItem::with_id(
+                                app,
+                                "accel-k",
+                                "Command Palette",
+                                true,
+                                Some("Cmd+K"),
+                            )?,
+                            &MenuItem::with_id(
+                                app,
+                                "accel-p",
+                                "Command Palette (P)",
+                                true,
+                                Some("Cmd+P"),
+                            )?,
+                            &PredefinedMenuItem::separator(app)?,
+                            &PredefinedMenuItem::cut(app, None)?,
+                            &PredefinedMenuItem::copy(app, None)?,
+                            &PredefinedMenuItem::paste(app, None)?,
+                            &PredefinedMenuItem::select_all(app, None)?,
+                        ],
+                    )?;
+                    menu.append(&edit_submenu)?;
                 }
-            }
-        });
+
+                // Windows: no native menu bar — webview handles keyboard shortcuts directly.
+                #[cfg(target_os = "windows")]
+                {}
+
+                #[cfg(target_os = "linux")]
+                {}
+
+                Ok(menu)
+            })
+            .on_menu_event(|app, event| {
+                let id = event.id.as_ref();
+                tracing::info!("[cmd+key] menu event fired: {}", id);
+
+                if !matches!(id, "accel-k" | "accel-p") {
+                    return;
+                }
+
+                tracing::info!("[cmd+key] emitting command-palette-open to webview");
+                if app.get_webview_window("main").is_some() {
+                    if let Err(e) = app.emit_to("main", "command-palette-open", id) {
+                        tracing::error!("[cmd+key] emit_to FAILED: {}", e);
+                    }
+                }
+            });
     }
 
     builder
@@ -531,10 +562,14 @@ pub fn run() {
                     .app_data_dir()
                     .context("Failed to get app data dir")?;
 
-                log_startup(&app_handle, &format!("startup: app data dir = {}", app_dir.display()));
+                log_startup(
+                    &app_handle,
+                    &format!("startup: app data dir = {}", app_dir.display()),
+                );
 
-                std::fs::create_dir_all(&app_dir)
-                    .with_context(|| format!("Failed to create app data dir: {}", app_dir.display()))?;
+                std::fs::create_dir_all(&app_dir).with_context(|| {
+                    format!("Failed to create app data dir: {}", app_dir.display())
+                })?;
 
                 log_startup(&app_handle, "startup: app data dir ready");
 
@@ -544,14 +579,20 @@ pub fn run() {
                     .await
                     .context("Failed to initialize database")?;
 
-                if matches!(db_outcome, database::connection::OpenOutcome::RecoveredAfterQuarantine) {
+                if matches!(
+                    db_outcome,
+                    database::connection::OpenOutcome::RecoveredAfterQuarantine
+                ) {
                     // The on-disk database was corrupt and got quarantined aside;
                     // a fresh empty database now lives at db_path. Tell the
                     // frontend so it can surface a "your database was reset —
                     // restore from a backup?" notice. The webview may not be
                     // listening yet, so also stash a pending notice the frontend
                     // can poll on boot (see `consume_startup_notice`).
-                    log_startup(&app_handle, "startup: database was CORRUPT — quarantined and recreated");
+                    log_startup(
+                        &app_handle,
+                        "startup: database was CORRUPT — quarantined and recreated",
+                    );
                     tracing::error!(
                         "Startup database failed integrity check; quarantined the \
                          corrupt file and created a fresh database. Local data was reset."
@@ -574,7 +615,9 @@ pub fn run() {
                                 tracing::info!("Found database auto-backup at: {}", p);
                                 startup_notice::set(
                                     &app_handle,
-                                    StartupNotice::AutoBackupFound { backup_path: p.to_string() },
+                                    StartupNotice::AutoBackupFound {
+                                        backup_path: p.to_string(),
+                                    },
                                 );
                                 break;
                             }
@@ -584,9 +627,7 @@ pub fn run() {
 
                 log_startup(&app_handle, "startup: database initialized");
 
-                db.migrate()
-                    .await
-                    .context("Failed to run migrations")?;
+                db.migrate().await.context("Failed to run migrations")?;
 
                 log_startup(&app_handle, "startup: migrations complete");
 
@@ -595,7 +636,14 @@ pub fn run() {
                 *state.db.lock().expect("app state mutex poisoned") = Some(db);
 
                 // Clone the pool for creating repositories before state is moved
-                let pool = state.db.lock().expect("app state mutex poisoned").as_ref().expect("db just set above").pool().clone();
+                let pool = state
+                    .db
+                    .lock()
+                    .expect("app state mutex poisoned")
+                    .as_ref()
+                    .expect("db just set above")
+                    .pool()
+                    .clone();
 
                 let repo = database::Repository::new(pool.clone());
 
@@ -666,7 +714,8 @@ pub fn run() {
                     for provider in &["openai", "anthropic", "openrouter"] {
                         match bg_key_store.get_key(provider).await {
                             Ok(Some(key)) => {
-                                let mut config = ai_config_mutex.lock().expect("AI config mutex poisoned");
+                                let mut config =
+                                    ai_config_mutex.lock().expect("AI config mutex poisoned");
                                 let current = config.get_or_insert_with(Default::default);
                                 match *provider {
                                     "openai" => current.api_keys.openai = Some(key),
@@ -687,8 +736,14 @@ pub fn run() {
                 app.manage(FocusTimer::new());
                 app.manage(pocket_tts::PocketTTSState::default());
                 app.manage(transcription::TranscriptionState {
-                    job_queue: transcription::job_queue::JobQueue::new(app.handle().clone(), repo.clone()),
-                    auto_queue: transcription::auto_queue::AutoTranscriptionQueue::new(app.handle().clone(), repo.clone()),
+                    job_queue: transcription::job_queue::JobQueue::new(
+                        app.handle().clone(),
+                        repo.clone(),
+                    ),
+                    auto_queue: transcription::auto_queue::AutoTranscriptionQueue::new(
+                        app.handle().clone(),
+                        repo.clone(),
+                    ),
                 });
 
                 // Podcast transcription cancellation tokens
@@ -710,7 +765,10 @@ pub fn run() {
                 let bg_app_handle = app_handle.clone();
                 let repo_arc = std::sync::Arc::new(database::Repository::new(pool));
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = browser_sync_server::initialize_if_enabled(repo_arc, bg_app_handle, None).await {
+                    if let Err(e) =
+                        browser_sync_server::initialize_if_enabled(repo_arc, bg_app_handle, None)
+                            .await
+                    {
                         tracing::warn!("Browser sync server initialization failed: {}", e);
                     }
                 });
@@ -723,13 +781,17 @@ pub fn run() {
                     // frontendDist via the tauri:// protocol — navigating to
                     // localhost:9527 there leaves the screen blank ("could not
                     // be loaded"), so skip the redirect on mobile.
-                    #[cfg(all(not(debug_assertions), not(any(target_os = "android", target_os = "ios"))))]
-                    if let Ok(url) =
-                        Url::parse(&format!("http://localhost:{LOCALHOST_PORT}/"))
-                    {
+                    #[cfg(all(
+                        not(debug_assertions),
+                        not(any(target_os = "android", target_os = "ios"))
+                    ))]
+                    if let Ok(url) = Url::parse(&format!("http://localhost:{LOCALHOST_PORT}/")) {
                         let _ = window.navigate(url);
                     }
-                    #[cfg(all(feature = "devtools", not(any(target_os = "ios", target_os = "android"))))]
+                    #[cfg(all(
+                        feature = "devtools",
+                        not(any(target_os = "ios", target_os = "android"))
+                    ))]
                     if std::env::var("INCREMENTUM_OPEN_DEVTOOLS").is_ok() {
                         window.open_devtools();
                     }
@@ -1210,13 +1272,25 @@ pub fn run() {
             commands::glm_start_ollama_runtime,
             commands::glm_stop_ollama_runtime,
             commands::glm_pull_ollama_model,
-            #[cfg(all(feature = "screenshot", not(any(target_os = "android", target_os = "ios"))))]
+            #[cfg(all(
+                feature = "screenshot",
+                not(any(target_os = "android", target_os = "ios"))
+            ))]
             screenshot::capture_screenshot,
-            #[cfg(all(feature = "screenshot", not(any(target_os = "android", target_os = "ios"))))]
+            #[cfg(all(
+                feature = "screenshot",
+                not(any(target_os = "android", target_os = "ios"))
+            ))]
             screenshot::capture_screen_by_index,
-            #[cfg(all(feature = "screenshot", not(any(target_os = "android", target_os = "ios"))))]
+            #[cfg(all(
+                feature = "screenshot",
+                not(any(target_os = "android", target_os = "ios"))
+            ))]
             screenshot::capture_app_window,
-            #[cfg(all(feature = "screenshot", not(any(target_os = "android", target_os = "ios"))))]
+            #[cfg(all(
+                feature = "screenshot",
+                not(any(target_os = "android", target_os = "ios"))
+            ))]
             screenshot::get_screen_info,
             transcription::get_transcription_profiles,
             transcription::download_transcription_model,

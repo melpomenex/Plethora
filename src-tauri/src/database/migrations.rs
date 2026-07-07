@@ -2,9 +2,9 @@
 //!
 //! Tracks and applies database migrations in order.
 
+use regex::Regex;
 use sqlx::{Pool, Sqlite};
 use std::path::PathBuf;
-use regex::Regex;
 
 use crate::error::{IncrementumError, Result};
 
@@ -227,7 +227,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_rss_articles_is_queued ON rss_articles(is_queued);
         "#,
     ),
-
     // Migration 002: Add FSRS memory state to learning_items
     Migration::new(
         "002_add_fsrs_memory_state",
@@ -236,7 +235,6 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE learning_items ADD COLUMN memory_state_difficulty REAL;
         "#,
     ),
-
     // Migration 003: Add AI conversations table
     Migration::new(
         "003_add_ai_conversations",
@@ -267,7 +265,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation_id ON ai_messages(conversation_id);
         "#,
     ),
-
     // Migration 004: Add GUIDs for RSS articles
     Migration::new(
         "004_add_rss_article_guid",
@@ -276,7 +273,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE UNIQUE INDEX IF NOT EXISTS idx_rss_articles_guid ON rss_articles(guid) WHERE guid IS NOT NULL;
         "#,
     ),
-
     // Migration 004: Add sync tables
     Migration::new(
         "004_add_sync_tables",
@@ -308,7 +304,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_sync_queue_created_at ON sync_queue(created_at);
         "#,
     ),
-
     // Migration 005: Add document metadata
     Migration::new(
         "005_add_document_metadata",
@@ -332,7 +327,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_documents_language ON documents(language);
         "#,
     ),
-
     // Migration 006: Add extract statistics
     Migration::new(
         "006_add_extract_statistics",
@@ -350,7 +344,6 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE extracts ADD COLUMN key_points TEXT;
         "#,
     ),
-
     // Migration 007: Add study statistics
     Migration::new(
         "007_add_study_statistics",
@@ -369,7 +362,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_study_statistics_date ON study_statistics(date);
         "#,
     ),
-
     // Migration 008: Add notification settings
     Migration::new(
         "008_add_notification_settings",
@@ -394,7 +386,6 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE documents ADD COLUMN priority_slider INTEGER NOT NULL DEFAULT 0;
         "#,
     ),
-
     // Migration 010: Convert interval to REAL for FSRS 6 fractional day support
     Migration::new(
         "010_convert_interval_to_real",
@@ -415,7 +406,6 @@ pub const MIGRATIONS: &[Migration] = &[
         UPDATE learning_items SET interval = 0.0 WHERE interval IS NULL;
         "#,
     ),
-
     // Migration 011: Add FSRS scheduling to extracts
     Migration::new(
         "011_add_extract_fsrs_scheduling",
@@ -453,7 +443,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_youtube_transcripts_document_id ON youtube_transcripts(document_id);
         "#,
     ),
-
     // Migration 013: Add RSS user preferences for customization
     Migration::new(
         "013_add_rss_user_preferences",
@@ -496,7 +485,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_rss_prefs_feed_id ON rss_user_preferences(feed_id);
         "#,
     ),
-
     // Migration 014: Add FSRS queue performance indexes
     Migration::new(
         "014_add_fsrs_queue_index",
@@ -555,7 +543,6 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE documents ADD COLUMN current_cfi TEXT;
         "#,
     ),
-
     // Migration 019: Add unified position tracking
     Migration::new(
         "019_add_unified_position_tracking",
@@ -571,7 +558,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_documents_progress ON documents(progress_percent, date_modified);
         "#,
     ),
-
     // Migration 020: Create bookmarks table
     Migration::new(
         "020_add_bookmarks_table",
@@ -591,7 +577,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_bookmarks_created_at ON bookmarks(created_at);
         "#,
     ),
-
     // Migration 021: Create reading_sessions table
     Migration::new(
         "021_add_reading_sessions_table",
@@ -624,7 +609,6 @@ pub const MIGRATIONS: &[Migration] = &[
         GROUP BY DATE(started_at);
         "#,
     ),
-
     // Migration 022: Create reading_goals table
     Migration::new(
         "022_add_reading_goals_table",
@@ -655,7 +639,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_goal_progress_goal_date ON goal_progress(goal_id, date);
         "#,
     ),
-
     // Migration 023: Create collections tables
     Migration::new(
         "023_add_collections_tables",
@@ -690,7 +673,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_doc_collections_collection ON document_collections(collection_id);
         "#,
     ),
-
     // Migration 024: Create full-text search index
     Migration::new(
         "024_add_fulltext_search",
@@ -765,7 +747,6 @@ pub const MIGRATIONS: &[Migration] = &[
         END;
         "#,
     ),
-
     // Migration 025: Backfill position_json from existing fields
     Migration::new(
         "025_backfill_position_json",
@@ -798,7 +779,6 @@ pub const MIGRATIONS: &[Migration] = &[
         AND (current_page IS NOT NULL OR current_scroll_percent IS NOT NULL);
         "#,
     ),
-
     // Migration 026: Add video features tables
     Migration::new(
         "026_add_video_features",
@@ -845,7 +825,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE UNIQUE INDEX IF NOT EXISTS idx_video_transcripts_document_id ON video_transcripts(document_id);
         "#,
     ),
-
     // Migration 027: Add YouTube playlist subscriptions for auto-import
     Migration::new(
         "027_add_youtube_playlist_subscriptions",
@@ -931,7 +910,6 @@ pub const MIGRATIONS: &[Migration] = &[
         VALUES ('global', 1, 5, 5, 1, 1, datetime('now'), datetime('now'));
         "#,
     ),
-
     // Migration 028: Add document scheduling columns for incremental reading
     Migration::new(
         "028_add_document_scheduling_columns",
@@ -956,7 +934,6 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE documents ADD COLUMN consecutive_count INTEGER;
         "#,
     ),
-
     // Migration 029: Add selection context to extracts
     Migration::new(
         "029_add_extract_selection_context",
@@ -964,7 +941,6 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE extracts ADD COLUMN selection_context TEXT;
         "#,
     ),
-
     // Migration 030: Fix FTS5 search tables and triggers
     Migration::new(
         "030_fix_fts5_triggers",
@@ -1039,7 +1015,6 @@ pub const MIGRATIONS: &[Migration] = &[
         END;
         "#,
     ),
-
     // Migration 031: Add video_extracts table for timestamp-linked video segments
     Migration::new(
         "031_add_video_extracts",
@@ -1072,7 +1047,6 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX IF NOT EXISTS idx_video_extracts_next_review ON video_extracts(next_review_date);
         "#,
     ),
-
     // Migration 032: Add transcription tables for Whisper jobs
     Migration::new(
         "032_add_transcription",
@@ -1104,7 +1078,6 @@ pub const MIGRATIONS: &[Migration] = &[
         ON transcript_segments(transcript_id, start_ms);
         "#,
     ),
-
     // Migration 028: Remove foreign key constraint on extracts.category
     // The category field should be free-form text, not a reference to categories table
     Migration::new(
@@ -1175,7 +1148,6 @@ pub const MIGRATIONS: &[Migration] = &[
         END;
         "#,
     ),
-
     // Migration 029: Add is_dismissed column to documents table
     Migration::new(
         "029_add_document_is_dismissed",
@@ -1916,7 +1888,8 @@ fn get_migrations_dir() -> Result<PathBuf> {
     }
 
     // Check if we're in development (running from cargo)
-    let dev_migrations = exe_path.parent()
+    let dev_migrations = exe_path
+        .parent()
         .map(|p| p.join("src-tauri").join("migrations"));
 
     if let Some(ref path) = dev_migrations {
@@ -1941,7 +1914,9 @@ fn get_migrations_dir() -> Result<PathBuf> {
         return Ok(cwd_migrations);
     }
 
-    Err(IncrementumError::Internal("Could not locate migrations directory".to_string()))
+    Err(IncrementumError::Internal(
+        "Could not locate migrations directory".to_string(),
+    ))
 }
 
 /// Split SQL into individual statements, respecting CREATE TRIGGER ... BEGIN ... END blocks
@@ -1970,7 +1945,8 @@ fn split_sql_statements(sql: &str) -> Vec<String> {
             current_stmt.push_str(line);
 
             // Track BEGIN/END depth
-            trigger_depth = trigger_depth.saturating_add(line.matches("BEGIN").count())
+            trigger_depth = trigger_depth
+                .saturating_add(line.matches("BEGIN").count())
                 .saturating_sub(line.matches("END").count());
 
             // Check if trigger ends (END; at depth 0)
@@ -1994,7 +1970,8 @@ fn split_sql_statements(sql: &str) -> Vec<String> {
             if trimmed.ends_with(';') {
                 let stmt = current_stmt.trim();
                 if !stmt.is_empty() {
-                    let cleaned: String = stmt.lines()
+                    let cleaned: String = stmt
+                        .lines()
                         .filter(|l| !l.trim().starts_with("--"))
                         .collect::<Vec<_>>()
                         .join("\n");
@@ -2009,7 +1986,8 @@ fn split_sql_statements(sql: &str) -> Vec<String> {
 
     let stmt = current_stmt.trim();
     if !stmt.is_empty() {
-        let cleaned: String = stmt.lines()
+        let cleaned: String = stmt
+            .lines()
             .filter(|l| !l.trim().starts_with("--"))
             .collect::<Vec<_>>()
             .join("\n");
@@ -2036,13 +2014,16 @@ pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<()> {
     .await
     .map_err(|e| IncrementumError::Internal(format!("Failed to create migrations table: {}", e)))?;
 
-    let applied: Vec<String> = sqlx::query_as::<_, (String,)>("SELECT name FROM _schema_migrations ORDER BY applied_at")
-        .fetch_all(pool)
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to fetch applied migrations: {}", e)))?
-        .into_iter()
-        .map(|(name,)| name)
-        .collect();
+    let applied: Vec<String> =
+        sqlx::query_as::<_, (String,)>("SELECT name FROM _schema_migrations ORDER BY applied_at")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                IncrementumError::Internal(format!("Failed to fetch applied migrations: {}", e))
+            })?
+            .into_iter()
+            .map(|(name,)| name)
+            .collect();
 
     // Apply pending migrations
     for migration in MIGRATIONS {
@@ -2052,21 +2033,29 @@ pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<()> {
 
         eprintln!("Applying migration: {}", migration.name);
 
-        let mut tx = pool.begin()
-            .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to start transaction: {}", e)))?;
+        let mut tx = pool.begin().await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to start transaction: {}", e))
+        })?;
 
         // Split statements while respecting BEGIN...END blocks (for triggers)
         let statements = split_sql_statements(migration.sql);
         eprintln!("  Executing {} statements", statements.len());
         for (i, statement) in statements.iter().enumerate() {
             eprintln!("  Statement {}: {} bytes", i + 1, statement.len());
-            eprintln!("  First 100 chars: {}", &statement.chars().take(100).collect::<String>());
+            eprintln!(
+                "  First 100 chars: {}",
+                &statement.chars().take(100).collect::<String>()
+            );
             sqlx::query(statement)
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| {
-                    IncrementumError::Internal(format!("Migration {} failed at statement {}: {}", migration.name, i + 1, e))
+                    IncrementumError::Internal(format!(
+                        "Migration {} failed at statement {}: {}",
+                        migration.name,
+                        i + 1,
+                        e
+                    ))
                 })?;
         }
 
@@ -2077,12 +2066,20 @@ pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<()> {
             .bind(&applied_at)
             .execute(&mut *tx)
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to record migration {}: {}", migration.name, e)))?;
+            .map_err(|e| {
+                IncrementumError::Internal(format!(
+                    "Failed to record migration {}: {}",
+                    migration.name, e
+                ))
+            })?;
 
         // Commit transaction
-        tx.commit()
-            .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to commit migration {}: {}", migration.name, e)))?;
+        tx.commit().await.map_err(|e| {
+            IncrementumError::Internal(format!(
+                "Failed to commit migration {}: {}",
+                migration.name, e
+            ))
+        })?;
 
         eprintln!("Migration {} applied successfully", migration.name);
     }
@@ -2093,20 +2090,25 @@ pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<()> {
 
 /// Get the current schema version
 pub async fn get_current_version(pool: &Pool<Sqlite>) -> Result<Option<String>> {
-    let result = sqlx::query_as::<_, (String,)>("SELECT name FROM _schema_migrations ORDER BY applied_at DESC LIMIT 1")
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get schema version: {}", e)))?;
+    let result = sqlx::query_as::<_, (String,)>(
+        "SELECT name FROM _schema_migrations ORDER BY applied_at DESC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| IncrementumError::Internal(format!("Failed to get schema version: {}", e)))?;
 
     Ok(result.map(|(name,)| name))
 }
 
 /// Check if database needs migration
 pub async fn needs_migration(pool: &Pool<Sqlite>) -> Result<bool> {
-    let (applied_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) as count FROM _schema_migrations")
-        .fetch_one(pool)
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to check migration status: {}", e)))?;
+    let (applied_count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) as count FROM _schema_migrations")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| {
+                IncrementumError::Internal(format!("Failed to check migration status: {}", e))
+            })?;
 
     Ok(applied_count < MIGRATIONS.len() as i64)
 }

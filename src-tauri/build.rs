@@ -99,7 +99,7 @@ fn main() {
         // Both production and dev rpaths must be present on every macOS sidecar.
         const RPATHS: [&str; 2] = [
             "@executable_path/../Resources/bin", // production .app layout
-            "@executable_path",                   // dev layout (dylibs beside the binary)
+            "@executable_path",                  // dev layout (dylibs beside the binary)
         ];
 
         let sidecar_bins: Vec<std::path::PathBuf> = std::fs::read_dir(&bin_dir)

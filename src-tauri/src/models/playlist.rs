@@ -14,17 +14,17 @@ pub struct PlaylistSubscription {
     pub description: Option<String>,
     pub thumbnail_url: Option<String>,
     pub total_videos: Option<i32>,
-    
+
     // Auto-import settings
     pub is_active: bool,
     pub auto_import_new: bool,
     pub queue_intersperse_interval: i32,
     pub priority_rating: i32,
-    
+
     // Refresh tracking
     pub last_refreshed_at: Option<String>,
     pub refresh_interval_hours: i32,
-    
+
     pub created_at: String,
     pub modified_at: String,
 }
@@ -39,13 +39,13 @@ pub struct PlaylistVideo {
     pub video_duration: Option<i32>,
     pub thumbnail_url: Option<String>,
     pub position: Option<i32>,
-    
+
     pub is_imported: bool,
     pub document_id: Option<String>,
-    
+
     pub added_to_queue: bool,
     pub queue_position: Option<i32>,
-    
+
     pub published_at: Option<String>,
     pub discovered_at: String,
     pub imported_at: Option<String>,

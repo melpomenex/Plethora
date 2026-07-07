@@ -2,10 +2,10 @@
 
 use crate::error::Result;
 use crate::processor::ExtractedContent;
-use epub::doc::EpubDoc;
 use base64::{engine::general_purpose, Engine as _};
-use std::path::Path;
+use epub::doc::EpubDoc;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Represents a chapter in an EPUB file
 #[derive(Debug, Clone)]
@@ -54,7 +54,10 @@ fn extract_text_from_html(html: &str) -> String {
 
 fn should_extract_text(mime: &str) -> bool {
     let mime = mime.to_lowercase();
-    mime.contains("html") || mime.contains("xhtml") || mime.contains("xml") || mime.starts_with("text/")
+    mime.contains("html")
+        || mime.contains("xhtml")
+        || mime.contains("xml")
+        || mime.starts_with("text/")
 }
 
 /// Extract full content from an EPUB file including all chapters
@@ -125,7 +128,11 @@ pub async fn extract_epub_content(file_path: &str) -> Result<ExtractedContent> {
         text,
         title: doc.get_title(),
         author: doc.mdata("creator").map(|item| item.value.clone()),
-        page_count: if doc.spine.is_empty() { None } else { Some(doc.spine.len()) },
+        page_count: if doc.spine.is_empty() {
+            None
+        } else {
+            Some(doc.spine.len())
+        },
         metadata,
     })
 }
@@ -166,7 +173,9 @@ pub async fn extract_epub_chapter(file_path: &str, chapter_num: usize) -> Result
     let content = doc
         .get_resource_str(&spine_item.idref)
         .map(|(content, mime)| {
-            if should_extract_text(&mime) && (mime.contains("html") || mime.contains("xhtml") || mime.contains("xml")) {
+            if should_extract_text(&mime)
+                && (mime.contains("html") || mime.contains("xhtml") || mime.contains("xml"))
+            {
                 extract_text_from_html(&content)
             } else if should_extract_text(&mime) {
                 content

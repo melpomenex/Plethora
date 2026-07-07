@@ -39,28 +39,53 @@ EOF
   fi
 
   port=15173
+  dev_url="http://127.0.0.1:$port"
   started_vite=0
 
   # Start Vite as a direct child of this script so the sandbox allows the bind.
   # If a dev server is already listening on the expected port, reuse it.
   export INCREMENTUM_TAURI=1
-  port_in_use=1
-  if command -v ss >/dev/null 2>&1; then
-    if ss -ltn "( sport = :$port )" 2>/dev/null | tail -n +2 | grep -q ":$port"; then
-      port_in_use=0
-    fi
-  elif command -v lsof >/dev/null 2>&1; then
-    if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
-      port_in_use=0
-    fi
-  fi
+  # Avoid macOS Keychain prompts during dev; the app falls back to its encrypted
+  # local credential store instead.
+  export INCREMENTUM_DISABLE_KEYCHAIN="${INCREMENTUM_DISABLE_KEYCHAIN:-1}"
 
-  if [[ "$port_in_use" == "0" ]]; then
+  dev_server_ready() {
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsS --max-time 2 "$dev_url" >/dev/null 2>&1
+      return $?
+    fi
+
+    if command -v ss >/dev/null 2>&1; then
+      ss -ltn "( sport = :$port )" 2>/dev/null | tail -n +2 | grep -q ":$port"
+      return $?
+    fi
+
+    if command -v lsof >/dev/null 2>&1; then
+      lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+      return $?
+    fi
+
+    return 1
+  }
+
+  if dev_server_ready; then
     echo "Reusing existing dev server on 127.0.0.1:$port"
   else
     npm run dev -- --host 127.0.0.1 --port "$port" --strictPort &
     vite_pid=$!
     started_vite=1
+  fi
+
+  for _ in {1..60}; do
+    if dev_server_ready; then
+      break
+    fi
+    sleep 0.5
+  done
+
+  if ! dev_server_ready; then
+    echo "Vite dev server did not become ready at $dev_url" >&2
+    exit 1
   fi
   trap 'if [[ "$started_vite" == "1" ]]; then kill "$vite_pid" 2>/dev/null || true; fi' EXIT
 

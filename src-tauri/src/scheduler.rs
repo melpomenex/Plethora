@@ -2,7 +2,7 @@
 //!
 //! Handles automatic scheduled backups to cloud storage
 
-use chrono::{DateTime, Datelike, Utc, Timelike, Weekday};
+use chrono::{DateTime, Datelike, Timelike, Utc, Weekday};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,10 +47,23 @@ impl Default for SchedulerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum BackupSchedule {
-    Daily { hour: u32, minute: u32 },
-    Weekly { weekday: u32, hour: u32, minute: u32 },
-    Monthly { day: u32, hour: u32, minute: u32 },
-    Interval { minutes: u64 },
+    Daily {
+        hour: u32,
+        minute: u32,
+    },
+    Weekly {
+        weekday: u32,
+        hour: u32,
+        minute: u32,
+    },
+    Monthly {
+        day: u32,
+        hour: u32,
+        minute: u32,
+    },
+    Interval {
+        minutes: u64,
+    },
 }
 
 impl BackupSchedule {
@@ -74,7 +87,11 @@ impl BackupSchedule {
 
                 (scheduled - now).to_std().unwrap_or(Duration::ZERO)
             }
-            BackupSchedule::Weekly { weekday, hour, minute } => {
+            BackupSchedule::Weekly {
+                weekday,
+                hour,
+                minute,
+            } => {
                 let target_weekday = match *weekday {
                     0 => Weekday::Sun,
                     1 => Weekday::Mon,
@@ -92,8 +109,10 @@ impl BackupSchedule {
                     .and_then(|t| t.with_second(0))
                     .expect("valid weekly schedule time");
 
-                let days_until = (target_weekday.number_from_monday() as i32 -
-                    now.weekday().number_from_monday() as i32 + 7) % 7;
+                let days_until = (target_weekday.number_from_monday() as i32
+                    - now.weekday().number_from_monday() as i32
+                    + 7)
+                    % 7;
 
                 let scheduled = if days_until == 0 && scheduled > now {
                     scheduled
@@ -120,9 +139,7 @@ impl BackupSchedule {
 
                 (scheduled - now).to_std().unwrap_or(Duration::ZERO)
             }
-            BackupSchedule::Interval { minutes } => {
-                Duration::from_secs(*minutes * 60)
-            }
+            BackupSchedule::Interval { minutes } => Duration::from_secs(*minutes * 60),
         }
     }
 
@@ -132,9 +149,26 @@ impl BackupSchedule {
             BackupSchedule::Daily { hour, minute } => {
                 format!("Daily at {:02}:{:02}", hour, minute)
             }
-            BackupSchedule::Weekly { weekday, hour, minute } => {
-                let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-                format!("{}s at {:02}:{:02}", days[*weekday as usize % 7], hour, minute)
+            BackupSchedule::Weekly {
+                weekday,
+                hour,
+                minute,
+            } => {
+                let days = [
+                    "Sunday",
+                    "Monday",
+                    "Tuesday",
+                    "Wednesday",
+                    "Thursday",
+                    "Friday",
+                    "Saturday",
+                ];
+                format!(
+                    "{}s at {:02}:{:02}",
+                    days[*weekday as usize % 7],
+                    hour,
+                    minute
+                )
             }
             BackupSchedule::Monthly { day, hour, minute } => {
                 format!("Monthly on day {} at {:02}:{:02}", day, hour, minute)
@@ -183,10 +217,7 @@ impl BackupScheduler {
 
     /// Attach a resolved cloud provider (cloned from the auth store) so the
     /// scheduler tick can actually perform backups instead of just logging.
-    pub async fn set_provider(
-        &self,
-        provider: Option<Arc<RwLock<Box<dyn CloudProvider>>>>,
-    ) {
+    pub async fn set_provider(&self, provider: Option<Arc<RwLock<Box<dyn CloudProvider>>>>) {
         *self.provider.lock().await = provider;
     }
 
@@ -199,9 +230,7 @@ impl BackupScheduler {
         self.config = config;
 
         if enabled {
-            let next = Utc::now() + chrono::Duration::seconds(
-                duration.as_secs() as i64
-            );
+            let next = Utc::now() + chrono::Duration::seconds(duration.as_secs() as i64);
             *self.next_scheduled.lock().await = Some(next);
         } else {
             *self.next_scheduled.lock().await = None;
@@ -228,9 +257,8 @@ impl BackupScheduler {
             let mut interval = interval(config.schedule.next_duration());
 
             // Set initial next scheduled time
-            let next = Utc::now() + chrono::Duration::seconds(
-                config.schedule.next_duration().as_secs() as i64
-            );
+            let next = Utc::now()
+                + chrono::Duration::seconds(config.schedule.next_duration().as_secs() as i64);
             *next_scheduled.lock().await = Some(next);
 
             loop {
@@ -250,19 +278,27 @@ impl BackupScheduler {
                         match provider_opt {
                             Some(provider) => {
                                 let guard = provider.read().await;
-                                match manager.create_backup(guard.as_ref(), config.backup_options.clone()).await {
-                                    Ok(info) => tracing::info!("Scheduled backup completed: {}", info.id),
+                                match manager
+                                    .create_backup(guard.as_ref(), config.backup_options.clone())
+                                    .await
+                                {
+                                    Ok(info) => {
+                                        tracing::info!("Scheduled backup completed: {}", info.id)
+                                    }
                                     Err(e) => tracing::warn!("Scheduled backup failed: {}", e),
                                 }
                             }
                             None => {
-                                tracing::info!("Scheduled backup skipped — no cloud provider attached");
+                                tracing::info!(
+                                    "Scheduled backup skipped — no cloud provider attached"
+                                );
                             }
                         }
 
-                        let next = Utc::now() + chrono::Duration::seconds(
-                            config.schedule.next_duration().as_secs() as i64
-                        );
+                        let next = Utc::now()
+                            + chrono::Duration::seconds(
+                                config.schedule.next_duration().as_secs() as i64
+                            );
                         *next_scheduled.lock().await = Some(next);
                     }
                 }
@@ -319,10 +355,17 @@ mod tests {
 
     #[test]
     fn test_schedule_description() {
-        let schedule = BackupSchedule::Daily { hour: 2, minute: 30 };
+        let schedule = BackupSchedule::Daily {
+            hour: 2,
+            minute: 30,
+        };
         assert_eq!(schedule.description(), "Daily at 02:30");
 
-        let schedule = BackupSchedule::Weekly { weekday: 1, hour: 9, minute: 0 };
+        let schedule = BackupSchedule::Weekly {
+            weekday: 1,
+            hour: 9,
+            minute: 0,
+        };
         assert_eq!(schedule.description(), "Mondays at 09:00");
     }
 

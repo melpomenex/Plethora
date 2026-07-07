@@ -34,7 +34,13 @@ pub enum TranscriptionJobStatus {
 }
 
 impl TranscriptionQueueEntry {
-    pub fn new(document_id: String, audio_path: String, provider: String, model_id: String, language: String) -> Self {
+    pub fn new(
+        document_id: String,
+        audio_path: String,
+        provider: String,
+        model_id: String,
+        language: String,
+    ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             document_id,

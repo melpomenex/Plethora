@@ -68,8 +68,9 @@ fn read_zip_bytes(archive: &mut ZipArchive<fs::File>, path: &str) -> Result<Vec<
         .by_name(path)
         .map_err(|e| AppError::Internal(format!("Missing archive entry '{}': {}", path, e)))?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer)
-        .map_err(|e| AppError::Internal(format!("Failed to read archive entry '{}': {}", path, e)))?;
+    file.read_to_end(&mut buffer).map_err(|e| {
+        AppError::Internal(format!("Failed to read archive entry '{}': {}", path, e))
+    })?;
     Ok(buffer)
 }
 
@@ -91,7 +92,9 @@ pub async fn import_collection_archive(
         return Err(AppError::Internal("Unsupported archive type".to_string()));
     }
     if manifest.version != "1.0" {
-        return Err(AppError::Internal("Unsupported archive version".to_string()));
+        return Err(AppError::Internal(
+            "Unsupported archive version".to_string(),
+        ));
     }
 
     let payload_bytes = read_zip_bytes(&mut archive, "data/payload.json")?;
@@ -109,7 +112,11 @@ pub async fn import_collection_archive(
         fs::write(&file_path, file_bytes)
             .map_err(|e| AppError::Internal(format!("Failed to write document file: {}", e)))?;
 
-        if let Some(doc) = payload.documents.iter_mut().find(|d| d.id == file_entry.document_id) {
+        if let Some(doc) = payload
+            .documents
+            .iter_mut()
+            .find(|d| d.id == file_entry.document_id)
+        {
             doc.file_path = file_path.to_string_lossy().to_string();
         }
     }
@@ -117,13 +124,23 @@ pub async fn import_collection_archive(
     let pool = repo.pool();
     let mut tx = pool.begin().await?;
 
-    sqlx::query("DELETE FROM learning_items").execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM extracts").execute(&mut *tx).await?;
-    sqlx::query("DELETE FROM documents").execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM learning_items")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM extracts")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DELETE FROM documents")
+        .execute(&mut *tx)
+        .await?;
 
     for doc in &payload.documents {
         let tags_json = serde_json::to_string(&doc.tags)?;
-        let metadata_json = doc.metadata.as_ref().map(serde_json::to_string).transpose()?;
+        let metadata_json = doc
+            .metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
         let file_type_str = normalize_file_type(&doc.file_type);
 
         sqlx::query(
@@ -357,11 +374,15 @@ pub async fn import_collection_archive_merge(
     let payload: MergePayload = serde_json::from_slice(&payload_bytes)
         .map_err(|e| AppError::Internal(format!("Invalid archive payload: {}", e)))?;
 
-    let mut collection_name = manifest.collection_name
+    let mut collection_name = manifest
+        .collection_name
         .unwrap_or_else(|| "Imported Collection".to_string());
 
     let existing_collections = repo.get_collections().await.unwrap_or_default();
-    let existing_names: Vec<String> = existing_collections.iter().map(|c| c.name.clone()).collect();
+    let existing_names: Vec<String> = existing_collections
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
     if existing_names.contains(&collection_name) {
         collection_name = format!("{} (imported)", collection_name);
     }
@@ -397,7 +418,9 @@ pub async fn import_collection_archive_merge(
     let docs_dir = ensure_document_storage(&app)?;
     for file_entry in &payload.files {
         let file_bytes = read_zip_bytes(&mut archive, &file_entry.zip_path)?;
-        let new_doc_id = doc_id_map.get(&file_entry.document_id).unwrap_or(&file_entry.document_id);
+        let new_doc_id = doc_id_map
+            .get(&file_entry.document_id)
+            .unwrap_or(&file_entry.document_id);
         let doc_dir = docs_dir.join(new_doc_id);
         fs::create_dir_all(&doc_dir)
             .map_err(|e| AppError::Internal(format!("Failed to create doc dir: {}", e)))?;
@@ -413,16 +436,25 @@ pub async fn import_collection_archive_merge(
     for doc in &payload.documents {
         let new_id = doc_id_map.get(&doc.id).unwrap_or(&doc.id);
         let tags_json = serde_json::to_string(&doc.tags)?;
-        let metadata_json = doc.metadata.as_ref().map(serde_json::to_string).transpose()?;
+        let metadata_json = doc
+            .metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
         let file_type_str = normalize_file_type(&doc.file_type);
 
         // Resolve file path for the new doc ID
-        let resolved_path = if let Some(entry) = payload.files.iter().find(|f| f.document_id == doc.id) {
-            let new_doc_id = new_id.clone();
-            docs_dir.join(&new_doc_id).join(&entry.filename).to_string_lossy().to_string()
-        } else {
-            doc.file_path.clone()
-        };
+        let resolved_path =
+            if let Some(entry) = payload.files.iter().find(|f| f.document_id == doc.id) {
+                let new_doc_id = new_id.clone();
+                docs_dir
+                    .join(&new_doc_id)
+                    .join(&entry.filename)
+                    .to_string_lossy()
+                    .to_string()
+            } else {
+                doc.file_path.clone()
+            };
 
         sqlx::query(
             r#"INSERT INTO documents (
@@ -485,10 +517,18 @@ pub async fn import_collection_archive_merge(
     // Insert extracts with remapped IDs
     for extract in &payload.extracts {
         let new_id = extract_id_map.get(&extract.id).unwrap_or(&extract.id);
-        let new_doc_id = doc_id_map.get(&extract.document_id).unwrap_or(&extract.document_id);
+        let new_doc_id = doc_id_map
+            .get(&extract.document_id)
+            .unwrap_or(&extract.document_id);
         let tags_json = serde_json::to_string(&extract.tags)?;
-        let selection_context_json = extract.selection_context.as_ref().map(serde_json::to_string).transpose()?;
-        let (stability, difficulty) = extract.memory_state.as_ref()
+        let selection_context_json = extract
+            .selection_context
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        let (stability, difficulty) = extract
+            .memory_state
+            .as_ref()
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
 
@@ -505,7 +545,7 @@ pub async fn import_collection_archive_merge(
                 ?12, ?13, ?14, ?15, ?16,
                 ?17, ?18, ?19, ?20,
                 ?21, ?22, ?23
-            )"#
+            )"#,
         )
         .bind(new_id)
         .bind(new_doc_id)
@@ -537,11 +577,23 @@ pub async fn import_collection_archive_merge(
     // Insert learning items with remapped IDs
     for item in &payload.learning_items {
         let new_id = item_id_map.get(&item.id).unwrap_or(&item.id);
-        let new_extract_id = item.extract_id.as_ref().and_then(|eid| extract_id_map.get(eid));
-        let new_doc_id = item.document_id.as_ref().and_then(|did| doc_id_map.get(did));
+        let new_extract_id = item
+            .extract_id
+            .as_ref()
+            .and_then(|eid| extract_id_map.get(eid));
+        let new_doc_id = item
+            .document_id
+            .as_ref()
+            .and_then(|did| doc_id_map.get(did));
         let tags_json = serde_json::to_string(&item.tags)?;
-        let cloze_ranges_json = item.cloze_ranges.as_ref().map(serde_json::to_string).transpose()?;
-        let (stability, difficulty) = item.memory_state.as_ref()
+        let cloze_ranges_json = item
+            .cloze_ranges
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        let (stability, difficulty) = item
+            .memory_state
+            .as_ref()
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
         let item_type_str = normalize_item_type(&item.item_type);
@@ -560,7 +612,7 @@ pub async fn import_collection_archive_merge(
                 ?11, ?12, ?13, ?14,
                 ?15, ?16, ?17, ?18,
                 ?19, ?20, ?21, ?22, ?23
-            )"#
+            )"#,
         )
         .bind(new_id)
         .bind(new_extract_id)
@@ -592,7 +644,10 @@ pub async fn import_collection_archive_merge(
     // Insert review sessions with remapped IDs
     for session in payload.review_sessions.as_deref().unwrap_or(&[]) {
         let old_id = session.get("id").and_then(|v| v.as_str()).unwrap_or("");
-        let new_id = session_id_map.get(old_id).cloned().unwrap_or_else(|| old_id.to_string());
+        let new_id = session_id_map
+            .get(old_id)
+            .cloned()
+            .unwrap_or_else(|| old_id.to_string());
 
         sqlx::query(
             r#"INSERT INTO review_sessions (id, collection_id, start_time, end_time, items_reviewed, correct_answers, total_time)

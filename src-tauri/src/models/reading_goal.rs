@@ -81,7 +81,7 @@ impl ReadingGoal {
 pub struct GoalProgress {
     pub id: String,
     pub goal_id: String,
-    pub date: String, // YYYY-MM-DD format
+    pub date: String,       // YYYY-MM-DD format
     pub current_value: f32, // Actual progress (minutes read or pages read)
     pub is_completed: bool,
     pub updated_at: DateTime<Utc>,

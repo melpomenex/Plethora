@@ -1,12 +1,12 @@
 //! SponsorBlock API integration and audio cutting
 //! Documentation: https://wiki.sponsor.ajay.app/w/API_Docs
 
+use crate::utils::ffmpeg::ffmpeg_command;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::process::CommandEvent;
-use crate::utils::ffmpeg::ffmpeg_command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,33 +42,45 @@ enum SponsorBlockApiResponse {
 }
 
 /// Fetch SponsorBlock segments for a YouTube video ID
-pub async fn fetch_sponsorblock_segments(video_id: &str) -> Result<Vec<(String, f64, f64, String)>, String> {
+pub async fn fetch_sponsorblock_segments(
+    video_id: &str,
+) -> Result<Vec<(String, f64, f64, String)>, String> {
     let categories = "sponsor,intro,outro,selfpromo,interaction,music_offtopic,preview";
     let url = format!(
         "https://sponsor.ajay.app/api/skipSegments/{}?categories={}&actionTypes=skip,mute",
         video_id, categories
     );
-    
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("Failed to build client: {}", e))?;
-        
-    let response = client.get(&url).send().await.map_err(|e| format!("Request failed: {}", e))?;
-    
+
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(Vec::new()); // No segments found
     }
-    
+
     if !response.status().is_success() {
-        return Err(format!("SponsorBlock API returned HTTP {}", response.status()));
+        return Err(format!(
+            "SponsorBlock API returned HTTP {}",
+            response.status()
+        ));
     }
-    
-    let body = response.text().await.map_err(|e| format!("Failed to read body: {}", e))?;
-    
-    let parsed: SponsorBlockApiResponse = serde_json::from_str(&body)
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
-        
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read body: {}", e))?;
+
+    let parsed: SponsorBlockApiResponse =
+        serde_json::from_str(&body).map_err(|e| format!("Failed to parse response: {}", e))?;
+
     let mut segments = Vec::new();
     match parsed {
         SponsorBlockApiResponse::Segments(segs) => {
@@ -96,7 +108,7 @@ pub async fn fetch_sponsorblock_segments(video_id: &str) -> Result<Vec<(String, 
             }
         }
     }
-    
+
     Ok(segments)
 }
 
@@ -109,8 +121,7 @@ pub async fn cut_audio_file(
 ) -> Result<Vec<SponsorBlockCut>, String> {
     if segments.is_empty() {
         // Just copy/move to dest
-        fs::copy(input_path, output_path)
-            .map_err(|e| format!("Failed to copy audio: {}", e))?;
+        fs::copy(input_path, output_path).map_err(|e| format!("Failed to copy audio: {}", e))?;
         return Ok(Vec::new());
     }
 
@@ -128,10 +139,12 @@ pub async fn cut_audio_file(
     let (mut rx, _) = ffmpeg_command(app_handle)
         .map_err(|e| format!("Failed to get ffmpeg command: {}", e))?
         .args([
-            "-i", input_path.to_str().expect("input path is valid UTF-8"),
-            "-af", &format!("aselect='{}',asetpts=N/SR/TB", filter_expr),
+            "-i",
+            input_path.to_str().expect("input path is valid UTF-8"),
+            "-af",
+            &format!("aselect='{}',asetpts=N/SR/TB", filter_expr),
             "-y",
-            output_path.to_str().expect("output path is valid UTF-8")
+            output_path.to_str().expect("output path is valid UTF-8"),
         ])
         .spawn()
         .map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
@@ -173,18 +186,16 @@ pub fn cuts_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "Could not determine data directory".to_string())?
         .join("incrementum")
         .join("cuts");
-    fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create cuts directory: {}", e))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cuts directory: {}", e))?;
     Ok(dir)
 }
 
 /// Save cut metadata for a document/episode ID
 pub fn save_cuts_metadata(id: &str, cuts: &[SponsorBlockCut]) -> Result<(), String> {
     let path = cuts_dir()?.join(format!("{}.json", id));
-    let json = serde_json::to_string(cuts)
-        .map_err(|e| format!("Failed to serialize cuts: {}", e))?;
-    fs::write(&path, json)
-        .map_err(|e| format!("Failed to write cuts metadata: {}", e))?;
+    let json =
+        serde_json::to_string(cuts).map_err(|e| format!("Failed to serialize cuts: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("Failed to write cuts metadata: {}", e))?;
     Ok(())
 }
 
@@ -194,10 +205,10 @@ pub fn load_cuts_metadata(id: &str) -> Result<Option<Vec<SponsorBlockCut>>, Stri
     if !path.exists() {
         return Ok(None);
     }
-    let json = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read cuts metadata: {}", e))?;
-    let cuts: Vec<SponsorBlockCut> = serde_json::from_str(&json)
-        .map_err(|e| format!("Failed to parse cuts: {}", e))?;
+    let json =
+        fs::read_to_string(&path).map_err(|e| format!("Failed to read cuts metadata: {}", e))?;
+    let cuts: Vec<SponsorBlockCut> =
+        serde_json::from_str(&json).map_err(|e| format!("Failed to parse cuts: {}", e))?;
     Ok(Some(cuts))
 }
 

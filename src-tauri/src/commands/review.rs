@@ -1,13 +1,13 @@
 //! Review commands using FSRS algorithm
 
-use tauri::State;
-use sqlx::Row;
-use chrono::{Utc, Duration};
+use crate::algorithms::sm20::{self, SM20State};
+use crate::algorithms::AlgorithmType;
 use crate::database::Repository;
 use crate::error::Result;
-use crate::models::{LearningItem, ReviewRating, MemoryState, ItemState};
-use crate::algorithms::AlgorithmType;
-use crate::algorithms::sm20::{self, SM20State};
+use crate::models::{ItemState, LearningItem, MemoryState, ReviewRating};
+use chrono::{Duration, Utc};
+use sqlx::Row;
+use tauri::State;
 
 /// Default desired retention rate (0.9 = 90% retention)
 const DEFAULT_DESIRED_RETENTION: f32 = 0.9;
@@ -48,7 +48,9 @@ pub async fn get_card_source_context(
     item_id: String,
     repo: State<'_, Repository>,
 ) -> Result<Option<CardSourceContext>> {
-    let item = repo.get_all_learning_items().await?
+    let item = repo
+        .get_all_learning_items()
+        .await?
         .into_iter()
         .find(|i| i.id == item_id);
 
@@ -107,9 +109,7 @@ fn source_snippet(content: &str, max_chars: usize) -> Option<String> {
 }
 
 #[tauri::command]
-pub async fn get_review_streak(
-    repo: State<'_, Repository>,
-) -> Result<ReviewStreak> {
+pub async fn get_review_streak(repo: State<'_, Repository>) -> Result<ReviewStreak> {
     let items = repo.get_all_learning_items().await?;
 
     // Group reviews by date
@@ -124,7 +124,8 @@ pub async fn get_review_streak(
     review_dates.dedup();
 
     let total_reviews = items.iter().map(|i| i.review_count).sum::<i32>();
-    let last_review_date = items.iter()
+    let last_review_date = items
+        .iter()
         .filter_map(|i| i.last_review_date.as_ref())
         .max()
         .map(|d| d.format("%Y-%m-%d").to_string());
@@ -147,7 +148,9 @@ fn calculate_current_streak(dates: &[String]) -> i32 {
     }
 
     let today = Utc::now().format("%Y-%m-%d").to_string();
-    let yesterday = (Utc::now() - Duration::days(1)).format("%Y-%m-%d").to_string();
+    let yesterday = (Utc::now() - Duration::days(1))
+        .format("%Y-%m-%d")
+        .to_string();
 
     let last_date = dates.last().expect("dates is non-empty (checked above)");
     if last_date != &today && last_date != &yesterday {
@@ -156,8 +159,10 @@ fn calculate_current_streak(dates: &[String]) -> i32 {
 
     let mut streak = 1;
     for i in (0..dates.len() - 1).rev() {
-        let current = chrono::NaiveDate::parse_from_str(&dates[i + 1], "%Y-%m-%d").expect("valid date string");
-        let prev = chrono::NaiveDate::parse_from_str(&dates[i], "%Y-%m-%d").expect("valid date string");
+        let current = chrono::NaiveDate::parse_from_str(&dates[i + 1], "%Y-%m-%d")
+            .expect("valid date string");
+        let prev =
+            chrono::NaiveDate::parse_from_str(&dates[i], "%Y-%m-%d").expect("valid date string");
 
         if current.signed_duration_since(prev).num_days() == 1 {
             streak += 1;
@@ -178,8 +183,10 @@ fn calculate_longest_streak(dates: &[String]) -> i32 {
     let mut current = 1;
 
     for i in 1..dates.len() {
-        let curr_date = chrono::NaiveDate::parse_from_str(&dates[i], "%Y-%m-%d").expect("valid date string");
-        let prev_date = chrono::NaiveDate::parse_from_str(&dates[i - 1], "%Y-%m-%d").expect("valid date string");
+        let curr_date =
+            chrono::NaiveDate::parse_from_str(&dates[i], "%Y-%m-%d").expect("valid date string");
+        let prev_date = chrono::NaiveDate::parse_from_str(&dates[i - 1], "%Y-%m-%d")
+            .expect("valid date string");
 
         if curr_date.signed_duration_since(prev_date).num_days() == 1 {
             current += 1;
@@ -193,9 +200,7 @@ fn calculate_longest_streak(dates: &[String]) -> i32 {
 }
 
 #[tauri::command]
-pub async fn start_review(
-    repo: State<'_, Repository>,
-) -> Result<String> {
+pub async fn start_review(repo: State<'_, Repository>) -> Result<String> {
     let now = Utc::now();
     let due_items = repo.get_due_learning_items(&now, None).await?;
 
@@ -205,10 +210,12 @@ pub async fn start_review(
 
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    let collection_id = due_items.first()
+    let collection_id = due_items
+        .first()
         .map(|item| item.collection_id.as_str())
         .unwrap_or(crate::models::collection::DEFAULT_COLLECTION_ID);
-    repo.create_review_session(&session_id, collection_id).await?;
+    repo.create_review_session(&session_id, collection_id)
+        .await?;
 
     Ok(session_id)
 }
@@ -262,8 +269,9 @@ pub async fn apply_review(
     no_schedule_update: bool,
     algorithm: Option<&str>,
 ) -> Result<LearningItem> {
-    let mut item = repo.get_learning_item(item_id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+    let mut item = repo.get_learning_item(item_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+    })?;
 
     let review_rating = ReviewRating::from(rating);
 
@@ -282,7 +290,13 @@ pub async fn apply_review(
 
     match algo {
         AlgorithmType::Fsrs => {
-            apply_fsrs_review_inner(&mut item, review_rating, desired_retention, fsrs_weights, now)?;
+            apply_fsrs_review_inner(
+                &mut item,
+                review_rating,
+                desired_retention,
+                fsrs_weights,
+                now,
+            )?;
         }
         AlgorithmType::Sm2 => {
             apply_sm2_review(&mut item, review_rating, now)?;
@@ -320,7 +334,8 @@ pub async fn apply_review(
         &item.due_date,
         item.interval,
         item.ease_factor,
-    ).await?;
+    )
+    .await?;
 
     let today = now.format("%Y-%m-%d").to_string();
     let old_state = item.state.clone(); // Clone state to avoid partial move
@@ -334,22 +349,24 @@ pub async fn apply_review(
 
     repo.update_study_statistics(
         &today,
-        1,              // cards_reviewed
-        if was_correct { 1 } else { 0 },  // correct_reviews
-        time_taken,     // study_time in seconds
+        1,                               // cards_reviewed
+        if was_correct { 1 } else { 0 }, // correct_reviews
+        time_taken,                      // study_time in seconds
         new_cards,
         learning_cards,
         review_cards,
-    ).await?;
+    )
+    .await?;
 
     if let Some(sid) = session_id {
         repo.update_review_session(
             sid,
-            1, // items_reviewed
+            1,                               // items_reviewed
             if was_correct { 1 } else { 0 }, // correct_answers
             time_taken,
             false, // don't end the session yet
-        ).await?;
+        )
+        .await?;
     }
 
     Ok(item)
@@ -373,7 +390,8 @@ fn apply_fsrs_review_inner(
         fsrs::FSRS::new(Some(&[]))?
     };
 
-    let elapsed_days = item.last_review_date
+    let elapsed_days = item
+        .last_review_date
         .map(|lr| {
             let duration = now - lr;
             duration.num_seconds() as f64 / 86400.0
@@ -454,9 +472,10 @@ fn apply_sm2_review(
     review_rating: ReviewRating,
     now: chrono::DateTime<Utc>,
 ) -> Result<()> {
-    use crate::algorithms::supermemo::{SM2State, SM2Algorithm};
+    use crate::algorithms::supermemo::{SM2Algorithm, SM2State};
 
-    let state: SM2State = item.algorithm_state
+    let state: SM2State = item
+        .algorithm_state
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
@@ -495,9 +514,10 @@ fn apply_sm5_review(
     review_rating: ReviewRating,
     now: chrono::DateTime<Utc>,
 ) -> Result<()> {
-    use crate::algorithms::supermemo::{SM5State, SM5Algorithm};
+    use crate::algorithms::supermemo::{SM5Algorithm, SM5State};
 
-    let state: SM5State = item.algorithm_state
+    let state: SM5State = item
+        .algorithm_state
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
@@ -536,9 +556,10 @@ fn apply_sm8_review(
     review_rating: ReviewRating,
     now: chrono::DateTime<Utc>,
 ) -> Result<()> {
-    use crate::algorithms::supermemo::{SM8State, SM8Algorithm};
+    use crate::algorithms::supermemo::{SM8Algorithm, SM8State};
 
-    let state: SM8State = item.algorithm_state
+    let state: SM8State = item
+        .algorithm_state
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
@@ -578,9 +599,10 @@ fn apply_sm15_review(
     _desired_retention: f32,
     now: chrono::DateTime<Utc>,
 ) -> Result<()> {
-    use crate::algorithms::supermemo::{SM15State, SM15Algorithm};
+    use crate::algorithms::supermemo::{SM15Algorithm, SM15State};
 
-    let state: SM15State = item.algorithm_state
+    let state: SM15State = item
+        .algorithm_state
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
@@ -623,22 +645,24 @@ fn apply_sm18_review(
     review_rating: ReviewRating,
     now: chrono::DateTime<Utc>,
 ) -> Result<()> {
-    use crate::algorithms::sm18::{SM18State, SM18Algorithm};
+    use crate::algorithms::sm18::{SM18Algorithm, SM18State};
 
     // SM-18 grades: 0-2 = failure, 3 = good, 4 = easy, 5 = perfect
     let grade = match review_rating {
         ReviewRating::Again => 0,
-        ReviewRating::Hard => 2,  // Treat as "pass with difficulty" (closest SM-18 mapping)
+        ReviewRating::Hard => 2, // Treat as "pass with difficulty" (closest SM-18 mapping)
         ReviewRating::Good => 3,
         ReviewRating::Easy => 5,
     };
 
-    let mut state: SM18State = item.algorithm_state
+    let mut state: SM18State = item
+        .algorithm_state
         .as_ref()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
 
-    let elapsed_days = item.last_review_date
+    let elapsed_days = item
+        .last_review_date
         .map(|lr| {
             let duration = now - lr;
             duration.num_seconds() as f64 / 86400.0
@@ -683,14 +707,29 @@ fn parse_sm20_state(item: &LearningItem) -> SM20State {
         .and_then(|state| serde_json::from_str::<SM20State>(state).ok())
         .unwrap_or_else(|| SM20State {
             version: 2,
-            stability: item.memory_state.as_ref().map(|ms| ms.stability).unwrap_or(1.0).max(1.0),
-            difficulty: item.memory_state.as_ref().map(|ms| ms.difficulty).unwrap_or(0.3).clamp(0.0, 1.0),
+            stability: item
+                .memory_state
+                .as_ref()
+                .map(|ms| ms.stability)
+                .unwrap_or(1.0)
+                .max(1.0),
+            difficulty: item
+                .memory_state
+                .as_ref()
+                .map(|ms| ms.difficulty)
+                .unwrap_or(0.3)
+                .clamp(0.0, 1.0),
             repetition: item.review_count.max(0) as u32,
             lapses: item.lapses.max(0) as u32,
             interval: item.interval.max(1.0),
             last_quality: 0.75,
             algorithm_branch: 0,
-            retrov: item.memory_state.as_ref().map(|ms| ms.difficulty).unwrap_or(0.3).clamp(0.0, 1.0),
+            retrov: item
+                .memory_state
+                .as_ref()
+                .map(|ms| ms.difficulty)
+                .unwrap_or(0.3)
+                .clamp(0.0, 1.0),
             s_factor: 1.0,
             multiplier: 1.0,
         })
@@ -702,7 +741,8 @@ fn apply_sm20_review(
     now: chrono::DateTime<Utc>,
 ) -> Result<()> {
     let state = parse_sm20_state(item);
-    let elapsed_days = item.last_review_date
+    let elapsed_days = item
+        .last_review_date
         .map(|lr| (now - lr).num_seconds() as f64 / 86400.0)
         .unwrap_or(0.0)
         .max(0.0);
@@ -769,7 +809,9 @@ pub async fn restore_learning_item_state(
     let mut item = repo
         .get_learning_item(&request.item_id)
         .await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Learning item {}", request.item_id)))?;
+        .ok_or_else(|| {
+            crate::error::IncrementumError::NotFound(format!("Learning item {}", request.item_id))
+        })?;
 
     item.due_date = request.due_date;
     item.interval = request.interval;
@@ -802,13 +844,12 @@ impl RepositoryExt for Repository {
 
 /// Get the next scheduled review time for all items (for queue display)
 #[tauri::command]
-pub async fn get_next_review_times(
-    repo: State<'_, Repository>,
-) -> Result<Vec<String>> {
+pub async fn get_next_review_times(repo: State<'_, Repository>) -> Result<Vec<String>> {
     let items = repo.get_all_learning_items().await?;
     let now = Utc::now();
 
-    let due_times: Vec<String> = items.iter()
+    let due_times: Vec<String> = items
+        .iter()
         .filter(|item| !item.is_suspended)
         .map(|item| {
             if item.due_date <= now {
@@ -838,10 +879,12 @@ pub async fn preview_review_intervals(
     let algo = algorithm.as_deref().unwrap_or("fsrs");
 
     if algo == "sm20" {
-        let item = repo.get_learning_item(&item_id).await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+        let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
+            crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+        })?;
         let now = Utc::now();
-        let elapsed_days = item.last_review_date
+        let elapsed_days = item
+            .last_review_date
             .map(|lr| (now - lr).num_seconds() as f64 / 86400.0)
             .unwrap_or(0.0)
             .max(0.0);
@@ -857,20 +900,30 @@ pub async fn preview_review_intervals(
     }
 
     if algo == "sm18" {
-        let item = repo.get_learning_item(&item_id).await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+        let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
+            crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+        })?;
 
         use crate::algorithms::supermemo::{SM18Algorithm, SM18State};
         let sm18 = SM18Algorithm::new();
         let now = Utc::now();
-        let elapsed_days = item.last_review_date
+        let elapsed_days = item
+            .last_review_date
             .map(|lr| (now - lr).num_seconds() as f64 / 86400.0)
             .unwrap_or(0.0)
             .max(0.0);
 
         let sm18_state = SM18State {
-            stability: item.memory_state.as_ref().map(|ms| ms.stability).unwrap_or(0.0),
-            difficulty: item.memory_state.as_ref().map(|ms| ms.difficulty).unwrap_or(0.5),
+            stability: item
+                .memory_state
+                .as_ref()
+                .map(|ms| ms.stability)
+                .unwrap_or(0.0),
+            difficulty: item
+                .memory_state
+                .as_ref()
+                .map(|ms| ms.difficulty)
+                .unwrap_or(0.5),
             interval: item.interval,
             repetition: item.review_count as u32,
             lapses: item.lapses as u32,
@@ -882,7 +935,11 @@ pub async fn preview_review_intervals(
         let easy = sm18.review(&sm18_state, ReviewRating::Easy, elapsed_days);
 
         let normalize = |interval: f64| {
-            if !interval.is_finite() || interval <= 0.0 { 1.0 } else { interval }
+            if !interval.is_finite() || interval <= 0.0 {
+                1.0
+            } else {
+                interval
+            }
         };
 
         return Ok(PreviewIntervals {
@@ -893,14 +950,16 @@ pub async fn preview_review_intervals(
         });
     }
 
-    let item = repo.get_learning_item(&item_id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+    let item = repo.get_learning_item(&item_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+    })?;
 
     let fsrs = fsrs::FSRS::new(Some(&[]))?;
     let now = Utc::now();
 
     // Calculate elapsed days with fractional precision
-    let elapsed_days = item.last_review_date
+    let elapsed_days = item
+        .last_review_date
         .map(|lr| {
             let duration = now - lr;
             duration.num_seconds() as f64 / 86400.0
@@ -919,7 +978,11 @@ pub async fn preview_review_intervals(
         }
     });
 
-    let next_states = fsrs.next_states(current_memory_state, DEFAULT_DESIRED_RETENTION, elapsed_days)?;
+    let next_states = fsrs.next_states(
+        current_memory_state,
+        DEFAULT_DESIRED_RETENTION,
+        elapsed_days,
+    )?;
 
     let normalize = |interval: f64, rating: ReviewRating| {
         if !interval.is_finite() || interval <= 0.0 {
@@ -966,47 +1029,51 @@ pub async fn get_review_sessions_by_collection(
     .await
     .map_err(|e| crate::error::IncrementumError::Database(e))?;
 
-    Ok(rows.iter().map(|row| {
-        serde_json::json!({
-            "id": row.get::<String, _>("id"),
-            "collectionId": row.get::<String, _>("collection_id"),
-            "startTime": row.get::<String, _>("start_time"),
-            "endTime": row.get::<Option<String>, _>("end_time"),
-            "itemsReviewed": row.get::<i32, _>("items_reviewed"),
-            "correctAnswers": row.get::<i32, _>("correct_answers"),
-            "totalTime": row.get::<i32, _>("total_time"),
+    Ok(rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "id": row.get::<String, _>("id"),
+                "collectionId": row.get::<String, _>("collection_id"),
+                "startTime": row.get::<String, _>("start_time"),
+                "endTime": row.get::<Option<String>, _>("end_time"),
+                "itemsReviewed": row.get::<i32, _>("items_reviewed"),
+                "correctAnswers": row.get::<i32, _>("correct_answers"),
+                "totalTime": row.get::<i32, _>("total_time"),
+            })
         })
-    }).collect())
+        .collect())
 }
 
 /// Get all review results (used for export)
 #[tauri::command]
-pub async fn get_all_review_results(
-    repo: State<'_, Repository>,
-) -> Result<Vec<serde_json::Value>> {
+pub async fn get_all_review_results(repo: State<'_, Repository>) -> Result<Vec<serde_json::Value>> {
     let rows = sqlx::query(
         r#"SELECT id, collection_id, session_id, item_id, rating, time_taken,
                   new_due_date, new_interval, new_ease_factor, timestamp
-           FROM review_results"#
+           FROM review_results"#,
     )
     .fetch_all(repo.pool())
     .await
     .map_err(|e| crate::error::IncrementumError::Database(e))?;
 
-    Ok(rows.iter().map(|row| {
-        serde_json::json!({
-            "id": row.get::<String, _>("id"),
-            "collectionId": row.get::<String, _>("collection_id"),
-            "reviewSessionId": row.get::<Option<String>, _>("session_id"),
-            "itemId": row.get::<String, _>("item_id"),
-            "rating": row.get::<i32, _>("rating"),
-            "timeTaken": row.get::<i32, _>("time_taken"),
-            "newDueDate": row.get::<Option<String>, _>("new_due_date"),
-            "newInterval": row.get::<f64, _>("new_interval"),
-            "newEaseFactor": row.get::<f64, _>("new_ease_factor"),
-            "timestamp": row.get::<String, _>("timestamp"),
+    Ok(rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "id": row.get::<String, _>("id"),
+                "collectionId": row.get::<String, _>("collection_id"),
+                "reviewSessionId": row.get::<Option<String>, _>("session_id"),
+                "itemId": row.get::<String, _>("item_id"),
+                "rating": row.get::<i32, _>("rating"),
+                "timeTaken": row.get::<i32, _>("time_taken"),
+                "newDueDate": row.get::<Option<String>, _>("new_due_date"),
+                "newInterval": row.get::<f64, _>("new_interval"),
+                "newEaseFactor": row.get::<f64, _>("new_ease_factor"),
+                "timestamp": row.get::<String, _>("timestamp"),
+            })
         })
-    }).collect())
+        .collect())
 }
 
 /// Get all categories for a specific collection
@@ -1017,23 +1084,26 @@ pub async fn get_categories_by_collection(
 ) -> Result<Vec<serde_json::Value>> {
     let rows = sqlx::query(
         r#"SELECT id, name, color, icon, parent_id, collection_id
-           FROM categories WHERE collection_id = ?1"#
+           FROM categories WHERE collection_id = ?1"#,
     )
     .bind(&collection_id)
     .fetch_all(repo.pool())
     .await
     .map_err(|e| crate::error::IncrementumError::Database(e))?;
 
-    Ok(rows.iter().map(|row| {
-        serde_json::json!({
-            "id": row.get::<String, _>("id"),
-            "name": row.get::<String, _>("name"),
-            "color": row.get::<Option<String>, _>("color"),
-            "icon": row.get::<Option<String>, _>("icon"),
-            "parentId": row.get::<Option<String>, _>("parent_id"),
-            "collectionId": row.get::<String, _>("collection_id"),
+    Ok(rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "id": row.get::<String, _>("id"),
+                "name": row.get::<String, _>("name"),
+                "color": row.get::<Option<String>, _>("color"),
+                "icon": row.get::<Option<String>, _>("icon"),
+                "parentId": row.get::<Option<String>, _>("parent_id"),
+                "collectionId": row.get::<String, _>("collection_id"),
+            })
         })
-    }).collect())
+        .collect())
 }
 
 #[cfg(test)]

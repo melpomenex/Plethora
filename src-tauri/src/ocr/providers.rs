@@ -158,9 +158,7 @@ impl TesseractProvider {
     pub fn check_installation(&self) -> Result<()> {
         let cmd = self.resolve_cmd();
 
-        let output = std::process::Command::new(&cmd)
-            .arg("--version")
-            .output();
+        let output = std::process::Command::new(&cmd).arg("--version").output();
 
         match output {
             Ok(output) if output.status.success() => Ok(()),
@@ -196,9 +194,7 @@ impl OCRProvider for TesseractProvider {
             .arg("-l")
             .arg("eng")
             .output()
-            .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to run Tesseract: {}", e))
-            })?;
+            .map_err(|e| IncrementumError::Internal(format!("Failed to run Tesseract: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -458,13 +454,13 @@ impl MarkerProvider {
             .clone()
             .unwrap_or_else(|| "marker".to_string());
 
-        let output = std::process::Command::new(&cmd)
-            .arg("--version")
-            .output();
+        let output = std::process::Command::new(&cmd).arg("--version").output();
 
         match output {
             Ok(output) if output.status.success() => Ok(()),
-            _ => Err(IncrementumError::Internal("Marker not found. Please install it or provide the correct path.".to_string())),
+            _ => Err(IncrementumError::Internal(
+                "Marker not found. Please install it or provide the correct path.".to_string(),
+            )),
         }
     }
 }
@@ -498,9 +494,7 @@ impl OCRProvider for MarkerProvider {
             .arg("--output_format")
             .arg("markdown")
             .output()
-            .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to run Marker: {}", e))
-            })?;
+            .map_err(|e| IncrementumError::Internal(format!("Failed to run Marker: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -571,13 +565,13 @@ impl NougatProvider {
             .clone()
             .unwrap_or_else(|| "nougat".to_string());
 
-        let output = std::process::Command::new(&cmd)
-            .arg("--version")
-            .output();
+        let output = std::process::Command::new(&cmd).arg("--version").output();
 
         match output {
             Ok(output) if output.status.success() => Ok(()),
-            _ => Err(IncrementumError::Internal("Nougat not found. Please install it or provide the correct path.".to_string())),
+            _ => Err(IncrementumError::Internal(
+                "Nougat not found. Please install it or provide the correct path.".to_string(),
+            )),
         }
     }
 }
@@ -607,9 +601,7 @@ impl OCRProvider for NougatProvider {
         let output = std::process::Command::new(&cmd)
             .arg(image_path)
             .output()
-            .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to run Nougat: {}", e))
-            })?;
+            .map_err(|e| IncrementumError::Internal(format!("Failed to run Nougat: {}", e)))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -771,7 +763,11 @@ impl GLMOCRProvider {
         Ok(images)
     }
 
-    async fn process_image_bytes_with_mime(&self, image_data: &[u8], mime: &str) -> Result<OCRResult> {
+    async fn process_image_bytes_with_mime(
+        &self,
+        image_data: &[u8],
+        mime: &str,
+    ) -> Result<OCRResult> {
         let start = std::time::Instant::now();
         let encoded = base64::engine::general_purpose::STANDARD.encode(image_data);
         let data_url = format!("data:{};base64,{}", mime, encoded);
@@ -820,13 +816,17 @@ impl GLMOCRProvider {
             IncrementumError::Internal(format!("Failed to parse GLM-OCR response: {}", e))
         })?;
 
-        let content = parsed.choices.first()
+        let content = parsed
+            .choices
+            .first()
             .ok_or_else(|| IncrementumError::Internal("GLM-OCR returned no choices".to_string()))?;
 
         let text = Self::extract_message_text(&content.message.content);
 
         if text.trim().is_empty() {
-            return Err(IncrementumError::Internal("GLM-OCR returned empty content".to_string()));
+            return Err(IncrementumError::Internal(
+                "GLM-OCR returned empty content".to_string(),
+            ));
         }
 
         let processing_time_ms = start.elapsed().as_millis() as u64;
@@ -902,7 +902,8 @@ impl OCRProvider for GLMOCRProvider {
             let page_images = Self::extract_pdf_page_images(&image_data)?;
             if page_images.is_empty() {
                 return Err(IncrementumError::Internal(
-                    "GLM-OCR could not find images in this PDF. Try a different OCR provider.".to_string()
+                    "GLM-OCR could not find images in this PDF. Try a different OCR provider."
+                        .to_string(),
                 ));
             }
 
@@ -971,32 +972,35 @@ pub fn create_provider(
     config: &super::OCRConfig,
 ) -> Result<Box<dyn OCRProvider>> {
     match provider_type {
-        OCRProviderType::Tesseract => {
-            Ok(Box::new(TesseractProvider::new(config.tesseract_path.clone())))
-        }
+        OCRProviderType::Tesseract => Ok(Box::new(TesseractProvider::new(
+            config.tesseract_path.clone(),
+        ))),
         OCRProviderType::GoogleDocumentAI => {
-            let google_config = config.google_document_ai.as_ref()
-                .ok_or_else(|| IncrementumError::Internal("Google Document AI config not set".to_string()))?;
-            Ok(Box::new(GoogleDocumentAIProvider::new(google_config.clone())))
+            let google_config = config.google_document_ai.as_ref().ok_or_else(|| {
+                IncrementumError::Internal("Google Document AI config not set".to_string())
+            })?;
+            Ok(Box::new(GoogleDocumentAIProvider::new(
+                google_config.clone(),
+            )))
         }
         OCRProviderType::AWSTextract => {
-            let aws_config = config.aws_textract.as_ref()
-                .ok_or_else(|| IncrementumError::Internal("AWS Textract config not set".to_string()))?;
+            let aws_config = config.aws_textract.as_ref().ok_or_else(|| {
+                IncrementumError::Internal("AWS Textract config not set".to_string())
+            })?;
             Ok(Box::new(AWSTextractProvider::new(aws_config.clone())))
         }
         OCRProviderType::AzureVision => {
-            let azure_config = config.azure_vision.as_ref()
-                .ok_or_else(|| IncrementumError::Internal("Azure Vision config not set".to_string()))?;
+            let azure_config = config.azure_vision.as_ref().ok_or_else(|| {
+                IncrementumError::Internal("Azure Vision config not set".to_string())
+            })?;
             Ok(Box::new(AzureVisionProvider::new(azure_config.clone())))
         }
-        OCRProviderType::Marker => {
-            Ok(Box::new(MarkerProvider::new(config.marker_path.clone())))
-        }
-        OCRProviderType::Nougat => {
-            Ok(Box::new(NougatProvider::new(config.nougat_path.clone())))
-        }
+        OCRProviderType::Marker => Ok(Box::new(MarkerProvider::new(config.marker_path.clone()))),
+        OCRProviderType::Nougat => Ok(Box::new(NougatProvider::new(config.nougat_path.clone()))),
         OCRProviderType::Glmocr => {
-            let glm_config = config.glm_ocr.as_ref()
+            let glm_config = config
+                .glm_ocr
+                .as_ref()
                 .ok_or_else(|| IncrementumError::Internal("GLM-OCR config not set".to_string()))?;
             Ok(Box::new(GLMOCRProvider::new(glm_config.clone())))
         }

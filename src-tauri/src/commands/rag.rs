@@ -102,12 +102,16 @@ fn split_oversized_chunk(text: &str) -> Vec<String> {
     }
 
     // Try splitting on sentence boundaries first.
-    let sentences: Vec<&str> = text.split_inclusive(|c: char| c == '.' || c == '!' || c == '?').collect();
+    let sentences: Vec<&str> = text
+        .split_inclusive(|c: char| c == '.' || c == '!' || c == '?')
+        .collect();
     if sentences.len() > 1 {
         let mut out: Vec<String> = Vec::new();
         let mut current = String::new();
         for sent in sentences {
-            if current.chars().count() + sent.chars().count() > MAX_CHUNK_CHARS && !current.is_empty() {
+            if current.chars().count() + sent.chars().count() > MAX_CHUNK_CHARS
+                && !current.is_empty()
+            {
                 out.push(std::mem::take(&mut current));
             }
             current.push_str(sent);
@@ -220,7 +224,11 @@ async fn index_document_inner(
     let mut skipped: u32 = 0;
     let now = chrono::Utc::now().timestamp_millis();
 
-    let store_chunk = |chunk_idx: &usize, sub_idx: &usize, text: &str, response: &crate::ai::embeddings::EmbeddingResponse| -> Result<DocumentChunkEmbedding> {
+    let store_chunk = |chunk_idx: &usize,
+                       sub_idx: &usize,
+                       text: &str,
+                       response: &crate::ai::embeddings::EmbeddingResponse|
+     -> Result<DocumentChunkEmbedding> {
         let row_id = if *sub_idx > 0 {
             format!("{}:{}:{}", document_id, chunk_idx, sub_idx)
         } else {
@@ -273,7 +281,11 @@ async fn index_document_inner(
                 Err(err) => {
                     tracing::warn!(
                         "RAG: skipping chunk {}:{}:{} ({} chars) — embedding failed: {}",
-                        document_id, chunk_idx, sub_idx, text.chars().count(), err
+                        document_id,
+                        chunk_idx,
+                        sub_idx,
+                        text.chars().count(),
+                        err
                     );
                     skipped += 1;
                 }
@@ -281,7 +293,12 @@ async fn index_document_inner(
         }
     }
 
-    tracing::info!("RAG indexed {}: {} embedded, {} skipped", document_id, embedded, skipped);
+    tracing::info!(
+        "RAG indexed {}: {} embedded, {} skipped",
+        document_id,
+        embedded,
+        skipped
+    );
     Ok(embedded)
 }
 
@@ -311,7 +328,12 @@ pub async fn rag_index_collection(
         let embedded = match index_document_inner(repo.inner(), &doc.id, &config, &options).await {
             Ok(n) => n,
             Err(e) => {
-                tracing::warn!("RAG: failed to index document {} ({}): {}", doc.id, doc.title, e);
+                tracing::warn!(
+                    "RAG: failed to index document {} ({}): {}",
+                    doc.id,
+                    doc.title,
+                    e
+                );
                 failed += 1;
                 0
             }
@@ -332,7 +354,9 @@ pub async fn rag_index_collection(
 
     tracing::info!(
         "RAG collection index complete: {} embedded across {} documents, {} failed",
-        total_embedded, total, failed
+        total_embedded,
+        total,
+        failed
     );
     Ok(total_embedded)
 }
@@ -395,7 +419,10 @@ pub async fn rag_search(
     let provider_str = provider_name(&config);
     let model_str = model_name(&config);
     let top_k = options.as_ref().and_then(|o| o.top_k).unwrap_or(8);
-    let min_sim = options.as_ref().and_then(|o| o.min_similarity).unwrap_or(0.25);
+    let min_sim = options
+        .as_ref()
+        .and_then(|o| o.min_similarity)
+        .unwrap_or(0.25);
 
     // Embed the query.
     let query_resp = provider
@@ -440,7 +467,11 @@ pub async fn rag_search(
         .filter(|hit| hit.score >= min_sim)
         .collect();
 
-    scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     scored.truncate(top_k);
 
     Ok(scored)

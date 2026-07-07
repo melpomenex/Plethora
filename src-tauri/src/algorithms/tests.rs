@@ -2,9 +2,11 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::algorithms::{calculate_document_priority_score, calculate_priority_score, DocumentScheduler, SM2Params};
+    use crate::algorithms::{
+        calculate_document_priority_score, calculate_priority_score, DocumentScheduler, SM2Params,
+    };
     use crate::models::ReviewRating;
-    use chrono::{Utc, Duration as ChronoDuration};
+    use chrono::{Duration as ChronoDuration, Utc};
 
     #[test]
     fn test_sm2_params_default() {
@@ -256,10 +258,10 @@ mod tests {
 
         // Simulate a sequence of reviews
         let ratings = vec![
-            ReviewRating::Good,  // 1st review: interval = 1 day
-            ReviewRating::Good,  // 2nd review: interval = 6 days
-            ReviewRating::Good,  // 3rd review: interval = 6 * 2.5 = 15 days
-            ReviewRating::Good,  // 4th review: interval = 15 * 2.5 = 37.5 days
+            ReviewRating::Good, // 1st review: interval = 1 day
+            ReviewRating::Good, // 2nd review: interval = 6 days
+            ReviewRating::Good, // 3rd review: interval = 6 * 2.5 = 15 days
+            ReviewRating::Good, // 4th review: interval = 15 * 2.5 = 37.5 days
         ];
 
         let expected_intervals = vec![1.0, 6.0, 15.0, 37.5];

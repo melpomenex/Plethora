@@ -61,11 +61,7 @@ impl PromptBuilder {
 
     /// Add context about a document
     pub fn add_document_context(mut self, title: &str, content: &str) -> Self {
-        let context = format!(
-            "Document: {}\n\nContent:\n{}",
-            title,
-            content
-        );
+        let context = format!("Document: {}\n\nContent:\n{}", title, content);
         self.messages.push(Message::user(context));
         self
     }
@@ -229,10 +225,7 @@ impl PromptBuilder {
                 "Suggest appropriate categories for organizing this content. \
                 Return as JSON with a 'categories' array of strings.",
             )
-            .add_user(format!(
-                "Suggest categories for:\n\n{}",
-                content
-            ))
+            .add_user(format!("Suggest categories for:\n\n{}", content))
     }
 
     /// Create a prompt for suggesting tags
@@ -310,8 +303,10 @@ mod tests {
 
     #[test]
     fn test_qa_prompt() {
-        let builder =
-            PromptBuilder::question_answering("What is AI?", "AI stands for Artificial Intelligence.");
+        let builder = PromptBuilder::question_answering(
+            "What is AI?",
+            "AI stands for Artificial Intelligence.",
+        );
         let messages = builder.build_messages();
 
         assert_eq!(messages.len(), 2);

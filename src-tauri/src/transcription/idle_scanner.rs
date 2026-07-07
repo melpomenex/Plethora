@@ -1,10 +1,10 @@
+use super::auto_queue::AutoTranscriptionQueue;
+use super::model_manager::ModelManager;
+use crate::database::Repository;
+use crate::models::TranscriptionQueueEntry;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
-use crate::database::Repository;
-use crate::models::TranscriptionQueueEntry;
-use super::auto_queue::AutoTranscriptionQueue;
-use super::model_manager::ModelManager;
 
 /// Channel sender used to signal the idle scanner when new media is imported.
 /// Managed as Tauri state so import handlers can wake the scanner.
@@ -62,7 +62,8 @@ impl IdleScanner {
                 }
 
                 // Check if auto_queue is idle (no active job)
-                let is_active = app_handle.try_state::<super::TranscriptionState>()
+                let is_active = app_handle
+                    .try_state::<super::TranscriptionState>()
                     .map(|s| s.auto_queue.active_job_id().is_some())
                     .unwrap_or(false);
 
@@ -105,7 +106,11 @@ impl IdleScanner {
                 let selected_profile = installed_profiles
                     .iter()
                     .find(|p| p.id.starts_with("sense-voice-"))
-                    .or_else(|| installed_profiles.iter().find(|p| p.id.starts_with("parakeet-")))
+                    .or_else(|| {
+                        installed_profiles
+                            .iter()
+                            .find(|p| p.id.starts_with("parakeet-"))
+                    })
                     .or_else(|| installed_profiles.first())
                     .unwrap(); // Safe because list is not empty
 
@@ -128,14 +133,19 @@ impl IdleScanner {
                         ..entry
                     };
                     let state = app_handle.try_state::<super::TranscriptionState>();
-                    let enqueued_ok = state.as_ref().map_or(false, |s| s.auto_queue.enqueue(entry).is_ok());
+                    let enqueued_ok = state
+                        .as_ref()
+                        .map_or(false, |s| s.auto_queue.enqueue(entry).is_ok());
                     if enqueued_ok {
                         enqueued += 1;
                     }
                 }
 
                 if enqueued > 0 {
-                    eprintln!("Idle scanner enqueued {} documents for transcription", enqueued);
+                    eprintln!(
+                        "Idle scanner enqueued {} documents for transcription",
+                        enqueued
+                    );
                     let _ = app_handle.emit("transcription://queue-updated", ());
                 }
             }

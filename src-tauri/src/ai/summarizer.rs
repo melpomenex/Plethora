@@ -2,11 +2,7 @@
 //!
 //! Provides various summarization capabilities using LLMs.
 
-use crate::ai::{
-    providers::ChatCompletionRequest,
-    prompts::PromptBuilder,
-    AIProvider,
-};
+use crate::ai::{prompts::PromptBuilder, providers::ChatCompletionRequest, AIProvider};
 
 /// Summarizer
 pub struct Summarizer {
@@ -173,12 +169,20 @@ impl Summarizer {
     }
 
     /// Generate simplified explanation
-    pub async fn simplify(&self, content: &str, target_level: SimplificationLevel) -> Result<String, String> {
+    pub async fn simplify(
+        &self,
+        content: &str,
+        target_level: SimplificationLevel,
+    ) -> Result<String, String> {
         let instruction = match target_level {
             SimplificationLevel::Elementary => "Explain this as if talking to a 10-year-old.",
-            SimplificationLevel::HighSchool => "Explain this as if talking to a high school student.",
+            SimplificationLevel::HighSchool => {
+                "Explain this as if talking to a high school student."
+            }
             SimplificationLevel::College => "Explain this as if talking to a college student.",
-            SimplificationLevel::Expert => "Explain this for an expert audience (minimal simplification).",
+            SimplificationLevel::Expert => {
+                "Explain this for an expert audience (minimal simplification)."
+            }
         };
 
         let prompt = PromptBuilder::new()
@@ -329,7 +333,10 @@ mod tests {
         }));
         let summarizer = Summarizer::new(provider);
 
-        let result = summarizer.extract_key_points("Content...", 3).await.unwrap();
+        let result = summarizer
+            .extract_key_points("Content...", 3)
+            .await
+            .unwrap();
 
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], "Point one");
@@ -342,7 +349,10 @@ mod tests {
         }));
         let summarizer = Summarizer::new(provider);
 
-        let result = summarizer.generate_title("Content about AI...").await.unwrap();
+        let result = summarizer
+            .generate_title("Content about AI...")
+            .await
+            .unwrap();
 
         assert_eq!(result, "The Future of AI");
     }

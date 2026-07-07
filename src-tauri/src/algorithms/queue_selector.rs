@@ -4,8 +4,8 @@
 //! similar to the Incrementum-CPP QueueSelector implementation.
 
 use crate::models::queue::QueueItem;
-use rand::{distributions::WeightedIndex, prelude::*, rngs::StdRng};
 use rand::SeedableRng;
+use rand::{distributions::WeightedIndex, prelude::*, rngs::StdRng};
 
 /// Queue selector with weighted randomization
 pub struct QueueSelector {
@@ -123,12 +123,16 @@ impl QueueSelector {
 
         items.sort_by(|a, b| {
             // Determine if each item is due, new, or future-dated
-            let a_is_due = a.due_date.as_ref()
+            let a_is_due = a
+                .due_date
+                .as_ref()
                 .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
                 .map(|d| d.with_timezone(&chrono::Utc) <= now)
                 .unwrap_or(false); // No due_date = new item
             let a_is_new = a.due_date.is_none();
-            let b_is_due = b.due_date.as_ref()
+            let b_is_due = b
+                .due_date
+                .as_ref()
                 .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
                 .map(|d| d.with_timezone(&chrono::Utc) <= now)
                 .unwrap_or(false);
@@ -136,11 +140,11 @@ impl QueueSelector {
 
             // Primary sort: Due items first, then new items, then future-dated items
             match (a_is_due, a_is_new, b_is_due, b_is_new) {
-                (true, _, false, false) => return std::cmp::Ordering::Less,  // a is due, b is future
+                (true, _, false, false) => return std::cmp::Ordering::Less, // a is due, b is future
                 (false, false, true, _) => return std::cmp::Ordering::Greater, // a is future, b is due
-                (true, _, false, true) => return std::cmp::Ordering::Less, // a is due, b is new
-                (false, true, true, _) => return std::cmp::Ordering::Greater, // a is new, b is due
-                (false, true, false, false) => return std::cmp::Ordering::Less,  // a is new, b is future
+                (true, _, false, true) => return std::cmp::Ordering::Less,     // a is due, b is new
+                (false, true, true, _) => return std::cmp::Ordering::Greater,  // a is new, b is due
+                (false, true, false, false) => return std::cmp::Ordering::Less, // a is new, b is future
                 (false, false, false, true) => return std::cmp::Ordering::Greater, // a is future, b is new
                 _ => {} // Both are due, both are new, or both are future - continue to secondary sort
             }
@@ -154,10 +158,10 @@ impl QueueSelector {
 
             // Tertiary sort: by due date (earlier first) for items with due dates
             match (&a.due_date, &b.due_date) {
-                (Some(a_date), Some(b_date)) => {
-                    a_date.partial_cmp(b_date).unwrap_or(std::cmp::Ordering::Equal)
-                }
-                (Some(_), None) => std::cmp::Ordering::Less,  // Has due date comes before new items
+                (Some(a_date), Some(b_date)) => a_date
+                    .partial_cmp(b_date)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+                (Some(_), None) => std::cmp::Ordering::Less, // Has due date comes before new items
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 (None, None) => std::cmp::Ordering::Equal,
             }
@@ -347,9 +351,9 @@ mod tests {
         selector.sort_queue_items(&mut items);
 
         // Order should be: due items first (by priority), then new, then future
-        assert_eq!(items[0].id, "due1");  // Due, priority 8
-        assert_eq!(items[1].id, "due2");  // Due, priority 7
-        assert_eq!(items[2].id, "new");   // New (no due date)
+        assert_eq!(items[0].id, "due1"); // Due, priority 8
+        assert_eq!(items[1].id, "due2"); // Due, priority 7
+        assert_eq!(items[2].id, "new"); // New (no due date)
         assert_eq!(items[3].id, "future"); // Future-dated
     }
 
@@ -357,19 +361,23 @@ mod tests {
     fn test_fsrs_queue_sorting_new_vs_future() {
         let selector = QueueSelector::new(0.0);
         let mut items = vec![
-            create_test_item("future1", 9.0, 30),  // Far future
-            create_new_item("new1", 5.0),     // New item
-            create_test_item("future2", 8.0, 5),   // Near future
-            create_new_item("new2", 7.0),     // New item
+            create_test_item("future1", 9.0, 30), // Far future
+            create_new_item("new1", 5.0),         // New item
+            create_test_item("future2", 8.0, 5),  // Near future
+            create_new_item("new2", 7.0),         // New item
         ];
 
         selector.sort_queue_items(&mut items);
 
         // New items should come before future-dated items
-        assert!(items.iter().position(|i| i.id == "new1").unwrap() <
-                items.iter().position(|i| i.id == "future1").unwrap());
-        assert!(items.iter().position(|i| i.id == "new2").unwrap() <
-                items.iter().position(|i| i.id == "future2").unwrap());
+        assert!(
+            items.iter().position(|i| i.id == "new1").unwrap()
+                < items.iter().position(|i| i.id == "future1").unwrap()
+        );
+        assert!(
+            items.iter().position(|i| i.id == "new2").unwrap()
+                < items.iter().position(|i| i.id == "future2").unwrap()
+        );
     }
 
     #[test]
@@ -454,7 +462,7 @@ mod tests {
 
         // New items should be ordered by priority (descending)
         assert_eq!(items[0].id, "new_high"); // Priority 9
-        assert_eq!(items[1].id, "new_med");  // Priority 7
-        assert_eq!(items[2].id, "new_low");  // Priority 5
+        assert_eq!(items[1].id, "new_med"); // Priority 7
+        assert_eq!(items[2].id, "new_low"); // Priority 5
     }
 }

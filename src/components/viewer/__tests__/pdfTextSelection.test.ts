@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { PdfSelectionContext } from "../../../types/selection";
 import {
+  buildPdfSelectionExtractPayload,
+  canUsePdfSelectionAction,
   derivePdfTextSelectionCapability,
   getPdfExtractBlockReason,
+  hasUsablePdfSelectionContext,
   hasSelectableTextInLayer,
   isValidPdfSelection,
   selectionAnchorsInTextLayers,
@@ -107,7 +110,9 @@ describe("pdfTextSelection helpers", () => {
 
   it("gates PDF extract creation by valid selection and page capability", () => {
     const context = createPdfContext();
+    expect(hasUsablePdfSelectionContext(context)).toBe(true);
     expect(isValidPdfSelection("selected text", context)).toBe(true);
+    expect(canUsePdfSelectionAction({ selectedText: "selected text", selectionContext: context })).toBe(true);
     expect(isValidPdfSelection("   ", context)).toBe(false);
 
     expect(
@@ -151,5 +156,78 @@ describe("pdfTextSelection helpers", () => {
         },
       }),
     ).toBe("missing_selection");
+  });
+
+  it("rejects PDF contexts without usable page rectangles", () => {
+    const noPages: PdfSelectionContext = {
+      type: "pdf",
+      documentId: "doc-1",
+      pages: [],
+    };
+    const emptyRects: PdfSelectionContext = {
+      type: "pdf",
+      documentId: "doc-1",
+      pages: [
+        {
+          pageNumber: 1,
+          viewportRects: [],
+          pdfRects: [],
+        },
+      ],
+    };
+    const zeroSizedViewport: PdfSelectionContext = {
+      type: "pdf",
+      documentId: "doc-1",
+      pages: [
+        {
+          pageNumber: 1,
+          viewportRects: [{ left: 0, top: 0, width: 0, height: 20 }],
+          pdfRects: [{ x1: 0, y1: 0, x2: 10, y2: 20 }],
+        },
+      ],
+    };
+
+    expect(hasUsablePdfSelectionContext(noPages)).toBe(false);
+    expect(isValidPdfSelection("selected text", noPages)).toBe(false);
+    expect(canUsePdfSelectionAction({ selectedText: "selected text", selectionContext: noPages })).toBe(false);
+
+    expect(hasUsablePdfSelectionContext(emptyRects)).toBe(false);
+    expect(isValidPdfSelection("selected text", emptyRects)).toBe(false);
+
+    expect(hasUsablePdfSelectionContext(zeroSizedViewport)).toBe(false);
+    expect(isValidPdfSelection("selected text", zeroSizedViewport)).toBe(false);
+  });
+
+  it("builds extract payloads with trimmed text and PDF page context", () => {
+    const context = createPdfContext();
+
+    expect(
+      buildPdfSelectionExtractPayload({
+        documentId: "doc-1",
+        selectedText: "  selected PDF text  ",
+        selectionContext: context,
+        color: "#fef08a",
+      }),
+    ).toEqual({
+      documentId: "doc-1",
+      text: "selected PDF text",
+      color: "#fef08a",
+      pageNumber: 1,
+      selectionContext: context,
+    });
+  });
+
+  it("does not build extract payloads for invalid PDF selections", () => {
+    expect(
+      buildPdfSelectionExtractPayload({
+        documentId: "doc-1",
+        selectedText: "selected PDF text",
+        selectionContext: {
+          type: "pdf",
+          documentId: "doc-1",
+          pages: [],
+        },
+      }),
+    ).toBeNull();
   });
 });

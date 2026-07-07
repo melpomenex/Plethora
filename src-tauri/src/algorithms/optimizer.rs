@@ -4,7 +4,7 @@
 //! based on historical review data.
 
 use crate::models::{LearningItem, ReviewRating};
-use chrono::{Utc, Duration};
+use chrono::{Duration, Utc};
 
 /// Optimization result
 #[derive(Debug, Clone, serde::Serialize)]
@@ -151,15 +151,19 @@ impl ParameterOptimizer {
 
         for record in history {
             // Simulate what the algorithm would predict
-            let predicted_interval = self.predict_interval(params, record.days_since_previous_review);
+            let predicted_interval =
+                self.predict_interval(params, record.days_since_previous_review);
 
             // For simplicity, we use rating as proxy for retention
             let was_retained = matches!(record.rating, ReviewRating::Good | ReviewRating::Easy);
 
             // Predict retention based on interval (simplified model)
-            let predicted_retention = self.retention_from_interval(predicted_interval, params.desired_retention);
+            let predicted_retention =
+                self.retention_from_interval(predicted_interval, params.desired_retention);
 
-            if (predicted_retention >= 0.5 && was_retained) || (predicted_retention < 0.5 && !was_retained) {
+            if (predicted_retention >= 0.5 && was_retained)
+                || (predicted_retention < 0.5 && !was_retained)
+            {
                 correct_predictions += 1;
             }
             total_predictions += 1;
@@ -218,9 +222,8 @@ impl ParameterOptimizer {
 
 pub fn default_fsrs_weights() -> Vec<f64> {
     vec![
-        0.2120, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.0010, 1.8722,
-        0.1666, 0.7960, 1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425,
-        0.0912, 0.0658, 0.1542,
+        0.2120, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194, 0.0010, 1.8722, 0.1666, 0.7960,
+        1.4835, 0.0614, 0.2629, 1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
     ]
 }
 
@@ -246,8 +249,14 @@ pub fn calculate_review_statistics(items: &[LearningItem]) -> ReviewStatistics {
     // Calculate items due within time ranges
     let now = Utc::now();
     let due_today = items.iter().filter(|i| i.due_date <= now).count();
-    let due_week = items.iter().filter(|i| i.due_date <= now + Duration::days(7)).count();
-    let due_month = items.iter().filter(|i| i.due_date <= now + Duration::days(30)).count();
+    let due_week = items
+        .iter()
+        .filter(|i| i.due_date <= now + Duration::days(7))
+        .count();
+    let due_month = items
+        .iter()
+        .filter(|i| i.due_date <= now + Duration::days(30))
+        .count();
 
     ReviewStatistics {
         total_items: items.len() as i32,

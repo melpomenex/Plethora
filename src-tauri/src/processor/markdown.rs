@@ -45,11 +45,7 @@ fn extract_title_from_markdown(content: &str) -> Option<String> {
     content
         .lines()
         .find(|line| line.starts_with('#'))
-        .map(|line| {
-            line.trim_start_matches('#')
-                .trim()
-                .to_string()
-        })
+        .map(|line| line.trim_start_matches('#').trim().to_string())
 }
 
 fn clean_markdown_text(markdown: &str) -> String {
@@ -94,8 +90,5 @@ fn clean_markdown_text(markdown: &str) -> String {
         result.push(' ');
     }
 
-    result
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .join(" ")
+    result.split_whitespace().collect::<Vec<&str>>().join(" ")
 }

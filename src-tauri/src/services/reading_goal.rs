@@ -3,7 +3,7 @@
 use crate::models::reading_goal::{
     Achievement, GoalProgress, GoalType, ReadingGoal, ReadingStreak,
 };
-use chrono::{Utc, NaiveDate};
+use chrono::{NaiveDate, Utc};
 use std::sync::Arc;
 
 pub struct ReadingGoalService {

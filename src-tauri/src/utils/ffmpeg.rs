@@ -7,21 +7,25 @@
 //! with system ffmpeg on Linux (.deb packages). Now requires ffmpeg to be
 //! installed on the system or bundled separately by platform-specific packages.
 
+use anyhow::{anyhow, Result};
 use std::path::PathBuf;
 use tauri::AppHandle;
-use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::Command;
-use anyhow::{Result, anyhow};
+use tauri_plugin_shell::ShellExt;
 
 /// Homebrew binary directories to search for ffmpeg on macOS.
 const HOMEBREW_BIN_DIRS: &[&str] = &[
-    "/opt/homebrew/bin",  // Apple Silicon
-    "/usr/local/bin",     // Intel Mac
+    "/opt/homebrew/bin", // Apple Silicon
+    "/usr/local/bin",    // Intel Mac
 ];
 
 /// The ffmpeg binary name (platform-specific).
 fn ffmpeg_binary_name() -> &'static str {
-    if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" }
+    if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    }
 }
 
 /// PATH separator character.
@@ -54,7 +58,8 @@ fn resolve_ffmpeg_path() -> Option<PathBuf> {
 /// Build an enhanced PATH string that includes Homebrew directories.
 fn enhanced_path() -> String {
     let existing = std::env::var("PATH").unwrap_or_default();
-    let homebrew_dirs: Vec<&str> = HOMEBREW_BIN_DIRS.iter()
+    let homebrew_dirs: Vec<&str> = HOMEBREW_BIN_DIRS
+        .iter()
         .filter(|dir| !existing.contains(**dir))
         .copied()
         .collect();
@@ -62,7 +67,12 @@ fn enhanced_path() -> String {
     if homebrew_dirs.is_empty() {
         existing
     } else {
-        format!("{}{}{}", homebrew_dirs.join(&PATH_SEP.to_string()), PATH_SEP, existing)
+        format!(
+            "{}{}{}",
+            homebrew_dirs.join(&PATH_SEP.to_string()),
+            PATH_SEP,
+            existing
+        )
     }
 }
 
@@ -84,7 +94,8 @@ pub async fn check_ffmpeg_available(app_handle: &AppHandle) -> Result<bool, Stri
     use tauri_plugin_shell::process::CommandEvent;
 
     let shell = app_handle.shell();
-    let (mut rx, _) = shell.command("ffmpeg")
+    let (mut rx, _) = shell
+        .command("ffmpeg")
         .args(["-version"])
         .env("PATH", enhanced_path())
         .spawn()

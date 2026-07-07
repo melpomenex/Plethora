@@ -2,29 +2,37 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
-use futures_util::StreamExt;
-use serde::{Serialize, Deserialize};
-use tauri::{AppHandle, Emitter, Manager, State};
 use crate::database::Repository;
 use crate::error::{IncrementumError, Result};
-use crate::models::podcast::{PodcastFeed, PodcastFeedResponse, PodcastEpisode, ParsedPodcastFeed, PodcastSearchResult, PodcastSearchResponse};
 use crate::models::document::{Document, FileType};
 use crate::models::extract::Extract;
+use crate::models::podcast::{
+    ParsedPodcastFeed, PodcastEpisode, PodcastFeed, PodcastFeedResponse, PodcastSearchResponse,
+    PodcastSearchResult,
+};
 use crate::podcast::parser::parse_podcast_feed;
+use crate::transcription::engine::TranscriptSegment;
 use crate::transcription::engine::TranscriptionEngine;
 use crate::transcription::model_manager::ModelManager;
-use crate::transcription::engine::TranscriptSegment;
 use chrono::Utc;
+use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::AsyncWriteExt;
 
 /// Subscribe to a podcast feed
 #[tauri::command]
-pub async fn subscribe_podcast(feed_url: String, repo: State<'_, Repository>) -> Result<PodcastFeedResponse> {
+pub async fn subscribe_podcast(
+    feed_url: String,
+    repo: State<'_, Repository>,
+) -> Result<PodcastFeedResponse> {
     if let Some(existing) = repo.get_podcast_feed_by_url(&feed_url).await? {
-        let episodes = repo.get_podcast_episodes(Some(&existing.id), Some(true)).await?;
+        let episodes = repo
+            .get_podcast_episodes(Some(&existing.id), Some(true))
+            .await?;
         let episode_count = episodes.len() as i64;
         let unplayed_count = episodes.iter().filter(|e| !e.played).count() as i64;
         return Ok(PodcastFeedResponse {
@@ -41,11 +49,10 @@ pub async fn subscribe_podcast(feed_url: String, repo: State<'_, Repository>) ->
         .build()
         .map_err(|e| IncrementumError::Internal(format!("Failed to build HTTP client: {}", e)))?;
 
-    let response = client
-        .get(&feed_url)
-        .send()
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to fetch podcast feed: {}", e)))?;
+    let response =
+        client.get(&feed_url).send().await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to fetch podcast feed: {}", e))
+        })?;
 
     if !response.status().is_success() {
         return Err(IncrementumError::Internal(format!(
@@ -84,7 +91,8 @@ pub async fn subscribe_podcast(feed_url: String, repo: State<'_, Repository>) ->
     // Insert feed into DB
     repo.insert_podcast_feed(&feed).await?;
 
-    repo.insert_podcast_episodes_bulk(&feed_id, &parsed.episodes).await?;
+    repo.insert_podcast_episodes_bulk(&feed_id, &parsed.episodes)
+        .await?;
 
     let episode_count = parsed.episodes.len() as i64;
 
@@ -97,7 +105,11 @@ pub async fn subscribe_podcast(feed_url: String, repo: State<'_, Repository>) ->
 
 /// Rename a podcast feed
 #[tauri::command]
-pub async fn rename_podcast_feed(feed_id: String, new_title: String, repo: State<'_, Repository>) -> Result<()> {
+pub async fn rename_podcast_feed(
+    feed_id: String,
+    new_title: String,
+    repo: State<'_, Repository>,
+) -> Result<()> {
     repo.rename_podcast_feed(&feed_id, &new_title).await
 }
 
@@ -150,11 +162,10 @@ pub async fn refresh_podcast_feed(
         .build()
         .map_err(|e| IncrementumError::Internal(format!("Failed to build HTTP client: {}", e)))?;
 
-    let response = client
-        .get(&feed_url)
-        .send()
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to fetch podcast feed: {}", e)))?;
+    let response =
+        client.get(&feed_url).send().await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to fetch podcast feed: {}", e))
+        })?;
 
     if !response.status().is_success() {
         return Err(IncrementumError::Internal(format!(
@@ -184,10 +195,12 @@ pub async fn refresh_podcast_feed(
     updated_feed.last_fetched = Some(now.clone());
 
     repo.update_podcast_feed_metadata(&updated_feed).await?;
-    repo.update_podcast_feed_last_fetched(&feed_id, &now).await?;
+    repo.update_podcast_feed_last_fetched(&feed_id, &now)
+        .await?;
 
     // Upsert episodes (INSERT OR IGNORE preserves existing played/position)
-    repo.insert_podcast_episodes_bulk(&feed_id, &parsed.episodes).await?;
+    repo.insert_podcast_episodes_bulk(&feed_id, &parsed.episodes)
+        .await?;
 
     let episode_count = repo.count_podcast_episodes(&feed_id).await?;
     let unplayed_count = repo.count_unplayed_podcast_episodes(&feed_id).await?;
@@ -218,22 +231,20 @@ pub async fn refresh_podcast_feed(
 
                         tokio::spawn(async move {
                             // Background best-effort — errors are logged, not propagated
-                            if let Err(e) = run_transcription_job(
-                                ep_id,
-                                None,
-                                lang,
-                                None,
-                                app,
-                                repo,
-                                tokens,
-                            ).await {
+                            if let Err(e) =
+                                run_transcription_job(ep_id, None, lang, None, app, repo, tokens)
+                                    .await
+                            {
                                 eprintln!("[auto-transcribe] Transcription failed: {}", e);
                             }
                         });
                     }
                 }
                 Err(e) => {
-                    eprintln!("[auto-transcribe] Failed to query untranscribed episodes: {}", e);
+                    eprintln!(
+                        "[auto-transcribe] Failed to query untranscribed episodes: {}",
+                        e
+                    );
                 }
             }
         });
@@ -249,7 +260,8 @@ pub async fn get_podcast_episodes(
     include_played: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<PodcastEpisode>> {
-    repo.get_podcast_episodes(feed_id.as_deref(), include_played).await
+    repo.get_podcast_episodes(feed_id.as_deref(), include_played)
+        .await
 }
 
 /// Mark an episode as played or unplayed
@@ -274,10 +286,7 @@ pub async fn update_episode_position(
 
 /// Get the playback position of an episode
 #[tauri::command]
-pub async fn get_episode_position(
-    episode_id: String,
-    repo: State<'_, Repository>,
-) -> Result<f64> {
+pub async fn get_episode_position(episode_id: String, repo: State<'_, Repository>) -> Result<f64> {
     repo.get_episode_position(&episode_id).await
 }
 
@@ -350,7 +359,8 @@ async fn run_transcription_job(
     let lang = language.unwrap_or_else(|| "auto".to_string());
 
     // 2. Set status to downloading
-    repo.update_episode_transcript_status(&episode_id, "downloading", None, None).await?;
+    repo.update_episode_transcript_status(&episode_id, "downloading", None, None)
+        .await?;
 
     let _ = app_handle.emit(
         "podcast://transcription-progress",
@@ -413,14 +423,16 @@ async fn run_transcription_job(
 
         let total_size = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
-        let mut file = tokio::fs::File::create(&temp_file)
-            .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to create temp file: {}", e)))?;
+        let mut file = tokio::fs::File::create(&temp_file).await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to create temp file: {}", e))
+        })?;
 
         let mut stream = response.bytes_stream();
         while let Some(item) = stream.next().await {
             if cancel_token.load(Ordering::Relaxed) {
-                return Err(IncrementumError::Internal("Transcription cancelled".to_string()));
+                return Err(IncrementumError::Internal(
+                    "Transcription cancelled".to_string(),
+                ));
             }
             let chunk = item
                 .map_err(|e| IncrementumError::Internal(format!("Download stream error: {}", e)))?;
@@ -457,7 +469,8 @@ async fn run_transcription_job(
     }
 
     // 5. Set status to transcribing
-    repo.update_episode_transcript_status(&episode_id, "transcribing", None, None).await?;
+    repo.update_episode_transcript_status(&episode_id, "transcribing", None, None)
+        .await?;
     let _ = app_handle.emit(
         "podcast://transcription-progress",
         serde_json::json!({
@@ -468,8 +481,8 @@ async fn run_transcription_job(
     );
 
     // 6. Prepare + transcribe using TranscriptionEngine
-    let model_manager = ModelManager::new(&app_handle)
-        .map_err(|e| IncrementumError::Internal(e.to_string()))?;
+    let model_manager =
+        ModelManager::new(&app_handle).map_err(|e| IncrementumError::Internal(e.to_string()))?;
 
     let mut selected_model = model_id;
     if !model_manager.is_model_installed(&selected_model) {
@@ -486,7 +499,8 @@ async fn run_transcription_job(
                 "error",
                 Some("No Whisper model installed. Download one in Settings > Audio Transcription."),
                 None,
-            ).await?;
+            )
+            .await?;
             cleanup(&tokens, &episode_id);
             return Err(IncrementumError::InvalidInput(
                 "No Whisper model installed.".to_string(),
@@ -506,7 +520,9 @@ async fn run_transcription_job(
         repo.update_episode_transcript_status(&episode_id, "error", Some("Cancelled"), None)
             .await?;
         cleanup(&tokens, &episode_id);
-        return Err(IncrementumError::Internal("Transcription cancelled".to_string()));
+        return Err(IncrementumError::Internal(
+            "Transcription cancelled".to_string(),
+        ));
     }
 
     let transcribe_result = async {
@@ -524,59 +540,61 @@ async fn run_transcription_job(
 
         let cancel_post = cancel_clone.clone();
         if is_sense_voice {
-            engine.transcribe_sensevoice(
-                &prepared,
-                &model_path,
-                &lang,
-                move |seg| {
-                    if cancel_clone.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    if let Ok(mut guard) = segments_clone.lock() {
-                        guard.push(seg);
-                    }
-                },
-                Some(Box::new(move |p: i32| {
-                    let mapped = 30 + ((p as f64 / 100.0) * 70.0) as i32;
-                    let _ = app_clone.emit(
-                        "podcast://transcription-progress",
-                        serde_json::json!({
-                            "episodeId": &ep_id,
-                            "status": "transcribing",
-                            "progress": mapped
-                        }),
-                    );
-                })),
-            )
-            .await
-            .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
+            engine
+                .transcribe_sensevoice(
+                    &prepared,
+                    &model_path,
+                    &lang,
+                    move |seg| {
+                        if cancel_clone.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        if let Ok(mut guard) = segments_clone.lock() {
+                            guard.push(seg);
+                        }
+                    },
+                    Some(Box::new(move |p: i32| {
+                        let mapped = 30 + ((p as f64 / 100.0) * 70.0) as i32;
+                        let _ = app_clone.emit(
+                            "podcast://transcription-progress",
+                            serde_json::json!({
+                                "episodeId": &ep_id,
+                                "status": "transcribing",
+                                "progress": mapped
+                            }),
+                        );
+                    })),
+                )
+                .await
+                .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
         } else if is_parakeet {
-            engine.transcribe_parakeet(
-                &prepared,
-                &model_path,
-                &lang,
-                move |seg| {
-                    if cancel_clone.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    if let Ok(mut guard) = segments_clone.lock() {
-                        guard.push(seg);
-                    }
-                },
-                Some(Box::new(move |p: i32| {
-                    let mapped = 30 + ((p as f64 / 100.0) * 70.0) as i32;
-                    let _ = app_clone.emit(
-                        "podcast://transcription-progress",
-                        serde_json::json!({
-                            "episodeId": &ep_id,
-                            "status": "transcribing",
-                            "progress": mapped
-                        }),
-                    );
-                })),
-            )
-            .await
-            .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
+            engine
+                .transcribe_parakeet(
+                    &prepared,
+                    &model_path,
+                    &lang,
+                    move |seg| {
+                        if cancel_clone.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        if let Ok(mut guard) = segments_clone.lock() {
+                            guard.push(seg);
+                        }
+                    },
+                    Some(Box::new(move |p: i32| {
+                        let mapped = 30 + ((p as f64 / 100.0) * 70.0) as i32;
+                        let _ = app_clone.emit(
+                            "podcast://transcription-progress",
+                            serde_json::json!({
+                                "episodeId": &ep_id,
+                                "status": "transcribing",
+                                "progress": mapped
+                            }),
+                        );
+                    })),
+                )
+                .await
+                .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
         } else {
             engine
                 .transcribe(
@@ -608,7 +626,9 @@ async fn run_transcription_job(
         }
 
         if cancel_post.load(Ordering::Relaxed) {
-            return Err(IncrementumError::Internal("Transcription cancelled".to_string()));
+            return Err(IncrementumError::Internal(
+                "Transcription cancelled".to_string(),
+            ));
         }
 
         Ok::<(), IncrementumError>(())
@@ -650,13 +670,21 @@ async fn run_transcription_job(
         .save_podcast_transcript_segments(&episode_id, &segments_vec, &word_timings_none)
         .await
     {
-        eprintln!("[transcription] Failed to persist podcast segment timings for {}: {}", episode_id, e);
+        eprintln!(
+            "[transcription] Failed to persist podcast segment timings for {}: {}",
+            episode_id, e
+        );
         // Non-fatal — the transcript blob is already stored.
     }
 
     // 10. Create Document + Extract records from transcript
-    if let Err(e) = create_transcript_extracts(&repo, &episode, &full_text, auto_segment.unwrap_or(false)).await {
-        eprintln!("[transcription] Failed to create transcript extracts for {}: {}", episode_id, e);
+    if let Err(e) =
+        create_transcript_extracts(&repo, &episode, &full_text, auto_segment.unwrap_or(false)).await
+    {
+        eprintln!(
+            "[transcription] Failed to create transcript extracts for {}: {}",
+            episode_id, e
+        );
         // Non-fatal — transcript itself is still stored
     }
 
@@ -690,7 +718,11 @@ async fn create_transcript_extracts(
     }
 
     let doc_title = format!("{} (Transcript)", episode.title);
-    let mut doc = Document::new(doc_title, format!("podcast://{}", episode.id), FileType::Other);
+    let mut doc = Document::new(
+        doc_title,
+        format!("podcast://{}", episode.id),
+        FileType::Other,
+    );
     doc.content = Some(text.to_string());
     doc.tags = vec!["podcast".to_string(), "transcript".to_string()];
     doc.is_favorite = false;
@@ -774,7 +806,10 @@ pub async fn get_podcast_transcript(
     // word-level transcription was used, word-by-word (karaoke) highlighting.
     // Fall back to the single-blob segment (old behavior) only when no real
     // segments are stored, so existing transcripts keep working.
-    match repo.get_podcast_transcript_segments_with_words(&episode_id).await {
+    match repo
+        .get_podcast_transcript_segments_with_words(&episode_id)
+        .await
+    {
         Ok(stored) if !stored.is_empty() => {
             return Ok(PodcastTranscriptResponse {
                 text,
@@ -888,7 +923,10 @@ async fn split_audio_for_groq_mobile_inner(
 ) -> Result<Vec<MobileAudioChunk>> {
     use futures_util::StreamExt;
 
-    eprintln!("[podcast-transcribe] split_audio_for_groq_mobile: downloading from {}", url);
+    eprintln!(
+        "[podcast-transcribe] split_audio_for_groq_mobile: downloading from {}",
+        url
+    );
 
     // 1. Stream-download the full audio to a temp file (follows redirects).
     let cache_dir = app_handle
@@ -904,25 +942,34 @@ async fn split_audio_for_groq_mobile_inner(
         .await
         .map_err(|e| IncrementumError::Internal(format!("Failed to create temp file: {}", e)))?;
 
-    let resp = client.get(url).send().await
+    let resp = client
+        .get(url)
+        .send()
+        .await
         .map_err(|e| IncrementumError::Internal(format!("Failed to download audio: {}", e)))?;
     if !resp.status().is_success() {
         return Err(IncrementumError::Internal(format!(
-            "Audio download failed: HTTP {}", resp.status()
+            "Audio download failed: HTTP {}",
+            resp.status()
         )));
     }
     // Detect format from Content-Type / URL extension to pick the split strategy.
-    let content_type = resp.headers().get("content-type")
+    let content_type = resp
+        .headers()
+        .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_ascii_lowercase();
-    let is_mp3 = content_type.contains("mpeg") || content_type.contains("mp3")
+    let is_mp3 = content_type.contains("mpeg")
+        || content_type.contains("mp3")
         || url.to_ascii_lowercase().ends_with(".mp3");
 
     let mut stream = resp.bytes_stream();
     while let Some(item) = stream.next().await {
-        let chunk = item.map_err(|e| IncrementumError::Internal(format!("Download stream error: {}", e)))?;
-        file.write_all(&chunk).await
+        let chunk =
+            item.map_err(|e| IncrementumError::Internal(format!("Download stream error: {}", e)))?;
+        file.write_all(&chunk)
+            .await
             .map_err(|e| IncrementumError::Internal(format!("Failed to write temp file: {}", e)))?;
     }
     file.flush().await?;
@@ -990,8 +1037,9 @@ fn split_audio_bytes_into_groq_chunks(
         let end_byte = boundaries[i + 1];
         let chunk_bytes = &data[start_byte as usize..end_byte as usize];
         let chunk_path = chunks_dir.join(format!("chunk_{:04}.mp3", i));
-        std::fs::write(&chunk_path, chunk_bytes)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to write chunk {}: {}", i, e)))?;
+        std::fs::write(&chunk_path, chunk_bytes).map_err(|e| {
+            IncrementumError::Internal(format!("Failed to write chunk {}: {}", i, e))
+        })?;
         let start_ms = (start_byte * 8000 / bitrate_bps.max(1)) as i64;
         let end_ms = (end_byte * 8000 / bitrate_bps.max(1)) as i64;
         chunks_out.push(MobileAudioChunk {
@@ -1005,7 +1053,10 @@ fn split_audio_bytes_into_groq_chunks(
 
     eprintln!(
         "[groq-split] split complete: {} bytes, {} chunks (bitrate {}bps), mp3={}",
-        total, chunks_out.len(), bitrate_bps, is_mp3
+        total,
+        chunks_out.len(),
+        bitrate_bps,
+        is_mp3
     );
 
     Ok(chunks_out)
@@ -1018,7 +1069,9 @@ fn split_audio_bytes_into_groq_chunks(
 /// bitrate table. Returns None if no valid frame is found (non-MP3 data).
 fn find_mp3_frame_bitrate(data: &[u8]) -> Option<u64> {
     // MPEG1 Layer III bitrate table (kbps), indexed by the 4-bit bitrate field.
-    const BITRATES: [u64; 16] = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+    const BITRATES: [u64; 16] = [
+        0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0,
+    ];
     let n = data.len().saturating_sub(4);
     for i in 0..n {
         if data[i] != 0xFF {
@@ -1076,8 +1129,8 @@ mod mp3_tests {
         for _ in 0..frame_count {
             out.push(0xFF);
             out.push(0xFB); // sync + MPEG1 Layer III
-            // Byte 2 high nibble = bitrate index 9 (128kbps) → 0x90; low nibble
-            // can be anything valid; use 0x00.
+                            // Byte 2 high nibble = bitrate index 9 (128kbps) → 0x90; low nibble
+                            // can be anything valid; use 0x00.
             out.push(0x90);
             out.push(0x00);
             out.extend(std::iter::repeat(0u8).take(payload_len));
@@ -1180,7 +1233,10 @@ pub async fn transcribe_podcast_groq_chunks(
         serde_json::json!({ "episodeId": &episode_id, "status": "processing", "progress": 15, "message": "Splitting audio…" }),
     );
     let chunks = split_audio_for_groq_mobile_inner(&app_handle, &client, &audio_url).await?;
-    eprintln!("[podcast-transcribe] groq_chunks: {} chunks to transcribe", chunks.len());
+    eprintln!(
+        "[podcast-transcribe] groq_chunks: {} chunks to transcribe",
+        chunks.len()
+    );
 
     let mut combined: Vec<GroqChunkSegment> = Vec::new();
 
@@ -1192,9 +1248,14 @@ pub async fn transcribe_podcast_groq_chunks(
         );
 
         // Read chunk bytes from disk (stays in Rust — no IPC).
-        let chunk_bytes = std::fs::read(&chunk.path)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to read chunk {}: {}", i, e)))?;
-        eprintln!("[podcast-transcribe] groq_chunks: chunk {} = {} bytes", i, chunk_bytes.len());
+        let chunk_bytes = std::fs::read(&chunk.path).map_err(|e| {
+            IncrementumError::Internal(format!("Failed to read chunk {}: {}", i, e))
+        })?;
+        eprintln!(
+            "[podcast-transcribe] groq_chunks: chunk {} = {} bytes",
+            i,
+            chunk_bytes.len()
+        );
 
         // Upload to Groq as multipart file (verbose_json + segment/word granularity).
         let mut form = reqwest::multipart::Form::new()
@@ -1217,28 +1278,52 @@ pub async fn transcribe_podcast_groq_chunks(
             .multipart(form)
             .send()
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Groq chunk {} upload failed: {}", i, e)))?;
+            .map_err(|e| {
+                IncrementumError::Internal(format!("Groq chunk {} upload failed: {}", i, e))
+            })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            eprintln!("[podcast-transcribe] groq_chunks: chunk {} FAILED ({}): {}", i, status, &body[..body.len().min(300)]);
+            eprintln!(
+                "[podcast-transcribe] groq_chunks: chunk {} FAILED ({}): {}",
+                i,
+                status,
+                &body[..body.len().min(300)]
+            );
             return Err(IncrementumError::Internal(format!(
-                "Groq chunk {} failed (HTTP {}): {}", i, status, &body[..body.len().min(200)]
+                "Groq chunk {} failed (HTTP {}): {}",
+                i,
+                status,
+                &body[..body.len().min(200)]
             )));
         }
 
-        let data: serde_json::Value = resp.json().await
-            .map_err(|e| IncrementumError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e)))?;
+        let data: serde_json::Value = resp.json().await.map_err(|e| {
+            IncrementumError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e))
+        })?;
 
         // Map this chunk's segments, adding the chunk's start_ms offset.
-        let words = data.get("words").and_then(|w| w.as_array()).cloned().unwrap_or_default();
-        let segments = data.get("segments").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+        let words = data
+            .get("words")
+            .and_then(|w| w.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let segments = data
+            .get("segments")
+            .and_then(|s| s.as_array())
+            .cloned()
+            .unwrap_or_default();
         let mut wc = 0usize;
         for seg in segments.iter() {
             let seg_start = seg.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let seg_end = seg.get("end").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let seg_text = seg.get("text").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let seg_text = seg
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
 
             // Collect words whose midpoint falls within [seg_start, seg_end].
             let mut seg_words: Vec<serde_json::Value> = Vec::new();
@@ -1247,8 +1332,13 @@ pub async fn transcribe_podcast_groq_chunks(
                 let ws = w.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let we = w.get("end").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let wmid = (ws + we) / 2.0;
-                if wmid < seg_start { wc += 1; continue; }
-                if wmid >= seg_end { break; }
+                if wmid < seg_start {
+                    wc += 1;
+                    continue;
+                }
+                if wmid >= seg_end {
+                    break;
+                }
                 seg_words.push(serde_json::json!({
                     "word": w.get("word").and_then(|v| v.as_str()).unwrap_or(""),
                     "start_ms": chunk.start_ms + (ws * 1000.0).round() as i64,
@@ -1261,7 +1351,11 @@ pub async fn transcribe_podcast_groq_chunks(
                 start_ms: chunk.start_ms + (seg_start * 1000.0).round() as i64,
                 end_ms: chunk.start_ms + (seg_end * 1000.0).round() as i64,
                 text: seg_text,
-                word_timings_json: if seg_words.is_empty() { None } else { Some(serde_json::to_string(&seg_words).unwrap_or_default()) },
+                word_timings_json: if seg_words.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::to_string(&seg_words).unwrap_or_default())
+                },
             });
         }
 
@@ -1276,7 +1370,10 @@ pub async fn transcribe_podcast_groq_chunks(
         let _ = std::fs::remove_dir_all(cache_dir.join("groq_mobile_chunks"));
     }
 
-    eprintln!("[podcast-transcribe] groq_chunks: DONE, {} combined segments", combined.len());
+    eprintln!(
+        "[podcast-transcribe] groq_chunks: DONE, {} combined segments",
+        combined.len()
+    );
     Ok(combined)
 }
 
@@ -1316,14 +1413,18 @@ pub async fn transcribe_audio_file_groq(
     // 1. Read the local audio file.
     let path = Path::new(&file_path);
     if !path.exists() {
-        return Err(IncrementumError::NotFound(format!("Audio file not found: {}", file_path)));
+        return Err(IncrementumError::NotFound(format!(
+            "Audio file not found: {}",
+            file_path
+        )));
     }
     let _ = app_handle.emit(
         "audiobook://transcription-progress",
         serde_json::json!({ "documentId": &document_id, "status": "processing", "progress": 5, "message": "Reading audio…" }),
     );
-    let data = std::fs::read(path)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read audio file {}: {}", file_path, e)))?;
+    let data = std::fs::read(path).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to read audio file {}: {}", file_path, e))
+    })?;
 
     // 2. Split into <25 MB chunks (ffmpeg-free). Detect MP3 by extension.
     let _ = app_handle.emit(
@@ -1339,7 +1440,11 @@ pub async fn transcribe_audio_file_groq(
     std::fs::create_dir_all(&chunks_dir)?;
     let is_mp3 = file_path.to_ascii_lowercase().ends_with(".mp3");
     let chunks = split_audio_bytes_into_groq_chunks(&data, is_mp3, &chunks_dir)?;
-    eprintln!("[audiobook-transcribe] groq: {} chunks for document {}", chunks.len(), document_id);
+    eprintln!(
+        "[audiobook-transcribe] groq: {} chunks for document {}",
+        chunks.len(),
+        document_id
+    );
 
     // 3. Mark transcript row as processing (keyed book_id=chapter_id=document_id,
     //    matching how auto-transcription stores it and how the viewer loads it).
@@ -1352,12 +1457,15 @@ pub async fn transcribe_audio_file_groq(
         .await
         .map_err(|e| IncrementumError::Internal(format!("Failed to mark transcript processing: {}", e)))?;
 
-    let transcript_id: i64 = sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
-        .bind(&document_id)
-        .bind(&document_id)
-        .fetch_one(repo.pool())
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to fetch transcript id: {}", e)))?;
+    let transcript_id: i64 =
+        sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
+            .bind(&document_id)
+            .bind(&document_id)
+            .fetch_one(repo.pool())
+            .await
+            .map_err(|e| {
+                IncrementumError::Internal(format!("Failed to fetch transcript id: {}", e))
+            })?;
     sqlx::query("DELETE FROM transcript_segments WHERE transcript_id = ?")
         .bind(transcript_id)
         .execute(repo.pool())
@@ -1373,8 +1481,9 @@ pub async fn transcribe_audio_file_groq(
             serde_json::json!({ "documentId": &document_id, "status": "processing", "progress": progress, "message": format!("Transcribing chunk {}/{} …", i + 1, chunks.len()) }),
         );
 
-        let chunk_bytes = std::fs::read(&chunk.path)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to read chunk {}: {}", i, e)))?;
+        let chunk_bytes = std::fs::read(&chunk.path).map_err(|e| {
+            IncrementumError::Internal(format!("Failed to read chunk {}: {}", i, e))
+        })?;
 
         let mut form = reqwest::multipart::Form::new()
             .text("model", model.clone())
@@ -1396,28 +1505,54 @@ pub async fn transcribe_audio_file_groq(
             .multipart(form)
             .send()
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Groq chunk {} upload failed: {}", i, e)))?;
+            .map_err(|e| {
+                IncrementumError::Internal(format!("Groq chunk {} upload failed: {}", i, e))
+            })?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            eprintln!("[audiobook-transcribe] groq: chunk {} FAILED ({}): {}", i, status, &body[..body.len().min(300)]);
+            eprintln!(
+                "[audiobook-transcribe] groq: chunk {} FAILED ({}): {}",
+                i,
+                status,
+                &body[..body.len().min(300)]
+            );
             return Err(IncrementumError::Internal(format!(
-                "Groq chunk {} failed (HTTP {}): {}", i, status, &body[..body.len().min(200)]
+                "Groq chunk {} failed (HTTP {}): {}",
+                i,
+                status,
+                &body[..body.len().min(200)]
             )));
         }
 
-        let data_json: serde_json::Value = resp.json().await
-            .map_err(|e| IncrementumError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e)))?;
+        let data_json: serde_json::Value = resp.json().await.map_err(|e| {
+            IncrementumError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e))
+        })?;
 
-        let words = data_json.get("words").and_then(|w| w.as_array()).cloned().unwrap_or_default();
-        let segments = data_json.get("segments").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+        let words = data_json
+            .get("words")
+            .and_then(|w| w.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let segments = data_json
+            .get("segments")
+            .and_then(|s| s.as_array())
+            .cloned()
+            .unwrap_or_default();
         let mut wc = 0usize;
         for seg in segments.iter() {
             let seg_start = seg.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let seg_end = seg.get("end").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let seg_text = seg.get("text").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-            if seg_text.is_empty() { continue; }
+            let seg_text = seg
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if seg_text.is_empty() {
+                continue;
+            }
 
             let start_ms = chunk.start_ms + (seg_start * 1000.0).round() as i64;
             let end_ms = chunk.start_ms + (seg_end * 1000.0).round() as i64;
@@ -1436,7 +1571,12 @@ pub async fn transcribe_audio_file_groq(
                 tracing::warn!("Failed to insert audiobook transcript segment: {}", e);
             }
 
-            combined.push(GroqChunkSegment { start_ms, end_ms, text: seg_text, word_timings_json: None });
+            combined.push(GroqChunkSegment {
+                start_ms,
+                end_ms,
+                text: seg_text,
+                word_timings_json: None,
+            });
             let _ = wc; // words array walked for parity with podcast path (unused here)
         }
 
@@ -1450,7 +1590,12 @@ pub async fn transcribe_audio_file_groq(
 
     // 6. Write the combined full text to documents.content (AI assistant / book
     //    sync) and mark the transcript row completed.
-    let full_text = combined.iter().map(|s| s.text.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(" ");
+    let full_text = combined
+        .iter()
+        .map(|s| s.text.trim())
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
     if !full_text.is_empty() {
         let _ = sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
             .bind(&full_text)
@@ -1458,20 +1603,25 @@ pub async fn transcribe_audio_file_groq(
             .execute(repo.pool())
             .await;
     }
-    let _ = sqlx::query("UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?")
-        .bind(&document_id)
-        .bind(&document_id)
-        .execute(repo.pool())
-        .await;
+    let _ = sqlx::query(
+        "UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?",
+    )
+    .bind(&document_id)
+    .bind(&document_id)
+    .execute(repo.pool())
+    .await;
 
     let _ = app_handle.emit(
         "audiobook://transcription-complete",
         serde_json::json!({ "documentId": &document_id, "segmentCount": combined.len() }),
     );
-    eprintln!("[audiobook-transcribe] groq: DONE, {} segments for document {}", combined.len(), document_id);
+    eprintln!(
+        "[audiobook-transcribe] groq: DONE, {} segments for document {}",
+        combined.len(),
+        document_id
+    );
     Ok(combined.len() as i64)
 }
-
 
 /// Persist per-segment (and optional per-word) timings produced by Groq cloud
 /// transcription. Used by the mobile/Groq transcription path, which runs the
@@ -1487,7 +1637,11 @@ pub async fn save_podcast_transcript_segments(
     if segments.is_empty() {
         return Ok(());
     }
-    eprintln!("[podcast-transcribe] save_podcast_transcript_segments: {} segments for episode {}", segments.len(), episode_id);
+    eprintln!(
+        "[podcast-transcribe] save_podcast_transcript_segments: {} segments for episode {}",
+        segments.len(),
+        episode_id
+    );
     let full_text = segments
         .iter()
         .map(|s| s.text.trim())
@@ -1514,7 +1668,10 @@ pub async fn save_podcast_transcript_segments(
         .collect();
     repo.save_podcast_transcript_segments(&episode_id, &seg_models, &word_timings)
         .await?;
-    eprintln!("[podcast-transcribe] save_podcast_transcript_segments: SAVED OK for episode {}", episode_id);
+    eprintln!(
+        "[podcast-transcribe] save_podcast_transcript_segments: SAVED OK for episode {}",
+        episode_id
+    );
     Ok(())
 }
 
@@ -1564,8 +1721,8 @@ async fn import_episode_as_document_inner(
     collection_id: Option<String>,
 ) -> Result<Document> {
     // Check if already imported (by remote URL or local download path).
-    let local_path_str = find_existing_download(app_handle, &episode.id)
-        .map(|p| p.to_string_lossy().to_string());
+    let local_path_str =
+        find_existing_download(app_handle, &episode.id).map(|p| p.to_string_lossy().to_string());
 
     if let Some(existing) = repo.find_document_by_url(&episode.audio_url).await? {
         return Ok(existing);
@@ -1578,7 +1735,12 @@ async fn import_episode_as_document_inner(
 
     // Create a new Document record, due immediately at high priority.
     let file_path = local_path_str.unwrap_or_else(|| episode.audio_url.clone());
-    let mut doc = Document::with_collection(episode.title.clone(), file_path, FileType::Audio, collection_id);
+    let mut doc = Document::with_collection(
+        episode.title.clone(),
+        file_path,
+        FileType::Audio,
+        collection_id,
+    );
     doc.date_added = Utc::now();
     doc.date_modified = Utc::now();
     doc.next_reading_date = Some(Utc::now()); // Make it due immediately
@@ -1609,7 +1771,8 @@ pub async fn set_feed_auto_transcribe(
     language: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<()> {
-    repo.set_feed_auto_transcribe(&feed_id, enabled, language.as_deref()).await
+    repo.set_feed_auto_transcribe(&feed_id, enabled, language.as_deref())
+        .await
 }
 
 fn podcast_audio_dir(app_handle: &AppHandle) -> std::result::Result<PathBuf, IncrementumError> {
@@ -1617,13 +1780,13 @@ fn podcast_audio_dir(app_handle: &AppHandle) -> std::result::Result<PathBuf, Inc
     // storage on every platform (on Android this is /data/data/<pkg>/files via
     // app_data_dir; dirs::data_dir() instead resolves to a READ-ONLY system path
     // on Android and fails with "Read-only file system" when creating the dir).
-    let base = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve app_data_dir: {}", e)))?;
+    let base = app_handle.path().app_data_dir().map_err(|e| {
+        IncrementumError::Internal(format!("Failed to resolve app_data_dir: {}", e))
+    })?;
     let dir = base.join("podcast-audio");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create podcast-audio dir: {}", e)))?;
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to create podcast-audio dir: {}", e))
+    })?;
     Ok(dir)
 }
 
@@ -1681,13 +1844,14 @@ pub async fn download_podcast_episode(
 
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
-    let mut file = tokio::fs::File::create(&temp_path)
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create temporary download file: {}", e)))?;
+    let mut file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
+        IncrementumError::Internal(format!("Failed to create temporary download file: {}", e))
+    })?;
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| IncrementumError::Internal(format!("Download error: {}", e)))?;
+        let chunk =
+            chunk.map_err(|e| IncrementumError::Internal(format!("Download error: {}", e)))?;
         file.write_all(&chunk)
             .await
             .map_err(|e| IncrementumError::Internal(format!("Write error: {}", e)))?;
@@ -1722,21 +1886,37 @@ pub async fn download_podcast_episode(
         println!("[SponsorBlock] Checking segments for video ID: {}", vid);
         if let Ok(segments) = crate::sponsorblock::fetch_sponsorblock_segments(vid).await {
             if !segments.is_empty() {
-                println!("[SponsorBlock] Found {} skippable segments. Cutting using ffmpeg...", segments.len());
+                println!(
+                    "[SponsorBlock] Found {} skippable segments. Cutting using ffmpeg...",
+                    segments.len()
+                );
                 let _ = app_handle.emit(
                     "podcast://download-progress",
                     serde_json::json!({ "episodeId": &episode_id, "progress": 100, "status": "cutting" }),
                 );
-                
-                match crate::sponsorblock::cut_audio_file(&app_handle, &temp_path, &dest_path, &segments).await {
+
+                match crate::sponsorblock::cut_audio_file(
+                    &app_handle,
+                    &temp_path,
+                    &dest_path,
+                    &segments,
+                )
+                .await
+                {
                     Ok(cuts) => {
-                        println!("[SponsorBlock] Cutting successful. Saved {} cuts metadata.", cuts.len());
+                        println!(
+                            "[SponsorBlock] Cutting successful. Saved {} cuts metadata.",
+                            cuts.len()
+                        );
                         let _ = crate::sponsorblock::save_cuts_metadata(&episode_id, &cuts);
                         let _ = std::fs::remove_file(&temp_path);
                         cut_applied = true;
                     }
                     Err(e) => {
-                        eprintln!("[SponsorBlock] Cutting failed: {}. Falling back to uncut download.", e);
+                        eprintln!(
+                            "[SponsorBlock] Cutting failed: {}. Falling back to uncut download.",
+                            e
+                        );
                     }
                 }
             } else {
@@ -1749,8 +1929,9 @@ pub async fn download_podcast_episode(
 
     if !cut_applied {
         // No cuts applied, rename raw downloaded file to dest path
-        std::fs::rename(&temp_path, &dest_path)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to save final download file: {}", e)))?;
+        std::fs::rename(&temp_path, &dest_path).map_err(|e| {
+            IncrementumError::Internal(format!("Failed to save final download file: {}", e))
+        })?;
     }
 
     // Update matching imported document with local download path
@@ -1784,16 +1965,12 @@ pub async fn get_downloaded_episode_path(
     episode_id: String,
     app_handle: AppHandle,
 ) -> Result<Option<String>> {
-    Ok(find_existing_download(&app_handle, &episode_id)
-        .map(|p| p.to_string_lossy().to_string()))
+    Ok(find_existing_download(&app_handle, &episode_id).map(|p| p.to_string_lossy().to_string()))
 }
 
 /// Delete a downloaded episode audio file
 #[tauri::command]
-pub async fn delete_downloaded_episode(
-    episode_id: String,
-    app_handle: AppHandle,
-) -> Result<()> {
+pub async fn delete_downloaded_episode(episode_id: String, app_handle: AppHandle) -> Result<()> {
     if let Some(path) = find_existing_download(&app_handle, &episode_id) {
         std::fs::remove_file(&path)
             .map_err(|e| IncrementumError::Internal(format!("Failed to delete: {}", e)))?;
@@ -1846,12 +2023,13 @@ pub async fn search_podcasts(query: String) -> Result<Vec<PodcastSearchResult>> 
         )));
     }
 
-    let data: ITunesSearchResponse = response
-        .json()
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to parse search response: {}", e)))?;
+    let data: ITunesSearchResponse = response.json().await.map_err(|e| {
+        IncrementumError::Internal(format!("Failed to parse search response: {}", e))
+    })?;
 
-    let results = data.results.into_iter()
+    let results = data
+        .results
+        .into_iter()
         .filter_map(|r| {
             let feed_url = r.feed_url?;
             Some(PodcastSearchResult {
@@ -1883,6 +2061,12 @@ pub async fn save_podcast_transcript(
     transcript: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<()> {
-    repo.update_episode_transcript_status(&episode_id, &status, error.as_deref(), transcript.as_deref()).await?;
+    repo.update_episode_transcript_status(
+        &episode_id,
+        &status,
+        error.as_deref(),
+        transcript.as_deref(),
+    )
+    .await?;
     Ok(())
 }

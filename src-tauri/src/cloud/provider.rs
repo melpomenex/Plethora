@@ -271,8 +271,8 @@ pub struct RestoreConflict {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SyncMode {
-    Backup,   // One-way: local -> cloud
-    TwoWay,   // Two-way: bidirectional sync
+    Backup, // One-way: local -> cloud
+    TwoWay, // Two-way: bidirectional sync
 }
 
 /// Sync result
@@ -312,9 +312,18 @@ mod tests {
 
     #[test]
     fn test_provider_type_from_str() {
-        assert_eq!(CloudProviderType::from_str("onedrive"), Some(CloudProviderType::OneDrive));
-        assert_eq!(CloudProviderType::from_str("google-drive"), Some(CloudProviderType::GoogleDrive));
-        assert_eq!(CloudProviderType::from_str("dropbox"), Some(CloudProviderType::Dropbox));
+        assert_eq!(
+            CloudProviderType::from_str("onedrive"),
+            Some(CloudProviderType::OneDrive)
+        );
+        assert_eq!(
+            CloudProviderType::from_str("google-drive"),
+            Some(CloudProviderType::GoogleDrive)
+        );
+        assert_eq!(
+            CloudProviderType::from_str("dropbox"),
+            Some(CloudProviderType::Dropbox)
+        );
         assert_eq!(CloudProviderType::from_str("invalid"), None);
     }
 

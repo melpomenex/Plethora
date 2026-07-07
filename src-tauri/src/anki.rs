@@ -5,24 +5,24 @@
 //! - media (JSON file mapping filenames to content)
 //! - Actual media files
 
+use crate::database::Repository;
+use crate::error::{IncrementumError, Result};
+use crate::models::{ItemState, ItemType, LearningItem, MemoryState};
+use base64::{engine::general_purpose, Engine as _};
+use chrono::{Duration, Utc};
+use image::GenericImageView;
+use regex::Regex;
+use rusqlite::Connection;
+use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::io::{Cursor, Read, Seek, Write};
 use std::fs::File;
+use std::io::{Cursor, Read, Seek, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use base64::{engine::general_purpose, Engine as _};
-use image::GenericImageView;
-use regex::Regex;
-use sha2::{Digest, Sha256};
-use zip::ZipArchive;
-use rusqlite::Connection;
-use serde_json::Value;
-use crate::error::{Result, IncrementumError};
-use crate::database::Repository;
-use crate::models::{LearningItem, ItemType, ItemState, MemoryState};
-use chrono::{Duration, Utc};
 use tauri::State;
+use zip::ZipArchive;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AnkiNote {
@@ -147,9 +147,7 @@ pub async fn parse_apkg(apkg_path: &str) -> Result<Vec<AnkiDeck>> {
     parse_apkg_from_archive(&mut archive)
 }
 
-fn parse_apkg_from_archive<R: Read + Seek>(
-    archive: &mut ZipArchive<R>,
-) -> Result<Vec<AnkiDeck>> {
+fn parse_apkg_from_archive<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Result<Vec<AnkiDeck>> {
     let mut best_decks: Option<Vec<AnkiDeck>> = None;
     let mut best_notes = 0usize;
 
@@ -164,7 +162,9 @@ fn parse_apkg_from_archive<R: Read + Seek>(
     }
 
     best_decks.ok_or_else(|| {
-        IncrementumError::NotFound("No valid collection.anki2 or collection.anki21 found in archive".to_string())
+        IncrementumError::NotFound(
+            "No valid collection.anki2 or collection.anki21 found in archive".to_string(),
+        )
     })
 }
 
@@ -245,14 +245,19 @@ fn parse_collection_from_archive<R: Read + Seek>(
     archive: &mut ZipArchive<R>,
     name: &str,
 ) -> Result<Vec<AnkiDeck>> {
-    let mut collection_file = archive.by_name(name)
+    let mut collection_file = archive
+        .by_name(name)
         .map_err(|e| IncrementumError::NotFound(format!("{} not found in archive: {}", name, e)))?;
 
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let temp_db_path = std::env::temp_dir().join(format!("anki_collection_{}_{}.db", name.replace('.', "_"), nanos));
+    let temp_db_path = std::env::temp_dir().join(format!(
+        "anki_collection_{}_{}.db",
+        name.replace('.', "_"),
+        nanos
+    ));
     let mut temp_file = File::create(&temp_db_path)
         .map_err(|e| IncrementumError::NotFound(format!("Cannot create temp file: {}", e)))?;
 
@@ -260,14 +265,17 @@ fn parse_collection_from_archive<R: Read + Seek>(
     const MAX_COLLECTION_SIZE: u64 = 500 * 1024 * 1024;
     if collection_file.size() > MAX_COLLECTION_SIZE {
         return Err(IncrementumError::NotFound(format!(
-            "Collection file too large ({} bytes)", collection_file.size()
+            "Collection file too large ({} bytes)",
+            collection_file.size()
         )));
     }
 
     let mut buffer = Vec::new();
-    collection_file.read_to_end(&mut buffer)
+    collection_file
+        .read_to_end(&mut buffer)
         .map_err(|e| IncrementumError::NotFound(format!("Cannot read collection: {}", e)))?;
-    temp_file.write_all(&buffer)
+    temp_file
+        .write_all(&buffer)
         .map_err(|e| IncrementumError::NotFound(format!("Cannot write temp file: {}", e)))?;
     drop(temp_file);
 
@@ -276,14 +284,18 @@ fn parse_collection_from_archive<R: Read + Seek>(
         .map_err(|e| IncrementumError::NotFound(format!("Cannot open database: {}", e)))?;
 
     // Extract models (note types)
-    let mut models_stmt = conn.prepare("SELECT models FROM col")
+    let mut models_stmt = conn
+        .prepare("SELECT models FROM col")
         .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare models query: {}", e)))?;
-    let models_json: String = models_stmt.query_row([], |row| row.get(0))
+    let models_json: String = models_stmt
+        .query_row([], |row| row.get(0))
         .map_err(|e| IncrementumError::NotFound(format!("Cannot get models: {}", e)))?;
 
-    let mut decks_stmt = conn.prepare("SELECT decks FROM col")
+    let mut decks_stmt = conn
+        .prepare("SELECT decks FROM col")
         .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare decks query: {}", e)))?;
-    let decks_json: String = decks_stmt.query_row([], |row| row.get(0))
+    let decks_json: String = decks_stmt
+        .query_row([], |row| row.get(0))
         .map_err(|e| IncrementumError::NotFound(format!("Cannot get decks: {}", e)))?;
 
     let decks_value: Value = serde_json::from_str(&decks_json)
@@ -297,12 +309,12 @@ fn parse_collection_from_archive<R: Read + Seek>(
     if let Some(decks_obj) = decks_value.as_object() {
         for (deck_id, deck_data) in decks_obj {
             if let Some(deck_obj) = deck_data.as_object() {
-                let deck_name = deck_obj.get("name")
+                let deck_name = deck_obj
+                    .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("Unknown Deck");
 
-                let id = deck_id.parse::<i64>()
-                    .unwrap_or(0);
+                let id = deck_id.parse::<i64>().unwrap_or(0);
 
                 let notes = extract_notes_from_deck(&conn, id, &models_value)?;
 
@@ -355,17 +367,18 @@ fn extract_notes_from_deck(
     )
         .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare notes query: {}", e)))?;
 
-    let note_rows = stmt.query_map([deck_id], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, i64>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, i64>(5)?,
-        ))
-    })
-    .map_err(|e| IncrementumError::NotFound(format!("Cannot query notes: {}", e)))?;
+    let note_rows = stmt
+        .query_map([deck_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })
+        .map_err(|e| IncrementumError::NotFound(format!("Cannot query notes: {}", e)))?;
 
     for note_row in note_rows {
         let (id, guid, mid, tags_str, fields_str, timestamp) = note_row
@@ -376,7 +389,10 @@ fn extract_notes_from_deck(
         // and the notes weren't properly upgraded
         const UPGRADE_ERROR_MARKER: &str = "Please update to the latest Anki version";
         if fields_str.contains(UPGRADE_ERROR_MARKER) {
-            eprintln!("[Anki Import] Skipping note {} with upgrade error marker", id);
+            eprintln!(
+                "[Anki Import] Skipping note {} with upgrade error marker",
+                id
+            );
             continue;
         }
 
@@ -395,10 +411,7 @@ fn extract_notes_from_deck(
             .collect();
 
         // Parse fields (separated by \x1f)
-        let field_values: Vec<String> = fields_str
-            .split('\x1f')
-            .map(|s| s.to_string())
-            .collect();
+        let field_values: Vec<String> = fields_str.split('\x1f').map(|s| s.to_string()).collect();
 
         let field_names = get_model_field_names(models, mid);
 
@@ -428,23 +441,27 @@ fn extract_notes_from_deck(
 fn extract_cards_from_deck(conn: &Connection, deck_id: i64) -> Result<Vec<AnkiCard>> {
     let mut cards = Vec::new();
 
-    let mut stmt = conn.prepare("SELECT id, nid, ord, ivl, factor, due, data, reps, lapses FROM cards WHERE did = ?1")
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, nid, ord, ivl, factor, due, data, reps, lapses FROM cards WHERE did = ?1",
+        )
         .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare cards query: {}", e)))?;
 
-    let card_rows = stmt.query_map([deck_id], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, i64>(2)?,
-            row.get::<_, i32>(3)?,
-            row.get::<_, i32>(4)?,
-            row.get::<_, i32>(5)?,
-            row.get::<_, Option<String>>(6)?,
-            row.get::<_, i32>(7)?,
-            row.get::<_, i32>(8)?,
-        ))
-    })
-    .map_err(|e| IncrementumError::NotFound(format!("Cannot query cards: {}", e)))?;
+    let card_rows = stmt
+        .query_map([deck_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, i32>(4)?,
+                row.get::<_, i32>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, i32>(7)?,
+                row.get::<_, i32>(8)?,
+            ))
+        })
+        .map_err(|e| IncrementumError::NotFound(format!("Cannot query cards: {}", e)))?;
 
     for card_row in card_rows {
         let (id, note_id, ord, interval, factor, due, data, reps, lapses) = card_row
@@ -473,7 +490,8 @@ fn get_model_field_names(models: &Value, model_id: i64) -> Vec<String> {
         .and_then(|o| o.get("flds"))
         .and_then(|v| v.as_array())
         .map(|fields| {
-            fields.iter()
+            fields
+                .iter()
                 .filter_map(|f| f.as_object())
                 .filter_map(|o| o.get("name"))
                 .filter_map(|v| v.as_str())
@@ -489,22 +507,24 @@ fn extract_revlog_from_deck(conn: &Connection, deck_id: i64) -> Result<Vec<AnkiR
     let sql = "SELECT id, cid, ease, ivl, last_ivl, factor, time, type \
               FROM revlog WHERE cid IN (SELECT id FROM cards WHERE did = ?1) \
               ORDER BY id";
-    let mut stmt = conn.prepare(sql)
+    let mut stmt = conn
+        .prepare(sql)
         .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare revlog query: {}", e)))?;
 
-    let rows = stmt.query_map([deck_id], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, i32>(2)?,
-            row.get::<_, i32>(3)?,
-            row.get::<_, i32>(4)?,
-            row.get::<_, i32>(5)?,
-            row.get::<_, i32>(6)?,
-            row.get::<_, i32>(7)?,
-        ))
-    })
-    .map_err(|e| IncrementumError::NotFound(format!("Cannot query revlog: {}", e)))?;
+    let rows = stmt
+        .query_map([deck_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i32>(2)?,
+                row.get::<_, i32>(3)?,
+                row.get::<_, i32>(4)?,
+                row.get::<_, i32>(5)?,
+                row.get::<_, i32>(6)?,
+                row.get::<_, i32>(7)?,
+            ))
+        })
+        .map_err(|e| IncrementumError::NotFound(format!("Cannot query revlog: {}", e)))?;
 
     for rev_row in rows {
         let (id, cid, ease, ivl, last_ivl, factor, time_ms, rev_type) = rev_row
@@ -561,23 +581,23 @@ async fn build_learning_item(
     let mut image_asset_ids = Vec::new();
     let (item_type, question, answer, cloze_text) = if let Some(field) = cloze_field {
         let cloze = normalize_cloze_text(&field.value);
-        let rendered = rewrite_field_with_media(&cloze, repo, media_map, &mut image_asset_ids).await;
+        let rendered =
+            rewrite_field_with_media(&cloze, repo, media_map, &mut image_asset_ids).await;
         let question = fallback_question_text(rendered.trim(), &image_asset_ids);
         (ItemType::Cloze, question.clone(), None, Some(question))
     } else {
-        let question_field = find_question_field(note)
-            .or_else(|| note.fields.first());
-        let answer_field = find_answer_field(note)
-            .or_else(|| note.fields.get(1));
+        let question_field = find_question_field(note).or_else(|| note.fields.first());
+        let answer_field = find_answer_field(note).or_else(|| note.fields.get(1));
 
         let raw_question = question_field?.value.trim().to_string();
-        let rendered_question = rewrite_field_with_media(&raw_question, repo, media_map, &mut image_asset_ids).await;
+        let rendered_question =
+            rewrite_field_with_media(&raw_question, repo, media_map, &mut image_asset_ids).await;
         let question = fallback_question_text(rendered_question.trim(), &image_asset_ids);
 
-        let answer = answer_field
-            .map(|field| field.value.trim().to_string());
+        let answer = answer_field.map(|field| field.value.trim().to_string());
         let answer = if let Some(raw_answer) = answer {
-            let rendered_answer = rewrite_field_with_media(&raw_answer, repo, media_map, &mut image_asset_ids).await;
+            let rendered_answer =
+                rewrite_field_with_media(&raw_answer, repo, media_map, &mut image_asset_ids).await;
             if rendered_answer.trim().is_empty() {
                 None
             } else {
@@ -610,7 +630,10 @@ async fn build_learning_item(
             let stability = json.get("s").and_then(|v| v.as_f64());
             let difficulty = json.get("d").and_then(|v| v.as_f64());
             if let (Some(s), Some(d)) = (stability, difficulty) {
-                item.memory_state = Some(MemoryState { stability: s, difficulty: d });
+                item.memory_state = Some(MemoryState {
+                    stability: s,
+                    difficulty: d,
+                });
                 item.algorithm_type = "fsrs".to_string();
             }
         }
@@ -647,7 +670,8 @@ async fn rewrite_field_with_media(
     media_map: &HashMap<String, AnkiMediaFile>,
     image_asset_ids: &mut Vec<String>,
 ) -> String {
-    let img_regex = Regex::new(r#"(?is)<img[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>"#).expect("valid img regex");
+    let img_regex =
+        Regex::new(r#"(?is)<img[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>"#).expect("valid img regex");
     let mut transformed = String::with_capacity(value.len());
     let mut last = 0usize;
 
@@ -686,7 +710,10 @@ async fn rewrite_field_with_media(
                     media_data_url(media)
                 )
             } else {
-                caps.get(0).map(|m| m.as_str()).unwrap_or_default().to_string()
+                caps.get(0)
+                    .map(|m| m.as_str())
+                    .unwrap_or_default()
+                    .to_string()
             }
         })
         .to_string();
@@ -694,10 +721,7 @@ async fn rewrite_field_with_media(
     rewrite_media_src_attributes(&with_audio, media_map)
 }
 
-fn rewrite_media_src_attributes(
-    value: &str,
-    media_map: &HashMap<String, AnkiMediaFile>,
-) -> String {
+fn rewrite_media_src_attributes(value: &str, media_map: &HashMap<String, AnkiMediaFile>) -> String {
     let src_regex = Regex::new(r#"(?is)\bsrc\s*=\s*["']([^"']+)["']"#).expect("valid src regex");
     src_regex
         .replace_all(value, |caps: &regex::Captures| {
@@ -705,27 +729,36 @@ fn rewrite_media_src_attributes(
             if let Some(media) = find_media_entry(media_map, src) {
                 format!("src=\"{}\"", media_data_url(media))
             } else {
-                caps.get(0).map(|m| m.as_str()).unwrap_or_default().to_string()
+                caps.get(0)
+                    .map(|m| m.as_str())
+                    .unwrap_or_default()
+                    .to_string()
             }
         })
         .to_string()
 }
 
 fn replace_src_value(tag: &str, new_src: &str) -> String {
-    let src_regex = Regex::new(r#"(?is)\bsrc\s*=\s*["'][^"']+["']"#).expect("valid src replace regex");
+    let src_regex =
+        Regex::new(r#"(?is)\bsrc\s*=\s*["'][^"']+["']"#).expect("valid src replace regex");
     src_regex
         .replace(tag, format!("src=\"{}\"", new_src))
         .to_string()
 }
 
-async fn persist_media_image_asset(repo: &Repository, media: &AnkiMediaFile) -> Result<Option<String>> {
+async fn persist_media_image_asset(
+    repo: &Repository,
+    media: &AnkiMediaFile,
+) -> Result<Option<String>> {
     let guessed = match image::guess_format(media.bytes.as_slice()) {
         Ok(format) => format,
         Err(_) => return Ok(None),
     };
     let mime_type = normalize_image_mime(&media.mime_type, guessed)?;
     let dimensions = image::load_from_memory(media.bytes.as_slice())
-        .map_err(|e| IncrementumError::InvalidInput(format!("Unable to decode image dimensions: {}", e)))?
+        .map_err(|e| {
+            IncrementumError::InvalidInput(format!("Unable to decode image dimensions: {}", e))
+        })?
         .dimensions();
     let sha256 = hex_sha256(media.bytes.as_slice());
     let asset = repo
@@ -750,7 +783,11 @@ fn normalize_image_mime(existing: &str, guessed: image::ImageFormat) -> Result<S
         image::ImageFormat::Jpeg => "image/jpeg",
         image::ImageFormat::Gif => "image/gif",
         image::ImageFormat::WebP => "image/webp",
-        _ => return Err(IncrementumError::InvalidInput("Unsupported image format".to_string())),
+        _ => {
+            return Err(IncrementumError::InvalidInput(
+                "Unsupported image format".to_string(),
+            ))
+        }
     };
     Ok(mime.to_string())
 }
@@ -774,10 +811,18 @@ fn find_media_entry<'a>(
 
 fn media_lookup_keys(input: &str) -> Vec<String> {
     let mut keys = Vec::new();
-    let decoded = urlencoding::decode(input).map(|cow| cow.into_owned()).unwrap_or_else(|_| input.to_string());
+    let decoded = urlencoding::decode(input)
+        .map(|cow| cow.into_owned())
+        .unwrap_or_else(|_| input.to_string());
     let without_fragment = decoded.split('#').next().unwrap_or(decoded.as_str());
-    let without_query = without_fragment.split('?').next().unwrap_or(without_fragment);
-    let sanitized = without_query.trim().trim_start_matches("./").trim_start_matches('/');
+    let without_query = without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment);
+    let sanitized = without_query
+        .trim()
+        .trim_start_matches("./")
+        .trim_start_matches('/');
     if sanitized.is_empty() {
         return keys;
     }
@@ -876,39 +921,51 @@ async fn import_decks_to_learning_items(
     let mut skipped_count = 0usize;
 
     for deck in &decks {
-        eprintln!("DEBUG: Processing deck '{}' with {} notes, {} cards, {} revlog entries",
-                  deck.name, deck.notes.len(), deck.cards.len(), deck.revlog.len());
+        eprintln!(
+            "DEBUG: Processing deck '{}' with {} notes, {} cards, {} revlog entries",
+            deck.name,
+            deck.notes.len(),
+            deck.cards.len(),
+            deck.revlog.len()
+        );
     }
 
     // Since decks are processed sequentially, we can build per-deck
     for deck in decks {
         // Map card_id -> revlog entries for this deck
-        let mut card_revlog: std::collections::HashMap<i64, Vec<AnkiRevLogEntry>> = std::collections::HashMap::new();
+        let mut card_revlog: std::collections::HashMap<i64, Vec<AnkiRevLogEntry>> =
+            std::collections::HashMap::new();
         for entry in &deck.revlog {
-            card_revlog.entry(entry.cid).or_default().push(entry.clone());
+            card_revlog
+                .entry(entry.cid)
+                .or_default()
+                .push(entry.clone());
         }
 
         for card in &deck.cards {
-            if let Some(note) = deck.notes.iter().find(|note| note.id == card.note_id).cloned() {
+            if let Some(note) = deck
+                .notes
+                .iter()
+                .find(|note| note.id == card.note_id)
+                .cloned()
+            {
                 // Skip if we've already imported this note (by GUID)
                 if !imported_note_guids.insert(note.guid.clone()) {
                     skipped_count += 1;
                     eprintln!("DEBUG: Skipping duplicate note GUID: {}", note.guid);
                     continue;
                 }
-                if let Some(item) = build_learning_item(
-                    &note,
-                    card,
-                    None,
-                    &deck.name,
-                    &repo,
-                    &media_map,
-                ).await {
+                if let Some(item) =
+                    build_learning_item(&note, card, None, &deck.name, &repo, &media_map).await
+                {
                     let created = repo.create_learning_item(&item).await?;
 
                     // Store revlog entries for this card
                     if let Some(revlog_entries) = card_revlog.get(&card.id) {
-                        if let Err(e) = repo.batch_insert_review_log(revlog_entries, &created.id).await {
+                        if let Err(e) = repo
+                            .batch_insert_review_log(revlog_entries, &created.id)
+                            .await
+                        {
                             eprintln!("DEBUG: Failed to import revlog for card {}: {}", card.id, e);
                         }
                     }
@@ -919,8 +976,11 @@ async fn import_decks_to_learning_items(
         }
     }
 
-    eprintln!("DEBUG: Import complete - created {} items, skipped {} duplicates",
-              created_items.len(), skipped_count);
+    eprintln!(
+        "DEBUG: Import complete - created {} items, skipped {} duplicates",
+        created_items.len(),
+        skipped_count
+    );
 
     Ok(created_items)
 }
@@ -933,10 +993,14 @@ pub fn validate_anki_package(path: String) -> Result<bool> {
     let archive = ZipArchive::new(file)
         .map_err(|e| IncrementumError::NotFound(format!("Not a valid .apkg file: {}", e)))?;
 
-    let has_collection = archive.file_names().any(|name| name == "collection.anki2" || name == "collection.anki21");
+    let has_collection = archive
+        .file_names()
+        .any(|name| name == "collection.anki2" || name == "collection.anki21");
 
     if !has_collection {
-        return Err(IncrementumError::NotFound("collection.anki2 not found in package".to_string()));
+        return Err(IncrementumError::NotFound(
+            "collection.anki2 not found in package".to_string(),
+        ));
     }
 
     Ok(true)
@@ -969,7 +1033,10 @@ pub async fn export_deck_as_apkg(
     let mut revlog_by_item: std::collections::HashMap<String, Vec<&ReviewLogRow>> =
         std::collections::HashMap::new();
     for entry in &review_log {
-        revlog_by_item.entry(entry.item_id.clone()).or_default().push(entry);
+        revlog_by_item
+            .entry(entry.item_id.clone())
+            .or_default()
+            .push(entry);
     }
 
     let nanos = SystemTime::now()
@@ -982,8 +1049,9 @@ pub async fn export_deck_as_apkg(
     let mut asset_id_to_media_idx: HashMap<String, usize> = HashMap::new();
 
     {
-        let conn = Connection::open(&temp_db_path)
-            .map_err(|e| IncrementumError::Internal(format!("Cannot create export database: {}", e)))?;
+        let conn = Connection::open(&temp_db_path).map_err(|e| {
+            IncrementumError::Internal(format!("Cannot create export database: {}", e))
+        })?;
 
         // Create Anki tables (canonical schema from anki/rslib/src/storage/schema11.sql)
         conn.execute_batch(
@@ -1143,7 +1211,8 @@ pub async fn export_deck_as_apkg(
                 "timeToday": [0, 0],
                 "collapsed": false,
             }
-        }).to_string();
+        })
+        .to_string();
 
         let conf_json = serde_json::json!({
             "nextPos": deck_items.len() as i64 + 1,
@@ -1156,7 +1225,8 @@ pub async fn export_deck_as_apkg(
             "curDeck": deck_id,
             "newSpread": 0,
             "dueCounts": true,
-        }).to_string();
+        })
+        .to_string();
 
         let dconf_json = serde_json::json!({
             "1": {
@@ -1203,32 +1273,53 @@ pub async fn export_deck_as_apkg(
                     if let Some(ref cloze_text) = item.cloze_text {
                         if let Some(ref ranges) = item.cloze_ranges {
                             if let Some(anki_cloze) = cloze_text_to_anki(cloze_text, ranges) {
-                                let back = item.answer.as_deref().unwrap_or("")
-                                    .replace('\x1f', " ").replace('\\', "\\\\");
+                                let back = item
+                                    .answer
+                                    .as_deref()
+                                    .unwrap_or("")
+                                    .replace('\x1f', " ")
+                                    .replace('\\', "\\\\");
                                 (cloze_model_id, format!("{}\x1f{}", anki_cloze, back))
                             } else {
-                                let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                                let back = item.answer.as_deref().unwrap_or("")
-                                    .replace('\x1f', " ").replace('\\', "\\\\");
+                                let front =
+                                    item.question.replace('\x1f', " ").replace('\\', "\\\\");
+                                let back = item
+                                    .answer
+                                    .as_deref()
+                                    .unwrap_or("")
+                                    .replace('\x1f', " ")
+                                    .replace('\\', "\\\\");
                                 (basic_model_id, format!("{}\x1f{}", front, back))
                             }
                         } else {
                             let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                            let back = item.answer.as_deref().unwrap_or("")
-                                .replace('\x1f', " ").replace('\\', "\\\\");
+                            let back = item
+                                .answer
+                                .as_deref()
+                                .unwrap_or("")
+                                .replace('\x1f', " ")
+                                .replace('\\', "\\\\");
                             (basic_model_id, format!("{}\x1f{}", front, back))
                         }
                     } else {
                         let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                        let back = item.answer.as_deref().unwrap_or("")
-                            .replace('\x1f', " ").replace('\\', "\\\\");
+                        let back = item
+                            .answer
+                            .as_deref()
+                            .unwrap_or("")
+                            .replace('\x1f', " ")
+                            .replace('\\', "\\\\");
                         (basic_model_id, format!("{}\x1f{}", front, back))
                     }
                 }
                 _ => {
                     let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                    let back = item.answer.as_deref().unwrap_or("")
-                        .replace('\x1f', " ").replace('\\', "\\\\");
+                    let back = item
+                        .answer
+                        .as_deref()
+                        .unwrap_or("")
+                        .replace('\x1f', " ")
+                        .replace('\\', "\\\\");
                     (basic_model_id, format!("{}\x1f{}", front, back))
                 }
             };
@@ -1327,7 +1418,10 @@ pub async fn export_deck_as_apkg(
                         Utc::now().timestamp_millis()
                     });
                     let ivl = entry.interval_days.round() as i32;
-                    let last_ivl = entry.last_interval_days.map(|l| l.round() as i32).unwrap_or(0);
+                    let last_ivl = entry
+                        .last_interval_days
+                        .map(|l| l.round() as i32)
+                        .unwrap_or(0);
                     let factor = (entry.ease_factor * 1000.0).round() as i32;
 
                     conn.execute(
@@ -1360,8 +1454,8 @@ pub async fn export_deck_as_apkg(
     let output_file = File::create(&output_path)
         .map_err(|e| IncrementumError::Internal(format!("Cannot create output file: {}", e)))?;
     let mut zip = zip::ZipWriter::new(output_file);
-    let options = zip::write::FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
+    let options =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     zip.start_file("collection.anki2", options)
         .map_err(|e| IncrementumError::Internal(format!("Cannot write collection: {}", e)))?;
@@ -1384,16 +1478,22 @@ pub async fn export_deck_as_apkg(
         .map_err(|e| IncrementumError::Internal(format!("Cannot write media data: {}", e)))?;
 
     for (idx, (_name, bytes)) in media_entries.iter().enumerate() {
-        zip.start_file(idx.to_string(), options)
-            .map_err(|e| IncrementumError::Internal(format!("Cannot write media file {}: {}", idx, e)))?;
-        zip.write_all(bytes)
-            .map_err(|e| IncrementumError::Internal(format!("Cannot write media file data {}: {}", idx, e)))?;
+        zip.start_file(idx.to_string(), options).map_err(|e| {
+            IncrementumError::Internal(format!("Cannot write media file {}: {}", idx, e))
+        })?;
+        zip.write_all(bytes).map_err(|e| {
+            IncrementumError::Internal(format!("Cannot write media file data {}: {}", idx, e))
+        })?;
     }
 
     zip.finish()
         .map_err(|e| IncrementumError::Internal(format!("Cannot finalize zip: {}", e)))?;
 
-    Ok(format!("Exported {} cards to {}", deck_items.len(), output_path))
+    Ok(format!(
+        "Exported {} cards to {}",
+        deck_items.len(),
+        output_path
+    ))
 }
 
 /// Export learning items matching a deck tag as a tab-separated text file for Anki import
@@ -1423,8 +1523,7 @@ pub async fn export_deck_as_csv(
                 if let (Some(ref cloze_text), Some(ref ranges)) =
                     (&item.cloze_text, &item.cloze_ranges)
                 {
-                    cloze_text_to_anki(cloze_text, ranges)
-                        .unwrap_or_else(|| item.question.clone())
+                    cloze_text_to_anki(cloze_text, ranges).unwrap_or_else(|| item.question.clone())
                 } else {
                     item.question.clone()
                 }
@@ -1446,7 +1545,11 @@ pub async fn export_deck_as_csv(
     std::fs::write(&output_path, content)
         .map_err(|e| IncrementumError::Internal(format!("Cannot write CSV file: {}", e)))?;
 
-    Ok(format!("Exported {} cards to {}", deck_items.len(), output_path))
+    Ok(format!(
+        "Exported {} cards to {}",
+        deck_items.len(),
+        output_path
+    ))
 }
 
 /// Export all learning items grouped by deck tags as a single .apkg with multiple Anki decks
@@ -1457,7 +1560,9 @@ pub async fn export_all_decks_as_apkg(
 ) -> Result<String> {
     let all_items = repo.get_all_learning_items().await?;
     if all_items.is_empty() {
-        return Err(IncrementumError::NotFound("No learning items found".to_string()));
+        return Err(IncrementumError::NotFound(
+            "No learning items found".to_string(),
+        ));
     }
 
     // Group items by their first non-system tag (simple heuristic for deck membership)
@@ -1484,7 +1589,10 @@ pub async fn export_all_decks_as_apkg(
     }
 
     // Filter out empty groups
-    let groups: Vec<_> = tag_groups.into_iter().filter(|(_, items)| !items.is_empty()).collect();
+    let groups: Vec<_> = tag_groups
+        .into_iter()
+        .filter(|(_, items)| !items.is_empty())
+        .collect();
     let total_cards: usize = groups.iter().map(|(_, items)| items.len()).sum();
 
     let all_item_ids: Vec<String> = all_items.iter().map(|i| i.id.clone()).collect();
@@ -1507,8 +1615,9 @@ pub async fn export_all_decks_as_apkg(
     let mut asset_id_to_media_idx: HashMap<String, usize> = HashMap::new();
 
     {
-        let conn = Connection::open(&temp_db_path)
-            .map_err(|e| IncrementumError::Internal(format!("Cannot create export database: {}", e)))?;
+        let conn = Connection::open(&temp_db_path).map_err(|e| {
+            IncrementumError::Internal(format!("Cannot create export database: {}", e))
+        })?;
 
         // Create tables (canonical schema from anki/rslib/src/storage/schema11.sql)
         conn.execute_batch(
@@ -1657,7 +1766,9 @@ pub async fn export_all_decks_as_apkg(
                 let card_id = note_id + 1;
                 let guid = uuid::Uuid::new_v4().to_string().replace("-", "")[..10].to_string();
 
-                let tags_str = item.tags.iter()
+                let tags_str = item
+                    .tags
+                    .iter()
                     .filter(|t| !t.starts_with("anki-import"))
                     .map(|t| format!(" {}", t))
                     .collect::<Vec<_>>()
@@ -1665,28 +1776,47 @@ pub async fn export_all_decks_as_apkg(
 
                 let (model_id, flds) = match item.item_type {
                     ItemType::Cloze => {
-                        if let (Some(ref ct), Some(ref ranges)) = (&item.cloze_text, &item.cloze_ranges) {
+                        if let (Some(ref ct), Some(ref ranges)) =
+                            (&item.cloze_text, &item.cloze_ranges)
+                        {
                             if let Some(anki_cloze) = cloze_text_to_anki(ct, ranges) {
-                                let back = item.answer.as_deref().unwrap_or("")
-                                    .replace('\x1f', " ").replace('\\', "\\\\");
+                                let back = item
+                                    .answer
+                                    .as_deref()
+                                    .unwrap_or("")
+                                    .replace('\x1f', " ")
+                                    .replace('\\', "\\\\");
                                 (cloze_model_id, format!("{}\x1f{}", anki_cloze, back))
                             } else {
-                                let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                                let back = item.answer.as_deref().unwrap_or("")
-                                    .replace('\x1f', " ").replace('\\', "\\\\");
+                                let front =
+                                    item.question.replace('\x1f', " ").replace('\\', "\\\\");
+                                let back = item
+                                    .answer
+                                    .as_deref()
+                                    .unwrap_or("")
+                                    .replace('\x1f', " ")
+                                    .replace('\\', "\\\\");
                                 (basic_model_id, format!("{}\x1f{}", front, back))
                             }
                         } else {
                             let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                            let back = item.answer.as_deref().unwrap_or("")
-                                .replace('\x1f', " ").replace('\\', "\\\\");
+                            let back = item
+                                .answer
+                                .as_deref()
+                                .unwrap_or("")
+                                .replace('\x1f', " ")
+                                .replace('\\', "\\\\");
                             (basic_model_id, format!("{}\x1f{}", front, back))
                         }
                     }
                     _ => {
                         let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
-                        let back = item.answer.as_deref().unwrap_or("")
-                            .replace('\x1f', " ").replace('\\', "\\\\");
+                        let back = item
+                            .answer
+                            .as_deref()
+                            .unwrap_or("")
+                            .replace('\x1f', " ")
+                            .replace('\\', "\\\\");
                         (basic_model_id, format!("{}\x1f{}", front, back))
                     }
                 };
@@ -1697,9 +1827,12 @@ pub async fn export_all_decks_as_apkg(
                     if !asset_id_to_media_idx.contains_key(asset_id) {
                         if let Ok(Some(asset)) = repo.get_image_asset(asset_id).await {
                             let ext = match asset.mime_type.as_str() {
-                                "image/png" => "png", "image/jpeg" | "image/jpg" => "jpg",
-                                "image/gif" => "gif", "image/webp" => "webp",
-                                "image/svg+xml" => "svg", _ => "png",
+                                "image/png" => "png",
+                                "image/jpeg" | "image/jpg" => "jpg",
+                                "image/gif" => "gif",
+                                "image/webp" => "webp",
+                                "image/svg+xml" => "svg",
+                                _ => "png",
                             };
                             let filename = format!("{}.{}", asset_id, ext);
                             let idx = media_entries.len();
@@ -1711,9 +1844,13 @@ pub async fn export_all_decks_as_apkg(
                         img_html.push_str(&format!("<br><img src=\"{}\">", idx));
                     }
                 }
-                let flds = if img_html.is_empty() { flds }
-                    else if let Some(pos) = flds.rfind('\x1f') { format!("{}{}{}", &flds[..pos], img_html, &flds[pos..]) }
-                    else { format!("{}{}", flds, img_html) };
+                let flds = if img_html.is_empty() {
+                    flds
+                } else if let Some(pos) = flds.rfind('\x1f') {
+                    format!("{}{}{}", &flds[..pos], img_html, &flds[pos..])
+                } else {
+                    format!("{}{}", flds, img_html)
+                };
 
                 conn.execute(
                     "INSERT INTO notes (id, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data) \
@@ -1723,14 +1860,19 @@ pub async fn export_all_decks_as_apkg(
 
                 let card_data = if let Some(ref ms) = item.memory_state {
                     serde_json::json!({"d": ms.difficulty, "s": ms.stability, "v": "3"}).to_string()
-                } else { String::new() };
+                } else {
+                    String::new()
+                };
                 let interval = item.interval.round() as i32;
                 let factor = (item.ease_factor * 1000.0).round() as i32;
                 let due = if interval > 0 {
                     let due_date = item.due_date;
-                    let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("valid epoch date");
+                    let epoch =
+                        chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("valid epoch date");
                     (due_date.date_naive() - epoch).num_days() as i32
-                } else { 0 };
+                } else {
+                    0
+                };
 
                 let card_type = match item.state {
                     ItemState::New => 0,
@@ -1748,7 +1890,9 @@ pub async fn export_all_decks_as_apkg(
 
                 if let Some(entries) = revlog_by_item.get(&item.id) {
                     for entry in entries {
-                        let revlog_id = entry.anki_revlog_id.unwrap_or_else(|| Utc::now().timestamp_millis());
+                        let revlog_id = entry
+                            .anki_revlog_id
+                            .unwrap_or_else(|| Utc::now().timestamp_millis());
                         conn.execute(
                             "INSERT OR IGNORE INTO revlog (id, cid, usn, ease, ivl, lastIvl, factor, time, type) \
                              VALUES (?1, ?2, 0, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -1773,16 +1917,22 @@ pub async fn export_all_decks_as_apkg(
     let output_file = File::create(&output_path)
         .map_err(|e| IncrementumError::Internal(format!("Cannot create output file: {}", e)))?;
     let mut zip = zip::ZipWriter::new(output_file);
-    let options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let options =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     zip.start_file("collection.anki2", options)
         .map_err(|e| IncrementumError::Internal(format!("Cannot write collection: {}", e)))?;
     zip.write_all(&db_bytes)
         .map_err(|e| IncrementumError::Internal(format!("Cannot write collection data: {}", e)))?;
 
-    let media_json = if media_entries.is_empty() { "{}".to_string() } else {
-        let map: HashMap<String, &str> = media_entries.iter().enumerate()
-            .map(|(i, (name, _))| (i.to_string(), name.as_str())).collect();
+    let media_json = if media_entries.is_empty() {
+        "{}".to_string()
+    } else {
+        let map: HashMap<String, &str> = media_entries
+            .iter()
+            .enumerate()
+            .map(|(i, (name, _))| (i.to_string(), name.as_str()))
+            .collect();
         serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
     };
     zip.start_file("media", options)
@@ -1791,16 +1941,23 @@ pub async fn export_all_decks_as_apkg(
         .map_err(|e| IncrementumError::Internal(format!("Cannot write media data: {}", e)))?;
 
     for (idx, (_name, bytes)) in media_entries.iter().enumerate() {
-        zip.start_file(idx.to_string(), options)
-            .map_err(|e| IncrementumError::Internal(format!("Cannot write media file {}: {}", idx, e)))?;
-        zip.write_all(bytes)
-            .map_err(|e| IncrementumError::Internal(format!("Cannot write media file data {}: {}", idx, e)))?;
+        zip.start_file(idx.to_string(), options).map_err(|e| {
+            IncrementumError::Internal(format!("Cannot write media file {}: {}", idx, e))
+        })?;
+        zip.write_all(bytes).map_err(|e| {
+            IncrementumError::Internal(format!("Cannot write media file data {}: {}", idx, e))
+        })?;
     }
 
     zip.finish()
         .map_err(|e| IncrementumError::Internal(format!("Cannot finalize zip: {}", e)))?;
 
-    Ok(format!("Exported {} cards across {} decks to {}", total_cards, groups.len(), output_path))
+    Ok(format!(
+        "Exported {} cards across {} decks to {}",
+        total_cards,
+        groups.len(),
+        output_path
+    ))
 }
 
 #[cfg(test)]
@@ -1810,13 +1967,19 @@ mod tests {
     #[test]
     fn cloze_single_range() {
         let result = cloze_text_to_anki("The capital of France is Paris", &[(25, 30)]);
-        assert_eq!(result, Some("The capital of France is {{c1::Paris}}".to_string()));
+        assert_eq!(
+            result,
+            Some("The capital of France is {{c1::Paris}}".to_string())
+        );
     }
 
     #[test]
     fn cloze_multiple_ranges() {
         let result = cloze_text_to_anki("A and B and C", &[(0, 1), (6, 7), (12, 13)]);
-        assert_eq!(result, Some("{{c1::A}} and {{c2::B}} and {{c3::C}}".to_string()));
+        assert_eq!(
+            result,
+            Some("{{c1::A}} and {{c2::B}} and {{c3::C}}".to_string())
+        );
     }
 
     #[test]

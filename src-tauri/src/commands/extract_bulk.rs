@@ -1,8 +1,8 @@
 //! Bulk extract operations
 
-use tauri::State;
 use crate::database::Repository;
 use crate::error::Result;
+use tauri::State;
 
 #[derive(Clone, serde::Serialize)]
 pub struct BulkOperationResult {

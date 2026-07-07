@@ -1,14 +1,16 @@
 //! Video import and features commands
 //! Handles importing local video files and video-specific features
 
-use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::CommandEvent;
-use std::sync::{Arc, Mutex};
+use crate::database::Repository;
+use crate::models::{
+    Document, DocumentMetadata, FileType, MemoryState, ReviewRating, VideoExtract,
+};
 use crate::transcription::engine::TranscriptionEngine;
 use crate::transcription::model_manager::ModelManager;
-use crate::database::Repository;
-use crate::models::{Document, DocumentMetadata, FileType, VideoExtract, MemoryState, ReviewRating};
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::ShellExt;
 
 /// Video bookmark data structure
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -89,8 +91,7 @@ pub async fn import_video_file(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("video.mp4");
-    let safe_filename = original_filename
-        .replace(['/', '\\', ':'], "_");
+    let safe_filename = original_filename.replace(['/', '\\', ':'], "_");
     let stored_filename = format!("{}-{}", timestamp, safe_filename);
     let dest_path = data_dir.join(&stored_filename);
 
@@ -99,26 +100,33 @@ pub async fn import_video_file(
         .unwrap_or(0);
 
     // Copy the file directly (avoids loading entire file into memory)
-    std::fs::copy(source, &dest_path)
-        .map_err(|e| format!("Failed to copy video file: {}", e))?;
+    std::fs::copy(source, &dest_path).map_err(|e| format!("Failed to copy video file: {}", e))?;
 
     let metadata = DocumentMetadata {
         file_size: Some(file_size),
         ..Default::default()
     };
 
-    let mut document = Document::with_collection(title, dest_path.to_string_lossy().to_string(), FileType::Video, collection_id);
+    let mut document = Document::with_collection(
+        title,
+        dest_path.to_string_lossy().to_string(),
+        FileType::Video,
+        collection_id,
+    );
     document.category = Some("Videos".to_string());
     document.metadata = Some(metadata);
     document.current_page = Some(0);
 
-    let created = repo.create_document(&document)
+    let created = repo
+        .create_document(&document)
         .await
         .map_err(|e| format!("Failed to create document: {}", e))?;
 
     // Auto-transcribe if enabled
     if auto_transcribe.unwrap_or(true) {
-        if let Some(transcription_state) = app_handle.try_state::<crate::transcription::TranscriptionState>() {
+        if let Some(transcription_state) =
+            app_handle.try_state::<crate::transcription::TranscriptionState>()
+        {
             let m_id = model_id.unwrap_or_else(|| "distil-small.en".to_string());
             let lang = language.unwrap_or_else(|| "en".to_string());
             let entry = crate::models::TranscriptionQueueEntry::new(
@@ -241,7 +249,8 @@ pub async fn get_video_transcript(
     document_id: String,
     repo: State<'_, Repository>,
 ) -> Result<Option<VideoTranscript>, String> {
-    let result = repo.get_video_transcript(&document_id)
+    let result = repo
+        .get_video_transcript(&document_id)
         .await
         .map_err(|e| format!("Failed to get transcript: {}", e))?;
 
@@ -271,11 +280,14 @@ pub async fn generate_video_transcript(
     app_handle: AppHandle,
 ) -> Result<VideoTranscript, String> {
     let emit_status = |status: &str, error: Option<String>| {
-        let _ = app_handle.emit("video-transcription://status-change", VideoTranscriptionStatus {
-            document_id: document_id.clone(),
-            status: status.to_string(),
-            error,
-        });
+        let _ = app_handle.emit(
+            "video-transcription://status-change",
+            VideoTranscriptionStatus {
+                document_id: document_id.clone(),
+                status: status.to_string(),
+                error,
+            },
+        );
     };
 
     emit_status("processing", None);
@@ -284,7 +296,10 @@ pub async fn generate_video_transcript(
         .map_err(|e| format!("Failed to initialize model manager: {}", e))?;
 
     if !model_manager.is_model_installed(&model_id) {
-        let msg = format!("Model '{}' is not installed. Download it in Settings > Audio Transcription.", model_id);
+        let msg = format!(
+            "Model '{}' is not installed. Download it in Settings > Audio Transcription.",
+            model_id
+        );
         emit_status("failed", Some(msg.clone()));
         return Err(msg);
     }
@@ -304,7 +319,9 @@ pub async fn generate_video_transcript(
     let app_for_cb = app_handle.clone();
 
     let result = async {
-        let prepared = engine.prepare_audio(input_path).await
+        let prepared = engine
+            .prepare_audio(input_path)
+            .await
             .map_err(|e| format!("Failed to prepare audio: {}", e))?;
         wav_path = Some(prepared.clone());
 
@@ -334,15 +351,23 @@ pub async fn generate_video_transcript(
         };
 
         if model_id.starts_with("sense-voice-") {
-            engine.transcribe_sensevoice(&prepared, &model_path, &language, on_segment, None).await
+            engine
+                .transcribe_sensevoice(&prepared, &model_path, &language, on_segment, None)
+                .await
         } else if model_id.starts_with("parakeet-") {
-            engine.transcribe_parakeet(&prepared, &model_path, &language, on_segment, None).await
+            engine
+                .transcribe_parakeet(&prepared, &model_path, &language, on_segment, None)
+                .await
         } else {
-            engine.transcribe(&prepared, &model_path, &language, on_segment, None).await
-        }.map_err(|e| format!("Transcription failed: {}", e))?;
+            engine
+                .transcribe(&prepared, &model_path, &language, on_segment, None)
+                .await
+        }
+        .map_err(|e| format!("Transcription failed: {}", e))?;
 
         Ok::<(), String>(())
-    }.await;
+    }
+    .await;
 
     if let Some(path) = wav_path {
         let _ = std::fs::remove_file(path);
@@ -355,11 +380,20 @@ pub async fn generate_video_transcript(
 
     let segments_vec = {
         let mut segments = segments.lock().unwrap_or_else(|e| e.into_inner());
-        segments.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap_or(std::cmp::Ordering::Equal));
+        segments.sort_by(|a, b| {
+            a.time
+                .partial_cmp(&b.time)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         segments.iter().cloned().collect::<Vec<_>>()
     };
 
-    let transcript = segments_vec.iter().map(|s| s.text.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(" ");
+    let transcript = segments_vec
+        .iter()
+        .map(|s| s.text.trim())
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
 
     let segments_json = serde_json::to_string(&segments_vec)
         .map_err(|e| format!("Failed to serialize segments: {}", e))?;
@@ -418,17 +452,13 @@ pub async fn split_audio_for_groq(
 
     let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(&app_handle)
         .map_err(|e| format!("Failed to get ffmpeg command: {}", e))?
-        .args([
-            "-i", &file_path,
-            "-f", "null",
-            "-"
-        ])
+        .args(["-i", &file_path, "-f", "null", "-"])
         .spawn()
         .map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
 
     let mut duration: f64 = 0.0;
     let mut bitrate: f64 = 0.0;
-    
+
     while let Some(event) = rx.recv().await {
         if let CommandEvent::Stderr(line) = event {
             let line_str = String::from_utf8_lossy(&line);
@@ -441,7 +471,7 @@ pub async fn split_audio_for_groq(
                         if let (Ok(h), Ok(m), Ok(s)) = (
                             parts[0].parse::<f64>(),
                             parts[1].parse::<f64>(),
-                            parts[2].parse::<f64>()
+                            parts[2].parse::<f64>(),
                         ) {
                             duration = h * 3600.0 + m * 60.0 + s;
                         }
@@ -467,41 +497,50 @@ pub async fn split_audio_for_groq(
 
     // Calculate chunk duration based on bitrate to stay under 25MB
     // At 128 kbps, 25MB ≈ 26 minutes
-    // At 192 kbps, 25MB ≈ 17 minutes  
+    // At 192 kbps, 25MB ≈ 17 minutes
     // At 320 kbps, 25MB ≈ 10 minutes
     // We'll use a conservative 8 minutes per chunk (safer for variable bitrate)
     let chunk_duration = max_chunk_duration_seconds.unwrap_or(480.0); // 8 minutes default
     let num_chunks = (duration / chunk_duration).ceil() as usize;
-    
-    let temp_dir = app_handle.path().app_cache_dir()
+
+    let temp_dir = app_handle
+        .path()
+        .app_cache_dir()
         .map_err(|e| format!("Failed to get cache dir: {}", e))?
         .join("groq_chunks");
-    
+
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create chunks directory: {}", e))?;
 
     let mut chunks = Vec::with_capacity(num_chunks);
-    
+
     for i in 0..num_chunks {
         let start_time = i as f64 * chunk_duration;
         let end_time = (start_time + chunk_duration).min(duration);
         let actual_duration = end_time - start_time;
-        
+
         let chunk_filename = format!("chunk_{:04}.mp3", i);
         let chunk_path = temp_dir.join(&chunk_filename);
-        
+
         let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(&app_handle)
             .map_err(|e| format!("Failed to get ffmpeg command: {}", e))?
             .args([
-                "-i", &file_path,
-                "-ss", &start_time.to_string(),
-                "-t", &actual_duration.to_string(),
-                "-ar", "16000",     // 16kHz sample rate (optimal for speech)
-                "-ac", "1",          // Mono
-                "-b:a", "32k",       // 32 kbps (good quality for speech, small size)
-                "-f", "mp3",         // MP3 format
-                "-y",                 // Overwrite
-                chunk_path.to_str().expect("chunk path is valid UTF-8")
+                "-i",
+                &file_path,
+                "-ss",
+                &start_time.to_string(),
+                "-t",
+                &actual_duration.to_string(),
+                "-ar",
+                "16000", // 16kHz sample rate (optimal for speech)
+                "-ac",
+                "1", // Mono
+                "-b:a",
+                "32k", // 32 kbps (good quality for speech, small size)
+                "-f",
+                "mp3", // MP3 format
+                "-y",  // Overwrite
+                chunk_path.to_str().expect("chunk path is valid UTF-8"),
             ])
             .spawn()
             .map_err(|e| format!("Failed to spawn ffmpeg: {}", e))?;
@@ -532,17 +571,17 @@ pub async fn split_audio_for_groq(
 
 /// Clean up audio chunks after transcription
 #[tauri::command]
-pub async fn cleanup_audio_chunks(
-    app_handle: AppHandle,
-) -> Result<(), String> {
-    let temp_dir = app_handle.path().app_cache_dir()
+pub async fn cleanup_audio_chunks(app_handle: AppHandle) -> Result<(), String> {
+    let temp_dir = app_handle
+        .path()
+        .app_cache_dir()
         .map_err(|e| format!("Failed to get cache dir: {}", e))?
         .join("groq_chunks");
-    
+
     if temp_dir.exists() {
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
-    
+
     Ok(())
 }
 
@@ -553,34 +592,42 @@ pub async fn read_file_bytes(file_path: String) -> Result<Vec<u8>, String> {
 
     const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100MB
     const ALLOWED_EXTENSIONS: &[&str] = &[
-        "mp3", "wav", "mp4", "webm", "ogg", "m4a", "flac",
-        "wma", "aac", "mkv", "avi", "mov", "wmv", "flv", "3gp",
+        "mp3", "wav", "mp4", "webm", "ogg", "m4a", "flac", "wma", "aac", "mkv", "avi", "mov",
+        "wmv", "flv", "3gp",
     ];
 
     let path = Path::new(&file_path);
     eprintln!("[podcast-transcribe] read_file_bytes: {}", file_path);
 
-    let extension = path.extension()
+    let extension = path
+        .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())
         .ok_or_else(|| "File has no extension".to_string())?;
 
     if !ALLOWED_EXTENSIONS.contains(&extension.as_str()) {
-        return Err(format!("File type '.{}' not allowed for transcription upload", extension));
+        return Err(format!(
+            "File type '.{}' not allowed for transcription upload",
+            extension
+        ));
     }
 
-    let canonical = path.canonicalize()
+    let canonical = path
+        .canonicalize()
         .map_err(|e| format!("Invalid file path: {}", e))?;
 
     let metadata = std::fs::metadata(&canonical)
         .map_err(|e| format!("Failed to read file metadata: {}", e))?;
 
     if metadata.len() > MAX_FILE_SIZE {
-        return Err(format!("File too large: {} bytes (max {} bytes)", metadata.len(), MAX_FILE_SIZE));
+        return Err(format!(
+            "File too large: {} bytes (max {} bytes)",
+            metadata.len(),
+            MAX_FILE_SIZE
+        ));
     }
 
-    std::fs::read(&canonical)
-        .map_err(|e| format!("Failed to read file: {}", e))
+    std::fs::read(&canonical).map_err(|e| format!("Failed to read file: {}", e))
 }
 
 /// Create a video extract
@@ -658,7 +705,8 @@ pub async fn update_video_extract(
     tags: Option<Vec<String>>,
     repo: State<'_, Repository>,
 ) -> Result<VideoExtract, String> {
-    let mut extract = repo.get_video_extract(&extract_id)
+    let mut extract = repo
+        .get_video_extract(&extract_id)
         .await
         .map_err(|e| format!("Failed to get video extract: {}", e))?
         .ok_or_else(|| "Video extract not found".to_string())?;
@@ -704,7 +752,8 @@ pub async fn rate_video_extract(
         return Err("Rating must be between 1 (Again) and 4 (Easy)".to_string());
     }
 
-    let mut extract = repo.get_video_extract(&extract_id)
+    let mut extract = repo
+        .get_video_extract(&extract_id)
         .await
         .map_err(|e| format!("Failed to get video extract: {}", e))?
         .ok_or_else(|| "Video extract not found".to_string())?;
@@ -713,11 +762,10 @@ pub async fn rate_video_extract(
     let now = chrono::Utc::now();
 
     // Calculate elapsed days since last review
-    let elapsed_days = extract.last_review_date
+    let elapsed_days = extract
+        .last_review_date
         .map(|lr| (now - lr).num_seconds() as f64 / 86400.0)
-        .unwrap_or_else(|| {
-            (now - extract.date_created).num_seconds() as f64 / 86400.0
-        })
+        .unwrap_or_else(|| (now - extract.date_created).num_seconds() as f64 / 86400.0)
         .max(0.0);
 
     let review_rating = ReviewRating::from(rating);
@@ -730,7 +778,7 @@ pub async fn rate_video_extract(
         review_rating,
         current_stability,
         current_difficulty,
-        elapsed_days
+        elapsed_days,
     );
     let result = result.map_err(|e| format!("Failed to schedule: {}", e))?;
 
@@ -751,5 +799,8 @@ pub async fn rate_video_extract(
     .await
     .map_err(|e| format!("Failed to update scheduling: {}", e))?;
 
-    Ok(format!("Next review: {}", result.next_review.format("%Y-%m-%d %H:%M")))
+    Ok(format!(
+        "Next review: {}",
+        result.next_review.format("%Y-%m-%d %H:%M")
+    ))
 }

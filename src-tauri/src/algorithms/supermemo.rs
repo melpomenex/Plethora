@@ -7,8 +7,8 @@
 //! - SM-15 (modern implementation)
 
 use crate::models::ReviewRating;
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
-use chrono::{Utc, Duration};
 
 /// SM-2 algorithm state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,10 +53,10 @@ impl SM2Algorithm {
     pub fn next_state(&self, state: &SM2State, rating: ReviewRating) -> SM2State {
         // Map our rating to SM-2 quality (0-5 scale)
         let quality = match rating {
-            ReviewRating::Again => 0,  // Complete blackout
-            ReviewRating::Hard => 3,   // Hard with correct response
-            ReviewRating::Good => 4,   // Good response
-            ReviewRating::Easy => 5,   // Perfect response
+            ReviewRating::Again => 0, // Complete blackout
+            ReviewRating::Hard => 3,  // Hard with correct response
+            ReviewRating::Good => 4,  // Good response
+            ReviewRating::Easy => 5,  // Perfect response
         };
 
         let mut new_state = state.clone();
@@ -168,9 +168,9 @@ impl SM5Algorithm {
 
             // Update modifier based on performance
             new_state.modifier = match quality {
-                5 => state.modifier * 1.1,  // Easy - increase future intervals
+                5 => state.modifier * 1.1, // Easy - increase future intervals
                 4 => state.modifier,
-                3 => state.modifier * 0.9,  // Hard - decrease future intervals
+                3 => state.modifier * 0.9, // Hard - decrease future intervals
                 _ => state.modifier * 0.8,
             };
 
@@ -531,8 +531,8 @@ impl SM18Algorithm {
             return 1;
         }
         const BOUNDARIES: [f64; 20] = [
-            1.0, 1.5, 2.0, 3.0, 4.5, 6.5, 9.5, 14.0, 20.0, 29.0,
-            42.0, 61.0, 89.0, 129.0, 188.0, 273.0, 396.0, 575.0, 835.0, 1212.0,
+            1.0, 1.5, 2.0, 3.0, 4.5, 6.5, 9.5, 14.0, 20.0, 29.0, 42.0, 61.0, 89.0, 129.0, 188.0,
+            273.0, 396.0, 575.0, 835.0, 1212.0,
         ];
         if s <= BOUNDARIES[0] {
             return 1;
@@ -561,7 +561,12 @@ impl SM18Algorithm {
     /// * `state` — current SM-18 item state
     /// * `rating` — the user's rating (Again/Hard/Good/Easy)
     /// * `elapsed_days` — days since last review
-    pub fn review(&self, state: &SM18State, rating: ReviewRating, elapsed_days: f64) -> SM18ReviewResult {
+    pub fn review(
+        &self,
+        state: &SM18State,
+        rating: ReviewRating,
+        elapsed_days: f64,
+    ) -> SM18ReviewResult {
         use sm18_constants::*;
 
         let grade = Self::rating_to_grade(rating);
@@ -616,16 +621,13 @@ impl SM18Algorithm {
                 }
 
                 // Compute new interval from stability
-                new_state.interval = Self::interval_from_stability(new_state.stability, self.request_retention);
+                new_state.interval =
+                    Self::interval_from_stability(new_state.stability, self.request_retention);
             }
         }
 
         // Step 4: Update difficulty
-        new_state.difficulty = Self::update_difficulty(
-            state.difficulty,
-            bw,
-            new_state.repetition,
-        );
+        new_state.difficulty = Self::update_difficulty(state.difficulty, bw, new_state.repetition);
 
         SM18ReviewResult {
             interval_days: new_state.interval,

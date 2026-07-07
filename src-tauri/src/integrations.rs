@@ -3,18 +3,18 @@
 //! This module provides integration with external applications like Obsidian,
 //! Anki, and browser extensions.
 
-use crate::error::AppError;
 use crate::database::Repository;
-use std::path::{Path, PathBuf};
+use crate::error::AppError;
+use chrono::Utc;
+use futures::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::{Path, PathBuf};
 use tokio::net::TcpListener;
-use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
-use futures::{StreamExt, SinkExt};
 use tokio::net::TcpStream as TokioTcpStream;
 use tokio_tungstenite::tungstenite::protocol::Role;
-use serde::{Deserialize, Serialize};
+use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use walkdir::WalkDir;
-use chrono::Utc;
 
 /// Obsidian vault configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +56,9 @@ impl ExtensionServer {
     pub async fn start(&mut self) -> Result<(), AppError> {
         let listener = TcpListener::bind(format!("127.0.0.1:{}", self.port))
             .await
-            .map_err(|e| AppError::IntegrationError(format!("Failed to bind to port {}: {}", self.port, e)))?;
+            .map_err(|e| {
+                AppError::IntegrationError(format!("Failed to bind to port {}: {}", self.port, e))
+            })?;
 
         self.running = true;
 
@@ -65,8 +67,9 @@ impl ExtensionServer {
                 let ws_stream = WebSocketStream::from_raw_socket(
                     stream,
                     Role::Server,
-                    Some(tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default())
-                ).await;
+                    Some(tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()),
+                )
+                .await;
                 let mut ws = ws_stream;
 
                 while let Some(msg) = ws.next().await {
@@ -114,13 +117,13 @@ async fn handle_extension_message(
                 "type": "save_response",
                 "data": { "success": true, "document_id": "saved" }
             })
-        },
+        }
         Some("create_extract") => {
             serde_json::json!({
                 "type": "extract_response",
                 "data": { "success": true, "extract_id": "created" }
             })
-        },
+        }
         _ => serde_json::json!({
             "type": "error",
             "data": { "message": "Unknown message type" }
@@ -140,7 +143,9 @@ pub async fn export_document_to_obsidian(
     config: &ObsidianConfig,
     repo: &Repository,
 ) -> Result<PathBuf, AppError> {
-    let document = repo.get_document(document_id).await?
+    let document = repo
+        .get_document(document_id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("Document {} not found", document_id)))?;
 
     let notes_path = obsidian_notes_path(config);
@@ -165,7 +170,9 @@ pub async fn export_extract_to_obsidian_internal(
     config: &ObsidianConfig,
     repo: &Repository,
 ) -> Result<PathBuf, AppError> {
-    let extract = repo.get_extract(extract_id).await?
+    let extract = repo
+        .get_extract(extract_id)
+        .await?
         .ok_or_else(|| AppError::NotFound(format!("Extract {} not found", extract_id)))?;
 
     let notes_path = obsidian_extracts_path(config);
@@ -196,7 +203,10 @@ fn generate_obsidian_markdown(document: &crate::models::Document) -> String {
             markdown.push_str(&format!("author: {}\n", author));
         }
     }
-    markdown.push_str(&format!("created: {}\n", document.date_added.format("%Y-%m-%d")));
+    markdown.push_str(&format!(
+        "created: {}\n",
+        document.date_added.format("%Y-%m-%d")
+    ));
     markdown.push_str(&format!("incrementum-id: {}\n", document.id));
     markdown.push_str("---\n\n");
 
@@ -226,7 +236,10 @@ fn generate_extract_markdown(extract: &crate::models::Extract) -> String {
     markdown.push_str("incrementum-type: extract\n");
     markdown.push_str(&format!("incrementum-id: {}\n", extract.id));
     markdown.push_str(&format!("document-id: {}\n", extract.document_id));
-    markdown.push_str(&format!("disclosure-level: {}\n", extract.progressive_disclosure_level));
+    markdown.push_str(&format!(
+        "disclosure-level: {}\n",
+        extract.progressive_disclosure_level
+    ));
     markdown.push_str("---\n\n");
 
     markdown.push_str(&format!("## {}\n\n", title));
@@ -371,7 +384,10 @@ fn generate_conversation_markdown(
     }
 
     markdown.push_str("---\n\n");
-    markdown.push_str(&format!("*Exported from [Incrementum](https://github.com/melpomenex/incrementum-tauri) on {}*\n", now.format("%Y-%m-%d %H:%M")));
+    markdown.push_str(&format!(
+        "*Exported from [Incrementum](https://github.com/melpomenex/incrementum-tauri) on {}*\n",
+        now.format("%Y-%m-%d %H:%M")
+    ));
 
     markdown
 }
@@ -417,7 +433,10 @@ fn generate_single_message_markdown(
     markdown.push('\n');
 
     markdown.push_str("---\n\n");
-    markdown.push_str(&format!("*Exported from [Incrementum](https://github.com/melpomenex/incrementum-tauri) on {}*\n", now.format("%Y-%m-%d %H:%M")));
+    markdown.push_str(&format!(
+        "*Exported from [Incrementum](https://github.com/melpomenex/incrementum-tauri) on {}*\n",
+        now.format("%Y-%m-%d %H:%M")
+    ));
 
     markdown
 }
@@ -448,8 +467,8 @@ pub async fn import_from_obsidian_internal(
         .and_then(|v| v.as_str())
         .map(|v| v.to_lowercase());
 
-    let is_extract = incrementum_type.as_deref() == Some("extract")
-        || frontmatter.get("document-id").is_some();
+    let is_extract =
+        incrementum_type.as_deref() == Some("extract") || frontmatter.get("document-id").is_some();
 
     if is_extract {
         let extract_id = frontmatter.get("incrementum-id").and_then(|v| v.as_str());
@@ -497,7 +516,8 @@ pub async fn import_from_obsidian_internal(
     if let Some(id) = frontmatter.get("incrementum-id") {
         let document_id = id.as_str().expect("incrementum-id should be a string");
         if let Some(existing) = repo.get_document(document_id).await? {
-            let title = frontmatter.get("title")
+            let title = frontmatter
+                .get("title")
                 .and_then(|v| v.as_str())
                 .unwrap_or_else(|| extract_title_from_content(&body));
 
@@ -508,42 +528,40 @@ pub async fn import_from_obsidian_internal(
 
             repo.update_document(document_id, &updates).await?;
 
-            let mut metadata = existing.metadata.unwrap_or(crate::models::DocumentMetadata {
-                author: None,
-                subject: None,
-                keywords: None,
-                created_at: None,
-                modified_at: None,
-                file_size: None,
-                language: None,
-                page_count: None,
-                word_count: None,
-                source: None,
-                fetched_at: None,
-                site_name: None,
-                browser_import_mode: None,
-                article_html: None,
-                extracted_images: None,
-                ..Default::default()
-            });
+            let mut metadata = existing
+                .metadata
+                .unwrap_or(crate::models::DocumentMetadata {
+                    author: None,
+                    subject: None,
+                    keywords: None,
+                    created_at: None,
+                    modified_at: None,
+                    file_size: None,
+                    language: None,
+                    page_count: None,
+                    word_count: None,
+                    source: None,
+                    fetched_at: None,
+                    site_name: None,
+                    browser_import_mode: None,
+                    article_html: None,
+                    extracted_images: None,
+                    ..Default::default()
+                });
 
             if let Some(author) = frontmatter.get("author").and_then(|v| v.as_str()) {
                 metadata.author = Some(author.to_string());
             }
 
-            repo.update_document_content(
-                document_id,
-                body.trim(),
-                None,
-                None,
-                Some(metadata),
-            ).await?;
+            repo.update_document_content(document_id, body.trim(), None, None, Some(metadata))
+                .await?;
 
             return Ok((document_id.to_string(), vec![]));
         }
     }
 
-    let title = frontmatter.get("title")
+    let title = frontmatter
+        .get("title")
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| extract_title_from_content(&body));
 
@@ -582,7 +600,10 @@ pub async fn import_from_obsidian_internal(
         is_favorite: false,
         is_dismissed: false,
         metadata: Some(crate::models::DocumentMetadata {
-            author: frontmatter.get("author").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            author: frontmatter
+                .get("author")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
             subject: None,
             keywords: None,
             created_at: None,
@@ -679,7 +700,10 @@ fn find_obsidian_markdown_by_incrementum_id(
 
         let content = fs::read_to_string(entry.path())?;
         let (frontmatter, _) = parse_frontmatter(&content);
-        if let Some(id_value) = frontmatter.get("incrementum-id").and_then(|value| value.as_str()) {
+        if let Some(id_value) = frontmatter
+            .get("incrementum-id")
+            .and_then(|value| value.as_str())
+        {
             if id_value == incrementum_id {
                 return Ok(Some(entry.path().to_path_buf()));
             }
@@ -703,7 +727,9 @@ fn resolve_obsidian_markdown_path(
     if candidate.exists() {
         let content = fs::read_to_string(&candidate).unwrap_or_default();
         let (frontmatter, _) = parse_frontmatter(&content);
-        let existing_id = frontmatter.get("incrementum-id").and_then(|value| value.as_str());
+        let existing_id = frontmatter
+            .get("incrementum-id")
+            .and_then(|value| value.as_str());
         if existing_id != Some(incrementum_id) {
             let unique_name = format!("{} ({})", base_name, short_id(incrementum_id));
             candidate = root.join(format!("{}.md", unique_name));
@@ -844,14 +870,15 @@ pub async fn sync_from_obsidian(
         } else {
             documents += 1;
         }
-        let _ = import_from_obsidian_internal(
-            entry.path().to_string_lossy().as_ref(),
-            &repo,
-        ).await?;
+        let _ =
+            import_from_obsidian_internal(entry.path().to_string_lossy().as_ref(), &repo).await?;
     }
 
     if extracts_path != notes_path {
-        for entry in WalkDir::new(&extracts_path).into_iter().filter_map(Result::ok) {
+        for entry in WalkDir::new(&extracts_path)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
             if !entry.file_type().is_file() {
                 continue;
             }
@@ -872,10 +899,8 @@ pub async fn sync_from_obsidian(
             }
 
             extracts += 1;
-            let _ = import_from_obsidian_internal(
-                entry.path().to_string_lossy().as_ref(),
-                &repo,
-            ).await?;
+            let _ = import_from_obsidian_internal(entry.path().to_string_lossy().as_ref(), &repo)
+                .await?;
         }
     }
 
@@ -921,7 +946,12 @@ pub async fn delete_from_obsidian(
     };
 
     let path = find_obsidian_markdown_by_incrementum_id(&root, &request.incrementum_id)?
-        .ok_or_else(|| AppError::NotFound(format!("No Obsidian file found for {}", request.incrementum_id)))?;
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "No Obsidian file found for {}",
+                request.incrementum_id
+            ))
+        })?;
 
     fs::remove_file(&path)
         .map_err(|e| AppError::IntegrationError(format!("Failed to delete file: {}", e)))?;
@@ -936,7 +966,13 @@ pub async fn export_conversation_to_obsidian(
     config: ObsidianConfig,
     context_info: Option<String>,
 ) -> Result<String, AppError> {
-    let path = export_conversation_to_obsidian_internal(&messages, &title, &config, context_info.as_deref()).await?;
+    let path = export_conversation_to_obsidian_internal(
+        &messages,
+        &title,
+        &config,
+        context_info.as_deref(),
+    )
+    .await?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -947,7 +983,13 @@ pub async fn export_assistant_message_to_obsidian(
     config: ObsidianConfig,
     context_info: Option<String>,
 ) -> Result<String, AppError> {
-    let path = export_assistant_message_to_obsidian_internal(&message, &title, &config, context_info.as_deref()).await?;
+    let path = export_assistant_message_to_obsidian_internal(
+        &message,
+        &title,
+        &config,
+        context_info.as_deref(),
+    )
+    .await?;
     Ok(path.to_string_lossy().to_string())
 }
 

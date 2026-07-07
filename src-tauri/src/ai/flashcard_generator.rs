@@ -3,8 +3,8 @@
 //! Generates flashcards from documents, extracts, and other content using LLMs.
 
 use crate::ai::{
-    providers::ChatCompletionRequest,
     prompts::{parse_structured_response, PromptBuilder},
+    providers::ChatCompletionRequest,
     AIProvider,
 };
 use serde::{Deserialize, Serialize};
@@ -173,11 +173,7 @@ impl BatchFlashcardGenerator {
         let mut results = Vec::new();
 
         for (id, content) in extracts {
-            match self
-                .generator
-                .generate_from_extract(&content, None)
-                .await
-            {
+            match self.generator.generate_from_extract(&content, None).await {
                 Ok(flashcards) => {
                     if !flashcards.is_empty() {
                         results.push((id, flashcards));

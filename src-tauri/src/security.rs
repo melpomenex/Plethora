@@ -40,9 +40,7 @@ fn is_private_ipv4(ip: &Ipv4Addr) -> bool {
 }
 
 fn is_private_ipv6(ip: &Ipv6Addr) -> bool {
-    ip.is_loopback()
-        || matches!(ip.segments(), [0xfe80, ..])
-        || ip.is_unspecified()
+    ip.is_loopback() || matches!(ip.segments(), [0xfe80, ..]) || ip.is_unspecified()
 }
 
 #[cfg(test)]
