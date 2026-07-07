@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.66.2] - 2026-07-07
+
+### Fixed & Improved
+
+- **Fixed barcode scanner failing to initialize on mobile (APK)** — Updated Content Security Policy configurations to allow `blob:` sources for Web Workers, permitting the scanner's background engine to load successfully.
+- **Fixed scanner camera stopping on scan errors** — Modified camera video rendering logic to remain mounted during scan validation errors, allowing users to re-scan codes continuously.
+
 ## [1.66.1] - 2026-07-07
 
 ### Fixed & Improved

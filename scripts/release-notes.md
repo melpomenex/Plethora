@@ -1,4 +1,4 @@
 ### Fixed & Improved
 
-- **Fixed PDF text selection disappearing on mouse release** — Introduced a transition guard to ignore transient collapsed selection events while committing selection state, ensuring selected text remains highlighted.
-- **Fixed vertical offset in PDF text selection** — Restored absolute positioning for the PDF canvas element and applied layout resets on text layer spans, aligning invisible selectable zones exactly with the rendered PDF text.
+- **Fixed barcode scanner failing to initialize on mobile (APK)** — Updated Content Security Policy configurations to allow `blob:` sources for Web Workers, permitting the scanner's background engine to load successfully.
+- **Fixed scanner camera stopping on scan errors** — Modified camera video rendering logic to remain mounted during scan validation errors, allowing users to re-scan codes continuously.
