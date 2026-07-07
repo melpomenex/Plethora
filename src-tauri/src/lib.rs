@@ -425,12 +425,27 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_localhost::Builder::new(LOCALHOST_PORT).build());
     }
 
-    // Desktop-only: persist the main window's size, position and maximized
-    // state across launches so the app reopens where the user left it. Mobile
-    // targets don't have freely positionable windows, so it's gated to desktop.
+    // Desktop-only: persist the main window's size and maximized state across
+    // launches so the app reopens at the size the user left it. Mobile targets
+    // don't have freely positionable windows, so it's gated to desktop.
+    //
+    // Only SIZE + MAXIMIZED are persisted. Persisting POSITION, VISIBLE,
+    // DECORATIONS and FULLSCREEN triggers well-known macOS bugs in this plugin
+    // (tauri-apps/plugins-workspace#1918 window gets stuck via is_maximized()
+    // in restore_state; #3215 restore failures; #3289 window resized too small
+    // / restored off-screen after a monitor disconnect) that can render the
+    // whole window invisible. tauri.conf.json sets `center: true`, so with
+    // POSITION disabled the window re-centers safely each launch.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
-        builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
+        builder = builder.plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        );
     }
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]

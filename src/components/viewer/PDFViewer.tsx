@@ -2065,6 +2065,17 @@ export function PDFViewer({
     const viewport = page.getViewport({ scale: actualScale });
     pageViewportRefs.current[pageIndex] = viewport;
     pageScaleRefs.current[pageIndex] = actualScale;
+
+    // pdf.js v5's text-layer CSS (imported via "pdfjs-dist/web/pdf_viewer.css")
+    // positions every span using `--total-scale-factor`, which the official
+    // PDFPageView/TextLayerBuilder derives from `--scale-factor` * `--user-unit`
+    // and sets on the page container. We render with a custom DOM instead of
+    // `.pdfViewer .page`, so if we don't set these ourselves the variables stay
+    // unset: span font-sizes and transform scales compute to 0/NaN, leaving the
+    // text layer zero-sized and text selection broken. Mirror what pdf.js does:
+    // `--scale-factor` = viewport.scale, `--user-unit` = viewport.userUnit.
+    pageContainer.style.setProperty("--scale-factor", String(viewport.scale));
+    pageContainer.style.setProperty("--user-unit", String(viewport.userUnit || 1));
     // Cap outputScale at 2x to avoid enormous canvases on 3x/4x displays;
     // PDF text stays sharp because it's vector-rasterized at render time.
     const rawDpr = window.devicePixelRatio || 1;
