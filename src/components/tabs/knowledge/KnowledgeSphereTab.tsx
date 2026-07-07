@@ -3,12 +3,31 @@
  * Beautiful 3D globe visualization of your knowledge
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { ObsidianSphere } from "../../graph/ObsidianSphere";
 import { GraphNodeType, type GraphNode, type GraphEdge } from "../../graph/KnowledgeGraph";
 import { invokeCommand } from "../../../lib/tauri";
 import { useCollectionStore } from "../../../stores/collectionStore";
-import { ArrowsClockwise, Info, Sparkle } from "@phosphor-icons/react";
+import { useTabsStore } from "../../../stores/tabsStore";
+import { useReviewStore } from "../../../stores/reviewStore";
+import { DocumentViewer, ReviewTab } from "../TabRegistry";
+import { useToast } from "../../common/Toast";
+import { useContextMenu, ContextMenu, ContextMenuItemType } from "../../common/ContextMenu";
+import { ConfirmDialog, useConfirmDialog } from "../../common/ConfirmDialog";
+import { getDocument, updateDocument, deleteDocument } from "../../../api/documents";
+import { updateExtract, deleteExtract } from "../../../api/extracts";
+import {
+  ArrowSquareOut,
+  ArrowsClockwise,
+  Brain,
+  Info,
+  PencilSimple,
+  Quotes,
+  Sparkle,
+  Target,
+  TextT,
+  Trash,
+} from "@phosphor-icons/react";
 
 export function KnowledgeSphereTab() {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
@@ -16,7 +35,13 @@ export function KnowledgeSphereTab() {
   const [isLoading, setIsLoading] = useState(true);
   const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
 
-  const loadData = async () => {
+  const { addTab } = useTabsStore();
+  const toast = useToast();
+  const nodeContextMenu = useContextMenu("node-context-menu");
+  const confirmDialog = useConfirmDialog();
+  const [_contextNode, setContextNode] = useState<GraphNode | null>(null);
+
+  const loadData = useCallback(async () => {
     setIsLoading(true);
 
     try {
@@ -94,12 +119,157 @@ export function KnowledgeSphereTab() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [activeCollectionId]);
+
+  const handleNodeDoubleClick = useCallback((node: GraphNode) => {
+    switch (node.type) {
+      case GraphNodeType.Document:
+        addTab({
+          title: node.label,
+          icon: <TextT className="w-4 h-4 text-muted-foreground" />,
+          type: "document-viewer",
+          content: DocumentViewer,
+          closable: true,
+          data: { documentId: node.id.replace("doc-", "") },
+        });
+        break;
+      case GraphNodeType.Extract:
+        addTab({
+          title: node.label.substring(0, 30),
+          icon: <Quotes className="w-4 h-4 text-muted-foreground" />,
+          type: "document-viewer",
+          content: DocumentViewer,
+          closable: true,
+          data: {
+            documentId: String(node.metadata?.documentId || "").replace("doc-", ""),
+            initialViewMode: "extracts",
+          },
+        });
+        break;
+      case GraphNodeType.Flashcard:
+        addTab({
+          title: "Review",
+          icon: <Brain className="w-4 h-4" />,
+          type: "review",
+          content: ReviewTab,
+          closable: true,
+        });
+        void useReviewStore.getState().startReviewAtItem(node.id.replace("card-", ""));
+        break;
+    }
+  }, [addTab]);
+
+  const handleNodeDelete = useCallback((nodeId: string) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+
+    let typeLabel = "Item";
+    if (node.type === GraphNodeType.Document) typeLabel = "Document";
+    if (node.type === GraphNodeType.Extract) typeLabel = "Extract";
+    if (node.type === GraphNodeType.Flashcard) typeLabel = "Flashcard";
+
+    confirmDialog.confirm({
+      title: `Delete ${typeLabel}`,
+      message: `Are you sure you want to delete "${node.label}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          if (node.type === GraphNodeType.Document) {
+            await deleteDocument(nodeId.replace("doc-", ""));
+          } else if (node.type === GraphNodeType.Extract) {
+            await deleteExtract(nodeId.replace("extract-", ""));
+          } else if (node.type === GraphNodeType.Flashcard) {
+            await invokeCommand("delete_learning_item", { itemId: nodeId.replace("card-", "") });
+          }
+          toast.success("Item deleted successfully");
+          await loadData();
+        } catch (err: any) {
+          console.error(err);
+          toast.error(`Failed to delete item: ${err.message || err}`);
+        }
+      },
+    });
+  }, [nodes, confirmDialog, toast, loadData]);
+
+  const handleSaveNodeDetails = useCallback(async (
+    nodeId: string,
+    updates: {
+      label?: string;
+      description?: string;
+      category?: string;
+      tags?: string[];
+    }
+  ) => {
+    const node = nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+
+    if (node.type === GraphNodeType.Document) {
+      const documentId = node.id.replace("doc-", "");
+      const doc = await getDocument(documentId);
+      if (!doc) throw new Error("Document not found");
+
+      await updateDocument(documentId, {
+        ...doc,
+        title: updates.label || doc.title,
+        category: updates.category,
+        tags: updates.tags ?? doc.tags,
+      });
+      await loadData();
+      toast.success("Document updated successfully");
+    } else if (node.type === GraphNodeType.Extract) {
+      const extractId = node.id.replace("extract-", "");
+      await updateExtract({
+        id: extractId,
+        content: updates.label,
+        tags: updates.tags,
+      });
+      await loadData();
+      toast.success("Extract updated successfully");
+    } else if (node.type === GraphNodeType.Flashcard) {
+      const itemId = node.id.replace("card-", "");
+      await invokeCommand("update_learning_item_content_with_version", {
+        itemId,
+        question: updates.label,
+        tags: updates.tags,
+      });
+      await loadData();
+      toast.success("Flashcard updated successfully");
+    }
+  }, [nodes, toast, loadData]);
+
+  const handleNodeContextMenu = useCallback(
+    (node: GraphNode, position: { x: number; y: number }) => {
+      setContextNode(node);
+      nodeContextMenu.showMenu(position, [
+        {
+          id: "open",
+          label: "Open Item",
+          icon: <ArrowSquareOut className="w-4 h-4" />,
+          onClick: () => handleNodeDoubleClick(node),
+        },
+        ...(node.type === GraphNodeType.Document ||
+        node.type === GraphNodeType.Extract ||
+        node.type === GraphNodeType.Flashcard
+          ? [
+              { id: "sep1", type: ContextMenuItemType.Separator, label: "" },
+              {
+                id: "delete",
+                label: "Delete",
+                icon: <Trash className="w-4 h-4" />,
+                type: ContextMenuItemType.Danger,
+                onClick: () => handleNodeDelete(node.id),
+              },
+            ]
+          : []),
+      ]);
+    },
+    [handleNodeDoubleClick, handleNodeDelete, nodeContextMenu]
+  );
 
   useEffect(() => {
     loadData();
-  }, [activeCollectionId]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadData]);
 
   if (isLoading) {
     return (
@@ -159,7 +329,15 @@ export function KnowledgeSphereTab() {
 
       {/* 3D Sphere */}
       <div className="flex-1 relative">
-        <ObsidianSphere nodes={nodes} edges={edges} showHeader={false} />
+        <ObsidianSphere
+          nodes={nodes}
+          edges={edges}
+          showHeader={false}
+          onNodeDoubleClick={handleNodeDoubleClick}
+          onNodeContextMenu={handleNodeContextMenu}
+          onNodeDelete={handleNodeDelete}
+          onNodeSave={handleSaveNodeDetails}
+        />
 
         {/* Quick stats overlay */}
         <div className="absolute bottom-6 left-6 bg-card/90 backdrop-blur border border-border rounded-xl shadow-lg p-4">
@@ -210,6 +388,26 @@ export function KnowledgeSphereTab() {
           </div>
         </div>
       </div>
+
+      {/* Node Context Menu */}
+      <ContextMenu
+        menuId="node-context-menu"
+        items={nodeContextMenu.items}
+        visible={nodeContextMenu.visible}
+        position={nodeContextMenu.position}
+        onClose={nodeContextMenu.hideMenu}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={confirmDialog.close}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        variant={confirmDialog.variant}
+        confirmLabel={confirmDialog.confirmLabel}
+      />
     </div>
   );
 }

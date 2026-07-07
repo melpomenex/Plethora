@@ -20,6 +20,7 @@ export interface ObsidianGraphProps {
   data: GraphData;
   onNodeClick?: (node: GraphNode) => void;
   onNodeDoubleClick?: (node: GraphNode) => void;
+  onNodeContextMenu?: (node: GraphNode, position: { x: number; y: number }) => void;
   selectedNode?: string;
   highlightedNodes?: string[];
   enablePhysics?: boolean;
@@ -466,6 +467,7 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
   data,
   onNodeClick,
   onNodeDoubleClick,
+  onNodeContextMenu,
   selectedNode,
   highlightedNodes = [],
   enablePhysics = true,
@@ -1272,6 +1274,16 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
     }
   };
 
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (hoveredNode && onNodeContextMenu) {
+      const node = nodeMapRef.current[hoveredNode];
+      if (node) {
+        onNodeContextMenu(node, { x: e.clientX, y: e.clientY });
+      }
+    }
+  };
+
   // ── Minimap click/drag navigation ──────────────────────────────
 
   const handleMinimapClick = useCallback((e: React.MouseEvent) => {
@@ -1347,6 +1359,7 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
         onWheel={handleWheel}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
       />
 
       {/* Minimap */}

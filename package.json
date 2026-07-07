@@ -45,6 +45,7 @@
     "test:wave5:performance": "vitest run src/utils/__tests__/wave5Performance.test.ts src/utils/__tests__/performance.test.tsx"
   },
   "dependencies": {
+    "@babel/types": "^8.0.0",
     "@dqbd/tiktoken": "^1.0.18",
     "@fontsource/albert-sans": "^5.2.8",
     "@fontsource/anonymous-pro": "^5.2.8",
