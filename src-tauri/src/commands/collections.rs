@@ -1,7 +1,7 @@
 //! Collections commands for organizing documents
 
-use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
 use crate::database::Repository;
+use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
 use sqlx::Row;
 use tauri::State;
 
@@ -18,19 +18,12 @@ pub async fn create_collection(
 }
 
 #[tauri::command]
-pub async fn get_collections(
-    repo: State<'_, Repository>,
-) -> Result<Vec<Collection>, String> {
-    repo.get_collections()
-        .await
-        .map_err(|e| e.to_string())
+pub async fn get_collections(repo: State<'_, Repository>) -> Result<Vec<Collection>, String> {
+    repo.get_collections().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_collection(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<Collection, String> {
+pub async fn get_collection(id: String, repo: State<'_, Repository>) -> Result<Collection, String> {
     repo.get_collection(&id)
         .await
         .map_err(|e| e.to_string())
@@ -51,19 +44,12 @@ pub async fn update_collection(
 }
 
 #[tauri::command]
-pub async fn delete_collection(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<(), String> {
-    repo.delete_collection(&id)
-        .await
-        .map_err(|e| e.to_string())
+pub async fn delete_collection(id: String, repo: State<'_, Repository>) -> Result<(), String> {
+    repo.delete_collection(&id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_active_collection(
-    repo: State<'_, Repository>,
-) -> Result<String, String> {
+pub async fn get_active_collection(repo: State<'_, Repository>) -> Result<String, String> {
     let setting = sqlx::query("SELECT value FROM settings WHERE key = 'active_collection_id'")
         .fetch_optional(repo.pool())
         .await
@@ -75,14 +61,11 @@ pub async fn get_active_collection(
 }
 
 #[tauri::command]
-pub async fn set_active_collection(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<(), String> {
+pub async fn set_active_collection(id: String, repo: State<'_, Repository>) -> Result<(), String> {
     let now = chrono::Utc::now();
     sqlx::query(
         "INSERT INTO settings (key, value, date_modified) VALUES ('active_collection_id', ?1, ?2)
-         ON CONFLICT(key) DO UPDATE SET value = ?1, date_modified = ?2"
+         ON CONFLICT(key) DO UPDATE SET value = ?1, date_modified = ?2",
     )
     .bind(&id)
     .bind(now)

@@ -2,8 +2,7 @@
  * Idempotent boot chain for the cross-device sync subsystems.
  *
  * This wires the shared Yjs doc to every entity that replicates across devices:
- *   getYjsSync → file sync → auto-download → document replication →
- *   flashcard replication → RSS → podcasts → first-join backfill.
+ *   getYjsSync → file sync + entities (parallel) → auto-download → backfill.
  *
  * Each `ensure*Ready()` / `start*()` call is itself idempotent, and we further
  * guard the whole chain with a single module-level promise so repeated callers
@@ -14,7 +13,7 @@
  * flashcards / documents to mirror across devices.
  *
  * Callers:
- *   - `main.tsx` (desktop): eager at boot.
+ *   - `main.tsx` (desktop): deferred past first paint.
  *   - `main.tsx` (mobile): deferred past first paint to keep the cold-start
  *     memory spike off the critical path.
  *   - `SyncSettings.tsx`: when the user toggles real-time sync ON or joins a
@@ -33,55 +32,95 @@ export function startSyncSubsystems(): Promise<void> {
 
   startPromise = (async () => {
     // 1. Shared Yjs doc + websocket provider + IndexedDB persistence.
+    //    Everything below depends on the doc, so this runs first.
     const { getYjsSync } = await import("./yjsSync");
-    await getYjsSync();
+    const sync = await withTimeout(
+      getYjsSync(),
+      4000,
+      "[startSyncSubsystems] getYjsSync timed out (4s), continuing in degraded mode",
+    ).catch((err) => {
+      console.warn("[startSyncSubsystems] getYjsSync failed, sync will be unavailable:", err);
+      return null;
+    });
 
-    // 2. File-sync subsystem (FileManifest + FileTransferManager). Idempotent
-    //    via ensureFileSyncReady's guard. Without this, imported files can't be
-    //    discovered or pulled across devices.
-    const { ensureFileSyncReady } = await import("./useFileSync");
-    await ensureFileSyncReady();
+    if (!sync) {
+      // getYjsSync failed — nothing below can work. Return early so the
+      // startPromise is marked resolved; the caller (main.tsx) continues
+      // normally without sync. A later room-join / toggle will retry.
+      return;
+    }
 
-    // 3. Auto-download watcher (honors sync.autoDownloadMode).
+    // 2. Prepare all entity init modules in parallel (dynamic imports).
+    const [
+      { ensureFileSyncReady },
+      { ensureDocumentReplicationReady },
+      { ensureCollectionSyncReady },
+      { ensureExtractSyncReady },
+      { ensureConversationSyncReady },
+      { ensureFlashcardSyncReady },
+      { ensureRssSyncReady },
+      { ensurePodcastSyncReady },
+    ] = await Promise.all([
+      import("./useFileSync").then((m) => ({ ensureFileSyncReady: m.ensureFileSyncReady })),
+      import("./documentReplication").then((m) => ({
+        ensureDocumentReplicationReady: m.ensureDocumentReplicationReady,
+      })),
+      import("./sync/entities/collections").then((m) => ({
+        ensureCollectionSyncReady: m.ensureCollectionSyncReady,
+      })),
+      import("./sync/entities/extracts").then((m) => ({
+        ensureExtractSyncReady: m.ensureExtractSyncReady,
+      })),
+      import("./sync/entities/conversations").then((m) => ({
+        ensureConversationSyncReady: m.ensureConversationSyncReady,
+      })),
+      import("./sync/entities/flashcards").then((m) => ({
+        ensureFlashcardSyncReady: m.ensureFlashcardSyncReady,
+      })),
+      import("./sync/entities/rss").then((m) => ({ ensureRssSyncReady: m.ensureRssSyncReady })),
+      import("./sync/entities/podcasts").then((m) => ({
+        ensurePodcastSyncReady: m.ensurePodcastSyncReady,
+      })),
+    ]);
+
+    // 3. Run file sync AND all entity initializations concurrently.
+    //    File sync depends on the Yjs doc (already ready), entity init depends
+    //    on the Yjs doc (already ready). They are independent of each other.
     const { startAutoFileSyncDownload } = await import("./autoFileSyncDownload");
-    await startAutoFileSyncDownload();
 
-    // 4. Document-row replication. SQLite is per-device; without this, imported
-    //    docs never appear on other devices even with file sync.
-    const { ensureDocumentReplicationReady } = await import("./documentReplication");
-    await ensureDocumentReplicationReady();
+    await Promise.all([
+      ensureFileSyncReady().catch((err) =>
+        console.warn("[startSyncSubsystems] file sync init failed:", err),
+      ),
+      ensureDocumentReplicationReady().catch((err) =>
+        console.warn("[startSyncSubsystems] document replication init failed:", err),
+      ),
+      ensureCollectionSyncReady().catch((err) =>
+        console.warn("[startSyncSubsystems] collection sync init failed:", err),
+      ),
+      ensureExtractSyncReady().catch((err) =>
+        console.warn("[startSyncSubsystems] extract sync init failed:", err),
+      ),
+      ensureConversationSyncReady().catch((err) =>
+        console.warn("[startSyncSubsystems] conversation sync init failed:", err),
+      ),
+      ensureFlashcardSyncReady().catch((err) =>
+        console.warn("[startSyncSubsystems] flashcard sync init failed:", err),
+      ),
+      ensureRssSyncReady().catch((err) =>
+        console.warn("[startSyncSubsystems] RSS sync init failed:", err),
+      ),
+      ensurePodcastSyncReady().catch((err) =>
+        console.warn("[startSyncSubsystems] podcast sync init failed:", err),
+      ),
+    ]);
 
-    // 4b. Collection replication.
-    const { ensureCollectionSyncReady } = await import("./sync/entities/collections");
-    await ensureCollectionSyncReady();
+    // 4. Auto-download watcher — needs file sync ready.
+    await startAutoFileSyncDownload().catch((err) =>
+      console.warn("[startSyncSubsystems] auto-download init failed:", err),
+    );
 
-    // 4c. Extract replication.
-    const { ensureExtractSyncReady } = await import("./sync/entities/extracts");
-    await ensureExtractSyncReady();
-
-    // 4d. Assistant side-panel conversation replication. Syncs the per-document
-    //     chat that lives in localStorage (images stripped — see the entity).
-    const { ensureConversationSyncReady } = await import("./sync/entities/conversations");
-    await ensureConversationSyncReady();
-
-    // 5. Flashcard + review-history replication (the paramount cross-device
-    //    case). Subscribes to the shared 'learningItems' and 'reviews' maps so a
-    //    card reviewed on one device appears with its new schedule on every
-    //    device. No-op outside Tauri.
-    const { ensureFlashcardSyncReady } = await import("./sync/entities/flashcards");
-    await ensureFlashcardSyncReady();
-
-    // 6. RSS replication (feeds + article read/queued state).
-    const { ensureRssSyncReady } = await import("./sync/entities/rss");
-    await ensureRssSyncReady();
-
-    // 7. Podcast replication (feeds + episode position/played/download-intent).
-    //    Audio bytes are never replicated — each device downloads from the feed
-    //    URL; we sync only state + intent.
-    const { ensurePodcastSyncReady } = await import("./sync/entities/podcasts");
-    await ensurePodcastSyncReady();
-
-    // 8. First-join backfill: publish the local library into the shared doc so
+    // 5. First-join backfill: publish the local library into the shared doc so
     //    other devices receive it. Background, non-fatal.
     const { runSyncMigrationIfNeeded } = await import("./sync/migrate");
     await runSyncMigrationIfNeeded().catch((e) =>
@@ -96,6 +135,32 @@ export function startSyncSubsystems(): Promise<void> {
   });
 
   return startPromise;
+}
+
+/**
+ * Run a timeout guard around a promise. If the promise doesn't settle within
+ * `ms`, we log a warning and continue. This ensures the sync boot can't block
+ * app startup indefinitely (e.g. if IndexedDB is slow or Argon2id stalls).
+ */
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  warnMessage: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      console.warn(warnMessage);
+      reject(new Error("timeout"));
+    }, ms);
+  });
+
+  try {
+    const result = await Promise.race([promise, timeout]);
+    return result;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**

@@ -1,9 +1,9 @@
 //! Document processing and content extraction
 
-pub mod pdf;
 pub mod epub;
-pub mod markdown;
 pub mod html;
+pub mod markdown;
+pub mod pdf;
 
 use crate::error::Result;
 use crate::models::FileType;
@@ -45,8 +45,8 @@ pub async fn extract_content(file_path: &str, file_type: FileType) -> Result<Ext
 
 /// Generate a content hash for duplicate detection
 pub fn generate_content_hash(content: &str) -> String {
-    use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
 
     let mut hasher = DefaultHasher::new();
     content.hash(&mut hasher);

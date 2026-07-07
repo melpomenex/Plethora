@@ -4,15 +4,15 @@
 //! - `embed_queue_items`: Generate and persist embeddings for queue items
 //! - `compute_semantic_graph`: Build graph from stored embeddings via cosine similarity
 
-use crate::commands::Result;
+use crate::ai::embeddings::{EmbeddingProvider, EmbeddingProviderType};
 use crate::commands::ai_key_store::AIKeyStore;
+use crate::commands::Result;
+use crate::database::QueueItemEmbedding;
 use crate::database::Repository;
 use crate::error::IncrementumError;
-use tauri::Emitter;
-use crate::ai::embeddings::{EmbeddingProviderType, EmbeddingProvider};
-use crate::database::QueueItemEmbedding;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
+use tauri::Emitter;
 
 /// Summary of a queue item for embedding purposes
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,21 +142,21 @@ pub async fn embed_queue_items(
     let dimension = provider.dimension();
 
     // Compute content hashes and find stale items
-    let items_with_hashes: Vec<(String, String)> = items.iter()
+    let items_with_hashes: Vec<(String, String)> = items
+        .iter()
         .map(|item| {
             let hash = content_hash(&item.title, &item.text_content, &item.tags);
             (item.id.clone(), hash)
         })
         .collect();
 
-    let stale_ids = repo.get_stale_embedding_item_ids(
-        &items_with_hashes,
-        &provider_str,
-        &model_str,
-    ).await?;
+    let stale_ids = repo
+        .get_stale_embedding_item_ids(&items_with_hashes, &provider_str, &model_str)
+        .await?;
 
     let stale_set: std::collections::HashSet<&str> = stale_ids.iter().map(|s| s.as_str()).collect();
-    let items_to_embed: Vec<&QueueItemSummary> = items.iter()
+    let items_to_embed: Vec<&QueueItemSummary> = items
+        .iter()
         .filter(|item| stale_set.contains(item.id.as_str()))
         .collect();
 
@@ -169,8 +169,13 @@ pub async fn embed_queue_items(
     let mut total_embedded: u32 = 0;
 
     for (batch_idx, chunk) in items_to_embed.chunks(batch_size).enumerate() {
-        let texts: Vec<String> = chunk.iter().map(|item| item_to_embedding_text(item)).collect();
-        let responses = provider.generate_embeddings_batch(&texts).await
+        let texts: Vec<String> = chunk
+            .iter()
+            .map(|item| item_to_embedding_text(item))
+            .collect();
+        let responses = provider
+            .generate_embeddings_batch(&texts)
+            .await
             .map_err(IncrementumError::Internal)?;
 
         let now = chrono::Utc::now().timestamp_millis();
@@ -189,11 +194,14 @@ pub async fn embed_queue_items(
             total_embedded += 1;
         }
 
-        let _ = app.emit("embedding-progress", EmbeddingProgress {
-            batch_number: (batch_idx + 1) as u32,
-            total_batches,
-            items_embedded: total_embedded,
-        });
+        let _ = app.emit(
+            "embedding-progress",
+            EmbeddingProgress {
+                batch_number: (batch_idx + 1) as u32,
+                total_batches,
+                items_embedded: total_embedded,
+            },
+        );
     }
 
     // After embedding, recompute tag centroids and coherence
@@ -242,27 +250,31 @@ pub async fn compute_semantic_graph(
         let provider_str = provider_name(cfg);
         let model_str = model_name(cfg);
 
-        let items_with_hashes: Vec<(String, String)> = all_items.iter()
+        let items_with_hashes: Vec<(String, String)> = all_items
+            .iter()
             .map(|item| {
                 let hash = content_hash(&item.title, &item.text_content, &item.tags);
                 (item.id.clone(), hash)
             })
             .collect();
 
-        let stale_ids = repo.get_stale_embedding_item_ids(
-            &items_with_hashes,
-            &provider_str,
-            &model_str,
-        ).await?;
+        let stale_ids = repo
+            .get_stale_embedding_item_ids(&items_with_hashes, &provider_str, &model_str)
+            .await?;
 
         if stale_ids.is_empty() {
             // All embeddings are fresh — compute graph from them
             let embeddings = repo.get_embeddings_for_items(&item_ids).await?;
-            let emb_map: std::collections::HashMap<String, Vec<f32>> = embeddings.into_iter()
+            let emb_map: std::collections::HashMap<String, Vec<f32>> = embeddings
+                .into_iter()
                 .map(|e| (e.item_id, e.embedding))
                 .collect();
 
-            return Ok(build_graph_from_embeddings(&all_items, &emb_map, threshold_percent));
+            return Ok(build_graph_from_embeddings(
+                &all_items,
+                &emb_map,
+                threshold_percent,
+            ));
         }
         // If some items are stale, return a signal so frontend can trigger embedding first
         // Fall through to lexical fallback
@@ -280,10 +292,18 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
-    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| (*x as f64) * (*y as f64)).sum();
+    let dot: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (*x as f64) * (*y as f64))
+        .sum();
     let norm_a: f64 = a.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
     let norm_b: f64 = b.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
-    if norm_a == 0.0 || norm_b == 0.0 { 0.0 } else { dot / (norm_a * norm_b) }
+    if norm_a == 0.0 || norm_b == 0.0 {
+        0.0
+    } else {
+        dot / (norm_a * norm_b)
+    }
 }
 
 fn build_graph_from_embeddings(
@@ -293,28 +313,52 @@ fn build_graph_from_embeddings(
 ) -> SemanticGraphResult {
     let threshold = threshold_percent / 100.0;
 
-    let nodes: Vec<GraphNodeOutput> = items.iter().enumerate().map(|(idx, item)| {
-        let angle = (idx as f64 / items.len() as f64) * std::f64::consts::PI * 2.0;
-        let distance = 150.0 + (idx as f64 * 7.0 % 200.0);
-        let x = 400.0 + angle.cos() * distance;
-        let y = 300.0 + angle.sin() * distance;
+    let nodes: Vec<GraphNodeOutput> = items
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| {
+            let angle = (idx as f64 / items.len() as f64) * std::f64::consts::PI * 2.0;
+            let distance = 150.0 + (idx as f64 * 7.0 % 200.0);
+            let x = 400.0 + angle.cos() * distance;
+            let y = 300.0 + angle.sin() * distance;
 
-        let is_rss = item.id.starts_with("rss-");
+            let is_rss = item.id.starts_with("rss-");
 
-        GraphNodeOutput {
-            id: item.id.clone(),
-            node_type: if is_rss { "Rss".to_string() } else { "Document".to_string() },
-            label: if item.title.len() > 35 { format!("{}...", &item.title[..32]) } else { item.title.clone() },
-            description: Some(item.text_content.clone()),
-            x,
-            y,
-            radius: Some(16.0),
-            color: Some(if is_rss { "#ea580c".to_string() } else { "#3b82f6".to_string() }),
-            category: if is_rss { Some("RSS".to_string()) } else { None },
-            tags: if item.tags.is_empty() { None } else { Some(item.tags.clone()) },
-            metadata: None,
-        }
-    }).collect();
+            GraphNodeOutput {
+                id: item.id.clone(),
+                node_type: if is_rss {
+                    "Rss".to_string()
+                } else {
+                    "Document".to_string()
+                },
+                label: if item.title.len() > 35 {
+                    format!("{}...", &item.title[..32])
+                } else {
+                    item.title.clone()
+                },
+                description: Some(item.text_content.clone()),
+                x,
+                y,
+                radius: Some(16.0),
+                color: Some(if is_rss {
+                    "#ea580c".to_string()
+                } else {
+                    "#3b82f6".to_string()
+                }),
+                category: if is_rss {
+                    Some("RSS".to_string())
+                } else {
+                    None
+                },
+                tags: if item.tags.is_empty() {
+                    None
+                } else {
+                    Some(item.tags.clone())
+                },
+                metadata: None,
+            }
+        })
+        .collect();
 
     let mut edges: Vec<GraphEdgeOutput> = Vec::new();
     let mut edge_id = 1u32;
@@ -434,9 +478,24 @@ mod tests {
     #[test]
     fn test_build_graph_from_embeddings_threshold() {
         let items = vec![
-            QueueItemSummary { id: "a".into(), title: "Item A".into(), text_content: "about neural networks".into(), tags: vec![] },
-            QueueItemSummary { id: "b".into(), title: "Item B".into(), text_content: "about deep learning".into(), tags: vec![] },
-            QueueItemSummary { id: "c".into(), title: "Item C".into(), text_content: "about renaissance art".into(), tags: vec![] },
+            QueueItemSummary {
+                id: "a".into(),
+                title: "Item A".into(),
+                text_content: "about neural networks".into(),
+                tags: vec![],
+            },
+            QueueItemSummary {
+                id: "b".into(),
+                title: "Item B".into(),
+                text_content: "about deep learning".into(),
+                tags: vec![],
+            },
+            QueueItemSummary {
+                id: "c".into(),
+                title: "Item C".into(),
+                text_content: "about renaissance art".into(),
+                tags: vec![],
+            },
         ];
         let mut emb_map = std::collections::HashMap::new();
         // A and B are very similar, C is different
@@ -448,8 +507,14 @@ mod tests {
         assert!(result.used_embeddings);
         assert_eq!(result.nodes.len(), 3);
         // A-B should be connected (high similarity), A-C and B-C should not
-        assert!(result.edges.iter().any(|e| e.source == "a" && e.target == "b"));
-        assert!(!result.edges.iter().any(|e| (e.source == "a" && e.target == "c") || (e.source == "b" && e.target == "c")));
+        assert!(result
+            .edges
+            .iter()
+            .any(|e| e.source == "a" && e.target == "b"));
+        assert!(!result
+            .edges
+            .iter()
+            .any(|e| (e.source == "a" && e.target == "c") || (e.source == "b" && e.target == "c")));
     }
 
     #[test]

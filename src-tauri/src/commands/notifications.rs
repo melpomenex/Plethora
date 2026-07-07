@@ -3,14 +3,14 @@
 //! Tauri commands for desktop notification management
 //! Uses tauri-plugin-notification for actual macOS/desktop notifications
 
-use serde::Serialize;
-use tauri::{AppHandle, State};
-use tauri_plugin_notification::NotificationExt;
 use crate::database::Repository;
 use crate::error::Result;
 use crate::notifications::{
-    NotificationManager, Notification, NotificationPriority, NotificationType
+    Notification, NotificationManager, NotificationPriority, NotificationType,
 };
+use serde::Serialize;
+use tauri::{AppHandle, State};
+use tauri_plugin_notification::NotificationExt;
 
 /// Result of a permission check/request, returned to frontend as { granted: boolean }
 #[derive(Serialize)]
@@ -69,7 +69,11 @@ pub async fn send_study_reminder(app: AppHandle, due_count: usize, new_count: us
 
 /// Create and send a cards due notification
 #[tauri::command]
-pub async fn send_cards_due_notification(app: AppHandle, count: usize, overdue: usize) -> Result<()> {
+pub async fn send_cards_due_notification(
+    app: AppHandle,
+    count: usize,
+    overdue: usize,
+) -> Result<()> {
     let notification = NotificationManager::create_cards_due(count, overdue);
     send_via_plugin(&app, &notification).await
 }
@@ -82,7 +86,8 @@ pub async fn send_review_completed_notification(
     time_spent: u32,
     retention: f64,
 ) -> Result<()> {
-    let notification = NotificationManager::create_review_completed(cards_reviewed, time_spent, retention);
+    let notification =
+        NotificationManager::create_review_completed(cards_reviewed, time_spent, retention);
     send_via_plugin(&app, &notification).await
 }
 
@@ -106,7 +111,9 @@ pub async fn schedule_study_reminders(hour: u8, minute: u8) -> Result<()> {
 
 /// Get notification settings from database
 #[tauri::command]
-pub async fn get_notification_settings(repo: State<'_, Repository>) -> Result<NotificationSettings> {
+pub async fn get_notification_settings(
+    repo: State<'_, Repository>,
+) -> Result<NotificationSettings> {
     let pool = repo.pool();
     let settings = sqlx::query_as::<_, (bool, bool, bool, bool, bool, u8, u8)>(
         r#"
@@ -114,23 +121,29 @@ pub async fn get_notification_settings(repo: State<'_, Repository>) -> Result<No
                reminder_hour, reminder_minute
         FROM notification_settings
         LIMIT 1
-        "#
+        "#,
     )
     .fetch_optional(pool)
     .await?;
 
     match settings {
-        Some((study_reminders, cards_due, review_completed, document_imported, sound_enabled, reminder_hour, reminder_minute)) => {
-            Ok(NotificationSettings {
-                study_reminders,
-                cards_due,
-                review_completed,
-                document_imported,
-                sound_enabled,
-                reminder_hour,
-                reminder_minute,
-            })
-        }
+        Some((
+            study_reminders,
+            cards_due,
+            review_completed,
+            document_imported,
+            sound_enabled,
+            reminder_hour,
+            reminder_minute,
+        )) => Ok(NotificationSettings {
+            study_reminders,
+            cards_due,
+            review_completed,
+            document_imported,
+            sound_enabled,
+            reminder_hour,
+            reminder_minute,
+        }),
         None => Ok(NotificationSettings::default()),
     }
 }
@@ -153,7 +166,7 @@ pub async fn update_notification_settings(
             reminder_hour, reminder_minute
         )
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-        "#
+        "#,
     )
     .bind("default") // Use a default ID
     .bind(settings.study_reminders)
@@ -169,7 +182,9 @@ pub async fn update_notification_settings(
     // If study reminders are enabled, schedule them
     if settings.study_reminders {
         let manager = NotificationManager::new(true);
-        manager.schedule_study_reminders(settings.reminder_hour, settings.reminder_minute).await?;
+        manager
+            .schedule_study_reminders(settings.reminder_hour, settings.reminder_minute)
+            .await?;
     }
 
     Ok(())

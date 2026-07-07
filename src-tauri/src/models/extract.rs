@@ -96,7 +96,12 @@ impl Extract {
     }
 
     /// Create an extract with rich HTML content for visual fidelity
-    pub fn with_html(document_id: String, content: String, html_content: String, source_url: Option<String>) -> Self {
+    pub fn with_html(
+        document_id: String,
+        content: String,
+        html_content: String,
+        source_url: Option<String>,
+    ) -> Self {
         let mut extract = Self::new(document_id, content);
         extract.html_content = Some(html_content);
         extract.source_url = source_url;

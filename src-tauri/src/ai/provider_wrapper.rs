@@ -3,7 +3,8 @@
 //! This approach avoids the `async_trait` Send issues by using concrete types.
 
 use crate::ai::providers::{
-    AnthropicProvider, ChatCompletionRequest, ChatCompletionResponse, LLMProvider, LLMProviderType, OllamaProvider, OpenAIProvider, OpenRouterProvider,
+    AnthropicProvider, ChatCompletionRequest, ChatCompletionResponse, LLMProvider, LLMProviderType,
+    OllamaProvider, OpenAIProvider, OpenRouterProvider,
 };
 use serde::{Deserialize, Serialize};
 
@@ -125,12 +126,10 @@ impl AIProvider {
                     models.openrouter_model.clone(),
                 )))
             }
-            LLMProviderType::Ollama => {
-                Ok(AIProvider::Ollama(OllamaProvider::new(
-                    local_settings.ollama_base_url.clone(),
-                    models.ollama_model.clone(),
-                )))
-            }
+            LLMProviderType::Ollama => Ok(AIProvider::Ollama(OllamaProvider::new(
+                local_settings.ollama_base_url.clone(),
+                models.ollama_model.clone(),
+            ))),
         }
     }
 }

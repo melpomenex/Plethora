@@ -1,10 +1,13 @@
-use std::sync::{Arc, Mutex, atomic::{AtomicI32, Ordering}};
+use super::engine::{TranscriptSegment, TranscriptionEngine};
+use super::model_manager::ModelManager;
+use crate::database::Repository;
+use crate::models::{TranscriptionJobStatus, TranscriptionQueueEntry};
+use std::sync::{
+    atomic::{AtomicI32, Ordering},
+    Arc, Mutex,
+};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
-use crate::database::Repository;
-use crate::models::{TranscriptionQueueEntry, TranscriptionJobStatus};
-use super::engine::{TranscriptionEngine, TranscriptSegment};
-use super::model_manager::ModelManager;
 
 enum AutoQueueCommand {
     Enqueue(TranscriptionQueueEntry),
@@ -84,22 +87,28 @@ impl AutoTranscriptionQueue {
     }
 
     pub fn enqueue(&self, entry: TranscriptionQueueEntry) -> Result<(), String> {
-        self.sender.send(AutoQueueCommand::Enqueue(entry))
+        self.sender
+            .send(AutoQueueCommand::Enqueue(entry))
             .map_err(|e| format!("Failed to enqueue: {}", e))
     }
 
     pub fn trigger_processing(&self) -> Result<(), String> {
-        self.sender.send(AutoQueueCommand::Process)
+        self.sender
+            .send(AutoQueueCommand::Process)
             .map_err(|e| format!("Failed to trigger processing: {}", e))
     }
 
     pub fn cancel(&self, id: String) -> Result<(), String> {
-        self.sender.send(AutoQueueCommand::Cancel(id))
+        self.sender
+            .send(AutoQueueCommand::Cancel(id))
             .map_err(|e| format!("Failed to cancel: {}", e))
     }
 
     pub fn active_job_id(&self) -> Option<String> {
-        self.active_job_id.lock().expect("auto queue mutex poisoned").clone()
+        self.active_job_id
+            .lock()
+            .expect("auto queue mutex poisoned")
+            .clone()
     }
 
     async fn process_next(
@@ -114,7 +123,13 @@ impl AutoTranscriptionQueue {
             None => return Ok(()),
         };
 
-        repo.update_transcription_status(&entry.id, TranscriptionJobStatus::Processing, None, Some(0)).await?;
+        repo.update_transcription_status(
+            &entry.id,
+            TranscriptionJobStatus::Processing,
+            None,
+            Some(0),
+        )
+        .await?;
         {
             let mut active = active_job_id.lock().expect("auto queue mutex poisoned");
             *active = Some(entry.id.clone());
@@ -127,17 +142,32 @@ impl AutoTranscriptionQueue {
 
         match result {
             Ok(()) => {
-                repo.update_transcription_status(&entry.id, TranscriptionJobStatus::Completed, None, Some(100)).await?;
+                repo.update_transcription_status(
+                    &entry.id,
+                    TranscriptionJobStatus::Completed,
+                    None,
+                    Some(100),
+                )
+                .await?;
             }
             Err(e) => {
                 let err_str = e.to_string();
-                repo.update_transcription_status(&entry.id, TranscriptionJobStatus::Failed, Some(&err_str), None).await?;
+                repo.update_transcription_status(
+                    &entry.id,
+                    TranscriptionJobStatus::Failed,
+                    Some(&err_str),
+                    None,
+                )
+                .await?;
 
                 // Retry logic
-                let updated = repo.get_transcription_queue_entry(&entry.document_id).await?;
+                let updated = repo
+                    .get_transcription_queue_entry(&entry.document_id)
+                    .await?;
                 if let Some(updated_entry) = updated {
                     if updated_entry.retry_count < 3 {
-                        repo.reset_transcription_to_pending(&entry.id, updated_entry.retry_count).await?;
+                        repo.reset_transcription_to_pending(&entry.id, updated_entry.retry_count)
+                            .await?;
                     }
                 }
             }
@@ -166,16 +196,24 @@ impl AutoTranscriptionQueue {
 
         let model_path = model_manager.get_model_path(&entry.model_id);
         if !model_path.exists() {
-            return Err(anyhow::anyhow!("Transcription model not found: {}", entry.model_id));
+            return Err(anyhow::anyhow!(
+                "Transcription model not found: {}",
+                entry.model_id
+            ));
         }
 
         let audio_path = std::path::Path::new(&entry.audio_path);
         if !audio_path.exists() {
-            return Err(anyhow::anyhow!("Audio file not found: {}", entry.audio_path));
+            return Err(anyhow::anyhow!(
+                "Audio file not found: {}",
+                entry.audio_path
+            ));
         }
 
         // Prepare audio
-        let wav_path = engine.prepare_audio(std::path::Path::new(&entry.audio_path)).await?;
+        let wav_path = engine
+            .prepare_audio(std::path::Path::new(&entry.audio_path))
+            .await?;
 
         sqlx::query("INSERT OR REPLACE INTO transcripts (book_id, chapter_id, model_used, language, status) VALUES (?, ?, ?, ?, 'processing')")
             .bind(&entry.document_id)
@@ -198,7 +236,9 @@ impl AutoTranscriptionQueue {
         let progress_app = app.clone();
         let progress_cb: Box<dyn Fn(i32) + Send + Sync> = Box::new(move |p: i32| {
             let last = last_progress.load(Ordering::Relaxed);
-            if p < last + 5 && p < 100 { return; }
+            if p < last + 5 && p < 100 {
+                return;
+            }
             last_progress.store(p, Ordering::Relaxed);
             let repo = progress_repo.clone();
             let id = progress_entry_id.clone();
@@ -222,18 +262,23 @@ impl AutoTranscriptionQueue {
 
         // Shared on_segment closure: stores the segment and persists it async.
         let on_segment = move |seg: TranscriptSegment| {
-            segments_clone.lock().expect("transcription segments mutex poisoned").push(seg.clone());
+            segments_clone
+                .lock()
+                .expect("transcription segments mutex poisoned")
+                .push(seg.clone());
 
             let repo = repo_clone.clone();
             let entry_id = entry_id.clone();
             let app = app_clone.clone();
             tokio::spawn(async move {
-                let transcript_id: i64 = sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
-                    .bind(&entry_id)
-                    .bind(&entry_id)
-                    .fetch_one(repo.pool())
-                    .await
-                    .unwrap_or(0);
+                let transcript_id: i64 = sqlx::query_scalar(
+                    "SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?",
+                )
+                .bind(&entry_id)
+                .bind(&entry_id)
+                .fetch_one(repo.pool())
+                .await
+                .unwrap_or(0);
 
                 if transcript_id > 0 {
                     if let Err(e) = sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) VALUES (?, ?, ?, ?, ?)")
@@ -255,16 +300,43 @@ impl AutoTranscriptionQueue {
         };
 
         if is_sense_voice {
-            engine.transcribe_sensevoice(&wav_path, &model_path, &entry.language, on_segment, Some(progress_cb)).await?;
+            engine
+                .transcribe_sensevoice(
+                    &wav_path,
+                    &model_path,
+                    &entry.language,
+                    on_segment,
+                    Some(progress_cb),
+                )
+                .await?;
         } else if is_parakeet {
-            engine.transcribe_parakeet(&wav_path, &model_path, &entry.language, on_segment, Some(progress_cb)).await?;
+            engine
+                .transcribe_parakeet(
+                    &wav_path,
+                    &model_path,
+                    &entry.language,
+                    on_segment,
+                    Some(progress_cb),
+                )
+                .await?;
         } else {
-            engine.transcribe(&wav_path, &model_path, &entry.language, on_segment, Some(progress_cb)).await?;
+            engine
+                .transcribe(
+                    &wav_path,
+                    &model_path,
+                    &entry.language,
+                    on_segment,
+                    Some(progress_cb),
+                )
+                .await?;
         }
 
         let full_text: String = {
-            let all_segments = segments.lock().expect("transcription segments mutex poisoned");
-            all_segments.iter()
+            let all_segments = segments
+                .lock()
+                .expect("transcription segments mutex poisoned");
+            all_segments
+                .iter()
                 .map(|s| s.text.trim())
                 .filter(|t| !t.is_empty())
                 .collect::<Vec<_>>()
@@ -280,11 +352,13 @@ impl AutoTranscriptionQueue {
         }
 
         // Mark transcript as completed
-        sqlx::query("UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?")
-            .bind(&entry.document_id)
-            .bind(&entry.document_id)
-            .execute(repo.pool())
-            .await?;
+        sqlx::query(
+            "UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?",
+        )
+        .bind(&entry.document_id)
+        .bind(&entry.document_id)
+        .execute(repo.pool())
+        .await?;
 
         // Cleanup WAV (best-effort)
         if let Err(e) = std::fs::remove_file(&wav_path) {

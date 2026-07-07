@@ -1,8 +1,8 @@
 //! RSS 2.0 podcast feed parser with iTunes namespace support
 
+use crate::models::podcast::{ParsedPodcastEpisode, ParsedPodcastFeed};
 use quick_xml::events::Event;
 use quick_xml::Reader;
-use crate::models::podcast::{ParsedPodcastEpisode, ParsedPodcastFeed};
 
 /// Parse an RSS 2.0 podcast feed from raw XML text.
 ///
@@ -246,14 +246,19 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
                     let full_path = element_stack.join("/").to_lowercase();
                     if in_item {
                         match full_path.as_str() {
-                            s if s.ends_with("/title")
-                                || s.ends_with("/itunes:title") => collect_text = true,
+                            s if s.ends_with("/title") || s.ends_with("/itunes:title") => {
+                                collect_text = true
+                            }
                             s if s.ends_with("/description")
                                 || s.ends_with("/itunes:summary")
-                                || s.ends_with("/summary") => collect_text = true,
+                                || s.ends_with("/summary") =>
+                            {
+                                collect_text = true
+                            }
                             s if s.ends_with("/pubdate") => collect_text = true,
-                            s if s.ends_with("/duration")
-                                || s.ends_with("/itunes:duration") => collect_text = true,
+                            s if s.ends_with("/duration") || s.ends_with("/itunes:duration") => {
+                                collect_text = true
+                            }
                             s if s.ends_with("/link") => collect_text = true,
                             s if s.ends_with("/guid") => collect_text = true,
                             _ => collect_text = false,
@@ -261,11 +266,33 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
                     } else {
                         // Channel-level matching (case-insensitive and root-tag robust)
                         match full_path.as_str() {
-                            s if s.ends_with("/channel/title") || s == "channel/title" || s.ends_with("/title") => collect_text = true,
-                            s if s.ends_with("/channel/description") || s == "channel/description" || s.ends_with("/description") => collect_text = true,
-                            s if s.ends_with("/channel/link") || s == "channel/link" || s.ends_with("/link") => collect_text = true,
-                            s if s.ends_with("/channel/language") || s == "channel/language" || s.ends_with("/language") => collect_text = true,
-                            s if s.ends_with("/author") || s.ends_with("/itunes:author") => collect_text = true,
+                            s if s.ends_with("/channel/title")
+                                || s == "channel/title"
+                                || s.ends_with("/title") =>
+                            {
+                                collect_text = true
+                            }
+                            s if s.ends_with("/channel/description")
+                                || s == "channel/description"
+                                || s.ends_with("/description") =>
+                            {
+                                collect_text = true
+                            }
+                            s if s.ends_with("/channel/link")
+                                || s == "channel/link"
+                                || s.ends_with("/link") =>
+                            {
+                                collect_text = true
+                            }
+                            s if s.ends_with("/channel/language")
+                                || s == "channel/language"
+                                || s.ends_with("/language") =>
+                            {
+                                collect_text = true
+                            }
+                            s if s.ends_with("/author") || s.ends_with("/itunes:author") => {
+                                collect_text = true
+                            }
                             s if s.ends_with("/image/url") => collect_text = true,
                             _ => collect_text = false,
                         }
@@ -335,8 +362,7 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
                             s if s.ends_with("/title") => {
                                 item_title = text;
                             }
-                            s if s.ends_with("/itunes:summary")
-                                || s.ends_with("/summary") => {
+                            s if s.ends_with("/itunes:summary") || s.ends_with("/summary") => {
                                 item_description = if text.is_empty() { None } else { Some(text) };
                             }
                             s if s.ends_with("/description") => {
@@ -345,10 +371,10 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
                                 }
                             }
                             s if s.ends_with("/pubdate") => {
-                                item_published_date = if text.is_empty() { None } else { Some(text) };
+                                item_published_date =
+                                    if text.is_empty() { None } else { Some(text) };
                             }
-                            s if s.ends_with("/itunes:duration")
-                                || s.ends_with("/duration") => {
+                            s if s.ends_with("/itunes:duration") || s.ends_with("/duration") => {
                                 item_duration_str = if text.is_empty() { None } else { Some(text) };
                             }
                             s if s.ends_with("/link") => {
@@ -358,14 +384,28 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
                         }
                     } else if in_channel {
                         match full_path.as_str() {
-                            s if s.ends_with("/channel/title") || s == "channel/title" || s.ends_with("/title") => feed_title = text,
-                            s if s.ends_with("/channel/description") || s == "channel/description" || s.ends_with("/description") => {
+                            s if s.ends_with("/channel/title")
+                                || s == "channel/title"
+                                || s.ends_with("/title") =>
+                            {
+                                feed_title = text
+                            }
+                            s if s.ends_with("/channel/description")
+                                || s == "channel/description"
+                                || s.ends_with("/description") =>
+                            {
                                 feed_description = if text.is_empty() { None } else { Some(text) };
                             }
-                            s if s.ends_with("/channel/link") || s == "channel/link" || s.ends_with("/link") => {
+                            s if s.ends_with("/channel/link")
+                                || s == "channel/link"
+                                || s.ends_with("/link") =>
+                            {
                                 feed_link = if text.is_empty() { None } else { Some(text) };
                             }
-                            s if s.ends_with("/channel/language") || s == "channel/language" || s.ends_with("/language") => {
+                            s if s.ends_with("/channel/language")
+                                || s == "channel/language"
+                                || s.ends_with("/language") =>
+                            {
                                 feed_language = if text.is_empty() { None } else { Some(text) };
                             }
                             s if s.ends_with("/author") || s.ends_with("/itunes:author") => {
@@ -394,9 +434,8 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
                             .take()
                             .unwrap_or_else(|| std::mem::take(&mut item_title));
                         if !title.is_empty() {
-                            let duration = item_duration_str
-                                .as_deref()
-                                .and_then(parse_itunes_duration);
+                            let duration =
+                                item_duration_str.as_deref().and_then(parse_itunes_duration);
                             let image = item_itunes_image.take().or(item_image_url.take());
                             episodes.push(ParsedPodcastEpisode {
                                 guid: item_guid.take(),
@@ -429,7 +468,11 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
             }
             Ok(Event::Eof) => break,
             Err(e) => {
-                return Err(format!("XML parse error at position {}: {}", reader.error_position(), e));
+                return Err(format!(
+                    "XML parse error at position {}: {}",
+                    reader.error_position(),
+                    e
+                ));
             }
             _ => {}
         }
@@ -570,7 +613,10 @@ mod tests {
         let feed = parse_podcast_feed(xml).unwrap();
         assert_eq!(feed.title, "iTunes Podcast");
         assert_eq!(feed.author.as_deref(), Some("John Doe"));
-        assert_eq!(feed.image_url.as_deref(), Some("https://example.com/cover.jpg"));
+        assert_eq!(
+            feed.image_url.as_deref(),
+            Some("https://example.com/cover.jpg")
+        );
         assert_eq!(feed.language.as_deref(), Some("en"));
         assert_eq!(feed.episodes.len(), 1);
         let ep = &feed.episodes[0];
@@ -598,7 +644,10 @@ mod tests {
 
         let feed = parse_podcast_feed(xml).unwrap();
         assert_eq!(feed.title, "Uppercase Podcast");
-        assert_eq!(feed.description.as_deref(), Some("An uppercase description"));
+        assert_eq!(
+            feed.description.as_deref(),
+            Some("An uppercase description")
+        );
         assert_eq!(feed.link.as_deref(), Some("https://example.com/uppercase"));
         assert_eq!(feed.language.as_deref(), Some("en-US"));
         assert_eq!(feed.episodes.len(), 1);
@@ -625,6 +674,9 @@ mod tests {
 
         let feed = parse_podcast_feed(xml).unwrap();
         assert_eq!(feed.title, "Standard Image Podcast");
-        assert_eq!(feed.image_url.as_deref(), Some("https://example.com/standard-cover.png"));
+        assert_eq!(
+            feed.image_url.as_deref(),
+            Some("https://example.com/standard-cover.png")
+        );
     }
 }

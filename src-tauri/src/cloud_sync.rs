@@ -8,9 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::cloud::{
-    CloudProvider, SyncConflict, SyncResult, ConflictResolution,
-};
+use crate::cloud::{CloudProvider, ConflictResolution, SyncConflict, SyncResult};
 use crate::database::Database;
 use crate::error::AppError;
 
@@ -23,8 +21,7 @@ pub struct CloudSyncManager {
 }
 
 /// Cloud sync state
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct CloudSyncState {
     last_sync: Option<DateTime<Utc>>,
     sync_version: u64,
@@ -51,7 +48,8 @@ impl CloudSyncManager {
 
     /// Get the device ID
     fn get_device_id() -> String {
-        format!("{}-{}",
+        format!(
+            "{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -63,14 +61,18 @@ impl CloudSyncManager {
     /// Perform two-way sync
     pub async fn two_way_sync(&mut self) -> Result<SyncResult, AppError> {
         let start_time = std::time::Instant::now();
-        let provider_box = self.provider.as_ref()
+        let provider_box = self
+            .provider
+            .as_ref()
             .ok_or_else(|| AppError::Internal("No cloud provider configured".to_string()))?;
 
         // Convert Box<dyn CloudProvider> to &dyn CloudProvider
         let provider: &dyn CloudProvider = provider_box.as_ref();
 
         if !provider.is_authenticated() {
-            return Err(AppError::Internal("Cloud provider not authenticated".to_string()));
+            return Err(AppError::Internal(
+                "Cloud provider not authenticated".to_string(),
+            ));
         }
 
         // 1. Get local changes
@@ -80,7 +82,9 @@ impl CloudSyncManager {
         let remote_changes = self.get_remote_changes(provider).await?;
 
         // 3. Detect conflicts
-        let conflicts = self.detect_conflicts(&local_changes, &remote_changes).await?;
+        let conflicts = self
+            .detect_conflicts(&local_changes, &remote_changes)
+            .await?;
 
         // 4. Upload local changes
         let mut uploaded = 0;
@@ -151,7 +155,10 @@ impl CloudSyncManager {
     }
 
     /// Get remote changes from cloud
-    async fn get_remote_changes(&self, provider: &dyn CloudProvider) -> Result<Vec<SyncChange>, AppError> {
+    async fn get_remote_changes(
+        &self,
+        provider: &dyn CloudProvider,
+    ) -> Result<Vec<SyncChange>, AppError> {
         let state = self.sync_state.read().await;
         let last_sync = state.last_sync;
 
@@ -240,7 +247,13 @@ impl CloudSyncManager {
         provider: &dyn CloudProvider,
         change: &SyncChange,
     ) -> Result<(), AppError> {
-        if let SyncData::Document { id, title: _, file_path, .. } = &change.data {
+        if let SyncData::Document {
+            id,
+            title: _,
+            file_path,
+            ..
+        } = &change.data
+        {
             // Read document file
             let file_data = if let Some(path) = file_path {
                 tokio::fs::read(path)
@@ -257,7 +270,9 @@ impl CloudSyncManager {
 
             // Upload file and metadata
             provider.upload_file(&cloud_path, file_data, None).await?;
-            provider.upload_file(&format!("{}.meta", cloud_path), metadata, None).await?;
+            provider
+                .upload_file(&format!("{}.meta", cloud_path), metadata, None)
+                .await?;
 
             Ok(())
         } else {
@@ -276,8 +291,7 @@ impl CloudSyncManager {
             let cloud_path = format!("/sync/{}", id);
             let file_data = provider.download_file(&cloud_path, None).await?;
 
-            let app_dir = std::env::current_dir()
-                .expect("failed to get current directory");
+            let app_dir = std::env::current_dir().expect("failed to get current directory");
             let local_path = app_dir.join("documents").join(name);
 
             tokio::fs::create_dir_all(local_path.parent().expect("path has no parent"))
@@ -301,7 +315,9 @@ impl CloudSyncManager {
         &mut self,
         resolutions: Vec<ConflictResolution>,
     ) -> Result<(), AppError> {
-        let provider_box = self.provider.as_ref()
+        let provider_box = self
+            .provider
+            .as_ref()
             .ok_or_else(|| AppError::Internal("No cloud provider configured".to_string()))?;
 
         // Convert Box<dyn CloudProvider> to &dyn CloudProvider
@@ -312,7 +328,8 @@ impl CloudSyncManager {
         drop(state);
 
         for (i, conflict) in conflicts.iter().enumerate() {
-            let resolution = resolutions.get(i)
+            let resolution = resolutions
+                .get(i)
                 .copied()
                 .unwrap_or(ConflictResolution::KeepNewest);
 
@@ -379,7 +396,9 @@ impl CloudSyncManager {
             last_sync: state.last_sync,
             sync_version: state.sync_version,
             pending_conflicts: state.pending_conflicts.len(),
-            provider_authenticated: self.provider.as_ref()
+            provider_authenticated: self
+                .provider
+                .as_ref()
                 .map(|p| p.is_authenticated())
                 .unwrap_or(false),
         })

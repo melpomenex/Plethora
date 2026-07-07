@@ -5,12 +5,12 @@
 //! - Media files (images, audio, video)
 //! - Registry files with metadata
 
-use std::io::Read;
-use std::fs::File;
-use zip::ZipArchive;
+use crate::error::{IncrementumError, Result};
 use quick_xml::events::Event;
 use quick_xml::Reader;
-use crate::error::{Result, IncrementumError};
+use std::fs::File;
+use std::io::Read;
+use zip::ZipArchive;
 
 #[derive(Debug, serde::Serialize)]
 pub struct SuperMemoItem {
@@ -56,19 +56,21 @@ pub async fn parse_supermemo_export(zip_path: &str) -> Result<SuperMemoCollectio
     };
 
     for i in 0..archive.len() {
-        let mut file = archive.by_index(i)
+        let mut file = archive
+            .by_index(i)
             .map_err(|e| IncrementumError::NotFound(format!("Cannot read file: {}", e)))?;
 
         let file_name = file.name().to_string();
 
         // Skip media files for now
-        if file_name.ends_with(".png") ||
-           file_name.ends_with(".jpg") ||
-           file_name.ends_with(".jpeg") ||
-           file_name.ends_with(".gif") ||
-           file_name.ends_with(".mp3") ||
-           file_name.ends_with(".wav") ||
-           file_name.ends_with(".mp4") {
+        if file_name.ends_with(".png")
+            || file_name.ends_with(".jpg")
+            || file_name.ends_with(".jpeg")
+            || file_name.ends_with(".gif")
+            || file_name.ends_with(".mp3")
+            || file_name.ends_with(".wav")
+            || file_name.ends_with(".mp4")
+        {
             collection.media.push(file_name);
             continue;
         }
@@ -125,7 +127,10 @@ fn parse_supermemo_xml(content: &str, source_file: &str) -> Result<Vec<SuperMemo
 
     let roots_joined = seen_roots.join(" ");
 
-    if roots_joined.contains("SuperMemo") || roots_joined.contains("Element") || roots_joined.contains("Question") {
+    if roots_joined.contains("SuperMemo")
+        || roots_joined.contains("Element")
+        || roots_joined.contains("Question")
+    {
         return parse_supermemo_qa_xml(content);
     }
 
@@ -210,7 +215,11 @@ fn extract_child_text(content: &str, parent_tag: &str, child_tag: &str) -> Optio
     }
 
     let text = child_text.trim().to_string();
-    if text.is_empty() { None } else { Some(text) }
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 /// Parse SuperMemo Q&A XML format using quick-xml
@@ -288,7 +297,8 @@ fn parse_supermemo_qa_xml(content: &str) -> Result<Vec<SuperMemoItem>> {
                             items.push(SuperMemoItem {
                                 id: format!("sm-{}", item_count),
                                 title: title.unwrap_or_else(|| {
-                                    question.as_ref()
+                                    question
+                                        .as_ref()
                                         .unwrap_or(&"Untitled".to_string())
                                         .chars()
                                         .take(50)
@@ -400,8 +410,8 @@ fn parse_supermemo_topic_xml(content: &str) -> Result<Vec<SuperMemoItem>> {
 
                             let title = extract_child_text(&topic_buf, "", "Title")
                                 .unwrap_or_else(|| "Untitled Topic".to_string());
-                            let content_text = extract_child_text(&topic_buf, "", "Content")
-                                .unwrap_or_default();
+                            let content_text =
+                                extract_child_text(&topic_buf, "", "Content").unwrap_or_default();
 
                             items.push(SuperMemoItem {
                                 id: format!("sm-topic-{}", item_count),
@@ -482,7 +492,11 @@ fn parse_generic_supermemo_xml(content: &str, source_file: &str) -> Result<Vec<S
     if !text_content.trim().is_empty() {
         items.push(SuperMemoItem {
             id: format!("sm-generic-{}", source_file.replace("/", "-")),
-            title: source_file.split('/').next_back().unwrap_or("Imported").to_string(),
+            title: source_file
+                .split('/')
+                .next_back()
+                .unwrap_or("Imported")
+                .to_string(),
             content: text_content,
             question: None,
             answer: None,
@@ -518,7 +532,9 @@ pub fn validate_supermemo_package(path: String) -> Result<bool> {
     let has_xml = archive.file_names().any(|name| name.ends_with(".xml"));
 
     if !has_xml {
-        return Err(IncrementumError::NotFound("No XML files found in export".to_string()));
+        return Err(IncrementumError::NotFound(
+            "No XML files found in export".to_string(),
+        ));
     }
 
     Ok(true)

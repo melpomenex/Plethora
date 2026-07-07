@@ -4,93 +4,59 @@
 //! The extension sends POST requests with page/extract/video data.
 //! Also provides AI endpoints for summarization and content analysis.
 
-use crate::ai::{AIConfig, AIProvider, LLMProviderType};
-use crate::ai::summarizer::Summarizer;
+use crate::ai::flashcard_generator::{FlashcardGenerationOptions, FlashcardGenerator};
 use crate::ai::qa::QuestionAnswerer;
-use crate::ai::flashcard_generator::{FlashcardGenerator, FlashcardGenerationOptions};
+use crate::ai::summarizer::Summarizer;
+use crate::ai::{AIConfig, AIProvider, LLMProviderType};
+use crate::commands::review::apply_review;
 use crate::commands::rss::{
-    fetch_rss_feed_url,
-    RssFeed,
-    RssUserPreference,
+    create_rss_feed_http, delete_rss_feed_http, fetch_rss_feed_url, get_rss_articles_http,
+    get_rss_feed_http, get_rss_feeds_http, mark_rss_article_read_http,
+    toggle_rss_article_queued_http, update_rss_feed_http, RssFeed, RssUserPreference,
     RssUserPreferenceUpdate,
-    create_rss_feed_http,
-    get_rss_feeds_http,
-    get_rss_feed_http,
-    update_rss_feed_http,
-    delete_rss_feed_http,
-    get_rss_articles_http,
-    mark_rss_article_read_http,
-    toggle_rss_article_queued_http,
 };
 use crate::commands::rss_features::{
-    add_rss_classifier_http,
-    get_rss_classifiers_http,
-    remove_rss_classifier_http,
-    update_rss_classifiers_batch_http,
-    mark_rss_article_unread_http,
-    mark_rss_articles_before_date_read_http,
-    mark_rss_articles_after_date_read_http,
-    get_read_rss_articles_http,
-    get_river_of_news_http,
-    get_rss_articles_with_intelligence_http,
-    recompute_all_intelligence_scores_http,
-    search_rss_articles_http,
-    compute_story_clusters_http,
-    get_rss_article_clusters_http,
-    invalidate_clusters_for_feed_http,
-    add_tag_http,
-    remove_tag_http,
-    get_all_tags_http,
-    get_article_tags_http,
-    tag_article_http,
-    untag_article_http,
-    get_articles_by_tag_http,
-    rename_tag_http,
-    merge_tags_http,
-    create_annotation_http,
-    get_article_annotations_http,
-    update_annotation_http,
-    delete_annotation_http,
-    get_discovered_sites_http,
-    delete_discovered_site_http,
-    refresh_discoveries,
-    create_rss_folder_http,
-    get_rss_folders_http,
-    delete_rss_folder_http,
-    move_feed_to_folder_http,
-    toggle_feed_active_http,
-    get_feed_statistics_http,
-    reorder_folders_http,
-    set_feed_view_preferences_http,
-    migrate_folders_from_localstorage_http,
-    ClassifierUpdate,
+    add_rss_classifier_http, add_tag_http, compute_story_clusters_http, create_annotation_http,
+    create_rss_folder_http, delete_annotation_http, delete_discovered_site_http,
+    delete_rss_folder_http, get_all_tags_http, get_article_annotations_http, get_article_tags_http,
+    get_articles_by_tag_http, get_discovered_sites_http, get_feed_statistics_http,
+    get_read_rss_articles_http, get_river_of_news_http, get_rss_article_clusters_http,
+    get_rss_articles_with_intelligence_http, get_rss_classifiers_http, get_rss_folders_http,
+    invalidate_clusters_for_feed_http, mark_rss_article_unread_http,
+    mark_rss_articles_after_date_read_http, mark_rss_articles_before_date_read_http,
+    merge_tags_http, migrate_folders_from_localstorage_http, move_feed_to_folder_http,
+    recompute_all_intelligence_scores_http, refresh_discoveries, remove_rss_classifier_http,
+    remove_tag_http, rename_tag_http, reorder_folders_http, search_rss_articles_http,
+    set_feed_view_preferences_http, tag_article_http, toggle_feed_active_http, untag_article_http,
+    update_annotation_http, update_rss_classifiers_batch_http, ClassifierUpdate,
 };
-use crate::commands::review::apply_review;
 use crate::database::Repository;
 use crate::error::AppError;
-use crate::models::podcast::{PodcastFeed, PodcastFeedResponse, PodcastEpisode, PodcastSearchResult, PodcastSearchResponse};
+use crate::models::podcast::{
+    PodcastEpisode, PodcastFeed, PodcastFeedResponse, PodcastSearchResponse, PodcastSearchResult,
+};
+use crate::models::{Document, DocumentImageAsset, Extract, FileType, ItemType, LearningItem};
 use crate::podcast::parser::parse_podcast_feed;
-use crate::models::{Document, DocumentImageAsset, FileType, Extract, ItemType, LearningItem};
-use tauri::{AppHandle, Emitter, Manager};
 use axum::{
+    body::Body,
     extract::{Query, State},
     http::{HeaderMap, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
-    body::Body,
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     limit::RequestBodyLimitLayer,
 };
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 use url::Url;
 
 /// Maximum payload size (10MB)
@@ -227,9 +193,15 @@ pub struct AIRequest {
     pub title: Option<String>,
 }
 
-fn default_ai_operation() -> String { "summarize".to_string() }
-fn default_max_words() -> usize { 150 }
-fn default_count() -> usize { 5 }
+fn default_ai_operation() -> String {
+    "summarize".to_string()
+}
+fn default_max_words() -> usize {
+    150
+}
+fn default_count() -> usize {
+    5
+}
 
 /// Generated flashcard for browser extension
 #[derive(Debug, Clone, Serialize)]
@@ -428,69 +400,191 @@ pub async fn start_server(
         .route("/", post(handle_extension_request))
         .route("/ai/process", post(handle_ai_request))
         .route("/ai/status", get(handle_ai_status))
-        .route("/api/rss/feeds", post(handle_create_feed).get(handle_list_feeds))
-        .route("/api/rss/feeds/:id", get(handle_get_feed).put(handle_update_feed).delete(handle_delete_feed))
+        .route(
+            "/api/rss/feeds",
+            post(handle_create_feed).get(handle_list_feeds),
+        )
+        .route(
+            "/api/rss/feeds/:id",
+            get(handle_get_feed)
+                .put(handle_update_feed)
+                .delete(handle_delete_feed),
+        )
         .route("/api/rss/feeds/:id/articles", get(handle_get_feed_articles))
         .route("/api/rss/articles/:id", post(handle_mark_article))
-        .route("/api/rss/articles/:id/queued", post(handle_toggle_article_queued))
+        .route(
+            "/api/rss/articles/:id/queued",
+            post(handle_toggle_article_queued),
+        )
         .route("/api/rss/fetch", get(handle_fetch_feed_url))
         .route("/api/rss/opml/import", post(handle_opml_import))
         .route("/api/rss/opml/export", get(handle_opml_export))
-        .route("/api/rss/preferences", get(handle_get_preferences).put(handle_set_preferences))
+        .route(
+            "/api/rss/preferences",
+            get(handle_get_preferences).put(handle_set_preferences),
+        )
         // RSS NewsBlur features API
-        .route("/api/rss/classifiers", post(handle_add_classifier).get(handle_list_classifiers))
+        .route(
+            "/api/rss/classifiers",
+            post(handle_add_classifier).get(handle_list_classifiers),
+        )
         .route("/api/rss/classifiers/:id", delete(handle_remove_classifier))
-        .route("/api/rss/classifiers/batch", put(handle_batch_update_classifiers))
-        .route("/api/rss/articles/:id/unread", post(handle_mark_article_unread))
-        .route("/api/rss/articles/mark-before", post(handle_mark_before_date))
+        .route(
+            "/api/rss/classifiers/batch",
+            put(handle_batch_update_classifiers),
+        )
+        .route(
+            "/api/rss/articles/:id/unread",
+            post(handle_mark_article_unread),
+        )
+        .route(
+            "/api/rss/articles/mark-before",
+            post(handle_mark_before_date),
+        )
         .route("/api/rss/articles/mark-after", post(handle_mark_after_date))
         .route("/api/rss/articles/read", get(handle_get_read_articles))
         .route("/api/rss/articles/river", get(handle_river_of_news))
-        .route("/api/rss/articles/intelligence", get(handle_articles_with_intelligence))
-        .route("/api/rss/articles/recompute-scores", post(handle_recompute_scores))
+        .route(
+            "/api/rss/articles/intelligence",
+            get(handle_articles_with_intelligence),
+        )
+        .route(
+            "/api/rss/articles/recompute-scores",
+            post(handle_recompute_scores),
+        )
         .route("/api/rss/search", get(handle_search_articles))
-        .route("/api/rss/clusters", post(handle_compute_clusters).get(handle_get_clusters))
-        .route("/api/rss/clusters/invalidate/:feed_id", post(handle_invalidate_clusters))
+        .route(
+            "/api/rss/clusters",
+            post(handle_compute_clusters).get(handle_get_clusters),
+        )
+        .route(
+            "/api/rss/clusters/invalidate/:feed_id",
+            post(handle_invalidate_clusters),
+        )
         .route("/api/rss/tags", post(handle_add_tag).get(handle_list_tags))
         .route("/api/rss/tags/:id", delete(handle_remove_tag))
         .route("/api/rss/tags/:id/rename", put(handle_rename_tag))
         .route("/api/rss/tags/merge", post(handle_merge_tags))
-        .route("/api/rss/articles/:article_id/tags", get(handle_get_article_tags))
-        .route("/api/rss/articles/:article_id/tags/:tag_id", post(handle_tag_article).delete(handle_untag_article))
-        .route("/api/rss/tags/:tag_id/articles", get(handle_get_articles_by_tag))
+        .route(
+            "/api/rss/articles/:article_id/tags",
+            get(handle_get_article_tags),
+        )
+        .route(
+            "/api/rss/articles/:article_id/tags/:tag_id",
+            post(handle_tag_article).delete(handle_untag_article),
+        )
+        .route(
+            "/api/rss/tags/:tag_id/articles",
+            get(handle_get_articles_by_tag),
+        )
         .route("/api/rss/annotations", post(handle_create_annotation))
-        .route("/api/rss/annotations/:id", put(handle_update_annotation).delete(handle_delete_annotation))
-        .route("/api/rss/articles/:article_id/annotations", get(handle_get_article_annotations))
-        .route("/api/rss/discover", get(handle_get_discovered_sites).post(handle_refresh_discoveries))
-        .route("/api/rss/discover/:id", delete(handle_delete_discovered_site))
-        .route("/api/rss/folders", post(handle_create_folder).get(handle_list_folders))
-        .route("/api/rss/folders/:id", put(handle_update_folder).delete(handle_delete_folder))
-        .route("/api/rss/folders/reorder", post(handle_reorder_folders_http))
-        .route("/api/rss/feeds/:feed_id/folder", post(handle_move_feed_to_folder))
-        .route("/api/rss/feeds/:feed_id/toggle-active", post(handle_toggle_feed_active))
-        .route("/api/rss/feeds/:feed_id/statistics", get(handle_get_feed_statistics))
-        .route("/api/rss/feeds/:feed_id/view-prefs", put(handle_set_feed_view_prefs))
+        .route(
+            "/api/rss/annotations/:id",
+            put(handle_update_annotation).delete(handle_delete_annotation),
+        )
+        .route(
+            "/api/rss/articles/:article_id/annotations",
+            get(handle_get_article_annotations),
+        )
+        .route(
+            "/api/rss/discover",
+            get(handle_get_discovered_sites).post(handle_refresh_discoveries),
+        )
+        .route(
+            "/api/rss/discover/:id",
+            delete(handle_delete_discovered_site),
+        )
+        .route(
+            "/api/rss/folders",
+            post(handle_create_folder).get(handle_list_folders),
+        )
+        .route(
+            "/api/rss/folders/:id",
+            put(handle_update_folder).delete(handle_delete_folder),
+        )
+        .route(
+            "/api/rss/folders/reorder",
+            post(handle_reorder_folders_http),
+        )
+        .route(
+            "/api/rss/feeds/:feed_id/folder",
+            post(handle_move_feed_to_folder),
+        )
+        .route(
+            "/api/rss/feeds/:feed_id/toggle-active",
+            post(handle_toggle_feed_active),
+        )
+        .route(
+            "/api/rss/feeds/:feed_id/statistics",
+            get(handle_get_feed_statistics),
+        )
+        .route(
+            "/api/rss/feeds/:feed_id/view-prefs",
+            put(handle_set_feed_view_prefs),
+        )
         .route("/api/rss/folders/migrate", post(handle_migrate_folders))
         .route("/api/documents/:id", get(handle_get_document))
         .route("/api/documents/:id/progress", post(handle_update_progress))
         .route("/api/podcast/search", get(handle_podcast_search))
         .route("/api/podcast/subscribe", post(handle_podcast_subscribe))
         .route("/api/podcast/feeds", get(handle_podcast_list_feeds))
-        .route("/api/podcast/feeds/:feed_id", delete(handle_podcast_unsubscribe))
-        .route("/api/podcast/feeds/:feed_id/refresh", post(handle_podcast_refresh_feed))
-        .route("/api/podcast/feeds/:feed_id/rename", post(handle_podcast_rename_feed))
-        .route("/api/podcast/feeds/:feed_id/episodes", get(handle_podcast_get_episodes))
-        .route("/api/podcast/feeds/episodes", get(handle_podcast_get_episode_queue))
-        .route("/api/podcast/episodes/:episode_id/played", post(handle_podcast_mark_played))
-        .route("/api/podcast/episodes/:episode_id/position", post(handle_podcast_update_position).get(handle_podcast_get_position))
-        .route("/api/podcast/episodes/:episode_id/transcribe", post(handle_podcast_transcribe))
-        .route("/api/podcast/episodes/:episode_id/transcript", get(handle_podcast_get_transcript))
-        .route("/api/podcast/episodes/:episode_id/cancel-transcription", post(handle_podcast_cancel_transcription))
-        .route("/api/podcast/feeds/:feed_id/auto-transcribe", post(handle_podcast_set_auto_transcribe))
+        .route(
+            "/api/podcast/feeds/:feed_id",
+            delete(handle_podcast_unsubscribe),
+        )
+        .route(
+            "/api/podcast/feeds/:feed_id/refresh",
+            post(handle_podcast_refresh_feed),
+        )
+        .route(
+            "/api/podcast/feeds/:feed_id/rename",
+            post(handle_podcast_rename_feed),
+        )
+        .route(
+            "/api/podcast/feeds/:feed_id/episodes",
+            get(handle_podcast_get_episodes),
+        )
+        .route(
+            "/api/podcast/feeds/episodes",
+            get(handle_podcast_get_episode_queue),
+        )
+        .route(
+            "/api/podcast/episodes/:episode_id/played",
+            post(handle_podcast_mark_played),
+        )
+        .route(
+            "/api/podcast/episodes/:episode_id/position",
+            post(handle_podcast_update_position).get(handle_podcast_get_position),
+        )
+        .route(
+            "/api/podcast/episodes/:episode_id/transcribe",
+            post(handle_podcast_transcribe),
+        )
+        .route(
+            "/api/podcast/episodes/:episode_id/transcript",
+            get(handle_podcast_get_transcript),
+        )
+        .route(
+            "/api/podcast/episodes/:episode_id/cancel-transcription",
+            post(handle_podcast_cancel_transcription),
+        )
+        .route(
+            "/api/podcast/feeds/:feed_id/auto-transcribe",
+            post(handle_podcast_set_auto_transcribe),
+        )
         .route("/api/automation/cards", post(handle_automation_create_card))
-        .route("/api/automation/reviews/due-count", get(handle_automation_due_count))
-        .route("/api/automation/reviews/submit", post(handle_automation_submit_review))
-        .layer(middleware::from_fn_with_state(state.clone(), require_api_key))
+        .route(
+            "/api/automation/reviews/due-count",
+            get(handle_automation_due_count),
+        )
+        .route(
+            "/api/automation/reviews/submit",
+            post(handle_automation_submit_review),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_api_key,
+        ))
         .layer(
             CorsLayer::new()
                 .allow_origin(AllowOrigin::predicate(|origin, _| {
@@ -750,8 +844,8 @@ fn extract_text_from_html_fragment(html: &str) -> String {
 fn extract_images_from_html_fragment(html: &str, base_url: &str) -> Vec<DocumentImageAsset> {
     let src_regex = regex::Regex::new(r#"(?is)<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>"#)
         .expect("valid image src regex");
-    let alt_regex = regex::Regex::new(r#"(?is)\balt\s*=\s*["']([^"']*)["']"#)
-        .expect("valid image alt regex");
+    let alt_regex =
+        regex::Regex::new(r#"(?is)\balt\s*=\s*["']([^"']*)["']"#).expect("valid image alt regex");
     let tag_regex = regex::Regex::new(r#"(?is)<img\b[^>]*>"#).expect("valid img tag regex");
     let base = Url::parse(base_url).ok();
     let mut seen = std::collections::HashSet::new();
@@ -819,11 +913,7 @@ async fn handle_import_request(
             .collect::<Vec<_>>()
     });
 
-    let existing = state
-        .repo
-        .find_document_by_url(&payload.url)
-        .await
-        .ok();
+    let existing = state.repo.find_document_by_url(&payload.url).await.ok();
 
     if let Some(Some(doc)) = existing {
         let existing_missing_text = doc
@@ -857,7 +947,10 @@ async fn handle_import_request(
                 .update_document_content(&doc.id, &next_content, None, None, Some(metadata))
                 .await
             {
-                warn!("Failed to enrich existing browser-imported document {}: {}", doc.id, error);
+                warn!(
+                    "Failed to enrich existing browser-imported document {}: {}",
+                    doc.id, error
+                );
             }
         }
 
@@ -865,11 +958,14 @@ async fn handle_import_request(
             "Document already exists for URL: {}, returning existing doc",
             payload.url
         );
-        let _ = state.app_handle.emit("browser-sync://document-saved", DocumentSavedEvent {
-            document_id: doc.id.clone(),
-            title: doc.title.clone(),
-            url: payload.url.clone(),
-        });
+        let _ = state.app_handle.emit(
+            "browser-sync://document-saved",
+            DocumentSavedEvent {
+                document_id: doc.id.clone(),
+                title: doc.title.clone(),
+                url: payload.url.clone(),
+            },
+        );
         return Ok(ExtensionResponse {
             success: true,
             document_id: Some(doc.id),
@@ -886,13 +982,22 @@ async fn handle_import_request(
     if matches!(file_type, FileType::Youtube) {
         let collection_id = crate::models::collection::DEFAULT_COLLECTION_ID.to_string();
         info!("Importing YouTube video from URL: {}", payload.url);
-        match crate::youtube::import_youtube_video_internal(&payload.url, Some(collection_id), &state.repo).await {
+        match crate::youtube::import_youtube_video_internal(
+            &payload.url,
+            Some(collection_id),
+            &state.repo,
+        )
+        .await
+        {
             Ok(created) => {
-                let _ = state.app_handle.emit("browser-sync://document-saved", DocumentSavedEvent {
-                    document_id: created.id.clone(),
-                    title: created.title.clone(),
-                    url: payload.url.clone(),
-                });
+                let _ = state.app_handle.emit(
+                    "browser-sync://document-saved",
+                    DocumentSavedEvent {
+                        document_id: created.id.clone(),
+                        title: created.title.clone(),
+                        url: payload.url.clone(),
+                    },
+                );
                 return Ok(ExtensionResponse {
                     success: true,
                     document_id: Some(created.id),
@@ -903,7 +1008,10 @@ async fn handle_import_request(
             Err(e) => {
                 warn!("Failed to import YouTube video via yt-dlp internal importer: {}. Falling back to noembed metadata fetch.", e);
                 if let Some(video_id) = crate::youtube::extract_video_id(&payload.url) {
-                    let noembed_url = format!("https://noembed.com/embed?url=https://www.youtube.com/watch?v={}", video_id);
+                    let noembed_url = format!(
+                        "https://noembed.com/embed?url=https://www.youtube.com/watch?v={}",
+                        video_id
+                    );
                     let client = reqwest::Client::new();
                     if let Ok(resp) = client.get(&noembed_url).send().await {
                         if resp.status().is_success() {
@@ -913,13 +1021,16 @@ async fn handle_import_request(
                                         title = t.to_string();
                                     }
                                 }
-                                if let Some(thumb) = json.get("thumbnail_url").and_then(|v| v.as_str()) {
+                                if let Some(thumb) =
+                                    json.get("thumbnail_url").and_then(|v| v.as_str())
+                                {
                                     if !thumb.trim().is_empty() {
                                         cover_image_url = Some(thumb.to_string());
                                         cover_image_source = Some("youtube".to_string());
                                     }
                                 }
-                                if let Some(auth) = json.get("author_name").and_then(|v| v.as_str()) {
+                                if let Some(auth) = json.get("author_name").and_then(|v| v.as_str())
+                                {
                                     if !auth.trim().is_empty() {
                                         author = Some(auth.to_string());
                                     }
@@ -935,10 +1046,16 @@ async fn handle_import_request(
             || title.starts_with("http://")
             || title.starts_with("https://")
             || title == payload.url
-            || (title.contains('.') && !title.contains(' ') && (title.contains('/') || title.contains("youtu.be") || title.contains("youtube.com")));
+            || (title.contains('.')
+                && !title.contains(' ')
+                && (title.contains('/')
+                    || title.contains("youtu.be")
+                    || title.contains("youtube.com")));
 
         if is_title_url {
-            if let Ok(preview) = crate::commands::document::fetch_web_page_preview(payload.url.clone()).await {
+            if let Ok(preview) =
+                crate::commands::document::fetch_web_page_preview(payload.url.clone()).await
+            {
                 if let Some(fetched_title) = preview.get("title").and_then(|t| t.as_str()) {
                     if !fetched_title.trim().is_empty() {
                         title = fetched_title.to_string();
@@ -952,7 +1069,9 @@ async fn handle_import_request(
                 }
             }
         } else {
-            if let Ok(preview) = crate::commands::document::fetch_web_page_preview(payload.url.clone()).await {
+            if let Ok(preview) =
+                crate::commands::document::fetch_web_page_preview(payload.url.clone()).await
+            {
                 if let Some(image_url) = preview.get("image").and_then(|i| i.as_str()) {
                     if !image_url.trim().is_empty() {
                         cover_image_url = Some(image_url.to_string());
@@ -982,7 +1101,11 @@ async fn handle_import_request(
         payload_content.clone()
     };
 
-    let category = if matches!(file_type, FileType::Youtube) { Some("YouTube Videos".to_string()) } else { None };
+    let category = if matches!(file_type, FileType::Youtube) {
+        Some("YouTube Videos".to_string())
+    } else {
+        None
+    };
     let is_html = matches!(file_type, FileType::Html);
     let content_len = content.len();
     let mut metadata = if is_html {
@@ -1057,11 +1180,14 @@ async fn handle_import_request(
         payload.url, created.id
     );
 
-    let _ = state.app_handle.emit("browser-sync://document-saved", DocumentSavedEvent {
-        document_id: created.id.clone(),
-        title: created.title.clone(),
-        url: payload.url.clone(),
-    });
+    let _ = state.app_handle.emit(
+        "browser-sync://document-saved",
+        DocumentSavedEvent {
+            document_id: created.id.clone(),
+            title: created.title.clone(),
+            url: payload.url.clone(),
+        },
+    );
 
     // Background: attempt readability extraction for richer content.
     // This does not block the response to the extension.
@@ -1077,7 +1203,9 @@ async fn handle_import_request(
                 Ok(readable) if readable.text.len() > bg_extension_text_len => {
                     info!(
                         "Readability extracted {} chars (vs {} from extension) for: {}",
-                        readable.text.len(), bg_extension_text_len, bg_url
+                        readable.text.len(),
+                        bg_extension_text_len,
+                        bg_url
                     );
                     let metadata = build_browser_import_metadata_with_article(
                         &ExtensionRequest {
@@ -1109,10 +1237,19 @@ async fn handle_import_request(
                         Some(readable.images.clone()),
                     );
                     if let Err(e) = bg_repo
-                        .update_document_content(&bg_doc_id, &readable.text, None, None, Some(metadata))
+                        .update_document_content(
+                            &bg_doc_id,
+                            &readable.text,
+                            None,
+                            None,
+                            Some(metadata),
+                        )
                         .await
                     {
-                        warn!("Failed to update document {} with readable content: {}", bg_doc_id, e);
+                        warn!(
+                            "Failed to update document {} with readable content: {}",
+                            bg_doc_id, e
+                        );
                     }
                 }
                 Ok(readable) => {
@@ -1122,7 +1259,10 @@ async fn handle_import_request(
                     );
                 }
                 Err(e) => {
-                    warn!("Background readability extraction failed for {}: {}", bg_url, e);
+                    warn!(
+                        "Background readability extraction failed for {}: {}",
+                        bg_url, e
+                    );
                 }
             }
         });
@@ -1238,11 +1378,14 @@ async fn handle_extract_request(
         document_id, created.id
     );
 
-    let _ = state.app_handle.emit("browser-sync://extract-saved", ExtractSavedEvent {
-        extract_id: created.id.clone(),
-        document_id: document_id.clone(),
-        url: payload.url.clone(),
-    });
+    let _ = state.app_handle.emit(
+        "browser-sync://extract-saved",
+        ExtractSavedEvent {
+            extract_id: created.id.clone(),
+            document_id: document_id.clone(),
+            url: payload.url.clone(),
+        },
+    );
 
     Ok(ExtensionResponse {
         success: true,
@@ -1269,7 +1412,10 @@ fn build_extension_selection_context(payload: &ExtensionRequest) -> Option<serde
         None
     } else {
         map.insert("source".to_string(), json!("browser_extension"));
-        map.insert("saved_at".to_string(), json!(chrono::Utc::now().to_rfc3339()));
+        map.insert(
+            "saved_at".to_string(),
+            json!(chrono::Utc::now().to_rfc3339()),
+        );
         Some(serde_json::Value::Object(map))
     }
 }
@@ -1407,14 +1553,16 @@ async fn fetch_readable_content(url: &str) -> Result<ReadableArticle, AppError> 
         .build()
         .map_err(|e| AppError::IntegrationError(format!("Failed to create HTTP client: {}", e)))?;
 
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| AppError::IntegrationError(format!("Failed to fetch URL for readability: {}", e)))?;
+    let response = client.get(url).send().await.map_err(|e| {
+        AppError::IntegrationError(format!("Failed to fetch URL for readability: {}", e))
+    })?;
 
     if !response.status().is_success() {
-        return Err(AppError::IntegrationError(format!("HTTP error fetching {}: {}", url, response.status())));
+        return Err(AppError::IntegrationError(format!(
+            "HTTP error fetching {}: {}",
+            url,
+            response.status()
+        )));
     }
 
     let html = response
@@ -1431,7 +1579,9 @@ async fn fetch_readable_content(url: &str) -> Result<ReadableArticle, AppError> 
     });
 
     if content.trim().is_empty() {
-        return Err(AppError::IntegrationError("Readability extracted empty content".to_string()));
+        return Err(AppError::IntegrationError(
+            "Readability extracted empty content".to_string(),
+        ));
     }
 
     Ok(ReadableArticle {
@@ -1486,7 +1636,11 @@ async fn require_api_key(
     }
 
     if !is_automation_authorized(&state, &headers).await {
-        return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "Unauthorized — API key required" }))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "Unauthorized — API key required" })),
+        )
+            .into_response();
     }
 
     next.run(request).await
@@ -1506,10 +1660,17 @@ async fn handle_automation_create_card(
     Json(payload): Json<AutomationCreateCardRequest>,
 ) -> Response {
     if payload.question.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "question is required" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "question is required" })),
+        )
+            .into_response();
     }
 
-    let mut item = LearningItem::new(map_item_type(payload.item_type.as_deref()), payload.question);
+    let mut item = LearningItem::new(
+        map_item_type(payload.item_type.as_deref()),
+        payload.question,
+    );
     item.answer = payload.answer;
     item.tags = payload.tags.unwrap_or_default();
 
@@ -1527,9 +1688,7 @@ async fn handle_automation_create_card(
     }
 }
 
-async fn handle_automation_due_count(
-    State(state): State<ServerState>,
-) -> Response {
+async fn handle_automation_due_count(State(state): State<ServerState>) -> Response {
     let now = chrono::Utc::now();
     match state.repo.get_due_learning_items(&now, None).await {
         Ok(items) => (
@@ -1548,7 +1707,11 @@ async fn handle_automation_submit_review(
     Json(payload): Json<AutomationSubmitReviewRequest>,
 ) -> Response {
     if payload.rating < 1 || payload.rating > 4 {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "rating must be between 1 and 4" }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "rating must be between 1 and 4" })),
+        )
+            .into_response();
     }
 
     match apply_review(
@@ -1607,20 +1770,26 @@ fn calculate_word_count(content: &str) -> u32 {
 fn estimate_complexity(content: &str) -> u8 {
     let words: Vec<&str> = content.split_whitespace().collect();
     let word_count = words.len();
-    
+
     if word_count == 0 {
         return 1;
     }
-    
+
     // Average word length as a simple proxy for complexity
     let avg_word_len: f64 = words.iter().map(|w| w.len()).sum::<usize>() as f64 / word_count as f64;
-    
+
     // Sentence count (rough estimate)
-    let sentence_count = content.matches('.').count() + content.matches('!').count() + content.matches('?').count();
-    let avg_sentence_len = if sentence_count > 0 { word_count / sentence_count } else { word_count };
-    
+    let sentence_count =
+        content.matches('.').count() + content.matches('!').count() + content.matches('?').count();
+    let avg_sentence_len = if sentence_count > 0 {
+        word_count / sentence_count
+    } else {
+        word_count
+    };
+
     // Score based on word length and sentence length
-    let complexity = ((avg_word_len - 3.0) * 1.5 + (avg_sentence_len as f64 - 10.0) * 0.2).clamp(1.0, 10.0);
+    let complexity =
+        ((avg_word_len - 3.0) * 1.5 + (avg_sentence_len as f64 - 10.0) * 0.2).clamp(1.0, 10.0);
     complexity as u8
 }
 
@@ -1681,7 +1850,8 @@ async fn handle_ai_request(
                     complexity_score: None,
                     error: Some(format!("Failed to create AI provider: {}", e)),
                 }),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
@@ -1705,7 +1875,10 @@ async fn handle_ai_request(
     match payload.operation.as_str() {
         "summarize" => {
             let summarizer = Summarizer::new(provider);
-            match summarizer.summarize(&payload.content, payload.max_words).await {
+            match summarizer
+                .summarize(&payload.content, payload.max_words)
+                .await
+            {
                 Ok(summary) => {
                     response.summary = Some(summary);
                 }
@@ -1717,7 +1890,10 @@ async fn handle_ai_request(
         }
         "key-points" => {
             let summarizer = Summarizer::new(provider);
-            match summarizer.extract_key_points(&payload.content, payload.count).await {
+            match summarizer
+                .extract_key_points(&payload.content, payload.count)
+                .await
+            {
                 Ok(points) => {
                     response.key_points = Some(points);
                 }
@@ -1733,14 +1909,20 @@ async fn handle_ai_request(
                 count: payload.count,
                 ..Default::default()
             };
-            match generator.generate_from_content(&payload.content, &options).await {
+            match generator
+                .generate_from_content(&payload.content, &options)
+                .await
+            {
                 Ok(cards) => {
                     response.flashcards = Some(
-                        cards.into_iter().map(|c| GeneratedFlashcard {
-                            question: c.question,
-                            answer: c.answer,
-                            card_type: format!("{:?}", c.card_type),
-                        }).collect()
+                        cards
+                            .into_iter()
+                            .map(|c| GeneratedFlashcard {
+                                question: c.question,
+                                answer: c.answer,
+                                card_type: format!("{:?}", c.card_type),
+                            })
+                            .collect(),
                     );
                 }
                 Err(e) => {
@@ -1764,15 +1946,21 @@ async fn handle_ai_request(
         "all" => {
             // Get all AI features at once - create separate providers for each operation
             let summarizer = Summarizer::new(provider);
-            
-            if let Ok(summary) = summarizer.summarize(&payload.content, payload.max_words).await {
+
+            if let Ok(summary) = summarizer
+                .summarize(&payload.content, payload.max_words)
+                .await
+            {
                 response.summary = Some(summary);
             }
-            
-            if let Ok(points) = summarizer.extract_key_points(&payload.content, payload.count).await {
+
+            if let Ok(points) = summarizer
+                .extract_key_points(&payload.content, payload.count)
+                .await
+            {
                 response.key_points = Some(points);
             }
-            
+
             if let Ok(qa_provider) = AIProvider::from_config(
                 config.default_provider,
                 &config.api_keys,
@@ -1795,9 +1983,7 @@ async fn handle_ai_request(
 }
 
 /// Handle AI status check from browser extension
-async fn handle_ai_status(
-    State(state): State<ServerState>,
-) -> Response {
+async fn handle_ai_status(State(state): State<ServerState>) -> Response {
     let ai_config = {
         let config_guard = state.ai_config.lock().await;
         config_guard.clone()
@@ -1812,7 +1998,7 @@ async fn handle_ai_status(
                 LLMProviderType::OpenRouter => Some(config.models.openrouter_model.clone()),
                 LLMProviderType::Ollama => Some(config.models.ollama_model.clone()),
             };
-            
+
             AIStatusResponse {
                 configured: true,
                 provider: Some(provider_name),
@@ -1845,13 +2031,16 @@ async fn handle_create_feed(
         payload.update_interval,
         payload.auto_queue,
         &state.repo,
-    ).await {
+    )
+    .await
+    {
         Ok(feed) => {
-            let unread_count = state.repo.get_rss_feed_unread_count(&feed.id).await.unwrap_or(0);
-            let response = FeedResponse {
-                feed,
-                unread_count,
-            };
+            let unread_count = state
+                .repo
+                .get_rss_feed_unread_count(&feed.id)
+                .await
+                .unwrap_or(0);
+            let response = FeedResponse { feed, unread_count };
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
@@ -1862,18 +2051,17 @@ async fn handle_create_feed(
 }
 
 /// Handle listing all RSS feeds
-async fn handle_list_feeds(
-    State(state): State<ServerState>,
-) -> Response {
+async fn handle_list_feeds(State(state): State<ServerState>) -> Response {
     match get_rss_feeds_http(&state.repo).await {
         Ok(feeds) => {
             let mut responses = Vec::new();
             for feed in feeds {
-                let unread_count = state.repo.get_rss_feed_unread_count(&feed.id).await.unwrap_or(0);
-                responses.push(FeedResponse {
-                    feed,
-                    unread_count,
-                });
+                let unread_count = state
+                    .repo
+                    .get_rss_feed_unread_count(&feed.id)
+                    .await
+                    .unwrap_or(0);
+                responses.push(FeedResponse { feed, unread_count });
             }
             (StatusCode::OK, Json(responses)).into_response()
         }
@@ -1891,11 +2079,12 @@ async fn handle_get_feed(
 ) -> Response {
     match get_rss_feed_http(&id, &state.repo).await {
         Ok(Some(feed)) => {
-            let unread_count = state.repo.get_rss_feed_unread_count(&feed.id).await.unwrap_or(0);
-            let response = FeedResponse {
-                feed,
-                unread_count,
-            };
+            let unread_count = state
+                .repo
+                .get_rss_feed_unread_count(&feed.id)
+                .await
+                .unwrap_or(0);
+            let response = FeedResponse { feed, unread_count };
             (StatusCode::OK, Json(response)).into_response()
         }
         Ok(None) => error_response(StatusCode::NOT_FOUND, "Feed not found"),
@@ -1921,13 +2110,16 @@ async fn handle_update_feed(
         payload.auto_queue,
         payload.is_active,
         &state.repo,
-    ).await {
+    )
+    .await
+    {
         Ok(feed) => {
-            let unread_count = state.repo.get_rss_feed_unread_count(&feed.id).await.unwrap_or(0);
-            let response = FeedResponse {
-                feed,
-                unread_count,
-            };
+            let unread_count = state
+                .repo
+                .get_rss_feed_unread_count(&feed.id)
+                .await
+                .unwrap_or(0);
+            let response = FeedResponse { feed, unread_count };
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(e) => {
@@ -1975,7 +2167,8 @@ async fn handle_mark_article(
     axum::extract::Path(id): axum::extract::Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Response {
-    let is_read = params.get("read")
+    let is_read = params
+        .get("read")
         .and_then(|r| r.parse::<bool>().ok())
         .unwrap_or(true);
 
@@ -1994,7 +2187,11 @@ async fn handle_toggle_article_queued(
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
     match toggle_rss_article_queued_http(&id, &state.repo).await {
-        Ok(queued) => (StatusCode::OK, Json(serde_json::json!({"success": true, "queued": queued}))).into_response(),
+        Ok(queued) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"success": true, "queued": queued})),
+        )
+            .into_response(),
         Err(e) => {
             error!("Failed to toggle article queued: {}", e);
             error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string())
@@ -2032,7 +2229,10 @@ async fn handle_opml_import(
     let parsed_feeds = match parse_opml_content(&payload.opml_content) {
         Ok(feeds) => feeds,
         Err(e) => {
-            return error_response(StatusCode::BAD_REQUEST, &format!("Failed to parse OPML: {}", e));
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Failed to parse OPML: {}", e),
+            );
         }
     };
 
@@ -2049,23 +2249,27 @@ async fn handle_opml_import(
             feed_data.update_interval,
             feed_data.auto_queue,
             &state.repo,
-        ).await {
+        )
+        .await
+        {
             Ok(_) => imported_count += 1,
             Err(e) => errors.push(format!("Failed to import {}: {}", title, e)),
         }
     }
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "success": true,
-        "imported": imported_count,
-        "errors": errors
-    }))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "imported": imported_count,
+            "errors": errors
+        })),
+    )
+        .into_response()
 }
 
 /// Handle OPML export
-async fn handle_opml_export(
-    State(state): State<ServerState>,
-) -> Response {
+async fn handle_opml_export(State(state): State<ServerState>) -> Response {
     match get_rss_feeds_http(&state.repo).await {
         Ok(feeds) => {
             let opml_content = generate_opml_content(&feeds);
@@ -2095,8 +2299,7 @@ fn parse_opml_content(content: &str) -> Result<Vec<OpmlFeedData>, String> {
     use roxmltree::Document;
     use std::collections::HashSet;
 
-    let doc = Document::parse(content)
-        .map_err(|e| format!("Failed to parse OPML XML: {}", e))?;
+    let doc = Document::parse(content).map_err(|e| format!("Failed to parse OPML XML: {}", e))?;
 
     let mut feeds = Vec::new();
     let mut seen_urls = HashSet::new();
@@ -2116,7 +2319,9 @@ fn parse_opml_content(content: &str) -> Result<Vec<OpmlFeedData>, String> {
                     url.to_string()
                 };
 
-                if !(normalized_url.starts_with("http://") || normalized_url.starts_with("https://")) {
+                if !(normalized_url.starts_with("http://")
+                    || normalized_url.starts_with("https://"))
+                {
                     continue;
                 }
 
@@ -2124,7 +2329,8 @@ fn parse_opml_content(content: &str) -> Result<Vec<OpmlFeedData>, String> {
                     continue;
                 }
 
-                let title = node.attribute("title")
+                let title = node
+                    .attribute("title")
                     .or_else(|| node.attribute("text"))
                     .unwrap_or("Unknown Feed")
                     .to_string();
@@ -2132,8 +2338,11 @@ fn parse_opml_content(content: &str) -> Result<Vec<OpmlFeedData>, String> {
                 let mut category = None;
                 let mut parent = node.parent();
                 while let Some(ancestor) = parent {
-                    if ancestor.tag_name().name() == "outline" && ancestor.attribute("xmlUrl").is_none() {
-                        category = ancestor.attribute("title")
+                    if ancestor.tag_name().name() == "outline"
+                        && ancestor.attribute("xmlUrl").is_none()
+                    {
+                        category = ancestor
+                            .attribute("title")
                             .or_else(|| ancestor.attribute("text"))
                             .map(|value| value.to_string());
                         if category.is_some() {
@@ -2160,17 +2369,21 @@ fn parse_opml_content(content: &str) -> Result<Vec<OpmlFeedData>, String> {
 
 /// Generate OPML content from feeds
 fn generate_opml_content(feeds: &[RssFeed]) -> String {
-    let mut opml = String::from(r#"<?xml version="1.0" encoding="UTF-8"?>
+    let mut opml = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <opml version="2.0">
   <head>
     <title>Incrementum RSS Feeds</title>
-    <dateCreated>"#);
+    <dateCreated>"#,
+    );
 
     opml.push_str(&chrono::Utc::now().to_rfc3339());
-    opml.push_str(r#"</dateCreated>
+    opml.push_str(
+        r#"</dateCreated>
   </head>
   <body>
-"#);
+"#,
+    );
 
     for feed in feeds {
         opml.push_str(r#"    <outline type="rss""#);
@@ -2186,8 +2399,10 @@ fn generate_opml_content(feeds: &[RssFeed]) -> String {
         opml.push_str("/>\n");
     }
 
-    opml.push_str(r#"  </body>
-</opml>"#);
+    opml.push_str(
+        r#"  </body>
+</opml>"#,
+    );
 
     opml
 }
@@ -2260,7 +2475,11 @@ async fn handle_set_preferences(
     let feed_id = params.feed_id.as_deref();
     let user_id = params.user_id.as_deref();
 
-    match state.repo.set_rss_user_preferences(feed_id, user_id, prefs).await {
+    match state
+        .repo
+        .set_rss_user_preferences(feed_id, user_id, prefs)
+        .await
+    {
         Ok(updated_prefs) => (StatusCode::OK, Json(updated_prefs)).into_response(),
         Err(e) => {
             error!("Failed to set RSS preferences: {}", e);
@@ -2274,12 +2493,29 @@ async fn handle_add_classifier(
     State(state): State<ServerState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let feed_id = payload.get("feed_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let classifier_type = payload.get("classifier_type").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let value = payload.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let sentiment = payload.get("sentiment").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let feed_id = payload
+        .get("feed_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let classifier_type = payload
+        .get("classifier_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let value = payload
+        .get("value")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let sentiment = payload
+        .get("sentiment")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
-    match add_rss_classifier_http(&feed_id, &classifier_type, &value, &sentiment, &state.repo).await {
+    match add_rss_classifier_http(&feed_id, &classifier_type, &value, &sentiment, &state.repo).await
+    {
         Ok(classifier) => (StatusCode::OK, Json(classifier)).into_response(),
         Err(e) => {
             error!("Failed to add classifier: {}", e);
@@ -2347,7 +2583,11 @@ async fn handle_mark_before_date(
     State(state): State<ServerState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let before_date = payload.get("before_date").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let before_date = payload
+        .get("before_date")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let feed_id = payload.get("feed_id").and_then(|v| v.as_str());
     match mark_rss_articles_before_date_read_http(feed_id, &before_date, &state.repo).await {
         Ok(count) => (StatusCode::OK, Json(serde_json::json!({"marked": count}))).into_response(),
@@ -2360,7 +2600,11 @@ async fn handle_mark_after_date(
     State(state): State<ServerState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let after_date = payload.get("after_date").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let after_date = payload
+        .get("after_date")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let feed_id = payload.get("feed_id").and_then(|v| v.as_str());
     match mark_rss_articles_after_date_read_http(feed_id, &after_date, &state.repo).await {
         Ok(count) => (StatusCode::OK, Json(serde_json::json!({"marked": count}))).into_response(),
@@ -2401,19 +2645,25 @@ async fn handle_articles_with_intelligence(
 ) -> Response {
     let feed_id = params.get("feed_id").map(|s| s.as_str());
     let limit = params.get("limit").and_then(|l| l.parse::<i32>().ok());
-    let include_hidden = params.get("include_hidden").and_then(|h| h.parse::<bool>().ok()).unwrap_or(false);
-    match get_rss_articles_with_intelligence_http(feed_id, limit, include_hidden, &state.repo).await {
+    let include_hidden = params
+        .get("include_hidden")
+        .and_then(|h| h.parse::<bool>().ok())
+        .unwrap_or(false);
+    match get_rss_articles_with_intelligence_http(feed_id, limit, include_hidden, &state.repo).await
+    {
         Ok(articles) => (StatusCode::OK, Json(articles)).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }
 
 /// Handle recompute intelligence scores
-async fn handle_recompute_scores(
-    State(state): State<ServerState>,
-) -> Response {
+async fn handle_recompute_scores(State(state): State<ServerState>) -> Response {
     match recompute_all_intelligence_scores_http(&state.repo).await {
-        Ok(count) => (StatusCode::OK, Json(serde_json::json!({"recomputed": count}))).into_response(),
+        Ok(count) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"recomputed": count})),
+        )
+            .into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }
@@ -2428,7 +2678,16 @@ async fn handle_search_articles(
     let folder_id = params.get("folder_id").cloned();
     let scope = params.get("scope").cloned();
     let limit = params.get("limit").and_then(|l| l.parse::<i32>().ok());
-    match search_rss_articles_http(query, feed_id.as_deref(), folder_id.as_deref(), scope.as_deref(), limit, &state.repo).await {
+    match search_rss_articles_http(
+        query,
+        feed_id.as_deref(),
+        folder_id.as_deref(),
+        scope.as_deref(),
+        limit,
+        &state.repo,
+    )
+    .await
+    {
         Ok(results) => (StatusCode::OK, Json(results)).into_response(),
         Err(e) => {
             error!("Search failed: {}", e);
@@ -2477,7 +2736,11 @@ async fn handle_add_tag(
     State(state): State<ServerState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     match add_tag_http(&name, &state.repo).await {
         Ok(tag) => (StatusCode::OK, Json(tag)).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
@@ -2485,9 +2748,7 @@ async fn handle_add_tag(
 }
 
 /// Handle list tags
-async fn handle_list_tags(
-    State(state): State<ServerState>,
-) -> Response {
+async fn handle_list_tags(State(state): State<ServerState>) -> Response {
     match get_all_tags_http(&state.repo).await {
         Ok(tags) => (StatusCode::OK, Json(tags)).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
@@ -2511,7 +2772,11 @@ async fn handle_rename_tag(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let new_name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let new_name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     match rename_tag_http(&id, &new_name, &state.repo).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
@@ -2523,8 +2788,16 @@ async fn handle_merge_tags(
     State(state): State<ServerState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let source = payload.get("source_tag_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let target = payload.get("target_tag_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let source = payload
+        .get("source_tag_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let target = payload
+        .get("target_tag_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     match merge_tags_http(&source, &target, &state.repo).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
@@ -2582,13 +2855,44 @@ async fn handle_create_annotation(
     State(state): State<ServerState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let article_id = payload.get("article_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let annotation_type = payload.get("annotation_type").and_then(|v| v.as_str()).unwrap_or("highlight").to_string();
-    let content = payload.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let start_offset = payload.get("start_offset").and_then(|v| v.as_i64()).map(|v| v as i32);
-    let end_offset = payload.get("end_offset").and_then(|v| v.as_i64()).map(|v| v as i32);
-    let color = payload.get("color").and_then(|v| v.as_str()).map(|s| s.to_string());
-    match create_annotation_http(&article_id, &annotation_type, &content, start_offset, end_offset, color.as_deref(), &state.repo).await {
+    let article_id = payload
+        .get("article_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let annotation_type = payload
+        .get("annotation_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("highlight")
+        .to_string();
+    let content = payload
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let start_offset = payload
+        .get("start_offset")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+    let end_offset = payload
+        .get("end_offset")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+    let color = payload
+        .get("color")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    match create_annotation_http(
+        &article_id,
+        &annotation_type,
+        &content,
+        start_offset,
+        end_offset,
+        color.as_deref(),
+        &state.repo,
+    )
+    .await
+    {
         Ok(ann) => (StatusCode::OK, Json(ann)).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
@@ -2611,8 +2915,14 @@ async fn handle_update_annotation(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let content = payload.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let color = payload.get("color").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let content = payload
+        .get("content")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let color = payload
+        .get("color")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     match update_annotation_http(&id, content.as_deref(), color.as_deref(), &state.repo).await {
         Ok(ann) => (StatusCode::OK, Json(ann)).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
@@ -2644,9 +2954,7 @@ async fn handle_get_discovered_sites(
 }
 
 /// Handle refresh discoveries
-async fn handle_refresh_discoveries(
-    State(state): State<ServerState>,
-) -> Response {
+async fn handle_refresh_discoveries(State(state): State<ServerState>) -> Response {
     (StatusCode::OK, Json(serde_json::json!({"discovered": 0}))).into_response()
 }
 
@@ -2666,10 +2974,17 @@ async fn handle_create_folder(
     State(state): State<ServerState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let parent_id = payload.get("parent_id").and_then(|v| v.as_str());
     let icon = payload.get("icon").and_then(|v| v.as_str());
-    let auto_mark_after_days = payload.get("auto_mark_after_days").and_then(|v| v.as_i64()).map(|v| v as i32);
+    let auto_mark_after_days = payload
+        .get("auto_mark_after_days")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
     match create_rss_folder_http(&name, parent_id, icon, auto_mark_after_days, &state.repo).await {
         Ok(folder) => (StatusCode::OK, Json(folder)).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
@@ -2677,9 +2992,7 @@ async fn handle_create_folder(
 }
 
 /// Handle list folders
-async fn handle_list_folders(
-    State(state): State<ServerState>,
-) -> Response {
+async fn handle_list_folders(State(state): State<ServerState>) -> Response {
     match get_rss_folders_http(&state.repo).await {
         Ok(folders) => (StatusCode::OK, Json(folders)).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
@@ -2692,65 +3005,138 @@ async fn handle_update_folder(
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let name = payload.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let parent_id = payload.get("parent_id").and_then(|v| v.as_str()).map(|s| s.to_string());
-    let parent_id_null = payload.get("parent_id").and_then(|v| v.as_null()).map(|_| ());
-    let icon = payload.get("icon").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let parent_id = payload
+        .get("parent_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let parent_id_null = payload
+        .get("parent_id")
+        .and_then(|v| v.as_null())
+        .map(|_| ());
+    let icon = payload
+        .get("icon")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let icon_null = payload.get("icon").and_then(|v| v.as_null()).map(|_| ());
-    let sort_order = payload.get("sort_order").and_then(|v| v.as_i64()).map(|v| v as i32);
-    let auto_mark_after_days_val = payload.get("auto_mark_after_days").and_then(|v| v.as_i64()).map(|v| v as i32);
-    let auto_mark_after_days_null = payload.get("auto_mark_after_days").and_then(|v| v.as_null()).map(|_| ());
+    let sort_order = payload
+        .get("sort_order")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+    let auto_mark_after_days_val = payload
+        .get("auto_mark_after_days")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+    let auto_mark_after_days_null = payload
+        .get("auto_mark_after_days")
+        .and_then(|v| v.as_null())
+        .map(|_| ());
 
-    if name.is_none() && parent_id.is_none() && parent_id_null.is_none() && icon.is_none() && icon_null.is_none() && sort_order.is_none() && auto_mark_after_days_val.is_none() && auto_mark_after_days_null.is_none() {
+    if name.is_none()
+        && parent_id.is_none()
+        && parent_id_null.is_none()
+        && icon.is_none()
+        && icon_null.is_none()
+        && sort_order.is_none()
+        && auto_mark_after_days_val.is_none()
+        && auto_mark_after_days_null.is_none()
+    {
         return match get_rss_folders_http(&state.repo).await {
-            Ok(folders) => folders.into_iter().find(|f| f.id == id).map_or_else(|| error_response(StatusCode::NOT_FOUND, "Folder not found"), |f| (StatusCode::OK, Json(f)).into_response()),
+            Ok(folders) => folders.into_iter().find(|f| f.id == id).map_or_else(
+                || error_response(StatusCode::NOT_FOUND, "Folder not found"),
+                |f| (StatusCode::OK, Json(f)).into_response(),
+            ),
             Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
         };
     }
 
     if let Some(ref n) = name {
-        if let Err(e) = sqlx::query("UPDATE rss_folders SET name = ? WHERE id = ?").bind(n).bind(&id).execute(state.repo.pool()).await {
+        if let Err(e) = sqlx::query("UPDATE rss_folders SET name = ? WHERE id = ?")
+            .bind(n)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if let Some(ref pid) = parent_id {
-        if let Err(e) = sqlx::query("UPDATE rss_folders SET parent_id = ? WHERE id = ?").bind(pid).bind(&id).execute(state.repo.pool()).await {
+        if let Err(e) = sqlx::query("UPDATE rss_folders SET parent_id = ? WHERE id = ?")
+            .bind(pid)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if parent_id_null.is_some() {
-        if let Err(e) = sqlx::query("UPDATE rss_folders SET parent_id = NULL WHERE id = ?").bind(&id).execute(state.repo.pool()).await {
+        if let Err(e) = sqlx::query("UPDATE rss_folders SET parent_id = NULL WHERE id = ?")
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if let Some(ref ic) = icon {
-        if let Err(e) = sqlx::query("UPDATE rss_folders SET icon = ? WHERE id = ?").bind(ic).bind(&id).execute(state.repo.pool()).await {
+        if let Err(e) = sqlx::query("UPDATE rss_folders SET icon = ? WHERE id = ?")
+            .bind(ic)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if icon_null.is_some() {
-        if let Err(e) = sqlx::query("UPDATE rss_folders SET icon = NULL WHERE id = ?").bind(&id).execute(state.repo.pool()).await {
+        if let Err(e) = sqlx::query("UPDATE rss_folders SET icon = NULL WHERE id = ?")
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if let Some(so) = sort_order {
-        if let Err(e) = sqlx::query("UPDATE rss_folders SET sort_order = ? WHERE id = ?").bind(so).bind(&id).execute(state.repo.pool()).await {
+        if let Err(e) = sqlx::query("UPDATE rss_folders SET sort_order = ? WHERE id = ?")
+            .bind(so)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if let Some(v) = auto_mark_after_days_val {
-        if let Err(e) = sqlx::query("UPDATE rss_folders SET auto_mark_after_days = ? WHERE id = ?").bind(v).bind(&id).execute(state.repo.pool()).await {
+        if let Err(e) = sqlx::query("UPDATE rss_folders SET auto_mark_after_days = ? WHERE id = ?")
+            .bind(v)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if auto_mark_after_days_null.is_some() {
-        if let Err(e) = sqlx::query("UPDATE rss_folders SET auto_mark_after_days = NULL WHERE id = ?").bind(&id).execute(state.repo.pool()).await {
+        if let Err(e) =
+            sqlx::query("UPDATE rss_folders SET auto_mark_after_days = NULL WHERE id = ?")
+                .bind(&id)
+                .execute(state.repo.pool())
+                .await
+        {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
 
     match get_rss_folders_http(&state.repo).await {
-        Ok(folders) => folders.into_iter().find(|f| f.id == id).map_or_else(|| error_response(StatusCode::NOT_FOUND, "Folder not found"), |f| (StatusCode::OK, Json(f)).into_response()),
+        Ok(folders) => folders.into_iter().find(|f| f.id == id).map_or_else(
+            || error_response(StatusCode::NOT_FOUND, "Folder not found"),
+            |f| (StatusCode::OK, Json(f)).into_response(),
+        ),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }
@@ -2786,7 +3172,10 @@ async fn handle_move_feed_to_folder(
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
     let folder_id = payload.get("folder_id").and_then(|v| v.as_str());
-    let sort_order = payload.get("sort_order").and_then(|v| v.as_i64()).map(|v| v as i32);
+    let sort_order = payload
+        .get("sort_order")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
     match move_feed_to_folder_http(&feed_id, folder_id, sort_order, &state.repo).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
@@ -2799,7 +3188,11 @@ async fn handle_toggle_feed_active(
     axum::extract::Path(feed_id): axum::extract::Path<String>,
 ) -> Response {
     match toggle_feed_active_http(&feed_id, &state.repo).await {
-        Ok(is_active) => (StatusCode::OK, Json(serde_json::json!({"is_active": is_active}))).into_response(),
+        Ok(is_active) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"is_active": is_active})),
+        )
+            .into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }
@@ -2834,7 +3227,8 @@ async fn handle_migrate_folders(
     State(state): State<ServerState>,
     Json(payload): Json<serde_json::Value>,
 ) -> Response {
-    let folders_json = payload.get("folders")
+    let folders_json = payload
+        .get("folders")
         .map(|v| v.to_string())
         .unwrap_or_else(|| "[]".to_string());
     match migrate_folders_from_localstorage_http(&folders_json, &state.repo).await {
@@ -2983,8 +3377,7 @@ pub async fn get_browser_sync_server_status(port: u16) -> Result<ServerStatus, A
 
 /// Get the config file path for browser sync settings
 fn get_config_path() -> std::path::PathBuf {
-    let mut path = dirs::config_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let mut path = dirs::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     path.push("incrementum");
     path.push("browser_sync_config.json");
     path
@@ -3005,13 +3398,10 @@ fn load_config() -> BrowserSyncConfig {
 fn save_config(config: &BrowserSyncConfig) -> Result<(), AppError> {
     let path = get_config_path();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(AppError::Io)?;
+        std::fs::create_dir_all(parent).map_err(AppError::Io)?;
     }
-    let json = serde_json::to_string_pretty(config)
-        .map_err(AppError::Serialization)?;
-    std::fs::write(&path, &json)
-        .map_err(AppError::Io)?;
+    let json = serde_json::to_string_pretty(config).map_err(AppError::Serialization)?;
+    std::fs::write(&path, &json).map_err(AppError::Io)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -3081,9 +3471,7 @@ struct PodcastSearchQuery {
     q: Option<String>,
 }
 
-async fn handle_podcast_search(
-    Query(params): Query<PodcastSearchQuery>,
-) -> Response {
+async fn handle_podcast_search(Query(params): Query<PodcastSearchQuery>) -> Response {
     let q = params.q.unwrap_or_default();
     let q = q.trim();
     if q.is_empty() {
@@ -3095,7 +3483,12 @@ async fn handle_podcast_search(
         .build()
     {
         Ok(c) => c,
-        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("HTTP client error: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("HTTP client error: {}", e),
+            )
+        }
     };
 
     let response = match client
@@ -3106,16 +3499,36 @@ async fn handle_podcast_search(
         .await
     {
         Ok(r) => r,
-        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("Search request failed: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Search request failed: {}", e),
+            )
+        }
     };
 
     if !response.status().is_success() {
-        return error_response(StatusCode::BAD_GATEWAY, &format!("Search API returned HTTP {}", response.status()));
+        return error_response(
+            StatusCode::BAD_GATEWAY,
+            &format!("Search API returned HTTP {}", response.status()),
+        );
     }
 
     match response.json::<PodcastSearchResponse>().await {
-        Ok(data) => (StatusCode::OK, Json(data.feeds.into_iter().map(Into::into).collect::<Vec<PodcastSearchResult>>())).into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to parse search response: {}", e)),
+        Ok(data) => (
+            StatusCode::OK,
+            Json(
+                data.feeds
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<PodcastSearchResult>>(),
+            ),
+        )
+            .into_response(),
+        Err(e) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to parse search response: {}", e),
+        ),
     }
 }
 
@@ -3124,13 +3537,25 @@ async fn handle_podcast_subscribe(
     Json(payload): Json<SubscribeRequest>,
 ) -> Response {
     if let Ok(Some(existing)) = state.repo.get_podcast_feed_by_url(&payload.feed_url).await {
-        let episode_count = state.repo.count_podcast_episodes(&existing.id).await.unwrap_or(0);
-        let unplayed_count = state.repo.count_unplayed_podcast_episodes(&existing.id).await.unwrap_or(0);
-        return (StatusCode::OK, Json(PodcastFeedResponse {
-            feed: existing,
-            episode_count,
-            unplayed_count,
-        })).into_response();
+        let episode_count = state
+            .repo
+            .count_podcast_episodes(&existing.id)
+            .await
+            .unwrap_or(0);
+        let unplayed_count = state
+            .repo
+            .count_unplayed_podcast_episodes(&existing.id)
+            .await
+            .unwrap_or(0);
+        return (
+            StatusCode::OK,
+            Json(PodcastFeedResponse {
+                feed: existing,
+                episode_count,
+                unplayed_count,
+            }),
+        )
+            .into_response();
     }
 
     let client = match reqwest::Client::builder()
@@ -3140,26 +3565,49 @@ async fn handle_podcast_subscribe(
         .build()
     {
         Ok(c) => c,
-        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to build HTTP client: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to build HTTP client: {}", e),
+            )
+        }
     };
 
     let response = match client.get(&payload.feed_url).send().await {
         Ok(r) => r,
-        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("Failed to fetch podcast feed: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Failed to fetch podcast feed: {}", e),
+            )
+        }
     };
 
     if !response.status().is_success() {
-        return error_response(StatusCode::BAD_GATEWAY, &format!("Failed to fetch podcast feed: HTTP {}", response.status()));
+        return error_response(
+            StatusCode::BAD_GATEWAY,
+            &format!("Failed to fetch podcast feed: HTTP {}", response.status()),
+        );
     }
 
     let xml = match response.text().await {
         Ok(t) => t,
-        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("Failed to read feed response: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Failed to read feed response: {}", e),
+            )
+        }
     };
 
     let parsed = match parse_podcast_feed(&xml) {
         Ok(p) => p,
-        Err(e) => return error_response(StatusCode::UNPROCESSABLE_ENTITY, &format!("Failed to parse podcast feed: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                &format!("Failed to parse podcast feed: {}", e),
+            )
+        }
     };
 
     let feed_id = uuid::Uuid::new_v4().to_string();
@@ -3184,16 +3632,24 @@ async fn handle_podcast_subscribe(
     if let Err(e) = state.repo.insert_podcast_feed(&feed).await {
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
-    if let Err(e) = state.repo.insert_podcast_episodes_bulk(&feed_id, &parsed.episodes).await {
+    if let Err(e) = state
+        .repo
+        .insert_podcast_episodes_bulk(&feed_id, &parsed.episodes)
+        .await
+    {
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
 
     let episode_count = parsed.episodes.len() as i64;
-    (StatusCode::OK, Json(PodcastFeedResponse {
-        feed,
-        episode_count,
-        unplayed_count: episode_count,
-    })).into_response()
+    (
+        StatusCode::OK,
+        Json(PodcastFeedResponse {
+            feed,
+            episode_count,
+            unplayed_count: episode_count,
+        }),
+    )
+        .into_response()
 }
 
 async fn handle_podcast_rename_feed(
@@ -3201,7 +3657,11 @@ async fn handle_podcast_rename_feed(
     axum::extract::Path(feed_id): axum::extract::Path<String>,
     Json(payload): Json<RenameFeedRequest>,
 ) -> Response {
-    match state.repo.rename_podcast_feed(&feed_id, &payload.new_title).await {
+    match state
+        .repo
+        .rename_podcast_feed(&feed_id, &payload.new_title)
+        .await
+    {
         Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
@@ -3217,16 +3677,26 @@ async fn handle_podcast_unsubscribe(
     }
 }
 
-async fn handle_podcast_list_feeds(
-    State(state): State<ServerState>,
-) -> Response {
+async fn handle_podcast_list_feeds(State(state): State<ServerState>) -> Response {
     match state.repo.get_podcast_feeds().await {
         Ok(feeds) => {
             let mut results = Vec::new();
             for feed in feeds {
-                let episode_count = state.repo.count_podcast_episodes(&feed.id).await.unwrap_or(0);
-                let unplayed_count = state.repo.count_unplayed_podcast_episodes(&feed.id).await.unwrap_or(0);
-                results.push(PodcastFeedResponse { feed, episode_count, unplayed_count });
+                let episode_count = state
+                    .repo
+                    .count_podcast_episodes(&feed.id)
+                    .await
+                    .unwrap_or(0);
+                let unplayed_count = state
+                    .repo
+                    .count_unplayed_podcast_episodes(&feed.id)
+                    .await
+                    .unwrap_or(0);
+                results.push(PodcastFeedResponse {
+                    feed,
+                    episode_count,
+                    unplayed_count,
+                });
             }
             (StatusCode::OK, Json(results)).into_response()
         }
@@ -3240,7 +3710,12 @@ async fn handle_podcast_refresh_feed(
 ) -> Response {
     let feed = match state.repo.get_podcast_feed(&feed_id).await {
         Ok(Some(f)) => f,
-        Ok(None) => return error_response(StatusCode::NOT_FOUND, &format!("Podcast feed {} not found", feed_id)),
+        Ok(None) => {
+            return error_response(
+                StatusCode::NOT_FOUND,
+                &format!("Podcast feed {} not found", feed_id),
+            )
+        }
         Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     };
 
@@ -3253,54 +3728,101 @@ async fn handle_podcast_refresh_feed(
         .build()
     {
         Ok(c) => c,
-        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("Failed to build HTTP client: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to build HTTP client: {}", e),
+            )
+        }
     };
 
     let response = match client.get(&feed_url).send().await {
         Ok(r) => r,
-        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("Failed to fetch podcast feed: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Failed to fetch podcast feed: {}", e),
+            )
+        }
     };
 
     if !response.status().is_success() {
-        return error_response(StatusCode::BAD_GATEWAY, &format!("Failed to fetch podcast feed: HTTP {}", response.status()));
+        return error_response(
+            StatusCode::BAD_GATEWAY,
+            &format!("Failed to fetch podcast feed: HTTP {}", response.status()),
+        );
     }
 
     let xml = match response.text().await {
         Ok(t) => t,
-        Err(e) => return error_response(StatusCode::BAD_GATEWAY, &format!("Failed to read feed response: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                &format!("Failed to read feed response: {}", e),
+            )
+        }
     };
 
     let parsed = match parse_podcast_feed(&xml) {
         Ok(p) => p,
-        Err(e) => return error_response(StatusCode::UNPROCESSABLE_ENTITY, &format!("Failed to parse podcast feed: {}", e)),
+        Err(e) => {
+            return error_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                &format!("Failed to parse podcast feed: {}", e),
+            )
+        }
     };
 
     let mut updated_feed = feed.clone();
     updated_feed.title = parsed.title;
     updated_feed.description = parsed.description;
-    if parsed.image_url.is_some() { updated_feed.image_url = parsed.image_url; }
-    if parsed.author.is_some() { updated_feed.author = parsed.author; }
+    if parsed.image_url.is_some() {
+        updated_feed.image_url = parsed.image_url;
+    }
+    if parsed.author.is_some() {
+        updated_feed.author = parsed.author;
+    }
     let now = chrono::Utc::now().to_rfc3339();
     updated_feed.last_fetched = Some(now.clone());
 
     if let Err(e) = state.repo.update_podcast_feed_metadata(&updated_feed).await {
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
-    if let Err(e) = state.repo.update_podcast_feed_last_fetched(&feed_id, &now).await {
+    if let Err(e) = state
+        .repo
+        .update_podcast_feed_last_fetched(&feed_id, &now)
+        .await
+    {
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
-    if let Err(e) = state.repo.insert_podcast_episodes_bulk(&feed_id, &parsed.episodes).await {
+    if let Err(e) = state
+        .repo
+        .insert_podcast_episodes_bulk(&feed_id, &parsed.episodes)
+        .await
+    {
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
 
-    let episode_count = state.repo.count_podcast_episodes(&feed_id).await.unwrap_or(0);
-    let unplayed_count = state.repo.count_unplayed_podcast_episodes(&feed_id).await.unwrap_or(0);
+    let episode_count = state
+        .repo
+        .count_podcast_episodes(&feed_id)
+        .await
+        .unwrap_or(0);
+    let unplayed_count = state
+        .repo
+        .count_unplayed_podcast_episodes(&feed_id)
+        .await
+        .unwrap_or(0);
 
-    (StatusCode::OK, Json(PodcastFeedResponse {
-        feed: updated_feed,
-        episode_count,
-        unplayed_count,
-    })).into_response()
+    (
+        StatusCode::OK,
+        Json(PodcastFeedResponse {
+            feed: updated_feed,
+            episode_count,
+            unplayed_count,
+        }),
+    )
+        .into_response()
 }
 
 async fn handle_podcast_get_episodes(
@@ -3308,8 +3830,15 @@ async fn handle_podcast_get_episodes(
     axum::extract::Path(feed_id): axum::extract::Path<String>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Response {
-    let include_played = params.get("include_played").map(|v| v == "true").unwrap_or(true);
-    match state.repo.get_podcast_episodes(Some(&feed_id), Some(include_played)).await {
+    let include_played = params
+        .get("include_played")
+        .map(|v| v == "true")
+        .unwrap_or(true);
+    match state
+        .repo
+        .get_podcast_episodes(Some(&feed_id), Some(include_played))
+        .await
+    {
         Ok(episodes) => (StatusCode::OK, Json(episodes)).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
@@ -3319,12 +3848,19 @@ async fn handle_podcast_get_episode_queue(
     State(state): State<ServerState>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Response {
-    let include_played = params.get("include_played").map(|v| v == "true").unwrap_or(false);
+    let include_played = params
+        .get("include_played")
+        .map(|v| v == "true")
+        .unwrap_or(false);
     match state.repo.get_podcast_feeds().await {
         Ok(feeds) => {
             let mut all_episodes: Vec<PodcastEpisode> = Vec::new();
             for feed in feeds {
-                if let Ok(episodes) = state.repo.get_podcast_episodes(Some(&feed.id), Some(include_played)).await {
+                if let Ok(episodes) = state
+                    .repo
+                    .get_podcast_episodes(Some(&feed.id), Some(include_played))
+                    .await
+                {
                     all_episodes.extend(episodes);
                 }
             }
@@ -3339,7 +3875,11 @@ async fn handle_podcast_mark_played(
     axum::extract::Path(episode_id): axum::extract::Path<String>,
     Json(payload): Json<MarkPlayedRequest>,
 ) -> Response {
-    match state.repo.update_episode_played(&episode_id, payload.played).await {
+    match state
+        .repo
+        .update_episode_played(&episode_id, payload.played)
+        .await
+    {
         Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
@@ -3350,7 +3890,11 @@ async fn handle_podcast_update_position(
     axum::extract::Path(episode_id): axum::extract::Path<String>,
     Json(payload): Json<UpdatePositionRequest>,
 ) -> Response {
-    match state.repo.update_episode_position(&episode_id, payload.position).await {
+    match state
+        .repo
+        .update_episode_position(&episode_id, payload.position)
+        .await
+    {
         Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
@@ -3393,7 +3937,10 @@ async fn handle_podcast_transcribe(
     let repo = state.repo.clone();
 
     // Set status to downloading
-    if let Err(e) = repo.update_episode_transcript_status(&episode_id, "downloading", None, None).await {
+    if let Err(e) = repo
+        .update_episode_transcript_status(&episode_id, "downloading", None, None)
+        .await
+    {
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
     let _ = app_handle.emit(
@@ -3403,16 +3950,26 @@ async fn handle_podcast_transcribe(
 
     // Spawn the full transcription pipeline (download + transcribe)
     tokio::spawn(async move {
-        use crate::transcription::engine::{TranscriptionEngine, TranscriptSegment};
+        use crate::transcription::engine::{TranscriptSegment, TranscriptionEngine};
         use crate::transcription::model_manager::ModelManager;
-        use tokio::io::AsyncWriteExt;
         use std::sync::{Arc, Mutex};
+        use tokio::io::AsyncWriteExt;
 
         let temp_dir = match app_handle.path().app_data_dir() {
             Ok(d) => d.join("temp_transcription"),
             Err(e) => {
-                let _ = repo.update_episode_transcript_status(&ep_id, "error", Some(&format!("{}", e)), None).await;
-                let _ = app_handle.emit("podcast://transcription-error", serde_json::json!({ "episodeId": &ep_id, "error": e.to_string() }));
+                let _ = repo
+                    .update_episode_transcript_status(
+                        &ep_id,
+                        "error",
+                        Some(&format!("{}", e)),
+                        None,
+                    )
+                    .await;
+                let _ = app_handle.emit(
+                    "podcast://transcription-error",
+                    serde_json::json!({ "episodeId": &ep_id, "error": e.to_string() }),
+                );
                 return;
             }
         };
@@ -3423,66 +3980,107 @@ async fn handle_podcast_transcribe(
         let download_ok = async {
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(300))
-                .build().map_err(|e| format!("HTTP client error: {}", e))?;
-            let response = client.get(&audio_url).send().await
+                .build()
+                .map_err(|e| format!("HTTP client error: {}", e))?;
+            let response = client
+                .get(&audio_url)
+                .send()
+                .await
                 .map_err(|e| format!("Download failed: {}", e))?;
             if !response.status().is_success() {
                 return Err(format!("Download failed: HTTP {}", response.status()));
             }
             let total_size = response.content_length().unwrap_or(0);
             let mut downloaded: u64 = 0;
-            let mut file = tokio::fs::File::create(&temp_file).await
+            let mut file = tokio::fs::File::create(&temp_file)
+                .await
                 .map_err(|e| format!("Failed to create temp file: {}", e))?;
             let mut stream = response.bytes_stream();
             use futures_util::StreamExt;
             while let Some(item) = stream.next().await {
                 let chunk = item.map_err(|e| format!("Download stream error: {}", e))?;
-                file.write_all(&chunk).await
+                file.write_all(&chunk)
+                    .await
                     .map_err(|e| format!("Write error: {}", e))?;
                 downloaded += chunk.len() as u64;
                 if total_size > 0 {
                     let pct = (downloaded as f64 / total_size as f64) * 30.0;
-                    let _ = app_handle.emit("podcast://transcription-progress", serde_json::json!({
-                        "episodeId": &ep_id, "status": "downloading", "progress": pct as i32
-                    }));
+                    let _ = app_handle.emit(
+                        "podcast://transcription-progress",
+                        serde_json::json!({
+                            "episodeId": &ep_id, "status": "downloading", "progress": pct as i32
+                        }),
+                    );
                 }
             }
-            file.flush().await
+            file.flush()
+                .await
                 .map_err(|e| format!("Flush error: {}", e))?;
             Ok::<(), String>(())
-        }.await;
+        }
+        .await;
 
         if let Err(e) = download_ok {
             let _ = std::fs::remove_file(&temp_file);
-            let _ = repo.update_episode_transcript_status(&ep_id, "error", Some(&e), None).await;
-            let _ = app_handle.emit("podcast://transcription-error", serde_json::json!({ "episodeId": &ep_id, "error": e }));
+            let _ = repo
+                .update_episode_transcript_status(&ep_id, "error", Some(&e), None)
+                .await;
+            let _ = app_handle.emit(
+                "podcast://transcription-error",
+                serde_json::json!({ "episodeId": &ep_id, "error": e }),
+            );
             return;
         }
 
-        let _ = repo.update_episode_transcript_status(&ep_id, "transcribing", None, None).await;
-        let _ = app_handle.emit("podcast://transcription-progress", serde_json::json!({
-            "episodeId": &ep_id, "status": "transcribing", "progress": 30
-        }));
+        let _ = repo
+            .update_episode_transcript_status(&ep_id, "transcribing", None, None)
+            .await;
+        let _ = app_handle.emit(
+            "podcast://transcription-progress",
+            serde_json::json!({
+                "episodeId": &ep_id, "status": "transcribing", "progress": 30
+            }),
+        );
 
         let model_manager = match ModelManager::new(&app_handle) {
             Ok(m) => m,
             Err(e) => {
                 let _ = std::fs::remove_file(&temp_file);
-                let _ = repo.update_episode_transcript_status(&ep_id, "error", Some(&format!("{}", e)), None).await;
-                let _ = app_handle.emit("podcast://transcription-error", serde_json::json!({ "episodeId": &ep_id, "error": e.to_string() }));
+                let _ = repo
+                    .update_episode_transcript_status(
+                        &ep_id,
+                        "error",
+                        Some(&format!("{}", e)),
+                        None,
+                    )
+                    .await;
+                let _ = app_handle.emit(
+                    "podcast://transcription-error",
+                    serde_json::json!({ "episodeId": &ep_id, "error": e.to_string() }),
+                );
                 return;
             }
         };
 
         let mut selected_model = model_id;
         if !model_manager.is_model_installed(&selected_model) {
-            if let Some(fallback) = model_manager.list_profiles().into_iter().find(|p| model_manager.is_model_installed(&p.id)) {
+            if let Some(fallback) = model_manager
+                .list_profiles()
+                .into_iter()
+                .find(|p| model_manager.is_model_installed(&p.id))
+            {
                 selected_model = fallback.id;
             } else {
                 let _ = std::fs::remove_file(&temp_file);
-                let err_msg = "No Whisper model installed. Download one in Settings > Audio Transcription.";
-                let _ = repo.update_episode_transcript_status(&ep_id, "error", Some(err_msg), None).await;
-                let _ = app_handle.emit("podcast://transcription-error", serde_json::json!({ "episodeId": &ep_id, "error": err_msg }));
+                let err_msg =
+                    "No Whisper model installed. Download one in Settings > Audio Transcription.";
+                let _ = repo
+                    .update_episode_transcript_status(&ep_id, "error", Some(err_msg), None)
+                    .await;
+                let _ = app_handle.emit(
+                    "podcast://transcription-error",
+                    serde_json::json!({ "episodeId": &ep_id, "error": err_msg }),
+                );
                 return;
             }
         }
@@ -3494,7 +4092,9 @@ async fn handle_podcast_transcribe(
         let ep_id_clone = ep_id.clone();
 
         let transcribe_result = async {
-            let prepared = engine.prepare_audio(std::path::Path::new(&temp_file)).await
+            let prepared = engine
+                .prepare_audio(std::path::Path::new(&temp_file))
+                .await
                 .map_err(|e| format!("Audio preparation failed: {}", e))?;
             let model_path = model_manager.get_model_path(&selected_model);
             engine.transcribe(
@@ -3512,7 +4112,8 @@ async fn handle_podcast_transcribe(
                 })),
             ).await.map_err(|e| format!("Transcription failed: {}", e))?;
             Ok::<(), String>(())
-        }.await;
+        }
+        .await;
 
         let _ = std::fs::remove_file(&temp_file);
 
@@ -3523,15 +4124,29 @@ async fn handle_podcast_transcribe(
                     guard.sort_by(|a, b| a.start_ms.cmp(&b.start_ms));
                     guard.clone()
                 };
-                let full_text: String = segs.iter().map(|s| s.text.trim()).collect::<Vec<&str>>().join(" ");
-                let _ = repo.update_episode_transcript_status(&ep_id, "done", None, Some(&full_text)).await;
-                let _ = app_handle.emit("podcast://transcription-complete", serde_json::json!({
-                    "episodeId": &ep_id, "segmentCount": segs.len(), "duration": ep_duration
-                }));
+                let full_text: String = segs
+                    .iter()
+                    .map(|s| s.text.trim())
+                    .collect::<Vec<&str>>()
+                    .join(" ");
+                let _ = repo
+                    .update_episode_transcript_status(&ep_id, "done", None, Some(&full_text))
+                    .await;
+                let _ = app_handle.emit(
+                    "podcast://transcription-complete",
+                    serde_json::json!({
+                        "episodeId": &ep_id, "segmentCount": segs.len(), "duration": ep_duration
+                    }),
+                );
             }
             Err(e) => {
-                let _ = repo.update_episode_transcript_status(&ep_id, "error", Some(&e), None).await;
-                let _ = app_handle.emit("podcast://transcription-error", serde_json::json!({ "episodeId": &ep_id, "error": e }));
+                let _ = repo
+                    .update_episode_transcript_status(&ep_id, "error", Some(&e), None)
+                    .await;
+                let _ = app_handle.emit(
+                    "podcast://transcription-error",
+                    serde_json::json!({ "episodeId": &ep_id, "error": e }),
+                );
             }
         }
     });
@@ -3544,13 +4159,15 @@ async fn handle_podcast_get_transcript(
     axum::extract::Path(episode_id): axum::extract::Path<String>,
 ) -> Response {
     match state.repo.get_podcast_episode_by_id(&episode_id).await {
-        Ok(Some(episode)) => {
-            (StatusCode::OK, Json(json!({
+        Ok(Some(episode)) => (
+            StatusCode::OK,
+            Json(json!({
                 "text": episode.transcript_text,
                 "segments": [],
                 "status": episode.transcript_status,
-            }))).into_response()
-        }
+            })),
+        )
+            .into_response(),
         Ok(None) => error_response(StatusCode::NOT_FOUND, "Episode not found"),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
@@ -3561,7 +4178,11 @@ async fn handle_podcast_cancel_transcription(
     axum::extract::Path(episode_id): axum::extract::Path<String>,
 ) -> Response {
     // Reset status to none
-    match state.repo.update_episode_transcript_status(&episode_id, "none", None, None).await {
+    match state
+        .repo
+        .update_episode_transcript_status(&episode_id, "none", None, None)
+        .await
+    {
         Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
@@ -3578,17 +4199,28 @@ async fn handle_podcast_set_auto_transcribe(
     axum::extract::Path(feed_id): axum::extract::Path<String>,
     Json(payload): Json<AutoTranscribeRequest>,
 ) -> Response {
-    match state.repo.set_feed_auto_transcribe(&feed_id, payload.enabled, payload.language.as_deref()).await {
+    match state
+        .repo
+        .set_feed_auto_transcribe(&feed_id, payload.enabled, payload.language.as_deref())
+        .await
+    {
         Ok(()) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }
 
 /// Initialize browser sync server (called on app startup)
-pub async fn initialize_if_enabled(repo: Arc<Repository>, app_handle: AppHandle, ai_config: Option<AIConfig>) -> Result<(), AppError> {
+pub async fn initialize_if_enabled(
+    repo: Arc<Repository>,
+    app_handle: AppHandle,
+    ai_config: Option<AIConfig>,
+) -> Result<(), AppError> {
     let config = load_config();
     if config.auto_start {
-        info!("Auto-starting browser extension server on port {}", config.port);
+        info!(
+            "Auto-starting browser extension server on port {}",
+            config.port
+        );
         if let Err(err) = start_server(config, repo, app_handle, ai_config).await {
             warn!("Browser extension server auto-start skipped: {}", err);
         }

@@ -1,8 +1,8 @@
 //! Bulk document operations
 
-use tauri::State;
 use crate::database::Repository;
 use crate::error::Result;
+use tauri::State;
 
 #[derive(Clone, serde::Serialize)]
 pub struct BulkOperationResult {
@@ -63,7 +63,10 @@ mod tests {
             format!("/tmp/{}.pdf", title),
             FileType::Pdf,
         );
-        repo.create_document(&doc).await.expect("create document").id
+        repo.create_document(&doc)
+            .await
+            .expect("create document")
+            .id
     }
 
     // The command body is trivial (loop + collect), so we exercise the
@@ -81,7 +84,11 @@ mod tests {
                 }
             }
         }
-        BulkOperationResult { succeeded, failed, errors }
+        BulkOperationResult {
+            succeeded,
+            failed,
+            errors,
+        }
     }
 
     #[tokio::test]

@@ -14,15 +14,35 @@ const DANGEROUS_ARG_CHARS: &[char] = &['|', '>', '<', '&', '$', '`', '\n', '\r',
 
 /// Environment variable names that are blocked from being passed to MCP subprocesses.
 const BLOCKED_ENV_VARS: &[&str] = &[
-    "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
-    "PATH", "PYTHONHOME", "PYTHONPATH", "PYTHONUSERBASE", "PYTHONNOUSERSITE",
-    "RUST_LOG", "RUST_BACKTRACE",
-    "DYLD_INSERT_LIBRARIES", "DYLD_FRAMEWORK_PATH",
-    "GIO_MODULE_DIR", "GJS_PATH",
-    "IHTTP_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY",
-    "DOTNET_ROOT", "NODE_PATH", "NODE_OPTIONS",
-    "ENV", "BASH_FUNC",
-    "LC_ALL", "LANG", "TZ", "HOME",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "LD_AUDIT",
+    "LD_DEBUG",
+    "PATH",
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "PYTHONUSERBASE",
+    "PYTHONNOUSERSITE",
+    "RUST_LOG",
+    "RUST_BACKTRACE",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_FRAMEWORK_PATH",
+    "GIO_MODULE_DIR",
+    "GJS_PATH",
+    "IHTTP_PROXY",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "DOTNET_ROOT",
+    "NODE_PATH",
+    "NODE_OPTIONS",
+    "ENV",
+    "BASH_FUNC",
+    "LC_ALL",
+    "LANG",
+    "TZ",
+    "HOME",
 ];
 
 pub(crate) fn validate_mcp_command(command: &str, args: &[String]) -> Result<(), String> {
@@ -160,7 +180,9 @@ pub async fn mcp_call_tool(
     tool_name: String,
     arguments: serde_json::Value,
 ) -> Result<ToolCallResultResponse, String> {
-    let result = MCP_MANAGER.call_tool(&server_id, &tool_name, arguments).await?;
+    let result = MCP_MANAGER
+        .call_tool(&server_id, &tool_name, arguments)
+        .await?;
 
     Ok(ToolCallResultResponse {
         content: result
@@ -177,10 +199,7 @@ pub async fn mcp_call_tool(
 
 /// Update an MCP server configuration
 #[tauri::command]
-pub async fn mcp_update_server(
-    id: String,
-    _updates: ServerConfigUpdate,
-) -> Result<(), String> {
+pub async fn mcp_update_server(id: String, _updates: ServerConfigUpdate) -> Result<(), String> {
     MCP_MANAGER.remove_server(&id).await?;
 
     // Re-add with updated configuration
@@ -191,7 +210,9 @@ pub async fn mcp_update_server(
 
 /// Get Incrementum's built-in MCP tools
 #[tauri::command]
-pub async fn mcp_get_incrementum_tools(app: tauri::AppHandle) -> Result<Vec<ToolDefinitionResponse>, String> {
+pub async fn mcp_get_incrementum_tools(
+    app: tauri::AppHandle,
+) -> Result<Vec<ToolDefinitionResponse>, String> {
     let state = app.state::<crate::AppState>();
     let pool = {
         let db_guard = state

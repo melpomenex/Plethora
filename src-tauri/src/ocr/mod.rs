@@ -7,8 +7,8 @@
 //! - Azure Computer Vision (cloud)
 //! - GLM-OCR (local via vLLM)
 
-pub mod providers;
 pub mod processor;
+pub mod providers;
 pub mod runtime;
 
 pub use providers::OCRProviderType;

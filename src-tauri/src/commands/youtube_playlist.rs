@@ -1,11 +1,11 @@
 //! YouTube playlist auto-import commands
 
-use tauri::State;
-use sqlx::Row;
 use crate::database::Repository;
-use crate::models::{PlaylistSubscription, PlaylistVideo, PlaylistSettings, Document, FileType};
-use crate::youtube::{get_playlist_info, extract_video_info};
-use crate::error::{Result, IncrementumError};
+use crate::error::{IncrementumError, Result};
+use crate::models::{Document, FileType, PlaylistSettings, PlaylistSubscription, PlaylistVideo};
+use crate::youtube::{extract_video_info, get_playlist_info};
+use sqlx::Row;
+use tauri::State;
 
 /// Import a YouTube video as a document (helper function)
 async fn import_youtube_video_as_document(
@@ -25,34 +25,37 @@ pub async fn subscribe_to_playlist(
     repo: State<'_, Repository>,
 ) -> Result<PlaylistSubscription> {
     eprintln!("[YouTube Playlist] Subscribing to: {}", playlist_url);
-    
-    let playlist_id = extract_playlist_id(&playlist_url)
-        .ok_or_else(|| IncrementumError::Internal(
-            format!("Invalid YouTube playlist URL: {}", playlist_url)
-        ))?;
-    
+
+    let playlist_id = extract_playlist_id(&playlist_url).ok_or_else(|| {
+        IncrementumError::Internal(format!("Invalid YouTube playlist URL: {}", playlist_url))
+    })?;
+
     eprintln!("[YouTube Playlist] Extracted playlist ID: {}", playlist_id);
 
-    if let Some(existing) = repo.get_playlist_subscription_by_playlist_id(&playlist_id).await? {
+    if let Some(existing) = repo
+        .get_playlist_subscription_by_playlist_id(&playlist_id)
+        .await?
+    {
         eprintln!("[YouTube Playlist] Already subscribed, returning existing");
         return Ok(existing);
     }
 
     let ytdlp_available = crate::youtube::check_ytdlp_installed()
         .map_err(|e| IncrementumError::Internal(format!("Failed to check yt-dlp: {}", e)))?;
-    
+
     if !ytdlp_available {
         return Err(IncrementumError::Internal(
             "yt-dlp is not installed or not in PATH. Please install yt-dlp: https://github.com/yt-dlp/yt-dlp#installation".to_string()
         ));
     }
-    
+
     eprintln!("[YouTube Playlist] yt-dlp is available, fetching playlist info...");
 
     let playlist_info = get_playlist_info(&playlist_url)
         .map_err(|e| IncrementumError::Internal(format!("yt-dlp error: {}", e)))?;
-    
-    eprintln!("[YouTube Playlist] Got playlist info: title={:?}, entries={:?}", 
+
+    eprintln!(
+        "[YouTube Playlist] Got playlist info: title={:?}, entries={:?}",
         playlist_info["title"].as_str(),
         playlist_info["entries"].as_array().map(|a| a.len())
     );
@@ -84,17 +87,20 @@ pub async fn subscribe_to_playlist(
         description.as_deref(),
         subscription_thumbnail.as_deref(),
         total_videos,
-    ).await?;
+    )
+    .await?;
 
     if let Some(entries) = playlist_info["entries"].as_array() {
         eprintln!("[YouTube Playlist] Processing {} entries", entries.len());
         for (position, entry) in entries.iter().enumerate() {
             // With --flat-playlist, the ID might be in different fields
-            let video_id = entry["id"].as_str()
-                .or_else(|| entry["url"].as_str());
-            
+            let video_id = entry["id"].as_str().or_else(|| entry["url"].as_str());
+
             if let Some(video_id) = video_id {
-                eprintln!("[YouTube Playlist] Entry {}: video_id = {}", position, video_id);
+                eprintln!(
+                    "[YouTube Playlist] Entry {}: video_id = {}",
+                    position, video_id
+                );
                 let video_uuid = uuid::Uuid::new_v4().to_string();
                 let video_title = entry["title"].as_str().map(|s| s.to_string());
                 let duration = entry["duration"].as_i64().map(|d| d as i32);
@@ -103,18 +109,23 @@ pub async fn subscribe_to_playlist(
                 let video_url = format!("https://www.youtube.com/watch?v={}", video_id);
                 let existing_doc = repo.find_document_by_url(&video_url).await?;
 
-                match repo.add_playlist_video(
-                    &video_uuid,
-                    &id,
-                    video_id,
-                    video_title.as_deref(),
-                    duration,
-                    Some(&thumbnail),
-                    Some(position as i32),
-                    None, // published_at
-                ).await {
+                match repo
+                    .add_playlist_video(
+                        &video_uuid,
+                        &id,
+                        video_id,
+                        video_title.as_deref(),
+                        duration,
+                        Some(&thumbnail),
+                        Some(position as i32),
+                        None, // published_at
+                    )
+                    .await
+                {
                     Ok(_) => eprintln!("[YouTube Playlist] Added video {} to tracking", video_id),
-                    Err(e) => eprintln!("[YouTube Playlist] Failed to add video {}: {}", video_id, e),
+                    Err(e) => {
+                        eprintln!("[YouTube Playlist] Failed to add video {}: {}", video_id, e)
+                    }
                 }
 
                 // If video already exists as document, mark it as imported
@@ -122,9 +133,13 @@ pub async fn subscribe_to_playlist(
                     let _ = repo.mark_video_imported(&video_uuid, &doc.id).await;
                 }
             } else {
-                eprintln!("[YouTube Playlist] Entry {}: No video ID found. Entry keys: {:?}", 
-                    position, 
-                    entry.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()));
+                eprintln!(
+                    "[YouTube Playlist] Entry {}: No video ID found. Entry keys: {:?}",
+                    position,
+                    entry
+                        .as_object()
+                        .map(|o| o.keys().cloned().collect::<Vec<_>>())
+                );
             }
         }
     } else {
@@ -150,7 +165,8 @@ pub async fn get_playlist_subscription(
     subscription_id: String,
     repo: State<'_, Repository>,
 ) -> Result<PlaylistSubscriptionDetail> {
-    let subscription = repo.get_playlist_subscription(&subscription_id)
+    let subscription = repo
+        .get_playlist_subscription(&subscription_id)
         .await?
         .ok_or_else(|| crate::error::IncrementumError::NotFound("Subscription".to_string()))?;
 
@@ -183,7 +199,8 @@ pub async fn update_playlist_subscription(
         queue_intersperse_interval,
         priority_rating,
         refresh_interval_hours,
-    ).await
+    )
+    .await
 }
 
 /// Delete a playlist subscription
@@ -202,7 +219,8 @@ pub async fn refresh_playlist(
     auto_import: bool,
     repo: State<'_, Repository>,
 ) -> Result<PlaylistRefreshResult> {
-    let subscription = repo.get_playlist_subscription(&subscription_id)
+    let subscription = repo
+        .get_playlist_subscription(&subscription_id)
         .await?
         .ok_or_else(|| IncrementumError::Internal("Subscription not found".to_string()))?;
 
@@ -217,21 +235,24 @@ pub async fn refresh_playlist(
             if let Some(video_id) = entry["id"].as_str() {
                 let video_title = entry["title"].as_str().map(|s| s.to_string());
                 let duration = entry["duration"].as_i64().map(|d| d as i32);
-                
+
                 let video_uuid = uuid::Uuid::new_v4().to_string();
                 let thumbnail = youtube_thumbnail_url(video_id);
 
                 // Try to add video (will fail silently if already exists due to UNIQUE constraint)
-                let added = repo.add_playlist_video(
-                    &video_uuid,
-                    &subscription_id,
-                    video_id,
-                    video_title.as_deref(),
-                    duration,
-                    Some(&thumbnail),
-                    Some(position as i32),
-                    None,
-                ).await.is_ok();
+                let added = repo
+                    .add_playlist_video(
+                        &video_uuid,
+                        &subscription_id,
+                        video_id,
+                        video_title.as_deref(),
+                        duration,
+                        Some(&thumbnail),
+                        Some(position as i32),
+                        None,
+                    )
+                    .await
+                    .is_ok();
 
                 if added {
                     new_videos_found += 1;
@@ -239,16 +260,23 @@ pub async fn refresh_playlist(
                     // Auto-import if enabled
                     if auto_import && subscription.auto_import_new {
                         let video_url = format!("https://www.youtube.com/watch?v={}", video_id);
-                        
+
                         match repo.find_document_by_url(&video_url).await? {
                             Some(doc) => {
                                 // Mark as imported with existing document
                                 let _ = repo.mark_video_imported(&video_uuid, &doc.id).await;
                             }
                             None => {
-                                match import_youtube_video_as_document(video_url, repo.inner(), None).await {
+                                match import_youtube_video_as_document(
+                                    video_url,
+                                    repo.inner(),
+                                    None,
+                                )
+                                .await
+                                {
                                     Ok(doc) => {
-                                        let _ = repo.mark_video_imported(&video_uuid, &doc.id).await;
+                                        let _ =
+                                            repo.mark_video_imported(&video_uuid, &doc.id).await;
                                         imported_count += 1;
                                     }
                                     Err(_) => {
@@ -263,7 +291,8 @@ pub async fn refresh_playlist(
         }
     }
 
-    repo.update_playlist_last_refreshed(&subscription_id).await?;
+    repo.update_playlist_last_refreshed(&subscription_id)
+        .await?;
 
     Ok(PlaylistRefreshResult {
         new_videos_found,
@@ -282,7 +311,7 @@ pub async fn import_playlist_video(
         SELECT pv.*, ps.playlist_id FROM youtube_playlist_videos pv
         JOIN youtube_playlist_subscriptions ps ON pv.subscription_id = ps.id
         WHERE pv.id = ?1
-        "#
+        "#,
     )
     .bind(&playlist_video_id)
     .fetch_all(repo.pool())
@@ -290,7 +319,9 @@ pub async fn import_playlist_video(
     .map_err(IncrementumError::Database)?;
 
     if rows.is_empty() {
-        return Err(IncrementumError::Internal("Playlist video not found".to_string()));
+        return Err(IncrementumError::Internal(
+            "Playlist video not found".to_string(),
+        ));
     }
 
     let row = &rows[0];
@@ -311,7 +342,8 @@ pub async fn import_playlist_video(
     let doc = import_youtube_video_as_document(video_url, repo.inner(), None).await?;
 
     // Mark as imported
-    repo.mark_video_imported(&playlist_video_id, &doc.id).await?;
+    repo.mark_video_imported(&playlist_video_id, &doc.id)
+        .await?;
 
     Ok(doc)
 }
@@ -328,14 +360,15 @@ pub async fn get_unimported_playlist_videos(
         JOIN youtube_playlist_subscriptions ps ON pv.subscription_id = ps.id
         WHERE pv.is_imported = 0 AND ps.is_active = 1
         ORDER BY pv.discovered_at DESC
-        "#
+        "#,
     )
     .fetch_all(repo.pool())
     .await
     .map_err(IncrementumError::Database)?;
 
-    Ok(rows.into_iter().map(|row| {
-        PlaylistVideoWithInfo {
+    Ok(rows
+        .into_iter()
+        .map(|row| PlaylistVideoWithInfo {
             id: row.get("id"),
             subscription_id: row.get("subscription_id"),
             video_id: row.get("video_id"),
@@ -352,15 +385,13 @@ pub async fn get_unimported_playlist_videos(
             imported_at: row.try_get("imported_at").ok(),
             subscription_title: row.try_get("subscription_title").ok(),
             channel_name: row.try_get("channel_name").ok(),
-        }
-    }).collect())
+        })
+        .collect())
 }
 
 /// Get playlist settings
 #[tauri::command]
-pub async fn get_playlist_settings(
-    repo: State<'_, Repository>,
-) -> Result<PlaylistSettings> {
+pub async fn get_playlist_settings(repo: State<'_, Repository>) -> Result<PlaylistSettings> {
     repo.get_playlist_settings().await
 }
 
@@ -380,7 +411,8 @@ pub async fn update_playlist_settings(
         default_priority,
         max_consecutive_playlist_videos,
         prefer_new_videos,
-    ).await
+    )
+    .await
 }
 
 /// Get queue items from playlist videos that need interspersion
@@ -391,7 +423,7 @@ pub async fn get_playlist_queue_items(
     repo: State<'_, Repository>,
 ) -> Result<Vec<PlaylistQueueItem>> {
     let settings = repo.get_playlist_settings().await?;
-    
+
     if !settings.enabled {
         return Ok(vec![]);
     }
@@ -421,7 +453,7 @@ pub async fn get_playlist_queue_items(
             CASE WHEN ?1 = 1 THEN pv.discovered_at END DESC,
             CASE WHEN ?1 = 0 THEN pv.position END ASC
         LIMIT ?2
-        "#
+        "#,
     )
     .bind(settings.prefer_new_videos)
     .bind(limit)
@@ -429,8 +461,9 @@ pub async fn get_playlist_queue_items(
     .await
     .map_err(IncrementumError::Database)?;
 
-    Ok(rows.into_iter().map(|row| {
-        PlaylistQueueItem {
+    Ok(rows
+        .into_iter()
+        .map(|row| PlaylistQueueItem {
             playlist_video_id: row.get("playlist_video_id"),
             video_id: row.get("video_id"),
             video_title: row.try_get("video_title").ok(),
@@ -441,8 +474,8 @@ pub async fn get_playlist_queue_items(
             subscription_title: row.try_get("subscription_title").ok(),
             intersperse_interval: row.get("queue_intersperse_interval"),
             priority_rating: row.get("priority_rating"),
-        }
-    }).collect())
+        })
+        .collect())
 }
 
 /// Mark a playlist video as added to the queue at a specific position
@@ -452,7 +485,8 @@ pub async fn mark_playlist_video_queued(
     queue_position: i32,
     repo: State<'_, Repository>,
 ) -> Result<()> {
-    repo.mark_video_added_to_queue(&playlist_video_id, queue_position).await
+    repo.mark_video_added_to_queue(&playlist_video_id, queue_position)
+        .await
 }
 
 /// Build a YouTube thumbnail URL from a video ID
@@ -461,9 +495,7 @@ fn youtube_thumbnail_url(video_id: &str) -> String {
 }
 
 fn extract_playlist_id(url: &str) -> Option<String> {
-    let patterns = [
-        r"[?&]list=([a-zA-Z0-9_-]+)",
-    ];
+    let patterns = [r"[?&]list=([a-zA-Z0-9_-]+)"];
 
     for pattern in &patterns {
         if let Ok(re) = regex::Regex::new(pattern) {

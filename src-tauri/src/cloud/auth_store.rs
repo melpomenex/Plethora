@@ -5,7 +5,7 @@
 
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
-    Aes256Gcm, AeadCore, Nonce,
+    AeadCore, Aes256Gcm, Nonce,
 };
 use pbkdf2::pbkdf2_hmac;
 use rand::RngCore;
@@ -17,6 +17,7 @@ use tokio::sync::RwLock;
 
 use super::provider::{AuthToken, CloudProvider, CloudProviderType};
 use crate::error::AppError;
+use crate::utils::keychain::keychain_enabled;
 
 const KEYRING_SERVICE: &str = "com.incrementum.app";
 const TOKENS_DIR_NAME: &str = "tokens";
@@ -38,23 +39,25 @@ impl AuthStore {
         provider_type: CloudProviderType,
         token: &AuthToken,
     ) -> Result<(), AppError> {
-        let json =
-            serde_json::to_string(token).map_err(|e| AppError::Internal(format!(
-                "Failed to serialize token: {e}"
-            )))?;
+        let json = serde_json::to_string(token)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize token: {e}")))?;
 
         let username = provider_type.as_str();
 
-        // Try the OS keychain first.
-        if let Err(keychain_err) = Self::keyring_set(username, &json) {
-            tracing::warn!(
-                "Keychain unavailable for {}, falling back to encrypted file: {}",
-                username,
-                keychain_err
-            );
-            self.encrypted_file_store(provider_type, json.as_bytes())
-                .await?;
+        if Self::should_use_keyring() {
+            if let Err(keychain_err) = Self::keyring_set(username, &json) {
+                tracing::warn!(
+                    "Keychain unavailable for {}, falling back to encrypted file: {}",
+                    username,
+                    keychain_err
+                );
+            } else {
+                return Ok(());
+            }
         }
+
+        self.encrypted_file_store(provider_type, json.as_bytes())
+            .await?;
         Ok(())
     }
 
@@ -64,20 +67,23 @@ impl AuthStore {
     ) -> Result<Option<AuthToken>, AppError> {
         let username = provider_type.as_str();
 
-        // Try the OS keychain first.
-        match Self::keyring_get(username) {
-            Ok(json) => {
-                let token: AuthToken = serde_json::from_str(&json).map_err(|e| {
-                    AppError::Internal(format!("Failed to deserialize token from keychain: {e}"))
-                })?;
-                return Ok(Some(token));
-            }
-            Err(keychain_err) => {
-                tracing::warn!(
-                    "Keychain unavailable for {}, trying encrypted file: {}",
-                    username,
-                    keychain_err
-                );
+        if Self::should_use_keyring() {
+            match Self::keyring_get(username) {
+                Ok(json) => {
+                    let token: AuthToken = serde_json::from_str(&json).map_err(|e| {
+                        AppError::Internal(format!(
+                            "Failed to deserialize token from keychain: {e}"
+                        ))
+                    })?;
+                    return Ok(Some(token));
+                }
+                Err(keychain_err) => {
+                    tracing::warn!(
+                        "Keychain unavailable for {}, trying encrypted file: {}",
+                        username,
+                        keychain_err
+                    );
+                }
             }
         }
 
@@ -102,37 +108,50 @@ impl AuthStore {
     pub async fn remove_token(&self, provider_type: CloudProviderType) -> Result<(), AppError> {
         let username = provider_type.as_str();
 
-        // Best-effort keychain delete (ignore error – token may not exist).
-        let _ = Self::keyring_delete(username);
+        if Self::should_use_keyring() {
+            let _ = Self::keyring_delete(username);
+        }
 
         // Also delete the encrypted fallback file.
         let enc_path = self.token_enc_path(provider_type);
         if enc_path.exists() {
             std::fs::remove_file(&enc_path).map_err(|e| {
-                AppError::Internal(format!("Failed to delete token file {}: {e}", enc_path.display()))
+                AppError::Internal(format!(
+                    "Failed to delete token file {}: {e}",
+                    enc_path.display()
+                ))
             })?;
         }
         Ok(())
     }
 
+    fn should_use_keyring() -> bool {
+        keychain_enabled()
+    }
+
     fn keyring_entry(username: &str) -> Result<keyring::Entry, String> {
-        keyring::Entry::new(KEYRING_SERVICE, username)
-            .map_err(|e| format!("keyring error: {e}"))
+        keyring::Entry::new(KEYRING_SERVICE, username).map_err(|e| format!("keyring error: {e}"))
     }
 
     fn keyring_set(username: &str, json: &str) -> Result<(), String> {
         let entry = Self::keyring_entry(username)?;
-        entry.set_password(json).map_err(|e| format!("keyring set: {e}"))
+        entry
+            .set_password(json)
+            .map_err(|e| format!("keyring set: {e}"))
     }
 
     fn keyring_get(username: &str) -> Result<String, String> {
         let entry = Self::keyring_entry(username)?;
-        entry.get_password().map_err(|e| format!("keyring get: {e}"))
+        entry
+            .get_password()
+            .map_err(|e| format!("keyring get: {e}"))
     }
 
     fn keyring_delete(username: &str) -> Result<(), String> {
         let entry = Self::keyring_entry(username)?;
-        entry.delete_credential().map_err(|e| format!("keyring delete: {e}"))
+        entry
+            .delete_credential()
+            .map_err(|e| format!("keyring delete: {e}"))
     }
 
     // ── encrypted-file fallback ───────────────────────────────
@@ -151,12 +170,7 @@ impl AuthStore {
         let password = format!("{}:{}", username, user_id());
 
         let mut key = [0u8; 32];
-        pbkdf2_hmac::<Sha256>(
-            password.as_bytes(),
-            salt,
-            100_000,
-            &mut key,
-        );
+        pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, 100_000, &mut key);
         Ok(key)
     }
 
@@ -185,7 +199,10 @@ impl AuthStore {
     ) -> Result<(), AppError> {
         let dir = self.tokens_dir();
         std::fs::create_dir_all(&dir).map_err(|e| {
-            AppError::Internal(format!("Failed to create tokens dir {}: {e}", dir.display()))
+            AppError::Internal(format!(
+                "Failed to create tokens dir {}: {e}",
+                dir.display()
+            ))
         })?;
 
         let mut salt = [0u8; 16];
@@ -227,10 +244,7 @@ impl AuthStore {
         }
 
         let data = std::fs::read(&path).map_err(|e| {
-            AppError::Internal(format!(
-                "Failed to read token file {}: {e}",
-                path.display()
-            ))
+            AppError::Internal(format!("Failed to read token file {}: {e}", path.display()))
         })?;
 
         // New format minimum: salt(16) + nonce(12) + tag(16) = 44 bytes
@@ -271,7 +285,9 @@ impl AuthStore {
             }
         }
 
-        Err(AppError::Internal("Decryption failed: credentials may be from a different machine".to_string()))
+        Err(AppError::Internal(
+            "Decryption failed: credentials may be from a different machine".to_string(),
+        ))
     }
 }
 
@@ -295,9 +311,9 @@ fn user_id() -> String {
 }
 
 pub struct CloudAuthProvider {
-    providers: std::sync::Arc<std::sync::Mutex<
-        HashMap<CloudProviderType, Arc<RwLock<Box<dyn CloudProvider>>>>,
-    >>,
+    providers: std::sync::Arc<
+        std::sync::Mutex<HashMap<CloudProviderType, Arc<RwLock<Box<dyn CloudProvider>>>>>,
+    >,
 }
 
 impl Clone for CloudAuthProvider {
@@ -326,11 +342,7 @@ impl CloudAuthProvider {
             .cloned()
     }
 
-    pub fn set_provider(
-        &self,
-        provider_type: CloudProviderType,
-        provider: Box<dyn CloudProvider>,
-    ) {
+    pub fn set_provider(&self, provider_type: CloudProviderType, provider: Box<dyn CloudProvider>) {
         self.providers
             .lock()
             .expect("auth_store mutex poisoned")
@@ -338,10 +350,16 @@ impl CloudAuthProvider {
     }
 
     pub fn remove_provider(&self, provider_type: CloudProviderType) {
-        self.providers.lock().expect("auth_store mutex poisoned").remove(&provider_type);
+        self.providers
+            .lock()
+            .expect("auth_store mutex poisoned")
+            .remove(&provider_type);
     }
 
     pub fn is_authenticated(&self, provider_type: CloudProviderType) -> bool {
-        self.providers.lock().expect("auth_store mutex poisoned").contains_key(&provider_type)
+        self.providers
+            .lock()
+            .expect("auth_store mutex poisoned")
+            .contains_key(&provider_type)
     }
 }

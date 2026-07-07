@@ -42,10 +42,14 @@ pub async fn ingest_image_asset(
 ) -> Result<ImageAssetDto> {
     let bytes = general_purpose::STANDARD
         .decode(base64_data.as_bytes())
-        .map_err(|e| IncrementumError::InvalidInput(format!("Invalid base64 image payload: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::InvalidInput(format!("Invalid base64 image payload: {}", e))
+        })?;
 
     if bytes.is_empty() {
-        return Err(IncrementumError::InvalidInput("Image payload is empty".to_string()));
+        return Err(IncrementumError::InvalidInput(
+            "Image payload is empty".to_string(),
+        ));
     }
 
     if bytes.len() > MAX_IMAGE_BYTES {
@@ -60,7 +64,9 @@ pub async fn ingest_image_asset(
     let normalized_mime = normalize_mime(mime_type.as_deref(), guessed)?;
 
     let dimensions = image::load_from_memory(&bytes)
-        .map_err(|e| IncrementumError::InvalidInput(format!("Unable to decode image dimensions: {}", e)))?
+        .map_err(|e| {
+            IncrementumError::InvalidInput(format!("Unable to decode image dimensions: {}", e))
+        })?
         .dimensions();
 
     let sha256 = hex_sha256(&bytes);
@@ -88,13 +94,19 @@ pub async fn list_image_assets(repo: State<'_, Repository>) -> Result<Vec<ImageA
 }
 
 #[tauri::command]
-pub async fn get_image_asset(asset_id: String, repo: State<'_, Repository>) -> Result<Option<ImageAssetDto>> {
+pub async fn get_image_asset(
+    asset_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<ImageAssetDto>> {
     let asset = repo.get_image_asset(&asset_id).await?;
     Ok(asset.map(|asset| to_dto_with_usage(asset, 0)))
 }
 
 #[tauri::command]
-pub async fn delete_image_asset(asset_id: String, repo: State<'_, Repository>) -> Result<DeleteImageAssetResult> {
+pub async fn delete_image_asset(
+    asset_id: String,
+    repo: State<'_, Repository>,
+) -> Result<DeleteImageAssetResult> {
     let deleted = repo.delete_image_asset_if_unreferenced(&asset_id).await?;
     if deleted {
         return Ok(DeleteImageAssetResult {
@@ -132,7 +144,8 @@ fn to_dto_with_usage(asset: crate::models::ImageAsset, reference_count: i64) -> 
 
 fn to_registry_list_dto(asset: crate::models::ImageAsset, reference_count: i64) -> ImageAssetDto {
     let mime_type = asset.mime_type.clone();
-    let data_url = thumbnail_data_url(&asset.content).unwrap_or_else(|| encode_data_url(&mime_type, &asset.content));
+    let data_url = thumbnail_data_url(&asset.content)
+        .unwrap_or_else(|| encode_data_url(&mime_type, &asset.content));
     ImageAssetDto {
         id: asset.id,
         mime_type,
@@ -161,7 +174,9 @@ fn thumbnail_data_url(bytes: &[u8]) -> Option<String> {
     );
 
     let mut buffer = Cursor::new(Vec::new());
-    thumbnail.write_to(&mut buffer, image::ImageFormat::Png).ok()?;
+    thumbnail
+        .write_to(&mut buffer, image::ImageFormat::Png)
+        .ok()?;
     Some(encode_data_url("image/png", &buffer.into_inner()))
 }
 
@@ -177,7 +192,11 @@ fn normalize_mime(requested: Option<&str>, guessed: image::ImageFormat) -> Resul
         image::ImageFormat::Jpeg => "image/jpeg",
         image::ImageFormat::Gif => "image/gif",
         image::ImageFormat::WebP => "image/webp",
-        _ => return Err(IncrementumError::InvalidInput("Unsupported image format".to_string())),
+        _ => {
+            return Err(IncrementumError::InvalidInput(
+                "Unsupported image format".to_string(),
+            ))
+        }
     };
 
     if let Some(requested) = requested {

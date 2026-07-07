@@ -12,7 +12,7 @@ pub struct Document {
     pub title: String,
     pub file_path: String,
     pub file_type: FileType,
-    pub content: Option<String>,  // Extracted text content
+    pub content: Option<String>, // Extracted text content
     pub content_hash: Option<String>,
     pub total_pages: Option<i32>,
     pub current_page: Option<i32>,
@@ -116,10 +116,16 @@ impl Document {
         Self::with_collection(title, file_path, file_type, None)
     }
 
-    pub fn with_collection(title: String, file_path: String, file_type: FileType, collection_id: Option<String>) -> Self {
+    pub fn with_collection(
+        title: String,
+        file_path: String,
+        file_type: FileType,
+        collection_id: Option<String>,
+    ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
-            collection_id: collection_id.unwrap_or_else(|| super::collection::DEFAULT_COLLECTION_ID.to_string()),
+            collection_id: collection_id
+                .unwrap_or_else(|| super::collection::DEFAULT_COLLECTION_ID.to_string()),
             title,
             file_path,
             file_type,

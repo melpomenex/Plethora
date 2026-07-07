@@ -1,7 +1,7 @@
 //! Full-text search commands using FTS5
 
-use serde::{Deserialize, Serialize};
 use crate::database::Repository;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 /// Search result from FTS5
@@ -36,11 +36,16 @@ pub struct FtsSearchStats {
 }
 
 #[tauri::command]
-pub async fn fts_search(query: FtsSearchQuery, repo: State<'_, Repository>) -> Result<Vec<FtsSearchResult>, String> {
+pub async fn fts_search(
+    query: FtsSearchQuery,
+    repo: State<'_, Repository>,
+) -> Result<Vec<FtsSearchResult>, String> {
     let limit = query.limit.unwrap_or(50).min(200);
     let offset = query.offset.unwrap_or(0);
     let fts_query = format!("{}*", query.query);
-    let types = query.result_types.unwrap_or_else(|| vec!["document".into(), "extract".into()]);
+    let types = query
+        .result_types
+        .unwrap_or_else(|| vec!["document".into(), "extract".into()]);
 
     let mut results = Vec::new();
 
@@ -99,13 +104,20 @@ pub async fn fts_search(query: FtsSearchQuery, repo: State<'_, Repository>) -> R
         }
     }
 
-    results.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        a.score
+            .partial_cmp(&b.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(limit as usize);
     Ok(results)
 }
 
 #[tauri::command]
-pub async fn fts_search_suggestions(query: String, repo: State<'_, Repository>) -> Result<Vec<String>, String> {
+pub async fn fts_search_suggestions(
+    query: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<String>, String> {
     if query.len() < 2 {
         return Ok(vec![]);
     }
@@ -115,7 +127,7 @@ pub async fn fts_search_suggestions(query: String, repo: State<'_, Repository>) 
         "SELECT d.title FROM document_search ds \
          INNER JOIN documents d ON ds.document_id = d.id \
          WHERE document_search MATCH ? \
-         ORDER BY rank LIMIT 8"
+         ORDER BY rank LIMIT 8",
     )
     .bind(&fts_query)
     .fetch_all(repo.pool())

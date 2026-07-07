@@ -1,13 +1,13 @@
-use serde_json::json;
-use super::types::{ToolDefinition, ToolCallResult, ToolContent};
-use std::collections::HashMap;
-use std::sync::Arc;
-use crate::database::Repository;
+use super::types::{ToolCallResult, ToolContent, ToolDefinition};
 use crate::commands::review::apply_review;
-use crate::models::{Document, Extract, LearningItem, FileType, ItemType, VideoExtract};
+use crate::database::Repository;
+use crate::models::{Document, Extract, FileType, ItemType, LearningItem, VideoExtract};
 use crate::youtube::TranscriptSegment;
-use chrono::{Utc, Duration};
+use chrono::{Duration, Utc};
+use serde_json::json;
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 pub struct MCPToolRegistry {
     tools: HashMap<String, ToolDefinition>,
@@ -351,8 +351,13 @@ impl MCPToolRegistry {
         self.tools.get(name)
     }
 
-    pub async fn execute_tool(&self, name: &str, arguments: serde_json::Value) -> Result<ToolCallResult, String> {
-        let tool = self.get_tool(name)
+    pub async fn execute_tool(
+        &self,
+        name: &str,
+        arguments: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
+        let tool = self
+            .get_tool(name)
             .ok_or(format!("Tool '{}' not found", name))?;
 
         match tool.name.as_str() {
@@ -395,7 +400,10 @@ impl MCPToolRegistry {
     }
 
     // Document operations
-    async fn execute_create_document(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_create_document(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let title = args["title"].as_str().ok_or("title is required")?;
         let content = args["content"].as_str();
         let file_path = args["file_path"].as_str().unwrap_or("");
@@ -416,7 +424,8 @@ impl MCPToolRegistry {
                         "id": created.id,
                         "title": created.title,
                         "message": "Document created successfully"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -426,15 +435,21 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_get_document(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
+    async fn execute_get_document(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
 
         match self.repository.get_document(document_id).await {
             Ok(Some(doc)) => Ok(ToolCallResult {
@@ -448,7 +463,8 @@ impl MCPToolRegistry {
                         "total_pages": doc.total_pages,
                         "tags": doc.tags,
                         "category": doc.category
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -458,7 +474,8 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": "Document not found"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
@@ -468,14 +485,18 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_search_documents(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_search_documents(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let query = args["query"].as_str().ok_or("query is required")?;
 
         match self.repository.list_documents().await {
@@ -484,7 +505,9 @@ impl MCPToolRegistry {
                     .into_iter()
                     .filter(|d| {
                         d.title.to_lowercase().contains(&query.to_lowercase())
-                            || d.content.as_ref().is_some_and(|c| c.to_lowercase().contains(&query.to_lowercase()))
+                            || d.content
+                                .as_ref()
+                                .is_some_and(|c| c.to_lowercase().contains(&query.to_lowercase()))
                     })
                     .take(args["limit"].as_u64().unwrap_or(10) as usize)
                     .collect();
@@ -499,7 +522,8 @@ impl MCPToolRegistry {
                                 "title": d.title,
                                 "file_type": format!("{:?}", d.file_type).to_lowercase()
                             })).collect::<Vec<_>>()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(false),
                 })
@@ -510,15 +534,21 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_update_document(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
+    async fn execute_update_document(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
 
         // First get the existing document
         let mut doc = match self.repository.get_document(document_id).await {
@@ -530,7 +560,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": "Document not found"
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -542,7 +573,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": e.to_string()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -554,7 +586,10 @@ impl MCPToolRegistry {
             doc.title = title.to_string();
         }
         if let Some(tags) = args["tags"].as_array() {
-            doc.tags = tags.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect();
+            doc.tags = tags
+                .iter()
+                .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                .collect();
         }
         doc.date_modified = Utc::now();
 
@@ -567,7 +602,8 @@ impl MCPToolRegistry {
                         "id": updated.id,
                         "title": updated.title,
                         "message": "Document updated successfully"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -577,15 +613,21 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_delete_document(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
+    async fn execute_delete_document(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
 
         match self.repository.delete_document(document_id).await {
             Ok(_) => Ok(ToolCallResult {
@@ -594,7 +636,8 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": true,
                         "message": "Document deleted successfully"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -604,14 +647,18 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_create_cloze_card(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_create_cloze_card(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let text = args["text"].as_str().ok_or("text is required")?;
         let document_id = args["document_id"].as_str();
         let tags = args["tags"].as_array();
@@ -642,7 +689,8 @@ impl MCPToolRegistry {
                         "id": created.id,
                         "type": "cloze",
                         "message": "Cloze card created successfully"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -652,14 +700,18 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_create_qa_card(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_create_qa_card(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let question = args["question"].as_str().ok_or("question is required")?;
         let answer = args["answer"].as_str().ok_or("answer is required")?;
         let document_id = args["document_id"].as_str();
@@ -691,7 +743,8 @@ impl MCPToolRegistry {
                         "id": created.id,
                         "type": "qa",
                         "message": "Q&A card created successfully"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -701,16 +754,22 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_create_extract(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_create_extract(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let content = args["content"].as_str().ok_or("content is required")?;
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
         let note = args["note"].as_str();
         let color = args["color"].as_str();
         let tags = args["tags"].as_array();
@@ -723,7 +782,10 @@ impl MCPToolRegistry {
             extract.highlight_color = Some(color.to_string());
         }
         if let Some(tags) = tags {
-            extract.tags = tags.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect();
+            extract.tags = tags
+                .iter()
+                .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                .collect();
         }
 
         match self.repository.create_extract(&extract).await {
@@ -735,7 +797,8 @@ impl MCPToolRegistry {
                         "id": created.id,
                         "content": created.content,
                         "message": "Extract created successfully"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -745,21 +808,32 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_get_learning_items(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
+    async fn execute_get_learning_items(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
         let item_type_filter = args["item_type"].as_str();
 
-        match self.repository.get_learning_items_by_document(document_id).await {
+        match self
+            .repository
+            .get_learning_items_by_document(document_id)
+            .await
+        {
             Ok(items) => {
                 let filtered: Vec<_> = if let Some(item_type) = item_type_filter {
-                    items.into_iter()
+                    items
+                        .into_iter()
                         .filter(|i| format!("{:?}", i.item_type).to_lowercase() == item_type)
                         .collect()
                 } else {
@@ -778,7 +852,8 @@ impl MCPToolRegistry {
                                 "answer": i.answer,
                                 "state": format!("{:?}", i.state).to_lowercase()
                             })).collect::<Vec<_>>()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(false),
                 })
@@ -789,15 +864,21 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_get_document_extracts(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
+    async fn execute_get_document_extracts(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
 
         match self.repository.list_extracts_by_document(document_id).await {
             Ok(extracts) => Ok(ToolCallResult {
@@ -812,7 +893,8 @@ impl MCPToolRegistry {
                             "highlight_color": e.highlight_color,
                             "tags": e.tags
                         })).collect::<Vec<_>>()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -822,17 +904,25 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_get_review_queue(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_get_review_queue(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let limit = args["limit"].as_u64().unwrap_or(20) as usize;
 
-        match self.repository.get_due_learning_items(&Utc::now(), None).await {
+        match self
+            .repository
+            .get_due_learning_items(&Utc::now(), None)
+            .await
+        {
             Ok(items) => {
                 let limited: Vec<_> = items.into_iter().take(limit).collect();
 
@@ -847,7 +937,8 @@ impl MCPToolRegistry {
                                 "question": i.question,
                                 "due_date": i.due_date
                             })).collect::<Vec<_>>()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(false),
                 })
@@ -858,14 +949,18 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_submit_review(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_submit_review(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let item_id = args["item_id"].as_str().ok_or("item_id is required")?;
         let rating = args["rating"].as_u64().ok_or("rating is required")?;
 
@@ -888,7 +983,8 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": true,
                         "message": "Review submitted successfully"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -898,18 +994,24 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_rate_document(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_rate_document(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         use crate::algorithms::DocumentScheduler;
         use crate::models::ReviewRating;
 
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
         let rating = args["rating"].as_u64().ok_or("rating is required")?;
         let time_taken = args["time_taken"].as_i64().map(|t| t as i32);
 
@@ -922,7 +1024,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": "Document not found"
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -934,7 +1037,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": e.to_string()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -945,11 +1049,10 @@ impl MCPToolRegistry {
         let now = Utc::now();
 
         // Calculate elapsed days since last review
-        let elapsed_days = document.date_last_reviewed
+        let elapsed_days = document
+            .date_last_reviewed
             .map(|lr| (now - lr).num_seconds() as f64 / 86400.0)
-            .unwrap_or_else(|| {
-                (now - document.date_added).num_seconds() as f64 / 86400.0
-            })
+            .unwrap_or_else(|| (now - document.date_added).num_seconds() as f64 / 86400.0)
             .max(0.0);
 
         let review_rating = ReviewRating::from(rating as i32);
@@ -959,7 +1062,7 @@ impl MCPToolRegistry {
             review_rating,
             document.stability,
             document.difficulty,
-            elapsed_days
+            elapsed_days,
         );
         let result = match result {
             Ok(result) => result,
@@ -970,7 +1073,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": e.to_string()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -980,14 +1084,18 @@ impl MCPToolRegistry {
         let new_reps = document.reps.unwrap_or(0) + 1;
         let new_time_spent = document.total_time_spent.unwrap_or(0) + time_taken.unwrap_or(0);
 
-        match self.repository.update_document_scheduling(
-            &document.id,
-            Some(result.next_review),
-            Some(result.stability),
-            Some(result.difficulty),
-            Some(new_reps),
-            Some(new_time_spent),
-        ).await {
+        match self
+            .repository
+            .update_document_scheduling(
+                &document.id,
+                Some(result.next_review),
+                Some(result.stability),
+                Some(result.difficulty),
+                Some(new_reps),
+                Some(new_time_spent),
+            )
+            .await
+        {
             Ok(_) => Ok(ToolCallResult {
                 content: vec![ToolContent {
                     r#type: "text".to_string(),
@@ -998,7 +1106,8 @@ impl MCPToolRegistry {
                         "stability": result.stability,
                         "difficulty": result.difficulty,
                         "interval_days": result.interval_days
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -1008,18 +1117,24 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_rate_extract(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_rate_extract(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         use crate::algorithms::DocumentScheduler;
         use crate::models::ReviewRating;
 
-        let extract_id = args["extract_id"].as_str().ok_or("extract_id is required")?;
+        let extract_id = args["extract_id"]
+            .as_str()
+            .ok_or("extract_id is required")?;
         let rating = args["rating"].as_u64().ok_or("rating is required")?;
         let _time_taken = args["time_taken"].as_i64().map(|t| t as i32);
 
@@ -1032,7 +1147,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": "Extract not found"
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -1044,7 +1160,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": e.to_string()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -1055,11 +1172,10 @@ impl MCPToolRegistry {
         let now = Utc::now();
 
         // Calculate elapsed days since last review
-        let elapsed_days = extract.last_review_date
+        let elapsed_days = extract
+            .last_review_date
             .map(|lr| (now - lr).num_seconds() as f64 / 86400.0)
-            .unwrap_or_else(|| {
-                (now - extract.date_created).num_seconds() as f64 / 86400.0
-            })
+            .unwrap_or_else(|| (now - extract.date_created).num_seconds() as f64 / 86400.0)
             .max(0.0);
 
         let review_rating = ReviewRating::from(rating as i32);
@@ -1072,7 +1188,7 @@ impl MCPToolRegistry {
             review_rating,
             current_stability,
             current_difficulty,
-            elapsed_days
+            elapsed_days,
         );
         let result = match result {
             Ok(result) => result,
@@ -1083,7 +1199,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": e.to_string()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -1094,15 +1211,19 @@ impl MCPToolRegistry {
         let new_reps = extract.reps + 1;
         let last_review = Some(now);
 
-        match self.repository.update_extract_scheduling(
-            &extract.id,
-            Some(result.next_review),
-            Some(result.stability),
-            Some(result.difficulty),
-            Some(new_review_count),
-            Some(new_reps),
-            last_review,
-        ).await {
+        match self
+            .repository
+            .update_extract_scheduling(
+                &extract.id,
+                Some(result.next_review),
+                Some(result.stability),
+                Some(result.difficulty),
+                Some(new_review_count),
+                Some(new_reps),
+                last_review,
+            )
+            .await
+        {
             Ok(_) => Ok(ToolCallResult {
                 content: vec![ToolContent {
                     r#type: "text".to_string(),
@@ -1113,7 +1234,8 @@ impl MCPToolRegistry {
                         "stability": result.stability,
                         "difficulty": result.difficulty,
                         "interval_days": result.interval_days
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -1123,16 +1245,24 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_get_statistics(&self, _args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_get_statistics(
+        &self,
+        _args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let docs = self.repository.list_documents().await.unwrap_or_default();
-        let items = self.repository.get_all_learning_items().await.unwrap_or_default();
+        let items = self
+            .repository
+            .get_all_learning_items()
+            .await
+            .unwrap_or_default();
 
         Ok(ToolCallResult {
             content: vec![ToolContent {
@@ -1142,15 +1272,23 @@ impl MCPToolRegistry {
                     "learning_items": items.len(),
                     "reviews": items.iter().map(|i| i.review_count).sum::<i32>(),
                     "due_today": items.iter().filter(|i| i.due_date <= Utc::now()).count()
-                }).to_string(),
+                })
+                .to_string(),
             }],
             is_error: Some(false),
         })
     }
 
-    async fn execute_add_pdf_selection(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
-        let page_number = args["page_number"].as_u64().ok_or("page_number is required")?;
+    async fn execute_add_pdf_selection(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
+        let page_number = args["page_number"]
+            .as_u64()
+            .ok_or("page_number is required")?;
         let selection = args["selection"].as_str().ok_or("selection is required")?;
 
         let mut extract = Extract::new(document_id.to_string(), selection.to_string());
@@ -1166,7 +1304,8 @@ impl MCPToolRegistry {
                         "id": created.id,
                         "page_number": page_number,
                         "message": "PDF selection added successfully"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -1176,14 +1315,18 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_batch_create_cards(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_batch_create_cards(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let cards = args["cards"].as_array().ok_or("cards array is required")?;
         let document_id = args["document_id"].as_str();
         let image_asset_ids = args["image_asset_ids"].as_array();
@@ -1234,18 +1377,23 @@ impl MCPToolRegistry {
                 text: json!({
                     "created": results.len(),
                     "results": results
-                }).to_string(),
+                })
+                .to_string(),
             }],
             is_error: Some(false),
         })
     }
 
-    async fn execute_get_queue_documents(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_get_queue_documents(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let count = args["count"].as_u64().unwrap_or(10) as usize;
 
         match self.repository.list_documents().await {
             Ok(docs) => {
-                let queued: Vec<_> = docs.into_iter()
+                let queued: Vec<_> = docs
+                    .into_iter()
                     .filter(|d| !d.is_archived)
                     .take(count)
                     .collect();
@@ -1261,7 +1409,8 @@ impl MCPToolRegistry {
                                 "file_type": format!("{:?}", d.file_type).to_lowercase(),
                                 "priority_score": d.priority_score
                             })).collect::<Vec<_>>()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(false),
                 })
@@ -1272,14 +1421,18 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_extract_video_snippet(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
+    async fn execute_extract_video_snippet(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         let document_id = args["document_id"].as_str();
         let url = args["url"].as_str();
         let description = args["description"].as_str();
@@ -1291,15 +1444,24 @@ impl MCPToolRegistry {
 
         // Find the video document
         let doc = if let Some(doc_id) = document_id {
-            self.repository.get_document(doc_id).await
+            self.repository
+                .get_document(doc_id)
+                .await
                 .map_err(|e| e.to_string())?
                 .ok_or_else(|| format!("Document with ID '{}' not found", doc_id))?
         } else if let Some(video_url) = url {
             // Try to find by URL in documents
-            let docs = self.repository.list_documents().await
+            let docs = self
+                .repository
+                .list_documents()
+                .await
                 .map_err(|e| e.to_string())?;
             docs.into_iter()
-                .find(|d| d.file_path.contains(video_url) || d.file_path.contains(&video_url.replace("https://", "").replace("http://", "")))
+                .find(|d| {
+                    d.file_path.contains(video_url)
+                        || d.file_path
+                            .contains(&video_url.replace("https://", "").replace("http://", ""))
+                })
                 .ok_or_else(|| format!("No document found for URL '{}'", video_url))?
         } else {
             return Ok(ToolCallResult {
@@ -1308,7 +1470,8 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": "Either document_id or url must be provided"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             });
@@ -1322,18 +1485,20 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": format!("Document is not a video (file type: {:?})", doc.file_type)
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             });
         }
 
-        let segments: Vec<TranscriptSegment> = match self.repository.get_video_transcript(&doc.id).await {
-            Ok(Some((_transcript, segments_json))) => {
-                serde_json::from_str(&segments_json).unwrap_or_default()
-            }
-            _ => Vec::new(),
-        };
+        let segments: Vec<TranscriptSegment> =
+            match self.repository.get_video_transcript(&doc.id).await {
+                Ok(Some((_transcript, segments_json))) => {
+                    serde_json::from_str(&segments_json).unwrap_or_default()
+                }
+                _ => Vec::new(),
+            };
 
         if segments.is_empty() {
             return Ok(ToolCallResult {
@@ -1349,9 +1514,12 @@ impl MCPToolRegistry {
         }
 
         // Find matching segment(s) based on parameters
-        let (found_start, found_end, found_text) = if let (Some(start), Some(end)) = (start_time, end_time) {
+        let (found_start, found_end, found_text) = if let (Some(start), Some(end)) =
+            (start_time, end_time)
+        {
             // Direct time range provided
-            let text: String = segments.iter()
+            let text: String = segments
+                .iter()
                 .filter(|s| s.start >= start && (s.start + s.duration) <= end)
                 .map(|s| s.text.clone())
                 .collect::<Vec<_>>()
@@ -1370,12 +1538,18 @@ impl MCPToolRegistry {
                     // Found a match, get some context (up to 30 seconds before and after)
                     let context_start = segment.start.max(0.0);
                     let context_end = (segment.start + segment.duration + 30.0).min(
-                        segments.last().map(|s| s.start + s.duration).unwrap_or(3600.0)
+                        segments
+                            .last()
+                            .map(|s| s.start + s.duration)
+                            .unwrap_or(3600.0),
                     );
 
                     // Collect text in range
-                    let text: String = segments.iter()
-                        .filter(|s| s.start >= context_start && (s.start + s.duration) <= context_end)
+                    let text: String = segments
+                        .iter()
+                        .filter(|s| {
+                            s.start >= context_start && (s.start + s.duration) <= context_end
+                        })
                         .map(|s| s.text.clone())
                         .collect::<Vec<_>>()
                         .join(" ");
@@ -1408,12 +1582,19 @@ impl MCPToolRegistry {
             }
         } else {
             // No search criteria provided, get first 2 minutes
-            let end = segments.iter()
+            let end = segments
+                .iter()
                 .find(|s| s.start + s.duration >= 120.0)
                 .map(|s| s.start + s.duration)
-                .unwrap_or_else(|| segments.last().map(|s| s.start + s.duration).unwrap_or(120.0));
+                .unwrap_or_else(|| {
+                    segments
+                        .last()
+                        .map(|s| s.start + s.duration)
+                        .unwrap_or(120.0)
+                });
 
-            let text: String = segments.iter()
+            let text: String = segments
+                .iter()
                 .filter(|s| s.start >= 0.0 && (s.start + s.duration) <= end)
                 .map(|s| s.text.clone())
                 .collect::<Vec<_>>()
@@ -1435,15 +1616,13 @@ impl MCPToolRegistry {
             format!("Segment at {}", format_seconds(found_start))
         };
 
-        let mut extract = VideoExtract::new(
-            doc.id.clone(),
-            found_start,
-            found_end,
-            extract_title,
-        );
+        let mut extract = VideoExtract::new(doc.id.clone(), found_start, found_end, extract_title);
         extract.transcript_text = Some(found_text);
         if let Some(tags_arr) = tags {
-            extract.tags = tags_arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect();
+            extract.tags = tags_arr
+                .iter()
+                .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                .collect();
         }
 
         // Add to queue if requested
@@ -1470,7 +1649,8 @@ impl MCPToolRegistry {
                         "add_to_queue": add_to_queue,
                         "next_review_date": created.next_review_date,
                         "message": "Video extract created successfully"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -1480,17 +1660,27 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_get_video_extracts(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
+    async fn execute_get_video_extracts(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
 
-        match self.repository.get_video_extracts_by_document(document_id).await {
+        match self
+            .repository
+            .get_video_extracts_by_document(document_id)
+            .await
+        {
             Ok(extracts) => Ok(ToolCallResult {
                 content: vec![ToolContent {
                     r#type: "text".to_string(),
@@ -1508,7 +1698,8 @@ impl MCPToolRegistry {
                             "next_review_date": e.next_review_date,
                             "review_count": e.review_count
                         })).collect::<Vec<_>>()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(false),
             }),
@@ -1518,15 +1709,21 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
         }
     }
 
-    async fn execute_get_video_transcript(&self, args: serde_json::Value) -> Result<ToolCallResult, String> {
-        let document_id = args["document_id"].as_str().ok_or("document_id is required")?;
+    async fn execute_get_video_transcript(
+        &self,
+        args: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
+        let document_id = args["document_id"]
+            .as_str()
+            .ok_or("document_id is required")?;
 
         // First verify document exists
         let _doc = match self.repository.get_document(document_id).await {
@@ -1538,7 +1735,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": "Document not found"
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -1550,7 +1748,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "success": false,
                             "error": e.to_string()
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(true),
                 });
@@ -1559,8 +1758,8 @@ impl MCPToolRegistry {
 
         match self.repository.get_video_transcript(document_id).await {
             Ok(Some((transcript, segments_json))) => {
-                let segments: Vec<serde_json::Value> = serde_json::from_str(&segments_json)
-                    .unwrap_or_default();
+                let segments: Vec<serde_json::Value> =
+                    serde_json::from_str(&segments_json).unwrap_or_default();
 
                 Ok(ToolCallResult {
                     content: vec![ToolContent {
@@ -1571,7 +1770,8 @@ impl MCPToolRegistry {
                             "transcript": transcript,
                             "segments_count": segments.len(),
                             "segments": segments
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(false),
                 })
@@ -1582,7 +1782,8 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": "No transcript found for this video"
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
@@ -1592,7 +1793,8 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),
@@ -1603,7 +1805,9 @@ impl MCPToolRegistry {
         let tags = args["tags"].as_array();
 
         let deck_tags: Vec<String> = if let Some(tags) = tags {
-            tags.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect()
+            tags.iter()
+                .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                .collect()
         } else {
             vec![name.to_string()]
         };
@@ -1616,7 +1820,8 @@ impl MCPToolRegistry {
                     "name": name,
                     "tags": deck_tags,
                     "message": format!("Deck '{}' created successfully", name)
-                }).to_string(),
+                })
+                .to_string(),
             }],
             is_error: Some(false),
         })
@@ -1646,7 +1851,8 @@ impl MCPToolRegistry {
                         text: json!({
                             "count": decks.len(),
                             "decks": decks
-                        }).to_string(),
+                        })
+                        .to_string(),
                     }],
                     is_error: Some(false),
                 })
@@ -1657,7 +1863,8 @@ impl MCPToolRegistry {
                     text: json!({
                         "success": false,
                         "error": e.to_string()
-                    }).to_string(),
+                    })
+                    .to_string(),
                 }],
                 is_error: Some(true),
             }),

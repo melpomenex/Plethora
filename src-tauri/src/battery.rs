@@ -5,7 +5,7 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub struct BatteryState {
     pub is_present: bool,
-    pub level: f32,       // 0.0 – 1.0
+    pub level: f32, // 0.0 – 1.0
     pub is_charging: bool,
 }
 
@@ -28,10 +28,8 @@ pub fn get_battery_state() -> BatteryState {
             match bats.next() {
                 Some(Ok(bat)) => {
                     let state = bat.state();
-                    let is_charging = matches!(
-                        state,
-                        battery::State::Charging | battery::State::Full
-                    );
+                    let is_charging =
+                        matches!(state, battery::State::Charging | battery::State::Full);
                     BatteryState {
                         is_present: true,
                         level: bat.state_of_charge().value,

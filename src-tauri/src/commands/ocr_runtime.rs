@@ -2,13 +2,8 @@
 
 use crate::error::Result;
 use crate::ocr::runtime::{
-    download_ollama_installer,
-    get_runtime_status,
-    open_installer,
-    pull_ollama_model,
-    start_ollama_runtime,
-    stop_ollama_runtime,
-    GLMRuntimeStatus,
+    download_ollama_installer, get_runtime_status, open_installer, pull_ollama_model,
+    start_ollama_runtime, stop_ollama_runtime, GLMRuntimeStatus,
 };
 use tauri::AppHandle;
 

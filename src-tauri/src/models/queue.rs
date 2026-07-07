@@ -21,7 +21,7 @@ pub struct QueueItem {
     pub tags: Vec<String>,
     pub category: Option<String>,
     pub progress: i32, // 0-100
-    
+
     // Playlist video interspersion fields
     /// The source of this queue item (e.g., "playlist:<subscription_id>")
     pub source: Option<String>,

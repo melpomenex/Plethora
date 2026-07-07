@@ -120,7 +120,11 @@ impl VideoExtract {
 
     /// Format the time range as a string (e.g., "5:30-7:15")
     pub fn format_time_range(&self) -> String {
-        format!("{}-{}", format_seconds(self.start_time), format_seconds(self.end_time))
+        format!(
+            "{}-{}",
+            format_seconds(self.start_time),
+            format_seconds(self.end_time)
+        )
     }
 
     /// Get a preview of the transcript text (first 200 characters)
@@ -155,12 +159,8 @@ mod tests {
 
     #[test]
     fn test_video_extract_creation() {
-        let extract = VideoExtract::new(
-            "doc123".to_string(),
-            30.0,
-            90.0,
-            "Introduction".to_string(),
-        );
+        let extract =
+            VideoExtract::new("doc123".to_string(), 30.0, 90.0, "Introduction".to_string());
 
         assert_eq!(extract.document_id, "doc123");
         assert_eq!(extract.start_time, 30.0);
@@ -174,10 +174,12 @@ mod tests {
         let valid = VideoExtract::new("doc123".to_string(), 30.0, 90.0, "Valid".to_string());
         assert!(valid.is_valid());
 
-        let invalid_start = VideoExtract::new("doc123".to_string(), -10.0, 90.0, "Invalid".to_string());
+        let invalid_start =
+            VideoExtract::new("doc123".to_string(), -10.0, 90.0, "Invalid".to_string());
         assert!(!invalid_start.is_valid());
 
-        let invalid_end = VideoExtract::new("doc123".to_string(), 90.0, 30.0, "Invalid".to_string());
+        let invalid_end =
+            VideoExtract::new("doc123".to_string(), 90.0, 30.0, "Invalid".to_string());
         assert!(!invalid_end.is_valid());
     }
 
@@ -187,7 +189,8 @@ mod tests {
         assert!(!short.exceeds_recommendation());
         assert!(!short.exceeds_maximum());
 
-        let recommended = VideoExtract::new("doc123".to_string(), 0.0, 400.0, "Recommended".to_string());
+        let recommended =
+            VideoExtract::new("doc123".to_string(), 0.0, 400.0, "Recommended".to_string());
         assert!(recommended.exceeds_recommendation());
         assert!(!recommended.exceeds_maximum());
 

@@ -1,16 +1,16 @@
-use tauri::{AppHandle, Manager};
-use crate::error::{IncrementumError, Result};
 use crate::database::Repository;
-use crate::models::{Document, FileType, DocumentMetadata};
-use std::path::Path;
-use std::hash::{Hash, Hasher};
-use serde::Serialize;
-use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::CommandEvent;
+use crate::error::{IncrementumError, Result};
+use crate::models::{Document, DocumentMetadata, FileType};
 use crate::transcription::engine::TranscriptionEngine;
 use crate::transcription::model_manager::ModelManager;
+use serde::Serialize;
+use std::hash::{Hash, Hasher};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tauri::State;
+use tauri::{AppHandle, Manager};
+use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::ShellExt;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,7 +98,8 @@ fn parse_ffmetadata_output(filename: &str, output: &str, ffmpeg_stderr: &str) ->
     let mut current_section: Option<String> = None;
     let mut current_chapter: Option<(String, String, String, Option<String>)> = None;
 
-    let finalize_chapter = |chapter: Option<(String, String, String, Option<String>)>, chapters: &mut Vec<AudiobookChapter>| {
+    let finalize_chapter = |chapter: Option<(String, String, String, Option<String>)>,
+                            chapters: &mut Vec<AudiobookChapter>| {
         let Some((timebase, start, end, title)) = chapter else {
             return;
         };
@@ -141,12 +142,8 @@ fn parse_ffmetadata_output(filename: &str, output: &str, ffmpeg_stderr: &str) ->
             }
             current_section = Some(trimmed.trim_matches(['[', ']']).to_string());
             if current_section.as_deref() == Some("CHAPTER") {
-                current_chapter = Some((
-                    "1/1000".to_string(),
-                    "0".to_string(),
-                    "0".to_string(),
-                    None,
-                ));
+                current_chapter =
+                    Some(("1/1000".to_string(), "0".to_string(), "0".to_string(), None));
             }
             continue;
         }
@@ -219,14 +216,14 @@ async fn extract_audiobook_info(
     file_path: &str,
 ) -> Result<ParsedAudiobookInfo> {
     let path = Path::new(file_path);
-    let filename = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let filename = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
 
     let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(app_handle)?
-        .args([
-            "-i", file_path,
-            "-f", "ffmetadata",
-            "-"
-        ])
+        .args(["-i", file_path, "-f", "ffmetadata", "-"])
         .spawn()?;
 
     let mut stdout = String::new();
@@ -251,7 +248,10 @@ async fn extract_audiobook_info(
     }
 
     let metadata = parse_ffmetadata_output(&filename, &stdout, &stderr);
-    Ok(ParsedAudiobookInfo { metadata, ffmpeg_stderr: stderr })
+    Ok(ParsedAudiobookInfo {
+        metadata,
+        ffmpeg_stderr: stderr,
+    })
 }
 
 #[tauri::command]
@@ -259,7 +259,9 @@ pub async fn parse_audiobook_metadata(
     app_handle: AppHandle,
     file_path: String,
 ) -> Result<AudiobookMetadata> {
-    Ok(extract_audiobook_info(&app_handle, &file_path).await?.metadata)
+    Ok(extract_audiobook_info(&app_handle, &file_path)
+        .await?
+        .metadata)
 }
 
 #[tauri::command]
@@ -274,7 +276,10 @@ pub async fn import_podcast_audio_file(
 ) -> Result<PodcastImportResult> {
     let path = Path::new(&file_path);
     if !path.exists() {
-        return Err(IncrementumError::NotFound(format!("Podcast audio file not found: {}", file_path)));
+        return Err(IncrementumError::NotFound(format!(
+            "Podcast audio file not found: {}",
+            file_path
+        )));
     }
 
     // Copy to app-managed storage to avoid macOS sandbox issues
@@ -282,14 +287,12 @@ pub async fn import_podcast_audio_file(
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("incrementum")
         .join("audio");
-    std::fs::create_dir_all(&audio_dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create audio directory: {}", e)))?;
+    std::fs::create_dir_all(&audio_dir).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to create audio directory: {}", e))
+    })?;
 
     let timestamp = chrono::Utc::now().timestamp();
-    let original_filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("audio");
+    let original_filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("audio");
     let safe_filename = original_filename.replace(['/', '\\', ':'], "_");
     let stored_filename = format!("{}-{}", timestamp, safe_filename);
     let dest_path = audio_dir.join(&stored_filename);
@@ -304,12 +307,20 @@ pub async fn import_podcast_audio_file(
         .and_then(|name| name.to_str())
         .unwrap_or("Podcast Episode")
         .to_string();
-    let mut document = Document::new(title.unwrap_or(default_title), stored_path.clone(), FileType::Audio);
+    let mut document = Document::new(
+        title.unwrap_or(default_title),
+        stored_path.clone(),
+        FileType::Audio,
+    );
     document.tags = vec!["podcast".to_string(), "audio".to_string()];
     document.metadata = Some(DocumentMetadata {
         author: None,
         subject: Some("podcast".to_string()),
-        keywords: Some(vec!["podcast".to_string(), "audio".to_string(), "whisper".to_string()]),
+        keywords: Some(vec![
+            "podcast".to_string(),
+            "audio".to_string(),
+            "whisper".to_string(),
+        ]),
         created_at: None,
         modified_at: None,
         file_size: None,
@@ -327,8 +338,9 @@ pub async fn import_podcast_audio_file(
 
     let mut created = repo.create_document(&document).await?;
 
-    let model_manager = ModelManager::new(&app_handle)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to initialize model manager: {}", e)))?;
+    let model_manager = ModelManager::new(&app_handle).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to initialize model manager: {}", e))
+    })?;
     let selected_model = model_manager
         .list_profiles()
         .into_iter()
@@ -390,7 +402,9 @@ pub async fn import_podcast_audio_file(
 
     // If no model was available for inline transcription, enqueue for auto-transcription
     if !had_model && auto_transcribe.unwrap_or(true) {
-        if let Some(transcription_state) = app_handle.try_state::<crate::transcription::TranscriptionState>() {
+        if let Some(transcription_state) =
+            app_handle.try_state::<crate::transcription::TranscriptionState>()
+        {
             let m_id = model_id.unwrap_or_else(|| "distil-small.en".to_string());
             let entry = crate::models::TranscriptionQueueEntry::new(
                 created.id.clone(),
@@ -417,10 +431,11 @@ pub async fn scan_directory_for_audiobooks(
     extensions: Vec<String>,
 ) -> Result<Vec<String>> {
     use walkdir::WalkDir;
-    
+
     let mut files = Vec::new();
-    let ext_set: std::collections::HashSet<String> = extensions.into_iter().map(|e| e.to_lowercase()).collect();
-    
+    let ext_set: std::collections::HashSet<String> =
+        extensions.into_iter().map(|e| e.to_lowercase()).collect();
+
     for entry in WalkDir::new(dir_path).into_iter().filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {
             if let Some(ext) = entry.path().extension().and_then(|e| e.to_str()) {
@@ -430,7 +445,7 @@ pub async fn scan_directory_for_audiobooks(
             }
         }
     }
-    
+
     Ok(files)
 }
 
@@ -439,7 +454,10 @@ pub async fn parse_audiobook_chapters(
     app_handle: AppHandle,
     file_path: String,
 ) -> Result<Vec<AudiobookChapter>> {
-    Ok(extract_audiobook_info(&app_handle, &file_path).await?.metadata.chapters)
+    Ok(extract_audiobook_info(&app_handle, &file_path)
+        .await?
+        .metadata
+        .chapters)
 }
 
 #[tauri::command]
@@ -485,8 +503,9 @@ pub async fn prepare_audiobook_playback(
         .app_cache_dir()
         .map_err(|e| IncrementumError::Internal(format!("Failed to resolve cache dir: {}", e)))?
         .join("audiobook_playback");
-    std::fs::create_dir_all(&cache_dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create audiobook cache dir: {}", e)))?;
+    std::fs::create_dir_all(&cache_dir).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to create audiobook cache dir: {}", e))
+    })?;
 
     let stem = input_path
         .file_stem()
@@ -507,12 +526,16 @@ pub async fn prepare_audiobook_playback(
         .map_err(|e| IncrementumError::Internal(format!("Failed to get ffmpeg command: {}", e)))?
         .args([
             "-y",
-            "-i", &file_path,
+            "-i",
+            &file_path,
             "-vn",
-            "-map_metadata", "-1",
-            "-c:a", "libmp3lame",
-            "-b:a", "96k",
-            &output_str
+            "-map_metadata",
+            "-1",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "96k",
+            &output_str,
         ])
         .spawn()
         .map_err(|e| IncrementumError::Internal(format!("Failed to spawn ffmpeg: {}", e)))?;
@@ -549,7 +572,7 @@ pub async fn extract_audio_sample(
 ) -> Result<String> {
     // Placeholder - returns base64 string
     // Real impl would use ffmpeg to slice
-    Ok(String::new()) 
+    Ok(String::new())
 }
 
 /// Extract embedded cover art from an audio file using ffmpeg sidecar.
@@ -564,11 +587,14 @@ pub async fn extract_audio_cover_art(
     let path = Path::new(&file_path);
     if !path.exists() {
         return Err(IncrementumError::NotFound(format!(
-            "Audio file not found: {}", file_path
+            "Audio file not found: {}",
+            file_path
         )));
     }
 
-    let temp_dir = app_handle.path().app_cache_dir()
+    let temp_dir = app_handle
+        .path()
+        .app_cache_dir()
         .map_err(|e| IncrementumError::Internal(format!("Failed to get cache dir: {}", e)))?
         .join("cover_art");
 
@@ -584,12 +610,15 @@ pub async fn extract_audio_cover_art(
     let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(&app_handle)
         .map_err(|e| IncrementumError::Internal(format!("Failed to get ffmpeg command: {}", e)))?
         .args([
-            "-i", &file_path,
-            "-an",              // no audio
-            "-vcodec", "copy",  // copy the video stream (cover art)
-            "-f", "image2",     // output as image
-            "-y",               // overwrite
-            cover_path.to_str().expect("cover path is valid UTF-8")
+            "-i",
+            &file_path,
+            "-an", // no audio
+            "-vcodec",
+            "copy", // copy the video stream (cover art)
+            "-f",
+            "image2", // output as image
+            "-y",     // overwrite
+            cover_path.to_str().expect("cover path is valid UTF-8"),
         ])
         .spawn()
         .map_err(|e| IncrementumError::Internal(format!("Failed to spawn ffmpeg: {}", e)))?;
@@ -602,9 +631,7 @@ pub async fn extract_audio_cover_art(
     }
 
     if cover_path.exists() {
-        let file_size = std::fs::metadata(&cover_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let file_size = std::fs::metadata(&cover_path).map(|m| m.len()).unwrap_or(0);
 
         if file_size > 0 {
             let bytes = std::fs::read(&cover_path)
@@ -641,8 +668,8 @@ pub async fn generate_audiobook_transcript(
     model: String,
     language: String,
 ) -> Result<AudiobookTranscriptResult> {
-    let model_manager = ModelManager::new(&app_handle)
-        .map_err(|e| IncrementumError::Internal(e.to_string()))?;
+    let model_manager =
+        ModelManager::new(&app_handle).map_err(|e| IncrementumError::Internal(e.to_string()))?;
 
     let mut selected_model = model;
     if !model_manager.is_model_installed(&selected_model) {
@@ -696,15 +723,18 @@ pub async fn generate_audiobook_transcript(
         };
 
         if is_sense_voice {
-            engine.transcribe_sensevoice(&prepared, &model_path, &language, on_segment, None)
+            engine
+                .transcribe_sensevoice(&prepared, &model_path, &language, on_segment, None)
                 .await
                 .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
         } else if is_parakeet {
-            engine.transcribe_parakeet(&prepared, &model_path, &language, on_segment, None)
+            engine
+                .transcribe_parakeet(&prepared, &model_path, &language, on_segment, None)
                 .await
                 .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
         } else {
-            engine.transcribe(&prepared, &model_path, &language, on_segment, None)
+            engine
+                .transcribe(&prepared, &model_path, &language, on_segment, None)
                 .await
                 .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
         }
@@ -728,7 +758,11 @@ pub async fn generate_audiobook_transcript(
     if segments_vec.is_empty() {
         return Ok(AudiobookTranscriptResult {
             segments: Vec::new(),
-            language: if language == "auto" { None } else { Some(language) },
+            language: if language == "auto" {
+                None
+            } else {
+                Some(language)
+            },
         });
     }
 
@@ -750,6 +784,10 @@ pub async fn generate_audiobook_transcript(
 
     Ok(AudiobookTranscriptResult {
         segments: output_segments,
-        language: if language == "auto" { None } else { Some(language) },
+        language: if language == "auto" {
+            None
+        } else {
+            Some(language)
+        },
     })
 }

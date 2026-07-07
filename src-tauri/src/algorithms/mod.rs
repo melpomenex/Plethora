@@ -8,26 +8,28 @@
 //! - Queue selector with weighted randomization
 //! - Document scheduler for incremental reading
 
-use serde::{Serialize, Deserialize};
-use crate::models::{LearningItem, ReviewRating, ItemState};
-use chrono::{Utc, Duration};
+use crate::models::{ItemState, LearningItem, ReviewRating};
+use chrono::{Duration, Utc};
+use serde::{Deserialize, Serialize};
 
+pub mod document_scheduler;
+pub mod engaging_scheduler;
+pub mod incremental_scheduler;
 pub mod optimizer;
-pub mod supermemo;
+pub mod queue_selector;
 pub mod sm18;
 pub mod sm20;
-pub mod queue_selector;
-pub mod document_scheduler;
-pub mod incremental_scheduler;
-pub mod engaging_scheduler;
+pub mod supermemo;
 
 // Re-exports
+pub use document_scheduler::{DocumentScheduler, DocumentSchedulerParams};
+pub use engaging_scheduler::{
+    EngagementPreferences, EngagingScheduleResult, EngagingScheduler, ItemEngagementMeta,
+};
+pub use incremental_scheduler::{IncrementalScheduler, IncrementalSchedulerParams};
 pub use optimizer::calculate_review_statistics;
 pub use queue_selector::QueueSelector;
-pub use document_scheduler::{DocumentScheduler, DocumentSchedulerParams};
-pub use incremental_scheduler::{IncrementalScheduler, IncrementalSchedulerParams};
-pub use engaging_scheduler::{EngagingScheduler, EngagementPreferences, ItemEngagementMeta, EngagingScheduleResult};
-pub use sm18::{SM18State, SM18Algorithm, SM18ReviewResult};
+pub use sm18::{SM18Algorithm, SM18ReviewResult, SM18State};
 pub use sm20::{SM20PreviewIntervals, SM20ReviewResult, SM20State};
 
 /// Supported spaced repetition algorithms
@@ -113,10 +115,10 @@ impl SM2Params {
         // Our rating: 1 = again, 2 = hard, 3 = good, 4 = easy
         // Map to SM-2 quality:
         let sm2_quality = match rating {
-            ReviewRating::Again => 0,  // Complete failure
-            ReviewRating::Hard => 3,   // Hard difficulty
-            ReviewRating::Good => 4,   // Good response
-            ReviewRating::Easy => 5,   // Perfect response
+            ReviewRating::Again => 0, // Complete failure
+            ReviewRating::Hard => 3,  // Hard difficulty
+            ReviewRating::Good => 4,  // Good response
+            ReviewRating::Easy => 5,  // Perfect response
         };
 
         // If quality < 3, start over
@@ -235,7 +237,7 @@ pub fn calculate_fsrs_document_priority(
     // Rating 5 = 1.0x (no effect), Rating 1 = 0.5x, Rating 10 = 2.0x
     let priority_multiplier = if priority_rating > 0 {
         let rating = priority_rating.clamp(1, 10) as f64;
-        0.5 + (rating - 1.0) / 9.0 * 1.5  // Maps 1->0.5, 5->1.0, 10->2.0
+        0.5 + (rating - 1.0) / 9.0 * 1.5 // Maps 1->0.5, 5->1.0, 10->2.0
     } else {
         1.0
     };
@@ -263,7 +265,7 @@ pub fn calculate_fsrs_document_priority(
                 } else if days_until_due <= 30 {
                     2.0
                 } else {
-                    0.5  // Very far future, lowest priority
+                    0.5 // Very far future, lowest priority
                 }
             }
         }
@@ -282,11 +284,23 @@ pub fn calculate_fsrs_document_priority(
         (Some(stab), Some(diff)) => {
             // Lower stability = higher priority (needs more review)
             // Higher difficulty = slightly higher priority (harder items need attention)
-            let stability_bonus = if stab < 5.0 { 0.5 } else if stab < 10.0 { 0.2 } else { 0.0 };
-            let difficulty_bonus = if diff > 7.0 { 0.3 } else if diff > 5.0 { 0.1 } else { 0.0 };
+            let stability_bonus = if stab < 5.0 {
+                0.5
+            } else if stab < 10.0 {
+                0.2
+            } else {
+                0.0
+            };
+            let difficulty_bonus = if diff > 7.0 {
+                0.3
+            } else if diff > 5.0 {
+                0.1
+            } else {
+                0.0
+            };
             stability_bonus + difficulty_bonus
         }
-        _ => 0.0
+        _ => 0.0,
     };
 
     // Final priority with adjustments, clamped to 0-10 range
@@ -317,12 +331,15 @@ pub fn compare_algorithms(items: &[LearningItem]) -> AlgorithmComparison {
     let avg_retention = if items.is_empty() {
         0.0
     } else {
-        let sum: f64 = items.iter().map(|i| match i.state {
-            ItemState::Review => 1.0,
-            ItemState::Learning => 0.5,
-            ItemState::Relearning => 0.0,
-            ItemState::New => 0.7,
-        }).sum();
+        let sum: f64 = items
+            .iter()
+            .map(|i| match i.state {
+                ItemState::Review => 1.0,
+                ItemState::Learning => 0.5,
+                ItemState::Relearning => 0.0,
+                ItemState::New => 0.7,
+            })
+            .sum();
         sum / items.len() as f64
     };
 

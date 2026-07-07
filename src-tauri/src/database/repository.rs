@@ -1,12 +1,16 @@
 //! Repository pattern for database operations
 
-use sqlx::{sqlite::SqliteRow, Pool, Row, Sqlite};
-use chrono::Utc;
-use std::collections::HashMap;
-use crate::error::{Result, IncrementumError};
-use crate::models::{Document, DocumentMetadata, Extract, LearningItem, FileType, ItemType, ItemState, VideoExtract, ImageAsset, ImageAssetWithUsage, TranscriptionQueueEntry, TranscriptionJobStatus, TranscriptionQueueEntryWithDoc};
+use crate::database::{DocumentChunkEmbedding, QueueItemEmbedding};
+use crate::error::{IncrementumError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
-use crate::database::{QueueItemEmbedding, DocumentChunkEmbedding};
+use crate::models::{
+    Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
+    ItemType, LearningItem, TranscriptionJobStatus, TranscriptionQueueEntry,
+    TranscriptionQueueEntryWithDoc, VideoExtract,
+};
+use chrono::Utc;
+use sqlx::{sqlite::SqliteRow, Pool, Row, Sqlite};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DocumentQueueInfo {
@@ -69,9 +73,15 @@ impl Repository {
     }
 
     // Helper to parse memory state from optional stability and difficulty
-    fn parse_memory_state(stability: Option<f64>, difficulty: Option<f64>) -> Option<crate::models::MemoryState> {
+    fn parse_memory_state(
+        stability: Option<f64>,
+        difficulty: Option<f64>,
+    ) -> Option<crate::models::MemoryState> {
         match (stability, difficulty) {
-            (Some(s), Some(d)) => Some(crate::models::MemoryState { stability: s, difficulty: d }),
+            (Some(s), Some(d)) => Some(crate::models::MemoryState {
+                stability: s,
+                difficulty: d,
+            }),
             _ => None,
         }
     }
@@ -84,8 +94,11 @@ impl Repository {
         let state_str: String = row.try_get("state")?;
         let tags_json: String = row.try_get("tags")?;
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-        let image_asset_ids_json: String = row.try_get("image_asset_ids").unwrap_or_else(|_| "[]".to_string());
-        let image_asset_ids: Vec<String> = serde_json::from_str(&image_asset_ids_json).unwrap_or_default();
+        let image_asset_ids_json: String = row
+            .try_get("image_asset_ids")
+            .unwrap_or_else(|_| "[]".to_string());
+        let image_asset_ids: Vec<String> =
+            serde_json::from_str(&image_asset_ids_json).unwrap_or_default();
         let interaction_metadata_json: Option<String> = row.try_get("interaction_metadata").ok();
         let interaction_metadata = interaction_metadata_json
             .as_deref()
@@ -95,7 +108,9 @@ impl Repository {
         let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
         let memory_state = Self::parse_memory_state(stability, difficulty);
 
-        let algorithm_type: String = row.try_get("algorithm_type").unwrap_or_else(|_| "fsrs".to_string());
+        let algorithm_type: String = row
+            .try_get("algorithm_type")
+            .unwrap_or_else(|_| "fsrs".to_string());
         let algorithm_state: Option<String> = row.try_get("algorithm_state").ok();
 
         let cloze_ranges_json: Option<String> = row.try_get("cloze_ranges").ok();
@@ -105,7 +120,9 @@ impl Repository {
 
         Ok(LearningItem {
             id: row.try_get("id")?,
-            collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+            collection_id: row
+                .try_get("collection_id")
+                .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
             extract_id: row.try_get("extract_id")?,
             document_id: row.try_get("document_id")?,
             item_type: Self::parse_item_type(&item_type_str),
@@ -148,7 +165,12 @@ impl Repository {
 
     // Collection operations
 
-    pub async fn create_collection(&self, name: &str, icon: Option<&str>, color: Option<&str>) -> Result<Collection> {
+    pub async fn create_collection(
+        &self,
+        name: &str,
+        icon: Option<&str>,
+        color: Option<&str>,
+    ) -> Result<Collection> {
         let collection = Collection::new(name.to_string());
         let now = Utc::now();
         sqlx::query(
@@ -169,15 +191,21 @@ impl Repository {
         let rows = sqlx::query("SELECT * FROM collections ORDER BY name ASC")
             .fetch_all(&self.pool)
             .await?;
-        Ok(rows.iter().map(|row| Collection {
-            id: row.get("id"),
-            name: row.get("name"),
-            icon: row.try_get("icon").ok(),
-            color: row.try_get("color").ok(),
-            is_default: row.try_get("is_default").unwrap_or(false),
-            created_at: row.try_get("created_at").unwrap_or_else(|_| Utc::now()),
-            updated_at: row.try_get("modified_at").or_else(|_| row.try_get("updated_at")).unwrap_or_else(|_| Utc::now()),
-        }).collect())
+        Ok(rows
+            .iter()
+            .map(|row| Collection {
+                id: row.get("id"),
+                name: row.get("name"),
+                icon: row.try_get("icon").ok(),
+                color: row.try_get("color").ok(),
+                is_default: row.try_get("is_default").unwrap_or(false),
+                created_at: row.try_get("created_at").unwrap_or_else(|_| Utc::now()),
+                updated_at: row
+                    .try_get("modified_at")
+                    .or_else(|_| row.try_get("updated_at"))
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+            .collect())
     }
 
     pub async fn get_collection(&self, id: &str) -> Result<Option<Collection>> {
@@ -192,12 +220,23 @@ impl Repository {
             color: row.try_get("color").ok(),
             is_default: row.try_get("is_default").unwrap_or(false),
             created_at: row.try_get("created_at").unwrap_or_else(|_| Utc::now()),
-            updated_at: row.try_get("modified_at").or_else(|_| row.try_get("updated_at")).unwrap_or_else(|_| Utc::now()),
+            updated_at: row
+                .try_get("modified_at")
+                .or_else(|_| row.try_get("updated_at"))
+                .unwrap_or_else(|_| Utc::now()),
         }))
     }
 
-    pub async fn update_collection(&self, id: &str, name: Option<&str>, icon: Option<&str>, color: Option<&str>) -> Result<Collection> {
-        let existing = self.get_collection(id).await?
+    pub async fn update_collection(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        icon: Option<&str>,
+        color: Option<&str>,
+    ) -> Result<Collection> {
+        let existing = self
+            .get_collection(id)
+            .await?
             .ok_or_else(|| IncrementumError::NotFound(format!("Collection {} not found", id)))?;
 
         let new_name = name.unwrap_or(&existing.name);
@@ -213,25 +252,42 @@ impl Repository {
             .execute(&self.pool)
             .await?;
 
-        self.get_collection(id).await?.ok_or_else(|| IncrementumError::NotFound("Collection disappeared".into()))
+        self.get_collection(id)
+            .await?
+            .ok_or_else(|| IncrementumError::NotFound("Collection disappeared".into()))
     }
 
     pub async fn delete_collection(&self, id: &str) -> Result<()> {
-        let collection = self.get_collection(id).await?
+        let collection = self
+            .get_collection(id)
+            .await?
             .ok_or_else(|| IncrementumError::NotFound(format!("Collection {} not found", id)))?;
 
         if collection.id == DEFAULT_COLLECTION_ID {
-            return Err(IncrementumError::Validation("Cannot delete the default collection".into()));
+            return Err(IncrementumError::Validation(
+                "Cannot delete the default collection".into(),
+            ));
         }
 
         // Reassign all items to the default collection
-        let tables = ["documents", "extracts", "learning_items", "review_sessions", "review_results", "annotations", "categories"];
+        let tables = [
+            "documents",
+            "extracts",
+            "learning_items",
+            "review_sessions",
+            "review_results",
+            "annotations",
+            "categories",
+        ];
         for table in &tables {
-            let _ = sqlx::query(&format!("UPDATE {} SET collection_id = ? WHERE collection_id = ?", table))
-                .bind(DEFAULT_COLLECTION_ID)
-                .bind(id)
-                .execute(&self.pool)
-                .await;
+            let _ = sqlx::query(&format!(
+                "UPDATE {} SET collection_id = ? WHERE collection_id = ?",
+                table
+            ))
+            .bind(DEFAULT_COLLECTION_ID)
+            .bind(id)
+            .execute(&self.pool)
+            .await;
         }
 
         sqlx::query("DELETE FROM collections WHERE id = ?")
@@ -257,14 +313,20 @@ impl Repository {
             .bind(DEFAULT_COLLECTION_ID)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(row.map(|r| r.get::<String, _>("id")).unwrap_or_else(|| DEFAULT_COLLECTION_ID.to_string()))
+        Ok(row
+            .map(|r| r.get::<String, _>("id"))
+            .unwrap_or_else(|| DEFAULT_COLLECTION_ID.to_string()))
     }
 
     // Document operations
     pub async fn create_document(&self, document: &Document) -> Result<Document> {
         let file_type_str = format!("{:?}", document.file_type).to_lowercase();
         let tags_json = serde_json::to_string(&document.tags)?;
-        let metadata_json = document.metadata.as_ref().map(serde_json::to_string).transpose()?;
+        let metadata_json = document
+            .metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
 
         sqlx::query(
             r#"
@@ -320,7 +382,11 @@ impl Repository {
     pub async fn upsert_synced_document(&self, document: &Document) -> Result<Document> {
         let file_type_str = format!("{:?}", document.file_type).to_lowercase();
         let tags_json = serde_json::to_string(&document.tags)?;
-        let metadata_json = document.metadata.as_ref().map(serde_json::to_string).transpose()?;
+        let metadata_json = document
+            .metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
 
         sqlx::query(
             r#"
@@ -427,12 +493,14 @@ impl Repository {
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
                 let metadata_json: Option<String> = row.try_get("metadata")?;
-                let metadata: Option<crate::models::DocumentMetadata> = metadata_json
-                    .and_then(|json| serde_json::from_str(&json).ok());
+                let metadata: Option<crate::models::DocumentMetadata> =
+                    metadata_json.and_then(|json| serde_json::from_str(&json).ok());
 
                 Ok(Some(Document {
                     id: row.get("id"),
-                    collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                    collection_id: row
+                        .try_get("collection_id")
+                        .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                     title: row.get("title"),
                     file_path: row.get("file_path"),
                     file_type: Self::parse_file_type(&file_type),
@@ -479,8 +547,15 @@ impl Repository {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
-        let sql = format!("SELECT id, title FROM documents WHERE id IN ({})", placeholders.join(", "));
+        let placeholders: Vec<String> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let sql = format!(
+            "SELECT id, title FROM documents WHERE id IN ({})",
+            placeholders.join(", ")
+        );
         let mut query = sqlx::query_as::<_, (String, String)>(&sql);
         for id in ids {
             query = query.bind(id);
@@ -489,11 +564,18 @@ impl Repository {
         Ok(rows.into_iter().collect())
     }
 
-    pub async fn get_document_queue_info(&self, ids: &[String]) -> Result<HashMap<String, DocumentQueueInfo>> {
+    pub async fn get_document_queue_info(
+        &self,
+        ids: &[String],
+    ) -> Result<HashMap<String, DocumentQueueInfo>> {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let placeholders: Vec<String> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
         let sql = format!(
             "SELECT id, title, is_archived, is_dismissed FROM documents WHERE id IN ({})",
             placeholders.join(", ")
@@ -510,7 +592,14 @@ impl Repository {
             let title: String = row.get("title");
             let is_archived: bool = row.try_get("is_archived").unwrap_or(false);
             let is_dismissed: bool = row.try_get("is_dismissed").unwrap_or(false);
-            result.insert(id, DocumentQueueInfo { title, is_archived, is_dismissed });
+            result.insert(
+                id,
+                DocumentQueueInfo {
+                    title,
+                    is_archived,
+                    is_dismissed,
+                },
+            );
         }
         Ok(result)
     }
@@ -528,12 +617,14 @@ impl Repository {
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
                 let metadata_json: Option<String> = row.try_get("metadata")?;
-                let metadata: Option<crate::models::DocumentMetadata> = metadata_json
-                    .and_then(|json| serde_json::from_str(&json).ok());
+                let metadata: Option<crate::models::DocumentMetadata> =
+                    metadata_json.and_then(|json| serde_json::from_str(&json).ok());
 
                 Ok(Some(Document {
                     id: row.get("id"),
-                    collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                    collection_id: row
+                        .try_get("collection_id")
+                        .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                     title: row.get("title"),
                     file_path: row.get("file_path"),
                     file_type: Self::parse_file_type(&file_type),
@@ -588,12 +679,14 @@ impl Repository {
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
             let metadata_json: Option<String> = row.try_get("metadata")?;
-            let metadata: Option<crate::models::DocumentMetadata> = metadata_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let metadata: Option<crate::models::DocumentMetadata> =
+                metadata_json.and_then(|json| serde_json::from_str(&json).ok());
 
             docs.push(Document {
                 id: row.get("id"),
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 title: row.get("title"),
                 file_path: row.get("file_path"),
                 file_type: Self::parse_file_type(&file_type),
@@ -637,10 +730,11 @@ impl Repository {
     }
 
     pub async fn list_documents_by_collection(&self, collection_id: &str) -> Result<Vec<Document>> {
-        let rows = sqlx::query("SELECT * FROM documents WHERE collection_id = ? ORDER BY date_added DESC")
-            .bind(collection_id)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows =
+            sqlx::query("SELECT * FROM documents WHERE collection_id = ? ORDER BY date_added DESC")
+                .bind(collection_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         let mut docs = Vec::new();
         for row in rows {
@@ -649,12 +743,14 @@ impl Repository {
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
             let metadata_json: Option<String> = row.try_get("metadata")?;
-            let metadata: Option<crate::models::DocumentMetadata> = metadata_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let metadata: Option<crate::models::DocumentMetadata> =
+                metadata_json.and_then(|json| serde_json::from_str(&json).ok());
 
             docs.push(Document {
                 id: row.get("id"),
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 title: row.get("title"),
                 file_path: row.get("file_path"),
                 file_type: Self::parse_file_type(&file_type),
@@ -717,12 +813,14 @@ impl Repository {
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
             let metadata_json: Option<String> = row.try_get("metadata")?;
-            let metadata: Option<DocumentMetadata> = metadata_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let metadata: Option<DocumentMetadata> =
+                metadata_json.and_then(|json| serde_json::from_str(&json).ok());
 
             docs.push(Document {
                 id: row.get("id"),
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 title: row.get("title"),
                 file_path: row.get("file_path"),
                 file_type: Self::parse_file_type(&file_type),
@@ -769,7 +867,11 @@ impl Repository {
         // See document_repository.rs::update_document: empty-string == not provided,
         // so partial updates don't clobber content-bearing columns (notably
         // file_path, whose YouTube URL IS the content).
-        let file_path = if updates.file_path.is_empty() { None } else { Some(&updates.file_path) };
+        let file_path = if updates.file_path.is_empty() {
+            None
+        } else {
+            Some(&updates.file_path)
+        };
         let category = updates.category.as_ref().filter(|c| !c.is_empty());
 
         sqlx::query(
@@ -802,9 +904,9 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        self.get_document(id).await?.ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!("Document {}", id))
-        })
+        self.get_document(id)
+            .await?
+            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
     }
 
     pub async fn update_document_cover(
@@ -840,10 +942,7 @@ impl Repository {
         total_pages: Option<i32>,
         metadata: Option<DocumentMetadata>,
     ) -> Result<()> {
-        let metadata_json = metadata
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()?;
+        let metadata_json = metadata.as_ref().map(serde_json::to_string).transpose()?;
 
         sqlx::query(
             r#"
@@ -895,16 +994,12 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        self.get_document(id).await?.ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!("Document {}", id))
-        })
+        self.get_document(id)
+            .await?
+            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
     }
 
-    pub async fn update_document_dismiss(
-        &self,
-        id: &str,
-        is_dismissed: bool,
-    ) -> Result<Document> {
+    pub async fn update_document_dismiss(&self, id: &str, is_dismissed: bool) -> Result<Document> {
         let now = Utc::now();
 
         sqlx::query(
@@ -921,9 +1016,9 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        self.get_document(id).await?.ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!("Document {}", id))
-        })
+        self.get_document(id)
+            .await?
+            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
     }
 
     pub async fn update_document_progress(
@@ -956,9 +1051,9 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        self.get_document(id).await?.ok_or_else(|| {
-            crate::error::IncrementumError::NotFound(format!("Document {}", id))
-        })
+        self.get_document(id)
+            .await?
+            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
     }
 
     pub async fn update_document_scheduling(
@@ -1090,14 +1185,20 @@ impl Repository {
 
     pub async fn create_extract(&self, extract: &Extract) -> Result<Extract> {
         let tags_json = serde_json::to_string(&extract.tags)?;
-        let (stability, difficulty) = extract.memory_state.as_ref()
+        let (stability, difficulty) = extract
+            .memory_state
+            .as_ref()
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
         let selection_context_json = match &extract.selection_context {
             Some(value) => Some(serde_json::to_string(value)?),
             None => None,
         };
-        let progressive_summaries_json = extract.progressive_summaries.as_ref().map(serde_json::to_string).transpose()?;
+        let progressive_summaries_json = extract
+            .progressive_summaries
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
 
         sqlx::query(
             r#"
@@ -1158,12 +1259,14 @@ impl Repository {
                 let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
                 let memory_state = Self::parse_memory_state(stability, difficulty);
                 let selection_context_json: Option<String> = row.try_get("selection_context").ok();
-                let selection_context = selection_context_json
-                    .and_then(|json| serde_json::from_str(&json).ok());
+                let selection_context =
+                    selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
 
                 Ok(Some(Extract {
                     id: row.try_get("id")?,
-                    collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                    collection_id: row
+                        .try_get("collection_id")
+                        .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                     document_id: row.try_get("document_id")?,
                     content: row.try_get("content")?,
                     html_content: row.try_get("html_content").ok(),
@@ -1175,7 +1278,9 @@ impl Repository {
                     notes: row.try_get("notes")?,
                     progressive_disclosure_level: row.try_get("progressive_disclosure_level")?,
                     max_disclosure_level: row.try_get("max_disclosure_level")?,
-                    progressive_summaries: row.try_get::<Option<String>, _>("progressive_summaries").ok()
+                    progressive_summaries: row
+                        .try_get::<Option<String>, _>("progressive_summaries")
+                        .ok()
                         .flatten()
                         .and_then(|s| serde_json::from_str(&s).ok()),
                     date_created: row.try_get("date_created")?,
@@ -1211,12 +1316,14 @@ impl Repository {
             let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
             let memory_state = Self::parse_memory_state(stability, difficulty);
             let selection_context_json: Option<String> = row.try_get("selection_context").ok();
-            let selection_context = selection_context_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let selection_context =
+                selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
 
             extracts.push(Extract {
                 id: row.try_get("id")?,
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 document_id: row.try_get("document_id")?,
                 content: row.try_get("content")?,
                 html_content: row.try_get("html_content").ok(),
@@ -1237,12 +1344,14 @@ impl Repository {
                 last_review_date: row.try_get("last_review_date").ok(),
                 review_count: row.try_get("review_count").unwrap_or(0),
                 reps: row.try_get("reps").unwrap_or(0),
-                progressive_summaries: row.try_get::<Option<String>, _>("progressive_summaries").ok()
+                progressive_summaries: row
+                    .try_get::<Option<String>, _>("progressive_summaries")
+                    .ok()
                     .flatten()
                     .and_then(|s| serde_json::from_str(&s).ok()),
-                    source_hash: row.try_get("source_hash").ok(),
-                    priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
-                    is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
+                source_hash: row.try_get("source_hash").ok(),
+                priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
+                is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
             });
         }
 
@@ -1263,12 +1372,14 @@ impl Repository {
             let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
             let memory_state = Self::parse_memory_state(stability, difficulty);
             let selection_context_json: Option<String> = row.try_get("selection_context").ok();
-            let selection_context = selection_context_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let selection_context =
+                selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
 
             extracts.push(Extract {
                 id: row.try_get("id")?,
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 document_id: row.try_get("document_id")?,
                 content: row.try_get("content")?,
                 html_content: row.try_get("html_content").ok(),
@@ -1289,12 +1400,14 @@ impl Repository {
                 last_review_date: row.try_get("last_review_date").ok(),
                 review_count: row.try_get("review_count").unwrap_or(0),
                 reps: row.try_get("reps").unwrap_or(0),
-                progressive_summaries: row.try_get::<Option<String>, _>("progressive_summaries").ok()
+                progressive_summaries: row
+                    .try_get::<Option<String>, _>("progressive_summaries")
+                    .ok()
                     .flatten()
                     .and_then(|s| serde_json::from_str(&s).ok()),
-                    source_hash: row.try_get("source_hash").ok(),
-                    priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
-                    is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
+                source_hash: row.try_get("source_hash").ok(),
+                priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
+                is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
             });
         }
 
@@ -1303,10 +1416,16 @@ impl Repository {
 
     pub async fn update_extract(&self, extract: &Extract) -> Result<Extract> {
         let tags_json = serde_json::to_string(&extract.tags)?;
-        let (stability, difficulty) = extract.memory_state.as_ref()
+        let (stability, difficulty) = extract
+            .memory_state
+            .as_ref()
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
-        let progressive_summaries_json = extract.progressive_summaries.as_ref().map(serde_json::to_string).transpose()?;
+        let progressive_summaries_json = extract
+            .progressive_summaries
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
 
         sqlx::query(
             r#"
@@ -1348,14 +1467,20 @@ impl Repository {
 
     pub async fn upsert_synced_extract(&self, extract: &Extract) -> Result<Extract> {
         let tags_json = serde_json::to_string(&extract.tags)?;
-        let (stability, difficulty) = extract.memory_state.as_ref()
+        let (stability, difficulty) = extract
+            .memory_state
+            .as_ref()
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
         let selection_context_json = match &extract.selection_context {
             Some(value) => Some(serde_json::to_string(value)?),
             None => None,
         };
-        let progressive_summaries_json = extract.progressive_summaries.as_ref().map(serde_json::to_string).transpose()?;
+        let progressive_summaries_json = extract
+            .progressive_summaries
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
 
         sqlx::query(
             r#"
@@ -1455,12 +1580,7 @@ impl Repository {
         Ok(collection.clone())
     }
 
-
-    pub async fn update_extract_disclosure_level(
-        &self,
-        id: &str,
-        level: i32,
-    ) -> Result<()> {
+    pub async fn update_extract_disclosure_level(&self, id: &str, level: i32) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE extracts SET
@@ -1485,7 +1605,10 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn get_due_extracts(&self, before: &chrono::DateTime<chrono::Utc>) -> Result<Vec<Extract>> {
+    pub async fn get_due_extracts(
+        &self,
+        before: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<Extract>> {
         let rows = sqlx::query("SELECT * FROM extracts WHERE is_dismissed = 0 AND next_review_date IS NOT NULL AND next_review_date <= ? ORDER BY next_review_date")
             .bind(before)
             .fetch_all(&self.pool)
@@ -1500,12 +1623,14 @@ impl Repository {
             let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
             let memory_state = Self::parse_memory_state(stability, difficulty);
             let selection_context_json: Option<String> = row.try_get("selection_context").ok();
-            let selection_context = selection_context_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let selection_context =
+                selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
 
             extracts.push(Extract {
                 id: row.try_get("id")?,
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 document_id: row.try_get("document_id")?,
                 content: row.try_get("content")?,
                 html_content: row.try_get("html_content").ok(),
@@ -1526,12 +1651,14 @@ impl Repository {
                 last_review_date: row.try_get("last_review_date").ok(),
                 review_count: row.try_get("review_count").unwrap_or(0),
                 reps: row.try_get("reps").unwrap_or(0),
-                progressive_summaries: row.try_get::<Option<String>, _>("progressive_summaries").ok()
+                progressive_summaries: row
+                    .try_get::<Option<String>, _>("progressive_summaries")
+                    .ok()
                     .flatten()
                     .and_then(|s| serde_json::from_str(&s).ok()),
-                    source_hash: row.try_get("source_hash").ok(),
-                    priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
-                    is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
+                source_hash: row.try_get("source_hash").ok(),
+                priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
+                is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
             });
         }
 
@@ -1553,12 +1680,14 @@ impl Repository {
             let difficulty: Option<f64> = row.try_get("memory_state_difficulty").ok();
             let memory_state = Self::parse_memory_state(stability, difficulty);
             let selection_context_json: Option<String> = row.try_get("selection_context").ok();
-            let selection_context = selection_context_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let selection_context =
+                selection_context_json.and_then(|json| serde_json::from_str(&json).ok());
 
             extracts.push(Extract {
                 id: row.try_get("id")?,
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 document_id: row.try_get("document_id")?,
                 content: row.try_get("content")?,
                 html_content: row.try_get("html_content").ok(),
@@ -1579,12 +1708,14 @@ impl Repository {
                 last_review_date: row.try_get("last_review_date").ok(),
                 review_count: row.try_get("review_count").unwrap_or(0),
                 reps: row.try_get("reps").unwrap_or(0),
-                progressive_summaries: row.try_get::<Option<String>, _>("progressive_summaries").ok()
+                progressive_summaries: row
+                    .try_get::<Option<String>, _>("progressive_summaries")
+                    .ok()
                     .flatten()
                     .and_then(|s| serde_json::from_str(&s).ok()),
-                    source_hash: row.try_get("source_hash").ok(),
-                    priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
-                    is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
+                source_hash: row.try_get("source_hash").ok(),
+                priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
+                is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
             });
         }
 
@@ -1695,7 +1826,11 @@ impl Repository {
 
     /// Graduate an extract: schedule it far in the future and mark high
     /// stability (SuperMemo-style Done lifecycle).
-    pub async fn graduate_extract(&self, id: &str, far_future: chrono::DateTime<Utc>) -> Result<()> {
+    pub async fn graduate_extract(
+        &self,
+        id: &str,
+        far_future: chrono::DateTime<Utc>,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE extracts SET
@@ -1750,7 +1885,10 @@ impl Repository {
             Err(e) => {
                 let msg = e.to_string();
                 if msg.contains("I/O error") || msg.contains("disk") {
-                    tracing::warn!("create_learning_item failed with I/O error, retrying in 500ms: {}", e);
+                    tracing::warn!(
+                        "create_learning_item failed with I/O error, retrying in 500ms: {}",
+                        e
+                    );
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     self.create_learning_item_inner(item).await
                 } else {
@@ -1765,10 +1903,20 @@ impl Repository {
         let state_str = format!("{:?}", item.state).to_lowercase();
         let tags_json = serde_json::to_string(&item.tags)?;
         let image_asset_ids_json = serde_json::to_string(&item.image_asset_ids)?;
-        let interaction_metadata_json = item.interaction_metadata.as_ref().map(serde_json::to_string).transpose()?;
-        let cloze_ranges_json = item.cloze_ranges.as_ref().map(serde_json::to_string).transpose()?;
+        let interaction_metadata_json = item
+            .interaction_metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        let cloze_ranges_json = item
+            .cloze_ranges
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
 
-        let (stability, difficulty) = item.memory_state.as_ref()
+        let (stability, difficulty) = item
+            .memory_state
+            .as_ref()
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
 
@@ -1818,7 +1966,11 @@ impl Repository {
         Ok(item.clone())
     }
 
-    pub async fn get_due_learning_items(&self, before: &chrono::DateTime<chrono::Utc>, collection_id: Option<&str>) -> Result<Vec<LearningItem>> {
+    pub async fn get_due_learning_items(
+        &self,
+        before: &chrono::DateTime<chrono::Utc>,
+        collection_id: Option<&str>,
+    ) -> Result<Vec<LearningItem>> {
         let rows = if let Some(cid) = collection_id {
             sqlx::query("SELECT * FROM learning_items WHERE due_date <= ? AND is_suspended = false AND collection_id = ? ORDER BY due_date")
                 .bind(before)
@@ -1840,11 +1992,16 @@ impl Repository {
         Ok(items)
     }
 
-    pub async fn get_learning_items_by_document(&self, document_id: &str) -> Result<Vec<LearningItem>> {
-        let rows = sqlx::query("SELECT * FROM learning_items WHERE document_id = ? ORDER BY date_created DESC")
-            .bind(document_id)
-            .fetch_all(&self.pool)
-            .await?;
+    pub async fn get_learning_items_by_document(
+        &self,
+        document_id: &str,
+    ) -> Result<Vec<LearningItem>> {
+        let rows = sqlx::query(
+            "SELECT * FROM learning_items WHERE document_id = ? ORDER BY date_created DESC",
+        )
+        .bind(document_id)
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut items = Vec::new();
         for row in rows {
@@ -1854,11 +2011,16 @@ impl Repository {
         Ok(items)
     }
 
-    pub async fn get_learning_items_by_extract(&self, extract_id: &str) -> Result<Vec<LearningItem>> {
-        let rows = sqlx::query("SELECT * FROM learning_items WHERE extract_id = ? ORDER BY date_created DESC")
-            .bind(extract_id)
-            .fetch_all(&self.pool)
-            .await?;
+    pub async fn get_learning_items_by_extract(
+        &self,
+        extract_id: &str,
+    ) -> Result<Vec<LearningItem>> {
+        let rows = sqlx::query(
+            "SELECT * FROM learning_items WHERE extract_id = ? ORDER BY date_created DESC",
+        )
+        .bind(extract_id)
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut items = Vec::new();
         for row in rows {
@@ -1872,9 +2034,15 @@ impl Repository {
         let _item_type_str = format!("{:?}", item.item_type).to_lowercase();
         let state_str = format!("{:?}", item.state).to_lowercase();
         let _tags_json = serde_json::to_string(&item.tags)?;
-        let interaction_metadata_json = item.interaction_metadata.as_ref().map(serde_json::to_string).transpose()?;
+        let interaction_metadata_json = item
+            .interaction_metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
 
-        let (stability, difficulty) = item.memory_state.as_ref()
+        let (stability, difficulty) = item
+            .memory_state
+            .as_ref()
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
 
@@ -1912,9 +2080,11 @@ impl Repository {
     }
 
     pub async fn get_all_learning_items(&self) -> Result<Vec<LearningItem>> {
-        let rows = sqlx::query("SELECT * FROM learning_items WHERE is_suspended = false ORDER BY due_date ASC")
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query(
+            "SELECT * FROM learning_items WHERE is_suspended = false ORDER BY due_date ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut items = Vec::new();
         for row in rows {
@@ -1983,7 +2153,9 @@ impl Repository {
 
         Ok(row.map(|r| ImageAsset {
             id: r.try_get("id").unwrap_or_default(),
-            mime_type: r.try_get("mime_type").unwrap_or_else(|_| "image/png".to_string()),
+            mime_type: r
+                .try_get("mime_type")
+                .unwrap_or_else(|_| "image/png".to_string()),
             file_name: r.try_get("file_name").ok(),
             content: r.try_get("content").unwrap_or_default(),
             byte_size: r.try_get("byte_size").unwrap_or_default(),
@@ -2004,7 +2176,9 @@ impl Repository {
             .into_iter()
             .map(|r| ImageAsset {
                 id: r.try_get("id").unwrap_or_default(),
-                mime_type: r.try_get("mime_type").unwrap_or_else(|_| "image/png".to_string()),
+                mime_type: r
+                    .try_get("mime_type")
+                    .unwrap_or_else(|_| "image/png".to_string()),
                 file_name: r.try_get("file_name").ok(),
                 content: r.try_get("content").unwrap_or_default(),
                 byte_size: r.try_get("byte_size").unwrap_or_default(),
@@ -2043,7 +2217,9 @@ impl Repository {
             .map(|r| ImageAssetWithUsage {
                 asset: ImageAsset {
                     id: r.try_get("id").unwrap_or_default(),
-                    mime_type: r.try_get("mime_type").unwrap_or_else(|_| "image/png".to_string()),
+                    mime_type: r
+                        .try_get("mime_type")
+                        .unwrap_or_else(|_| "image/png".to_string()),
                     file_name: r.try_get("file_name").ok(),
                     content: r.try_get("content").unwrap_or_default(),
                     byte_size: r.try_get("byte_size").unwrap_or_default(),
@@ -2094,7 +2270,9 @@ impl Repository {
 
         Ok(row.map(|r| ImageAsset {
             id: r.try_get("id").unwrap_or_default(),
-            mime_type: r.try_get("mime_type").unwrap_or_else(|_| "image/png".to_string()),
+            mime_type: r
+                .try_get("mime_type")
+                .unwrap_or_else(|_| "image/png".to_string()),
             file_name: r.try_get("file_name").ok(),
             content: r.try_get("content").unwrap_or_default(),
             byte_size: r.try_get("byte_size").unwrap_or_default(),
@@ -2223,8 +2401,8 @@ impl Repository {
         for entry in entries {
             let id = uuid::Uuid::new_v4().to_string();
             // revlog id is a millisecond timestamp
-            let timestamp = chrono::DateTime::from_timestamp_millis(entry.id)
-                .unwrap_or_else(Utc::now);
+            let timestamp =
+                chrono::DateTime::from_timestamp_millis(entry.id).unwrap_or_else(Utc::now);
             let interval_days = if entry.ivl < 0 {
                 // Negative intervals are in seconds
                 entry.ivl as f64 / 86400.0
@@ -2308,7 +2486,11 @@ impl Repository {
         // SQLite has a limit on bind params, so batch in groups of 500
         let mut entries = Vec::new();
         for chunk in item_ids.chunks(500) {
-            let placeholders: Vec<String> = chunk.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+            let placeholders: Vec<String> = chunk
+                .iter()
+                .enumerate()
+                .map(|(i, _)| format!("?{}", i + 1))
+                .collect();
             let query = format!(
                 r#"
                 SELECT id, item_id, rating, interval_days, last_interval_days,
@@ -2342,12 +2524,11 @@ impl Repository {
 
     /// Get or create study statistics for a specific date
     pub async fn get_study_statistics(&self, date: &str) -> Result<Option<StudyStatsRow>> {
-        let row = sqlx::query_as::<_, StudyStatsRow>(
-            "SELECT * FROM study_statistics WHERE date = ?1"
-        )
-        .bind(date)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row =
+            sqlx::query_as::<_, StudyStatsRow>("SELECT * FROM study_statistics WHERE date = ?1")
+                .bind(date)
+                .fetch_optional(&self.pool)
+                .await?;
 
         Ok(row)
     }
@@ -2527,12 +2708,22 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn get_embeddings_for_items(&self, item_ids: &[String]) -> Result<Vec<QueueItemEmbedding>> {
+    pub async fn get_embeddings_for_items(
+        &self,
+        item_ids: &[String],
+    ) -> Result<Vec<QueueItemEmbedding>> {
         if item_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let placeholders: Vec<String> = item_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
-        let sql = format!("SELECT * FROM queue_item_embeddings WHERE item_id IN ({})", placeholders.join(", "));
+        let placeholders: Vec<String> = item_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let sql = format!(
+            "SELECT * FROM queue_item_embeddings WHERE item_id IN ({})",
+            placeholders.join(", ")
+        );
         let mut query = sqlx::query(&sql);
         for id in item_ids {
             query = query.bind(id);
@@ -2570,7 +2761,11 @@ impl Repository {
             return Ok(Vec::new());
         }
         let ids: Vec<&str> = items.iter().map(|(id, _)| id.as_str()).collect();
-        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let placeholders: Vec<String> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
         let sql = format!(
             "SELECT item_id, content_hash FROM queue_item_embeddings WHERE item_id IN ({}) AND provider = ?{} AND model = ?{}",
             placeholders.join(", "),
@@ -2584,16 +2779,22 @@ impl Repository {
         query = query.bind(provider).bind(model);
         let rows = query.fetch_all(&self.pool).await?;
 
-        let valid_ids: std::collections::HashSet<String> = rows.iter()
+        let valid_ids: std::collections::HashSet<String> = rows
+            .iter()
             .filter_map(|row| {
                 let item_id: String = row.try_get("item_id").ok()?;
                 let stored_hash: String = row.try_get("content_hash").ok()?;
                 let expected_hash = items.iter().find(|(id, _)| id == &item_id)?.1.clone();
-                if stored_hash == expected_hash { Some(item_id) } else { None }
+                if stored_hash == expected_hash {
+                    Some(item_id)
+                } else {
+                    None
+                }
             })
             .collect();
 
-        let stale: Vec<String> = items.iter()
+        let stale: Vec<String> = items
+            .iter()
             .filter(|(id, _)| !valid_ids.contains(id))
             .map(|(id, _)| id.clone())
             .collect();
@@ -2785,10 +2986,12 @@ impl Repository {
 
     /// Get the count of unread articles for a specific RSS feed
     pub async fn get_rss_feed_unread_count(&self, feed_id: &str) -> Result<i32> {
-        let row = sqlx::query("SELECT COUNT(*) as count FROM rss_articles WHERE feed_id = ?1 AND is_read = 0")
-            .bind(feed_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let row = sqlx::query(
+            "SELECT COUNT(*) as count FROM rss_articles WHERE feed_id = ?1 AND is_read = 0",
+        )
+        .bind(feed_id)
+        .fetch_one(&self.pool)
+        .await?;
 
         Ok(row.get("count"))
     }
@@ -2800,35 +3003,29 @@ impl Repository {
         user_id: Option<&str>,
     ) -> Result<Option<crate::commands::rss::RssUserPreference>> {
         let row = match (feed_id, user_id) {
-            (Some(fid), Some(uid)) => {
-                sqlx::query(
-                    "SELECT * FROM rss_user_preferences WHERE feed_id = ?1 AND user_id = ?2 LIMIT 1"
-                )
-                .bind(fid)
-                .bind(uid)
-                .fetch_optional(&self.pool)
-                .await?
-            }
+            (Some(fid), Some(uid)) => sqlx::query(
+                "SELECT * FROM rss_user_preferences WHERE feed_id = ?1 AND user_id = ?2 LIMIT 1",
+            )
+            .bind(fid)
+            .bind(uid)
+            .fetch_optional(&self.pool)
+            .await?,
             (Some(fid), None) => {
-                sqlx::query(
-                    "SELECT * FROM rss_user_preferences WHERE feed_id = ?1 LIMIT 1"
-                )
-                .bind(fid)
-                .fetch_optional(&self.pool)
-                .await?
+                sqlx::query("SELECT * FROM rss_user_preferences WHERE feed_id = ?1 LIMIT 1")
+                    .bind(fid)
+                    .fetch_optional(&self.pool)
+                    .await?
             }
             (None, Some(uid)) => {
-                sqlx::query(
-                    "SELECT * FROM rss_user_preferences WHERE user_id = ?1 LIMIT 1"
-                )
-                .bind(uid)
-                .fetch_optional(&self.pool)
-                .await?
+                sqlx::query("SELECT * FROM rss_user_preferences WHERE user_id = ?1 LIMIT 1")
+                    .bind(uid)
+                    .fetch_optional(&self.pool)
+                    .await?
             }
             (None, None) => {
                 sqlx::query("SELECT * FROM rss_user_preferences LIMIT 1")
-                .fetch_optional(&self.pool)
-                .await?
+                    .fetch_optional(&self.pool)
+                    .await?
             }
         };
 
@@ -2892,9 +3089,13 @@ impl Repository {
             .execute(&self.pool)
             .await?;
 
-            self.get_rss_user_preferences_by_id(&id).await?.ok_or_else(||
-                IncrementumError::Internal("failed to read back rss_user_preferences after update".into())
-            )?
+            self.get_rss_user_preferences_by_id(&id)
+                .await?
+                .ok_or_else(|| {
+                    IncrementumError::Internal(
+                        "failed to read back rss_user_preferences after update".into(),
+                    )
+                })?
         } else {
             let id = uuid::Uuid::new_v4().to_string();
             sqlx::query(
@@ -2933,9 +3134,13 @@ impl Repository {
             .execute(&self.pool)
             .await?;
 
-            self.get_rss_user_preferences_by_id(&id).await?.ok_or_else(||
-                IncrementumError::Internal("failed to read back rss_user_preferences after insert".into())
-            )?
+            self.get_rss_user_preferences_by_id(&id)
+                .await?
+                .ok_or_else(|| {
+                    IncrementumError::Internal(
+                        "failed to read back rss_user_preferences after insert".into(),
+                    )
+                })?
         };
 
         Ok(pref)
@@ -2964,11 +3169,17 @@ impl Repository {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(rows.into_iter().map(|r| self.row_to_rss_user_preference(r)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| self.row_to_rss_user_preference(r))
+            .collect())
     }
 
     /// Helper to convert database row to RssUserPreference
-    fn row_to_rss_user_preference(&self, row: sqlx::sqlite::SqliteRow) -> crate::commands::rss::RssUserPreference {
+    fn row_to_rss_user_preference(
+        &self,
+        row: sqlx::sqlite::SqliteRow,
+    ) -> crate::commands::rss::RssUserPreference {
         crate::commands::rss::RssUserPreference {
             id: row.get("id"),
             user_id: row.try_get("user_id").ok(),
@@ -3023,24 +3234,27 @@ impl Repository {
     }
 
     /// Get all bookmarks for a video document
-    pub async fn get_video_bookmarks(&self, document_id: &str) -> Result<Vec<crate::commands::video::VideoBookmark>> {
-        let rows = sqlx::query(
-            "SELECT * FROM video_bookmarks WHERE document_id = ?1 ORDER BY time"
-        )
-        .bind(document_id)
-        .fetch_all(&self.pool)
-        .await?;
+    pub async fn get_video_bookmarks(
+        &self,
+        document_id: &str,
+    ) -> Result<Vec<crate::commands::video::VideoBookmark>> {
+        let rows =
+            sqlx::query("SELECT * FROM video_bookmarks WHERE document_id = ?1 ORDER BY time")
+                .bind(document_id)
+                .fetch_all(&self.pool)
+                .await?;
 
-        let bookmarks = rows.into_iter().map(|row| {
-            crate::commands::video::VideoBookmark {
+        let bookmarks = rows
+            .into_iter()
+            .map(|row| crate::commands::video::VideoBookmark {
                 id: row.get("id"),
                 document_id: row.get("document_id"),
                 title: row.get("title"),
                 time: row.get("time"),
                 thumbnail_url: row.try_get("thumbnail").ok(),
                 created_at: row.get("created_at"),
-            }
-        }).collect();
+            })
+            .collect();
 
         Ok(bookmarks)
     }
@@ -3083,24 +3297,27 @@ impl Repository {
     }
 
     /// Get all chapters for a video document
-    pub async fn get_video_chapters(&self, document_id: &str) -> Result<Vec<crate::commands::video::VideoChapter>> {
-        let rows = sqlx::query(
-            "SELECT * FROM video_chapters WHERE document_id = ?1 ORDER BY order_index"
-        )
-        .bind(document_id)
-        .fetch_all(&self.pool)
-        .await?;
+    pub async fn get_video_chapters(
+        &self,
+        document_id: &str,
+    ) -> Result<Vec<crate::commands::video::VideoChapter>> {
+        let rows =
+            sqlx::query("SELECT * FROM video_chapters WHERE document_id = ?1 ORDER BY order_index")
+                .bind(document_id)
+                .fetch_all(&self.pool)
+                .await?;
 
-        let chapters = rows.into_iter().map(|row| {
-            crate::commands::video::VideoChapter {
+        let chapters = rows
+            .into_iter()
+            .map(|row| crate::commands::video::VideoChapter {
                 id: row.get("id"),
                 document_id: row.get("document_id"),
                 title: row.get("title"),
                 start_time: row.get("start_time"),
                 end_time: row.get("end_time"),
                 order: row.get("order_index"),
-            }
-        }).collect();
+            })
+            .collect();
 
         Ok(chapters)
     }
@@ -3188,7 +3405,10 @@ impl Repository {
     }
 
     /// Get transcript for a video document
-    pub async fn get_video_transcript(&self, document_id: &str) -> Result<Option<(String, String)>> {
+    pub async fn get_video_transcript(
+        &self,
+        document_id: &str,
+    ) -> Result<Option<(String, String)>> {
         let row = sqlx::query(
             "SELECT transcript, segments_json FROM video_transcripts WHERE document_id = ?1 LIMIT 1"
         )
@@ -3246,15 +3466,17 @@ impl Repository {
     }
 
     /// Get all playlist subscriptions
-    pub async fn get_playlist_subscriptions(&self) -> Result<Vec<crate::models::PlaylistSubscription>> {
-        let rows = sqlx::query(
-            "SELECT * FROM youtube_playlist_subscriptions ORDER BY created_at DESC"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+    pub async fn get_playlist_subscriptions(
+        &self,
+    ) -> Result<Vec<crate::models::PlaylistSubscription>> {
+        let rows =
+            sqlx::query("SELECT * FROM youtube_playlist_subscriptions ORDER BY created_at DESC")
+                .fetch_all(&self.pool)
+                .await?;
 
-        Ok(rows.into_iter().map(|row| {
-            crate::models::PlaylistSubscription {
+        Ok(rows
+            .into_iter()
+            .map(|row| crate::models::PlaylistSubscription {
                 id: row.get("id"),
                 playlist_id: row.get("playlist_id"),
                 playlist_url: row.get("playlist_url"),
@@ -3272,18 +3494,19 @@ impl Repository {
                 refresh_interval_hours: row.get("refresh_interval_hours"),
                 created_at: row.get("created_at"),
                 modified_at: row.get("modified_at"),
-            }
-        }).collect())
+            })
+            .collect())
     }
 
     /// Get a single playlist subscription by ID
-    pub async fn get_playlist_subscription(&self, id: &str) -> Result<Option<crate::models::PlaylistSubscription>> {
-        let row = sqlx::query(
-            "SELECT * FROM youtube_playlist_subscriptions WHERE id = ?1"
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+    pub async fn get_playlist_subscription(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::models::PlaylistSubscription>> {
+        let row = sqlx::query("SELECT * FROM youtube_playlist_subscriptions WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         Ok(row.map(|row| crate::models::PlaylistSubscription {
             id: row.get("id"),
@@ -3307,13 +3530,15 @@ impl Repository {
     }
 
     /// Get a playlist subscription by playlist_id
-    pub async fn get_playlist_subscription_by_playlist_id(&self, playlist_id: &str) -> Result<Option<crate::models::PlaylistSubscription>> {
-        let row = sqlx::query(
-            "SELECT * FROM youtube_playlist_subscriptions WHERE playlist_id = ?1"
-        )
-        .bind(playlist_id)
-        .fetch_optional(&self.pool)
-        .await?;
+    pub async fn get_playlist_subscription_by_playlist_id(
+        &self,
+        playlist_id: &str,
+    ) -> Result<Option<crate::models::PlaylistSubscription>> {
+        let row =
+            sqlx::query("SELECT * FROM youtube_playlist_subscriptions WHERE playlist_id = ?1")
+                .bind(playlist_id)
+                .fetch_optional(&self.pool)
+                .await?;
 
         Ok(row.map(|row| crate::models::PlaylistSubscription {
             id: row.get("id"),
@@ -3462,8 +3687,9 @@ impl Repository {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(rows.into_iter().map(|row| {
-            crate::models::PlaylistVideo {
+        Ok(rows
+            .into_iter()
+            .map(|row| crate::models::PlaylistVideo {
                 id: row.get("id"),
                 subscription_id: row.get("subscription_id"),
                 video_id: row.get("video_id"),
@@ -3478,12 +3704,14 @@ impl Repository {
                 published_at: row.get("published_at"),
                 discovered_at: row.get("discovered_at"),
                 imported_at: row.get("imported_at"),
-            }
-        }).collect())
+            })
+            .collect())
     }
 
     /// Get videos ready for queue interspersion (imported but not yet added to queue)
-    pub async fn get_videos_for_queue_interspersion(&self) -> Result<Vec<crate::models::PlaylistVideo>> {
+    pub async fn get_videos_for_queue_interspersion(
+        &self,
+    ) -> Result<Vec<crate::models::PlaylistVideo>> {
         let rows = sqlx::query(
             r#"
             SELECT pv.* FROM youtube_playlist_videos pv
@@ -3492,13 +3720,14 @@ impl Repository {
               AND pv.added_to_queue = 0
               AND ps.is_active = 1
             ORDER BY pv.discovered_at ASC
-            "#
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|row| {
-            crate::models::PlaylistVideo {
+        Ok(rows
+            .into_iter()
+            .map(|row| crate::models::PlaylistVideo {
                 id: row.get("id"),
                 subscription_id: row.get("subscription_id"),
                 video_id: row.get("video_id"),
@@ -3513,16 +3742,12 @@ impl Repository {
                 published_at: row.get("published_at"),
                 discovered_at: row.get("discovered_at"),
                 imported_at: row.get("imported_at"),
-            }
-        }).collect())
+            })
+            .collect())
     }
 
     /// Mark a video as imported
-    pub async fn mark_video_imported(
-        &self,
-        video_id: &str,
-        document_id: &str,
-    ) -> Result<()> {
+    pub async fn mark_video_imported(&self, video_id: &str, document_id: &str) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -3567,11 +3792,9 @@ impl Repository {
 
     /// Get global playlist settings
     pub async fn get_playlist_settings(&self) -> Result<crate::models::PlaylistSettings> {
-        let row = sqlx::query(
-            "SELECT * FROM youtube_playlist_settings WHERE id = 'global'"
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let row = sqlx::query("SELECT * FROM youtube_playlist_settings WHERE id = 'global'")
+            .fetch_one(&self.pool)
+            .await?;
 
         Ok(crate::models::PlaylistSettings {
             id: row.get("id"),
@@ -3621,9 +3844,14 @@ impl Repository {
     }
 
     /// Create a video extract
-    pub async fn create_video_extract(&self, extract: &crate::models::VideoExtract) -> Result<crate::models::VideoExtract> {
+    pub async fn create_video_extract(
+        &self,
+        extract: &crate::models::VideoExtract,
+    ) -> Result<crate::models::VideoExtract> {
         let tags_json = serde_json::to_string(&extract.tags)?;
-        let memory_state_json = extract.memory_state.as_ref()
+        let memory_state_json = extract
+            .memory_state
+            .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
 
@@ -3672,13 +3900,15 @@ impl Repository {
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
                 let memory_state_json: Option<String> = row.try_get("memory_state").ok();
-                let memory_state = memory_state_json
-                    .and_then(|json| serde_json::from_str(&json).ok());
+                let memory_state =
+                    memory_state_json.and_then(|json| serde_json::from_str(&json).ok());
 
                 Ok(Some(crate::models::VideoExtract {
                     id: row.try_get("id")?,
                     document_id: row.try_get("document_id")?,
-                    collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                    collection_id: row
+                        .try_get("collection_id")
+                        .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                     start_time: row.try_get("start_time")?,
                     end_time: row.try_get("end_time")?,
                     title: row.try_get("title")?,
@@ -3700,11 +3930,15 @@ impl Repository {
     }
 
     /// Get all video extracts for a document
-    pub async fn get_video_extracts_by_document(&self, document_id: &str) -> Result<Vec<crate::models::VideoExtract>> {
-        let rows = sqlx::query("SELECT * FROM video_extracts WHERE document_id = ? ORDER BY start_time")
-            .bind(document_id)
-            .fetch_all(&self.pool)
-            .await?;
+    pub async fn get_video_extracts_by_document(
+        &self,
+        document_id: &str,
+    ) -> Result<Vec<crate::models::VideoExtract>> {
+        let rows =
+            sqlx::query("SELECT * FROM video_extracts WHERE document_id = ? ORDER BY start_time")
+                .bind(document_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         let mut extracts = Vec::new();
         for row in rows {
@@ -3712,13 +3946,14 @@ impl Repository {
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
             let memory_state_json: Option<String> = row.try_get("memory_state").ok();
-            let memory_state = memory_state_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let memory_state = memory_state_json.and_then(|json| serde_json::from_str(&json).ok());
 
             extracts.push(crate::models::VideoExtract {
                 id: row.try_get("id")?,
                 document_id: row.try_get("document_id")?,
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 start_time: row.try_get("start_time")?,
                 end_time: row.try_get("end_time")?,
                 title: row.try_get("title")?,
@@ -3740,7 +3975,10 @@ impl Repository {
     }
 
     /// Get due video extracts (for review queue)
-    pub async fn get_due_video_extracts(&self, before: &chrono::DateTime<chrono::Utc>) -> Result<Vec<crate::models::VideoExtract>> {
+    pub async fn get_due_video_extracts(
+        &self,
+        before: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<crate::models::VideoExtract>> {
         let rows = sqlx::query("SELECT * FROM video_extracts WHERE next_review_date IS NOT NULL AND next_review_date <= ? ORDER BY next_review_date")
             .bind(before)
             .fetch_all(&self.pool)
@@ -3752,13 +3990,14 @@ impl Repository {
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
             let memory_state_json: Option<String> = row.try_get("memory_state").ok();
-            let memory_state = memory_state_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let memory_state = memory_state_json.and_then(|json| serde_json::from_str(&json).ok());
 
             extracts.push(crate::models::VideoExtract {
                 id: row.try_get("id")?,
                 document_id: row.try_get("document_id")?,
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 start_time: row.try_get("start_time")?,
                 end_time: row.try_get("end_time")?,
                 title: row.try_get("title")?,
@@ -3793,13 +4032,14 @@ impl Repository {
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
             let memory_state_json: Option<String> = row.try_get("memory_state").ok();
-            let memory_state = memory_state_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let memory_state = memory_state_json.and_then(|json| serde_json::from_str(&json).ok());
 
             extracts.push(crate::models::VideoExtract {
                 id: row.try_get("id")?,
                 document_id: row.try_get("document_id")?,
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 start_time: row.try_get("start_time")?,
                 end_time: row.try_get("end_time")?,
                 title: row.try_get("title")?,
@@ -3825,8 +4065,15 @@ impl Repository {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
-        let query_str = format!("SELECT * FROM documents WHERE id IN ({})", placeholders.join(", "));
+        let placeholders: Vec<String> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let query_str = format!(
+            "SELECT * FROM documents WHERE id IN ({})",
+            placeholders.join(", ")
+        );
         let mut query = sqlx::query(&query_str);
         for id in ids {
             query = query.bind(id);
@@ -3839,12 +4086,14 @@ impl Repository {
             let tags_json: String = row.get("tags");
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
             let metadata_json: Option<String> = row.try_get("metadata")?;
-            let metadata: Option<DocumentMetadata> = metadata_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let metadata: Option<DocumentMetadata> =
+                metadata_json.and_then(|json| serde_json::from_str(&json).ok());
 
             let doc = Document {
                 id: row.get("id"),
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 title: row.get("title"),
                 file_path: row.get("file_path"),
                 file_type: Self::parse_file_type(&file_type),
@@ -3887,12 +4136,22 @@ impl Repository {
     }
 
     /// Batch fetch playlist subscriptions by IDs
-    pub async fn get_playlist_subscriptions_by_ids(&self, ids: &[String]) -> Result<HashMap<String, crate::models::PlaylistSubscription>> {
+    pub async fn get_playlist_subscriptions_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<HashMap<String, crate::models::PlaylistSubscription>> {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
-        let query_str = format!("SELECT * FROM youtube_playlist_subscriptions WHERE id IN ({})", placeholders.join(", "));
+        let placeholders: Vec<String> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let query_str = format!(
+            "SELECT * FROM youtube_playlist_subscriptions WHERE id IN ({})",
+            placeholders.join(", ")
+        );
         let mut query = sqlx::query(&query_str);
         for id in ids {
             query = query.bind(id);
@@ -3932,8 +4191,14 @@ impl Repository {
         horizon_days: i32,
     ) -> Result<(Vec<(String, i64)>, Vec<(String, i64)>)> {
         let end_date = start_date + chrono::Duration::days(horizon_days as i64 - 1);
-        let day_start = start_date.and_hms_opt(0, 0, 0).expect("invalid time 0:0:0").and_utc();
-        let day_end = end_date.and_hms_opt(23, 59, 59).expect("invalid time 23:59:59").and_utc();
+        let day_start = start_date
+            .and_hms_opt(0, 0, 0)
+            .expect("invalid time 0:0:0")
+            .and_utc();
+        let day_end = end_date
+            .and_hms_opt(23, 59, 59)
+            .expect("invalid time 23:59:59")
+            .and_utc();
 
         let learning_rows: Vec<(String, i64)> = sqlx::query_as(
             "SELECT DATE(due_date) as day, COUNT(*) as count FROM learning_items WHERE due_date >= ?1 AND due_date <= ?2 AND is_suspended = false GROUP BY DATE(due_date)"
@@ -3968,13 +4233,14 @@ impl Repository {
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
             let memory_state_json: Option<String> = row.try_get("memory_state").ok();
-            let memory_state = memory_state_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let memory_state = memory_state_json.and_then(|json| serde_json::from_str(&json).ok());
 
             extracts.push(crate::models::VideoExtract {
                 id: row.try_get("id")?,
                 document_id: row.try_get("document_id")?,
-                collection_id: row.try_get("collection_id").unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
                 start_time: row.try_get("start_time")?,
                 end_time: row.try_get("end_time")?,
                 title: row.try_get("title")?,
@@ -3996,9 +4262,14 @@ impl Repository {
     }
 
     /// Update a video extract
-    pub async fn update_video_extract(&self, extract: &crate::models::VideoExtract) -> Result<crate::models::VideoExtract> {
+    pub async fn update_video_extract(
+        &self,
+        extract: &crate::models::VideoExtract,
+    ) -> Result<crate::models::VideoExtract> {
         let tags_json = serde_json::to_string(&extract.tags)?;
-        let memory_state_json = extract.memory_state.as_ref()
+        let memory_state_json = extract
+            .memory_state
+            .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
 
@@ -4096,13 +4367,21 @@ impl Repository {
         }
 
         if let Some((_, segments_json)) = self.get_video_transcript(&extract.document_id).await? {
-            let segments: Vec<crate::youtube::TranscriptSegment> = serde_json::from_str(&segments_json)
-                .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to parse transcript segments: {}", e)))?;
+            let segments: Vec<crate::youtube::TranscriptSegment> =
+                serde_json::from_str(&segments_json).map_err(|e| {
+                    crate::error::IncrementumError::Internal(format!(
+                        "Failed to parse transcript segments: {}",
+                        e
+                    ))
+                })?;
 
             // Filter segments within the extract's time range and concatenate
             let transcript_text: String = segments
                 .iter()
-                .filter(|seg| seg.start >= extract.start_time && (seg.start + seg.duration) <= extract.end_time)
+                .filter(|seg| {
+                    seg.start >= extract.start_time
+                        && (seg.start + seg.duration) <= extract.end_time
+                })
                 .map(|seg| seg.text.trim())
                 .filter(|text| !text.is_empty())
                 .collect::<Vec<_>>()
@@ -4165,29 +4444,48 @@ impl Repository {
         .await?;
 
         match row {
-            Some((id, document_id, audio_path, provider, model_id, language, status_str, error_message, priority, created_at, started_at, completed_at, retry_count, progress)) => {
-                Ok(Some(TranscriptionQueueEntry {
-                    id,
-                    document_id,
-                    audio_path,
-                    provider,
-                    model_id,
-                    language,
-                    status: Self::parse_job_status(&status_str),
-                    error_message,
-                    priority,
-                    created_at: created_at.parse().unwrap_or(Utc::now()),
-                    started_at: started_at.and_then(|t| t.parse().ok()),
-                    completed_at: completed_at.and_then(|t| t.parse().ok()),
-                    retry_count,
-                    progress,
-                }))
-            }
+            Some((
+                id,
+                document_id,
+                audio_path,
+                provider,
+                model_id,
+                language,
+                status_str,
+                error_message,
+                priority,
+                created_at,
+                started_at,
+                completed_at,
+                retry_count,
+                progress,
+            )) => Ok(Some(TranscriptionQueueEntry {
+                id,
+                document_id,
+                audio_path,
+                provider,
+                model_id,
+                language,
+                status: Self::parse_job_status(&status_str),
+                error_message,
+                priority,
+                created_at: created_at.parse().unwrap_or(Utc::now()),
+                started_at: started_at.and_then(|t| t.parse().ok()),
+                completed_at: completed_at.and_then(|t| t.parse().ok()),
+                retry_count,
+                progress,
+            })),
             None => Ok(None),
         }
     }
 
-    pub async fn update_transcription_status(&self, id: &str, status: TranscriptionJobStatus, error_message: Option<&str>, progress: Option<i32>) -> Result<()> {
+    pub async fn update_transcription_status(
+        &self,
+        id: &str,
+        status: TranscriptionJobStatus,
+        error_message: Option<&str>,
+        progress: Option<i32>,
+    ) -> Result<()> {
         let status_str = match status {
             TranscriptionJobStatus::Pending => "pending",
             TranscriptionJobStatus::Processing => "processing",
@@ -4244,7 +4542,10 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn get_transcription_queue_entry(&self, document_id: &str) -> Result<Option<TranscriptionQueueEntry>> {
+    pub async fn get_transcription_queue_entry(
+        &self,
+        document_id: &str,
+    ) -> Result<Option<TranscriptionQueueEntry>> {
         let row = sqlx::query_as::<_, (String, String, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32)>(
             "SELECT id, document_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress FROM transcription_queue WHERE document_id = ?1 ORDER BY created_at DESC LIMIT 1"
         )
@@ -4253,45 +4554,22 @@ impl Repository {
         .await?;
 
         match row {
-            Some((id, document_id, audio_path, provider, model_id, language, status_str, error_message, priority, created_at, started_at, completed_at, retry_count, progress)) => {
-                Ok(Some(TranscriptionQueueEntry {
-                    id,
-                    document_id,
-                    audio_path,
-                    provider,
-                    model_id,
-                    language,
-                    status: Self::parse_job_status(&status_str),
-                    error_message,
-                    priority,
-                    created_at: created_at.parse().unwrap_or(Utc::now()),
-                    started_at: started_at.and_then(|t| t.parse().ok()),
-                    completed_at: completed_at.and_then(|t| t.parse().ok()),
-                    retry_count,
-                    progress,
-                }))
-            }
-            None => Ok(None),
-        }
-    }
-
-    pub async fn get_transcription_queue_by_status(&self, status: TranscriptionJobStatus) -> Result<Vec<TranscriptionQueueEntry>> {
-        let status_str = match status {
-            TranscriptionJobStatus::Pending => "pending",
-            TranscriptionJobStatus::Processing => "processing",
-            TranscriptionJobStatus::Completed => "completed",
-            TranscriptionJobStatus::Failed => "failed",
-            TranscriptionJobStatus::Cancelled => "cancelled",
-        };
-        let rows = sqlx::query_as::<_, (String, String, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32)>(
-            "SELECT id, document_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress FROM transcription_queue WHERE status = ?1 ORDER BY priority DESC, created_at ASC"
-        )
-        .bind(status_str)
-        .fetch_all(self.pool())
-        .await?;
-
-        Ok(rows.into_iter().map(|(id, document_id, audio_path, provider, model_id, language, status_str, error_message, priority, created_at, started_at, completed_at, retry_count, progress)| {
-            TranscriptionQueueEntry {
+            Some((
+                id,
+                document_id,
+                audio_path,
+                provider,
+                model_id,
+                language,
+                status_str,
+                error_message,
+                priority,
+                created_at,
+                started_at,
+                completed_at,
+                retry_count,
+                progress,
+            )) => Ok(Some(TranscriptionQueueEntry {
                 id,
                 document_id,
                 audio_path,
@@ -4306,38 +4584,120 @@ impl Repository {
                 completed_at: completed_at.and_then(|t| t.parse().ok()),
                 retry_count,
                 progress,
-            }
-        }).collect())
+            })),
+            None => Ok(None),
+        }
     }
 
-    pub async fn get_full_transcription_queue(&self) -> Result<Vec<TranscriptionQueueEntryWithDoc>> {
-        let rows = sqlx::query_as::<_, (String, String, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32, String)>(
-            "SELECT tq.id, tq.document_id, tq.audio_path, tq.provider, tq.model_id, tq.language, tq.status, tq.error_message, tq.priority, tq.created_at, tq.started_at, tq.completed_at, tq.retry_count, tq.progress, COALESCE(d.title, 'Unknown') FROM transcription_queue tq LEFT JOIN documents d ON tq.document_id = d.id ORDER BY tq.priority DESC, tq.created_at ASC"
+    pub async fn get_transcription_queue_by_status(
+        &self,
+        status: TranscriptionJobStatus,
+    ) -> Result<Vec<TranscriptionQueueEntry>> {
+        let status_str = match status {
+            TranscriptionJobStatus::Pending => "pending",
+            TranscriptionJobStatus::Processing => "processing",
+            TranscriptionJobStatus::Completed => "completed",
+            TranscriptionJobStatus::Failed => "failed",
+            TranscriptionJobStatus::Cancelled => "cancelled",
+        };
+        let rows = sqlx::query_as::<_, (String, String, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32)>(
+            "SELECT id, document_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress FROM transcription_queue WHERE status = ?1 ORDER BY priority DESC, created_at ASC"
         )
+        .bind(status_str)
         .fetch_all(self.pool())
         .await?;
 
-        Ok(rows.into_iter().map(|(id, document_id, audio_path, provider, model_id, language, status_str, error_message, priority, created_at, started_at, completed_at, retry_count, progress, document_title)| {
-            TranscriptionQueueEntryWithDoc {
-                entry: TranscriptionQueueEntry {
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
                     id,
                     document_id,
                     audio_path,
                     provider,
                     model_id,
                     language,
-                    status: Self::parse_job_status(&status_str),
+                    status_str,
                     error_message,
                     priority,
-                    created_at: created_at.parse().unwrap_or(Utc::now()),
-                    started_at: started_at.and_then(|t| t.parse().ok()),
-                    completed_at: completed_at.and_then(|t| t.parse().ok()),
+                    created_at,
+                    started_at,
+                    completed_at,
                     retry_count,
                     progress,
+                )| {
+                    TranscriptionQueueEntry {
+                        id,
+                        document_id,
+                        audio_path,
+                        provider,
+                        model_id,
+                        language,
+                        status: Self::parse_job_status(&status_str),
+                        error_message,
+                        priority,
+                        created_at: created_at.parse().unwrap_or(Utc::now()),
+                        started_at: started_at.and_then(|t| t.parse().ok()),
+                        completed_at: completed_at.and_then(|t| t.parse().ok()),
+                        retry_count,
+                        progress,
+                    }
                 },
-                document_title,
-            }
-        }).collect())
+            )
+            .collect())
+    }
+
+    pub async fn get_full_transcription_queue(
+        &self,
+    ) -> Result<Vec<TranscriptionQueueEntryWithDoc>> {
+        let rows = sqlx::query_as::<_, (String, String, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32, String)>(
+            "SELECT tq.id, tq.document_id, tq.audio_path, tq.provider, tq.model_id, tq.language, tq.status, tq.error_message, tq.priority, tq.created_at, tq.started_at, tq.completed_at, tq.retry_count, tq.progress, COALESCE(d.title, 'Unknown') FROM transcription_queue tq LEFT JOIN documents d ON tq.document_id = d.id ORDER BY tq.priority DESC, tq.created_at ASC"
+        )
+        .fetch_all(self.pool())
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    document_id,
+                    audio_path,
+                    provider,
+                    model_id,
+                    language,
+                    status_str,
+                    error_message,
+                    priority,
+                    created_at,
+                    started_at,
+                    completed_at,
+                    retry_count,
+                    progress,
+                    document_title,
+                )| {
+                    TranscriptionQueueEntryWithDoc {
+                        entry: TranscriptionQueueEntry {
+                            id,
+                            document_id,
+                            audio_path,
+                            provider,
+                            model_id,
+                            language,
+                            status: Self::parse_job_status(&status_str),
+                            error_message,
+                            priority,
+                            created_at: created_at.parse().unwrap_or(Utc::now()),
+                            started_at: started_at.and_then(|t| t.parse().ok()),
+                            completed_at: completed_at.and_then(|t| t.parse().ok()),
+                            retry_count,
+                            progress,
+                        },
+                        document_title,
+                    }
+                },
+            )
+            .collect())
     }
 
     pub async fn cancel_transcription_job(&self, id: &str) -> Result<()> {
@@ -4377,8 +4737,15 @@ impl Repository {
         if statuses.is_empty() {
             return Ok(0);
         }
-        let placeholders: Vec<String> = statuses.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
-        let query = format!("DELETE FROM transcription_queue WHERE status IN ({})", placeholders.join(","));
+        let placeholders: Vec<String> = statuses
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let query = format!(
+            "DELETE FROM transcription_queue WHERE status IN ({})",
+            placeholders.join(",")
+        );
         let mut q = sqlx::query(&query);
         for status in statuses {
             q = q.bind(status);
@@ -4397,7 +4764,10 @@ impl Repository {
 
     // ── Podcast feed operations ──────────────────────────────────────────────
 
-    pub async fn insert_podcast_feed(&self, feed: &crate::models::podcast::PodcastFeed) -> Result<()> {
+    pub async fn insert_podcast_feed(
+        &self,
+        feed: &crate::models::podcast::PodcastFeed,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO podcast_feeds (
@@ -4425,7 +4795,10 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn get_podcast_feed(&self, id: &str) -> Result<Option<crate::models::podcast::PodcastFeed>> {
+    pub async fn get_podcast_feed(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::models::podcast::PodcastFeed>> {
         let row = sqlx::query("SELECT * FROM podcast_feeds WHERE id = ?")
             .bind(id)
             .fetch_optional(self.pool())
@@ -4437,7 +4810,10 @@ impl Repository {
         }
     }
 
-    pub async fn get_podcast_feed_by_url(&self, feed_url: &str) -> Result<Option<crate::models::podcast::PodcastFeed>> {
+    pub async fn get_podcast_feed_by_url(
+        &self,
+        feed_url: &str,
+    ) -> Result<Option<crate::models::podcast::PodcastFeed>> {
         let row = sqlx::query("SELECT * FROM podcast_feeds WHERE feed_url = ?")
             .bind(feed_url)
             .fetch_optional(self.pool())
@@ -4474,7 +4850,11 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn update_podcast_feed_last_fetched(&self, id: &str, last_fetched: &str) -> Result<()> {
+    pub async fn update_podcast_feed_last_fetched(
+        &self,
+        id: &str,
+        last_fetched: &str,
+    ) -> Result<()> {
         sqlx::query("UPDATE podcast_feeds SET last_fetched = ?1 WHERE id = ?2")
             .bind(last_fetched)
             .bind(id)
@@ -4483,7 +4863,10 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn update_podcast_feed_metadata(&self, feed: &crate::models::podcast::PodcastFeed) -> Result<()> {
+    pub async fn update_podcast_feed_metadata(
+        &self,
+        feed: &crate::models::podcast::PodcastFeed,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE podcast_feeds SET
@@ -4504,18 +4887,17 @@ impl Repository {
     }
 
     pub async fn count_podcast_episodes(&self, feed_id: &str) -> Result<i64> {
-        let result: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM podcast_episodes WHERE feed_id = ?"
-        )
-        .bind(feed_id)
-        .fetch_one(self.pool())
-        .await?;
+        let result: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM podcast_episodes WHERE feed_id = ?")
+                .bind(feed_id)
+                .fetch_one(self.pool())
+                .await?;
         Ok(result.0)
     }
 
     pub async fn count_unplayed_podcast_episodes(&self, feed_id: &str) -> Result<i64> {
         let result: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM podcast_episodes WHERE feed_id = ? AND played = 0"
+            "SELECT COUNT(*) FROM podcast_episodes WHERE feed_id = ? AND played = 0",
         )
         .bind(feed_id)
         .fetch_one(self.pool())
@@ -4523,7 +4905,11 @@ impl Repository {
         Ok(result.0)
     }
 
-    pub async fn insert_podcast_episode(&self, feed_id: &str, episode: &crate::models::podcast::ParsedPodcastEpisode) -> Result<()> {
+    pub async fn insert_podcast_episode(
+        &self,
+        feed_id: &str,
+        episode: &crate::models::podcast::ParsedPodcastEpisode,
+    ) -> Result<()> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -4565,8 +4951,9 @@ impl Repository {
             return Ok(());
         }
 
-        let mut tx = self.pool().begin().await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to begin transaction: {}", e)))?;
+        let mut tx = self.pool().begin().await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to begin transaction: {}", e))
+        })?;
 
         for episode in episodes {
             let id = uuid::Uuid::new_v4().to_string();
@@ -4598,8 +4985,9 @@ impl Repository {
             .await?;
         }
 
-        tx.commit().await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to commit bulk insert: {}", e)))?;
+        tx.commit().await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to commit bulk insert: {}", e))
+        })?;
 
         Ok(())
     }
@@ -4615,11 +5003,13 @@ impl Repository {
                 sqlx::query(sql).bind(id).fetch_all(self.pool()).await?
             }
             (Some(id), _) => {
-                let sql = "SELECT * FROM podcast_episodes WHERE feed_id = ? ORDER BY published_date DESC";
+                let sql =
+                    "SELECT * FROM podcast_episodes WHERE feed_id = ? ORDER BY published_date DESC";
                 sqlx::query(sql).bind(id).fetch_all(self.pool()).await?
             }
             (None, Some(false)) => {
-                let sql = "SELECT * FROM podcast_episodes WHERE played = 0 ORDER BY published_date DESC";
+                let sql =
+                    "SELECT * FROM podcast_episodes WHERE played = 0 ORDER BY published_date DESC";
                 sqlx::query(sql).fetch_all(self.pool()).await?
             }
             (None, _) => {
@@ -4650,18 +5040,20 @@ impl Repository {
     }
 
     pub async fn get_episode_position(&self, episode_id: &str) -> Result<f64> {
-        let result: (f64,) = sqlx::query_as(
-            "SELECT playback_position FROM podcast_episodes WHERE id = ?"
-        )
-        .bind(episode_id)
-        .fetch_one(self.pool())
-        .await?;
+        let result: (f64,) =
+            sqlx::query_as("SELECT playback_position FROM podcast_episodes WHERE id = ?")
+                .bind(episode_id)
+                .fetch_one(self.pool())
+                .await?;
         Ok(result.0)
     }
 
     // ── Podcast transcription helpers ────────────────────────────────────────
 
-    pub async fn get_podcast_episode_by_id(&self, episode_id: &str) -> Result<Option<crate::models::podcast::PodcastEpisode>> {
+    pub async fn get_podcast_episode_by_id(
+        &self,
+        episode_id: &str,
+    ) -> Result<Option<crate::models::podcast::PodcastEpisode>> {
         let row = sqlx::query("SELECT * FROM podcast_episodes WHERE id = ?")
             .bind(episode_id)
             .fetch_optional(self.pool())
@@ -4817,7 +5209,6 @@ impl Repository {
             .collect())
     }
 
-
     pub async fn set_feed_auto_transcribe(
         &self,
         feed_id: &str,
@@ -4825,7 +5216,7 @@ impl Repository {
         language: Option<&str>,
     ) -> Result<()> {
         sqlx::query(
-            "UPDATE podcast_feeds SET auto_transcribe = ?1, transcribe_language = ?2 WHERE id = ?3"
+            "UPDATE podcast_feeds SET auto_transcribe = ?1, transcribe_language = ?2 WHERE id = ?3",
         )
         .bind(enabled as i32)
         .bind(language)
@@ -4936,7 +5327,13 @@ impl Repository {
                     .map(|item| item.memory_state.as_ref().map(|ms| ms.stability))
                     .collect();
                 let stats = crate::tas::maturity::recompute_tag_stability_stats(&stabilities, &tag);
-                self.update_tag_stability_stats(&tag.id, stats.item_count, stats.avg_stability, stats.mature_count).await?;
+                self.update_tag_stability_stats(
+                    &tag.id,
+                    stats.item_count,
+                    stats.avg_stability,
+                    stats.mature_count,
+                )
+                .await?;
             }
         }
 
@@ -4948,7 +5345,7 @@ impl Repository {
         let row = sqlx::query(
             "SELECT id, name, prerequisites, maturity_threshold, centroid, coherence,
                     item_count, avg_stability, mature_count, date_created, date_modified
-             FROM tags WHERE name = ?"
+             FROM tags WHERE name = ?",
         )
         .bind(name)
         .fetch_optional(self.pool())
@@ -4956,11 +5353,15 @@ impl Repository {
 
         match row {
             Some(row) => {
-                let prereqs_json: String = row.try_get("prerequisites").unwrap_or_else(|_| "[]".into());
-                let prerequisites: Vec<String> = serde_json::from_str(&prereqs_json).unwrap_or_default();
+                let prereqs_json: String =
+                    row.try_get("prerequisites").unwrap_or_else(|_| "[]".into());
+                let prerequisites: Vec<String> =
+                    serde_json::from_str(&prereqs_json).unwrap_or_default();
                 let centroid_blob: Option<Vec<u8>> = row.try_get("centroid").ok();
                 let centroid: Option<Vec<f32>> = centroid_blob.and_then(|b| {
-                    if b.len() % 4 != 0 { return None; }
+                    if b.len() % 4 != 0 {
+                        return None;
+                    }
                     let mut vec = Vec::with_capacity(b.len() / 4);
                     for chunk in b.chunks_exact(4) {
                         vec.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
@@ -4990,7 +5391,7 @@ impl Repository {
         let rows = sqlx::query(
             "SELECT id, name, prerequisites, maturity_threshold, centroid, coherence,
                     item_count, avg_stability, mature_count, date_created, date_modified
-             FROM tags ORDER BY name"
+             FROM tags ORDER BY name",
         )
         .fetch_all(self.pool())
         .await?;
@@ -4998,7 +5399,8 @@ impl Repository {
         let mut tags = Vec::new();
         for row in rows {
             let prereqs_json: String = row.try_get("prerequisites").unwrap_or_else(|_| "[]".into());
-            let prerequisites: Vec<String> = serde_json::from_str(&prereqs_json).unwrap_or_default();
+            let prerequisites: Vec<String> =
+                serde_json::from_str(&prereqs_json).unwrap_or_default();
             let centroid_blob: Option<Vec<u8>> = row.try_get("centroid").ok();
             let centroid: Option<Vec<f32>> = centroid_blob.and_then(|b| {
                 if b.len() % 4 != 0 {
@@ -5032,7 +5434,7 @@ impl Repository {
         let row = sqlx::query(
             "SELECT id, name, prerequisites, maturity_threshold, centroid, coherence,
                     item_count, avg_stability, mature_count, date_created, date_modified
-             FROM tags WHERE id = ?"
+             FROM tags WHERE id = ?",
         )
         .bind(tag_id)
         .fetch_optional(self.pool())
@@ -5073,18 +5475,17 @@ impl Repository {
         tag_id: &str,
         prerequisite_ids: &[String],
     ) -> Result<crate::models::Tag> {
-        let prereqs_json = serde_json::to_string(prerequisite_ids)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}")))?;
+        let prereqs_json = serde_json::to_string(prerequisite_ids).map_err(|e| {
+            IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}"))
+        })?;
         let now = Utc::now().to_rfc3339();
 
-        sqlx::query(
-            "UPDATE tags SET prerequisites = ?, date_modified = ? WHERE id = ?"
-        )
-        .bind(&prereqs_json)
-        .bind(&now)
-        .bind(tag_id)
-        .execute(self.pool())
-        .await?;
+        sqlx::query("UPDATE tags SET prerequisites = ?, date_modified = ? WHERE id = ?")
+            .bind(&prereqs_json)
+            .bind(&now)
+            .bind(tag_id)
+            .execute(self.pool())
+            .await?;
 
         self.get_tag(tag_id).await
     }
@@ -5103,12 +5504,13 @@ impl Repository {
 
         let now = Utc::now().to_rfc3339();
 
-        if let Some((id,)) = existing.map(|row: sqlx::sqlite::SqliteRow| {
-            (row.get::<String, _>("id"),)
-        }) {
+        if let Some((id,)) =
+            existing.map(|row: sqlx::sqlite::SqliteRow| (row.get::<String, _>("id"),))
+        {
             // Update existing
-            let prereqs_json = serde_json::to_string(prerequisites)
-                .map_err(|e| IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}")))?;
+            let prereqs_json = serde_json::to_string(prerequisites).map_err(|e| {
+                IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}"))
+            })?;
             sqlx::query(
                 "UPDATE tags SET prerequisites = ?, maturity_threshold = ?, date_modified = ? WHERE id = ?"
             )
@@ -5122,8 +5524,9 @@ impl Repository {
         } else {
             // Create new
             let id = uuid::Uuid::new_v4().to_string();
-            let prereqs_json = serde_json::to_string(prerequisites)
-                .map_err(|e| IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}")))?;
+            let prereqs_json = serde_json::to_string(prerequisites).map_err(|e| {
+                IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}"))
+            })?;
             sqlx::query(
                 "INSERT INTO tags (id, name, prerequisites, maturity_threshold, item_count, mature_count, date_created, date_modified)
                  VALUES (?, ?, ?, ?, 0, 0, ?, ?)"
@@ -5148,7 +5551,9 @@ impl Repository {
             .rows_affected();
 
         if rows == 0 {
-            return Err(IncrementumError::NotFound(format!("Tag not found: {tag_id}")));
+            return Err(IncrementumError::NotFound(format!(
+                "Tag not found: {tag_id}"
+            )));
         }
         Ok(())
     }
@@ -5161,16 +5566,15 @@ impl Repository {
         for mut tag in all_tags {
             if tag.prerequisites.contains(&tag_id.to_string()) {
                 tag.prerequisites.retain(|p| p != tag_id);
-                let prereqs_json = serde_json::to_string(&tag.prerequisites)
-                    .map_err(|e| IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}")))?;
-                sqlx::query(
-                    "UPDATE tags SET prerequisites = ?, date_modified = ? WHERE id = ?"
-                )
-                .bind(&prereqs_json)
-                .bind(&now)
-                .bind(&tag.id)
-                .execute(self.pool())
-                .await?;
+                let prereqs_json = serde_json::to_string(&tag.prerequisites).map_err(|e| {
+                    IncrementumError::Internal(format!("Failed to serialize prerequisites: {e}"))
+                })?;
+                sqlx::query("UPDATE tags SET prerequisites = ?, date_modified = ? WHERE id = ?")
+                    .bind(&prereqs_json)
+                    .bind(&now)
+                    .bind(&tag.id)
+                    .execute(self.pool())
+                    .await?;
             }
         }
         Ok(())
@@ -5300,14 +5704,11 @@ impl Repository {
             };
 
             // Serialize centroid to blob
-            let centroid_blob: Vec<u8> = centroid
-                .iter()
-                .flat_map(|v| v.to_le_bytes())
-                .collect();
+            let centroid_blob: Vec<u8> = centroid.iter().flat_map(|v| v.to_le_bytes()).collect();
 
             // Write to tags table
             sqlx::query(
-                "UPDATE tags SET centroid = ?, coherence = ?, date_modified = ? WHERE id = ?"
+                "UPDATE tags SET centroid = ?, coherence = ?, date_modified = ? WHERE id = ?",
             )
             .bind(&centroid_blob)
             .bind(coherence)
@@ -5358,7 +5759,8 @@ fn compute_avg_pairwise_cosine(embeddings: &[&[f32]]) -> f64 {
 
 /// Cosine similarity between two f32 slices.
 fn cosine_similarity_f32(a: &[f32], b: &[f32]) -> f32 {
-    let (dot, norm_a, norm_b) = a.iter()
+    let (dot, norm_a, norm_b) = a
+        .iter()
         .zip(b.iter())
         .fold((0.0f32, 0.0f32, 0.0f32), |(d, na, nb), (&x, &y)| {
             (d + x * y, na + x * x, nb + y * y)
@@ -5399,7 +5801,7 @@ struct StudyStatsRow {
 
 // ── Podcast row mapping helpers ─────────────────────────────────────────────
 
-use crate::models::podcast::{PodcastFeed, PodcastEpisode};
+use crate::models::podcast::{PodcastEpisode, PodcastFeed};
 
 fn map_row_to_podcast_feed(row: &SqliteRow) -> PodcastFeed {
     PodcastFeed {
@@ -5438,7 +5840,9 @@ fn map_row_to_podcast_episode(row: &SqliteRow) -> PodcastEpisode {
         playback_position: row.try_get("playback_position").unwrap_or(0.0),
         date_added: row.get("date_added"),
         transcript_text: row.try_get("transcript_text").ok().flatten(),
-        transcript_status: row.try_get("transcript_status").unwrap_or_else(|_| "none".to_string()),
+        transcript_status: row
+            .try_get("transcript_status")
+            .unwrap_or_else(|_| "none".to_string()),
         transcript_error: row.try_get("transcript_error").ok().flatten(),
         transcribed_at: row.try_get("transcribed_at").ok().flatten(),
     }
@@ -5471,11 +5875,25 @@ mod tests {
         let sha = sha_hex(&bytes);
 
         let first = repo
-            .create_or_get_image_asset("image/png", Some("a.png"), &bytes, &sha, Some(100), Some(100))
+            .create_or_get_image_asset(
+                "image/png",
+                Some("a.png"),
+                &bytes,
+                &sha,
+                Some(100),
+                Some(100),
+            )
             .await
             .expect("first");
         let second = repo
-            .create_or_get_image_asset("image/png", Some("b.png"), &bytes, &sha, Some(100), Some(100))
+            .create_or_get_image_asset(
+                "image/png",
+                Some("b.png"),
+                &bytes,
+                &sha,
+                Some(100),
+                Some(100),
+            )
             .await
             .expect("second");
 
@@ -5488,14 +5906,23 @@ mod tests {
         let bytes = vec![9_u8, 8, 7, 6];
         let sha = sha_hex(&bytes);
         let asset = repo
-            .create_or_get_image_asset("image/png", Some("asset.png"), &bytes, &sha, Some(10), Some(10))
+            .create_or_get_image_asset(
+                "image/png",
+                Some("asset.png"),
+                &bytes,
+                &sha,
+                Some(10),
+                Some(10),
+            )
             .await
             .expect("asset");
 
         let mut item = LearningItem::new(ItemType::Flashcard, "Question".to_string());
         item.answer = Some("Answer".to_string());
         item.image_asset_ids = vec![asset.id.clone()];
-        repo.create_learning_item(&item).await.expect("learning item");
+        repo.create_learning_item(&item)
+            .await
+            .expect("learning item");
 
         let deleted = repo
             .delete_image_asset_if_unreferenced(&asset.id)
@@ -5510,18 +5937,36 @@ mod tests {
         let bytes = vec![137, 80, 78, 71];
         let sha = "usage-sha";
         let asset = repo
-            .create_or_get_image_asset("image/png", Some("asset.png"), &bytes, sha, Some(10), Some(10))
+            .create_or_get_image_asset(
+                "image/png",
+                Some("asset.png"),
+                &bytes,
+                sha,
+                Some(10),
+                Some(10),
+            )
             .await
             .expect("create image asset");
 
         // Create a document first (LearningItem::with_answer requires a valid document_id FK)
         let doc = repo
-            .create_document(&Document::new("Test Doc".to_string(), "/tmp/test.pdf".to_string(), FileType::Pdf))
+            .create_document(&Document::new(
+                "Test Doc".to_string(),
+                "/tmp/test.pdf".to_string(),
+                FileType::Pdf,
+            ))
             .await
             .expect("create document");
-        let mut item = LearningItem::with_answer(doc.id, ItemType::Flashcard, "prompt".to_string(), "answer".to_string());
+        let mut item = LearningItem::with_answer(
+            doc.id,
+            ItemType::Flashcard,
+            "prompt".to_string(),
+            "answer".to_string(),
+        );
         item.image_asset_ids = vec![asset.id.clone()];
-        repo.create_learning_item(&item).await.expect("create learning item");
+        repo.create_learning_item(&item)
+            .await
+            .expect("create learning item");
 
         let assets = repo
             .list_image_assets_with_usage()
@@ -5538,12 +5983,20 @@ mod tests {
     #[tokio::test]
     async fn document_create_read_roundtrip() {
         let repo = setup_repo().await;
-        let mut doc = Document::new("Test Book".to_string(), "/tmp/test.pdf".to_string(), FileType::Pdf);
+        let mut doc = Document::new(
+            "Test Book".to_string(),
+            "/tmp/test.pdf".to_string(),
+            FileType::Pdf,
+        );
         doc.tags = vec!["tag1".to_string(), "tag2".to_string()];
         doc.category = Some("science".to_string());
         doc.priority_rating = 3;
         let created = repo.create_document(&doc).await.expect("create");
-        let read = repo.get_document(&created.id).await.expect("get").expect("found");
+        let read = repo
+            .get_document(&created.id)
+            .await
+            .expect("get")
+            .expect("found");
 
         assert_eq!(read.id, created.id);
         assert_eq!(read.title, "Test Book");
@@ -5556,12 +6009,26 @@ mod tests {
     #[tokio::test]
     async fn extract_create_read_roundtrip() {
         let repo = setup_repo().await;
-        let doc = repo.create_document(&Document::new("Src".to_string(), "/tmp/s.epub".to_string(), FileType::Epub)).await.expect("doc");
-        let mut ext = Extract::new(doc.id.clone(), "Important passage about gravity.".to_string());
+        let doc = repo
+            .create_document(&Document::new(
+                "Src".to_string(),
+                "/tmp/s.epub".to_string(),
+                FileType::Epub,
+            ))
+            .await
+            .expect("doc");
+        let mut ext = Extract::new(
+            doc.id.clone(),
+            "Important passage about gravity.".to_string(),
+        );
         ext.notes = Some("key concept".to_string());
         ext.highlight_color = Some("yellow".to_string());
         let created = repo.create_extract(&ext).await.expect("create");
-        let read = repo.get_extract(&created.id).await.expect("get").expect("found");
+        let read = repo
+            .get_extract(&created.id)
+            .await
+            .expect("get")
+            .expect("found");
 
         assert_eq!(read.id, created.id);
         assert_eq!(read.document_id, doc.id);
@@ -5573,20 +6040,33 @@ mod tests {
     #[tokio::test]
     async fn learning_item_create_read_roundtrip() {
         let repo = setup_repo().await;
-        let doc = repo.create_document(&Document::new("Src".to_string(), "/tmp/s.pdf".to_string(), FileType::Pdf)).await.expect("doc");
+        let doc = repo
+            .create_document(&Document::new(
+                "Src".to_string(),
+                "/tmp/s.pdf".to_string(),
+                FileType::Pdf,
+            ))
+            .await
+            .expect("doc");
         let mut item = LearningItem::new(ItemType::Qa, "What is gravity?".to_string());
         item.document_id = Some(doc.id.clone());
         item.answer = Some("A fundamental force of nature.".to_string());
         item.difficulty = 5;
         item.tags = vec!["physics".to_string()];
         let created = repo.create_learning_item(&item).await.expect("create");
-        let items = repo.get_learning_items_by_document(&doc.id).await.expect("get");
+        let items = repo
+            .get_learning_items_by_document(&doc.id)
+            .await
+            .expect("get");
 
         assert_eq!(items.len(), 1);
         let read = &items[0];
         assert_eq!(read.id, created.id);
         assert_eq!(read.question, "What is gravity?");
-        assert_eq!(read.answer.as_deref(), Some("A fundamental force of nature."));
+        assert_eq!(
+            read.answer.as_deref(),
+            Some("A fundamental force of nature.")
+        );
         assert_eq!(read.difficulty, 5);
         assert_eq!(read.tags, vec!["physics".to_string()]);
     }
@@ -5595,7 +6075,14 @@ mod tests {
     async fn full_document_hierarchy_roundtrip() {
         let repo = setup_repo().await;
 
-        let doc = repo.create_document(&Document::new("Hierarchy Test".to_string(), "/tmp/h.pdf".to_string(), FileType::Pdf)).await.expect("doc");
+        let doc = repo
+            .create_document(&Document::new(
+                "Hierarchy Test".to_string(),
+                "/tmp/h.pdf".to_string(),
+                FileType::Pdf,
+            ))
+            .await
+            .expect("doc");
 
         let ext = Extract::new(doc.id.clone(), "Extract content here.".to_string());
         let created_ext = repo.create_extract(&ext).await.expect("extract");
@@ -5605,43 +6092,79 @@ mod tests {
         item1.extract_id = Some(created_ext.id.clone());
         item1.answer = Some("Flashcard A".to_string());
 
-        let mut item2 = LearningItem::with_answer(doc.id.clone(), ItemType::Cloze, "Cloze {{c1::text}} here.".to_string(), "text".to_string());
+        let mut item2 = LearningItem::with_answer(
+            doc.id.clone(),
+            ItemType::Cloze,
+            "Cloze {{c1::text}} here.".to_string(),
+            "text".to_string(),
+        );
         item2.extract_id = Some(created_ext.id.clone());
 
         repo.create_learning_item(&item1).await.expect("item1");
         repo.create_learning_item(&item2).await.expect("item2");
 
         // Verify hierarchy
-        let read_doc = repo.get_document(&doc.id).await.expect("get doc").expect("doc exists");
+        let read_doc = repo
+            .get_document(&doc.id)
+            .await
+            .expect("get doc")
+            .expect("doc exists");
         assert_eq!(read_doc.id, doc.id);
 
-        let read_ext = repo.get_extract(&created_ext.id).await.expect("get ext").expect("ext exists");
+        let read_ext = repo
+            .get_extract(&created_ext.id)
+            .await
+            .expect("get ext")
+            .expect("ext exists");
         assert_eq!(read_ext.document_id, doc.id);
 
-        let ext_items = repo.get_learning_items_by_extract(&created_ext.id).await.expect("ext items");
+        let ext_items = repo
+            .get_learning_items_by_extract(&created_ext.id)
+            .await
+            .expect("ext items");
         assert_eq!(ext_items.len(), 2);
 
-        let doc_items = repo.get_learning_items_by_document(&doc.id).await.expect("doc items");
+        let doc_items = repo
+            .get_learning_items_by_document(&doc.id)
+            .await
+            .expect("doc items");
         assert_eq!(doc_items.len(), 2);
     }
 
     #[tokio::test]
     async fn document_update_roundtrip() {
         let repo = setup_repo().await;
-        let doc = repo.create_document(&Document::new("Original".to_string(), "/tmp/u.pdf".to_string(), FileType::Pdf)).await.expect("create");
+        let doc = repo
+            .create_document(&Document::new(
+                "Original".to_string(),
+                "/tmp/u.pdf".to_string(),
+                FileType::Pdf,
+            ))
+            .await
+            .expect("create");
 
         let mut updated = doc.clone();
         updated.title = "Updated Title".to_string();
         updated.category = Some("history".to_string());
         updated.tags = vec!["a".to_string(), "b".to_string()];
-        repo.update_document(&updated.id, &updated).await.expect("update");
+        repo.update_document(&updated.id, &updated)
+            .await
+            .expect("update");
 
-        repo.update_document_dismiss(&doc.id, true).await.expect("dismiss");
+        repo.update_document_dismiss(&doc.id, true)
+            .await
+            .expect("dismiss");
 
         // Update priority (requires rating, slider, score)
-        repo.update_document_priority(&doc.id, 4, 0, 0.0).await.expect("priority");
+        repo.update_document_priority(&doc.id, 4, 0, 0.0)
+            .await
+            .expect("priority");
 
-        let read = repo.get_document(&doc.id).await.expect("get").expect("found");
+        let read = repo
+            .get_document(&doc.id)
+            .await
+            .expect("get")
+            .expect("found");
         assert_eq!(read.title, "Updated Title");
         assert_eq!(read.category.as_deref(), Some("history"));
         assert_eq!(read.tags, vec!["a".to_string(), "b".to_string()]);
@@ -5660,7 +6183,11 @@ mod tests {
             .await
             .expect("count migrations");
         let total = crate::database::migrations::MIGRATIONS.len() as i64;
-        assert_eq!(count.0, total, "All {} migrations should be tracked, but got {}", total, count.0);
+        assert_eq!(
+            count.0, total,
+            "All {} migrations should be tracked, but got {}",
+            total, count.0
+        );
     }
 
     #[tokio::test]
@@ -5674,7 +6201,10 @@ mod tests {
             .await
             .expect("count");
         let total = crate::database::migrations::MIGRATIONS.len() as i64;
-        assert_eq!(count.0, total, "Migration count should be unchanged after second pass");
+        assert_eq!(
+            count.0, total,
+            "Migration count should be unchanged after second pass"
+        );
     }
 
     #[tokio::test]
@@ -5706,7 +6236,8 @@ mod tests {
 
         for table in &expected_tables {
             let result: (i64,) = sqlx::query_as(&format!(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}'", table
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}'",
+                table
             ))
             .fetch_one(db.pool())
             .await
@@ -5762,8 +6293,14 @@ mod tests {
         assert_eq!(got[0].start_ms, 0);
         assert_eq!(got[0].end_ms, 2000);
         assert_eq!(got[0].text, "Hello world.");
-        assert!(got[0].word_timings_json.is_some(), "word timings preserved on seg 0");
-        assert!(got[1].word_timings_json.is_none(), "no word timings on seg 1");
+        assert!(
+            got[0].word_timings_json.is_some(),
+            "word timings preserved on seg 0"
+        );
+        assert!(
+            got[1].word_timings_json.is_none(),
+            "no word timings on seg 1"
+        );
 
         // The word-timings JSON is retrievable per-segment by start_ms too.
         let wt = repo
@@ -5773,14 +6310,17 @@ mod tests {
         assert!(wt.is_some());
 
         // Re-saving replaces (re-transcription is idempotent, no duplicates).
-        repo.save_podcast_transcript_segments(episode_id, &segments[..1], &[word_timings[0].clone()])
-            .await
-            .expect("re-save");
+        repo.save_podcast_transcript_segments(
+            episode_id,
+            &segments[..1],
+            &[word_timings[0].clone()],
+        )
+        .await
+        .expect("re-save");
         let got2 = repo
             .get_podcast_transcript_segments_with_words(episode_id)
             .await
             .expect("get after re-save");
         assert_eq!(got2.len(), 1, "re-save replaced prior segments");
     }
-
 }

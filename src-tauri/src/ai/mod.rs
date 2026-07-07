@@ -7,29 +7,22 @@
 //! - Q&A with document context
 //! - Content summarization
 
-pub mod providers;
-pub mod prompts;
+pub mod embedding_config;
+pub mod embeddings;
 pub mod flashcard_generator;
+pub mod prompts;
+pub mod provider_wrapper;
+pub mod providers;
 pub mod qa;
 pub mod summarizer;
-pub mod provider_wrapper;
-pub mod embeddings;
-pub mod embedding_config;
 
 // Re-exports - use the new enum-based provider
-pub use provider_wrapper::{
-    AIProvider, AIConfig,
-};
-pub use providers::{LLMProviderType, Message, MessageRole};
 pub use embeddings::{
-    EmbeddingProviderType,
-    EmbeddingResponse,
-    EmbeddingModel,
-    OpenAIEmbeddingProvider,
-    CohereEmbeddingProvider,
-    OpenRouterEmbeddingProvider,
-    OllamaEmbeddingProvider,
+    CohereEmbeddingProvider, EmbeddingModel, EmbeddingProviderType, EmbeddingResponse,
+    OllamaEmbeddingProvider, OpenAIEmbeddingProvider, OpenRouterEmbeddingProvider,
 };
+pub use provider_wrapper::{AIConfig, AIProvider};
+pub use providers::{LLMProviderType, Message, MessageRole};
 
 // Note: FlashcardGenerator, QuestionAnswerer, and Summarizer still need to be updated
 // to use AIProvider instead of Box<dyn LLMProvider>

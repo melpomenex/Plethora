@@ -8,8 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::backup::BackupManager;
 use crate::cloud::{
-    BackupOptions, BackupInfo, CloudAuthProvider, CloudProvider,
-    CloudProviderType,
+    BackupInfo, BackupOptions, CloudAuthProvider, CloudProvider, CloudProviderType,
 };
 use crate::database::{Database, Repository};
 

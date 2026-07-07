@@ -1,4 +1,9 @@
-import { argon2id } from 'hash-wasm';
+// hash-wasm is intentionally never imported here. Argon2id key derivation
+// runs exclusively in a Web Worker (see argon2id.worker.ts) to keep the
+// main thread responsive. There is no main-thread fallback — a frozen UI
+// is worse than failing sync startup.
+
+// ---- constants ----
 
 const ROOM_KEY_BYTES = 32;
 const AES_GCM_NONCE_BYTES = 12;
@@ -10,10 +15,6 @@ const NONCE_COUNTER_BYTES = AES_GCM_NONCE_BYTES - NONCE_DEVICE_PREFIX_BYTES;
 const HKDF_INFO_STATE = new TextEncoder().encode('incrementum-sync/state-v1');
 const HKDF_INFO_FILES = new TextEncoder().encode('incrementum-sync/files-v1');
 const HKDF_INFO_AUTH = new TextEncoder().encode('incrementum-sync/auth-v1');
-
-const ARGON2_MEMORY_KIB = 65536;
-const ARGON2_ITERATIONS = 3;
-const ARGON2_PARALLELISM = 4;
 
 export interface SubKeys {
   stateKey: CryptoKey;
@@ -33,6 +34,30 @@ export class DecryptError extends Error {
   }
 }
 
+// ---- Argon2id key derivation (offloaded to Web Worker) ----
+
+/**
+ * A weak map keyed by secret+roomId, used to deduplicate in-flight derivations.
+ * Two concurrent calls with the same inputs share one worker invocation rather
+ * than spawning two workers and thrashing WASM memory with redundant work.
+ */
+const inflightDerive = new Map<string, Promise<Uint8Array>>();
+
+function deriveCacheKey(roomSecret: string, roomId: string): string {
+  return `${roomId}\x00${roomSecret}`;
+}
+
+/**
+ * Derive the 32-byte room key from a room secret and room ID using Argon2id.
+ *
+ * Runs in a Web Worker exclusively to keep the main thread responsive.
+ * There is no main-thread fallback — if the Worker API is unavailable
+ * or the worker fails, the error propagates to the caller which handles
+ * it gracefully (sync won't start, but the app stays responsive).
+ *
+ * Concurrent calls with the same (secret, roomId) share one derivation;
+ * the duplicate callers await the same promise returned by the first.
+ */
 export async function deriveRoomKey(
   roomSecret: string,
   roomId: string,
@@ -40,17 +65,85 @@ export async function deriveRoomKey(
   if (!roomSecret) throw new Error('deriveRoomKey: roomSecret is required');
   if (!roomId) throw new Error('deriveRoomKey: roomId is required');
 
-  const passwordBytes = new TextEncoder().encode(roomSecret);
-  const salt = new TextEncoder().encode(`incrementum-sync/${roomId}`);
+  const cacheKey = deriveCacheKey(roomSecret, roomId);
+  const existing = inflightDerive.get(cacheKey);
+  if (existing) return existing;
 
-  return argon2id({
-    password: passwordBytes,
-    salt,
-    parallelism: ARGON2_PARALLELISM,
-    memorySize: ARGON2_MEMORY_KIB,
-    iterations: ARGON2_ITERATIONS,
-    hashLength: ROOM_KEY_BYTES,
-    outputType: 'binary',
+  const promise = deriveRoomKeyImpl(roomSecret, roomId);
+  inflightDerive.set(cacheKey, promise);
+
+  // Clean up the cache entry on settle so future calls can retry (e.g. after
+  // a transient Worker error was resolved by a later code path).
+  promise.finally(() => {
+    if (inflightDerive.get(cacheKey) === promise) {
+      inflightDerive.delete(cacheKey);
+    }
+  });
+
+  return promise;
+}
+
+async function deriveRoomKeyImpl(
+  roomSecret: string,
+  roomId: string,
+): Promise<Uint8Array> {
+  // Only the Web Worker path is allowed — hash-wasm's WASM would block the
+  // main thread for several seconds. If the worker can't run (missing API,
+  // script load failure, timeout), we throw immediately rather than falling
+  // back to main-thread Argon2id. The caller (buildProvider) handles the
+  // error: getYjsSync fails, the timeout wrapper catches it, and the app
+  // proceeds without sync. A frozen UI is worse than no sync.
+  return deriveRoomKeyViaWorker(roomSecret, roomId);
+}
+
+async function deriveRoomKeyViaWorker(
+  roomSecret: string,
+  roomId: string,
+): Promise<Uint8Array> {
+  const WorkerCtor =
+    typeof Worker !== 'undefined'
+      ? Worker
+      : null;
+
+  if (!WorkerCtor) {
+    throw new Error('Worker API unavailable');
+  }
+
+  const worker = new WorkerCtor(
+    new URL('./argon2id.worker.ts', import.meta.url),
+    { type: 'module' },
+  );
+
+  return new Promise<Uint8Array>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      worker.terminate();
+      reject(new Error('Argon2id worker timed out after 10s'));
+    }, 10_000);
+
+    worker.onmessage = (event: MessageEvent<{ key?: Uint8Array; error?: string }>) => {
+      clearTimeout(timeout);
+      worker.terminate();
+
+      if (event.data.error) {
+        reject(new Error(`Argon2id worker error: ${event.data.error}`));
+      } else if (event.data.key) {
+        resolve(event.data.key);
+      } else {
+        reject(new Error('Argon2id worker returned no key and no error'));
+      }
+    };
+
+    worker.onerror = (error) => {
+      clearTimeout(timeout);
+      worker.terminate();
+      reject(
+        error instanceof ErrorEvent
+          ? new Error(`Argon2id worker crashed: ${error.message}`)
+          : new Error('Argon2id worker crashed'),
+      );
+    };
+
+    worker.postMessage({ secret: roomSecret, roomId });
   });
 }
 

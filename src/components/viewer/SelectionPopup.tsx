@@ -52,6 +52,49 @@ export interface SelectionPopupProps {
   maxWidth?: number;
 }
 
+export async function copySelectionTextToClipboard(text: string): Promise<boolean> {
+  const value = text.trim();
+  if (!value) return false;
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+  } catch (err) {
+    console.warn("Failed to copy via Clipboard API:", err);
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+
+  const previousSelection = document.getSelection();
+  const ranges = previousSelection
+    ? Array.from({ length: previousSelection.rangeCount }, (_, index) => previousSelection.getRangeAt(index).cloneRange())
+    : [];
+
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand?.("copy") ?? false;
+  } catch (err) {
+    console.warn("Failed to copy via fallback:", err);
+  } finally {
+    textarea.remove();
+    if (previousSelection) {
+      previousSelection.removeAllRanges();
+      ranges.forEach((range) => previousSelection.addRange(range));
+    }
+  }
+
+  return copied;
+}
+
 /**
  * Calculate the optimal position for the popup.
  * Positions the popup centered above the selection.
@@ -155,13 +198,7 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
 
   // Handle copy to clipboard
   const handleCopy = useCallback(async () => {
-    if (selectedText) {
-      try {
-        await navigator.clipboard.writeText(selectedText);
-      } catch (err) {
-        console.warn("Failed to copy to clipboard:", err);
-      }
-    }
+    await copySelectionTextToClipboard(selectedText ?? "");
     onCopy?.();
     onDismiss?.();
   }, [selectedText, onCopy, onDismiss]);

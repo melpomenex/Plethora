@@ -119,7 +119,10 @@ fn extract_author(title: &str) -> (String, Option<String>) {
             let author_candidate = &trimmed[last_open + 1..trimmed.len() - 1];
             let clean_author = author_candidate.trim();
             if !clean_author.is_empty()
-                && !clean_author.chars().next().map_or(true, |c| c.is_ascii_digit())
+                && !clean_author
+                    .chars()
+                    .next()
+                    .map_or(true, |c| c.is_ascii_digit())
                 && clean_author.len() < trimmed.len() / 2
             {
                 let clean_title = trimmed[..last_open].trim().to_string();
@@ -149,9 +152,8 @@ fn kindle_file_path(normalized_title: &str) -> String {
 
 /// Read a file trying UTF-8 first, falling back to Latin-1.
 fn read_file_bytes(path: &str) -> Result<String> {
-    let bytes = fs::read(path).map_err(|e| {
-        IncrementumError::NotFound(format!("Cannot read file '{}': {}", path, e))
-    })?;
+    let bytes = fs::read(path)
+        .map_err(|e| IncrementumError::NotFound(format!("Cannot read file '{}': {}", path, e)))?;
 
     if let Ok(text) = String::from_utf8(bytes.clone()) {
         return Ok(text);
@@ -214,18 +216,29 @@ fn parse_kindle_date(date_str: &str) -> Option<DateTime<Utc>> {
 }
 
 /// Parse the metadata line from a clipping entry.
-fn parse_metadata_line(line: &str) -> Option<(ClippingType, Option<i32>, Option<i32>, Option<i32>, &str)> {
+fn parse_metadata_line(
+    line: &str,
+) -> Option<(ClippingType, Option<i32>, Option<i32>, Option<i32>, &str)> {
     let trimmed = line.trim();
     if !trimmed.starts_with("- Your ") {
         return None;
     }
 
     let (clipping_type, rest) = if trimmed.contains("Your Highlight") {
-        (ClippingType::Highlight, trimmed.trim_start_matches("- Your Highlight").trim())
+        (
+            ClippingType::Highlight,
+            trimmed.trim_start_matches("- Your Highlight").trim(),
+        )
     } else if trimmed.contains("Your Note") {
-        (ClippingType::Note, trimmed.trim_start_matches("- Your Note").trim())
+        (
+            ClippingType::Note,
+            trimmed.trim_start_matches("- Your Note").trim(),
+        )
     } else if trimmed.contains("Your Bookmark") {
-        (ClippingType::Bookmark, trimmed.trim_start_matches("- Your Bookmark").trim())
+        (
+            ClippingType::Bookmark,
+            trimmed.trim_start_matches("- Your Bookmark").trim(),
+        )
     } else {
         return None;
     };
@@ -285,9 +298,8 @@ fn parse_clippings_raw(path: &str) -> Result<(Vec<KindleClipping>, Vec<String>)>
     let mut clippings: Vec<KindleClipping> = Vec::new();
     let mut skipped_empty = 0usize;
 
-    let metadata_re = Regex::new(
-        r"(?i)^[ \t]*- Your (Highlight|Note|Bookmark)(.*)",
-    ).expect("valid regex");
+    let metadata_re =
+        Regex::new(r"(?i)^[ \t]*- Your (Highlight|Note|Bookmark)(.*)").expect("valid regex");
 
     for (idx, entry) in entries.iter().enumerate() {
         let lines: Vec<&str> = entry.lines().collect();
@@ -436,10 +448,7 @@ pub fn parse_kindle_clippings(path: &str) -> Result<KindleValidationResult> {
     let total_bookmarks: usize = books.iter().map(|g| g.bookmarks_count).sum();
     let total_clippings = total_highlights + total_notes + total_bookmarks;
 
-    let unparseable_dates: usize = clippings
-        .iter()
-        .filter(|c| c.date_added.is_none())
-        .count();
+    let unparseable_dates: usize = clippings.iter().filter(|c| c.date_added.is_none()).count();
 
     if unparseable_dates > 0 {
         let fallback = match file_mtime {
@@ -481,9 +490,9 @@ pub async fn validate_kindle_clippings_preview(
     let mut total_existing = 0usize;
 
     for (normalized_title, book_clips) in &book_clippings {
-        let has_importable = book_clips
-            .iter()
-            .any(|c| c.clipping_type == ClippingType::Highlight || c.clipping_type == ClippingType::Note);
+        let has_importable = book_clips.iter().any(|c| {
+            c.clipping_type == ClippingType::Highlight || c.clipping_type == ClippingType::Note
+        });
 
         if !has_importable {
             continue;
@@ -496,10 +505,7 @@ pub async fn validate_kindle_clippings_preview(
 
         let existing_hashes: std::collections::HashSet<String> = if let Some(id) = doc_id {
             let extracts = repo.list_extracts_by_document(id).await?;
-            extracts
-                .into_iter()
-                .filter_map(|e| e.source_hash)
-                .collect()
+            extracts.into_iter().filter_map(|e| e.source_hash).collect()
         } else {
             std::collections::HashSet::new()
         };
@@ -590,9 +596,9 @@ pub async fn do_import_kindle_clippings(
     let mut updated_documents = 0usize;
 
     for (normalized_title, book_clips) in &book_clippings {
-        let has_importable = book_clips
-            .iter()
-            .any(|c| c.clipping_type == ClippingType::Highlight || c.clipping_type == ClippingType::Note);
+        let has_importable = book_clips.iter().any(|c| {
+            c.clipping_type == ClippingType::Highlight || c.clipping_type == ClippingType::Note
+        });
 
         if !has_importable {
             continue;
@@ -630,7 +636,12 @@ pub async fn do_import_kindle_clippings(
                 Some(content_parts.join("\n\n---\n\n"))
             };
 
-            let mut new_doc = Document::with_collection(title, synthetic_path, FileType::Other, collection_id.clone());
+            let mut new_doc = Document::with_collection(
+                title,
+                synthetic_path,
+                FileType::Other,
+                collection_id.clone(),
+            );
             new_doc.category = Some("Kindle".to_string());
             new_doc.tags = vec!["kindle-import".to_string()];
             new_doc.content = doc_content;
@@ -720,11 +731,9 @@ pub struct KindleBackfillResult {
 
 pub async fn do_backfill_kindle_imports(repo: &Repository) -> Result<KindleBackfillResult> {
     // Find all Kindle documents
-    let rows = sqlx::query(
-        "SELECT id FROM documents WHERE file_path LIKE 'kindle://%'",
-    )
-    .fetch_all(repo.db_pool())
-    .await?;
+    let rows = sqlx::query("SELECT id FROM documents WHERE file_path LIKE 'kindle://%'")
+        .fetch_all(repo.db_pool())
+        .await?;
 
     let mut documents_updated = 0usize;
     let mut learning_items_created = 0usize;
@@ -790,7 +799,8 @@ pub async fn do_backfill_kindle_imports(repo: &Repository) -> Result<KindleBackf
                 .unwrap_or_else(|| now.to_rfc3339());
 
             let item_tags = if existing_tags.contains(&"kindle-note".to_string()) {
-                serde_json::to_string(&vec!["kindle", "kindle-note"]).unwrap_or_else(|_| "[]".to_string())
+                serde_json::to_string(&vec!["kindle", "kindle-note"])
+                    .unwrap_or_else(|_| "[]".to_string())
             } else {
                 serde_json::to_string(&vec!["kindle"]).unwrap_or_else(|_| "[]".to_string())
             };
@@ -886,9 +896,7 @@ pub async fn import_kindle_clippings_file(
 }
 
 #[tauri::command]
-pub async fn backfill_kindle_imports(
-    repo: State<'_, Repository>,
-) -> Result<KindleBackfillResult> {
+pub async fn backfill_kindle_imports(repo: State<'_, Repository>) -> Result<KindleBackfillResult> {
     do_backfill_kindle_imports(&repo).await
 }
 
@@ -951,10 +959,7 @@ Nonexistent Book
         let f = write_temp(&sample_clipping_file());
         let result = parse_kindle_clippings(f.path().to_str().unwrap()).unwrap();
 
-        let deep_work = result
-            .books
-            .iter()
-            .find(|b| b.title.contains("Deep Work"));
+        let deep_work = result.books.iter().find(|b| b.title.contains("Deep Work"));
         assert!(deep_work.is_some());
         assert_eq!(deep_work.unwrap().highlights_count, 1);
         assert_eq!(deep_work.unwrap().notes_count, 1);
@@ -974,10 +979,7 @@ Nonexistent Book
             extract_author("Atomic Habits (James Clear)"),
             ("Atomic Habits".to_string(), Some("James Clear".to_string()))
         );
-        assert_eq!(
-            extract_author("Deep Work"),
-            ("Deep Work".to_string(), None)
-        );
+        assert_eq!(extract_author("Deep Work"), ("Deep Work".to_string(), None));
     }
 
     #[test]

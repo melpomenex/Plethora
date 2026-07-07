@@ -1,13 +1,13 @@
 //! Learning item commands
 
-use tauri::State;
-use crate::database::Repository;
 use crate::commands::review::RepositoryExt;
-use crate::error::{Result, IncrementumError};
+use crate::database::Repository;
+use crate::error::{IncrementumError, Result};
 use crate::generator::LearningItemGenerator;
-use crate::models::{LearningItem, ItemType, ItemState};
-use std::collections::HashSet;
+use crate::models::{ItemState, ItemType, LearningItem};
 use sqlx::Row;
+use std::collections::HashSet;
+use tauri::State;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DuplicateCandidate {
@@ -29,7 +29,10 @@ pub struct CardVersionEntry {
 fn tokenize(text: &str) -> HashSet<String> {
     text.to_lowercase()
         .split_whitespace()
-        .map(|part| part.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .map(|part| {
+            part.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_string()
+        })
         .filter(|token| !token.is_empty())
         .collect()
 }
@@ -42,7 +45,11 @@ fn jaccard_similarity(a: &str, b: &str) -> f64 {
     }
     let intersection = set_a.intersection(&set_b).count() as f64;
     let union = set_a.union(&set_b).count() as f64;
-    if union <= 0.0 { 0.0 } else { intersection / union }
+    if union <= 0.0 {
+        0.0
+    } else {
+        intersection / union
+    }
 }
 
 #[tauri::command]
@@ -51,7 +58,9 @@ pub async fn get_due_items(
     repo: State<'_, Repository>,
 ) -> Result<Vec<LearningItem>> {
     let now = chrono::Utc::now();
-    let items = repo.get_due_learning_items(&now, collection_id.as_deref()).await?;
+    let items = repo
+        .get_due_learning_items(&now, collection_id.as_deref())
+        .await?;
     let mut filtered = Vec::new();
     for item in items {
         let prerequisite_ids = load_learning_item_prerequisites(&item.id, &repo).await?;
@@ -130,8 +139,9 @@ pub async fn generate_learning_items_from_extract(
     extract_id: String,
     repo: State<'_, Repository>,
 ) -> Result<Vec<LearningItem>> {
-    let extract = repo.get_extract(&extract_id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id)))?;
+    let extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound(format!("Extract {}", extract_id))
+    })?;
 
     // Generate learning items
     let generator = LearningItemGenerator::new();
@@ -175,9 +185,7 @@ pub async fn get_learning_items_by_extract(
 }
 
 #[tauri::command]
-pub async fn get_all_learning_items(
-    repo: State<'_, Repository>,
-) -> Result<Vec<LearningItem>> {
+pub async fn get_all_learning_items(repo: State<'_, Repository>) -> Result<Vec<LearningItem>> {
     let items = repo.get_all_learning_items().await?;
     Ok(items)
 }
@@ -190,7 +198,9 @@ pub async fn update_learning_item_content_with_version(
     reason: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    let mut item = repo.get_learning_item(&item_id).await?
+    let mut item = repo
+        .get_learning_item(&item_id)
+        .await?
         .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
 
     let version_id = uuid::Uuid::new_v4().to_string();
@@ -204,14 +214,12 @@ pub async fn update_learning_item_content_with_version(
         answer: item.answer.clone(),
     };
 
-    sqlx::query(
-        "INSERT INTO settings (key, value, date_modified) VALUES (?1, ?2, ?3)"
-    )
-    .bind(format!("card_version:{}:{}", item_id, version_id))
-    .bind(serde_json::to_string(&version).unwrap_or_else(|_| "{}".to_string()))
-    .bind(chrono::Utc::now())
-    .execute(repo.pool())
-    .await?;
+    sqlx::query("INSERT INTO settings (key, value, date_modified) VALUES (?1, ?2, ?3)")
+        .bind(format!("card_version:{}:{}", item_id, version_id))
+        .bind(serde_json::to_string(&version).unwrap_or_else(|_| "{}".to_string()))
+        .bind(chrono::Utc::now())
+        .execute(repo.pool())
+        .await?;
 
     item.question = question;
     item.answer = answer;
@@ -226,7 +234,7 @@ pub async fn get_learning_item_versions(
     repo: State<'_, Repository>,
 ) -> Result<Vec<CardVersionEntry>> {
     let rows = sqlx::query(
-        "SELECT key, value FROM settings WHERE key LIKE ?1 ORDER BY date_modified DESC"
+        "SELECT key, value FROM settings WHERE key LIKE ?1 ORDER BY date_modified DESC",
     )
     .bind(format!("card_version:{}:%", item_id))
     .fetch_all(repo.pool())
@@ -261,7 +269,9 @@ pub async fn revert_learning_item_version(
     let version: CardVersionEntry = serde_json::from_str(&value)
         .map_err(|e| IncrementumError::Internal(format!("Invalid version payload: {}", e)))?;
 
-    let mut item = repo.get_learning_item(&item_id).await?
+    let mut item = repo
+        .get_learning_item(&item_id)
+        .await?
         .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
     item.question = version.question;
     item.answer = version.answer;
@@ -285,7 +295,10 @@ pub async fn export_mnemosyne(
 
     let target = output_path.unwrap_or_else(|| {
         std::env::temp_dir()
-            .join(format!("incrementum-mnemosyne-{}.txt", chrono::Utc::now().timestamp()))
+            .join(format!(
+                "incrementum-mnemosyne-{}.txt",
+                chrono::Utc::now().timestamp()
+            ))
             .to_string_lossy()
             .to_string()
     });
@@ -348,10 +361,7 @@ async fn store_learning_item_prerequisites(
     Ok(())
 }
 
-async fn load_learning_item_prerequisites(
-    item_id: &str,
-    repo: &Repository,
-) -> Result<Vec<String>> {
+async fn load_learning_item_prerequisites(item_id: &str, repo: &Repository) -> Result<Vec<String>> {
     let key = format!("card_prereq:{}", item_id);
     let row = sqlx::query("SELECT value FROM settings WHERE key = ?1")
         .bind(key)
@@ -414,7 +424,11 @@ async fn find_duplicate_candidates(
         .filter(|candidate| candidate.similarity >= 0.6)
         .collect::<Vec<_>>();
 
-    scored.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     scored.truncate(limit);
     Ok(scored)
 }

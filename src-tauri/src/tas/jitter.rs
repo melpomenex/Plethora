@@ -54,20 +54,18 @@ pub fn apply_interference_jitter(
                     let coherence = tag_coherence.get(tag_name).copied().unwrap_or(0.0);
                     if coherence >= coherence_threshold {
                         // Check if we're too close
-                        let separation = candidate_time
-                            .signed_duration_since(past_time)
-                            .num_hours();
+                        let separation =
+                            candidate_time.signed_duration_since(past_time).num_hours();
                         if separation.abs() < min_separation_hours as i64 {
-                            let propose_delay = past_time + Duration::hours(min_separation_hours as i64);
+                            let propose_delay =
+                                past_time + Duration::hours(min_separation_hours as i64);
                             // Take the latest delay
                             delay_until = Some(match delay_until {
                                 Some(current) if current > propose_delay => current,
                                 _ => propose_delay,
                             });
-                            reason = Some(format!(
-                                "Delayed to avoid interference with `{}`",
-                                tag_name
-                            ));
+                            reason =
+                                Some(format!("Delayed to avoid interference with `{}`", tag_name));
                         }
                     }
                 }
@@ -80,7 +78,10 @@ pub fn apply_interference_jitter(
         }
         scheduled.push(item);
 
-        results.push(JitterResult { delay_until, reason });
+        results.push(JitterResult {
+            delay_until,
+            reason,
+        });
     }
 
     results
@@ -91,9 +92,7 @@ mod tests {
     use super::*;
 
     fn time(s: &str) -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339(s)
-            .unwrap()
-            .with_timezone(&Utc)
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
     #[test]

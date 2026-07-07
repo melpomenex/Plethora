@@ -97,10 +97,7 @@ impl DocumentPosition {
 
     /// Create a page position
     pub fn page(page: u32) -> Self {
-        DocumentPosition::Page {
-            page,
-            offset: None,
-        }
+        DocumentPosition::Page { page, offset: None }
     }
 
     /// Create a page position with offset
@@ -129,10 +126,7 @@ impl DocumentPosition {
 
     /// Create a CFI position
     pub fn cfi(cfi: String) -> Self {
-        DocumentPosition::Cfi {
-            cfi,
-            offset: None,
-        }
+        DocumentPosition::Cfi { cfi, offset: None }
     }
 
     /// Create a CFI position with offset
@@ -186,9 +180,19 @@ impl fmt::Display for DocumentPosition {
             DocumentPosition::Cfi { cfi, .. } => {
                 write!(f, "CFF: {}", cfi)
             }
-            DocumentPosition::Time { seconds, total_duration } => {
+            DocumentPosition::Time {
+                seconds,
+                total_duration,
+            } => {
                 if let Some(total) = total_duration {
-                    write!(f, "{}:{:02} / {}:{:02}", seconds / 60, seconds % 60, total / 60, total % 60)
+                    write!(
+                        f,
+                        "{}:{:02} / {}:{:02}",
+                        seconds / 60,
+                        seconds % 60,
+                        total / 60,
+                        total % 60
+                    )
                 } else {
                     write!(f, "{}:{:02}", seconds / 60, seconds % 60)
                 }

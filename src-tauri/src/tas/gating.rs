@@ -99,12 +99,8 @@ mod tests {
             m
         };
 
-        let result = evaluate_prerequisite_gating(
-            &["derivatives".to_string()],
-            &all_tags,
-            &tag_stats,
-            0.7,
-        );
+        let result =
+            evaluate_prerequisite_gating(&["derivatives".to_string()], &all_tags, &tag_stats, 0.7);
         assert!(result.blocked);
         assert!(result.block_reason.unwrap().contains("limits"));
     }
@@ -125,12 +121,8 @@ mod tests {
             m
         };
 
-        let result = evaluate_prerequisite_gating(
-            &["derivatives".to_string()],
-            &all_tags,
-            &tag_stats,
-            0.7,
-        );
+        let result =
+            evaluate_prerequisite_gating(&["derivatives".to_string()], &all_tags, &tag_stats, 0.7);
         assert!(!result.blocked);
     }
 
@@ -139,8 +131,7 @@ mod tests {
         let all_tags = std::collections::HashMap::new();
         let tag_stats = std::collections::HashMap::new();
 
-        let result =
-            evaluate_prerequisite_gating(&[], &all_tags, &tag_stats, 0.7);
+        let result = evaluate_prerequisite_gating(&[], &all_tags, &tag_stats, 0.7);
         assert!(!result.blocked);
 
         let result =

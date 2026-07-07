@@ -9,9 +9,42 @@ import { importFromUrl as importFromUrlUtil, importFromArxiv as importFromArxivU
 import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
-import { registerImportedFileSync, registerExistingFilesSync } from "../lib/fileSyncRegistration";
-import { publishDocument, deleteDocumentSync } from "../lib/documentReplication";
-import { registerRoomChangeListener } from "../lib/yjsSync";
+
+function registerImportedFileSyncLazy(doc: Document): Promise<string | null> {
+  return import("../lib/fileSyncRegistration").then(({ registerImportedFileSync }) =>
+    registerImportedFileSync(doc),
+  );
+}
+
+function registerExistingFilesSyncLazy(docs: Document[]): Promise<void> {
+  return import("../lib/fileSyncRegistration").then(({ registerExistingFilesSync }) =>
+    registerExistingFilesSync(docs),
+  );
+}
+
+function publishDocumentLazy(doc: Document): Promise<void> {
+  return import("../lib/documentReplication").then(({ publishDocument }) =>
+    publishDocument(doc),
+  );
+}
+
+function deleteDocumentSyncLazy(id: string): Promise<void> {
+  return import("../lib/documentReplication").then(({ deleteDocumentSync }) =>
+    deleteDocumentSync(id),
+  );
+}
+
+function runDeferredSyncSetup(task: () => void): void {
+  type IdleWindow = Window & {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+  };
+  const win = window as IdleWindow;
+  if (typeof win.requestIdleCallback === "function") {
+    win.requestIdleCallback(task, { timeout: 5000 });
+  } else {
+    setTimeout(task, 1500);
+  }
+}
 
 /**
  * Mobile file picker: uses the WebView's <input type=file>, which Android/iOS
@@ -154,7 +187,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       const collectionId = useCollectionStore.getState().activeCollectionId;
       const docs = await documentsApi.getDocuments(collectionId);
       set({ documents: docs, isLoading: false });
-      void registerExistingFilesSync(docs);
+      void registerExistingFilesSyncLazy(docs);
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to load documents",
@@ -203,7 +236,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       documents: state.documents.filter((doc) => doc.id !== id),
       currentDocument: state.currentDocument?.id === id ? null : state.currentDocument,
     }));
-    await deleteDocumentSync(id);
+    await deleteDocumentSyncLazy(id);
   },
 
   /**
@@ -232,7 +265,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         return { pendingDeletions: newPending };
       });
 
-      await deleteDocumentSync(id);
+      await deleteDocumentSyncLazy(id);
 
       return { success: true };
     } catch (error) {
@@ -292,7 +325,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
             : state.currentDocument,
       }));
       for (const id of result.succeeded) {
-        await deleteDocumentSync(id);
+        await deleteDocumentSyncLazy(id);
       }
       return result;
     },
@@ -365,7 +398,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       const doc = await documentsApi.importDocument(filePath, collectionId);
 
       // Register with sync manifest (best-effort, see importFromFiles).
-      const fileId = await registerImportedFileSync(doc).catch((e) => {
+      const fileId = await registerImportedFileSyncLazy(doc).catch((e) => {
         console.warn("[documentStore] file-sync registration failed", e);
         return null;
       });
@@ -378,7 +411,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       }
 
       // Publish the doc row to the sync room (see importFromFiles).
-      await publishDocument(doc).catch((e) => {
+      await publishDocumentLazy(doc).catch((e) => {
         console.warn("[documentStore] document publish failed", e);
       });
 
@@ -428,7 +461,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
           // file unreadable) are logged by the helper and must not break the
           // local import. Runs after the document is persisted so even if
           // registration fails the doc is safely stored.
-          const fileId = await registerImportedFileSync(doc).catch((e) => {
+          const fileId = await registerImportedFileSyncLazy(doc).catch((e) => {
             console.warn("[documentStore] file-sync registration failed", e);
             return null;
           });
@@ -442,7 +475,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
           // Publish the document row to the sync room so other devices' libraries
           // receive it (their SQLite is separate from ours). Best-effort.
-          await publishDocument(doc).catch((e) => {
+          await publishDocumentLazy(doc).catch((e) => {
             console.warn("[documentStore] document publish failed", e);
           });
 
@@ -639,7 +672,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       // filePath and have no local file bytes to transfer via the file-sync
       // layer — the URL IS the content, so the receiver opens it directly.
       // Without this publish, the doc never leaves the importing device.
-      await publishDocument(doc).catch((e) => {
+      await publishDocumentLazy(doc).catch((e) => {
         console.warn("[documentStore] document publish failed", e);
       });
 
@@ -708,7 +741,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
       // Publish the doc row to the sync room (see importFromUrl). arXiv imports
       // are URL/PDF-content documents with no device-local file to transfer.
-      await publishDocument(doc).catch((e) => {
+      await publishDocumentLazy(doc).catch((e) => {
         console.warn("[documentStore] document publish failed", e);
       });
 
@@ -802,8 +835,14 @@ if (isTauri()) {
     console.warn("[DocumentStore] Failed to register listener for browser-sync://document-saved:", err);
   });
 
-  registerRoomChangeListener(() => {
-    const docs = useDocumentStore.getState().documents;
-    void registerExistingFilesSync(docs);
+  runDeferredSyncSetup(() => {
+    void import("../lib/yjsSync").then(({ registerRoomChangeListener }) => {
+      registerRoomChangeListener(() => {
+        const docs = useDocumentStore.getState().documents;
+        void registerExistingFilesSyncLazy(docs);
+      });
+    }).catch((err) => {
+      console.warn("[DocumentStore] Failed to register sync room-change listener:", err);
+    });
   });
 }

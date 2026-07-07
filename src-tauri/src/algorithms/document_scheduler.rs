@@ -4,8 +4,8 @@
 
 use crate::error::Result;
 use crate::models::ReviewRating;
-use chrono::{Utc, Duration};
-use fsrs::{FSRS, MemoryState};
+use chrono::{Duration, Utc};
+use fsrs::{MemoryState, FSRS};
 use serde::{Deserialize, Serialize};
 
 /// Document scheduler parameters
@@ -54,10 +54,7 @@ impl DocumentScheduler {
     /// Create a new document scheduler
     pub fn new(params: DocumentSchedulerParams) -> Self {
         let fsrs = FSRS::new(Some(&[])).expect("fsrs::FSRS default parameters must be valid");
-        Self {
-            params,
-            fsrs,
-        }
+        Self { params, fsrs }
     }
 
     /// Create with default parameters
@@ -124,9 +121,7 @@ impl DocumentScheduler {
             interval_days,
             scheduling_reason: format!(
                 "FSRS-6 (fsrs-rs) - Rating: {:?}, Stability: {:.2}, Difficulty: {:.2}",
-                rating,
-                next_state.memory.stability,
-                next_state.memory.difficulty
+                rating, next_state.memory.stability, next_state.memory.difficulty
             ),
         })
     }

@@ -5,14 +5,14 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::Deserialize;
 use std::collections::HashMap;
 use url::Url;
 
 use super::provider::{
-    AccountInfo, AuthResult, AuthToken, CloudProvider, CloudProviderType,
-    FileInfo, FileMetadata, StorageQuota,
+    AccountInfo, AuthResult, AuthToken, CloudProvider, CloudProviderType, FileInfo, FileMetadata,
+    StorageQuota,
 };
 use crate::error::AppError;
 
@@ -99,7 +99,8 @@ impl OneDriveProvider {
             ));
         }
 
-        if self.config.client_secret == "YOUR_CLIENT_SECRET" || self.config.client_secret.is_empty() {
+        if self.config.client_secret == "YOUR_CLIENT_SECRET" || self.config.client_secret.is_empty()
+        {
             return Err(AppError::Internal(
                 "OneDrive OAuth is not configured. Please set the INCREMENTUM_ONEDRIVE_CLIENT_SECRET \
                  environment variable with your Microsoft Azure application client secret.\n\n\
@@ -144,7 +145,8 @@ impl OneDriveProvider {
         params.insert("redirect_uri", self.config.redirect_uri.clone());
         params.insert("grant_type", "authorization_code".to_string());
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post("https://login.microsoftonline.com/common/oauth2/v2.0/token")
             .form(&params)
             .send()
@@ -153,7 +155,10 @@ impl OneDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Token exchange failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Token exchange failed: {}",
+                error_text
+            )));
         }
 
         response
@@ -170,7 +175,8 @@ impl OneDriveProvider {
         params.insert("refresh_token", refresh_token.to_string());
         params.insert("grant_type", "refresh_token".to_string());
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post("https://login.microsoftonline.com/common/oauth2/v2.0/token")
             .form(&params)
             .send()
@@ -179,7 +185,10 @@ impl OneDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Token refresh failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Token refresh failed: {}",
+                error_text
+            )));
         }
 
         response
@@ -190,16 +199,22 @@ impl OneDriveProvider {
 
     /// Get authenticated request headers
     fn get_auth_headers(&self) -> Result<header::HeaderMap, AppError> {
-        let token = self.auth_token
+        let token = self
+            .auth_token
             .as_ref()
             .ok_or_else(|| AppError::Internal("Not authenticated".to_string()))?;
 
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
-            format!("Bearer {}", token.access_token).parse().expect("valid header value"),
+            format!("Bearer {}", token.access_token)
+                .parse()
+                .expect("valid header value"),
         );
-        headers.insert(header::CONTENT_TYPE, "application/json".parse().expect("valid header value"));
+        headers.insert(
+            header::CONTENT_TYPE,
+            "application/json".parse().expect("valid header value"),
+        );
 
         Ok(headers)
     }
@@ -208,7 +223,8 @@ impl OneDriveProvider {
     async fn fetch_account_info(&self) -> Result<AccountInfo, AppError> {
         let headers = self.get_auth_headers()?;
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get("https://graph.microsoft.com/v1.0/me")
             .headers(headers)
             .send()
@@ -217,7 +233,10 @@ impl OneDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Account info request failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Account info request failed: {}",
+                error_text
+            )));
         }
 
         let user_info: UserInfo = response
@@ -225,7 +244,8 @@ impl OneDriveProvider {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to parse user info: {}", e)))?;
 
-        let quota_response = self.http_client
+        let quota_response = self
+            .http_client
             .get(format!("{}/root/special/appfolder", self.api_base_url()))
             .headers(self.get_auth_headers()?)
             .send()
@@ -269,7 +289,8 @@ impl OneDriveProvider {
             "@microsoft.graph.conflictBehavior": "rename"
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(format!("{}/root/children", self.api_base_url()))
             .headers(headers)
             .json(&create_folder_body)
@@ -283,9 +304,15 @@ impl OneDriveProvider {
             }
             Ok(resp) => {
                 let error_text = resp.text().await.unwrap_or_default();
-                Err(AppError::Internal(format!("Failed to create app folder: {}", error_text)))
+                Err(AppError::Internal(format!(
+                    "Failed to create app folder: {}",
+                    error_text
+                )))
             }
-            Err(e) => Err(AppError::Internal(format!("Failed to create app folder: {}", e))),
+            Err(e) => Err(AppError::Internal(format!(
+                "Failed to create app folder: {}",
+                e
+            ))),
         }
     }
 }
@@ -407,7 +434,8 @@ impl CloudProvider for OneDriveProvider {
                 p(0, data_len as u64);
             }
 
-            let response = self.http_client
+            let response = self
+                .http_client
                 .put(format!("{}/{}:/content", self.api_base_url(), upload_path))
                 .headers(headers)
                 .body(data)
@@ -424,15 +452,15 @@ impl CloudProvider for OneDriveProvider {
                 return Err(AppError::Internal(format!("Upload failed: {}", error_text)));
             }
 
-            let result: DriveItem = response
-                .json()
-                .await
-                .map_err(|e| AppError::Internal(format!("Failed to parse upload response: {}", e)))?;
+            let result: DriveItem = response.json().await.map_err(|e| {
+                AppError::Internal(format!("Failed to parse upload response: {}", e))
+            })?;
 
             Ok(result.id)
         } else {
             // For large files, use upload session (chunked upload)
-            self.upload_file_chunked(&upload_path, &data, progress).await
+            self.upload_file_chunked(&upload_path, &data, progress)
+                .await
         }
     }
 
@@ -449,8 +477,13 @@ impl CloudProvider for OneDriveProvider {
             format!("{}/{}", self.get_app_folder_path(), path)
         };
 
-        let response = self.http_client
-            .get(format!("{}/{}:/content", self.api_base_url(), download_path))
+        let response = self
+            .http_client
+            .get(format!(
+                "{}/{}:/content",
+                self.api_base_url(),
+                download_path
+            ))
             .headers(headers)
             .send()
             .await
@@ -458,7 +491,10 @@ impl CloudProvider for OneDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Download failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Download failed: {}",
+                error_text
+            )));
         }
 
         // Download file content
@@ -486,7 +522,8 @@ impl CloudProvider for OneDriveProvider {
             format!("{}/{}", self.get_app_folder_path(), path)
         };
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(format!("{}/{}", self.api_base_url(), list_path))
             .headers(headers)
             .send()
@@ -495,7 +532,10 @@ impl CloudProvider for OneDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("List files failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "List files failed: {}",
+                error_text
+            )));
         }
 
         let drive_item: DriveItem = response
@@ -533,7 +573,8 @@ impl CloudProvider for OneDriveProvider {
             format!("{}/{}", self.get_app_folder_path(), path)
         };
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .delete(format!("{}/{}", self.api_base_url(), delete_path))
             .headers(headers)
             .send()
@@ -557,7 +598,8 @@ impl CloudProvider for OneDriveProvider {
             format!("{}/{}", self.get_app_folder_path(), path)
         };
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(format!("{}/{}", self.api_base_url(), metadata_path))
             .headers(headers)
             .send()
@@ -566,7 +608,10 @@ impl CloudProvider for OneDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Get metadata failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Get metadata failed: {}",
+                error_text
+            )));
         }
 
         let item: DriveItem = response
@@ -603,7 +648,11 @@ impl CloudProvider for OneDriveProvider {
         let base_path = if parent_path.is_empty() || parent_path == "/" {
             self.get_app_folder_path()
         } else {
-            format!("{}/{}", self.get_app_folder_path(), parent_path.trim_start_matches('/'))
+            format!(
+                "{}/{}",
+                self.get_app_folder_path(),
+                parent_path.trim_start_matches('/')
+            )
         };
 
         let create_folder_body = serde_json::json!({
@@ -612,7 +661,8 @@ impl CloudProvider for OneDriveProvider {
             "@microsoft.graph.conflictBehavior": "rename"
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(format!("{}/children", base_path))
             .headers(headers)
             .json(&create_folder_body)
@@ -622,7 +672,10 @@ impl CloudProvider for OneDriveProvider {
 
         if !response.status().is_success() && response.status() != 409 {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Create folder failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Create folder failed: {}",
+                error_text
+            )));
         }
 
         Ok(folder_name.to_string())
@@ -655,8 +708,13 @@ impl OneDriveProvider {
             }
         });
 
-        let session_response = self.http_client
-            .post(format!("{}/{}:/createUploadSession", self.api_base_url(), path))
+        let session_response = self
+            .http_client
+            .post(format!(
+                "{}/{}:/createUploadSession",
+                self.api_base_url(),
+                path
+            ))
             .headers(headers)
             .json(&upload_session_body)
             .send()
@@ -665,7 +723,10 @@ impl OneDriveProvider {
 
         if !session_response.status().is_success() {
             let error_text = session_response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Upload session creation failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Upload session creation failed: {}",
+                error_text
+            )));
         }
 
         let session: UploadSession = session_response
@@ -684,7 +745,8 @@ impl OneDriveProvider {
             let chunk_headers = self.get_auth_headers()?;
             let content_range = format!("bytes {}-{}/{}", chunk_start, chunk_end, total_size);
 
-            let chunk_response = self.http_client
+            let chunk_response = self
+                .http_client
                 .put(&session.upload_url)
                 .header("Content-Range", content_range)
                 .header("Content-Length", chunk.len())
@@ -696,7 +758,10 @@ impl OneDriveProvider {
 
             if !chunk_response.status().is_success() && chunk_response.status() != 202 {
                 let error_text = chunk_response.text().await.unwrap_or_default();
-                return Err(AppError::Internal(format!("Chunk upload failed: {}", error_text)));
+                return Err(AppError::Internal(format!(
+                    "Chunk upload failed: {}",
+                    error_text
+                )));
             }
 
             uploaded = chunk_end + 1;
@@ -706,7 +771,8 @@ impl OneDriveProvider {
             }
         }
 
-        let final_response = self.http_client
+        let final_response = self
+            .http_client
             .get(&session.upload_url)
             .headers(self.get_auth_headers()?)
             .send()
@@ -715,7 +781,10 @@ impl OneDriveProvider {
 
         if !final_response.status().is_success() {
             let error_text = final_response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Failed to get upload result: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Failed to get upload result: {}",
+                error_text
+            )));
         }
 
         let result: DriveItem = final_response

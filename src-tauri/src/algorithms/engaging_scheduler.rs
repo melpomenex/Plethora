@@ -15,9 +15,9 @@
 use crate::algorithms::DocumentScheduler;
 use crate::error::Result;
 use crate::models::ReviewRating;
-use chrono::{Utc, DateTime, Duration};
+use chrono::{DateTime, Duration, Utc};
 use fsrs::FSRS;
-use rand::{Rng, RngCore, SeedableRng, rngs::StdRng};
+use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -26,19 +26,19 @@ use std::collections::HashMap;
 pub struct EngagementPreferences {
     /// How much novelty to inject (0.0 = never, 1.0 = frequent)
     pub novelty_factor: f64,
-    
+
     /// Chance of a "surprise" item appearing (0.0-1.0)
     pub serendipity_rate: f64,
-    
+
     /// Preferred variety in content (0.0 = focused, 1.0 = high variety)
     pub variety_preference: f64,
-    
+
     /// Maximum items of same topic before forcing variety
     pub max_same_topic_streak: i32,
-    
+
     /// Whether to boost recently added items
     pub favor_recent_additions: bool,
-    
+
     /// Time window for "recent" items (in hours)
     pub recent_window_hours: i64,
 }
@@ -133,9 +133,8 @@ pub struct EngagingScheduler {
 impl EngagingScheduler {
     /// Create new scheduler with preferences
     pub fn new(preferences: EngagementPreferences) -> Self {
-        let fsrs = FSRS::new(Some(&[]))
-            .expect("fsrs::FSRS default parameters must be valid");
-        
+        let fsrs = FSRS::new(Some(&[])).expect("fsrs::FSRS default parameters must be valid");
+
         Self {
             fsrs,
             preferences,
@@ -192,12 +191,8 @@ impl EngagingScheduler {
         };
 
         // Apply engagement modifications to the interval
-        let (modified_interval, engagement_modifier, is_serendipity) = 
-            self.apply_engagement_modifications(
-                next_state.interval as f64,
-                review_count,
-                rating,
-            );
+        let (modified_interval, engagement_modifier, is_serendipity) =
+            self.apply_engagement_modifications(next_state.interval as f64, review_count, rating);
 
         // We store next_reading_date with day-level granularity for the queue.
         // Without a minimum of 1 day, ratings like "Hard" can round to 0 and keep resurfacing
@@ -292,13 +287,13 @@ impl EngagingScheduler {
 
         for item in items {
             let (base_priority, fsrs_reason) = self.calculate_fsrs_priority(item, now);
-            let (engagement_priority, engagement_reason) = 
+            let (engagement_priority, engagement_reason) =
                 self.calculate_engagement_bonus(item, &scored, now);
-            
+
             let final_priority = (base_priority + engagement_priority).min(10.0);
-            
+
             let score_reason = format!("{} | {}", fsrs_reason, engagement_reason);
-            
+
             scored.push(ScoredQueueItem {
                 meta: item.clone(),
                 base_priority,
@@ -309,19 +304,23 @@ impl EngagingScheduler {
 
         // Sort by engagement priority (higher = sooner)
         scored.sort_by(|a, b| {
-            b.engagement_priority.partial_cmp(&a.engagement_priority)
+            b.engagement_priority
+                .partial_cmp(&a.engagement_priority)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         self.update_topic_history(&scored);
 
         // Return the scored items (clone to avoid move issues)
-        scored.iter().map(|s| ScoredQueueItem {
-            meta: s.meta.clone(),
-            base_priority: s.base_priority,
-            engagement_priority: s.engagement_priority,
-            score_reason: s.score_reason.clone(),
-        }).collect()
+        scored
+            .iter()
+            .map(|s| ScoredQueueItem {
+                meta: s.meta.clone(),
+                base_priority: s.base_priority,
+                engagement_priority: s.engagement_priority,
+                score_reason: s.score_reason.clone(),
+            })
+            .collect()
     }
 
     /// Calculate base FSRS priority (same logic as DocumentScheduler)
@@ -365,20 +364,35 @@ impl EngagingScheduler {
         };
 
         let adjusted = base_priority.0 * multiplier;
-        
+
         // FSRS stability/difficulty micro-adjustments
         let fsrs_bonus = match (item.stability, item.difficulty) {
             (Some(stab), Some(diff)) => {
-                let stab_bonus = if stab < 5.0 { 0.5 } else if stab < 10.0 { 0.2 } else { 0.0 };
-                let diff_bonus = if diff > 7.0 { 0.3 } else if diff > 5.0 { 0.1 } else { 0.0 };
+                let stab_bonus = if stab < 5.0 {
+                    0.5
+                } else if stab < 10.0 {
+                    0.2
+                } else {
+                    0.0
+                };
+                let diff_bonus = if diff > 7.0 {
+                    0.3
+                } else if diff > 5.0 {
+                    0.1
+                } else {
+                    0.0
+                };
                 stab_bonus + diff_bonus
             }
-            _ => 0.0
+            _ => 0.0,
         };
 
         let final_priority = (adjusted + fsrs_bonus).min(10.0);
-        let reason = format!("{} x {:.1} + {:.1}", base_priority.1, multiplier, fsrs_bonus);
-        
+        let reason = format!(
+            "{} x {:.1} + {:.1}",
+            base_priority.1, multiplier, fsrs_bonus
+        );
+
         (final_priority, reason)
     }
 
@@ -393,11 +407,12 @@ impl EngagingScheduler {
         let mut reasons: Vec<String> = Vec::new();
 
         // Variety bonus: Items different from recent topics get boosted
-        let topic = item.category.clone().unwrap_or_else(|| "uncategorized".to_string());
-        let recent_topic_count = self.topic_history.iter()
-            .filter(|t| *t == &topic)
-            .count() as i32;
-        
+        let topic = item
+            .category
+            .clone()
+            .unwrap_or_else(|| "uncategorized".to_string());
+        let recent_topic_count = self.topic_history.iter().filter(|t| *t == &topic).count() as i32;
+
         if recent_topic_count >= self.preferences.max_same_topic_streak {
             // Penalty for too many similar items in a row
             let penalty = -2.0;
@@ -413,8 +428,10 @@ impl EngagingScheduler {
         if self.preferences.favor_recent_additions {
             let hours_since_added = (now - item.date_added).num_hours();
             if hours_since_added < self.preferences.recent_window_hours {
-                let recency_boost = (1.0 - hours_since_added as f64 / self.preferences.recent_window_hours as f64)
-                    * self.preferences.novelty_factor * 2.0;
+                let recency_boost = (1.0
+                    - hours_since_added as f64 / self.preferences.recent_window_hours as f64)
+                    * self.preferences.novelty_factor
+                    * 2.0;
                 bonus += recency_boost;
                 reasons.push(format!("Recent (+{:.1})", recency_boost));
             }
@@ -435,10 +452,12 @@ impl EngagingScheduler {
         }
 
         // Time-appropriate sizing: Mix long and short items
-        let avg_time_already: f64 = already_scored.iter()
+        let avg_time_already: f64 = already_scored
+            .iter()
             .map(|s| s.meta.estimated_time as f64)
-            .sum::<f64>() / already_scored.len().max(1) as f64;
-        
+            .sum::<f64>()
+            / already_scored.len().max(1) as f64;
+
         if avg_time_already > 15.0 && item.estimated_time < 10 {
             // Bonus for short items after a series of long ones
             bonus += 0.5 * self.preferences.variety_preference;
@@ -458,13 +477,13 @@ impl EngagingScheduler {
     fn update_topic_history(&mut self, scored: &[ScoredQueueItem]) {
         // Keep only the last N items in history
         let max_history = self.preferences.max_same_topic_streak as usize * 2;
-        
+
         for item in scored.iter().take(5) {
             if let Some(cat) = &item.meta.category {
                 self.topic_history.push(cat.clone());
             }
         }
-        
+
         if self.topic_history.len() > max_history {
             let excess = self.topic_history.len() - max_history;
             self.topic_history.drain(0..excess);
@@ -480,19 +499,23 @@ impl EngagingScheduler {
         batch_size: usize,
     ) -> Vec<ItemEngagementMeta> {
         let scored = self.score_queue_items(items);
-        
+
         // Take top items, but ensure variety
         let mut selected: Vec<ItemEngagementMeta> = Vec::new();
         let mut used_topics: HashMap<String, i32> = HashMap::new();
-        
+
         for item in &scored {
             if selected.len() >= batch_size {
                 break;
             }
 
-            let topic = item.meta.category.clone().unwrap_or_else(|| "uncategorized".to_string());
+            let topic = item
+                .meta
+                .category
+                .clone()
+                .unwrap_or_else(|| "uncategorized".to_string());
             let topic_count = *used_topics.get(&topic).unwrap_or(&0);
-            
+
             // Allow item if we haven't hit the topic limit yet
             if topic_count < self.preferences.max_same_topic_streak {
                 selected.push(item.meta.clone());
@@ -500,7 +523,7 @@ impl EngagingScheduler {
             }
         }
 
-        // If we couldn't fill the batch with variety constraints, 
+        // If we couldn't fill the batch with variety constraints,
         // add remaining items anyway (better to show something than nothing)
         if selected.len() < batch_size {
             for item in &scored {
@@ -541,23 +564,23 @@ impl EngagingScheduler {
         // New session: start with some variety
         let variety_window = (total_items as f64 * 0.15).ceil() as usize;
         let window_size = variety_window.clamp(3, 10);
-        
+
         // Use weighted random within the first window
         // Higher chance of starting near the beginning, but not always at 0
         let weights: Vec<f64> = (0..window_size.min(total_items))
             .map(|i| 1.0 / (i as f64 + 1.0))
             .collect();
-        
+
         let total_weight: f64 = weights.iter().sum();
         let mut random_val = self.rng.gen::<f64>() * total_weight;
-        
+
         for (i, weight) in weights.iter().enumerate() {
             random_val -= weight;
             if random_val <= 0.0 {
                 return i;
             }
         }
-        
+
         0
     }
 
@@ -582,9 +605,14 @@ impl Default for EngagingScheduler {
 mod tests {
     use super::*;
 
-    fn create_test_item(id: &str, category: &str, review_count: i32, next_days: Option<i64>) -> ItemEngagementMeta {
+    fn create_test_item(
+        id: &str,
+        category: &str,
+        review_count: i32,
+        next_days: Option<i64>,
+    ) -> ItemEngagementMeta {
         let next_review = next_days.map(|d| Utc::now() + Duration::days(d));
-        
+
         ItemEngagementMeta {
             id: id.to_string(),
             category: Some(category.to_string()),
@@ -603,16 +631,12 @@ mod tests {
     #[test]
     fn test_engagement_modifications() {
         let mut scheduler = EngagingScheduler::default();
-        
+
         // Test with a new item and good rating
-        let result = scheduler.schedule_item(
-            ReviewRating::Good,
-            None,
-            None,
-            0.0,
-            1,
-        ).unwrap();
-        
+        let result = scheduler
+            .schedule_item(ReviewRating::Good, None, None, 0.0, 1)
+            .unwrap();
+
         // Should have some interval
         assert!(result.interval_days > 0);
         assert!(result.stability > 0.0);
@@ -630,18 +654,18 @@ mod tests {
     #[test]
     fn test_queue_scoring() {
         let mut scheduler = EngagingScheduler::default();
-        
+
         let items = vec![
             create_test_item("1", "tech", 0, Some(-1)), // Due yesterday
             create_test_item("2", "tech", 0, Some(5)),  // Due in 5 days
             create_test_item("3", "science", 0, None),  // New item
         ];
-        
+
         let scored = scheduler.score_queue_items(&items);
-        
+
         // Due items should be first
         assert_eq!(scored[0].meta.id, "1");
-        
+
         // Should have scoring reasons
         assert!(!scored[0].score_reason.is_empty());
     }
@@ -649,32 +673,33 @@ mod tests {
     #[test]
     fn test_topic_variety() {
         let mut scheduler = EngagingScheduler::default();
-        
+
         let items = vec![
             create_test_item("1", "tech", 0, Some(-1)),
             create_test_item("2", "tech", 0, Some(-2)),
             create_test_item("3", "tech", 0, Some(-3)),
             create_test_item("4", "science", 0, Some(-1)),
         ];
-        
+
         let batch = scheduler.select_next_batch(&items, 3);
-        
+
         // Should not have all 3 tech items if variety is enforced
-        let tech_count = batch.iter()
+        let tech_count = batch
+            .iter()
             .filter(|i| i.category == Some("tech".to_string()))
             .count();
-        
+
         assert!(tech_count <= scheduler.preferences.max_same_topic_streak as usize);
     }
 
     #[test]
     fn test_smart_start_position() {
         let mut scheduler = EngagingScheduler::default();
-        
+
         // Should start near beginning for new session
         let pos = scheduler.get_smart_start_position(20, None, 0);
         assert!(pos < 10);
-        
+
         // Should resume for continuation
         let pos = scheduler.get_smart_start_position(20, Some(15), 2);
         assert_eq!(pos, 15);

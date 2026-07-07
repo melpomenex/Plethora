@@ -14,10 +14,18 @@
 
 use crate::error::IncrementumError;
 use crate::error::Result;
+use crate::utils::keychain::keychain_enabled;
 
 /// Store `value` (base64) under `(service, account)` in the OS keychain.
+///
+/// Returns `Ok(())` without doing anything when the keychain is disabled
+/// (the default). Callers fall back to the encrypted IndexedDB path in
+/// `secureStorage.ts`.
 #[tauri::command]
 pub async fn secure_storage_set(service: String, account: String, value: String) -> Result<()> {
+    if !keychain_enabled() {
+        return Ok(());
+    }
     let entry = keyring::Entry::new(&service, &account)
         .map_err(|e| keyring_err("secure_storage_set", e))?;
     entry
@@ -26,9 +34,13 @@ pub async fn secure_storage_set(service: String, account: String, value: String)
 }
 
 /// Read the base64 value for `(service, account)` from the OS keychain.
-/// Returns `Ok(None)` when no credential exists.
+/// Returns `Ok(None)` when no credential exists, or when the keychain is
+/// disabled (the default).
 #[tauri::command]
 pub async fn secure_storage_get(service: String, account: String) -> Result<Option<String>> {
+    if !keychain_enabled() {
+        return Ok(None);
+    }
     let entry = keyring::Entry::new(&service, &account)
         .map_err(|e| keyring_err("secure_storage_get", e))?;
     match entry.get_password() {
@@ -38,9 +50,13 @@ pub async fn secure_storage_get(service: String, account: String) -> Result<Opti
     }
 }
 
-/// Remove the `(service, account)` credential. Missing entries are not an error.
+/// Remove the `(service, account)` credential. Missing entries are not an
+/// error, and the call is a no-op when the keychain is disabled (the default).
 #[tauri::command]
 pub async fn secure_storage_clear(service: String, account: String) -> Result<()> {
+    if !keychain_enabled() {
+        return Ok(());
+    }
     let entry = keyring::Entry::new(&service, &account)
         .map_err(|e| keyring_err("secure_storage_clear", e))?;
     match entry.delete_credential() {

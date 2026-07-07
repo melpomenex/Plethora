@@ -1,19 +1,21 @@
-pub mod model_manager;
-pub mod engine;
-pub mod job_queue;
 pub mod auto_queue;
+pub mod engine;
 pub mod idle_scanner;
+pub mod job_queue;
+pub mod model_manager;
 
-use tauri::{AppHandle, Emitter, Manager, State, command};
 use crate::database::Repository;
 use crate::error::Result;
-use crate::models::{TranscriptionQueueEntry, TranscriptionJobStatus, TranscriptionQueueEntryWithDoc};
-use model_manager::{ModelManager, ModelProfile};
-use job_queue::{JobQueue, TranscriptionJob};
+use crate::models::{
+    TranscriptionJobStatus, TranscriptionQueueEntry, TranscriptionQueueEntryWithDoc,
+};
 use auto_queue::AutoTranscriptionQueue;
-use serde::{Serialize, Deserialize};
 use chrono::Utc;
+use job_queue::{JobQueue, TranscriptionJob};
+use model_manager::{ModelManager, ModelProfile};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
+use tauri::{command, AppHandle, Emitter, Manager, State};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TranscriptResponse {
@@ -29,20 +31,28 @@ pub struct TranscriptionState {
 
 #[command]
 pub async fn get_transcription_profiles(app_handle: AppHandle) -> Result<Vec<ModelProfile>> {
-    let manager = ModelManager::new(&app_handle).map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
+    let manager = ModelManager::new(&app_handle)
+        .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
     Ok(manager.list_profiles())
 }
 
 #[command]
 pub async fn download_transcription_model(app_handle: AppHandle, id: String) -> Result<()> {
-    let manager = ModelManager::new(&app_handle).map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
-    manager.download_model(&id, app_handle).await.map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
+    let manager = ModelManager::new(&app_handle)
+        .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
+    manager
+        .download_model(&id, app_handle)
+        .await
+        .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
 }
 
 #[command]
 pub async fn delete_transcription_model(app_handle: AppHandle, id: String) -> Result<()> {
-    let manager = ModelManager::new(&app_handle).map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
-    manager.delete_model(&id).map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
+    let manager = ModelManager::new(&app_handle)
+        .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
+    manager
+        .delete_model(&id)
+        .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
 }
 
 #[command]
@@ -61,7 +71,10 @@ pub async fn start_transcription(
         model_id,
         language,
     };
-    state.job_queue.enqueue(job).map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
+    state
+        .job_queue
+        .enqueue(job)
+        .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
 }
 
 #[command]
@@ -70,11 +83,12 @@ pub async fn get_transcript(
     book_id: String,
     chapter_id: String,
 ) -> Result<Option<TranscriptResponse>> {
-    let transcript: Option<(i64, String)> = sqlx::query_as("SELECT id, status FROM transcripts WHERE book_id = ? AND chapter_id = ?")
-        .bind(&book_id)
-        .bind(&chapter_id)
-        .fetch_optional(repo.pool())
-        .await?;
+    let transcript: Option<(i64, String)> =
+        sqlx::query_as("SELECT id, status FROM transcripts WHERE book_id = ? AND chapter_id = ?")
+            .bind(&book_id)
+            .bind(&chapter_id)
+            .fetch_optional(repo.pool())
+            .await?;
 
     if let Some((id, status)) = transcript {
         let segments: Vec<engine::TranscriptSegment> = sqlx::query_as("SELECT start_ms, end_ms, text, confidence FROM transcript_segments WHERE transcript_id = ? ORDER BY start_ms")
@@ -102,7 +116,10 @@ pub async fn save_transcript(
     status: String,
     segments: Vec<engine::TranscriptSegment>,
 ) -> Result<()> {
-    let mut tx = repo.pool().begin().await
+    let mut tx = repo
+        .pool()
+        .begin()
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
 
     sqlx::query("INSERT OR REPLACE INTO transcripts (book_id, chapter_id, model_used, language, status) VALUES (?, ?, ?, ?, ?)")
@@ -115,12 +132,13 @@ pub async fn save_transcript(
         .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
 
-    let transcript_id: i64 = sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
-        .bind(&book_id)
-        .bind(&chapter_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
+    let transcript_id: i64 =
+        sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
+            .bind(&book_id)
+            .bind(&chapter_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
 
     sqlx::query("DELETE FROM transcript_segments WHERE transcript_id = ?")
         .bind(transcript_id)
@@ -140,7 +158,8 @@ pub async fn save_transcript(
             .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
     }
 
-    tx.commit().await
+    tx.commit()
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
 
     Ok(())
@@ -160,14 +179,22 @@ pub async fn enqueue_auto_transcription(
     priority: Option<i32>,
 ) -> Result<()> {
     if !Path::new(&audio_path).exists() {
-        return Err(crate::error::IncrementumError::NotFound(format!("Audio file not found: {}", audio_path)));
+        return Err(crate::error::IncrementumError::NotFound(format!(
+            "Audio file not found: {}",
+            audio_path
+        )));
     }
 
     // Don't enqueue if a completed or pending entry already exists
-    let existing = repo.get_transcription_queue_entry(&document_id).await
+    let existing = repo
+        .get_transcription_queue_entry(&document_id)
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
     if let Some(entry) = existing {
-        if entry.status == TranscriptionJobStatus::Completed || entry.status == TranscriptionJobStatus::Pending || entry.status == TranscriptionJobStatus::Processing {
+        if entry.status == TranscriptionJobStatus::Completed
+            || entry.status == TranscriptionJobStatus::Pending
+            || entry.status == TranscriptionJobStatus::Processing
+        {
             return Ok(());
         }
     }
@@ -177,7 +204,9 @@ pub async fn enqueue_auto_transcription(
         priority: priority.unwrap_or(0),
         ..entry
     };
-    state.auto_queue.enqueue(entry)
+    state
+        .auto_queue
+        .enqueue(entry)
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
 }
 
@@ -185,7 +214,8 @@ pub async fn enqueue_auto_transcription(
 pub async fn get_transcription_queue(
     repo: State<'_, Repository>,
 ) -> Result<Vec<TranscriptionQueueEntryWithDoc>> {
-    repo.get_full_transcription_queue().await
+    repo.get_full_transcription_queue()
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
 }
 
@@ -195,9 +225,12 @@ pub async fn cancel_transcription_job(
     repo: State<'_, Repository>,
     id: String,
 ) -> Result<()> {
-    repo.cancel_transcription_job(&id).await
+    repo.cancel_transcription_job(&id)
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
-    state.auto_queue.cancel(id)
+    state
+        .auto_queue
+        .cancel(id)
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
 }
 
@@ -207,9 +240,12 @@ pub async fn retry_transcription_job(
     state: State<'_, TranscriptionState>,
     id: String,
 ) -> Result<()> {
-    repo.reset_transcription_to_pending(&id, 0).await
+    repo.reset_transcription_to_pending(&id, 0)
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
-    state.auto_queue.trigger_processing()
+    state
+        .auto_queue
+        .trigger_processing()
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
 }
 
@@ -224,7 +260,9 @@ pub async fn prioritize_transcription_job(
         .execute(repo.pool())
         .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
-    state.auto_queue.trigger_processing()
+    state
+        .auto_queue
+        .trigger_processing()
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
 }
 
@@ -233,7 +271,8 @@ pub async fn get_transcription_status(
     repo: State<'_, Repository>,
     document_id: String,
 ) -> Result<Option<TranscriptionQueueEntry>> {
-    repo.get_transcription_queue_entry(&document_id).await
+    repo.get_transcription_queue_entry(&document_id)
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
 }
 
@@ -257,7 +296,9 @@ pub async fn enqueue_all_untranscribed(
     model_id: String,
     language: String,
 ) -> Result<EnqueueAllResult> {
-    let untranscribed = repo.get_untranscribed_media_documents().await
+    let untranscribed = repo
+        .get_untranscribed_media_documents()
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
 
     let mut enqueued = 0u32;
@@ -293,7 +334,9 @@ pub async fn clear_transcription_queue(
     app_handle: AppHandle,
     statuses: Vec<String>,
 ) -> Result<u64> {
-    let deleted = repo.delete_transcription_queue_by_status(&statuses).await
+    let deleted = repo
+        .delete_transcription_queue_by_status(&statuses)
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
     let _ = app_handle.emit("transcription://queue-updated", ());
     Ok(deleted)
@@ -305,7 +348,8 @@ pub async fn remove_transcription_entry(
     app_handle: AppHandle,
     id: String,
 ) -> Result<()> {
-    repo.delete_transcription_queue_entry(&id).await
+    repo.delete_transcription_queue_entry(&id)
+        .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
     let _ = app_handle.emit("transcription://queue-updated", ());
     Ok(())

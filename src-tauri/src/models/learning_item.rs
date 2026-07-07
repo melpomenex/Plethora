@@ -126,14 +126,25 @@ impl LearningItem {
         }
     }
 
-    pub fn with_answer(document_id: String, item_type: ItemType, question: String, answer: String) -> Self {
+    pub fn with_answer(
+        document_id: String,
+        item_type: ItemType,
+        question: String,
+        answer: String,
+    ) -> Self {
         let mut item = Self::new(item_type, question);
         item.document_id = Some(document_id);
         item.answer = Some(answer);
         item
     }
 
-    pub fn from_extract(extract_id: String, document_id: String, item_type: ItemType, question: String, answer: Option<String>) -> Self {
+    pub fn from_extract(
+        extract_id: String,
+        document_id: String,
+        item_type: ItemType,
+        question: String,
+        answer: Option<String>,
+    ) -> Self {
         let mut item = Self::new(item_type, question);
         item.extract_id = Some(extract_id);
         item.document_id = Some(document_id);

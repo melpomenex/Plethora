@@ -1,33 +1,43 @@
 //! Document commands
 
-use tauri::State;
-use crate::database::Repository;
 use crate::algorithms::calculate_document_priority_score;
-use crate::error::{Result, IncrementumError};
-use crate::models::{Document, FileType, DocumentMetadata, Extract};
 use crate::commands::anna_archive::AnnaArchiveClient;
+use crate::database::Repository;
+use crate::error::{IncrementumError, Result};
+use crate::models::{Document, DocumentMetadata, Extract, FileType};
 use crate::processor;
 use crate::youtube;
-use std::path::{PathBuf, Path};
 use lopdf::{Document as LoDocument, Object};
+use std::path::{Path, PathBuf};
+use tauri::State;
 
 /// Copy a media file to app-managed storage so it survives macOS sandbox revocation.
 /// Returns the destination path.
-fn copy_media_to_app_storage(app: &tauri::AppHandle, source_path: &str, subdir: &str) -> Result<PathBuf> {
+fn copy_media_to_app_storage(
+    app: &tauri::AppHandle,
+    source_path: &str,
+    subdir: &str,
+) -> Result<PathBuf> {
     use tauri::Manager;
     let source = Path::new(source_path);
     if !source.exists() {
-        return Err(IncrementumError::NotFound(format!("Source file not found: {}", source_path)));
+        return Err(IncrementumError::NotFound(format!(
+            "Source file not found: {}",
+            source_path
+        )));
     }
 
     let dest_dir = app
         .path()
         .app_data_dir()
         .map(|d| d.join("incrementum").join(subdir))
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e))
+        })?;
 
-    std::fs::create_dir_all(&dest_dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create {} directory: {}", subdir, e)))?;
+    std::fs::create_dir_all(&dest_dir).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to create {} directory: {}", subdir, e))
+    })?;
 
     let timestamp = chrono::Utc::now().timestamp();
     let original_filename = source
@@ -55,8 +65,14 @@ fn suggest_auto_tags(title: &str, content: &str) -> Vec<String> {
         ("math", vec!["equation", "theorem", "calculus", "algebra"]),
         ("history", vec!["century", "empire", "war", "revolution"]),
         ("biology", vec!["cell", "protein", "genome", "species"]),
-        ("language", vec!["vocabulary", "grammar", "translation", "sentence"]),
-        ("computer-science", vec!["algorithm", "compiler", "database", "programming"]),
+        (
+            "language",
+            vec!["vocabulary", "grammar", "translation", "sentence"],
+        ),
+        (
+            "computer-science",
+            vec!["algorithm", "compiler", "database", "programming"],
+        ),
     ];
     for (tag, keywords) in candidates {
         if keywords.iter().any(|keyword| corpus.contains(keyword)) {
@@ -77,24 +93,35 @@ async fn resolve_cover_for_document(
 
     match doc.file_type {
         FileType::Pdf => {
-            if let Ok(Some(url)) = processor::pdf::extract_pdf_cover_data_url(&doc.file_path).await {
+            if let Ok(Some(url)) = processor::pdf::extract_pdf_cover_data_url(&doc.file_path).await
+            {
                 return Ok((Some(url), Some("embedded".to_string())));
             }
         }
         FileType::Epub => {
-            if let Ok(Some(url)) = processor::epub::extract_epub_cover_data_url(&doc.file_path).await {
+            if let Ok(Some(url)) =
+                processor::epub::extract_epub_cover_data_url(&doc.file_path).await
+            {
                 return Ok((Some(url), Some("embedded".to_string())));
             }
         }
         FileType::Youtube => {
             if let Some(video_id) = youtube::extract_video_id(&doc.file_path) {
-                return Ok((Some(build_youtube_thumbnail_url(&video_id)), Some("youtube".to_string())));
+                return Ok((
+                    Some(build_youtube_thumbnail_url(&video_id)),
+                    Some("youtube".to_string()),
+                ));
             }
         }
         _ => {}
     }
 
-    if allow_anna && matches!(doc.file_type, FileType::Pdf | FileType::Epub | FileType::Markdown | FileType::Html | FileType::Other) {
+    if allow_anna
+        && matches!(
+            doc.file_type,
+            FileType::Pdf | FileType::Epub | FileType::Markdown | FileType::Html | FileType::Other
+        )
+    {
         let author = doc.metadata.as_ref().and_then(|meta| meta.author.clone());
         let query = if let Some(author) = author {
             format!("{} {}", doc.title, author)
@@ -105,7 +132,12 @@ async fn resolve_cover_for_document(
         if !query.trim().is_empty() {
             let client = AnnaArchiveClient::new();
             if let Ok(results) = client.search_books(&query, 5).await {
-                if let Some(result) = results.into_iter().find(|item| item.cover_url.as_ref().map(|u| !u.is_empty()).unwrap_or(false)) {
+                if let Some(result) = results.into_iter().find(|item| {
+                    item.cover_url
+                        .as_ref()
+                        .map(|u| !u.is_empty())
+                        .unwrap_or(false)
+                }) {
                     return Ok((result.cover_url, Some("anna".to_string())));
                 }
             }
@@ -138,13 +170,23 @@ pub async fn import_document(
 ) -> Result<Document> {
     let path = PathBuf::from(&file_path);
     if !path.exists() {
-        return Err(IncrementumError::NotFound(format!("File not found: {}", file_path)));
+        return Err(IncrementumError::NotFound(format!(
+            "File not found: {}",
+            file_path
+        )));
     }
     // Canonicalize to resolve symlinks and ..
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
 
-    import_from_path(canonical.to_string_lossy().to_string(), &file_path, collection_id, &app, &repo).await
+    import_from_path(
+        canonical.to_string_lossy().to_string(),
+        &file_path,
+        collection_id,
+        &app,
+        &repo,
+    )
+    .await
 }
 
 /// Shared import pipeline used by both `import_document` (path-based, desktop)
@@ -161,16 +203,19 @@ async fn import_from_path(
     let path = Path::new(&disk_path);
 
     // Determine file type from extension
-    let file_type = match path.extension()
+    let file_type = match path
+        .extension()
         .and_then(|ext| ext.to_str())
         .map(|s| s.to_lowercase())
-        .as_deref() {
+        .as_deref()
+    {
         Some("pdf") => FileType::Pdf,
         Some("epub") => FileType::Epub,
         Some("md") | Some("markdown") => FileType::Markdown,
         Some("txt") | Some("text") => FileType::Markdown,
         Some("html") | Some("htm") => FileType::Html,
-        Some("mp3") | Some("wav") | Some("m4a") | Some("aac") | Some("ogg") | Some("flac") | Some("opus") | Some("m4b") | Some("wma") => FileType::Audio,
+        Some("mp3") | Some("wav") | Some("m4a") | Some("aac") | Some("ogg") | Some("flac")
+        | Some("opus") | Some("m4b") | Some("wma") => FileType::Audio,
         Some("mp4") | Some("webm") | Some("mov") | Some("avi") => FileType::Video,
         _ => FileType::Other,
     };
@@ -184,7 +229,9 @@ async fn import_from_path(
     // private data dir, which remains readable. Storing the bare filename
     // (as the old code did) left the document unable to be re-opened.
     let stored_path = match file_type {
-        FileType::Audio => copy_media_to_app_storage(app, &disk_path, "audio")?.to_string_lossy().to_string(),
+        FileType::Audio => copy_media_to_app_storage(app, &disk_path, "audio")?
+            .to_string_lossy()
+            .to_string(),
         _ => disk_path.clone(),
     };
 
@@ -197,7 +244,10 @@ async fn import_from_path(
 
     if let Some(ref hash) = content_hash {
         let existing_docs = repo.list_documents().await?;
-        if let Some(duplicate) = existing_docs.iter().find(|d| d.content_hash.as_ref() == Some(hash)) {
+        if let Some(duplicate) = existing_docs
+            .iter()
+            .find(|d| d.content_hash.as_ref() == Some(hash))
+        {
             return Err(crate::error::IncrementumError::NotFound(format!(
                 "Duplicate document detected: Already imported as '{}'",
                 duplicate.title
@@ -250,7 +300,12 @@ pub async fn import_document_from_bytes(
     repo: State<'_, Repository>,
 ) -> Result<Document> {
     use tauri::Manager;
-    eprintln!("[mobile-import] received '{}', {} bytes, collection={:?}", file_name, file_bytes.len(), collection_id);
+    eprintln!(
+        "[mobile-import] received '{}', {} bytes, collection={:?}",
+        file_name,
+        file_bytes.len(),
+        collection_id
+    );
 
     // Stage the bytes under the app's private data dir (writable on Android/iOS,
     // unlike the system data dir returned by dirs::data_dir()).
@@ -258,9 +313,16 @@ pub async fn import_document_from_bytes(
         .path()
         .app_data_dir()
         .map(|d| d.join("imports"))
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e)))?;
-    std::fs::create_dir_all(&dest_dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create imports directory {}: {}", dest_dir.display(), e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e))
+        })?;
+    std::fs::create_dir_all(&dest_dir).map_err(|e| {
+        IncrementumError::Internal(format!(
+            "Failed to create imports directory {}: {}",
+            dest_dir.display(),
+            e
+        ))
+    })?;
 
     let timestamp = chrono::Utc::now().timestamp();
     let safe_name = std::path::Path::new(&file_name)
@@ -271,13 +333,29 @@ pub async fn import_document_from_bytes(
     let staged_name = format!("{}-{}", timestamp, safe_name);
     let staged_path = dest_dir.join(&staged_name);
 
-    std::fs::write(&staged_path, &file_bytes)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to stage import file {}: {}", staged_path.display(), e)))?;
+    std::fs::write(&staged_path, &file_bytes).map_err(|e| {
+        IncrementumError::Internal(format!(
+            "Failed to stage import file {}: {}",
+            staged_path.display(),
+            e
+        ))
+    })?;
     eprintln!("[mobile-import] staged to {}", staged_path.display());
 
-    match import_from_path(staged_path.to_string_lossy().to_string(), &file_name, collection_id, &app_handle, &repo).await {
+    match import_from_path(
+        staged_path.to_string_lossy().to_string(),
+        &file_name,
+        collection_id,
+        &app_handle,
+        &repo,
+    )
+    .await
+    {
         Ok(doc) => {
-            eprintln!("[mobile-import] success: id={}, title={}", doc.id, doc.title);
+            eprintln!(
+                "[mobile-import] success: id={}, title={}",
+                doc.id, doc.title
+            );
             Ok(doc)
         }
         Err(e) => {
@@ -308,9 +386,16 @@ pub async fn stage_import_file_start(
         .path()
         .app_data_dir()
         .map(|d| d.join("imports"))
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e)))?;
-    std::fs::create_dir_all(&dest_dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create imports directory {}: {}", dest_dir.display(), e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e))
+        })?;
+    std::fs::create_dir_all(&dest_dir).map_err(|e| {
+        IncrementumError::Internal(format!(
+            "Failed to create imports directory {}: {}",
+            dest_dir.display(),
+            e
+        ))
+    })?;
 
     let timestamp = chrono::Utc::now().timestamp();
     let safe_name = std::path::Path::new(&file_name)
@@ -322,8 +407,13 @@ pub async fn stage_import_file_start(
     let staged_path = dest_dir.join(&staged_name);
 
     // Create/truncate the target file so appends start fresh.
-    std::fs::File::create(&staged_path)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create staged file {}: {}", staged_path.display(), e)))?;
+    std::fs::File::create(&staged_path).map_err(|e| {
+        IncrementumError::Internal(format!(
+            "Failed to create staged file {}: {}",
+            staged_path.display(),
+            e
+        ))
+    })?;
 
     Ok(staged_path.to_string_lossy().to_string())
 }
@@ -337,12 +427,21 @@ pub async fn append_import_file_chunk(staged_path: String, chunk: Vec<u8>) -> Re
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .open(path)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to open staged file for append {}: {}", path.display(), e)))?;
-    file.write_all(&chunk)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to append chunk to {}: {}", path.display(), e)))?;
-    let len = std::fs::metadata(path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+        .map_err(|e| {
+            IncrementumError::Internal(format!(
+                "Failed to open staged file for append {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+    file.write_all(&chunk).map_err(|e| {
+        IncrementumError::Internal(format!(
+            "Failed to append chunk to {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     Ok(len)
 }
 
@@ -383,11 +482,15 @@ pub async fn import_pdf_highlights_as_extracts(
     document_id: String,
     repo: State<'_, Repository>,
 ) -> Result<i32> {
-    let document = repo.get_document(&document_id).await?
+    let document = repo
+        .get_document(&document_id)
+        .await?
         .ok_or_else(|| IncrementumError::NotFound(format!("Document {} not found", document_id)))?;
 
     if !matches!(document.file_type, FileType::Pdf) {
-        return Err(IncrementumError::InvalidInput("Highlight import is only supported for PDF documents".to_string()));
+        return Err(IncrementumError::InvalidInput(
+            "Highlight import is only supported for PDF documents".to_string(),
+        ));
     }
 
     let pdf = LoDocument::load(&document.file_path)
@@ -437,7 +540,10 @@ pub async fn import_pdf_highlights_as_extracts(
                 .and_then(pdf_object_to_text)
                 .unwrap_or_default();
             let normalized_subtype = subtype.trim_start_matches('/').to_lowercase();
-            if !matches!(normalized_subtype.as_str(), "highlight" | "underline" | "text" | "squiggly") {
+            if !matches!(
+                normalized_subtype.as_str(),
+                "highlight" | "underline" | "text" | "squiggly"
+            ) {
                 continue;
             }
 
@@ -472,10 +578,7 @@ pub async fn get_documents(
 }
 
 #[tauri::command]
-pub async fn get_document(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<Option<Document>> {
+pub async fn get_document(id: String, repo: State<'_, Repository>) -> Result<Option<Document>> {
     let mut doc = match repo.get_document(&id).await? {
         Some(doc) => doc,
         None => return Ok(None),
@@ -487,7 +590,9 @@ pub async fn get_document(
         .map(|content| {
             let normalized = content.trim();
             normalized.starts_with("EPUB file loaded (")
-                && normalized.contains("Full content extraction requires additional EPUB library integration.")
+                && normalized.contains(
+                    "Full content extraction requires additional EPUB library integration.",
+                )
         })
         .unwrap_or(false);
 
@@ -498,8 +603,15 @@ pub async fn get_document(
         .unwrap_or(true)
         || has_epub_placeholder;
 
-    if needs_content && matches!(doc.file_type, FileType::Epub | FileType::Markdown | FileType::Html) {
-        if let Ok(extracted) = processor::extract_content(&doc.file_path, doc.file_type.clone()).await {
+    if needs_content
+        && matches!(
+            doc.file_type,
+            FileType::Epub | FileType::Markdown | FileType::Html
+        )
+    {
+        if let Ok(extracted) =
+            processor::extract_content(&doc.file_path, doc.file_type.clone()).await
+        {
             if !extracted.text.trim().is_empty() {
                 let content_hash = Some(processor::generate_content_hash(&extracted.text));
                 let metadata = Some(DocumentMetadata {
@@ -549,7 +661,8 @@ pub async fn resolve_document_cover(
 
     let (cover_url, cover_source) = resolve_cover_for_document(&doc, true).await?;
     if cover_url.is_some() || cover_source.is_some() {
-        repo.update_document_cover(&doc.id, cover_url.clone(), cover_source.clone()).await?;
+        repo.update_document_cover(&doc.id, cover_url.clone(), cover_source.clone())
+            .await?;
         doc.cover_image_url = cover_url;
         doc.cover_image_source = cover_source;
     }
@@ -611,7 +724,8 @@ pub async fn update_document_content(
     content: String,
     repo: State<'_, Repository>,
 ) -> Result<Document> {
-    repo.update_document_content(&id, &content, None, None, None).await?;
+    repo.update_document_content(&id, &content, None, None, None)
+        .await?;
     repo.get_document(&id)
         .await?
         .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
@@ -627,7 +741,11 @@ pub async fn update_document_priority(
     let rating_value = if (1..=4).contains(&rating) { rating } else { 0 };
     let slider_value = slider.clamp(0, 100);
     let score = calculate_document_priority_score(
-        if rating_value > 0 { Some(rating_value) } else { None },
+        if rating_value > 0 {
+            Some(rating_value)
+        } else {
+            None
+        },
         slider_value,
     );
 
@@ -649,7 +767,13 @@ pub async fn update_document_progress(
     repo: State<'_, Repository>,
 ) -> Result<Document> {
     let updated = repo
-        .update_document_progress(&id, current_page, current_scroll_percent, current_cfi, current_view_state)
+        .update_document_progress(
+            &id,
+            current_page,
+            current_scroll_percent,
+            current_cfi,
+            current_view_state,
+        )
         .await?;
     Ok(updated)
 }
@@ -667,10 +791,9 @@ pub async fn extract_document_text(
     id: String,
     repo: State<'_, Repository>,
 ) -> Result<TextExtractionResult> {
-    let mut doc = repo.get_document(&id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!(
-            "Document not found: {}", id
-        )))?;
+    let mut doc = repo.get_document(&id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound(format!("Document not found: {}", id))
+    })?;
 
     if let Some(content) = &doc.content {
         if !content.trim().is_empty() {
@@ -683,7 +806,11 @@ pub async fn extract_document_text(
 
     if let FileType::Youtube = doc.file_type {
         if let Some(video_id) = crate::youtube::extract_video_id(&doc.file_path) {
-            let cached_transcript = repo.get_youtube_transcript_by_video_id(&video_id).await.ok().flatten();
+            let cached_transcript = repo
+                .get_youtube_transcript_by_video_id(&video_id)
+                .await
+                .ok()
+                .flatten();
             let (transcript, segments_json) = match cached_transcript {
                 Some((t, s)) => (t, s),
                 None => {
@@ -693,15 +820,31 @@ pub async fn extract_document_text(
                         crate::youtube::extract_transcript(&url_clone, None)
                     })
                     .await
-                    .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to join transcript task: {}", e)))?
+                    .map_err(|e| {
+                        crate::error::IncrementumError::Internal(format!(
+                            "Failed to join transcript task: {}",
+                            e
+                        ))
+                    })?
                     .map_err(crate::error::IncrementumError::Internal)?;
 
                     let transcript = crate::youtube::build_transcript_text(&segments);
-                    let segments_json = serde_json::to_string(&segments)
-                        .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to serialize transcript: {}", e)))?;
-                    
+                    let segments_json = serde_json::to_string(&segments).map_err(|e| {
+                        crate::error::IncrementumError::Internal(format!(
+                            "Failed to serialize transcript: {}",
+                            e
+                        ))
+                    })?;
+
                     // Cache it
-                    let _ = repo.upsert_youtube_transcript(Some(&doc.id), &video_id, &transcript, &segments_json).await;
+                    let _ = repo
+                        .upsert_youtube_transcript(
+                            Some(&doc.id),
+                            &video_id,
+                            &transcript,
+                            &segments_json,
+                        )
+                        .await;
                     (transcript, segments_json)
                 }
             };
@@ -710,7 +853,8 @@ pub async fn extract_document_text(
                 // If there are chapters, let's get them and build a structured transcript with chapters!
                 let chapters = repo.get_video_chapters(&doc.id).await.unwrap_or_default();
                 let structured_transcript = if !chapters.is_empty() {
-                    let segments: Vec<crate::youtube::TranscriptSegment> = serde_json::from_str(&segments_json).unwrap_or_default();
+                    let segments: Vec<crate::youtube::TranscriptSegment> =
+                        serde_json::from_str(&segments_json).unwrap_or_default();
                     crate::youtube::build_transcript_text_with_chapters(&segments, &chapters)
                 } else {
                     transcript.clone()
@@ -723,7 +867,14 @@ pub async fn extract_document_text(
                 metadata.site_name = Some("YouTube".to_string());
                 metadata.fetched_at = Some(chrono::Utc::now());
 
-                repo.update_document_content(&doc.id, &structured_transcript, content_hash, None, Some(metadata)).await?;
+                repo.update_document_content(
+                    &doc.id,
+                    &structured_transcript,
+                    content_hash,
+                    None,
+                    Some(metadata),
+                )
+                .await?;
 
                 return Ok(TextExtractionResult {
                     content: structured_transcript,
@@ -742,7 +893,7 @@ pub async fn extract_document_text(
     }
 
     let extracted = processor::extract_content(&doc.file_path, doc.file_type.clone()).await?;
-    
+
     if extracted.text.trim().is_empty() {
         return Ok(TextExtractionResult {
             content: String::new(),
@@ -752,18 +903,32 @@ pub async fn extract_document_text(
 
     let content_hash = Some(processor::generate_content_hash(&extracted.text));
     let metadata = Some(DocumentMetadata {
-        author: extracted.author.clone().or(doc.metadata.as_ref().and_then(|m| m.author.clone())),
-        language: extracted.metadata.get("language")
+        author: extracted
+            .author
+            .clone()
+            .or(doc.metadata.as_ref().and_then(|m| m.author.clone())),
+        language: extracted
+            .metadata
+            .get("language")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .or(doc.metadata.as_ref().and_then(|m| m.language.clone())),
-        page_count: extracted.page_count.map(|p| p as i32).or(doc.metadata.as_ref().and_then(|m| m.page_count)),
+        page_count: extracted
+            .page_count
+            .map(|p| p as i32)
+            .or(doc.metadata.as_ref().and_then(|m| m.page_count)),
         source: doc.metadata.as_ref().and_then(|m| m.source.clone()),
         fetched_at: doc.metadata.as_ref().and_then(|m| m.fetched_at),
         site_name: doc.metadata.as_ref().and_then(|m| m.site_name.clone()),
-        browser_import_mode: doc.metadata.as_ref().and_then(|m| m.browser_import_mode.clone()),
+        browser_import_mode: doc
+            .metadata
+            .as_ref()
+            .and_then(|m| m.browser_import_mode.clone()),
         article_html: doc.metadata.as_ref().and_then(|m| m.article_html.clone()),
-        extracted_images: doc.metadata.as_ref().and_then(|m| m.extracted_images.clone()),
+        extracted_images: doc
+            .metadata
+            .as_ref()
+            .and_then(|m| m.extracted_images.clone()),
         ..Default::default()
     });
 
@@ -773,7 +938,8 @@ pub async fn extract_document_text(
         content_hash.clone(),
         extracted.page_count.map(|p| p as i32),
         metadata.clone(),
-    ).await?;
+    )
+    .await?;
 
     Ok(TextExtractionResult {
         content: extracted.text,
@@ -782,10 +948,7 @@ pub async fn extract_document_text(
 }
 
 #[tauri::command]
-pub async fn delete_document(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn delete_document(id: String, repo: State<'_, Repository>) -> Result<()> {
     repo.delete_document(&id).await?;
     Ok(())
 }
@@ -801,11 +964,9 @@ pub async fn dismiss_document(
 }
 
 #[tauri::command]
-pub async fn read_document_file(
-    file_path: String,
-) -> Result<String> {
+pub async fn read_document_file(file_path: String) -> Result<String> {
+    use base64::{engine::general_purpose, Engine as _};
     use std::fs;
-    use base64::{Engine as _, engine::general_purpose};
 
     let canonical = std::fs::canonicalize(&file_path)
         .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
@@ -857,10 +1018,8 @@ pub async fn read_document_file(
 ///
 /// Returns `[sha256-hex, size-bytes]`.
 #[tauri::command]
-pub async fn hash_document_file(
-    file_path: String,
-) -> Result<(String, u64)> {
-    use sha2::{Sha256, Digest};
+pub async fn hash_document_file(file_path: String) -> Result<(String, u64)> {
+    use sha2::{Digest, Sha256};
 
     let canonical = std::fs::canonicalize(&file_path)
         .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
@@ -875,7 +1034,10 @@ pub async fn hash_document_file(
     std::io::copy(&mut file, &mut hasher)
         .map_err(|e| IncrementumError::Internal(format!("Failed to hash file: {}", e)))?;
     let hash_bytes = hasher.finalize();
-    let hash_hex = hash_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
+    let hash_hex = hash_bytes
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
 
     Ok((hash_hex, size))
 }
@@ -907,10 +1069,13 @@ pub async fn save_synced_file(
         .path()
         .app_data_dir()
         .map(|d| d.join("incrementum").join(subdir))
-        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e))
+        })?;
 
-    std::fs::create_dir_all(&dest_dir)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to create {} directory: {}", subdir, e)))?;
+    std::fs::create_dir_all(&dest_dir).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to create {} directory: {}", subdir, e))
+    })?;
 
     let timestamp = chrono::Utc::now().timestamp();
     let safe_filename = filename.replace(['/', '\\', ':'], "_");
@@ -1004,15 +1169,14 @@ pub async fn convert_document_pdf_to_html(
 ) -> Result<PdfToHtmlResult> {
     use std::path::Path;
 
-    let doc = repo.get_document(&id).await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!(
-            "Document not found: {}", id
-        )))?;
+    let doc = repo.get_document(&id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound(format!("Document not found: {}", id))
+    })?;
 
     // Verify it's a PDF
     if !matches!(doc.file_type, FileType::Pdf) {
         return Err(crate::error::IncrementumError::Internal(
-            "Document is not a PDF".to_string()
+            "Document is not a PDF".to_string(),
         ));
     }
 
@@ -1054,14 +1218,19 @@ pub async fn fetch_web_page_preview(url: String) -> Result<serde_json::Value> {
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let response = client.get(&url).send().await
+    let response = client
+        .get(&url)
+        .send()
+        .await
         .map_err(|e| format!("Failed to fetch URL: {}", e))?;
 
     if !response.status().is_success() {
         return Err(format!("HTTP {}", response.status()).into());
     }
 
-    let body = response.text().await
+    let body = response
+        .text()
+        .await
         .map_err(|e| format!("Failed to read response body: {}", e))?;
 
     let title = Regex::new(r"<title[^>]*>([^<]+)</title>")
@@ -1070,50 +1239,67 @@ pub async fn fetch_web_page_preview(url: String) -> Result<serde_json::Value> {
         .unwrap_or_default();
 
     // Extract meta description (prefer og:description)
-    let description = Regex::new(r#"<meta[^>]+property\s*=\s*["']og:description["'][^>]+content\s*=\s*["']([^"']+)["']"#)
-        .ok()
-        .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
-        .or_else(|| {
-            Regex::new(r#"<meta[^>]+content\s*=\s*["']([^"']+)["'][^>]+name\s*=\s*["']description["']"#)
-                .ok()
-                .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
-        })
-        .or_else(|| {
-            Regex::new(r#"<meta[^>]+name\s*=\s*["']description["'][^>]+content\s*=\s*["']([^"']+)["']"#)
-                .ok()
-                .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
-        })
-        .unwrap_or_default();
+    let description = Regex::new(
+        r#"<meta[^>]+property\s*=\s*["']og:description["'][^>]+content\s*=\s*["']([^"']+)["']"#,
+    )
+    .ok()
+    .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
+    .or_else(|| {
+        Regex::new(r#"<meta[^>]+content\s*=\s*["']([^"']+)["'][^>]+name\s*=\s*["']description["']"#)
+            .ok()
+            .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
+    })
+    .or_else(|| {
+        Regex::new(r#"<meta[^>]+name\s*=\s*["']description["'][^>]+content\s*=\s*["']([^"']+)["']"#)
+            .ok()
+            .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
+    })
+    .unwrap_or_default();
 
-    let image = Regex::new(r#"<meta[^>]+property\s*=\s*["']og:image["'][^>]+content\s*=\s*["']([^"']+)["']"#)
+    let image = Regex::new(
+        r#"<meta[^>]+property\s*=\s*["']og:image["'][^>]+content\s*=\s*["']([^"']+)["']"#,
+    )
+    .ok()
+    .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
+    .or_else(|| {
+        Regex::new(
+            r#"<meta[^>]+content\s*=\s*["']([^"']+)["'][^>]+property\s*=\s*["']og:image["']"#,
+        )
         .ok()
         .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
-        .or_else(|| {
-            Regex::new(r#"<meta[^>]+content\s*=\s*["']([^"']+)["'][^>]+property\s*=\s*["']og:image["']"#)
-                .ok()
-                .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
-        });
+    });
 
-    let favicon = Regex::new(r#"<link[^>]+rel\s*=\s*["'][^"']*icon[^"']*["'][^>]+href\s*=\s*["']([^"']+)["']"#)
+    let favicon = Regex::new(
+        r#"<link[^>]+rel\s*=\s*["'][^"']*icon[^"']*["'][^>]+href\s*=\s*["']([^"']+)["']"#,
+    )
+    .ok()
+    .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
+    .or_else(|| {
+        Regex::new(
+            r#"<link[^>]+href\s*=\s*["']([^"']+)["'][^>]+rel\s*=\s*["'][^"']*icon[^"']*["']"#,
+        )
         .ok()
         .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
-        .or_else(|| {
-            Regex::new(r#"<link[^>]+href\s*=\s*["']([^"']+)["'][^>]+rel\s*=\s*["'][^"']*icon[^"']*["']"#)
+    })
+    .map(|href| {
+        if href.starts_with("http://") || href.starts_with("https://") {
+            href
+        } else if href.starts_with("//") {
+            format!("https:{}", href)
+        } else {
+            url.parse::<reqwest::Url>()
                 .ok()
-                .and_then(|re| re.captures(&body).map(|c| c[1].trim().to_string()))
-        })
-        .map(|href| {
-            if href.starts_with("http://") || href.starts_with("https://") {
-                href
-            } else if href.starts_with("//") {
-                format!("https:{}", href)
-            } else {
-                url.parse::<reqwest::Url>().ok()
-                    .map(|u| format!("{}://{}", u.scheme(), u.host_str().unwrap_or("")))
-                    .map(|base| format!("{}/{}", base.trim_end_matches('/'), href.trim_start_matches('/')))
-                    .unwrap_or(href)
-            }
-        });
+                .map(|u| format!("{}://{}", u.scheme(), u.host_str().unwrap_or("")))
+                .map(|base| {
+                    format!(
+                        "{}/{}",
+                        base.trim_end_matches('/'),
+                        href.trim_start_matches('/')
+                    )
+                })
+                .unwrap_or(href)
+        }
+    });
 
     Ok(serde_json::json!({
         "url": url,
@@ -1134,7 +1320,8 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
     crate::security::validate_url_not_private(&url)
         .map_err(|e| IncrementumError::Internal(format!("URL not allowed: {}", e)))?;
 
-    let url_parsed = url.parse::<reqwest::Url>()
+    let url_parsed = url
+        .parse::<reqwest::Url>()
         .map_err(|e| crate::error::IncrementumError::Internal(format!("Invalid URL: {}", e)))?;
 
     let file_name = url_parsed
@@ -1160,8 +1347,12 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
     let temp_dir = std::env::temp_dir();
     let download_dir = temp_dir.join("incrementum-downloads");
 
-    std::fs::create_dir_all(&download_dir)
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create download directory: {}", e)))?;
+    std::fs::create_dir_all(&download_dir).map_err(|e| {
+        crate::error::IncrementumError::Internal(format!(
+            "Failed to create download directory: {}",
+            e
+        ))
+    })?;
 
     // Generate a unique filename
     let timestamp = chrono::Utc::now().timestamp();
@@ -1173,12 +1364,13 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
         .timeout(Duration::from_secs(60))
         .user_agent("Incrementum/1.0 (https://incrementum.app)")
         .build()
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create HTTP client: {}", e)))?;
+        .map_err(|e| {
+            crate::error::IncrementumError::Internal(format!("Failed to create HTTP client: {}", e))
+        })?;
 
-    let response = client.get(&url)
-        .send()
-        .await
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to fetch URL: {}", e)))?;
+    let response = client.get(&url).send().await.map_err(|e| {
+        crate::error::IncrementumError::Internal(format!("Failed to fetch URL: {}", e))
+    })?;
 
     if !response.status().is_success() {
         return Err(crate::error::IncrementumError::Internal(format!(
@@ -1198,13 +1390,13 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
         content_type.to_string()
     };
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to download content: {}", e)))?;
+    let bytes = response.bytes().await.map_err(|e| {
+        crate::error::IncrementumError::Internal(format!("Failed to download content: {}", e))
+    })?;
 
-    std::fs::write(&file_path, &bytes)
-        .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to save downloaded file: {}", e)))?;
+    std::fs::write(&file_path, &bytes).map_err(|e| {
+        crate::error::IncrementumError::Internal(format!("Failed to save downloaded file: {}", e))
+    })?;
 
     Ok(FetchedUrlContent {
         file_path: file_path.to_string_lossy().to_string(),

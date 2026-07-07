@@ -1,12 +1,12 @@
 //! Queue commands
 
-use tauri::State;
-use std::collections::{HashMap, HashSet};
-use crate::database::Repository;
 use crate::algorithms::{calculate_fsrs_document_priority, QueueSelector};
+use crate::database::Repository;
 use crate::error::Result;
 use crate::models::QueueItem;
 use chrono::Utc;
+use std::collections::{HashMap, HashSet};
+use tauri::State;
 
 fn preview_text(text: &str, max_chars: usize) -> String {
     let mut chars = text.chars();
@@ -60,7 +60,11 @@ pub async fn get_queue_items(
     let count = count.unwrap_or(10).min(queue.len());
 
     let selector = QueueSelector::new(randomness.unwrap_or(0.3));
-    Ok(selector.get_next_items(&queue, count).into_iter().cloned().collect())
+    Ok(selector
+        .get_next_items(&queue, count)
+        .into_iter()
+        .cloned()
+        .collect())
 }
 
 /// Internal function to get queue items from a repo reference
@@ -84,14 +88,20 @@ async fn get_queue_items_from_repo(
 
     let due_extracts = repo.get_due_extracts(&now).await?;
     let new_extracts = repo.get_new_extracts().await?;
-    let extracts: Vec<_> = due_extracts.into_iter().chain(new_extracts.into_iter()).collect();
+    let extracts: Vec<_> = due_extracts
+        .into_iter()
+        .chain(new_extracts.into_iter())
+        .collect();
     for extract in &extracts {
         all_doc_ids.insert(extract.document_id.clone());
     }
 
     let due_video_extracts = repo.get_due_video_extracts(&now).await?;
     let new_video_extracts = repo.get_new_video_extracts().await.unwrap_or_default();
-    let video_extracts: Vec<_> = due_video_extracts.into_iter().chain(new_video_extracts.into_iter()).collect();
+    let video_extracts: Vec<_> = due_video_extracts
+        .into_iter()
+        .chain(new_video_extracts.into_iter())
+        .collect();
     for extract in &video_extracts {
         all_doc_ids.insert(extract.document_id.clone());
     }
@@ -142,7 +152,9 @@ async fn get_queue_items_from_repo(
             ((item.interval) / 21.0 * 100.0) as i32
         };
 
-        let document_title = item.document_id.as_ref()
+        let document_title = item
+            .document_id
+            .as_ref()
             .and_then(|id| doc_titles.get(id))
             .cloned()
             .unwrap_or_else(|| "Unknown Document".to_string());
@@ -184,7 +196,8 @@ async fn get_queue_items_from_repo(
             }
         }
 
-        let document_title = doc_titles.get(&extract.document_id)
+        let document_title = doc_titles
+            .get(&extract.document_id)
             .cloned()
             .unwrap_or_else(|| "Unknown Document".to_string());
 
@@ -234,20 +247,19 @@ async fn get_queue_items_from_repo(
             }
         }
 
-        let document_title = doc_titles.get(&extract.document_id)
+        let document_title = doc_titles
+            .get(&extract.document_id)
             .cloned()
             .unwrap_or_else(|| "Unknown Video".to_string());
 
-        let priority = if extract.review_count == 0 {
-            8.5
-        } else {
-            6.5
-        };
+        let priority = if extract.review_count == 0 { 8.5 } else { 6.5 };
 
         let duration_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil() as i32;
         let estimated_time = duration_minutes.clamp(1, 10);
 
-        let transcript_preview = extract.transcript_text.as_ref()
+        let transcript_preview = extract
+            .transcript_text
+            .as_ref()
             .map(|t| preview_text(t, 100));
 
         queue_items.push(QueueItem {
@@ -256,7 +268,10 @@ async fn get_queue_items_from_repo(
             document_title: format!("{} - {}", document_title, extract.title),
             extract_id: None,
             learning_item_id: None,
-            question: Some(format!("Watch segment: {}", format_time_range(extract.start_time, extract.end_time))),
+            question: Some(format!(
+                "Watch segment: {}",
+                format_time_range(extract.start_time, extract.end_time)
+            )),
             answer: transcript_preview,
             cloze_text: None,
             item_type: "video-extract".to_string(),
@@ -348,16 +363,20 @@ async fn get_queue_items_from_repo(
         }
 
         match (&a.due_date, &b.due_date) {
-            (Some(a_date), Some(b_date)) => {
-                a_date.partial_cmp(b_date).unwrap_or(std::cmp::Ordering::Equal)
-            }
+            (Some(a_date), Some(b_date)) => a_date
+                .partial_cmp(b_date)
+                .unwrap_or(std::cmp::Ordering::Equal),
             (Some(_), None) => std::cmp::Ordering::Less,
             (None, Some(_)) => std::cmp::Ordering::Greater,
             (None, None) => std::cmp::Ordering::Equal,
         }
     });
 
-    tracing::info!("[queue] get_queue_items_from_repo collection_id={:?} returned {} items", collection_id, queue_items.len());
+    tracing::info!(
+        "[queue] get_queue_items_from_repo collection_id={:?} returned {} items",
+        collection_id,
+        queue_items.len()
+    );
     Ok(queue_items)
 }
 
@@ -394,7 +413,8 @@ pub async fn get_queued_items(
     let selector = QueueSelector::new(randomness.unwrap_or(0.3));
 
     // Filter and sort using the queue selector
-    let mut queued_items: Vec<QueueItem> = selector.get_queued_items(&queue)
+    let mut queued_items: Vec<QueueItem> = selector
+        .get_queued_items(&queue)
         .into_iter()
         .cloned()
         .collect();
@@ -413,7 +433,8 @@ pub async fn get_due_queue_items(
     let queue = get_queue_with_collection(repo, collection_id.as_deref()).await?;
     let selector = QueueSelector::new(randomness.unwrap_or(0.3));
 
-    let mut due_items: Vec<QueueItem> = selector.filter_due_items(&queue)
+    let mut due_items: Vec<QueueItem> = selector
+        .filter_due_items(&queue)
         .into_iter()
         .cloned()
         .collect();
@@ -452,7 +473,9 @@ async fn get_due_documents_only_from_repo(
 
         // Include documents that are due (next_reading_date <= now)
         // OR documents that have never been read (next_reading_date is NULL)
-        let is_due = document.next_reading_date.is_none_or(|next_date| next_date <= now);
+        let is_due = document
+            .next_reading_date
+            .is_none_or(|next_date| next_date <= now);
 
         if !is_due {
             continue; // Skip future-dated documents
@@ -528,40 +551,48 @@ pub async fn get_queue_with_playlist_intersperse(
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
     let mut queue = get_queue_items_from_repo(repo.inner(), collection_id.as_deref()).await?;
-    
+
     let settings = match repo.get_playlist_settings().await {
         Ok(s) => s,
         Err(_) => return Ok(queue), // Return base queue if settings fail
     };
-    
+
     // If playlist integration is disabled, return base queue
     if !settings.enabled {
         return Ok(queue);
     }
-    
+
     let playlist_videos = match repo.get_videos_for_queue_interspersion().await {
         Ok(v) => v,
         Err(_) => return Ok(queue),
     };
-    
+
     if playlist_videos.is_empty() {
         return Ok(queue);
     }
-    
+
     // Get subscription info for each video to determine intersperse interval
     let mut playlist_queue_items: Vec<QueueItem> = Vec::new();
 
     // Batch collect all document IDs and subscription IDs
-    let doc_ids: Vec<String> = playlist_videos.iter()
+    let doc_ids: Vec<String> = playlist_videos
+        .iter()
         .filter_map(|v| v.document_id.clone())
         .collect();
-    let sub_ids: Vec<String> = playlist_videos.iter()
+    let sub_ids: Vec<String> = playlist_videos
+        .iter()
         .map(|v| v.subscription_id.clone())
         .collect();
 
     // Batch fetch documents and subscriptions
-    let docs_map = repo.get_documents_by_ids(&doc_ids).await.unwrap_or_default();
-    let subs_map = repo.get_playlist_subscriptions_by_ids(&sub_ids).await.unwrap_or_default();
+    let docs_map = repo
+        .get_documents_by_ids(&doc_ids)
+        .await
+        .unwrap_or_default();
+    let subs_map = repo
+        .get_playlist_subscriptions_by_ids(&sub_ids)
+        .await
+        .unwrap_or_default();
 
     for video in playlist_videos {
         if let Some(doc_id) = &video.document_id {
@@ -614,34 +645,37 @@ pub async fn get_queue_with_playlist_intersperse(
             }
         }
     }
-    
+
     // Now intersperse playlist videos into the base queue
     // Group playlist videos by their intersperse interval
     let mut result: Vec<QueueItem> = Vec::new();
     let mut playlist_idx = 0;
-    let mut position_counters: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
-    
+    let mut position_counters: std::collections::HashMap<i32, i32> =
+        std::collections::HashMap::new();
+
     for (idx, item) in queue.iter().enumerate() {
         // Add the regular queue item
         result.push(item.clone());
-        
+
         // We try to insert at positions that are multiples of the interval
         if playlist_idx < playlist_queue_items.len() {
             let playlist_video = &playlist_queue_items[playlist_idx];
-            
+
             if let Some(interval) = playlist_video.position {
                 let counter = position_counters.entry(interval).or_insert(0);
                 *counter += 1;
-                
+
                 // Insert a playlist video every 'interval' items
                 if *counter >= interval {
                     result.push(playlist_queue_items[playlist_idx].clone());
                     playlist_idx += 1;
                     *counter = 0;
-                    
+
                     // Mark this video as added to queue
-                    let _ = repo.mark_video_added_to_queue(&playlist_video.id, idx as i32).await;
-                    
+                    let _ = repo
+                        .mark_video_added_to_queue(&playlist_video.id, idx as i32)
+                        .await;
+
                     if playlist_idx >= playlist_queue_items.len() {
                         break;
                     }
@@ -649,7 +683,7 @@ pub async fn get_queue_with_playlist_intersperse(
             }
         }
     }
-    
+
     // Add any remaining regular queue items
     if result.len() < queue.len() {
         result.extend(queue[result.len() - playlist_idx..].iter().cloned());
@@ -697,9 +731,16 @@ mod tests {
         dismissed: bool,
         archived: bool,
     ) -> Document {
-        let mut document = Document::new(title.to_string(), format!("/tmp/{title}.pdf"), FileType::Pdf);
+        let mut document = Document::new(
+            title.to_string(),
+            format!("/tmp/{title}.pdf"),
+            FileType::Pdf,
+        );
         document.is_archived = archived;
-        let created = repo.create_document(&document).await.expect("create document");
+        let created = repo
+            .create_document(&document)
+            .await
+            .expect("create document");
         if dismissed {
             repo.update_document_dismiss(&created.id, true)
                 .await

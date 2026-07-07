@@ -13,8 +13,9 @@ use xcap::{Monitor, Window};
 #[cfg(feature = "screenshot")]
 #[tauri::command]
 pub async fn capture_screenshot() -> Result<String> {
-    let monitors = Monitor::all()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to enumerate monitors: {err}")))?;
+    let monitors = Monitor::all().map_err(|err| {
+        IncrementumError::Internal(format!("Failed to enumerate monitors: {err}"))
+    })?;
     let monitor = monitors
         .iter()
         .find(|m| m.is_primary().unwrap_or(false))
@@ -31,8 +32,9 @@ pub async fn capture_screenshot() -> Result<String> {
 #[cfg(feature = "screenshot")]
 #[tauri::command]
 pub async fn capture_screen_by_index(index: usize) -> Result<String> {
-    let monitors = Monitor::all()
-        .map_err(|err| IncrementumError::Internal(format!("Failed to enumerate monitors: {err}")))?;
+    let monitors = Monitor::all().map_err(|err| {
+        IncrementumError::Internal(format!("Failed to enumerate monitors: {err}"))
+    })?;
     let monitor = monitors.get(index).ok_or_else(|| {
         IncrementumError::InvalidInput(format!("Screen index {index} out of range"))
     })?;

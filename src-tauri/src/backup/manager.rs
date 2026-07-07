@@ -6,7 +6,7 @@
 
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
-    Aes256Gcm, AeadCore, Nonce,
+    AeadCore, Aes256Gcm, Nonce,
 };
 use base64::Engine;
 use chrono::{DateTime, Utc};
@@ -22,8 +22,7 @@ use walkdir::WalkDir;
 use zip::write::{FileOptions, ZipWriter};
 
 use crate::cloud::{
-    BackupOptions, BackupInfo, BackupIncludes, CloudProvider,
-    RestoreConflict, RestoreResult,
+    BackupIncludes, BackupInfo, BackupOptions, CloudProvider, RestoreConflict, RestoreResult,
 };
 use crate::database::Database;
 use crate::error::AppError;
@@ -186,7 +185,10 @@ impl BackupManager {
         // 7. Encrypt the ZIP if requested
         let encrypted = options.encrypt && options.password.is_some();
         if encrypted {
-            let password = options.password.as_deref().expect("password confirmed as Some above");
+            let password = options
+                .password
+                .as_deref()
+                .expect("password confirmed as Some above");
             let salt = rand::random::<[u8; 16]>();
             let (ciphertext, nonce_bytes) = encrypt_data(&backup_data, password, &salt)?;
 
@@ -212,11 +214,7 @@ impl BackupManager {
             // Upload manifest separately (unencrypted, for listing)
             let manifest_cloud_path = format!("/backups/{}.manifest.json", backup_id);
             provider
-                .upload_file(
-                    &manifest_cloud_path,
-                    manifest_json.into_bytes(),
-                    None,
-                )
+                .upload_file(&manifest_cloud_path, manifest_json.into_bytes(), None)
                 .await
                 .map_err(|e| AppError::Internal(format!("Failed to upload manifest: {}", e)))?;
         } else {
@@ -225,11 +223,7 @@ impl BackupManager {
             let manifest_json = serde_json::to_string_pretty(&manifest)
                 .map_err(|e| AppError::Internal(format!("Failed to serialize manifest: {}", e)))?;
             provider
-                .upload_file(
-                    &manifest_cloud_path,
-                    manifest_json.into_bytes(),
-                    None,
-                )
+                .upload_file(&manifest_cloud_path, manifest_json.into_bytes(), None)
                 .await
                 .map_err(|e| AppError::Internal(format!("Failed to upload manifest: {}", e)))?;
         }
@@ -269,9 +263,7 @@ impl BackupManager {
         let manifest_data = provider
             .download_file(&manifest_cloud_path, None)
             .await
-            .map_err(|e| {
-                AppError::Internal(format!("Failed to download manifest: {}", e))
-            })?;
+            .map_err(|e| AppError::Internal(format!("Failed to download manifest: {}", e)))?;
 
         let manifest_json = String::from_utf8(manifest_data)
             .map_err(|e| AppError::Internal(format!("Failed to parse manifest: {}", e)))?;
@@ -288,9 +280,7 @@ impl BackupManager {
         let mut backup_data = provider
             .download_file(&data_cloud_path, None)
             .await
-            .map_err(|e| {
-                AppError::Internal(format!("Failed to download backup: {}", e))
-            })?;
+            .map_err(|e| AppError::Internal(format!("Failed to download backup: {}", e)))?;
 
         // 3. Decrypt if encrypted
         if manifest.encryption.enabled {
@@ -299,29 +289,15 @@ impl BackupManager {
             })?;
 
             let salt = base64::engine::general_purpose::STANDARD
-                .decode(
-                    manifest
-                        .encryption
-                        .salt
-                        .as_deref()
-                        .unwrap_or(""),
-                )
+                .decode(manifest.encryption.salt.as_deref().unwrap_or(""))
                 .map_err(|e| AppError::Internal(format!("Failed to decode salt: {}", e)))?;
 
             let nonce = base64::engine::general_purpose::STANDARD
-                .decode(
-                    manifest
-                        .encryption
-                        .nonce
-                        .as_deref()
-                        .unwrap_or(""),
-                )
+                .decode(manifest.encryption.nonce.as_deref().unwrap_or(""))
                 .map_err(|e| AppError::Internal(format!("Failed to decode nonce: {}", e)))?;
 
-            backup_data =
-                decrypt_data(&backup_data, pwd, &salt, &nonce).map_err(|e| {
-                    AppError::Internal(format!("Decryption failed: {}", e))
-                })?;
+            backup_data = decrypt_data(&backup_data, pwd, &salt, &nonce)
+                .map_err(|e| AppError::Internal(format!("Decryption failed: {}", e)))?;
         }
 
         // 4. Write backup data to temp file
@@ -363,9 +339,7 @@ impl BackupManager {
             if settings_path.exists() {
                 let settings = fs::read_to_string(&settings_path)
                     .await
-                    .map_err(|e| {
-                        AppError::Internal(format!("Failed to read settings: {}", e))
-                    })?;
+                    .map_err(|e| AppError::Internal(format!("Failed to read settings: {}", e)))?;
                 restored_settings = Some(settings);
                 restored_items += 1;
             }
@@ -468,12 +442,11 @@ impl BackupManager {
     async fn copy_documents(&self, dest_dir: &StdPath) -> Result<(usize, u64), AppError> {
         let pool = self.db.pool();
 
-        let rows = sqlx::query(
-            "SELECT * FROM documents WHERE file_path IS NOT NULL AND file_path != ''",
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to query documents: {}", e)))?;
+        let rows =
+            sqlx::query("SELECT * FROM documents WHERE file_path IS NOT NULL AND file_path != ''")
+                .fetch_all(pool)
+                .await
+                .map_err(|e| AppError::Internal(format!("Failed to query documents: {}", e)))?;
 
         let mut count = 0;
         let mut total_size: u64 = 0;
@@ -531,11 +504,7 @@ impl BackupManager {
 
             let src_path = StdPath::new(&doc.file_path);
             if !src_path.exists() {
-                tracing::warn!(
-                    "Document file not found: {} ({})",
-                    doc.file_path,
-                    doc.id
-                );
+                tracing::warn!("Document file not found: {} ({})", doc.file_path, doc.id);
                 continue;
             }
 
@@ -561,10 +530,7 @@ impl BackupManager {
                 .map_err(|e| AppError::Internal(format!("Failed to write metadata: {}", e)))?;
 
             count += 1;
-            total_size += fs::metadata(&dest_path)
-                .await
-                .map(|m| m.len())
-                .unwrap_or(0);
+            total_size += fs::metadata(&dest_path).await.map(|m| m.len()).unwrap_or(0);
         }
 
         Ok((count, total_size))
@@ -584,17 +550,13 @@ impl BackupManager {
                 &backup_db_path,
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
             )
-            .map_err(|e| {
-                AppError::Internal(format!("Failed to open backup database: {}", e))
-            })?;
+            .map_err(|e| AppError::Internal(format!("Failed to open backup database: {}", e)))?;
 
             let mut live_db = rusqlite::Connection::open_with_flags(
                 &live_db_path,
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
             )
-            .map_err(|e| {
-                AppError::Internal(format!("Failed to open live database: {}", e))
-            })?;
+            .map_err(|e| AppError::Internal(format!("Failed to open live database: {}", e)))?;
 
             let backup = rusqlite::backup::Backup::new(&backup_db, &mut live_db)
                 .map_err(|e| AppError::Internal(format!("Failed to init backup: {}", e)))?;
@@ -636,14 +598,9 @@ impl BackupManager {
                 let metadata_path = entry.path().join("metadata.json");
 
                 if metadata_path.exists() {
-                    let _metadata_json = fs::read_to_string(&metadata_path)
-                        .await
-                        .map_err(|e| {
-                            AppError::Internal(format!(
-                                "Failed to read metadata: {}",
-                                e
-                            ))
-                        })?;
+                    let _metadata_json = fs::read_to_string(&metadata_path).await.map_err(|e| {
+                        AppError::Internal(format!("Failed to read metadata: {}", e))
+                    })?;
 
                     // TODO: Insert document record into the database.
                     // For now, just count it as restored.
@@ -665,9 +622,8 @@ impl BackupManager {
         let zip_path = zip_path.clone();
 
         tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-            let file = std::fs::File::create(&zip_path).map_err(|e| {
-                AppError::Internal(format!("Failed to create zip file: {}", e))
-            })?;
+            let file = std::fs::File::create(&zip_path)
+                .map_err(|e| AppError::Internal(format!("Failed to create zip file: {}", e)))?;
 
             let mut zip = ZipWriter::new(file);
             let options = FileOptions::default()
@@ -677,8 +633,7 @@ impl BackupManager {
             let mut buffer = Vec::new();
 
             for entry in WalkDir::new(&source_dir).min_depth(1) {
-                let entry =
-                    entry.map_err(|e| AppError::Internal(format!("Walk error: {}", e)))?;
+                let entry = entry.map_err(|e| AppError::Internal(format!("Walk error: {}", e)))?;
                 let path = entry.path();
                 let name = path
                     .strip_prefix(&source_dir)
@@ -692,19 +647,14 @@ impl BackupManager {
                 } else {
                     zip.start_file(name.to_string_lossy(), options)
                         .map_err(|e| {
-                            AppError::Internal(format!(
-                                "Failed to start file in zip: {}",
-                                e
-                            ))
+                            AppError::Internal(format!("Failed to start file in zip: {}", e))
                         })?;
 
-                    let mut f = std::fs::File::open(path).map_err(|e| {
-                        AppError::Internal(format!("Failed to open file: {}", e))
-                    })?;
+                    let mut f = std::fs::File::open(path)
+                        .map_err(|e| AppError::Internal(format!("Failed to open file: {}", e)))?;
                     buffer.clear();
-                    std::io::copy(&mut f, &mut buffer).map_err(|e| {
-                        AppError::Internal(format!("Failed to read file: {}", e))
-                    })?;
+                    std::io::copy(&mut f, &mut buffer)
+                        .map_err(|e| AppError::Internal(format!("Failed to read file: {}", e)))?;
 
                     zip.write_all(&buffer).map_err(|e| {
                         AppError::Internal(format!("Failed to write to zip: {}", e))
@@ -722,11 +672,7 @@ impl BackupManager {
     }
 
     /// Extract ZIP backup using the Rust `zip` crate
-    async fn extract_backup(
-        &self,
-        zip_path: &PathBuf,
-        dest_dir: &PathBuf,
-    ) -> Result<(), AppError> {
+    async fn extract_backup(&self, zip_path: &PathBuf, dest_dir: &PathBuf) -> Result<(), AppError> {
         fs::create_dir_all(dest_dir)
             .await
             .map_err(|e| AppError::Internal(format!("Failed to create dest dir: {}", e)))?;
@@ -735,17 +681,15 @@ impl BackupManager {
         let dest_dir = dest_dir.clone();
 
         tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-            let file = std::fs::File::open(&zip_path).map_err(|e| {
-                AppError::Internal(format!("Failed to open zip: {}", e))
-            })?;
-            let mut archive = zip::ZipArchive::new(file).map_err(|e| {
-                AppError::Internal(format!("Failed to read zip archive: {}", e))
-            })?;
+            let file = std::fs::File::open(&zip_path)
+                .map_err(|e| AppError::Internal(format!("Failed to open zip: {}", e)))?;
+            let mut archive = zip::ZipArchive::new(file)
+                .map_err(|e| AppError::Internal(format!("Failed to read zip archive: {}", e)))?;
 
             for i in 0..archive.len() {
-                let mut entry = archive
-                    .by_index(i)
-                    .map_err(|e| AppError::Internal(format!("Failed to read entry {}: {}", i, e)))?;
+                let mut entry = archive.by_index(i).map_err(|e| {
+                    AppError::Internal(format!("Failed to read entry {}: {}", i, e))
+                })?;
 
                 let outpath = match entry.enclosed_name() {
                     Some(path) => dest_dir.join(path),
@@ -753,22 +697,18 @@ impl BackupManager {
                 };
 
                 if entry.is_dir() {
-                    std::fs::create_dir_all(&outpath).map_err(|e| {
-                        AppError::Internal(format!("Failed to create dir: {}", e))
-                    })?;
+                    std::fs::create_dir_all(&outpath)
+                        .map_err(|e| AppError::Internal(format!("Failed to create dir: {}", e)))?;
                 } else {
                     if let Some(parent) = outpath.parent() {
                         std::fs::create_dir_all(parent).map_err(|e| {
                             AppError::Internal(format!("Failed to create dir: {}", e))
                         })?;
                     }
-                    let mut outfile =
-                        std::fs::File::create(&outpath).map_err(|e| {
-                            AppError::Internal(format!("Failed to create file: {}", e))
-                        })?;
-                    std::io::copy(&mut entry, &mut outfile).map_err(|e| {
-                        AppError::Internal(format!("Failed to write file: {}", e))
-                    })?;
+                    let mut outfile = std::fs::File::create(&outpath)
+                        .map_err(|e| AppError::Internal(format!("Failed to create file: {}", e)))?;
+                    std::io::copy(&mut entry, &mut outfile)
+                        .map_err(|e| AppError::Internal(format!("Failed to write file: {}", e)))?;
                 }
             }
 
@@ -797,11 +737,7 @@ impl BackupManager {
 /// Uses PBKDF2-HMAC-SHA256 with 100 000 iterations and a random 16-byte
 /// salt to derive a 256-bit key. Returns the ciphertext and 12-byte nonce.
 /// The derived key is zeroed from memory after use.
-fn encrypt_data(
-    data: &[u8],
-    password: &str,
-    salt: &[u8],
-) -> Result<(Vec<u8>, [u8; 12]), AppError> {
+fn encrypt_data(data: &[u8], password: &str, salt: &[u8]) -> Result<(Vec<u8>, [u8; 12]), AppError> {
     let mut key = [0u8; 32];
     pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, 100_000, &mut key);
 
@@ -842,9 +778,7 @@ fn decrypt_data(
 
     let nonce = Nonce::from_slice(nonce);
     let plaintext = cipher.decrypt(nonce, data).map_err(|_| {
-        AppError::Internal(
-            "Decryption failed: incorrect password or corrupted data".to_string(),
-        )
+        AppError::Internal("Decryption failed: incorrect password or corrupted data".to_string())
     })?;
 
     // Zero the derived key from memory

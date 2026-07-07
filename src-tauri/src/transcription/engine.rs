@@ -1,10 +1,10 @@
-use serde::{Serialize, Deserialize};
+use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use anyhow::{Result, anyhow};
-use tauri::{AppHandle, Manager, Emitter};
-use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::CommandEvent;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::ShellExt;
 
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
 pub struct TranscriptSegment {
@@ -127,14 +127,28 @@ impl TranscriptionEngine {
         let triple = env!("TAURI_TARGET_TRIPLE");
         let candidates: Vec<PathBuf> = [
             // 1. Dev source bin/ (CARGO_MANIFEST_DIR is baked at compile time).
-            Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin").join(format!("{}-{}", name, triple))),
+            Some(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("bin")
+                    .join(format!("{}-{}", name, triple)),
+            ),
             // 2. Resource dir bin/ (where resources globs land in prod).
-            self.app_handle.path().resource_dir().ok().map(|d| d.join("bin").join(format!("{}-{}", name, triple))),
+            self.app_handle
+                .path()
+                .resource_dir()
+                .ok()
+                .map(|d| d.join("bin").join(format!("{}-{}", name, triple))),
             // 3. Bundled externalBin: next to the main exe, bare name (no triple).
             //    On macOS this is Contents/MacOS/<name>; on Windows <exe_dir>/<name>.exe.
-            std::env::current_exe().ok().and_then(|e| e.parent().map(|p| {
-                if cfg!(windows) { p.join(format!("{}.exe", name)) } else { p.join(name) }
-            })),
+            std::env::current_exe().ok().and_then(|e| {
+                e.parent().map(|p| {
+                    if cfg!(windows) {
+                        p.join(format!("{}.exe", name))
+                    } else {
+                        p.join(name)
+                    }
+                })
+            }),
         ]
         .into_iter()
         .flatten()
@@ -154,10 +168,12 @@ impl TranscriptionEngine {
     fn check_sidecar_usable(&self, name: &str) -> Option<String> {
         let path = match self.sidecar_path(name) {
             Some(p) => p,
-            None => return Some(format!(
-                "Could not resolve sidecar '{}' location. Transcription is unavailable.",
-                name
-            )),
+            None => {
+                return Some(format!(
+                    "Could not resolve sidecar '{}' location. Transcription is unavailable.",
+                    name
+                ))
+            }
         };
         match std::fs::metadata(&path) {
             Err(_) => Some(format!(
@@ -171,7 +187,9 @@ impl TranscriptionEngine {
                  The {} sidecar was not built for this platform; \
                  local transcription with this engine is unavailable. \
                  Try a different model or use Groq (cloud) transcription.",
-                name, path.display(), name
+                name,
+                path.display(),
+                name
             )),
             Ok(_) => None,
         }
@@ -183,7 +201,8 @@ impl TranscriptionEngine {
         if VULKAN_CHECKED.load(Ordering::Relaxed) {
             return VULKAN_AVAILABLE.load(Ordering::Relaxed);
         }
-        let available = self.sidecar_bin_dir()
+        let available = self
+            .sidecar_bin_dir()
             .map(|dir| dir.join("libggml-vulkan.so").exists())
             .unwrap_or(false);
         if available {
@@ -197,8 +216,17 @@ impl TranscriptionEngine {
     /// Converts audio to 16kHz WAV as required by whisper.cpp.
     /// Emits "transcription://phase" with "preparing" so the UI can show a preparing state.
     pub async fn prepare_audio(&self, input_path: &Path) -> Result<PathBuf> {
-        let _ = self.app_handle.emit("transcription://phase", PhasePayload { phase: "preparing".to_string() });
-        let temp_dir = self.app_handle.path().app_cache_dir()?.join("transcription");
+        let _ = self.app_handle.emit(
+            "transcription://phase",
+            PhasePayload {
+                phase: "preparing".to_string(),
+            },
+        );
+        let temp_dir = self
+            .app_handle
+            .path()
+            .app_cache_dir()?
+            .join("transcription");
         if !temp_dir.exists() {
             std::fs::create_dir_all(&temp_dir)?;
         }
@@ -207,12 +235,16 @@ impl TranscriptionEngine {
 
         let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(&self.app_handle)?
             .args([
-                "-i", input_path.to_str().expect("input path is valid UTF-8"),
-                "-ar", "16000",
-                "-ac", "1",
-                "-c:a", "pcm_s16le",
+                "-i",
+                input_path.to_str().expect("input path is valid UTF-8"),
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-c:a",
+                "pcm_s16le",
                 "-y",
-                output_path.to_str().expect("output path is valid UTF-8")
+                output_path.to_str().expect("output path is valid UTF-8"),
             ])
             .spawn()?;
 
@@ -273,8 +305,17 @@ impl TranscriptionEngine {
 
         let use_gpu = self.vulkan_available();
 
-        let phase = if use_gpu { "transcribing-gpu" } else { "transcribing-cpu" };
-        let _ = self.app_handle.emit("transcription://phase", PhasePayload { phase: phase.to_string() });
+        let phase = if use_gpu {
+            "transcribing-gpu"
+        } else {
+            "transcribing-cpu"
+        };
+        let _ = self.app_handle.emit(
+            "transcription://phase",
+            PhasePayload {
+                phase: phase.to_string(),
+            },
+        );
 
         // Guard against a missing or 0-byte placeholder sidecar before spawning,
         // so the user gets an actionable message instead of a bare "failed".
@@ -283,7 +324,10 @@ impl TranscriptionEngine {
         }
 
         // Use the bundled sidecar binary ("whisper").
-        let mut cmd = self.app_handle.shell().sidecar("whisper")
+        let mut cmd = self
+            .app_handle
+            .shell()
+            .sidecar("whisper")
             .map_err(|e| anyhow!("Whisper sidecar not found: {}", e))?;
 
         // Set library path so whisper can find libwhisper, libggml, etc.
@@ -291,9 +335,10 @@ impl TranscriptionEngine {
             set_sidecar_env!(cmd, &bin_dir);
         }
 
-        let (mut rx, _) = cmd.args(args).spawn().map_err(|e| {
-            anyhow!("Failed to launch sidecar 'whisper': {}", e)
-        })?;
+        let (mut rx, _) = cmd
+            .args(args)
+            .spawn()
+            .map_err(|e| anyhow!("Failed to launch sidecar 'whisper': {}", e))?;
 
         let mut success = false;
         let mut stdout_buf = String::new();
@@ -310,17 +355,20 @@ impl TranscriptionEngine {
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
                     stderr_line_buf.push_str(&line_str);
-                    
+
                     while let Some(newline_idx) = stderr_line_buf.find('\n') {
                         let line = stderr_line_buf[..newline_idx].trim().to_string();
                         stderr_line_buf = stderr_line_buf[newline_idx + 1..].to_string();
-                        
+
                         // Parse progress: "progress = 5%"
                         if let Some(idx) = line.find("progress =") {
                             let rest = &line[idx + 10..];
                             if let Some(end) = rest.find('%') {
                                 if let Ok(p) = rest[..end].trim().parse::<i32>() {
-                                    let _ = self.app_handle.emit("transcription://progress", ProgressPayload { progress: p });
+                                    let _ = self.app_handle.emit(
+                                        "transcription://progress",
+                                        ProgressPayload { progress: p },
+                                    );
                                     if let Some(ref cb) = on_progress {
                                         cb(p);
                                     }
@@ -345,7 +393,8 @@ impl TranscriptionEngine {
             let stderr_clean = stderr_buf.trim();
             let stdout_clean = stdout_buf.trim();
             let msg = if !stderr_clean.is_empty() {
-                if stderr_clean.contains("libwhisper.so") || stderr_clean.contains("Shared library") {
+                if stderr_clean.contains("libwhisper.so") || stderr_clean.contains("Shared library")
+                {
                     format!("Whisper binary missing dependencies. Please run: ./fix-whisper.sh\nDetails: {}", stderr_clean)
                 } else {
                     format!("Whisper transcription failed: {}", stderr_clean)
@@ -377,7 +426,7 @@ impl TranscriptionEngine {
 
         let json_content = std::fs::read_to_string(&json_path)?;
         let data: serde_json::Value = serde_json::from_str(&json_content)?;
-        
+
         if let Some(transcription) = data.get("transcription") {
             if let Some(segments) = transcription.as_array() {
                 for seg in segments {
@@ -385,13 +434,13 @@ impl TranscriptionEngine {
                         start_ms: (seg["offsets"]["from"].as_i64().unwrap_or(0)),
                         end_ms: (seg["offsets"]["to"].as_i64().unwrap_or(0)),
                         text: seg["text"].as_str().unwrap_or("").to_string(),
-                        confidence: 1.0, 
+                        confidence: 1.0,
                     };
                     on_segment(segment);
                 }
             }
         }
-        
+
         let _ = std::fs::remove_file(json_path);
 
         Ok(())
@@ -470,15 +519,19 @@ impl TranscriptionEngine {
 
         let _ = self.app_handle.emit(
             "transcription://phase",
-            PhasePayload { phase: "transcribing-cpu".to_string() },
+            PhasePayload {
+                phase: "transcribing-cpu".to_string(),
+            },
         );
 
-        if let Some(ref cb) = on_progress { cb(5); }
+        if let Some(ref cb) = on_progress {
+            cb(5);
+        }
 
         // Read + parse the prepared WAV to chunk it. Fall back to a single
         // whole-file pass if the WAV can't be parsed (short/garbled input).
-        let wav_data = std::fs::read(audio_path)
-            .map_err(|e| anyhow!("Failed to read WAV file: {}", e))?;
+        let wav_data =
+            std::fs::read(audio_path).map_err(|e| anyhow!("Failed to read WAV file: {}", e))?;
 
         let chunk_duration_ms: i64 = 30_000;
         let total_duration_ms = get_wav_duration_ms(audio_path).unwrap_or(chunk_duration_ms);
@@ -486,8 +539,12 @@ impl TranscriptionEngine {
         // Single-pass fast path: short audio (≤ one chunk) → one sidecar call,
         // one segment. Avoids chunk-WAV bookkeeping for the common short case.
         if total_duration_ms <= chunk_duration_ms {
-            let text = self.run_sherpa_sidecar(family, model_dir, audio_path, language).await?;
-            if let Some(ref cb) = on_progress { cb(100); }
+            let text = self
+                .run_sherpa_sidecar(family, model_dir, audio_path, language)
+                .await?;
+            if let Some(ref cb) = on_progress {
+                cb(100);
+            }
             if !text.trim().is_empty() {
                 on_segment(TranscriptSegment {
                     start_ms: 0,
@@ -502,7 +559,8 @@ impl TranscriptionEngine {
         // Long-audio path: chunk into 30s windows. Parse the WAV header to find
         // the data chunk, then build a minimal WAV per window and transcribe it.
         let channels = u16::from_le_bytes([wav_data[22], wav_data[23]]) as u64;
-        let sample_rate = u32::from_le_bytes([wav_data[24], wav_data[25], wav_data[26], wav_data[27]]) as u64;
+        let sample_rate =
+            u32::from_le_bytes([wav_data[24], wav_data[25], wav_data[26], wav_data[27]]) as u64;
         let bits_per_sample = u16::from_le_bytes([wav_data[34], wav_data[35]]) as u64;
         let bytes_per_sample = bits_per_sample / 8;
 
@@ -520,13 +578,23 @@ impl TranscriptionEngine {
             let chunk_byte_offset = data_offset as u64 + start_sample * channels * bytes_per_sample;
             let chunk_byte_count = (end_sample - start_sample) * channels * bytes_per_sample;
 
-            if chunk_byte_offset as usize >= wav_data.len() { break; }
-            let end_byte = std::cmp::min((chunk_byte_offset + chunk_byte_count) as usize, wav_data.len());
+            if chunk_byte_offset as usize >= wav_data.len() {
+                break;
+            }
+            let end_byte = std::cmp::min(
+                (chunk_byte_offset + chunk_byte_count) as usize,
+                wav_data.len(),
+            );
             let chunk_bytes = &wav_data[chunk_byte_offset as usize..end_byte];
 
             // Build a minimal 44-byte-header WAV for this chunk and write it
             // next to the source (same temp-dir convention as prepare_audio).
-            let chunk_wav = build_wav_chunk(chunk_bytes, sample_rate as u32, channels as u16, bits_per_sample as u16);
+            let chunk_wav = build_wav_chunk(
+                chunk_bytes,
+                sample_rate as u32,
+                channels as u16,
+                bits_per_sample as u16,
+            );
             let chunk_path = audio_path.with_extension(format!("chunk{}.wav", chunk_idx));
             std::fs::write(&chunk_path, &chunk_wav)
                 .map_err(|e| anyhow!("Failed to write chunk WAV: {}", e))?;
@@ -537,7 +605,10 @@ impl TranscriptionEngine {
             // Per-chunk transcription. A failed chunk shouldn't abort the whole
             // file — log and continue with an empty segment (matches the legacy
             // moonshine behavior).
-            let text = match self.run_sherpa_sidecar(family, model_dir, &chunk_path, language).await {
+            let text = match self
+                .run_sherpa_sidecar(family, model_dir, &chunk_path, language)
+                .await
+            {
                 Ok(t) => t,
                 Err(e) => {
                     tracing::warn!("sherpa chunk {} failed, continuing: {}", chunk_idx, e);
@@ -561,7 +632,9 @@ impl TranscriptionEngine {
             }
         }
 
-        if let Some(ref cb) = on_progress { cb(100); }
+        if let Some(ref cb) = on_progress {
+            cb(100);
+        }
         Ok(())
     }
 
@@ -587,7 +660,10 @@ impl TranscriptionEngine {
             ));
         }
 
-        let mut cmd = self.app_handle.shell().sidecar("sherpa-onnx")
+        let mut cmd = self
+            .app_handle
+            .shell()
+            .sidecar("sherpa-onnx")
             .map_err(|e| anyhow!("sherpa-onnx sidecar not found: {}", e))?;
 
         // Belt-and-suspenders: the sidecar already has the right rpaths, but set the
@@ -604,7 +680,10 @@ impl TranscriptionEngine {
                 args.push(format!("--nemo-ctc-model={}", model_file.to_string_lossy()));
             }
             SherpaFamily::SenseVoice => {
-                args.push(format!("--sense-voice-model={}", model_file.to_string_lossy()));
+                args.push(format!(
+                    "--sense-voice-model={}",
+                    model_file.to_string_lossy()
+                ));
                 // Language: auto-detect by default; valid values are
                 // auto/zh/en/ja/ko/yue. SenseVoice requires a non-empty value,
                 // so normalize empty/unknown to "auto".
@@ -621,9 +700,10 @@ impl TranscriptionEngine {
         }
         args.push(wav_path.to_string_lossy().to_string());
 
-        let (mut rx, _) = cmd.args(args).spawn().map_err(|e| {
-            anyhow!("Failed to launch sidecar 'sherpa-onnx': {}", e)
-        })?;
+        let (mut rx, _) = cmd
+            .args(args)
+            .spawn()
+            .map_err(|e| anyhow!("Failed to launch sidecar 'sherpa-onnx': {}", e))?;
 
         let mut success = false;
         let mut stderr_buf = String::new();
@@ -648,7 +728,10 @@ impl TranscriptionEngine {
             let stderr_clean = stderr_buf.trim();
             let msg = if !stderr_clean.is_empty() {
                 if stderr_clean.contains("onnxruntime") || stderr_clean.contains("Shared library") {
-                    format!("sherpa-onnx missing ONNX Runtime dependencies.\nDetails: {}", stderr_clean)
+                    format!(
+                        "sherpa-onnx missing ONNX Runtime dependencies.\nDetails: {}",
+                        stderr_clean
+                    )
                 } else {
                     format!("sherpa-onnx transcription failed: {}", stderr_clean)
                 }
@@ -671,7 +754,11 @@ impl TranscriptionEngine {
             .lines()
             .find(|l| l.trim_start().starts_with('{'))
             .and_then(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
-            .and_then(|v| v.get("text").and_then(|t| t.as_str()).map(|s| s.to_string()))
+            .and_then(|v| {
+                v.get("text")
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string())
+            })
             .unwrap_or_default();
         Ok(text)
     }
@@ -698,7 +785,9 @@ fn dir_contains_sidecars(dir: &Path) -> bool {
 
 fn get_wav_duration_ms(wav_path: &Path) -> Option<i64> {
     let data = std::fs::read(wav_path).ok()?;
-    if data.len() < 44 { return None; }
+    if data.len() < 44 {
+        return None;
+    }
 
     let channels = u16::from_le_bytes([data[22], data[23]]) as u64;
     let sample_rate = u32::from_le_bytes([data[24], data[25], data[26], data[27]]) as u64;
@@ -713,10 +802,14 @@ fn get_wav_duration_ms(wav_path: &Path) -> Option<i64> {
 }
 
 fn find_wav_data_chunk(data: &[u8]) -> Option<(u64, u64)> {
-    if data.len() < 44 { return None; }
+    if data.len() < 44 {
+        return None;
+    }
     let mut offset = 12u64;
     loop {
-        if offset + 8 > data.len() as u64 { return None; }
+        if offset + 8 > data.len() as u64 {
+            return None;
+        }
         let chunk_id = &data[offset as usize..(offset + 4) as usize];
         let chunk_size = u32::from_le_bytes([
             data[(offset + 4) as usize],
@@ -735,7 +828,12 @@ fn find_wav_data_chunk(data: &[u8]) -> Option<(u64, u64)> {
 /// per-chunk slices of a long source WAV into sherpa-onnx (which has no
 /// built-in chunking and would otherwise load the entire multi-hour file into
 /// one encoder pass, growing memory without bound and reporting no progress).
-fn build_wav_chunk(pcm_data: &[u8], sample_rate: u32, channels: u16, bits_per_sample: u16) -> Vec<u8> {
+fn build_wav_chunk(
+    pcm_data: &[u8],
+    sample_rate: u32,
+    channels: u16,
+    bits_per_sample: u16,
+) -> Vec<u8> {
     let mut wav = Vec::with_capacity(44 + pcm_data.len());
     // RIFF header
     wav.extend_from_slice(b"RIFF");
@@ -745,7 +843,7 @@ fn build_wav_chunk(pcm_data: &[u8], sample_rate: u32, channels: u16, bits_per_sa
     // fmt sub-chunk
     wav.extend_from_slice(b"fmt ");
     wav.extend_from_slice(&16u32.to_le_bytes()); // sub-chunk size
-    wav.extend_from_slice(&1u16.to_le_bytes());  // PCM format
+    wav.extend_from_slice(&1u16.to_le_bytes()); // PCM format
     wav.extend_from_slice(&channels.to_le_bytes());
     wav.extend_from_slice(&sample_rate.to_le_bytes());
     let byte_rate = sample_rate as u32 * channels as u32 * (bits_per_sample as u32 / 8);

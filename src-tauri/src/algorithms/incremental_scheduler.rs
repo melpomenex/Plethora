@@ -8,7 +8,7 @@
 //! - Keeps content in rotation for better engagement
 
 use crate::models::ReviewRating;
-use chrono::{Utc, Duration};
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Parameters for incremental reading scheduler
@@ -122,20 +122,11 @@ impl IncrementalScheduler {
             ReviewRating::Again => (
                 // Convert hours to days (use as fraction of day)
                 self.params.again_interval_hours as f64 / 24.0,
-                "Again"
+                "Again",
             ),
-            ReviewRating::Hard => (
-                self.params.hard_interval_days as f64,
-                "Hard"
-            ),
-            ReviewRating::Good => (
-                self.params.good_interval_days as f64,
-                "Good"
-            ),
-            ReviewRating::Easy => (
-                self.params.easy_interval_days as f64,
-                "Easy"
-            ),
+            ReviewRating::Hard => (self.params.hard_interval_days as f64, "Hard"),
+            ReviewRating::Good => (self.params.good_interval_days as f64, "Good"),
+            ReviewRating::Easy => (self.params.easy_interval_days as f64, "Easy"),
         };
 
         // Calculate interval with modifiers
@@ -143,13 +134,16 @@ impl IncrementalScheduler {
 
         // Apply consecutive bonus for good/easy ratings
         if matches!(rating, ReviewRating::Good | ReviewRating::Easy) && consecutive_good_count > 0 {
-            let bonus = 1.0 + (self.params.consecutive_bonus_multiplier * consecutive_good_count as f64);
+            let bonus =
+                1.0 + (self.params.consecutive_bonus_multiplier * consecutive_good_count as f64);
             interval_days *= bonus;
         }
 
         // Apply consecutive penalty for again/hard ratings
-        if matches!(rating, ReviewRating::Again | ReviewRating::Hard) && consecutive_hard_count > 0 {
-            let penalty = 1.0 - (self.params.consecutive_penalty_multiplier * consecutive_hard_count as f64);
+        if matches!(rating, ReviewRating::Again | ReviewRating::Hard) && consecutive_hard_count > 0
+        {
+            let penalty =
+                1.0 - (self.params.consecutive_penalty_multiplier * consecutive_hard_count as f64);
             interval_days *= penalty.max(0.25); // Cap penalty at 75% reduction
         }
 

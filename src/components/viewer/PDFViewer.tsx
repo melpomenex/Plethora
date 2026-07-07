@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import * as pdfjsLib from "pdfjs-dist";
-import { TextLayerBuilder } from "pdfjs-dist/web/pdf_viewer.mjs";
+import { EventBus } from "pdfjs-dist/web/pdf_viewer.mjs";
+import { PdfPageViewWrapper } from "./PdfPageView";
 import {
   CaretLeft,
   CaretRight,
@@ -29,6 +30,7 @@ import {
   hasSelectableTextInLayer,
   selectionAnchorsInTextLayers,
   selectionIntersectsTextLayers,
+  canUsePdfSelectionAction,
   type PdfTextSelectionCapability,
 } from "./pdfTextSelection";
 import { useI18n } from "../../lib/i18n";
@@ -331,11 +333,6 @@ type PdfSearchMatch = {
   globalIndex: number;
 };
 
-type PdfTextLayerRenderer = {
-  cancel?: () => void;
-  render?: (params?: { viewport?: import("pdfjs-dist").PageViewport }) => Promise<void> | void;
-};
-
 type ZoomMode = "custom" | "fit-width" | "fit-page";
 const VIRTUALIZATION_THRESHOLD_PAGES = 80;
 const VIRTUAL_WINDOW_PAGES = 10;
@@ -413,19 +410,24 @@ export function PDFViewer({
   const pageInputRef = useRef<HTMLInputElement>(null);
   const outerContainerRef = useRef<HTMLDivElement>(null);
   const pageContainerRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // canvas now lives inside PDFPageView's .canvasWrapper; we keep a ref to it
+  // (populated via the onCanvasRef callback from PdfPageViewWrapper) so OCR
+  // region selection can still capture from it.
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
-  const textLayerContainerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const textLayerRootsRef = useRef<(HTMLDivElement | null)[]>([]);
-  const textLayerBuildersRef = useRef<(PdfTextLayerRenderer | null)[]>([]);
-  const textLayerTimeoutsRef = useRef<(ReturnType<typeof setTimeout> | null)[]>([]);
   const pageViewportRefs = useRef<(import("pdfjs-dist").PageViewport | null)[]>([]);
   const pageScaleRefs = useRef<(number | null)[]>([]);
-  const renderTasksRef = useRef<(any | null)[]>([]);  // Track PDF.js render tasks to cancel
-  const renderIdRef = useRef(0);
+  // Shared pdf.js EventBus — every PDFPageView for this document shares it.
+  // We listen for textlayerrendered/pagerendered on it to know when to grab
+  // pageView.textLayer.div.
+  const eventBusRef = useRef<EventBus | null>(null);
+  if (eventBusRef.current === null) {
+    eventBusRef.current = new EventBus();
+  }
   const scrollRafRef = useRef<number | null>(null);
   const pageNumberRef = useRef(pageNumber);
   const isProgrammaticScrollRef = useRef(false);
-  // Keep pageNumberRef in sync so async renderPage can check it
+  // Keep pageNumberRef in sync so async page-view callbacks can check it
   useEffect(() => { pageNumberRef.current = pageNumber; }, [pageNumber]);
 
   // If the page number update came from scroll syncing, don't auto-scroll to the top of the page.
@@ -477,11 +479,45 @@ export function PDFViewer({
   const [pendingSelectionContext, setPendingSelectionContext] = useState<PdfSelectionContext | null>(null);
   const [nativeSelectedText, setNativeSelectedText] = useState("");
   const [fallbackPageSize, setFallbackPageSize] = useState<{ width: number; height: number } | null>(null);
-  const [renderPass, setRenderPass] = useState(0);
+  // Bumped by the ResizeObserver so fit-width/fit-page recomputes per-page scale.
+  const resizeNonceRef = useRef(0);
+  const [, setResizeNonce] = useState(0);
 
   const notifyTextLayersChange = useCallback(() => {
     onTextLayerRootsChange?.([...textLayerRootsRef.current], scrollContainerRef.current);
   }, [onTextLayerRootsChange]);
+
+  // ── PdfPageViewWrapper lifecycle callbacks ──────────────────────────────
+  // These bridge the imperative pdf.js page views into the refs that the rest
+  // of this component (selection, scroll math, search/TTS, OCR) depends on.
+  //
+  // `applyTextLayerHighlights` and `recomputePageOffsets` are defined further
+  // down this component; we hold them in forward refs so the page-view
+  // callbacks (declared here, before those functions) can invoke them without
+  // reordering the whole file.
+  const applyTextLayerHighlightsRef = useRef<((pageIndex: number) => void) | null>(null);
+  const recomputePageOffsetsRef = useRef<(() => void) | null>(null);
+
+  const handleSlotRef = useCallback((idx: number, slot: HTMLDivElement | null) => {
+    pageContainerRefs.current[idx] = slot;
+  }, []);
+
+  const handleViewportChange = useCallback((idx: number, viewport: import("pdfjs-dist").PageViewport) => {
+    pageViewportRefs.current[idx] = viewport;
+    pageScaleRefs.current[idx] = viewport.scale;
+    recomputePageOffsetsRef.current?.();
+  }, []);
+
+  const handleCanvasRef = useCallback((idx: number, canvas: HTMLCanvasElement | null) => {
+    canvasRefs.current[idx] = canvas;
+  }, []);
+
+  const handleTextLayerReady = useCallback((idx: number, textLayerDiv: HTMLDivElement | null) => {
+    textLayerRootsRef.current[idx] = textLayerDiv;
+    notifyTextLayersChange();
+    // Re-apply search / TTS / jump-highlight marks now that the text layer is fresh.
+    applyTextLayerHighlightsRef.current?.(idx);
+  }, [notifyTextLayersChange]);
 
   // Update parent with text layer roots and scroll container on load/mount
   useEffect(() => {
@@ -506,6 +542,8 @@ export function PDFViewer({
   const navSettleTargetRef = useRef<{ token: number; targetTop: number; pageNumber: number } | null>(null);
   const pdfNavStabilityEnabledRef = useRef(true);
   const pdfNavStabilityDebugRef = useRef(false);
+  const pdfTextSelectionGestureActiveRef = useRef(false);
+  const showSelectionPopupRef = useRef(false);
   const isTauriRuntime = isTauri();
 
   // Position persistence refs
@@ -516,6 +554,35 @@ export function PDFViewer({
   const isRestoringPositionRef = useRef(false);
 
   // Custom PDF selection hook
+  const getSelectionRectFromContext = useCallback((context: PdfSelectionContext): DOMRect | null => {
+    let left = Number.POSITIVE_INFINITY;
+    let top = Number.POSITIVE_INFINITY;
+    let right = Number.NEGATIVE_INFINITY;
+    let bottom = Number.NEGATIVE_INFINITY;
+
+    for (const page of context.pages) {
+      const pageEl = pageContainerRefs.current[page.pageNumber - 1];
+      if (!pageEl) continue;
+      const pageBounds = pageEl.getBoundingClientRect();
+
+      for (const rect of page.viewportRects) {
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const rectLeft = pageBounds.left + rect.left;
+        const rectTop = pageBounds.top + rect.top;
+        left = Math.min(left, rectLeft);
+        top = Math.min(top, rectTop);
+        right = Math.max(right, rectLeft + rect.width);
+        bottom = Math.max(bottom, rectTop + rect.height);
+      }
+    }
+
+    if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(right) || !Number.isFinite(bottom)) {
+      return null;
+    }
+
+    return new DOMRect(left, top, right - left, bottom - top);
+  }, []);
+
   const customSelection = usePdfCustomSelection({
     pdf,
     documentId,
@@ -528,9 +595,12 @@ export function PDFViewer({
 
       // Show popup when there's a selection
       if (text && context) {
-        // Get the bounding rect from the selection
+        const contextRect = getSelectionRectFromContext(context);
         const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
+        if (contextRect) {
+          setSelectionPopupRect(contextRect);
+          setShowSelectionPopup(true);
+        } else if (selection && selection.rangeCount > 0) {
           const range = selection.getRangeAt(0);
           const rect = range.getBoundingClientRect();
           setSelectionPopupRect(rect);
@@ -550,12 +620,31 @@ export function PDFViewer({
     ? customSelection.selectionState.selectedText
     : nativeSelectedText;
 
+  useEffect(() => {
+    if (!ENABLE_CUSTOM_PDF_SELECTION) return;
+
+    const handleCopy = (event: ClipboardEvent) => {
+      const text = customSelection.selectionState.selectedText.trim();
+      if (!text || !event.clipboardData) return;
+
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+
+      event.clipboardData.setData("text/plain", text);
+      event.preventDefault();
+    };
+
+    document.addEventListener("copy", handleCopy);
+    return () => document.removeEventListener("copy", handleCopy);
+  }, [customSelection.selectionState.selectedText]);
+
   // Clear selection highlights from all pages (no-op now since we rely purely on clean native browser highlights)
   const clearSelectionHighlights = useCallback(() => {}, []);
 
   // Clear selection helper
   const clearSelection = useCallback(() => {
     setShowSelectionPopup(false);
+    showSelectionPopupRef.current = false;
     setPendingSelectionContext(null);
     if (ENABLE_CUSTOM_PDF_SELECTION) {
       customSelection.clearSelection();
@@ -570,8 +659,8 @@ export function PDFViewer({
   // Handle highlight creation from popup
   const handleHighlight = useCallback(
     (color: HighlightColor) => {
-      if (!pendingSelectionContext) return;
-      onHighlightSelection?.(color, selectedText, pendingSelectionContext);
+      if (!canUsePdfSelectionAction({ selectedText, selectionContext: pendingSelectionContext })) return;
+      onHighlightSelection?.(color, selectedText.trim(), pendingSelectionContext);
 
       // Clear selection after highlighting
       clearSelection();
@@ -581,8 +670,8 @@ export function PDFViewer({
 
   const handleHighlightWithDialog = useCallback(
     (color: HighlightColor) => {
-      if (!pendingSelectionContext) return;
-      onHighlightSelectionWithDialog?.(color, selectedText, pendingSelectionContext);
+      if (!canUsePdfSelectionAction({ selectedText, selectionContext: pendingSelectionContext })) return;
+      onHighlightSelectionWithDialog?.(color, selectedText.trim(), pendingSelectionContext);
 
       clearSelection();
     },
@@ -896,6 +985,9 @@ export function PDFViewer({
       targetMark.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
     });
   }, [getSearchHighlightPattern]);
+  // Wire the forward ref so PdfPageViewWrapper's onTextLayerReady can re-apply
+  // search/TTS/jump marks onto a freshly rendered text layer.
+  applyTextLayerHighlightsRef.current = applyTextLayerHighlights;
 
   const reapplyVisibleTextLayerHighlights = useCallback(() => {
     textLayerRootsRef.current.forEach((root, pageIndex) => {
@@ -1414,17 +1506,9 @@ export function PDFViewer({
       clearNavigationSettleTimeout();
       // Clear selection highlights on unmount
       clearSelectionHighlights();
-      // Cancel any in-flight PDF render tasks and text layer builders
-      // to prevent "parentNode is null" errors when the DOM is detached.
-      for (let i = 0; i < renderTasksRef.current.length; i++) {
-        try { renderTasksRef.current[i]?.cancel(); } catch { /* ignore */ }
-      }
-      for (let i = 0; i < textLayerBuildersRef.current.length; i++) {
-        try { textLayerBuildersRef.current[i]?.cancel(); } catch { /* ignore */ }
-      }
-      for (let i = 0; i < textLayerTimeoutsRef.current.length; i++) {
-        if (textLayerTimeoutsRef.current[i] != null) clearTimeout(textLayerTimeoutsRef.current[i]!);
-      }
+      // Note: per-page PDFPageView teardown (canvas + text layer cancel/destroy)
+      // is handled by each PdfPageViewWrapper's own effect cleanup when React
+      // unmounts it. No manual cancel loop is needed here.
     };
   }, [clearNavigationSettleTimeout, clearSelectionHighlights, saveReadingPosition]);
 
@@ -1435,59 +1519,17 @@ export function PDFViewer({
     recomputePageOffsets();
   }, [scale, zoomMode, numPages, pdf]);
 
+  // ── Rendered-page tracking ──────────────────────────────────────────────
+  // Pages are now rendered declaratively by PdfPageViewWrapper components in
+  // the JSX below (keyed by page number, mounted for the current rendered
+  // range). This effect just syncs the range ref and signals onPagesRendered
+  // once the window is covered.
   useEffect(() => {
-    let mounted = true;
-    const run = async () => {
-      if (!pdf || numPages <= 0) return;
-      const renderId = ++renderIdRef.current;
-      // Use state directly; the ref can lag a render behind and cause blank pages until the next update.
-      renderedPageRangeRef.current = renderedPageRange;
-      const { start, end } = renderedPageRange;
-      let needsRetry = false;
-
-      for (let i = start; i <= end; i += 1) {
-        if (!mounted || renderId !== renderIdRef.current) return;
-        if (renderedPagesRef.current.has(i)) continue;
-        try {
-          const ok = await renderPage(pdf, i);
-          if (ok) {
-            renderedPagesRef.current.add(i);
-          } else {
-            needsRetry = true;
-          }
-        } catch (err: any) {
-          // Swallow errors from pages whose DOM was detached during render
-          // (e.g. component unmount, view mode switch). Common in pdf.js when
-          // canvas/textLayer.parentNode is null due to React cleanup.
-          if (!mounted) return;
-          console.warn(`[PDFViewer] Page ${i} render error:`, err?.message || err);
-        }
-      }
-
-      // Signal "ready enough" once we rendered the current window.
-      if (mounted && renderId === renderIdRef.current) {
-        onPagesRendered?.();
-      }
-
-      // If refs were not ready for some pages, retry shortly.
-      if (mounted && renderId === renderIdRef.current && needsRetry) {
-        setTimeout(() => {
-          if (mounted) setRenderPass((v) => v + 1);
-        }, 50);
-      }
-    };
-
-    void run();
-    return () => {
-      mounted = false;
-    };
-    // Note: onPagesRendered is intentionally excluded from deps (callback identity).
-  }, [pdf, numPages, renderedPageRange, scale, zoomMode, renderPass]);
-
-  // Sync renderedPageRangeRef when state changes
-  useEffect(() => {
+    if (!pdf || numPages <= 0) return;
     renderedPageRangeRef.current = renderedPageRange;
-  }, [renderedPageRange]);
+    onPagesRendered?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdf, numPages, renderedPageRange, scale, zoomMode]);
 
   useEffect(() => {
     if (!pdf || !onTextWindowChange) return;
@@ -1714,58 +1756,51 @@ export function PDFViewer({
           }
 
           if (pdf && (zoomMode === "fit-width" || zoomMode === "fit-page")) {
-            // Save current scroll position before re-render
+            // Save current scroll position before the re-render that the scale
+            // change will trigger.
             const scrollTop = container.scrollTop;
             const scrollHeight = container.scrollHeight;
             const scrollPercent = scrollHeight > 0 ? scrollTop / scrollHeight : 0;
 
-            // Re-render only a small window to keep resize responsive.
-            const renderId = ++renderIdRef.current;
-            renderedPagesRef.current.clear();
-            const { start, end } = renderedPageRangeRef.current;
-            for (let i = start; i <= end; i += 1) {
-              if (renderId !== renderIdRef.current) {
-                return;
-              }
-              try {
-                const ok = await renderPage(pdf, i);
-                if (ok) renderedPagesRef.current.add(i);
-              } catch {
-                // Swallow render errors on detached DOM during resize re-render
-              }
-            }
+            // Bump a nonce so the per-page scale recomputes from the new
+            // container dimensions; PdfPageViewWrapper then re-draws on its own.
+            resizeNonceRef.current += 1;
+            setResizeNonce(resizeNonceRef.current);
 
-            // Restore scroll position after re-render (based on percentage)
-            if (container.scrollHeight > 0 && scrollPercent > 0) {
-              if (shouldSuppressProgrammaticScroll({
-                enabled: pdfNavStabilityEnabledRef.current,
-                source: "resize",
-                now: Date.now(),
-                lockoutUntil: userScrollLockoutUntilRef.current,
-                activeToken: activeNavTokenRef.current,
-              })) {
-                logNav("resize-scroll-restore-suppressed", {
-                  scrollPercent,
+            // Restore scroll position after the re-render settles (percentage-based).
+            if (scrollPercent > 0) {
+              window.requestAnimationFrame(() => {
+                if (container.scrollHeight <= 0) return;
+                if (shouldSuppressProgrammaticScroll({
+                  enabled: pdfNavStabilityEnabledRef.current,
+                  source: "resize",
+                  now: Date.now(),
                   lockoutUntil: userScrollLockoutUntilRef.current,
-                });
-                return;
-              }
-              const newScrollTop = scrollPercent * container.scrollHeight;
-              if (pdfNavStabilityEnabledRef.current) {
-                setNavigationMode("programmatic-nav", "resize-restore");
-              }
-              container.scrollTop = newScrollTop;
-              if (pdfNavStabilityEnabledRef.current) {
-                isProgrammaticScrollRef.current = true;
-                window.setTimeout(() => {
-                  if (activeNavTokenRef.current === null) {
-                    isProgrammaticScrollRef.current = false;
-                    if (Date.now() >= userScrollLockoutUntilRef.current) {
-                      setNavigationMode("idle", "resize-restore-complete");
+                  activeToken: activeNavTokenRef.current,
+                })) {
+                  logNav("resize-scroll-restore-suppressed", {
+                    scrollPercent,
+                    lockoutUntil: userScrollLockoutUntilRef.current,
+                  });
+                  return;
+                }
+                const newScrollTop = scrollPercent * container.scrollHeight;
+                if (pdfNavStabilityEnabledRef.current) {
+                  setNavigationMode("programmatic-nav", "resize-restore");
+                }
+                container.scrollTop = newScrollTop;
+                if (pdfNavStabilityEnabledRef.current) {
+                  isProgrammaticScrollRef.current = true;
+                  window.setTimeout(() => {
+                    if (activeNavTokenRef.current === null) {
+                      isProgrammaticScrollRef.current = false;
+                      if (Date.now() >= userScrollLockoutUntilRef.current) {
+                        setNavigationMode("idle", "resize-restore-complete");
+                      }
                     }
-                  }
-                }, 200);
-              }
+                  }, 200);
+                }
+              });
             }
           }
         }, 100);
@@ -1851,6 +1886,7 @@ export function PDFViewer({
       type: "pdf",
       documentId,
       fingerprint: (pdf as any)?.fingerprint ?? null,
+      source: "native",
       pages: Array.from(pages.values()).sort((a, b) => a.pageNumber - b.pageNumber),
     };
   }, [documentId, pdf]);
@@ -1859,112 +1895,106 @@ export function PDFViewer({
   const updateSelectionHighlights = useCallback(() => {}, []);
 
   // Handle text selection changes (native DOM selection - disabled when custom selection is active)
+  //
+  // Design: the browser's own native highlight already paints the selection
+  // while the user drags. We therefore commit NOTHING to React state during
+  // the drag — every selectionchange event during a drag would otherwise
+  // trigger setState (popup rect, context, text) and re-render the viewer,
+  // which causes the selection to flicker and, on WKWebView, to disappear on
+  // release when a transient collapsed-selection event clears state.
+  //
+  // Instead we capture the selection ONCE on mouseup (after letting the
+  // browser finalize the range). Clearing happens on a subsequent mousedown
+  // outside any text layer.
   useEffect(() => {
     // Skip native selection handling when custom selection is enabled
     if (ENABLE_CUSTOM_PDF_SELECTION) return;
     if (!onSelectionChange) return;
-    let rafId: number | null = null;
-    let isProcessingSelection = false;
 
-    const handleSelectionChange = () => {
-      if (isProcessingSelection) return;
-      if (rafId !== null) return;
-      
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        isProcessingSelection = true;
-        
-        const selection = window.getSelection();
-        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-          if (lastSelectionWasPdfRef.current) {
-            lastSelectionWasPdfRef.current = false;
-            clearSelectionHighlights();
-            onSelectionChange("", null);
-          }
-          setShowSelectionPopup(false);
-          setSelectionPopupRect(null);
-          setPendingSelectionContext(null);
-          setNativeSelectedText("");
-          isProcessingSelection = false;
-          return;
-        }
-
-        const textLayers = textLayerRootsRef.current.filter(Boolean) as HTMLDivElement[];
-        const isInPdf =
-          textLayers.length > 0 &&
-          selectionAnchorsInTextLayers(selection, textLayers) &&
-          selectionIntersectsTextLayers(selection, textLayers);
-
-        if (!isInPdf) {
-          if (lastSelectionWasPdfRef.current) {
-            lastSelectionWasPdfRef.current = false;
-            clearSelectionHighlights();
-            onSelectionChange("", null);
-          }
-          setShowSelectionPopup(false);
-          setSelectionPopupRect(null);
-          setPendingSelectionContext(null);
-          setNativeSelectedText("");
-          isProcessingSelection = false;
-          return;
-        }
-
-        const context = buildPdfSelectionContext();
-        if (!context) {
-          if (lastSelectionWasPdfRef.current) {
-            lastSelectionWasPdfRef.current = false;
-            clearSelectionHighlights();
-            onSelectionChange("", null);
-          }
-          setShowSelectionPopup(false);
-          setSelectionPopupRect(null);
-          setPendingSelectionContext(null);
-          setNativeSelectedText("");
-          isProcessingSelection = false;
-          return;
-        }
-
-        const text = selection.toString().trim();
-        if (!text) {
-          if (lastSelectionWasPdfRef.current) {
-            lastSelectionWasPdfRef.current = false;
-            clearSelectionHighlights();
-            onSelectionChange("", null);
-          }
-          setShowSelectionPopup(false);
-          setSelectionPopupRect(null);
-          setPendingSelectionContext(null);
-          setNativeSelectedText("");
-          isProcessingSelection = false;
-          return;
-        }
-        
-        lastSelectionWasPdfRef.current = true;
-        
-        // Update visual highlights
-        updateSelectionHighlights();
-        
-        // Set native selection details
-        setPendingSelectionContext(context);
-        setNativeSelectedText(text);
-
-        // Show selection popup
-        if (selection && selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          setSelectionPopupRect(rect);
-          setShowSelectionPopup(true);
-        }
-        
-        onSelectionChange(text, context);
-        isProcessingSelection = false;
-      });
+    const clearSelectionUi = () => {
+      setShowSelectionPopup(false);
+      setSelectionPopupRect(null);
+      setPendingSelectionContext(null);
+      setNativeSelectedText("");
+      showSelectionPopupRef.current = false;
     };
 
-    // Handle mouse up to capture selection end
+    // Commit the current native selection (if any, and if it lives inside a
+    // PDF text layer) to React state and surface the popup. Returns true when
+    // a valid PDF selection was committed.
+    const commitSelection = (): boolean => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+
+      const textLayers = textLayerRootsRef.current.filter(Boolean) as HTMLDivElement[];
+      if (
+        textLayers.length === 0 ||
+        !selectionAnchorsInTextLayers(selection, textLayers) ||
+        !selectionIntersectsTextLayers(selection, textLayers)
+      ) {
+        return false;
+      }
+
+      const context = buildPdfSelectionContext();
+      if (!context) return false;
+
+      const text = selection.toString().trim();
+      if (!text) return false;
+
+      lastSelectionWasPdfRef.current = true;
+      setPendingSelectionContext(context);
+      setNativeSelectedText(text);
+
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      setSelectionPopupRect(rect);
+      setShowSelectionPopup(true);
+      showSelectionPopupRef.current = true;
+
+      onSelectionChange(text, context);
+      return true;
+    };
+
+    // selectionchange fires continuously during a drag. We intentionally do
+    // NOT update React state here — only on mouseup. This handler exists
+    // purely to dismiss a previously-shown popup if the selection becomes
+    // empty/collapsed AFTER mouseup (e.g. the user clicks empty space, which
+    // also fires selectionchange before mousedown in some WebViews).
+    const handleSelectionChange = () => {
+      // While a drag is in progress, never touch state.
+      if (pdfTextSelectionGestureActiveRef.current) return;
+      const selection = window.getSelection();
+      const hasSelection =
+        selection !== null &&
+        selection.rangeCount > 0 &&
+        !selection.isCollapsed &&
+        selection.toString().trim().length > 0;
+      if (!hasSelection && lastSelectionWasPdfRef.current) {
+        lastSelectionWasPdfRef.current = false;
+        clearSelectionHighlights();
+        clearSelectionUi();
+        onSelectionChange("", null);
+      }
+    };
+
+    // Handle mouse up to capture the finalized selection.
     const handleMouseUp = () => {
-      // Small delay to let selection finalize
-      setTimeout(handleSelectionChange, 50);
+      // The drag is over. Reset the gesture flag so post-mouseup
+      // selectionchange events are honored again (e.g. an external clear).
+      pdfTextSelectionGestureActiveRef.current = false;
+      // Let the browser finalize the selection range before reading it.
+      // WKWebView in particular can report a stale/collapsed selection at
+      // the instant mouseup fires; a short delay lets it settle.
+      setTimeout(() => {
+        const committed = commitSelection();
+        if (!committed && lastSelectionWasPdfRef.current) {
+          // mouseup landed on an empty/non-PDF selection — drop the old one.
+          lastSelectionWasPdfRef.current = false;
+          clearSelectionHighlights();
+          clearSelectionUi();
+          onSelectionChange("", null);
+        }
+      }, 0);
     };
 
     // Clear highlights only when starting interaction away from text.
@@ -1979,6 +2009,7 @@ export function PDFViewer({
         (layer) => layer && layer === target,
       );
       if (clickedTextLayerWhitespace) {
+        pdfTextSelectionGestureActiveRef.current = false;
         // Prevent selection starting from the whitespace container itself,
         // which causes the browser to select everything from the top of the container.
         e.preventDefault();
@@ -1986,10 +2017,7 @@ export function PDFViewer({
         // Deselect current selection when clicking on empty whitespace
         window.getSelection()?.removeAllRanges();
         clearSelectionHighlights();
-        setShowSelectionPopup(false);
-        setSelectionPopupRect(null);
-        setPendingSelectionContext(null);
-        setNativeSelectedText("");
+        clearSelectionUi();
         if (lastSelectionWasPdfRef.current) {
           lastSelectionWasPdfRef.current = false;
           onSelectionChange("", null);
@@ -2000,14 +2028,22 @@ export function PDFViewer({
       const clickedTextLayer = textLayerRootsRef.current.some(
         (layer) => layer && (layer === target || layer.contains(target)),
       );
-      if (clickedTextLayer) return;
+      if (clickedTextLayer) {
+        // A new drag is starting inside a text layer. Mark the gesture active
+        // so selectionchange events during the drag don't mutate state. Hide
+        // any leftover popup from a previous selection.
+        pdfTextSelectionGestureActiveRef.current = true;
+        if (showSelectionPopupRef.current) {
+          clearSelectionUi();
+        }
+        return;
+      }
+      // mousedown outside any text layer: the drag is not a PDF selection.
+      pdfTextSelectionGestureActiveRef.current = false;
       const hasNativeSelection = Boolean(window.getSelection()?.toString().trim());
       if (!hasNativeSelection) {
         clearSelectionHighlights();
-        setShowSelectionPopup(false);
-        setSelectionPopupRect(null);
-        setPendingSelectionContext(null);
-        setNativeSelectedText("");
+        clearSelectionUi();
         if (lastSelectionWasPdfRef.current) {
           lastSelectionWasPdfRef.current = false;
           onSelectionChange("", null);
@@ -2018,283 +2054,63 @@ export function PDFViewer({
     document.addEventListener("selectionchange", handleSelectionChange);
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("mouseup", handleMouseUp);
-    
+
     return () => {
       document.removeEventListener("selectionchange", handleSelectionChange);
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("mouseup", handleMouseUp);
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
     };
   }, [onSelectionChange, buildPdfSelectionContext, clearSelectionHighlights, updateSelectionHighlights]);
 
-  const renderPage = async (pdfDoc: pdfjsLib.PDFDocumentProxy, pageNum: number): Promise<boolean> => {
-    const page = await pdfDoc.getPage(pageNum);
-    const pageIndex = pageNum - 1;
-    const canvas = canvasRefs.current[pageIndex];
-    const textLayerContainer = textLayerContainerRefs.current[pageIndex];
-    const pageContainer = pageContainerRefs.current[pageIndex];
-    const scrollContainer = scrollContainerRef.current;
-
-    // If the page DOM hasn't mounted yet, let the caller retry later.
-    if (!canvas || !textLayerContainer || !pageContainer) return false;
-
-    const context = canvas.getContext("2d");
-    if (!context) return false;
-
-    // Calculate scale based on zoom mode
-    let actualScale = scale;
-    if (zoomMode === "fit-width") {
-      const viewport = page.getViewport({ scale: 1 });
-      const containerWidth = (scrollContainer?.clientWidth ?? pageContainer.clientWidth) - 32; // padding
-      if (containerWidth > 0) {
-        actualScale = containerWidth / viewport.width;
+  // Resolve the per-page display scale from the current zoom mode.
+  // fit-width / fit-page need the scroll container width/height, so this must
+  // run at render time (not in renderPage, which no longer exists). The result
+  // is passed as the `scale` prop to each PdfPageViewWrapper.
+  const computeActualScale = useCallback(
+    (baseViewportWidth: number, baseViewportHeight: number): number => {
+      if (zoomMode === "fit-width") {
+        const scrollContainer = scrollContainerRef.current;
+        const containerWidth = (scrollContainer?.clientWidth ?? baseViewportWidth) - 32;
+        if (containerWidth > 0) return containerWidth / baseViewportWidth;
+        return scale;
       }
-    } else if (zoomMode === "fit-page") {
-      const viewport = page.getViewport({ scale: 1 });
-      const containerWidth = (scrollContainer?.clientWidth ?? pageContainer.clientWidth) - 32;
-      const containerHeight = (scrollContainer?.clientHeight ?? pageContainer.clientHeight) - 32;
-      if (containerWidth > 0 && containerHeight > 0) {
-        const scaleWidth = containerWidth / viewport.width;
-        const scaleHeight = containerHeight / viewport.height;
-        actualScale = Math.min(scaleWidth, scaleHeight);
+      if (zoomMode === "fit-page") {
+        const scrollContainer = scrollContainerRef.current;
+        const containerWidth = (scrollContainer?.clientWidth ?? baseViewportWidth) - 32;
+        const containerHeight = (scrollContainer?.clientHeight ?? baseViewportHeight) - 32;
+        if (containerWidth > 0 && containerHeight > 0) {
+          return Math.min(containerWidth / baseViewportWidth, containerHeight / baseViewportHeight);
+        }
+        return scale;
       }
-    }
+      return scale;
+    },
+    [zoomMode, scale],
+  );
 
-    const viewport = page.getViewport({ scale: actualScale });
-    pageViewportRefs.current[pageIndex] = viewport;
-    pageScaleRefs.current[pageIndex] = actualScale;
+  // Resolve the display scale for every page from the current zoom mode + the
+  // base page size (page 1's scale-1 viewport). Most PDFs have uniform page
+  // sizes, so this is a single value applied to all pages. For mixed-size PDFs
+  // this is approximate per-page but matches the previous behavior closely
+  // enough; PdfPageViewWrapper re-draws each page at its own true viewport.
+  // `resizeNonce` is bumped by the ResizeObserver so fit-width/fit-page
+  // recomputes when the container resizes (e.g. assistant panel drag).
+  const resolvedScale = useMemo(() => {
+    // Read resizeNonce to recompute on container resize.
+    void resizeNonceRef.current;
+    const base = fallbackPageSize;
+    if (!base) return scale;
+    return computeActualScale(base.width, base.height);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fallbackPageSize, scale, zoomMode, computeActualScale, resizeNonceRef.current]);
+  // pageScales is a sparse array mirroring pageViewportRefs indexing; every
+  // entry resolves to resolvedScale (uniform). Kept as an array so the JSX can
+  // read `pageScales[index]` uniformly in case per-page scaling is added later.
+  const pageScales = useMemo<(number)[]>(() => {
+    const arr = new Array(Math.max(0, numPages)).fill(resolvedScale);
+    return arr;
+  }, [numPages, resolvedScale]);
 
-    // pdf.js v5's text-layer CSS (imported via "pdfjs-dist/web/pdf_viewer.css")
-    // positions every span using `--total-scale-factor`, which the official
-    // PDFPageView/TextLayerBuilder derives from `--scale-factor` * `--user-unit`
-    // and sets on the page container. We render with a custom DOM instead of
-    // `.pdfViewer .page`, so if we don't set these ourselves the variables stay
-    // unset: span font-sizes and transform scales compute to 0/NaN, leaving the
-    // text layer zero-sized and text selection broken. Mirror what pdf.js does:
-    // `--scale-factor` = viewport.scale, `--user-unit` = viewport.userUnit.
-    pageContainer.style.setProperty("--scale-factor", String(viewport.scale));
-    pageContainer.style.setProperty("--user-unit", String(viewport.userUnit || 1));
-    // Cap outputScale at 2x to avoid enormous canvases on 3x/4x displays;
-    // PDF text stays sharp because it's vector-rasterized at render time.
-    const rawDpr = window.devicePixelRatio || 1;
-    const outputScale = Math.min(rawDpr, 2);
-    // Cap canvas pixel count to ~16 megapixels (4096×4096) to prevent
-    // GPU memory spikes on large pages at high zoom.
-    const MAX_CANVAS_PIXELS = 4096 * 4096;
-    let canvasW = Math.floor(viewport.width * outputScale);
-    let canvasH = Math.floor(viewport.height * outputScale);
-    if (canvasW * canvasH > MAX_CANVAS_PIXELS) {
-      const downscale = Math.sqrt(MAX_CANVAS_PIXELS / (canvasW * canvasH));
-      canvasW = Math.floor(canvasW * downscale);
-      canvasH = Math.floor(canvasH * downscale);
-    }
-    canvas.width = canvasW;
-    canvas.height = canvasH;
-    canvas.style.width = `${viewport.width}px`;
-    canvas.style.height = `${viewport.height}px`;
-
-    pageContainer.style.width = `${viewport.width}px`;
-    pageContainer.style.height = `${viewport.height}px`;
-
-    // Cancel any previous render task for this page BEFORE clearing DOM,
-    // so PDF.js internal cleanup (annotation layers etc.) can access
-    // still-attached DOM nodes without "parentNode is null" errors.
-    const previousTask = renderTasksRef.current[pageIndex];
-    if (previousTask) {
-      try {
-        previousTask.cancel();
-      } catch {
-        // Ignore cancel errors
-      }
-      renderTasksRef.current[pageIndex] = null;
-    }
-
-    // Cancel any pending text layer build (deferred via setTimeout) AND any
-    // in-flight text layer render BEFORE clearing innerHTML.  If we clear the
-    // DOM first, pdfjs's TextLayer.#processItems will dereference a detached
-    // node ("this.#container.parentNode is null") and crash.
-    //
-    // NOTE: textLayer.cancel() is async — it cancels the reader stream but
-    // #processItems may already be mid-execution in the current microtask.
-    // We delay the innerHTML clear to the next microtask so the in-flight
-    // pump callback finishes before the container is emptied.
-    const pendingTimeout = textLayerTimeoutsRef.current[pageIndex];
-    if (pendingTimeout != null) {
-      clearTimeout(pendingTimeout);
-      textLayerTimeoutsRef.current[pageIndex] = null;
-    }
-    const prevTextLayer = textLayerBuildersRef.current[pageIndex];
-    textLayerBuildersRef.current[pageIndex] = null;
-    if (prevTextLayer) {
-      try { prevTextLayer.cancel(); } catch { /* ignore */ }
-      // Yield to the macrotask queue so the cancelled reader's rejection
-      // propagates and any in-flight #processItems call completes.
-      // (reader.cancel is async — pump() may still be executing)
-      await new Promise<void>((r) => setTimeout(r, 0));
-    }
-
-    // Clear and setup text layer
-    textLayerContainer.innerHTML = "";
-    textLayerContainer.style.width = `${viewport.width}px`;
-    textLayerContainer.style.height = `${viewport.height}px`;
-    textLayerRootsRef.current[pageIndex] = null;
-    notifyTextLayersChange();
-
-    // Render PDF page to canvas
-    // Scale the 2D context so PDF.js paints at CSS-pixel coordinates
-    const contextScale = canvas.width / viewport.width;
-    if (contextScale !== 1) {
-      context.scale(contextScale, contextScale);
-    }
-    
-    // Tell PDF.js about the intended output scale so it can hint the font
-    // engine and avoid re-rasterizing glyphs at a different size.
-    const renderContext = {
-      canvas: canvas,
-      canvasContext: context,
-      viewport: viewport,
-      intent: "print" as any, // renders at full quality without extra work
-      // Don't use WebGL for canvas rendering — software path is faster for 2D PDFs
-      enableWebGL: false as any,
-    };
-
-    const renderTask = page.render(renderContext);
-    renderTasksRef.current[pageIndex] = renderTask;
-
-    try {
-      await renderTask.promise;
-    } catch (err: any) {
-      // Ignore cancelled render errors and DOM-detached errors
-      if (err?.name === 'RenderingCancelledException') {
-        return false;
-      }
-      if (err?.message?.includes('parentNode')) {
-        console.warn(`[PDFViewer] Page ${pageNum} render cancelled (DOM detached):`, err.message);
-        return false;
-      }
-      throw err;
-    }
-    context.setTransform(1, 0, 0, 1, 0, 0);
-
-    // Render text layer for text selection (PDF.js implementation)
-    // Defer text-layer for non-current pages so canvas paint isn't blocked.
-    const isCurrentPage = pageNum === pageNumberRef.current;
-    const textLayerDelay = isCurrentPage ? 0 : 300;
-
-    const buildTextLayer = async () => {
-    try {
-      // Cancel previous text layer builder BEFORE clearing DOM
-      // so PDF.js internal cleanup can access still-attached nodes.
-      const prevBuilder = textLayerBuildersRef.current[pageIndex];
-      textLayerBuildersRef.current[pageIndex] = null;
-      if (prevBuilder) {
-        try { prevBuilder.cancel(); } catch { /* ignore */ }
-        // Yield so the cancelled reader's pump() finishes before we detach nodes.
-        await new Promise<void>((r) => setTimeout(r, 0));
-      }
-
-      // Only clear after cancelling — if we clear first, the cancel
-      // cleanup inside PDF.js may hit a null parentNode.
-      textLayerContainer.innerHTML = "";
-      textLayerContainer.style.width = `${viewport.width}px`;
-      textLayerContainer.style.height = `${viewport.height}px`;
-      textLayerRootsRef.current[pageIndex] = null;
-      notifyTextLayersChange();
-
-      const mountTextLayer = () => {
-        const layer = document.createElement("div");
-        layer.className = "textLayer";
-        layer.style.width = `${viewport.width}px`;
-        layer.style.height = `${viewport.height}px`;
-        layer.style.cursor = "text";
-        layer.style.userSelect = "text";
-        layer.style.webkitUserSelect = "text";
-        textLayerContainer.appendChild(layer);
-        textLayerRootsRef.current[pageIndex] = layer;
-        notifyTextLayersChange();
-        return layer;
-      };
-
-      const textLayerRoot = mountTextLayer();
-      const PdfjsTextLayer = (pdfjsLib as any).TextLayer;
-
-      if (typeof PdfjsTextLayer === "function") {
-        const textLayer = new PdfjsTextLayer({
-          textContentSource:
-            typeof (page as any).streamTextContent === "function"
-              ? (page as any).streamTextContent({ includeMarkedContent: true })
-              : await page.getTextContent(),
-          container: textLayerRoot,
-          viewport,
-        });
-
-        textLayerBuildersRef.current[pageIndex] = {
-          cancel: () => {
-            try {
-              textLayer.cancel?.();
-            } catch {
-              // Ignore cancel errors from detached text layers.
-            }
-          },
-        };
-
-        await textLayer.render();
-      } else {
-        textLayerRoot.remove();
-        textLayerRootsRef.current[pageIndex] = null;
-        notifyTextLayersChange();
-
-        const textLayerBuilder = new TextLayerBuilder({
-          pdfPage: page,
-          onAppend: (layer: HTMLDivElement) => {
-            layer.style.width = `${viewport.width}px`;
-            layer.style.height = `${viewport.height}px`;
-            layer.style.cursor = "text";
-            layer.style.userSelect = "text";
-            (layer.style as any).webkitUserSelect = "text";
-            textLayerContainer.appendChild(layer);
-            textLayerRootsRef.current[pageIndex] = layer;
-            notifyTextLayersChange();
-          },
-        });
-
-        textLayerBuildersRef.current[pageIndex] = textLayerBuilder as PdfTextLayerRenderer;
-        await (textLayerBuilder as any).render({ viewport });
-      }
-      // Guard: if the text layer container was detached during async render,
-      // skip downstream DOM operations to avoid "parentNode is null" errors.
-      if (!textLayerContainer.isConnected) {
-        return true;
-      }
-      const hasSelectableText = hasSelectableTextInLayer(textLayerRootsRef.current[pageIndex]);
-      setPageTextSelectionAvailability(pageNum, hasSelectableText);
-      
-      // Apply any search highlights
-      applyTextLayerHighlights(pageIndex);
-      
-      // Ensure the text layer is properly positioned above the canvas
-      textLayerContainer.style.zIndex = '10';
-    } catch (err) {
-      console.warn("Text layer rendering failed:", err);
-      setPageTextSelectionAvailability(pageNum, false);
-      // Don't fail the entire page render if text layer fails
-    }
-    };
-
-    if (textLayerDelay > 0) {
-      textLayerTimeoutsRef.current[pageIndex] = setTimeout(() => {
-        textLayerTimeoutsRef.current[pageIndex] = null;
-        void buildTextLayer();
-      }, textLayerDelay);
-    } else {
-      void buildTextLayer();
-    }
-
-    recomputePageOffsets();
-    return true;
-  };
 
   const getCurrentPageFromScrollTop = useCallback((scrollTop: number) => {
     return deriveCurrentPageFromOffsets(pageOffsetsRef.current, numPages, pageNumber, scrollTop, 24);
@@ -3033,22 +2849,28 @@ export function PDFViewer({
       pageOffsetsRef.current = offsets;
     });
   }, [estimatedPageStride, numPages]);
+  // Wire the forward ref so PdfPageViewWrapper's onViewportChange can trigger
+  // a page-offset recompute (scroll math depends on rendered page sizes).
+  recomputePageOffsetsRef.current = recomputePageOffsets;
 
+  // When the virtual window moves, pages outside it unmount via React (the JSX
+  // below only renders pages in [virtualStartPage, virtualEndPage]); each
+  // PdfPageViewWrapper's own cleanup destroys its PDFPageView. Null out the
+  // stale refs here as a safety net so scroll/offset math doesn't read dangling
+  // entries before garbage collection reclaims them.
   useEffect(() => {
     if (!shouldVirtualize) return;
     for (let i = 0; i < numPages; i += 1) {
       if (i < virtualStartPage - 1 || i > virtualEndPage - 1) {
-        // Cancel in-flight text layer renders before dropping refs.
-        try { textLayerBuildersRef.current[i]?.cancel(); } catch { /* ignore */ }
-        textLayerBuildersRef.current[i] = null;
-        const timeout = textLayerTimeoutsRef.current[i];
-        if (timeout != null) { clearTimeout(timeout); textLayerTimeoutsRef.current[i] = null; }
         pageContainerRefs.current[i] = null;
         canvasRefs.current[i] = null;
-        textLayerContainerRefs.current[i] = null;
+        textLayerRootsRef.current[i] = null;
+        pageViewportRefs.current[i] = null;
+        pageScaleRefs.current[i] = null;
       }
     }
-  }, [numPages, shouldVirtualize, virtualEndPage, virtualStartPage]);
+    notifyTextLayersChange();
+  }, [numPages, shouldVirtualize, virtualEndPage, virtualStartPage, notifyTextLayersChange]);
 
   useEffect(() => {
     if (numPages <= 0) return;
@@ -3067,6 +2889,7 @@ export function PDFViewer({
     if (showSelectionPopup) {
       setShowSelectionPopup(false);
       setSelectionPopupRect(null);
+      showSelectionPopupRef.current = false;
     }
 
     if (!container || scrollRafRef.current !== null) return;
@@ -3343,77 +3166,28 @@ export function PDFViewer({
                   const pageNum = virtualStartPage + offset;
                   const index = pageNum - 1;
                   return (
-                    <div
-                      key={index}
-                      ref={(el) => {
-                        pageContainerRefs.current[index] = el;
-                      }}
-                      data-pdf-page
-                      data-page-number={pageNum}
-                      className="relative shadow-lg border border-border bg-white"
-                      style={{
-                        ...fallbackPageSize
+                    <PdfPageViewWrapper
+                      key={pageNum}
+                      pdf={pdf}
+                      pageIndex={index}
+                      scale={pageScales[index] ?? scale}
+                      eventBus={eventBusRef.current!}
+                      highlights={getHighlightsForPage(pageNum)}
+                      ocrActive={ocr.flowState !== "idle" && pageNum === pageNumber}
+                      onTextLayerReady={handleTextLayerReady}
+                      onViewportChange={handleViewportChange}
+                      onSlotRef={handleSlotRef}
+                      onCanvasRef={handleCanvasRef}
+                      onTextSelectionAvailability={setPageTextSelectionAvailability}
+                      style={
+                        fallbackPageSize
                           ? {
                               minWidth: `${Math.round(fallbackPageSize.width)}px`,
                               minHeight: `${Math.round(fallbackPageSize.height)}px`,
                             }
-                          : undefined,
-                        contain: 'layout style paint',
-                      }}
-                      {...(ENABLE_CUSTOM_PDF_SELECTION ? {
-                        onPointerDown: (e: React.PointerEvent) => customSelection.handlePointerDown(index, e),
-                        onPointerMove: (e: React.PointerEvent) => customSelection.handlePointerMove(index, e),
-                        onPointerUp: (e: React.PointerEvent) => customSelection.handlePointerUp(index, e),
-                      } : {})}
+                          : undefined
+                      }
                     >
-                      <canvas
-                        ref={(el) => {
-                          canvasRefs.current[index] = el;
-                          if (!el) {
-                            renderedPagesRef.current.delete(pageNum);
-                          }
-                        }}
-                        className="block"
-                      />
-                      {/* Layer 2: Highlight Layer - Persistent highlights between canvas and text */}
-                      <HighlightLayer
-                        pageIndex={index}
-                        viewport={pageViewportRefs.current[index]}
-                        highlights={getHighlightsForPage(pageNum)}
-                        interactive={true}
-                        onHighlightClick={(highlight) => {
-                          console.log("Highlight clicked:", highlight);
-                          // TODO: Show highlight options menu
-                        }}
-                      />
-                      <div
-                        ref={(el) => {
-                          textLayerContainerRefs.current[index] = el;
-                        }}
-                        className={cn(
-                          "textLayerContainer",
-                          ENABLE_CUSTOM_PDF_SELECTION && customSelection.extractionRevision > -1 && customSelection.extractionSuccessMap.current.get(index) === true && "customSelectionActive"
-                        )}
-                        style={{
-                          transformOrigin: "0 0",
-                          zIndex: 10,
-                          pointerEvents: ocr.flowState !== "idle" ? "none" : undefined,
-                        }}
-                      />
-                      {/* Custom selection layer - sits above textLayer for geometric selection */}
-                      {ENABLE_CUSTOM_PDF_SELECTION && (
-                        <div
-                          className="customSelectionLayer"
-                          onPointerDown={(e) => customSelection.handlePointerDown(index, e)}
-                          onPointerMove={(e) => customSelection.handlePointerMove(index, e)}
-                          onPointerUp={(e) => customSelection.handlePointerUp(index, e)}
-                        >
-                          <SelectionRenderer
-                            pageIndex={index}
-                            selectionState={customSelection.selectionState}
-                          />
-                        </div>
-                      )}
                       {/* OCR region selection and overlays - only on current page */}
                       {ocr.flowState !== "idle" && pageNum === pageNumber && (
                         <>
@@ -3470,7 +3244,7 @@ export function PDFViewer({
                           })()}
                         </>
                       )}
-                    </div>
+                    </PdfPageViewWrapper>
                   );
                 })}
                 {shouldVirtualize && bottomSpacerHeight > 0 && (

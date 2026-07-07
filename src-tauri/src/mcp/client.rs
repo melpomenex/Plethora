@@ -12,8 +12,8 @@ use tokio::sync::RwLock;
 pub struct MCPServerConnection {
     pub id: String,
     pub name: String,
-    pub command: String,        // Command to run (for stdio)
-    pub args: Vec<String>,       // Arguments for the command
+    pub command: String,              // Command to run (for stdio)
+    pub args: Vec<String>,            // Arguments for the command
     pub env: HashMap<String, String>, // Environment variables
     pub transport: MCPTransport,
 }
@@ -48,9 +48,7 @@ impl MCPClient {
     /// Start the MCP server process and initialize
     pub async fn start(&mut self) -> Result<(), String> {
         match &self.config.transport {
-            MCPTransport::Stdio => {
-                self.start_stdio().await
-            }
+            MCPTransport::Stdio => self.start_stdio().await,
             MCPTransport::Sse(url) => {
                 // SSE transport would be implemented here
                 // For now, return an error as it's not yet implemented
@@ -101,7 +99,8 @@ impl MCPClient {
 
         // Read response
         let mut line = String::new();
-        reader.read_line(&mut line)
+        reader
+            .read_line(&mut line)
             .map_err(|e| format!("Failed to read initialize response: {}", e))?;
 
         let response: JsonRpcResponse = serde_json::from_str(line.trim())
@@ -123,8 +122,12 @@ impl MCPClient {
             params: None,
         };
 
-        writeln!(writer, "{}", serde_json::to_string(&initialized_notif).unwrap())
-            .map_err(|e| format!("Failed to send initialized notification: {}", e))?;
+        writeln!(
+            writer,
+            "{}",
+            serde_json::to_string(&initialized_notif).unwrap()
+        )
+        .map_err(|e| format!("Failed to send initialized notification: {}", e))?;
 
         self.discover_tools_stdio(&mut reader, writer).await?;
 
@@ -136,13 +139,23 @@ impl MCPClient {
     fn parse_initialize_result(&mut self, result: serde_json::Value) {
         if let Some(server_info) = result.get("serverInfo") {
             self.server_info = Some(MCPServerInfo {
-                name: server_info["name"].as_str().unwrap_or("Unknown").to_string(),
-                version: server_info["version"].as_str().unwrap_or("0.0.0").to_string(),
-                protocol_version: result["protocolVersion"].as_str().unwrap_or("2025-06-18").to_string(),
+                name: server_info["name"]
+                    .as_str()
+                    .unwrap_or("Unknown")
+                    .to_string(),
+                version: server_info["version"]
+                    .as_str()
+                    .unwrap_or("0.0.0")
+                    .to_string(),
+                protocol_version: result["protocolVersion"]
+                    .as_str()
+                    .unwrap_or("2025-06-18")
+                    .to_string(),
             });
         }
 
-        self.capabilities = result.get("capabilities")
+        self.capabilities = result
+            .get("capabilities")
             .and_then(|v| serde_json::from_value(v.clone()).ok());
     }
 
@@ -163,7 +176,8 @@ impl MCPClient {
             .map_err(|e| format!("Failed to send tools/list request: {}", e))?;
 
         let mut line = String::new();
-        reader.read_line(&mut line)
+        reader
+            .read_line(&mut line)
             .map_err(|e| format!("Failed to read tools/list response: {}", e))?;
 
         let response: JsonRpcResponse = serde_json::from_str(line.trim())
@@ -186,14 +200,14 @@ impl MCPClient {
     }
 
     /// Call a tool on the MCP server
-    pub async fn call_tool(&mut self, name: &str, arguments: serde_json::Value) -> Result<ToolCallResult, String> {
+    pub async fn call_tool(
+        &mut self,
+        name: &str,
+        arguments: serde_json::Value,
+    ) -> Result<ToolCallResult, String> {
         match &self.config.transport {
-            MCPTransport::Stdio => {
-                self.call_tool_stdio(name, arguments).await
-            }
-            MCPTransport::Sse(_) => {
-                Err("SSE transport not yet implemented".to_string())
-            }
+            MCPTransport::Stdio => self.call_tool_stdio(name, arguments).await,
+            MCPTransport::Sse(_) => Err("SSE transport not yet implemented".to_string()),
         }
     }
 
@@ -224,7 +238,8 @@ impl MCPClient {
             .map_err(|e| format!("Failed to send tools/call request: {}", e))?;
 
         let mut line = String::new();
-        reader.read_line(&mut line)
+        reader
+            .read_line(&mut line)
             .map_err(|e| format!("Failed to read tools/call response: {}", e))?;
 
         let response: JsonRpcResponse = serde_json::from_str(line.trim())
@@ -234,7 +249,8 @@ impl MCPClient {
             return Err(format!("Tool call error: {}", error.message));
         }
 
-        response.result
+        response
+            .result
             .and_then(|v| serde_json::from_value(v).ok())
             .ok_or("Failed to parse tool call result".to_string())
     }
@@ -267,7 +283,8 @@ impl MCPClient {
     /// Stop the MCP server process
     pub fn stop(&mut self) -> Result<(), String> {
         if let Some(mut child) = self.child.take() {
-            child.kill()
+            child
+                .kill()
                 .map_err(|e| format!("Failed to kill MCP server: {}", e))?;
         }
         Ok(())
@@ -350,7 +367,8 @@ impl MCPClientManager {
         arguments: serde_json::Value,
     ) -> Result<ToolCallResult, String> {
         let clients = self.clients.read().await;
-        let client = clients.get(server_id)
+        let client = clients
+            .get(server_id)
             .ok_or(format!("Server '{}' not found", server_id))?;
 
         let mut client = client.write().await;
@@ -360,7 +378,8 @@ impl MCPClientManager {
     /// Get tools from a specific server
     pub async fn get_server_tools(&self, server_id: &str) -> Result<Vec<ToolDefinition>, String> {
         let clients = self.clients.read().await;
-        let client = clients.get(server_id)
+        let client = clients
+            .get(server_id)
             .ok_or(format!("Server '{}' not found", server_id))?;
 
         let client = client.read().await;
@@ -370,7 +389,8 @@ impl MCPClientManager {
     /// Get info about a specific server
     pub async fn get_server_info(&self, server_id: &str) -> Result<Option<MCPServerInfo>, String> {
         let clients = self.clients.read().await;
-        let client = clients.get(server_id)
+        let client = clients
+            .get(server_id)
             .ok_or(format!("Server '{}' not found", server_id))?;
 
         let client = client.read().await;

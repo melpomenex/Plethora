@@ -1,12 +1,12 @@
 //! Advanced queue management commands
 
-use tauri::State;
 use crate::database::Repository;
 use crate::error::Result;
-use crate::models::{LearningItem, Document};
-use chrono::{Utc, Duration, Datelike, TimeZone};
+use crate::models::{Document, LearningItem};
+use chrono::{Datelike, Duration, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use tauri::State;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct QueueStats {
@@ -43,9 +43,7 @@ pub struct QueueExportItem {
 
 /// Get queue statistics
 #[tauri::command]
-pub async fn get_queue_stats(
-    repo: State<'_, Repository>,
-) -> Result<QueueStats> {
+pub async fn get_queue_stats(repo: State<'_, Repository>) -> Result<QueueStats> {
     let all_items = repo.get_all_learning_items().await?;
     let now = Utc::now();
 
@@ -107,8 +105,9 @@ pub async fn postpone_item(
     match item_type.as_deref() {
         Some("document") => {
             // Postpone a document by advancing next_reading_date
-            let mut doc = repo.get_document(&item_id).await?
-                .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", item_id)))?;
+            let mut doc = repo.get_document(&item_id).await?.ok_or_else(|| {
+                crate::error::IncrementumError::NotFound(format!("Document {}", item_id))
+            })?;
 
             let new_date = match doc.next_reading_date {
                 Some(d) => d + Duration::days(days as i64),
@@ -121,15 +120,20 @@ pub async fn postpone_item(
                 doc.difficulty,
                 None, // reps
                 None, // total_time_spent
-            ).await?;
+            )
+            .await?;
             Ok(true)
         }
         _ => {
             // Default: postpone a learning item
-            let mut item = repo.get_all_learning_items().await?
+            let mut item = repo
+                .get_all_learning_items()
+                .await?
                 .into_iter()
                 .find(|i| i.id == item_id)
-                .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Item {}", item_id)))?;
+                .ok_or_else(|| {
+                    crate::error::IncrementumError::NotFound(format!("Item {}", item_id))
+                })?;
 
             item.due_date += Duration::days(days as i64);
             item.date_modified = Utc::now();
@@ -253,9 +257,7 @@ pub async fn bulk_delete_items(
 
 /// Export queue data
 #[tauri::command]
-pub async fn export_queue(
-    repo: State<'_, Repository>,
-) -> Result<Vec<QueueExportItem>> {
+pub async fn export_queue(repo: State<'_, Repository>) -> Result<Vec<QueueExportItem>> {
     let all_items = repo.get_all_learning_items().await?;
     let mut export_items = Vec::new();
 
@@ -266,7 +268,8 @@ pub async fn export_queue(
         }
 
         let document_title = if let Some(doc_id) = &item.document_id {
-            repo.get_document(doc_id).await?
+            repo.get_document(doc_id)
+                .await?
                 .map(|d| d.title)
                 .unwrap_or_else(|| "Unknown Document".to_string())
         } else {
@@ -274,8 +277,7 @@ pub async fn export_queue(
         };
 
         let category = if let Some(extract_id) = &item.extract_id {
-            repo.get_extract(extract_id).await?
-                .and_then(|e| e.category)
+            repo.get_extract(extract_id).await?.and_then(|e| e.category)
         } else {
             None
         };
@@ -322,8 +324,9 @@ pub async fn advance_item(
     let shift = Duration::days(-(days.max(0) as i64));
     match item_type.as_deref() {
         Some("document") => {
-            let mut doc = repo.get_document(&item_id).await?
-                .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", item_id)))?;
+            let mut doc = repo.get_document(&item_id).await?.ok_or_else(|| {
+                crate::error::IncrementumError::NotFound(format!("Document {}", item_id))
+            })?;
             let new_date = doc.next_reading_date.unwrap_or_else(Utc::now) + shift;
             // Never push a document into the past beyond today.
             let new_date = new_date.max(Utc::now());
@@ -334,14 +337,19 @@ pub async fn advance_item(
                 doc.difficulty,
                 None,
                 None,
-            ).await?;
+            )
+            .await?;
             Ok(true)
         }
         _ => {
-            let mut item = repo.get_all_learning_items().await?
+            let mut item = repo
+                .get_all_learning_items()
+                .await?
                 .into_iter()
                 .find(|i| i.id == item_id)
-                .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Item {}", item_id)))?;
+                .ok_or_else(|| {
+                    crate::error::IncrementumError::NotFound(format!("Item {}", item_id))
+                })?;
             item.due_date = (item.due_date + shift).max(Utc::now());
             item.date_modified = Utc::now();
             repo.update_learning_item(&item).await?;
@@ -403,9 +411,14 @@ pub async fn load_balance_queue(
     // Bucket items by due day (date string). Only consider items due within [now, horizon].
     let mut buckets: BTreeMap<chrono::NaiveDate, Vec<LearningItem>> = BTreeMap::new();
     for item in items {
-        if item.is_suspended { continue; }
+        if item.is_suspended {
+            continue;
+        }
         if item.due_date >= now && item.due_date <= horizon {
-            buckets.entry(item.due_date.date_naive()).or_default().push(item);
+            buckets
+                .entry(item.due_date.date_naive())
+                .or_default()
+                .push(item);
         } else if item.due_date < now {
             // Overdue items are also in scope (they're the worst offenders).
             buckets.entry(now.date_naive()).or_default().push(item);
@@ -414,7 +427,10 @@ pub async fn load_balance_queue(
 
     let total_due: usize = buckets.values().map(|v| v.len()).sum();
     if total_due == 0 {
-        return Ok(LoadManagementResult { affected: 0, skipped: 0 });
+        return Ok(LoadManagementResult {
+            affected: 0,
+            skipped: 0,
+        });
     }
 
     let target = target_per_day
@@ -434,7 +450,9 @@ pub async fn load_balance_queue(
         let day = now.date_naive() + Duration::days(day_offset);
         let new_due = Utc.from_utc_datetime(&day.and_hms_opt(12, 0, 0).unwrap());
         for _ in 0..target {
-            if item_idx >= all_items.len() { break 'outer; }
+            if item_idx >= all_items.len() {
+                break 'outer;
+            }
             let mut item = all_items[item_idx].clone();
             // Skip items already correctly on this day.
             if (item.due_date.date_naive() - day).num_days().abs() == 0 {
@@ -466,7 +484,10 @@ pub async fn apply_easy_days(
     // Default to no easy days if none provided.
     let easy: std::collections::HashSet<u8> = easy_days.unwrap_or_default().into_iter().collect();
     if easy.is_empty() {
-        return Ok(LoadManagementResult { affected: 0, skipped: 0 });
+        return Ok(LoadManagementResult {
+            affected: 0,
+            skipped: 0,
+        });
     }
 
     let now = Utc::now();
@@ -477,15 +498,23 @@ pub async fn apply_easy_days(
     let mut skipped: u64 = 0;
 
     for mut item in items {
-        if item.is_suspended { skipped += 1; continue; }
-        if item.due_date < now || item.due_date > horizon { skipped += 1; continue; }
+        if item.is_suspended {
+            skipped += 1;
+            continue;
+        }
+        if item.due_date < now || item.due_date > horizon {
+            skipped += 1;
+            continue;
+        }
 
         // Walk forward from the due date until we land on a non-easy weekday.
         let mut candidate = item.due_date;
         // Cap the walk to one full week so we never loop forever.
         for _ in 0..8 {
             let weekday = candidate.weekday().num_days_from_sunday() as u8;
-            if !easy.contains(&weekday) { break; }
+            if !easy.contains(&weekday) {
+                break;
+            }
             candidate += Duration::days(1);
         }
 

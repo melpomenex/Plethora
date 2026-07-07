@@ -422,7 +422,10 @@ impl NotebookLMProvider for MockNotebookLMProvider {
             .ok_or_else(|| AppError::NotFound(format!("Notebook {notebook_id} not found")))?;
         let source = SourceSummary {
             id: format!("src_{}", Uuid::new_v4().simple()),
-            title: req.title.clone().unwrap_or_else(|| req.content.chars().take(60).collect()),
+            title: req
+                .title
+                .clone()
+                .unwrap_or_else(|| req.content.chars().take(60).collect()),
             kind: req.kind.clone(),
             status: "ready".to_string(),
         };
@@ -660,7 +663,9 @@ async fn execute_notebooklm_command_with_input(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let mut child = command.spawn().map_err(|e| {
-            AppError::IntegrationError(format!("Failed to run notebooklm CLI ({command_label}): {e}"))
+            AppError::IntegrationError(format!(
+                "Failed to run notebooklm CLI ({command_label}): {e}"
+            ))
         })?;
         if let Some(mut stdin) = child.stdin.take() {
             if input_delay_ms > 0 {
@@ -673,11 +678,15 @@ async fn execute_notebooklm_command_with_input(
             })?;
         }
         child.wait_with_output().await.map_err(|e| {
-            AppError::IntegrationError(format!("Failed to run notebooklm CLI ({command_label}): {e}"))
+            AppError::IntegrationError(format!(
+                "Failed to run notebooklm CLI ({command_label}): {e}"
+            ))
         })?
     } else {
         command.output().await.map_err(|e| {
-            AppError::IntegrationError(format!("Failed to run notebooklm CLI ({command_label}): {e}"))
+            AppError::IntegrationError(format!(
+                "Failed to run notebooklm CLI ({command_label}): {e}"
+            ))
         })?
     };
 
@@ -696,14 +705,10 @@ async fn execute_notebooklm_command_with_input(
         } else {
             "no stdout/stderr output".to_string()
         };
-        return Err(AppError::IntegrationError(
-            format!(
-                "command `{}` failed (exit {}): {}",
-                command_label,
-                code,
-                details
-            ),
-        ));
+        return Err(AppError::IntegrationError(format!(
+            "command `{}` failed (exit {}): {}",
+            command_label, code, details
+        )));
     }
 
     Ok(CliCommandResult {
@@ -788,7 +793,8 @@ async fn run_notebooklm_command_internal(
             path_override.as_deref(),
             ctx.notebooklm_runtime_playwright.as_deref(),
         );
-        return execute_notebooklm_command_with_input(&mut command, stdin_input, input_delay_ms).await;
+        return execute_notebooklm_command_with_input(&mut command, stdin_input, input_delay_ms)
+            .await;
     }
 
     if let Some(managed_python) = ctx.notebooklm_managed_python.as_ref() {
@@ -799,7 +805,8 @@ async fn run_notebooklm_command_internal(
             .arg("notebooklm.notebooklm_cli")
             .args(&effective_args);
         apply_notebooklm_command_env(&mut command, path_override.as_deref(), None);
-        return execute_notebooklm_command_with_input(&mut command, stdin_input, input_delay_ms).await;
+        return execute_notebooklm_command_with_input(&mut command, stdin_input, input_delay_ms)
+            .await;
     }
 
     let executable = ctx
@@ -831,11 +838,18 @@ async fn run_notebooklm_command_internal(
         .arg("-m")
         .arg("notebooklm.notebooklm_cli")
         .args(&effective_args);
-    apply_notebooklm_command_env(&mut managed_command, path_override.as_deref(), managed_playwright.as_deref());
+    apply_notebooklm_command_env(
+        &mut managed_command,
+        path_override.as_deref(),
+        managed_playwright.as_deref(),
+    );
     execute_notebooklm_command_with_input(&mut managed_command, stdin_input, input_delay_ms).await
 }
 
-async fn run_notebooklm_command(ctx: &ProviderContext, args: &[String]) -> Result<CliCommandResult, AppError> {
+async fn run_notebooklm_command(
+    ctx: &ProviderContext,
+    args: &[String],
+) -> Result<CliCommandResult, AppError> {
     run_notebooklm_command_internal(ctx, args, true, None, 0).await
 }
 
@@ -861,7 +875,9 @@ fn augmented_path_env() -> Option<String> {
         .unwrap_or_default();
 
     if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
-        let home = env::var("HOME").ok().or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().to_string()));
+        let home = env::var("HOME")
+            .ok()
+            .or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().to_string()));
         if let Some(home) = home {
             ordered.push(PathBuf::from(home).join(".local/bin"));
         }
@@ -922,7 +938,10 @@ async fn run_first_success_with_bootstrap(
     )))
 }
 
-async fn run_first_success(ctx: &ProviderContext, candidates: Vec<Vec<String>>) -> Result<CliCommandResult, AppError> {
+async fn run_first_success(
+    ctx: &ProviderContext,
+    candidates: Vec<Vec<String>>,
+) -> Result<CliCommandResult, AppError> {
     run_first_success_with_bootstrap(ctx, candidates, true).await
 }
 
@@ -962,8 +981,11 @@ fn parse_notebook_list(value: &serde_json::Value) -> Vec<NotebookSummary> {
             .iter()
             .filter_map(|item| {
                 let id = notebook_text(item, &["id", "notebook_id"])?;
-                let title = notebook_text(item, &["title", "name"]).unwrap_or_else(|| "Notebook".to_string());
-                let sources_count = notebook_usize(item, &["sources_count", "sourcesCount", "source_count"]).unwrap_or(0);
+                let title = notebook_text(item, &["title", "name"])
+                    .unwrap_or_else(|| "Notebook".to_string());
+                let sources_count =
+                    notebook_usize(item, &["sources_count", "sourcesCount", "source_count"])
+                        .unwrap_or(0);
                 Some(NotebookSummary {
                     id,
                     title,
@@ -978,8 +1000,11 @@ fn parse_notebook_list(value: &serde_json::Value) -> Vec<NotebookSummary> {
             .iter()
             .filter_map(|item| {
                 let id = notebook_text(item, &["id", "notebook_id"])?;
-                let title = notebook_text(item, &["title", "name"]).unwrap_or_else(|| "Notebook".to_string());
-                let sources_count = notebook_usize(item, &["sources_count", "sourcesCount", "source_count"]).unwrap_or(0);
+                let title = notebook_text(item, &["title", "name"])
+                    .unwrap_or_else(|| "Notebook".to_string());
+                let sources_count =
+                    notebook_usize(item, &["sources_count", "sourcesCount", "source_count"])
+                        .unwrap_or(0);
                 Some(NotebookSummary {
                     id,
                     title,
@@ -1011,7 +1036,17 @@ fn cli_list_filter_for(app_artifact_type: &str) -> &'static str {
 }
 
 fn parse_generate_task_id(v: &serde_json::Value) -> Option<String> {
-    notebook_text(v, &["task_id", "taskId", "artifact_id", "artifactId", "note_id", "noteId"])
+    notebook_text(
+        v,
+        &[
+            "task_id",
+            "taskId",
+            "artifact_id",
+            "artifactId",
+            "note_id",
+            "noteId",
+        ],
+    )
 }
 
 fn csv_field(field: &str) -> String {
@@ -1052,7 +1087,10 @@ fn parse_csv_to_json_rows(csv: &str) -> serde_json::Value {
         .map(|values| {
             let mut row = serde_json::Map::new();
             for (idx, h) in headers.iter().enumerate() {
-                row.insert(h.clone(), serde_json::Value::String(values.get(idx).cloned().unwrap_or_default()));
+                row.insert(
+                    h.clone(),
+                    serde_json::Value::String(values.get(idx).cloned().unwrap_or_default()),
+                );
             }
             serde_json::Value::Object(row)
         })
@@ -1088,8 +1126,8 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                 vec!["status".to_string()],
             ],
         )
-            .await
-            .is_ok()
+        .await
+        .is_ok()
         {
             Ok(NotebookLMHealth {
                 connected: auth.connected,
@@ -1110,12 +1148,8 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         _settings: &NotebookLMSettings,
         ctx: &ProviderContext,
     ) -> Result<Vec<NotebookSummary>, AppError> {
-        let result = run_first_success(
-            ctx,
-            vec![
-                vec!["list".to_string(), "--json".to_string()],
-            ],
-        ).await;
+        let result =
+            run_first_success(ctx, vec![vec!["list".to_string(), "--json".to_string()]]).await;
         let result = match result {
             Ok(r) => r,
             Err(e) => {
@@ -1141,16 +1175,23 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         ctx: &ProviderContext,
         title: &str,
     ) -> Result<NotebookSummary, AppError> {
-        let result = run_notebooklm_command(ctx, &[
-            "create".to_string(),
-            title.to_string(),
-            "--json".to_string(),
-        ])
+        let result = run_notebooklm_command(
+            ctx,
+            &[
+                "create".to_string(),
+                title.to_string(),
+                "--json".to_string(),
+            ],
+        )
         .await?;
         if let Some(json) = result.json() {
-            let id = notebook_text(&json, &["id", "notebook_id"])
-                .ok_or_else(|| AppError::IntegrationError("NotebookLM CLI create did not return notebook ID".to_string()))?;
-            let title = notebook_text(&json, &["title", "name"]).unwrap_or_else(|| title.to_string());
+            let id = notebook_text(&json, &["id", "notebook_id"]).ok_or_else(|| {
+                AppError::IntegrationError(
+                    "NotebookLM CLI create did not return notebook ID".to_string(),
+                )
+            })?;
+            let title =
+                notebook_text(&json, &["title", "name"]).unwrap_or_else(|| title.to_string());
             return Ok(NotebookSummary {
                 id,
                 title,
@@ -1158,7 +1199,8 @@ impl NotebookLMProvider for CliNotebookLMProvider {
             });
         }
         Err(AppError::IntegrationError(
-            "NotebookLM CLI create returned non-JSON output. Re-run command manually with --json.".to_string(),
+            "NotebookLM CLI create returned non-JSON output. Re-run command manually with --json."
+                .to_string(),
         ))
     }
 
@@ -1169,22 +1211,25 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         ctx: &ProviderContext,
         notebook_id: &str,
     ) -> Result<Vec<SourceSummary>, AppError> {
-        let result = run_first_success(ctx, vec![
+        let result = run_first_success(
+            ctx,
             vec![
-                "source".to_string(),
-                "list".to_string(),
-                "--json".to_string(),
-                "--notebook".to_string(),
-                notebook_id.to_string(),
+                vec![
+                    "source".to_string(),
+                    "list".to_string(),
+                    "--json".to_string(),
+                    "--notebook".to_string(),
+                    notebook_id.to_string(),
+                ],
+                vec![
+                    "source".to_string(),
+                    "list".to_string(),
+                    "--json".to_string(),
+                    "-n".to_string(),
+                    notebook_id.to_string(),
+                ],
             ],
-            vec![
-                "source".to_string(),
-                "list".to_string(),
-                "--json".to_string(),
-                "-n".to_string(),
-                notebook_id.to_string(),
-            ],
-        ])
+        )
         .await?;
 
         let Some(json) = result.json() else {
@@ -1204,10 +1249,18 @@ impl NotebookLMProvider for CliNotebookLMProvider {
             .iter()
             .filter_map(|item| {
                 let id = notebook_text(item, &["id", "source_id"])?;
-                let title = notebook_text(item, &["title", "name"]).unwrap_or_else(|| "Source".to_string());
-                let kind = notebook_text(item, &["kind", "type"]).unwrap_or_else(|| "unknown".to_string());
-                let status = notebook_text(item, &["status"]).unwrap_or_else(|| "unknown".to_string());
-                Some(SourceSummary { id, title, kind, status })
+                let title =
+                    notebook_text(item, &["title", "name"]).unwrap_or_else(|| "Source".to_string());
+                let kind =
+                    notebook_text(item, &["kind", "type"]).unwrap_or_else(|| "unknown".to_string());
+                let status =
+                    notebook_text(item, &["status"]).unwrap_or_else(|| "unknown".to_string());
+                Some(SourceSummary {
+                    id,
+                    title,
+                    kind,
+                    status,
+                })
             })
             .collect())
     }
@@ -1252,14 +1305,22 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                 "NotebookLM CLI source add returned non-JSON output.".to_string(),
             ));
         };
-        let id = notebook_text(&json, &["id", "source_id"])
-            .ok_or_else(|| AppError::IntegrationError("NotebookLM CLI source add did not return source ID".to_string()))?;
+        let id = notebook_text(&json, &["id", "source_id"]).ok_or_else(|| {
+            AppError::IntegrationError(
+                "NotebookLM CLI source add did not return source ID".to_string(),
+            )
+        })?;
         let title = notebook_text(&json, &["title", "name"])
             .or_else(|| req.title.clone())
             .unwrap_or_else(|| req.content.chars().take(60).collect());
         let kind = notebook_text(&json, &["kind", "type"]).unwrap_or_else(|| req.kind.clone());
         let status = notebook_text(&json, &["status"]).unwrap_or_else(|| "processing".to_string());
-        Ok(SourceSummary { id, title, kind, status })
+        Ok(SourceSummary {
+            id,
+            title,
+            kind,
+            status,
+        })
     }
 
     async fn refresh_source(
@@ -1270,24 +1331,27 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         notebook_id: &str,
         source_id: &str,
     ) -> Result<SourceSummary, AppError> {
-        let result = run_first_success(ctx, vec![
+        let result = run_first_success(
+            ctx,
             vec![
-                "source".to_string(),
-                "refresh".to_string(),
-                source_id.to_string(),
-                "--json".to_string(),
-                "--notebook".to_string(),
-                notebook_id.to_string(),
+                vec![
+                    "source".to_string(),
+                    "refresh".to_string(),
+                    source_id.to_string(),
+                    "--json".to_string(),
+                    "--notebook".to_string(),
+                    notebook_id.to_string(),
+                ],
+                vec![
+                    "source".to_string(),
+                    "refresh".to_string(),
+                    source_id.to_string(),
+                    "--json".to_string(),
+                    "-n".to_string(),
+                    notebook_id.to_string(),
+                ],
             ],
-            vec![
-                "source".to_string(),
-                "refresh".to_string(),
-                source_id.to_string(),
-                "--json".to_string(),
-                "-n".to_string(),
-                notebook_id.to_string(),
-            ],
-        ])
+        )
         .await?;
 
         let Some(json) = result.json() else {
@@ -1296,11 +1360,18 @@ impl NotebookLMProvider for CliNotebookLMProvider {
             ));
         };
 
-        let id = notebook_text(&json, &["id", "source_id"]).unwrap_or_else(|| source_id.to_string());
-        let title = notebook_text(&json, &["title", "name"]).unwrap_or_else(|| "Source".to_string());
+        let id =
+            notebook_text(&json, &["id", "source_id"]).unwrap_or_else(|| source_id.to_string());
+        let title =
+            notebook_text(&json, &["title", "name"]).unwrap_or_else(|| "Source".to_string());
         let kind = notebook_text(&json, &["kind", "type"]).unwrap_or_else(|| "unknown".to_string());
         let status = notebook_text(&json, &["status"]).unwrap_or_else(|| "refreshed".to_string());
-        Ok(SourceSummary { id, title, kind, status })
+        Ok(SourceSummary {
+            id,
+            title,
+            kind,
+            status,
+        })
     }
 
     async fn ask(
@@ -1339,14 +1410,17 @@ impl NotebookLMProvider for CliNotebookLMProvider {
 
         let result = run_first_success(ctx, attempts).await?;
         if let Some(json) = result.json() {
-            let answer = notebook_text(&json, &["answer", "response", "text"]).unwrap_or_else(|| result.stdout.clone());
+            let answer = notebook_text(&json, &["answer", "response", "text"])
+                .unwrap_or_else(|| result.stdout.clone());
             let sources = json
                 .get("sources")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
                         .filter_map(|s| {
-                            s.as_str().map(|x| x.to_string()).or_else(|| notebook_text(s, &["source_id", "id", "title"]))
+                            s.as_str()
+                                .map(|x| x.to_string())
+                                .or_else(|| notebook_text(s, &["source_id", "id", "title"]))
                         })
                         .collect::<Vec<_>>()
                 })
@@ -1432,14 +1506,7 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         if let Some(json) = wait.json() {
             let summary = notebook_text(
                 &json,
-                &[
-                    "summary",
-                    "answer",
-                    "response",
-                    "text",
-                    "message",
-                    "result",
-                ],
+                &["summary", "answer", "response", "text", "message", "result"],
             )
             .unwrap_or_else(|| wait.stdout.clone());
             let imported_sources = notebook_usize(
@@ -1452,7 +1519,8 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                 ],
             )
             .unwrap_or(0);
-            let status = notebook_text(&json, &["status", "state"]).unwrap_or_else(|| "completed".to_string());
+            let status = notebook_text(&json, &["status", "state"])
+                .unwrap_or_else(|| "completed".to_string());
             return Ok(ResearchResponse {
                 status,
                 imported_sources,
@@ -1483,7 +1551,9 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         match artifact_type.as_str() {
             "study-guide" => {
                 generate_args.push("report".to_string());
-                if let Some(instructions) = req.instructions.as_ref().filter(|s| !s.trim().is_empty()) {
+                if let Some(instructions) =
+                    req.instructions.as_ref().filter(|s| !s.trim().is_empty())
+                {
                     generate_args.push(instructions.trim().to_string());
                 }
                 generate_args.push("--format".to_string());
@@ -1493,7 +1563,9 @@ impl NotebookLMProvider for CliNotebookLMProvider {
             }
             "report" => {
                 generate_args.push("report".to_string());
-                if let Some(instructions) = req.instructions.as_ref().filter(|s| !s.trim().is_empty()) {
+                if let Some(instructions) =
+                    req.instructions.as_ref().filter(|s| !s.trim().is_empty())
+                {
                     generate_args.push(instructions.trim().to_string());
                 }
                 generate_args.push("--wait".to_string());
@@ -1510,14 +1582,18 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                         .as_ref()
                         .filter(|s| !s.trim().is_empty())
                         .map(|s| s.trim().to_string())
-                        .unwrap_or_else(|| "Summarize key concepts in a comparison table.".to_string()),
+                        .unwrap_or_else(|| {
+                            "Summarize key concepts in a comparison table.".to_string()
+                        }),
                 );
                 generate_args.push("--wait".to_string());
                 generate_args.push("--json".to_string());
             }
             "flashcards" | "quiz" => {
                 generate_args.push(artifact_type.clone());
-                if let Some(instructions) = req.instructions.as_ref().filter(|s| !s.trim().is_empty()) {
+                if let Some(instructions) =
+                    req.instructions.as_ref().filter(|s| !s.trim().is_empty())
+                {
                     generate_args.push(instructions.trim().to_string());
                 }
                 if let Some(quantity) = req.quantity.as_ref() {
@@ -1539,7 +1615,9 @@ impl NotebookLMProvider for CliNotebookLMProvider {
             }
             "audio" | "video" => {
                 generate_args.push(artifact_type.clone());
-                if let Some(instructions) = req.instructions.as_ref().filter(|s| !s.trim().is_empty()) {
+                if let Some(instructions) =
+                    req.instructions.as_ref().filter(|s| !s.trim().is_empty())
+                {
                     generate_args.push(instructions.trim().to_string());
                 }
                 generate_args.push("--wait".to_string());
@@ -1580,26 +1658,29 @@ impl NotebookLMProvider for CliNotebookLMProvider {
 
         if artifact_id.is_none() {
             let list_type = cli_list_filter_for(&artifact_type).to_string();
-            let list_result = run_first_success(ctx, vec![
+            let list_result = run_first_success(
+                ctx,
                 vec![
-                    "artifact".to_string(),
-                    "list".to_string(),
-                    "--type".to_string(),
-                    list_type.clone(),
-                    "--json".to_string(),
-                    "--notebook".to_string(),
-                    notebook_id.to_string(),
+                    vec![
+                        "artifact".to_string(),
+                        "list".to_string(),
+                        "--type".to_string(),
+                        list_type.clone(),
+                        "--json".to_string(),
+                        "--notebook".to_string(),
+                        notebook_id.to_string(),
+                    ],
+                    vec![
+                        "artifact".to_string(),
+                        "list".to_string(),
+                        "--type".to_string(),
+                        list_type,
+                        "--json".to_string(),
+                        "-n".to_string(),
+                        notebook_id.to_string(),
+                    ],
                 ],
-                vec![
-                    "artifact".to_string(),
-                    "list".to_string(),
-                    "--type".to_string(),
-                    list_type,
-                    "--json".to_string(),
-                    "-n".to_string(),
-                    notebook_id.to_string(),
-                ],
-            ])
+            )
             .await?;
             if let Some(json) = list_result.json() {
                 if let Some(artifacts) = json.get("artifacts").and_then(|v| v.as_array()) {
@@ -1608,7 +1689,7 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                         .filter_map(|a| {
                             Some((
                                 notebook_text(a, &["created_at", "createdAt"]).unwrap_or_default(),
-                                notebook_text(a, &["id"])?
+                                notebook_text(a, &["id"])?,
                             ))
                         })
                         .collect::<Vec<_>>();
@@ -1619,7 +1700,9 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         }
 
         let artifact = ArtifactSummary {
-            id: artifact_id.clone().unwrap_or_else(|| format!("art_{}", Uuid::new_v4().simple())),
+            id: artifact_id
+                .clone()
+                .unwrap_or_else(|| format!("art_{}", Uuid::new_v4().simple())),
             artifact_type: artifact_type.clone(),
             title: format!("{} result", artifact_type),
             created_at: now.clone(),
@@ -1628,13 +1711,21 @@ impl NotebookLMProvider for CliNotebookLMProvider {
 
         let artifact_dir = ctx.app_dir.join("artifacts");
         fs::create_dir_all(&artifact_dir)?;
-        let file_stem = format!("{}-{}", artifact_type.replace('/', "-"), Uuid::new_v4().simple());
+        let file_stem = format!(
+            "{}-{}",
+            artifact_type.replace('/', "-"),
+            Uuid::new_v4().simple()
+        );
 
         let mut payload = ArtifactPayload::default();
 
         match artifact_type.as_str() {
             "audio" | "video" => {
-                let ext = if artifact_type == "audio" { "mp3" } else { "mp4" };
+                let ext = if artifact_type == "audio" {
+                    "mp3"
+                } else {
+                    "mp4"
+                };
                 let output_path = artifact_dir.join(format!("{}.{}", file_stem, ext));
                 let mut download = vec![
                     "download".to_string(),
@@ -1649,7 +1740,10 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                 download.push(notebook_id.to_string());
                 run_notebooklm_command(ctx, &download).await?;
                 payload.media_url = Some(output_path.to_string_lossy().to_string());
-                payload.raw_text = Some(format!("{} overview generated via NotebookLM CLI.", artifact_type));
+                payload.raw_text = Some(format!(
+                    "{} overview generated via NotebookLM CLI.",
+                    artifact_type
+                ));
             }
             "report" | "study-guide" => {
                 let output_path = artifact_dir.join(format!("{}.md", file_stem));
@@ -1719,8 +1813,9 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                 download.push("--notebook".to_string());
                 download.push(notebook_id.to_string());
                 run_notebooklm_command(ctx, &download).await?;
-                let parsed = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&output_path)?)
-                    .unwrap_or_else(|_| serde_json::json!({}));
+                let parsed =
+                    serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&output_path)?)
+                        .unwrap_or_else(|_| serde_json::json!({}));
                 payload.flashcards = parsed
                     .get("cards")
                     .and_then(|v| v.as_array())
@@ -1729,14 +1824,18 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                             .iter()
                             .map(|c| FlashcardItem {
                                 question: normalize_notebooklm_text(
-                                    &notebook_text(c, &["front", "question", "q", "f"]).unwrap_or_default(),
+                                    &notebook_text(c, &["front", "question", "q", "f"])
+                                        .unwrap_or_default(),
                                 ),
                                 answer: normalize_notebooklm_text(
-                                    &notebook_text(c, &["back", "answer", "a", "b"]).unwrap_or_default(),
+                                    &notebook_text(c, &["back", "answer", "a", "b"])
+                                        .unwrap_or_default(),
                                 ),
                                 tags: vec!["notebooklm".to_string(), "flashcards".to_string()],
                             })
-                            .filter(|f| !f.question.trim().is_empty() && !f.answer.trim().is_empty())
+                            .filter(|f| {
+                                !f.question.trim().is_empty() && !f.answer.trim().is_empty()
+                            })
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
@@ -1758,8 +1857,9 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                 download.push("--notebook".to_string());
                 download.push(notebook_id.to_string());
                 run_notebooklm_command(ctx, &download).await?;
-                let parsed = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&output_path)?)
-                    .unwrap_or_else(|_| serde_json::json!({}));
+                let parsed =
+                    serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&output_path)?)
+                        .unwrap_or_else(|_| serde_json::json!({}));
                 payload.quiz_items = parsed
                     .get("questions")
                     .and_then(|v| v.as_array())
@@ -1772,7 +1872,10 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                                     .and_then(|opts| opts.as_array())
                                     .and_then(|opts| {
                                         opts.iter().find_map(|o| {
-                                            let is_correct = o.get("isCorrect").and_then(|v| v.as_bool()).unwrap_or(false);
+                                            let is_correct = o
+                                                .get("isCorrect")
+                                                .and_then(|v| v.as_bool())
+                                                .unwrap_or(false);
                                             if is_correct {
                                                 notebook_text(o, &["text", "answer"])
                                             } else {
@@ -1790,7 +1893,9 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                                     was_correct: false,
                                 }
                             })
-                            .filter(|q| !q.question.trim().is_empty() && !q.correct_answer.trim().is_empty())
+                            .filter(|q| {
+                                !q.question.trim().is_empty() && !q.correct_answer.trim().is_empty()
+                            })
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
@@ -1845,7 +1950,11 @@ fn is_appimage_context() -> bool {
 fn notebooklm_binary_candidates(app: &tauri::AppHandle) -> Vec<PathBuf> {
     let mut candidates = vec![];
     let triple = current_target_triple();
-    let ext = if cfg!(target_os = "windows") { ".exe" } else { "" };
+    let ext = if cfg!(target_os = "windows") {
+        ".exe"
+    } else {
+        ""
+    };
 
     if let Ok(path) = std::env::var("NOTEBOOKLM_BIN_PATH") {
         if !path.trim().is_empty() {
@@ -1855,7 +1964,11 @@ fn notebooklm_binary_candidates(app: &tauri::AppHandle) -> Vec<PathBuf> {
 
     if let Ok(resource_dir) = app.path().resource_dir() {
         candidates.push(resource_dir.join(format!("notebooklm-{}{}", triple, ext)));
-        candidates.push(resource_dir.join("bin").join(format!("notebooklm-{}{}", triple, ext)));
+        candidates.push(
+            resource_dir
+                .join("bin")
+                .join(format!("notebooklm-{}{}", triple, ext)),
+        );
         candidates.push(resource_dir.join("bin").join(format!("notebooklm{}", ext)));
     }
 
@@ -1864,10 +1977,13 @@ fn notebooklm_binary_candidates(app: &tauri::AppHandle) -> Vec<PathBuf> {
     candidates.push(PathBuf::from("src-tauri/bin").join(format!("notebooklm{}", ext)));
     candidates.push(PathBuf::from("bin").join(format!("notebooklm-{}{}", triple, ext)));
     candidates.push(PathBuf::from("bin").join(format!("notebooklm{}", ext)));
-    candidates.push(PathBuf::from("../src-tauri/bin").join(format!("notebooklm-{}{}", triple, ext)));
+    candidates
+        .push(PathBuf::from("../src-tauri/bin").join(format!("notebooklm-{}{}", triple, ext)));
     candidates.push(PathBuf::from("../src-tauri/bin").join(format!("notebooklm{}", ext)));
     if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
-        let home = env::var("HOME").ok().or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().to_string()));
+        let home = env::var("HOME")
+            .ok()
+            .or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().to_string()));
         if let Some(home) = home {
             candidates.push(PathBuf::from(home).join(".local/bin").join("notebooklm"));
         }
@@ -1894,7 +2010,10 @@ fn notebooklm_runtime_base_candidates(app: &tauri::AppHandle) -> Vec<(PathBuf, b
     if let Ok(resource_dir) = app.path().resource_dir() {
         resource_candidates.push((resource_dir.join("notebooklm-runtime").join(triple), true));
         resource_candidates.push((
-            resource_dir.join("bin").join("notebooklm-runtime").join(triple),
+            resource_dir
+                .join("bin")
+                .join("notebooklm-runtime")
+                .join(triple),
             true,
         ));
     }
@@ -1913,9 +2032,15 @@ fn notebooklm_runtime_base_candidates(app: &tauri::AppHandle) -> Vec<(PathBuf, b
         candidates.extend(resource_candidates);
     }
 
-    candidates.push((PathBuf::from("src-tauri/bin/notebooklm-runtime").join(triple), false));
+    candidates.push((
+        PathBuf::from("src-tauri/bin/notebooklm-runtime").join(triple),
+        false,
+    ));
     candidates.push((PathBuf::from("bin/notebooklm-runtime").join(triple), false));
-    candidates.push((PathBuf::from("../src-tauri/bin/notebooklm-runtime").join(triple), false));
+    candidates.push((
+        PathBuf::from("../src-tauri/bin/notebooklm-runtime").join(triple),
+        false,
+    ));
     candidates
 }
 
@@ -1977,13 +2102,13 @@ fn validate_bundled_notebooklm_runtime(
         missing.push(format!("site-packages at {}", site_packages.display()));
     }
     if !notebooklm_module.exists() {
-        missing.push(format!("notebooklm module at {}", notebooklm_module.display()));
+        missing.push(format!(
+            "notebooklm module at {}",
+            notebooklm_module.display()
+        ));
     }
 
-    if let Some(required_paths) = manifest
-        .as_ref()
-        .and_then(|m| m.required_paths.as_ref())
-    {
+    if let Some(required_paths) = manifest.as_ref().and_then(|m| m.required_paths.as_ref()) {
         for required in required_paths {
             let candidate = base.join(required);
             if !candidate.exists() {
@@ -1995,7 +2120,10 @@ fn validate_bundled_notebooklm_runtime(
     if missing.is_empty() {
         Ok((runtime_python, site_packages, playwright_opt))
     } else {
-        Err(format!("missing runtime components: {}", missing.join(", ")))
+        Err(format!(
+            "missing runtime components: {}",
+            missing.join(", ")
+        ))
     }
 }
 
@@ -2069,9 +2197,7 @@ async fn managed_runtime_imports_notebooklm(python: &Path) -> bool {
     }
 }
 
-async fn resolve_managed_notebooklm_runtime(
-    app_dir: &Path,
-) -> (Option<PathBuf>, Option<PathBuf>) {
+async fn resolve_managed_notebooklm_runtime(app_dir: &Path) -> (Option<PathBuf>, Option<PathBuf>) {
     let base = managed_notebooklm_runtime_base(app_dir);
     let python = managed_notebooklm_runtime_python(&base);
     if !(python.exists() && managed_runtime_has_notebooklm_package(&base)) {
@@ -2163,7 +2289,9 @@ async fn run_command_required(
     } else {
         "no stdout/stderr output".to_string()
     };
-    Err(AppError::IntegrationError(format!("{label} failed: {details}")))
+    Err(AppError::IntegrationError(format!(
+        "{label} failed: {details}"
+    )))
 }
 
 async fn run_command_optional(program: &str, args: &[String], label: &str) {
@@ -2255,9 +2383,7 @@ type NotebookLMRuntimeResult = (
     Option<String>,
 );
 
-fn resolve_notebooklm_runtime(
-    app: &tauri::AppHandle,
-) -> NotebookLMRuntimeResult {
+fn resolve_notebooklm_runtime(app: &tauri::AppHandle) -> NotebookLMRuntimeResult {
     let mut first_error: Option<String> = None;
     let mut first_packaged_error: Option<String> = None;
 
@@ -2300,9 +2426,9 @@ fn resolve_notebooklm_runtime(
     }
 
     if is_appimage_context() {
-        let err = first_packaged_error
-            .or(first_error)
-            .unwrap_or_else(|| "no bundled runtime candidate found in AppImage resources".to_string());
+        let err = first_packaged_error.or(first_error).unwrap_or_else(|| {
+            "no bundled runtime candidate found in AppImage resources".to_string()
+        });
         return (None, None, None, None, Some(err));
     }
 
@@ -2311,7 +2437,8 @@ fn resolve_notebooklm_runtime(
 
 fn resolve_notebooklm_binary(app: &tauri::AppHandle) -> Option<PathBuf> {
     for candidate in notebooklm_binary_candidates(app) {
-        if candidate == PathBuf::from("notebooklm") || candidate == PathBuf::from("notebooklm.exe") {
+        if candidate == PathBuf::from("notebooklm") || candidate == PathBuf::from("notebooklm.exe")
+        {
             return Some(candidate);
         }
         if candidate.exists() {
@@ -2328,8 +2455,7 @@ async fn provider_context(app: &tauri::AppHandle, app_dir: PathBuf) -> ProviderC
         notebooklm_runtime_playwright,
         notebooklm_runtime_base,
         notebooklm_runtime_validation_error,
-    ) =
-        resolve_notebooklm_runtime(app);
+    ) = resolve_notebooklm_runtime(app);
     let (notebooklm_managed_python, managed_playwright) =
         resolve_managed_notebooklm_runtime(&app_dir).await;
     let notebooklm_runtime_playwright = notebooklm_runtime_playwright.or(managed_playwright);
@@ -2451,7 +2577,10 @@ fn write_json_secure<T: Serialize>(path: &Path, value: &T) -> Result<(), AppErro
     Ok(())
 }
 
-fn resolve_notebook_id(settings: &NotebookLMSettings, input: &Option<String>) -> Result<String, AppError> {
+fn resolve_notebook_id(
+    settings: &NotebookLMSettings,
+    input: &Option<String>,
+) -> Result<String, AppError> {
     input
         .clone()
         .or_else(|| settings.active_notebook_id.clone())
@@ -2508,7 +2637,11 @@ async fn upsert_learning_items(
         index.insert(
             (
                 item.question.trim().to_lowercase(),
-                item.answer.clone().unwrap_or_default().trim().to_lowercase(),
+                item.answer
+                    .clone()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_lowercase(),
             ),
             item,
         );
@@ -2544,8 +2677,10 @@ async fn upsert_learning_items(
         item.answer = Some(candidate.answer.clone());
         item.tags = candidate.tags.clone();
         item.tags.push("source:notebooklm".to_string());
-        item.tags.push(format!("notebook:{}", candidate.source_notebook_id));
-        item.tags.push(format!("artifact:{}", candidate.source_artifact_id));
+        item.tags
+            .push(format!("notebook:{}", candidate.source_notebook_id));
+        item.tags
+            .push(format!("artifact:{}", candidate.source_artifact_id));
         if let Some(deck) = &deck_name {
             item.tags.push(format!("deck:{deck}"));
         }
@@ -2568,7 +2703,9 @@ async fn upsert_learning_items(
 }
 
 #[tauri::command]
-pub async fn notebooklm_get_settings(app: tauri::AppHandle) -> Result<NotebookLMSettings, AppError> {
+pub async fn notebooklm_get_settings(
+    app: tauri::AppHandle,
+) -> Result<NotebookLMSettings, AppError> {
     let root = integration_root(&app)?;
     load_settings(&root)
 }
@@ -2653,11 +2790,19 @@ pub async fn notebooklm_health(app: tauri::AppHandle) -> Result<NotebookLMHealth
     let settings = load_settings(&root)?;
     let auth = load_auth(&root)?;
     let provider = provider_for(&settings);
-    provider.health(&auth, &settings, &provider_context(&app, root.clone()).await).await
+    provider
+        .health(
+            &auth,
+            &settings,
+            &provider_context(&app, root.clone()).await,
+        )
+        .await
 }
 
 #[tauri::command]
-pub async fn notebooklm_list_notebooks(app: tauri::AppHandle) -> Result<Vec<NotebookSummary>, AppError> {
+pub async fn notebooklm_list_notebooks(
+    app: tauri::AppHandle,
+) -> Result<Vec<NotebookSummary>, AppError> {
     let root = integration_root(&app)?;
     let settings = load_settings(&root)?;
     let auth = load_auth(&root)?;
@@ -2743,7 +2888,11 @@ pub async fn notebooklm_add_source(
             &req,
         )
         .await?;
-    tracing::info!("notebooklm.source.added id={} kind={}", source.id, source.kind);
+    tracing::info!(
+        "notebooklm.source.added id={} kind={}",
+        source.id,
+        source.kind
+    );
     Ok(source)
 }
 
@@ -2846,7 +2995,11 @@ pub async fn notebooklm_generate_artifact(
     job.status = "running".to_string();
     job.updated_at = Utc::now().to_rfc3339();
     replace_job(&root, &job)?;
-    tracing::info!("notebooklm.job.started id={} type={}", job.id, job.artifact_type);
+    tracing::info!(
+        "notebooklm.job.started id={} type={}",
+        job.id,
+        job.artifact_type
+    );
 
     let mut attempts_left = req.retry_count.unwrap_or(0);
     tracing::info!(
@@ -3050,7 +3203,8 @@ pub async fn notebooklm_sync_preview_items(
     dedupe: Option<bool>,
     repo: tauri::State<'_, Repository>,
 ) -> Result<SyncResult, AppError> {
-    let result = upsert_learning_items(&repo, &preview_items, deck_name, dedupe.unwrap_or(true)).await?;
+    let result =
+        upsert_learning_items(&repo, &preview_items, deck_name, dedupe.unwrap_or(true)).await?;
     tracing::info!(
         "notebooklm.sync.preview created={} updated={} skipped={}",
         result.created,
@@ -3074,7 +3228,9 @@ pub async fn notebooklm_export_job_artifact(
         .find(|j| j.id == job_id)
         .ok_or_else(|| AppError::NotFound(format!("Job {job_id} not found")))?;
 
-    let format = output_format.unwrap_or_else(|| "json".to_string()).to_lowercase();
+    let format = output_format
+        .unwrap_or_else(|| "json".to_string())
+        .to_lowercase();
     let (mime_type, content, extension) = if format == "markdown" {
         let mut lines = Vec::new();
         if !job.payload.flashcards.is_empty() {
@@ -3094,7 +3250,9 @@ pub async fn notebooklm_export_job_artifact(
                 lines.push(format!("Correct: {}", q.correct_answer));
                 lines.push(format!(
                     "User: {}",
-                    q.user_answer.clone().unwrap_or_else(|| "(none)".to_string())
+                    q.user_answer
+                        .clone()
+                        .unwrap_or_else(|| "(none)".to_string())
                 ));
                 lines.push(format!("Was correct: {}", q.was_correct));
                 lines.push(String::new());
@@ -3142,17 +3300,14 @@ fn html_escape(input: &str) -> String {
 #[tauri::command]
 pub async fn notebooklm_check_cli(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
     let ctx = provider_context(&app, integration_root(&app)?).await;
-    
+
     // Try to run notebooklm --version or notebooklm version
     let version_result = run_first_success_no_bootstrap(
         &ctx,
-        vec![
-            vec!["--version".to_string()],
-            vec!["version".to_string()],
-        ],
+        vec![vec!["--version".to_string()], vec!["version".to_string()]],
     )
     .await;
-    
+
     match version_result {
         Ok(result) => {
             let version = result.stdout.trim().to_string();
@@ -3165,12 +3320,12 @@ pub async fn notebooklm_check_cli(app: tauri::AppHandle) -> Result<serde_json::V
                 ],
             )
             .await;
-            
+
             let mut is_authenticated = match status_result {
                 Ok(_) => true,
                 Err(e) => {
                     let err_str = e.to_string().to_lowercase();
-                    !err_str.contains("not logged in") 
+                    !err_str.contains("not logged in")
                         && !err_str.contains("unauthorized")
                         && !err_str.contains("401")
                 }
@@ -3192,7 +3347,7 @@ pub async fn notebooklm_check_cli(app: tauri::AppHandle) -> Result<serde_json::V
                         Ok(_) => true,
                         Err(e) => {
                             let err_str = e.to_string().to_lowercase();
-                            !err_str.contains("not logged in") 
+                            !err_str.contains("not logged in")
                                 && !err_str.contains("unauthorized")
                                 && !err_str.contains("401")
                         }
@@ -3215,7 +3370,7 @@ pub async fn notebooklm_check_cli(app: tauri::AppHandle) -> Result<serde_json::V
                     }
                 }
             }
-            
+
             Ok(serde_json::json!({
                 "installed": true,
                 "version": version,
@@ -3241,10 +3396,13 @@ pub async fn notebooklm_check_cli(app: tauri::AppHandle) -> Result<serde_json::V
 /// Returns the path that was copied from if successful.
 fn try_copy_system_auth(app_storage: &Path) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
-    
+
     // Check multiple candidate locations where notebooklm CLI saves cookies
     let candidates = vec![
-        home.join(".notebooklm").join("profiles").join("default").join("storage_state.json"),
+        home.join(".notebooklm")
+            .join("profiles")
+            .join("default")
+            .join("storage_state.json"),
         home.join(".notebooklm").join("storage_state.json"),
     ];
 
@@ -3270,7 +3428,10 @@ fn try_copy_system_auth(app_storage: &Path) -> Option<PathBuf> {
         .unwrap_or(false);
 
     if !has_cookies {
-        tracing::debug!("System auth file at {} exists but has no cookies", system_storage.display());
+        tracing::debug!(
+            "System auth file at {} exists but has no cookies",
+            system_storage.display()
+        );
         return None;
     }
 
@@ -3316,7 +3477,11 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
         // Verify the copied auth actually works
         let verify = run_first_success_no_bootstrap(
             &ctx,
-            vec![vec!["auth".to_string(), "check".to_string(), "--json".to_string()]],
+            vec![vec![
+                "auth".to_string(),
+                "check".to_string(),
+                "--json".to_string(),
+            ]],
         )
         .await;
 
@@ -3388,12 +3553,13 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
                     let _ = stdin.write_all(b"\n").await;
                 }
                 match child.wait_with_output().await {
-                    Ok(output) if output.status.success() => Some(Ok(
-                        String::from_utf8_lossy(&output.stdout).trim().to_string(),
-                    )),
+                    Ok(output) if output.status.success() => {
+                        Some(Ok(String::from_utf8_lossy(&output.stdout)
+                            .trim()
+                            .to_string()))
+                    }
                     Ok(output) => {
-                        let stderr =
-                            String::from_utf8_lossy(&output.stderr).trim().to_string();
+                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
                         Some(Err(stderr))
                     }
                     Err(e) => Some(Err(e.to_string())),
@@ -3418,8 +3584,7 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
                     auth_state.connected = true;
                     auth_state.last_connected_at = Some(Utc::now().to_rfc3339());
                     auth_state.provider = "cli".to_string();
-                    auth_state.storage_path =
-                        Some(app_storage.to_string_lossy().to_string());
+                    auth_state.storage_path = Some(app_storage.to_string_lossy().to_string());
                     save_auth(&root, &auth_state)?;
 
                     let mut settings = load_settings(&root)?;
@@ -3453,14 +3618,7 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
     // ── Strategy 3: Bundled sidecar login (fallback) ──────────────────────
     tracing::info!("Strategy 3: falling back to bundled sidecar login");
 
-    match run_notebooklm_command_with_input(
-        &ctx,
-        &["login".to_string()],
-        "\n",
-        120000,
-    )
-    .await
-    {
+    match run_notebooklm_command_with_input(&ctx, &["login".to_string()], "\n", 120000).await {
         Ok(result) => {
             // Verify authentication
             let verify = run_first_success_no_bootstrap(
@@ -3507,9 +3665,7 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
             let err_str = e.to_string();
             tracing::error!("Strategy 3: bundled sidecar login failed: {}", err_str);
 
-            if err_str.contains("already logged in")
-                || err_str.contains("already authenticated")
-            {
+            if err_str.contains("already logged in") || err_str.contains("already authenticated") {
                 return Ok(serde_json::json!({
                     "success": true,
                     "message": "Already logged in",
@@ -3530,9 +3686,9 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
 #[tauri::command]
 pub async fn notebooklm_cli_logout(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
     let ctx = provider_context(&app, integration_root(&app)?).await;
-    
+
     tracing::info!("Running notebooklm CLI logout");
-    
+
     match run_first_success(
         &ctx,
         vec![
@@ -3540,7 +3696,8 @@ pub async fn notebooklm_cli_logout(app: tauri::AppHandle) -> Result<serde_json::
             vec!["auth".to_string(), "logout".to_string()],
         ],
     )
-    .await {
+    .await
+    {
         Ok(result) => {
             tracing::info!("notebooklm logout completed");
             Ok(serde_json::json!({
@@ -3565,7 +3722,7 @@ pub async fn notebooklm_cli_logout(app: tauri::AppHandle) -> Result<serde_json::
 #[tauri::command]
 pub async fn notebooklm_cli_status(app: tauri::AppHandle) -> Result<serde_json::Value, AppError> {
     let ctx = provider_context(&app, integration_root(&app)?).await;
-    
+
     let result = run_first_success_no_bootstrap(
         &ctx,
         vec![
@@ -3574,13 +3731,13 @@ pub async fn notebooklm_cli_status(app: tauri::AppHandle) -> Result<serde_json::
         ],
     )
     .await;
-    
+
     match result {
         Ok(output) => {
             let stdout = output.stdout.to_lowercase();
-            let is_authenticated = !stdout.contains("not logged in") 
-                && !stdout.contains("no active session");
-            
+            let is_authenticated =
+                !stdout.contains("not logged in") && !stdout.contains("no active session");
+
             Ok(serde_json::json!({
                 "is_authenticated": is_authenticated,
                 "status_output": output.stdout,
@@ -3589,11 +3746,11 @@ pub async fn notebooklm_cli_status(app: tauri::AppHandle) -> Result<serde_json::
         }
         Err(e) => {
             let err_str = e.to_string().to_lowercase();
-            let is_auth_error = err_str.contains("not logged in") 
+            let is_auth_error = err_str.contains("not logged in")
                 || err_str.contains("unauthorized")
                 || err_str.contains("401")
                 || err_str.contains("no active session");
-            
+
             Ok(serde_json::json!({
                 "is_authenticated": false,
                 "status_output": null,

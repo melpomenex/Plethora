@@ -254,14 +254,16 @@ impl LLMProvider for AnthropicProvider {
             .messages
             .iter()
             .filter(|m| m.role != MessageRole::System)
-            .map(|m| json!({
-                "role": match m.role {
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                    MessageRole::System => "user", // Should not happen due to filter
-                },
-                "content": m.content,
-            }))
+            .map(|m| {
+                json!({
+                    "role": match m.role {
+                        MessageRole::User => "user",
+                        MessageRole::Assistant => "assistant",
+                        MessageRole::System => "user", // Should not happen due to filter
+                    },
+                    "content": m.content,
+                })
+            })
             .collect();
 
         let mut body = json!({
@@ -501,14 +503,16 @@ impl LLMProvider for OllamaProvider {
         let messages: Vec<_> = request
             .messages
             .iter()
-            .map(|m| json!({
-                "role": match m.role {
-                    MessageRole::System => "system",
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                },
-                "content": m.content,
-            }))
+            .map(|m| {
+                json!({
+                    "role": match m.role {
+                        MessageRole::System => "system",
+                        MessageRole::User => "user",
+                        MessageRole::Assistant => "assistant",
+                    },
+                    "content": m.content,
+                })
+            })
             .collect();
 
         let body = json!({

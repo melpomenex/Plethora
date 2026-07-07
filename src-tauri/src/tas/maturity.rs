@@ -80,11 +80,11 @@ mod tests {
     fn test_recompute_mixed() {
         let tag = make_tag(0.8);
         let stabilities = [
-            Some(0.9), // mature
+            Some(0.9),  // mature
             Some(0.85), // mature
             Some(0.7),  // not mature
             Some(0.6),  // not mature
-            None,        // no stability data
+            None,       // no stability data
         ];
         let stats = recompute_tag_stability_stats(&stabilities, &tag);
         assert_eq!(stats.item_count, 5);

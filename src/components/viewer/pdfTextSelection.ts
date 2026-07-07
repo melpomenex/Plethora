@@ -68,7 +68,53 @@ export function isValidPdfSelection(
   context?: PdfSelectionContext | null,
 ): boolean {
   const trimmed = text?.trim() ?? "";
-  return trimmed.length > 0 && Boolean(context && context.type === "pdf" && context.pages.length > 0);
+  return trimmed.length > 0 && hasUsablePdfSelectionContext(context);
+}
+
+export function hasUsablePdfSelectionContext(context?: PdfSelectionContext | null): context is PdfSelectionContext {
+  if (!context || context.type !== "pdf" || context.pages.length === 0) return false;
+
+  return context.pages.some((page) => (
+    Number.isFinite(page.pageNumber) &&
+    page.pageNumber > 0 &&
+    page.viewportRects.some((rect) => rect.width > 0 && rect.height > 0) &&
+    page.pdfRects.length > 0
+  ));
+}
+
+export function canUsePdfSelectionAction(params: {
+  selectedText: string | null | undefined;
+  selectionContext?: PdfSelectionContext | null;
+}): params is { selectedText: string; selectionContext: PdfSelectionContext } {
+  return isValidPdfSelection(params.selectedText, params.selectionContext);
+}
+
+export function buildPdfSelectionExtractPayload(params: {
+  documentId: string;
+  selectedText: string | null | undefined;
+  selectionContext?: PdfSelectionContext | null;
+  color?: string;
+}): {
+  documentId: string;
+  text: string;
+  color?: string;
+  pageNumber?: number;
+  selectionContext: PdfSelectionContext;
+} | null {
+  if (!canUsePdfSelectionAction({
+    selectedText: params.selectedText,
+    selectionContext: params.selectionContext,
+  })) {
+    return null;
+  }
+
+  return {
+    documentId: params.documentId,
+    text: params.selectedText.trim(),
+    color: params.color,
+    pageNumber: params.selectionContext.pages[0]?.pageNumber,
+    selectionContext: params.selectionContext,
+  };
 }
 
 export function getPdfExtractBlockReason(params: {

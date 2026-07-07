@@ -3,9 +3,7 @@
 //! Provides Q&A capabilities using AI with document context.
 
 use crate::ai::{
-    providers::ChatCompletionRequest,
-    prompts::PromptBuilder,
-    AIProvider, Message, MessageRole,
+    prompts::PromptBuilder, providers::ChatCompletionRequest, AIProvider, Message, MessageRole,
 };
 
 /// Question answerer
@@ -186,7 +184,8 @@ impl ChatSession {
         let response = self.provider.chat_completion(&request).await?;
 
         // Add assistant response to history
-        self.messages.push(Message::assistant(response.content.clone()));
+        self.messages
+            .push(Message::assistant(response.content.clone()));
 
         Ok(response.content)
     }

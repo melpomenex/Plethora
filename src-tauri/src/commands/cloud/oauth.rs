@@ -5,13 +5,11 @@
 
 use tauri::State;
 
+use crate::cloud::auth_store::{AuthStore, CloudAuthProvider};
 use crate::cloud::{
-    AccountInfo, AuthResult, CloudProvider, CloudProviderType,
-    OneDriveConfig, OneDriveProvider,
-    GoogleDriveConfig, GoogleDriveProvider,
-    DropboxConfig, DropboxProvider,
+    AccountInfo, AuthResult, CloudProvider, CloudProviderType, DropboxConfig, DropboxProvider,
+    GoogleDriveConfig, GoogleDriveProvider, OneDriveConfig, OneDriveProvider,
 };
-use crate::cloud::auth_store::{CloudAuthProvider, AuthStore};
 
 /// Start OAuth authentication flow
 #[tauri::command]
@@ -20,21 +18,14 @@ pub async fn oauth_start(provider_type: String) -> Result<String, String> {
         .ok_or_else(|| format!("Unknown provider type: {}", provider_type))?;
 
     let mut provider: Box<dyn CloudProvider> = match provider_type {
-        CloudProviderType::OneDrive => {
-            Box::new(OneDriveProvider::new(OneDriveConfig::default()))
-        }
+        CloudProviderType::OneDrive => Box::new(OneDriveProvider::new(OneDriveConfig::default())),
         CloudProviderType::GoogleDrive => {
             Box::new(GoogleDriveProvider::new(GoogleDriveConfig::default()))
         }
-        CloudProviderType::Dropbox => {
-            Box::new(DropboxProvider::new(DropboxConfig::default()))
-        }
+        CloudProviderType::Dropbox => Box::new(DropboxProvider::new(DropboxConfig::default())),
     };
 
-    provider
-        .authenticate()
-        .await
-        .map_err(|e| e.to_string())
+    provider.authenticate().await.map_err(|e| e.to_string())
 }
 
 /// Handle OAuth callback
@@ -50,15 +41,11 @@ pub async fn oauth_callback(
         .ok_or_else(|| format!("Unknown provider type: {}", provider_type))?;
 
     let mut provider: Box<dyn CloudProvider> = match provider_type {
-        CloudProviderType::OneDrive => {
-            Box::new(OneDriveProvider::new(OneDriveConfig::default()))
-        }
+        CloudProviderType::OneDrive => Box::new(OneDriveProvider::new(OneDriveConfig::default())),
         CloudProviderType::GoogleDrive => {
             Box::new(GoogleDriveProvider::new(GoogleDriveConfig::default()))
         }
-        CloudProviderType::Dropbox => {
-            Box::new(DropboxProvider::new(DropboxConfig::default()))
-        }
+        CloudProviderType::Dropbox => Box::new(DropboxProvider::new(DropboxConfig::default())),
     };
 
     let result = provider
@@ -91,14 +78,12 @@ pub async fn oauth_get_account(
     let provider_type = CloudProviderType::from_str(&provider_type)
         .ok_or_else(|| format!("Unknown provider type: {}", provider_type))?;
 
-    let provider = auth_provider
-        .get_provider(provider_type)
-        .ok_or_else(|| {
-            format!(
-                "No authenticated {} provider found. Please authenticate first.",
-                provider_type
-            )
-        })?;
+    let provider = auth_provider.get_provider(provider_type).ok_or_else(|| {
+        format!(
+            "No authenticated {} provider found. Please authenticate first.",
+            provider_type
+        )
+    })?;
 
     let guard = provider.read().await;
     guard.get_account_info().await.map_err(|e| e.to_string())

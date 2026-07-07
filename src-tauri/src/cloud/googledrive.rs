@@ -5,14 +5,14 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::Deserialize;
 use std::collections::HashMap;
 use url::Url;
 
 use super::provider::{
-    AccountInfo, AuthResult, AuthToken, CloudProvider, CloudProviderType,
-    FileInfo, FileMetadata, StorageQuota,
+    AccountInfo, AuthResult, AuthToken, CloudProvider, CloudProviderType, FileInfo, FileMetadata,
+    StorageQuota,
 };
 use crate::error::AppError;
 
@@ -34,9 +34,9 @@ impl Default for GoogleDriveConfig {
             redirect_uri: "http://localhost:15173/auth/callback".to_string(),
             scopes: vec![
                 "https://www.googleapis.com/auth/drive.appdata".to_string(), // App folder access
-                "https://www.googleapis.com/auth/drive.file".to_string(), // Files created by app
-                "profile".to_string(), // Basic profile info
-                "email".to_string(), // Email address
+                "https://www.googleapis.com/auth/drive.file".to_string(),    // Files created by app
+                "profile".to_string(),                                       // Basic profile info
+                "email".to_string(),                                         // Email address
             ],
         }
     }
@@ -103,7 +103,8 @@ impl GoogleDriveProvider {
             ));
         }
 
-        if self.config.client_secret == "YOUR_CLIENT_SECRET" || self.config.client_secret.is_empty() {
+        if self.config.client_secret == "YOUR_CLIENT_SECRET" || self.config.client_secret.is_empty()
+        {
             return Err(AppError::Internal(
                 "Google Drive OAuth is not configured. Please set the INCREMENTUM_GOOGLE_DRIVE_CLIENT_SECRET \
                  environment variable with your Google Cloud project OAuth client secret.\n\n\
@@ -147,7 +148,8 @@ impl GoogleDriveProvider {
         params.insert("redirect_uri", self.config.redirect_uri.clone());
         params.insert("grant_type", "authorization_code".to_string());
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post("https://oauth2.googleapis.com/token")
             .form(&params)
             .send()
@@ -156,7 +158,10 @@ impl GoogleDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Token exchange failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Token exchange failed: {}",
+                error_text
+            )));
         }
 
         response
@@ -173,7 +178,8 @@ impl GoogleDriveProvider {
         params.insert("refresh_token", refresh_token.to_string());
         params.insert("grant_type", "refresh_token".to_string());
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post("https://oauth2.googleapis.com/token")
             .form(&params)
             .send()
@@ -182,7 +188,10 @@ impl GoogleDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Token refresh failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Token refresh failed: {}",
+                error_text
+            )));
         }
 
         response
@@ -193,16 +202,22 @@ impl GoogleDriveProvider {
 
     /// Get authenticated request headers
     fn get_auth_headers(&self) -> Result<header::HeaderMap, AppError> {
-        let token = self.auth_token
+        let token = self
+            .auth_token
             .as_ref()
             .ok_or_else(|| AppError::Internal("Not authenticated".to_string()))?;
 
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
-            format!("Bearer {}", token.access_token).parse().expect("valid header value"),
+            format!("Bearer {}", token.access_token)
+                .parse()
+                .expect("valid header value"),
         );
-        headers.insert(header::CONTENT_TYPE, "application/json".parse().expect("valid header value"));
+        headers.insert(
+            header::CONTENT_TYPE,
+            "application/json".parse().expect("valid header value"),
+        );
 
         Ok(headers)
     }
@@ -211,7 +226,8 @@ impl GoogleDriveProvider {
     async fn fetch_account_info(&self) -> Result<AccountInfo, AppError> {
         let headers = self.get_auth_headers()?;
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get("https://www.googleapis.com/oauth2/v2/userinfo")
             .headers(headers)
             .send()
@@ -220,7 +236,10 @@ impl GoogleDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Account info request failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Account info request failed: {}",
+                error_text
+            )));
         }
 
         let user_info: UserInfo = response
@@ -228,7 +247,8 @@ impl GoogleDriveProvider {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to parse user info: {}", e)))?;
 
-        let quota_response = self.http_client
+        let quota_response = self
+            .http_client
             .get(format!("{}/about", self.api_base_url()))
             .query(&[("fields", "storageQuota")])
             .headers(self.get_auth_headers()?)
@@ -241,10 +261,7 @@ impl GoogleDriveProvider {
                     if let Some(limit) = about.storage_quota.limit {
                         let usage = about.storage_quota.usage.unwrap_or(0);
                         let total = limit.parse().unwrap_or(0);
-                        Some(StorageQuota {
-                            used: usage,
-                            total,
-                        })
+                        Some(StorageQuota { used: usage, total })
                     } else {
                         None
                     }
@@ -300,7 +317,8 @@ impl GoogleDriveProvider {
             "parents": ["appDataFolder"]
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(format!("{}/files", self.api_base_url()))
             .query(&[("fields", "id")])
             .headers(headers)
@@ -311,7 +329,10 @@ impl GoogleDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Failed to create app folder: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Failed to create app folder: {}",
+                error_text
+            )));
         }
 
         let folder: DriveFile = response
@@ -477,10 +498,9 @@ impl CloudProvider for GoogleDriveProvider {
                 return Err(AppError::Internal(format!("Upload failed: {}", error_text)));
             }
 
-            let result: DriveFile = response
-                .json()
-                .await
-                .map_err(|e| AppError::Internal(format!("Failed to parse upload response: {}", e)))?;
+            let result: DriveFile = response.json().await.map_err(|e| {
+                AppError::Internal(format!("Failed to parse upload response: {}", e))
+            })?;
 
             Ok(result.id)
         } else {
@@ -498,8 +518,13 @@ impl CloudProvider for GoogleDriveProvider {
 
         let headers = self.get_auth_headers()?;
 
-        let response = self.http_client
-            .get(format!("{}/files/{}?fields=webContentLink", self.api_base_url(), file_id))
+        let response = self
+            .http_client
+            .get(format!(
+                "{}/files/{}?fields=webContentLink",
+                self.api_base_url(),
+                file_id
+            ))
             .headers(headers.clone())
             .send()
             .await
@@ -507,7 +532,10 @@ impl CloudProvider for GoogleDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Download failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Download failed: {}",
+                error_text
+            )));
         }
 
         let file_info: DriveFile = response
@@ -515,11 +543,13 @@ impl CloudProvider for GoogleDriveProvider {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to parse file info: {}", e)))?;
 
-        let download_url = file_info.web_content_link
+        let download_url = file_info
+            .web_content_link
             .ok_or_else(|| AppError::Internal("No download URL available".to_string()))?;
 
         // Download file content
-        let data = self.http_client
+        let data = self
+            .http_client
             .get(&download_url)
             .send()
             .await
@@ -538,23 +568,26 @@ impl CloudProvider for GoogleDriveProvider {
 
     async fn list_files(&self, path: &str) -> Result<Vec<FileInfo>, AppError> {
         let folder_id = if path.is_empty() || path == "/" {
-            self.app_folder_id.clone().unwrap_or_else(|| "appDataFolder".to_string())
+            self.app_folder_id
+                .clone()
+                .unwrap_or_else(|| "appDataFolder".to_string())
         } else {
             self.resolve_file_id(path).await?
         };
 
         let headers = self.get_auth_headers()?;
 
-        let query = format!(
-            "'{}' in parents and trashed=false",
-            folder_id
-        );
+        let query = format!("'{}' in parents and trashed=false", folder_id);
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(format!("{}/files", self.api_base_url()))
             .query(&[
                 ("q", &query),
-                ("fields", &String::from("files(id,name,size,modifiedTime,mimeType,kind)")),
+                (
+                    "fields",
+                    &String::from("files(id,name,size,modifiedTime,mimeType,kind)"),
+                ),
                 ("pageSize", &String::from("1000")),
             ])
             .headers(headers)
@@ -564,7 +597,10 @@ impl CloudProvider for GoogleDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("List files failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "List files failed: {}",
+                error_text
+            )));
         }
 
         let file_list: FileList = response
@@ -594,7 +630,8 @@ impl CloudProvider for GoogleDriveProvider {
 
         let headers = self.get_auth_headers()?;
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .delete(format!("{}/files/{}", self.api_base_url(), file_id))
             .headers(headers)
             .send()
@@ -614,7 +651,8 @@ impl CloudProvider for GoogleDriveProvider {
 
         let headers = self.get_auth_headers()?;
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .get(format!(
                 "{}/files/{}?fields=id,name,size,createdTime,modifiedTime,md5Checksum",
                 self.api_base_url(),
@@ -627,7 +665,10 @@ impl CloudProvider for GoogleDriveProvider {
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Get metadata failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Get metadata failed: {}",
+                error_text
+            )));
         }
 
         let file: DriveFile = response
@@ -660,7 +701,8 @@ impl CloudProvider for GoogleDriveProvider {
             "parents": [self.app_folder_id.as_ref().unwrap_or(&"appDataFolder".to_string())]
         });
 
-        let response = self.http_client
+        let response = self
+            .http_client
             .post(format!("{}/files?fields=id", self.api_base_url()))
             .headers(headers)
             .json(&create_body)
@@ -670,7 +712,10 @@ impl CloudProvider for GoogleDriveProvider {
 
         if !response.status().is_success() && response.status() != 409 {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Create folder failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Create folder failed: {}",
+                error_text
+            )));
         }
 
         let _folder: DriveFile = response
@@ -705,7 +750,8 @@ impl GoogleDriveProvider {
             "parents": [self.app_folder_id.as_ref().unwrap_or(&"appDataFolder".to_string())]
         });
 
-        let init_response = self.http_client
+        let init_response = self
+            .http_client
             .post(format!(
                 "{}/upload/drive/v3/files?uploadType=resumable&fields=id",
                 self.api_base_url().replace("/v3", "")
@@ -720,7 +766,10 @@ impl GoogleDriveProvider {
 
         if !init_response.status().is_success() {
             let error_text = init_response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Upload session creation failed: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Upload session creation failed: {}",
+                error_text
+            )));
         }
 
         let upload_url = init_response
@@ -742,7 +791,8 @@ impl GoogleDriveProvider {
 
             let content_range = format!("bytes {}-{}/{}", uploaded, chunk_end - 1, total_size);
 
-            let chunk_response = self.http_client
+            let chunk_response = self
+                .http_client
                 .put(&upload_url)
                 .header("Content-Length", chunk.len())
                 .header("Content-Range", content_range)
@@ -753,7 +803,10 @@ impl GoogleDriveProvider {
 
             if !chunk_response.status().is_success() && chunk_response.status() != 308 {
                 let error_text = chunk_response.text().await.unwrap_or_default();
-                return Err(AppError::Internal(format!("Chunk upload failed: {}", error_text)));
+                return Err(AppError::Internal(format!(
+                    "Chunk upload failed: {}",
+                    error_text
+                )));
             }
 
             uploaded = chunk_end;
@@ -763,7 +816,8 @@ impl GoogleDriveProvider {
             }
         }
 
-        let final_response = self.http_client
+        let final_response = self
+            .http_client
             .get(&upload_url)
             .headers(self.get_auth_headers()?)
             .send()
@@ -772,7 +826,10 @@ impl GoogleDriveProvider {
 
         if !final_response.status().is_success() {
             let error_text = final_response.text().await.unwrap_or_default();
-            return Err(AppError::Internal(format!("Failed to get upload result: {}", error_text)));
+            return Err(AppError::Internal(format!(
+                "Failed to get upload result: {}",
+                error_text
+            )));
         }
 
         let result: DriveFile = final_response
@@ -804,7 +861,8 @@ impl GoogleDriveProvider {
                 parent_folder
             );
 
-            let response = self.http_client
+            let response = self
+                .http_client
                 .get(format!("{}/files", self.api_base_url()))
                 .query(&[("q", &query), ("fields", &String::from("files(id)"))])
                 .headers(self.get_auth_headers()?)
@@ -814,13 +872,15 @@ impl GoogleDriveProvider {
 
             if !response.status().is_success() {
                 let error_text = response.text().await.unwrap_or_default();
-                return Err(AppError::Internal(format!("Failed to resolve file ID: {}", error_text)));
+                return Err(AppError::Internal(format!(
+                    "Failed to resolve file ID: {}",
+                    error_text
+                )));
             }
 
-            let file_list: FileList = response
-                .json()
-                .await
-                .map_err(|e| AppError::Internal(format!("Failed to parse search response: {}", e)))?;
+            let file_list: FileList = response.json().await.map_err(|e| {
+                AppError::Internal(format!("Failed to parse search response: {}", e))
+            })?;
 
             let file_id = file_list
                 .files

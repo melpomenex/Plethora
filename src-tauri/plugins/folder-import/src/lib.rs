@@ -165,11 +165,10 @@ mod commands {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let _ = &state; // no mobile handle needed on desktop
-            let result = tauri::async_runtime::spawn_blocking(move || {
-                pick_desktop_app(&app, ext_set)
-            })
-            .await
-            .map_err(|e| Error::Message(format!("folder pick join error: {e}")))??;
+            let result =
+                tauri::async_runtime::spawn_blocking(move || pick_desktop_app(&app, ext_set))
+                    .await
+                    .map_err(|e| Error::Message(format!("folder pick join error: {e}")))??;
             Ok(result)
         }
     }
@@ -208,7 +207,8 @@ mod commands {
         {
             let _ = (state, ext_set, multiple);
             Err(Error::Message(
-                "pick_files is only supported on mobile; use the dialog plugin on desktop".to_string(),
+                "pick_files is only supported on mobile; use the dialog plugin on desktop"
+                    .to_string(),
             ))
         }
     }
@@ -230,21 +230,22 @@ mod commands {
         #[cfg(not(target_os = "android"))]
         {
             let _ = (state, file_path);
-            Err(Error::Message("install_apk is only supported on Android".to_string()))
+            Err(Error::Message(
+                "install_apk is only supported on Android".to_string(),
+            ))
         }
     }
 
     #[tauri::command]
-    pub async fn backup_db_to_downloads(
-        state: State<'_, FolderImport>,
-    ) -> Result<String, Error> {
+    pub async fn backup_db_to_downloads(state: State<'_, FolderImport>) -> Result<String, Error> {
         #[cfg(target_os = "android")]
         {
             let res: serde_json::Value = state
                 .handle
                 .run_mobile_plugin("backupDbToDownloads", serde_json::json!({}))
                 .map_err(|e| Error::Message(e.to_string()))?;
-            let path = res.get("path")
+            let path = res
+                .get("path")
                 .and_then(|v| v.as_str())
                 .unwrap_or("/sdcard/Download/Incrementum/Incrementum_Backup_Auto.db")
                 .to_string();
@@ -253,7 +254,9 @@ mod commands {
         #[cfg(not(target_os = "android"))]
         {
             let _ = state;
-            Err(Error::Message("backup_db_to_downloads is only supported on Android".to_string()))
+            Err(Error::Message(
+                "backup_db_to_downloads is only supported on Android".to_string(),
+            ))
         }
     }
 
@@ -283,7 +286,6 @@ mod commands {
     }
 }
 
-
 // ──────────────────────────────────────────────────────────────────────────
 // Default supported extensions. Mirrors the document/media types the rest of
 // the app accepts (see src/api/documents.ts openFilePicker default filters).
@@ -291,10 +293,8 @@ mod commands {
 
 pub const DEFAULT_EXTENSIONS: &[&str] = &[
     // documents
-    "pdf", "epub", "md", "markdown", "txt", "html", "htm", "json",
-    // audio
-    "mp3", "wav", "m4a", "m4b", "aac", "ogg", "flac", "opus", "wma",
-    // video
+    "pdf", "epub", "md", "markdown", "txt", "html", "htm", "json", // audio
+    "mp3", "wav", "m4a", "m4b", "aac", "ogg", "flac", "opus", "wma", // video
     "mp4", "webm", "mov", "mkv", "avi", "m4v",
 ];
 
@@ -370,7 +370,10 @@ fn scan_directory(
     extensions: &std::collections::HashSet<String>,
 ) -> Result<Vec<StagedFile>, Error> {
     let mut files = Vec::new();
-    for entry in walkdir::WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -410,10 +413,7 @@ fn scan_directory(
 // ──────────────────────────────────────────────────────────────────────────
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
-fn pick_mobile(
-    state: &FolderImport,
-    extensions: Vec<String>,
-) -> Result<Vec<StagedFile>, Error> {
+fn pick_mobile(state: &FolderImport, extensions: Vec<String>) -> Result<Vec<StagedFile>, Error> {
     // run_mobile_plugin blocks until the native side resolves the Invoke; it
     // must be called off the main thread (the command body runs on a worker).
     let payload = serde_json::json!({ "extensions": extensions });
@@ -448,14 +448,14 @@ struct MobilePickResponse {
 // IPC command
 // ──────────────────────────────────────────────────────────────────────────
 
-/// Pick a folder and return all supported files inside it (recursively).
-/// See `commands::pick_folder_documents` for the implementation.
-pub use commands::pick_folder_documents;
+pub use commands::backup_db_to_downloads;
+pub use commands::install_apk;
 /// Pick one or more files and return them staged into app-private storage.
 /// See `commands::pick_files` for the implementation.
 pub use commands::pick_files;
-pub use commands::install_apk;
-pub use commands::backup_db_to_downloads;
+/// Pick a folder and return all supported files inside it (recursively).
+/// See `commands::pick_folder_documents` for the implementation.
+pub use commands::pick_folder_documents;
 pub use commands::register_share_listener;
 
 /// Initializes the plugin.

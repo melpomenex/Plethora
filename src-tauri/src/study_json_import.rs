@@ -89,13 +89,11 @@ pub struct StudyJsonImportResult {
 /// every value is an object containing at least `answer`, `subject`, and
 /// `deck_name`.
 pub fn parse_study_json_file(path: &str) -> Result<StudyJsonDeck> {
-    let content = fs::read_to_string(path).map_err(|e| {
-        IncrementumError::NotFound(format!("Cannot read file: {}", e))
-    })?;
+    let content = fs::read_to_string(path)
+        .map_err(|e| IncrementumError::NotFound(format!("Cannot read file: {}", e)))?;
 
-    let raw: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
-        IncrementumError::InvalidInput(format!("Invalid JSON: {}", e))
-    })?;
+    let raw: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| IncrementumError::InvalidInput(format!("Invalid JSON: {}", e)))?;
 
     let obj = raw.as_object().ok_or_else(|| {
         IncrementumError::InvalidInput(
@@ -114,14 +112,13 @@ pub fn parse_study_json_file(path: &str) -> Result<StudyJsonDeck> {
     let mut subject = String::from("Unknown");
 
     for (question, value) in obj {
-        let card: StudyJsonCard = serde_json::from_value(value.clone())
-            .map_err(|e| {
-                IncrementumError::InvalidInput(format!(
-                    "Card for question \"{}\" is invalid: {}",
-                    question.chars().take(60).collect::<String>(),
-                    e
-                ))
-            })?;
+        let card: StudyJsonCard = serde_json::from_value(value.clone()).map_err(|e| {
+            IncrementumError::InvalidInput(format!(
+                "Card for question \"{}\" is invalid: {}",
+                question.chars().take(60).collect::<String>(),
+                e
+            ))
+        })?;
 
         if card.answer.is_empty() && card.deck_name.is_empty() {
             return Err(IncrementumError::InvalidInput(format!(
@@ -181,11 +178,7 @@ fn parse_datetime(s: &str) -> Option<DateTime<Utc>> {
 }
 
 /// Build a `LearningItem` from a question + card pair.
-fn build_learning_item(
-    question: &str,
-    card: &StudyJsonCard,
-    document_id: &str,
-) -> LearningItem {
+fn build_learning_item(question: &str, card: &StudyJsonCard, document_id: &str) -> LearningItem {
     let mut item = LearningItem::new(ItemType::Flashcard, question.to_string());
 
     // Deterministic ID from question text
@@ -218,11 +211,26 @@ fn build_learning_item(
 
     // Store fields without direct LearningItem equivalents
     let mut metadata = serde_json::Map::new();
-    metadata.insert("correct_count".to_string(), serde_json::json!(card.correct_count));
-    metadata.insert("missed_count".to_string(), serde_json::json!(card.missed_count));
-    metadata.insert("retention_rate".to_string(), serde_json::json!(card.retention_rate));
-    metadata.insert("manual_review".to_string(), serde_json::json!(card.manual_review));
-    metadata.insert("save_for_later".to_string(), serde_json::json!(card.save_for_later));
+    metadata.insert(
+        "correct_count".to_string(),
+        serde_json::json!(card.correct_count),
+    );
+    metadata.insert(
+        "missed_count".to_string(),
+        serde_json::json!(card.missed_count),
+    );
+    metadata.insert(
+        "retention_rate".to_string(),
+        serde_json::json!(card.retention_rate),
+    );
+    metadata.insert(
+        "manual_review".to_string(),
+        serde_json::json!(card.manual_review),
+    );
+    metadata.insert(
+        "save_for_later".to_string(),
+        serde_json::json!(card.save_for_later),
+    );
     if let Some(d) = card.difficulty.as_deref() {
         metadata.insert("difficulty_label".to_string(), serde_json::json!(d));
     }
@@ -273,10 +281,8 @@ pub async fn import_study_json_file(
 
     // Collect existing question hashes for this document to deduplicate
     let existing_items = repo.get_learning_items_by_document(&document_id).await?;
-    let existing_ids: std::collections::HashSet<String> = existing_items
-        .iter()
-        .map(|item| item.id.clone())
-        .collect();
+    let existing_ids: std::collections::HashSet<String> =
+        existing_items.iter().map(|item| item.id.clone()).collect();
 
     let mut imported = 0usize;
     let mut skipped = 0usize;

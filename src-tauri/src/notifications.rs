@@ -131,7 +131,10 @@ impl NotificationManager {
         };
 
         let body = if due_count > 0 && new_count > 0 {
-            format!("You have {} cards due and {} new cards waiting.", due_count, new_count)
+            format!(
+                "You have {} cards due and {} new cards waiting.",
+                due_count, new_count
+            )
         } else if due_count > 0 {
             format!("You have {} cards due for review.", due_count)
         } else if new_count > 0 {
@@ -260,7 +263,10 @@ mod tests {
     fn test_create_study_reminder() {
         let notification = NotificationManager::create_study_reminder(10, 5);
 
-        assert_eq!(notification.notification_type, NotificationType::StudyReminder);
+        assert_eq!(
+            notification.notification_type,
+            NotificationType::StudyReminder
+        );
         assert!(notification.title.contains("10"));
         assert!(notification.body.contains("5"));
     }
@@ -278,7 +284,10 @@ mod tests {
     fn test_create_review_completed() {
         let notification = NotificationManager::create_review_completed(25, 600, 0.85);
 
-        assert_eq!(notification.notification_type, NotificationType::ReviewCompleted);
+        assert_eq!(
+            notification.notification_type,
+            NotificationType::ReviewCompleted
+        );
         assert!(notification.title.contains("Great job"));
         assert!(notification.body.contains("25"));
     }
