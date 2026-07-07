@@ -108,18 +108,17 @@ export function SyncQrScanner({ onDetected, onClose }: SyncQrScannerProps) {
             {t("common.close")}
           </button>
         </div>
-        {error ? (
-          <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+        {error && (
+          <div className="mb-2 rounded border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
             {error}
           </div>
-        ) : (
-          <video
-            ref={videoRef}
-            className="aspect-square w-full rounded border border-border bg-black"
-            muted
-            playsInline
-          />
         )}
+        <video
+          ref={videoRef}
+          className="aspect-square w-full rounded border border-border bg-black"
+          muted
+          playsInline
+        />
         <div className="mt-2 text-xs text-muted-foreground">
           {t("settings.syncQrInstruction")}
         </div>
