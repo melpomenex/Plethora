@@ -100,6 +100,7 @@ export function RSSReader() {
   const { settings } = useSettingsStore();
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [selectedFeed, setSelectedFeed] = useState<Feed | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [items, setItems] = useState<Array<{ feed: Feed; item: FeedItem }>>([]);
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
   const [selectedItemFeed, setSelectedItemFeed] = useState<Feed | null>(null);
@@ -155,6 +156,50 @@ export function RSSReader() {
   const [isSemanticGraphOpen, setSemanticGraphOpen] = useState(false);
   const [embeddingConfig, setEmbeddingConfig] = useState<any>(undefined);
   const [userClosedReader, setUserClosedReader] = useState(false);
+
+  const unreadCount = feeds.reduce((acc, feed) => acc + feed.unreadCount, 0);
+  const groupedFeeds = useMemo(() => {
+    const sections: Array<{ id: string; name: string; feeds: Feed[]; isFolder: boolean; folderId?: string }> = [];
+    const assigned = new Set<string>();
+
+    folders.forEach((folder) => {
+      const folderFeeds = folder.feeds
+        .map((feedId) => feeds.find((feed) => feed.id === feedId))
+        .filter((feed): feed is Feed => Boolean(feed));
+      if (folderFeeds.length > 0) {
+        sections.push({ id: folder.id, name: folder.name, feeds: folderFeeds, isFolder: true, folderId: folder.id });
+        folderFeeds.forEach((feed) => assigned.add(feed.id));
+      }
+    });
+
+    const categoryMap = new Map<string, Feed[]>();
+    feeds.forEach((feed) => {
+      if (assigned.has(feed.id)) {
+        return;
+      }
+      if (feed.category) {
+        const list = categoryMap.get(feed.category) ?? [];
+        list.push(feed);
+        categoryMap.set(feed.category, list);
+        assigned.add(feed.id);
+      }
+    });
+
+    Array.from(categoryMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .forEach(([category, categoryFeeds]) => {
+        sections.push({
+          id: `category-${category}`,
+          name: category,
+          feeds: categoryFeeds,
+          isFolder: false,
+        });
+      });
+
+    const ungrouped = feeds.filter((feed) => !assigned.has(feed.id));
+
+    return { sections, ungrouped };
+  }, [feeds, folders]);
 
   useEffect(() => {
     setUserClosedReader(false);
@@ -358,7 +403,6 @@ export function RSSReader() {
 
     return sorted;
   }, [preferences]);
-
   useEffect(() => {
     const allFeedItems = feeds.flatMap((feed) => feed.items.map((item) => ({ feed, item })));
 
@@ -374,8 +418,18 @@ export function RSSReader() {
 
     let resultList: Array<{ feed: Feed; item: FeedItem }> = [];
 
-    if (viewMode === "all" && selectedFeed) {
-      let items = selectedFeed.items.map((item) => ({ feed: selectedFeed, item }));
+    if (viewMode === "all") {
+      let items: Array<{ feed: Feed; item: FeedItem }> = [];
+      if (selectedFeed) {
+        items = selectedFeed.items.map((item) => ({ feed: selectedFeed, item }));
+      } else if (selectedFolderId) {
+        const targetSection = groupedFeeds.sections.find((s) => s.id === selectedFolderId);
+        if (targetSection) {
+          items = targetSection.feeds.flatMap((f) => f.items.map((item) => ({ feed: f, item })));
+        }
+      } else {
+        items = allFeedItems;
+      }
       if (intelligenceFilter === "focus") {
         items = items.filter(({ item }) => (item.intelligenceScore ?? 0) > 0);
       }
@@ -414,7 +468,7 @@ export function RSSReader() {
     const sortedList = applySortingPreferences(filteredList);
 
     setItems(sortedList);
-  }, [viewMode, selectedFeed, feeds, searchQuery, selectedTagFilter, selectedTagIds, articleTags, intelligenceFilter, showDisliked, preferences, applyFilterPreferences, applySortingPreferences]);
+  }, [viewMode, selectedFeed, selectedFolderId, groupedFeeds, feeds, searchQuery, selectedTagFilter, selectedTagIds, articleTags, intelligenceFilter, showDisliked, preferences, applyFilterPreferences, applySortingPreferences]);
 
   useEffect(() => {
     void loadTags();
@@ -914,36 +968,37 @@ export function RSSReader() {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (file) {
         const reader = new FileReader();
+
         reader.onload = async (event) => {
           const content = event.target?.result as string;
-          const importedFeeds = await importOpmlAuto(content);
+          const result = await importOpmlAuto(content);
+          const importedFeeds = result.feeds || [];
+          const count = result.count;
           if (importedFeeds.length > 0) {
             if (isTauri()) {
-              await Promise.all(
-                importedFeeds.map(async (feed) => {
-                  try {
-                    const updated = await fetchFeed(feed.feedUrl);
-                    if (updated) {
-                      const merged = {
-                        ...updated,
-                        category: feed.category ?? updated.category,
-                      };
-                      await syncFeedToTauri(merged);
-                      return;
-                    }
-                    await syncFeedToTauri(feed);
-                  } catch (error) {
-                    console.warn("Failed to fetch feed during OPML import:", feed.feedUrl, error);
+              for (const feed of importedFeeds) {
+                try {
+                  const updated = await fetchFeed(feed.feedUrl);
+                  if (updated) {
+                    const merged = {
+                      ...updated,
+                      category: feed.category ?? updated.category,
+                    };
+                    await syncFeedToTauri(merged);
+                  } else {
                     await syncFeedToTauri(feed);
                   }
-                })
-              );
+                } catch (error) {
+                  console.warn("Failed to fetch feed during OPML import:", feed.feedUrl, error);
+                  await syncFeedToTauri(feed);
+                }
+              }
             } else {
               importedFeeds.forEach((feed) => subscribeToFeed(feed));
             }
           }
           await loadFeeds();
-          alert(t("rssReader.importOpmlSuccess", { count: importedFeeds.length }));
+          alert(t("rssReader.importOpmlSuccess", { count }));
         };
         reader.readAsText(file);
       }
@@ -951,52 +1006,13 @@ export function RSSReader() {
     input.click();
   };
 
-  const unreadCount = feeds.reduce((acc, feed) => acc + feed.unreadCount, 0);
-  const groupedFeeds = useMemo(() => {
-    const sections: Array<{ id: string; name: string; feeds: Feed[]; isFolder: boolean; folderId?: string }> = [];
-    const assigned = new Set<string>();
-
-    folders.forEach((folder) => {
-      const folderFeeds = folder.feeds
-        .map((feedId) => feeds.find((feed) => feed.id === feedId))
-        .filter((feed): feed is Feed => Boolean(feed));
-      if (folderFeeds.length > 0) {
-        sections.push({ id: folder.id, name: folder.name, feeds: folderFeeds, isFolder: true, folderId: folder.id });
-        folderFeeds.forEach((feed) => assigned.add(feed.id));
-      }
-    });
-
-    const categoryMap = new Map<string, Feed[]>();
-    feeds.forEach((feed) => {
-      if (assigned.has(feed.id)) {
-        return;
-      }
-      if (feed.category) {
-        const list = categoryMap.get(feed.category) ?? [];
-        list.push(feed);
-        categoryMap.set(feed.category, list);
-        assigned.add(feed.id);
-      }
-    });
-
-    Array.from(categoryMap.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .forEach(([category, categoryFeeds]) => {
-        sections.push({
-          id: `category-${category}`,
-          name: category,
-          feeds: categoryFeeds,
-          isFolder: false,
-        });
-      });
-
-    const ungrouped = feeds.filter((feed) => !assigned.has(feed.id));
-
-    return { sections, ungrouped };
-  }, [feeds, folders]);
   const itemsTitle =
-    viewMode === "all" && selectedFeed
-      ? selectedFeed.title
+    viewMode === "all"
+      ? selectedFeed
+        ? selectedFeed.title
+        : selectedFolderId
+          ? (groupedFeeds.sections.find((s) => s.id === selectedFolderId)?.name || "Folder")
+          : t("rssReader.all")
       : viewMode === "unread"
         ? t("common.unread")
         : viewMode === "favorites"
@@ -1614,7 +1630,11 @@ export function RSSReader() {
               {/* View mode tabs */}
               <div className="grid grid-cols-4 gap-1">
                 <button
-                  onClick={() => handleViewModeChange("all")}
+                  onClick={() => {
+                    setSelectedFeed(null);
+                    setSelectedFolderId(null);
+                    handleViewModeChange("all");
+                  }}
                   className={`px-1 py-1.5 text-xs font-medium rounded-md transition-all ${
                     viewMode === "all"
                       ? "bg-primary text-primary-foreground shadow-sm font-semibold"
@@ -1761,12 +1781,19 @@ export function RSSReader() {
                       }`}
                     >
                       <div
-                        className={`w-full px-3 py-2 flex items-center justify-between gap-2 text-xs uppercase tracking-[0.18em] transition-colors ${
-                          dragOverSectionId === section.id
-                            ? "bg-primary/10 text-primary"
-                            : dragModeActive && canDropIntoSection(section)
-                              ? "text-primary/80"
-                              : "text-muted-foreground"
+                        onClick={() => {
+                          setSelectedFeed(null);
+                          setSelectedFolderId((prev) => (prev === section.id ? null : section.id));
+                          handleViewModeChange("all");
+                        }}
+                        className={`w-full px-3 py-2 flex items-center justify-between gap-2 text-xs uppercase tracking-[0.18em] cursor-pointer transition-colors ${
+                          selectedFolderId === section.id
+                            ? "bg-primary/10 text-primary font-bold"
+                            : dragOverSectionId === section.id
+                              ? "bg-primary/10 text-primary"
+                              : dragModeActive && canDropIntoSection(section)
+                                ? "text-primary/80"
+                                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -1812,6 +1839,7 @@ export function RSSReader() {
                           <button
                             onClick={() => {
                               setSelectedFeed(feed);
+                              setSelectedFolderId(null);
                               handleViewModeChange("all");
                               if (isMobile) {
                                 setMobileView("items");
@@ -1913,6 +1941,7 @@ export function RSSReader() {
                           <button
                             onClick={() => {
                               setSelectedFeed(feed);
+                              setSelectedFolderId(null);
                               handleViewModeChange("all");
                               if (isMobile) {
                                 setMobileView("items");
@@ -2612,6 +2641,7 @@ export function RSSReader() {
                     }}
                     onOpenDiscover={() => setShowDiscoverSites(true)}
                     onOpenAddFeed={() => setShowAddDialog(true)}
+                    onImportOPML={handleImportOPML}
                     onOpenSemanticGraph={() => setSemanticGraphOpen(true)}
                     onOpenShortcutsHelp={() => setShowKeyboardHelp(true)}
                     onSyncAll={() => refreshAllFeeds("manual")}
