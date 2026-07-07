@@ -10,16 +10,19 @@ import { ObsidianSphere } from "../components/graph/ObsidianSphere";
 import { GraphFilterControls, applyGraphFilters, extractGraphMetadata } from "../components/graph/GraphFilters";
 import { NodeDetailView } from "../components/graph/NodeDetailView";
 import { GraphNodeType, type GraphNode, type GraphEdge, type GraphData, LayoutAlgorithm } from "../components/graph/KnowledgeGraph";
-import { getDocument, updateDocument } from "../api/documents";
-import { updateExtract } from "../api/extracts";
+import { getDocument, updateDocument, deleteDocument } from "../api/documents";
+import { updateExtract, deleteExtract } from "../api/extracts";
 import { useCollectionStore } from "../stores/collectionStore";
 import { useTabsStore } from "../stores/tabsStore";
 import { useReviewStore } from "../stores/reviewStore";
 import { DocumentViewer, ReviewTab } from "../components/tabs/TabRegistry";
 import { useToast } from "../components/common/Toast";
 import { useI18n } from "../lib/i18n";
+import { useContextMenu, ContextMenu, ContextMenuItemType } from "../components/common/ContextMenu";
+import { ConfirmDialog, useConfirmDialog } from "../components/common/ConfirmDialog";
 import {
   ArrowsOutSimple,
+  ArrowSquareOut,
   Brain,
   ChatCircle,
   Download,
@@ -28,8 +31,11 @@ import {
   Graph,
   GridNine,
   MagnifyingGlass,
+  PencilSimple,
   Sparkle,
+  Target,
   TextT,
+  Trash,
   X,
 } from "@phosphor-icons/react";
 
@@ -48,6 +54,10 @@ export function KnowledgeGraphPage() {
   const { addTab } = useTabsStore();
   const toast = useToast();
   const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
+
+  const nodeContextMenu = useContextMenu("node-context-menu");
+  const confirmDialog = useConfirmDialog();
+  const [contextNode, setContextNode] = useState<GraphNode | null>(null);
 
   const [filters, setFilters] = useState({
     searchQuery: "",
@@ -322,6 +332,88 @@ export function KnowledgeGraphPage() {
     }
   }, [addTab, graphData.nodes, toast]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
+
+  const handleNodeDelete = useCallback((nodeId: string) => {
+    const node = graphData.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+
+    let typeLabel = "Item";
+    if (node.type === GraphNodeType.Document) typeLabel = "Document";
+    if (node.type === GraphNodeType.Extract) typeLabel = "Extract";
+    if (node.type === GraphNodeType.Flashcard) typeLabel = "Flashcard";
+
+    confirmDialog.confirm({
+      title: `Delete ${typeLabel}`,
+      message: `Are you sure you want to delete "${node.label}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          if (node.type === GraphNodeType.Document) {
+            await deleteDocument(nodeId.replace("doc-", ""));
+          } else if (node.type === GraphNodeType.Extract) {
+            await deleteExtract(nodeId.replace("extract-", ""));
+          } else if (node.type === GraphNodeType.Flashcard) {
+            await invokeCommand("delete_learning_item", { itemId: nodeId.replace("card-", "") });
+          }
+          toast.success("Item deleted successfully");
+          setSelectedNode(null);
+          await loadGraphData();
+        } catch (err: any) {
+          console.error(err);
+          toast.error(`Failed to delete item: ${err.message || err}`);
+        }
+      },
+    });
+  }, [graphData.nodes, confirmDialog, toast, loadGraphData]);
+
+  const handleNodeContextMenu = useCallback(
+    (node: GraphNode, position: { x: number; y: number }) => {
+      setContextNode(node);
+      nodeContextMenu.showMenu(position, [
+        {
+          id: "open",
+          label: "Open Item",
+          icon: <ArrowSquareOut className="w-4 h-4" />,
+          onClick: () => handleNodeDoubleClick(node),
+        },
+        {
+          id: "focus",
+          label: "Focus View",
+          icon: <Target className="w-4 h-4" />,
+          onClick: () => {
+            setSelectedNode(node.id);
+            if (viewMode === "graph" && graphRef.current) {
+              graphRef.current.fitToView([node]);
+            }
+          },
+        },
+        ...(node.type === GraphNodeType.Document ||
+        node.type === GraphNodeType.Extract ||
+        node.type === GraphNodeType.Flashcard
+          ? [
+              {
+                id: "edit",
+                label: "Edit Details",
+                icon: <PencilSimple className="w-4 h-4" />,
+                onClick: () => {
+                  setSelectedNode(node.id);
+                },
+              },
+              { id: "sep1", type: ContextMenuItemType.Separator, label: "" },
+              {
+                id: "delete",
+                label: "Delete",
+                icon: <Trash className="w-4 h-4" />,
+                type: ContextMenuItemType.Danger,
+                onClick: () => handleNodeDelete(node.id),
+              },
+            ]
+          : []),
+      ]);
+    },
+    [handleNodeDoubleClick, handleNodeDelete, viewMode, nodeContextMenu]
+  );
    
   const handleSaveNodeDetails = useCallback(async (
     nodeId: string,
@@ -526,6 +618,7 @@ export function KnowledgeGraphPage() {
               data={filteredData}
               onNodeClick={handleNodeClick}
               onNodeDoubleClick={handleNodeDoubleClick}
+              onNodeContextMenu={handleNodeContextMenu}
               selectedNode={selectedNode || undefined}
               enablePhysics={true}
               showLabels={true}
@@ -538,6 +631,10 @@ export function KnowledgeGraphPage() {
               nodes={filteredData.nodes}
               edges={filteredData.edges}
               onNodeClick={handleNodeClick}
+              onNodeDoubleClick={handleNodeDoubleClick}
+              onNodeContextMenu={handleNodeContextMenu}
+              onNodeDelete={handleNodeDelete}
+              onNodeSave={handleSaveNodeDetails}
             />
           )}
 
@@ -573,8 +670,29 @@ export function KnowledgeGraphPage() {
           }}
           onEdit={handleNodeEditFallback}
           onSaveDetails={handleSaveNodeDetails}
+          onDelete={handleNodeDelete}
         />
       )}
+
+      {/* Node Context Menu */}
+      <ContextMenu
+        menuId="node-context-menu"
+        items={nodeContextMenu.items}
+        visible={nodeContextMenu.visible}
+        position={nodeContextMenu.position}
+        onClose={nodeContextMenu.hideMenu}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={confirmDialog.close}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        variant={confirmDialog.variant}
+        confirmLabel={confirmDialog.confirmLabel}
+      />
     </div>
   );
 }
