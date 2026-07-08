@@ -7,8 +7,9 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Local agent/tooling artifacts and session notes — not app code
-.agents/
+# Local agent/tooling artifacts and session notes — not app code.
+# NOTE: .agents/ is intentionally NOT ignored — it holds shared, tracked
+# agent skills (e.g. cut-release). Only personal/session state stays ignored.
 .zcode/
 handoff.md
 

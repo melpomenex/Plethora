@@ -8,9 +8,12 @@ description: Cut a new Incrementum release. Use whenever the user wants to ship 
 End-to-end release workflow for this Tauri app. The mechanics are handled by
 `scripts/release.cjs` (bumps every manifest, prepends the CHANGELOG entry,
 commits, tags, pushes, and creates the GitHub release). Your job is to prepare
-a clean release so that script does the right thing — the two common ways it
+a clean release so that script does the right thing — the three common ways it
 goes wrong are (a) a dirty working tree getting swept into the release commit
-via the script's `git add -A`, and (b) a broken `gh` token failing the push.
+via the script's `git add -A`, (b) a broken `gh` token failing the push, and
+(c) **`pnpm-lock.yaml` drifting out of sync with `package.json`** (npm CI
+passes but the Vercel deploy fails with `ERR_PNPM_OUTDATED_LOCKFILE` — see
+prerequisite 5).
 
 ## Prerequisites — check these BEFORE doing anything
 
@@ -38,6 +41,33 @@ via the script's `git add -A`, and (b) a broken `gh` token failing the push.
 4. **`tsc` should be clean** (or only have pre-existing known errors). Run
    `npx tsc --noEmit` and read the output. A non-compiling file shipped in a
    release is a defect.
+
+5. **Both JS lockfiles must agree with `package.json`.** This repo carries
+   **two** lockfiles and they are consumed by *different* CI systems:
+   - `package-lock.json` → used by the GitHub Actions release workflow (`npm ci`)
+   - `pnpm-lock.yaml` → used by **Vercel** (which auto-detects it and runs
+     `pnpm install --frozen-lockfile`)
+
+   Vercel's `--frozen-lockfile` will **hard-fail the deploy** if
+   `pnpm-lock.yaml` is even one dependency out of sync with `package.json`
+   (error: `ERR_PNPM_OUTDATED_LOCKFILE`). This bit v1.67.1: a dep was added
+   via `npm install`, which updated only `package-lock.json`, leaving
+   `pnpm-lock.yaml` stale — npm CI passed but the Vercel deploy failed.
+
+   **Always check both lockfiles before cutting a release.** Run:
+   ```bash
+   # If you added/changed a JS dependency since the last release:
+   pnpm install --no-frozen-lockfile --lockfile-only   # regenerate pnpm-lock.yaml
+   # Then verify BOTH install cleanly from the lockfile (as CI does):
+   pnpm install --frozen-lockfile --lockfile-only && echo "pnpm OK"
+   npm ci --offline >/dev/null 2>&1 && echo "npm OK"   # or drop --offline if no cache
+   ```
+   If either reports a mismatch or an outdated lockfile, regenerate it before
+   proceeding. Commit the regenerated lockfile as part of the release prep
+   (separate from the `chore: release` commit) — never let the release
+   script's `git add -A` be the thing that sweeps it in.
+
+   Rust's `Cargo.lock` is single and has no analog of this problem.
 
 ## Clean the tree before staging
 
