@@ -195,7 +195,7 @@ pub fn calculate_priority_score(
     priority.clamp(0.0, 10.0)
 }
 
-/// Calculate combined priority score for documents using rating (1-4) and slider (0-100).
+/// Calculate combined priority score for documents using rating (1-5) and slider (0-100).
 pub fn calculate_document_priority_score(
     priority_rating: Option<i32>,
     priority_slider: i32,
@@ -204,6 +204,8 @@ pub fn calculate_document_priority_score(
     let rating_value = priority_rating.unwrap_or(0);
     let rating_normalized = if (1..=4).contains(&rating_value) {
         (rating_value - 1) as f64 / 3.0 * 100.0
+    } else if rating_value == 5 {
+        100.0
     } else {
         0.0
     };

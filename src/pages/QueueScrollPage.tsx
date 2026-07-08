@@ -28,7 +28,7 @@ import { rateDocumentEngaging, getSmartStartPosition } from "../api/algorithm";
 import { getDueItems, type LearningItem } from "../api/learning-items";
 import { sanitizeHtml } from "../components/common/RichContentRenderer";
 import { getDueExtracts, submitExtractReview } from "../api/extract-review";
-import { createExtract, deleteExtract, type Extract } from "../api/extracts";
+import { createExtract, deleteExtract, setExtractPriority, type Extract } from "../api/extracts";
 import { ExtractScrollItem } from "../components/review/ExtractScrollItem";
 import { ClozeCreatorPopup } from "../components/extracts/ClozeCreatorPopup";
 import { QACreatorPopup } from "../components/extracts/QACreatorPopup";
@@ -58,7 +58,7 @@ import { AssistantPanel, type AssistantContext, type AssistantPosition } from ".
 import { useToast } from "../components/common/Toast";
 import { useMobileShell } from "../hooks/useMobileShell";
 import { RSSQueueSettingsModal } from "../components/settings/RSSQueueSettings";
-import { createDocument, updateDocumentContent, dismissDocument, getDocument, extractDocumentText } from "../api/documents";
+import { createDocument, updateDocumentContent, updateDocumentPriority, dismissDocument, getDocument, extractDocumentText } from "../api/documents";
 import { trimToTokenWindow } from "../utils/tokenizer";
 import { fetchYouTubeTranscript } from "../api/youtube";
 import { ReaderTTSControls } from "../components/common/ReaderTTSControls";
@@ -117,6 +117,14 @@ const extractYouTubeId = (urlOrId: string): string => {
   }
 
   return urlOrId;
+};
+
+const prioritySliderToRating = (slider: number): number => {
+  if (slider >= 81) return 5;
+  if (slider >= 61) return 4;
+  if (slider >= 41) return 3;
+  if (slider >= 21) return 2;
+  return 1;
 };
 
 /**
@@ -1125,6 +1133,52 @@ export function QueueScrollPage() {
       ? (currentDocument.reps ?? currentDocument.readingCount ?? 0) <= 0
       && !currentDocument.dateLastReviewed
       : false;
+  const currentPrioritySlider = useMemo(() => {
+    if (!currentItem) return undefined;
+    if (currentItem.type === "document") {
+      return currentDocument?.prioritySlider ?? 50;
+    }
+    if (currentItem.type === "extract" && currentItem.extract) {
+      const parentDoc = documents.find((doc) => doc.id === currentItem.extract?.document_id);
+      return Math.round(currentItem.extract.priority_score ?? parentDoc?.priorityScore ?? 50);
+    }
+    return undefined;
+  }, [currentItem, currentDocument, documents]);
+
+  const handlePriorityChange = useCallback(async (slider: number) => {
+    const activeItem = currentItem;
+    if (!activeItem) return;
+
+    if (activeItem.type === "document" && activeItem.documentId) {
+      await updateDocumentPriority(activeItem.documentId, prioritySliderToRating(slider), slider);
+      const [documentsResult, queueResult] = await Promise.allSettled([
+        loadDocuments(),
+        loadQueue(),
+      ]);
+      if (documentsResult.status === "rejected") {
+        console.warn("[QueueScroll] Failed to refresh documents after priority update:", documentsResult.reason);
+      }
+      if (queueResult.status === "rejected") {
+        console.warn("[QueueScroll] Failed to refresh queue after priority update:", queueResult.reason);
+      }
+      return;
+    }
+
+    if (activeItem.type === "extract" && activeItem.extract) {
+      await setExtractPriority(activeItem.extract.id, slider);
+      setDueExtracts((prev) =>
+        prev.map((extract) =>
+          extract.id === activeItem.extract?.id
+            ? { ...extract, priority_score: slider }
+            : extract
+        )
+      );
+      const queueResult = await Promise.allSettled([loadQueue()]);
+      if (queueResult[0].status === "rejected") {
+        console.warn("[QueueScroll] Failed to refresh queue after extract priority update:", queueResult[0].reason);
+      }
+    }
+  }, [currentItem, loadDocuments, loadQueue]);
 
   // Rendered item (actual document being rendered)
   const renderedItem = scrollItems[renderedIndex];
@@ -3291,6 +3345,8 @@ export function QueueScrollPage() {
         onOpenExtractDialog={() => setIsExtractDialogOpen(true)}
         onRate={handleRating}
         onDismiss={handleDismiss}
+        prioritySlider={currentPrioritySlider}
+        onPriorityChange={currentPrioritySlider !== undefined ? handlePriorityChange : undefined}
         onGoToNext={goToNext}
         onGoToPrevious={goToPrevious}
         isAssistantVisible={isAssistantVisible}
@@ -3362,6 +3418,15 @@ export function QueueScrollPage() {
           hideAssistant: t("queueScroll.hideAssistant"),
           summarize: t("queueScroll.summarize"),
           closeSummary: t("queueScroll.closeSummary"),
+          priority: t("priority.readingPriority"),
+          priorityLowest: t("priority.lowest"),
+          priorityLow: t("priority.low"),
+          priorityNormal: t("priority.normal"),
+          priorityHigh: t("priority.high"),
+          priorityHighest: t("priority.highest"),
+          priorityFineTune: t("priority.fineTune"),
+          prioritySaving: t("priority.saving"),
+          prioritySaveFailed: t("common.error"),
         }}
       />
 
