@@ -2303,7 +2303,6 @@ export function QueueScrollPage() {
         setItemsReviewedThisSession(prev => prev + 1);
 
         advanceAfterRemoval(ratedItemId);
-        void loadQueue();
       } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
         // Rate flashcard using FSRS
         await submitReview(currentItem.learningItem.id, rating, timeTaken);
@@ -2442,7 +2441,6 @@ export function QueueScrollPage() {
       }
 
       advanceAfterRemoval(dismissedItemId);
-      void loadQueue();
     } catch (error) {
       console.error(`[QueueScroll] Failed to dismiss ${currentItem.type}:`, error);
       toast.error(

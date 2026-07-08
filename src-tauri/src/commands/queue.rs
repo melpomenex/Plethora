@@ -423,6 +423,247 @@ pub async fn get_queued_items(
     Ok(queued_items)
 }
 
+async fn get_due_queue_items_from_repo(
+    repo: &Repository,
+    collection_id: Option<&str>,
+    randomness: Option<f32>,
+) -> Result<Vec<QueueItem>> {
+    let mut queue_items = Vec::new();
+    let now = Utc::now();
+
+    let learning_items = repo.get_due_learning_items(&now, collection_id).await?;
+    let due_extracts = repo.get_due_extracts(&now).await?;
+    let new_extracts = repo.get_new_extracts().await?;
+    let extracts: Vec<_> = due_extracts
+        .into_iter()
+        .chain(new_extracts.into_iter())
+        .collect();
+    let due_video_extracts = repo.get_due_video_extracts(&now).await?;
+    let new_video_extracts = repo.get_new_video_extracts().await.unwrap_or_default();
+    let video_extracts: Vec<_> = due_video_extracts
+        .into_iter()
+        .chain(new_video_extracts.into_iter())
+        .collect();
+    let documents = repo.list_due_documents_for_queue(&now, collection_id).await?;
+
+    let mut all_doc_ids: HashSet<String> = HashSet::new();
+    for item in &learning_items {
+        if let Some(doc_id) = &item.document_id {
+            all_doc_ids.insert(doc_id.clone());
+        }
+    }
+    for extract in &extracts {
+        if collection_id.is_none_or(|cid| extract.collection_id == cid) {
+            all_doc_ids.insert(extract.document_id.clone());
+        }
+    }
+    for extract in &video_extracts {
+        if collection_id.is_none_or(|cid| extract.collection_id == cid) {
+            all_doc_ids.insert(extract.document_id.clone());
+        }
+    }
+
+    let doc_ids: Vec<String> = all_doc_ids.into_iter().collect();
+    let doc_titles = repo.get_document_titles(&doc_ids).await?;
+
+    for item in learning_items {
+        let priority = 10.0 - (item.interval / 10.0);
+        let estimated_time = match item.item_type {
+            crate::models::ItemType::Cloze => 2,
+            crate::models::ItemType::Qa => 3,
+            _ => 1,
+        };
+        let progress = if item.review_count == 0 {
+            0
+        } else if item.interval >= 21.0 {
+            100
+        } else {
+            ((item.interval) / 21.0 * 100.0) as i32
+        };
+        let document_title = item
+            .document_id
+            .as_ref()
+            .and_then(|id| doc_titles.get(id))
+            .cloned()
+            .unwrap_or_else(|| "Unknown Document".to_string());
+
+        queue_items.push(QueueItem {
+            id: item.id.clone(),
+            document_id: item.document_id.unwrap_or_default(),
+            document_title,
+            extract_id: item.extract_id.clone(),
+            learning_item_id: Some(item.id.clone()),
+            question: Some(item.question.clone()),
+            answer: item.answer.clone(),
+            cloze_text: item.cloze_text.clone(),
+            item_type: "learning-item".to_string(),
+            priority_rating: None,
+            priority_slider: None,
+            priority,
+            due_date: Some(item.due_date.to_rfc3339()),
+            estimated_time,
+            tags: item.tags.clone(),
+            category: None,
+            progress,
+            source: None,
+            position: None,
+            stability: item.memory_state.as_ref().map(|m| m.stability),
+            difficulty: Some(item.difficulty as f64),
+            interval: Some(item.interval),
+            retrievability: None,
+            lapses: Some(item.lapses),
+            reps: Some(item.review_count),
+        });
+    }
+
+    for extract in extracts {
+        if let Some(cid) = collection_id {
+            if extract.collection_id != cid {
+                continue;
+            }
+        }
+
+        let document_title = doc_titles
+            .get(&extract.document_id)
+            .cloned()
+            .unwrap_or_else(|| "Unknown Document".to_string());
+        const PRIORITY_SPAN: f64 = 2.0;
+        let base_weight = if extract.review_count == 0 { 9.0 } else { 7.0 };
+        let priority = base_weight + (extract.priority_score / 100.0) * PRIORITY_SPAN;
+
+        queue_items.push(QueueItem {
+            id: extract.id.clone(),
+            document_id: extract.document_id.clone(),
+            document_title: format!("{} - Extract", document_title),
+            extract_id: Some(extract.id.clone()),
+            learning_item_id: None,
+            question: None,
+            answer: None,
+            cloze_text: None,
+            item_type: "extract".to_string(),
+            priority_rating: None,
+            priority_slider: None,
+            priority,
+            due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
+            estimated_time: 3,
+            tags: extract.tags.clone(),
+            category: extract.category.clone(),
+            progress: 0,
+            source: None,
+            position: None,
+            stability: None,
+            difficulty: None,
+            interval: None,
+            retrievability: None,
+            lapses: None,
+            reps: Some(extract.review_count),
+        });
+    }
+
+    for extract in video_extracts {
+        if let Some(cid) = collection_id {
+            if extract.collection_id != cid {
+                continue;
+            }
+        }
+
+        let document_title = doc_titles
+            .get(&extract.document_id)
+            .cloned()
+            .unwrap_or_else(|| "Unknown Video".to_string());
+        let priority = if extract.review_count == 0 { 8.5 } else { 6.5 };
+        let duration_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil() as i32;
+        let estimated_time = duration_minutes.clamp(1, 10);
+        let transcript_preview = extract
+            .transcript_text
+            .as_ref()
+            .map(|t| preview_text(t, 100));
+
+        queue_items.push(QueueItem {
+            id: extract.id.clone(),
+            document_id: extract.document_id.clone(),
+            document_title: format!("{} - {}", document_title, extract.title),
+            extract_id: None,
+            learning_item_id: None,
+            question: Some(format!(
+                "Watch segment: {}",
+                format_time_range(extract.start_time, extract.end_time)
+            )),
+            answer: transcript_preview,
+            cloze_text: None,
+            item_type: "video-extract".to_string(),
+            priority_rating: None,
+            priority_slider: None,
+            priority,
+            due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
+            estimated_time,
+            tags: extract.tags.clone(),
+            category: None,
+            progress: 0,
+            source: None,
+            position: None,
+            stability: None,
+            difficulty: None,
+            interval: None,
+            retrievability: None,
+            lapses: None,
+            reps: Some(extract.review_count),
+        });
+    }
+
+    for document in documents {
+        let progress = match (document.current_page, document.total_pages) {
+            (Some(current), Some(total)) if total > 0 => {
+                ((current as f64 / total as f64) * 100.0).round() as i32
+            }
+            _ => 0,
+        };
+        let priority = calculate_fsrs_document_priority(
+            document.next_reading_date,
+            document.stability,
+            document.difficulty,
+            document.priority_rating,
+        );
+
+        queue_items.push(QueueItem {
+            id: document.id.clone(),
+            document_id: document.id.clone(),
+            document_title: document.title.clone(),
+            extract_id: None,
+            learning_item_id: None,
+            question: None,
+            answer: None,
+            cloze_text: None,
+            item_type: "document".to_string(),
+            priority_rating: Some(document.priority_rating),
+            priority_slider: Some(document.priority_slider),
+            priority,
+            due_date: document.next_reading_date.map(|d| d.to_rfc3339()),
+            estimated_time: 5,
+            tags: document.tags.clone(),
+            category: document.category.clone(),
+            progress,
+            source: None,
+            position: None,
+            stability: document.stability,
+            difficulty: document.difficulty,
+            interval: None,
+            retrievability: None,
+            lapses: None,
+            reps: document.reps,
+        });
+    }
+
+    let selector = QueueSelector::new(randomness.unwrap_or(0.3));
+    selector.sort_queue_items(&mut queue_items);
+    tracing::debug!(
+        "[queue] get_due_queue_items_from_repo collection_id={:?} returned {} items",
+        collection_id,
+        queue_items.len()
+    );
+    Ok(queue_items)
+}
+
 /// Get due queue items only
 #[tauri::command]
 pub async fn get_due_queue_items(
@@ -430,17 +671,7 @@ pub async fn get_due_queue_items(
     collection_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
-    let queue = get_queue_with_collection(repo, collection_id.as_deref()).await?;
-    let selector = QueueSelector::new(randomness.unwrap_or(0.3));
-
-    let mut due_items: Vec<QueueItem> = selector
-        .filter_due_items(&queue)
-        .into_iter()
-        .cloned()
-        .collect();
-
-    selector.sort_queue_items(&mut due_items);
-    Ok(due_items)
+    get_due_queue_items_from_repo(repo.inner(), collection_id.as_deref(), randomness).await
 }
 
 /// Get only due documents (excluding learning items and extracts)
@@ -455,32 +686,11 @@ async fn get_due_documents_only_from_repo(
     let mut due_documents = Vec::new();
     let now = Utc::now();
 
-    // Get all documents (without content column)
-    let documents = repo.list_documents_for_queue().await?;
+    let documents = repo
+        .list_due_documents_for_queue(&now, collection_id)
+        .await?;
 
     for document in documents {
-        // Skip archived and dismissed documents
-        if document.is_archived || document.is_dismissed {
-            continue;
-        }
-
-        // Filter by collection if specified
-        if let Some(cid) = collection_id {
-            if document.collection_id != cid {
-                continue;
-            }
-        }
-
-        // Include documents that are due (next_reading_date <= now)
-        // OR documents that have never been read (next_reading_date is NULL)
-        let is_due = document
-            .next_reading_date
-            .is_none_or(|next_date| next_date <= now);
-
-        if !is_due {
-            continue; // Skip future-dated documents
-        }
-
         let progress = match (document.current_page, document.total_pages) {
             (Some(current), Some(total)) if total > 0 => {
                 ((current as f64 / total as f64) * 100.0).round() as i32
