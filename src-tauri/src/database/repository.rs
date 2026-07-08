@@ -862,6 +862,103 @@ impl Repository {
         Ok(docs)
     }
 
+    pub async fn list_due_documents_for_queue(
+        &self,
+        before: &chrono::DateTime<chrono::Utc>,
+        collection_id: Option<&str>,
+    ) -> Result<Vec<Document>> {
+        let columns = "id, title, file_path, file_type, content_hash, total_pages, current_page, \
+             current_scroll_percent, current_cfi, current_view_state, position_json, \
+             progress_percent, category, tags, date_added, date_modified, date_last_reviewed, \
+             extract_count, learning_item_count, priority_rating, priority_slider, priority_score, \
+             is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source, \
+             next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, \
+             collection_id";
+
+        let rows = if let Some(cid) = collection_id {
+            sqlx::query(&format!(
+                "SELECT {} FROM documents \
+                 WHERE is_archived = 0 \
+                   AND COALESCE(is_dismissed, 0) = 0 \
+                   AND collection_id = ? \
+                   AND (next_reading_date IS NULL OR next_reading_date <= ?) \
+                 ORDER BY next_reading_date IS NULL, next_reading_date, date_added DESC",
+                columns
+            ))
+            .bind(cid)
+            .bind(before)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query(&format!(
+                "SELECT {} FROM documents \
+                 WHERE is_archived = 0 \
+                   AND COALESCE(is_dismissed, 0) = 0 \
+                   AND (next_reading_date IS NULL OR next_reading_date <= ?) \
+                 ORDER BY next_reading_date IS NULL, next_reading_date, date_added DESC",
+                columns
+            ))
+            .bind(before)
+            .fetch_all(&self.pool)
+            .await?
+        };
+
+        let mut docs = Vec::new();
+        for row in rows {
+            let file_type: String = row.get("file_type");
+            let tags_json: String = row.get("tags");
+            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+            let metadata_json: Option<String> = row.try_get("metadata")?;
+            let metadata: Option<DocumentMetadata> =
+                metadata_json.and_then(|json| serde_json::from_str(&json).ok());
+
+            docs.push(Document {
+                id: row.get("id"),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                title: row.get("title"),
+                file_path: row.get("file_path"),
+                file_type: Self::parse_file_type(&file_type),
+                content: None,
+                content_hash: row.get("content_hash"),
+                total_pages: row.get("total_pages"),
+                current_page: row.get("current_page"),
+                current_scroll_percent: row.try_get("current_scroll_percent").ok(),
+                current_cfi: row.try_get("current_cfi").ok(),
+                current_view_state: row.try_get("current_view_state").ok(),
+                position_json: row.try_get("position_json").ok(),
+                progress_percent: row.try_get("progress_percent").ok(),
+                category: row.get("category"),
+                tags,
+                date_added: row.get("date_added"),
+                date_modified: row.get("date_modified"),
+                date_last_reviewed: row.get("date_last_reviewed"),
+                extract_count: row.get("extract_count"),
+                learning_item_count: row.get("learning_item_count"),
+                priority_rating: row.get("priority_rating"),
+                priority_slider: row.get("priority_slider"),
+                priority_score: row.get("priority_score"),
+                is_archived: row.get("is_archived"),
+                is_favorite: row.get("is_favorite"),
+                is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                metadata,
+                cover_image_url: row.try_get("cover_image_url").ok(),
+                cover_image_source: row.try_get("cover_image_source").ok(),
+                next_reading_date: row.try_get("next_reading_date").ok(),
+                reading_count: row.try_get("reading_count").unwrap_or(0),
+                stability: row.try_get("stability").ok(),
+                difficulty: row.try_get("difficulty").ok(),
+                reps: row.try_get("reps").ok(),
+                total_time_spent: row.try_get("total_time_spent").ok(),
+                consecutive_count: row.try_get("consecutive_count").ok(),
+            });
+        }
+
+        Ok(docs)
+    }
+
     pub async fn update_document(&self, id: &str, updates: &Document) -> Result<Document> {
         let tags_json = serde_json::to_string(&updates.tags)?;
         // See document_repository.rs::update_document: empty-string == not provided,

@@ -116,19 +116,13 @@ export async function registerImportedFileSync(
     });
 
     // Upload the file to the file-service in the background so other devices can sync it asynchronously
-    void (async () => {
-      try {
-        const base64 = await readDocumentFile(doc.filePath);
-        const mime = mimeForFileType(doc.fileType);
-        const blob = base64ToBlob(base64, mime);
-        const filename = doc.title || doc.filePath.split(/[\\/]/).pop() || doc.id;
-        const file = new File([blob], filename, { type: mime });
-        await uploadRoomFile(file, getSyncRoomId(), fileId);
-        console.log("[fileSyncRegistration] successfully uploaded file to file-service:", fileId);
-      } catch (uploadErr) {
-        console.warn("[fileSyncRegistration] background file-service upload failed:", fileId, uploadErr);
-      }
-    })();
+    enqueueBackgroundUpload({
+      docId: doc.id,
+      filePath: doc.filePath,
+      fileType: doc.fileType,
+      title: doc.title || "",
+      fileId,
+    });
 
     // Persist the fileId on the document so the UI can render sync status and
     // so re-imports don't re-register. We update the store-side doc; the Rust
@@ -260,26 +254,13 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
 
       // 3.5 Upload the file to the file-service in the background if it's not already on the server
       if (fileId) {
-        const currentFileId = fileId;
-        void (async () => {
-          try {
-            const room = getSyncRoomId();
-            const exists = await checkRoomFileExists(room, currentFileId);
-            if (!exists) {
-              const base64 = await readDocumentFile(doc.filePath);
-              const mime = mimeForFileType(doc.fileType);
-              const blob = base64ToBlob(base64, mime);
-              if (blob.size > 0) {
-                const filename = doc.title || doc.filePath.split(/[\\/]/).pop() || doc.id;
-                const file = new File([blob], filename, { type: mime });
-                await uploadRoomFile(file, room, currentFileId);
-                console.log("[fileSyncRegistration] background-uploaded existing file to file-service:", currentFileId);
-              }
-            }
-          } catch (uploadErr) {
-            // Ignore background upload failures silently (e.g. offline, temporary error)
-          }
-        })();
+        enqueueBackgroundUpload({
+          docId: doc.id,
+          filePath: doc.filePath,
+          fileType: doc.fileType,
+          title: doc.title || "",
+          fileId,
+        });
       }
 
       // 4. Publish the document metadata row to Yjs so other devices replicate the row
@@ -467,4 +448,64 @@ function base64ToBlob(base64: string, contentType: string): Blob {
     bytes[i] = binary.charCodeAt(i);
   }
   return new Blob([bytes], { type: contentType });
+}
+
+// Background upload queue to limit memory spikes and concurrent request storms
+interface UploadTask {
+  docId: string;
+  filePath: string;
+  fileType: Document["fileType"];
+  title: string;
+  fileId: string;
+}
+
+const activeUploads = new Set<string>();
+const taskQueue: UploadTask[] = [];
+let processingQueue = false;
+
+function enqueueBackgroundUpload(task: UploadTask): void {
+  // If already queued or uploading, skip
+  if (activeUploads.has(task.fileId) || taskQueue.some(t => t.fileId === task.fileId)) {
+    return;
+  }
+  taskQueue.push(task);
+  void processUploadQueue();
+}
+
+async function processUploadQueue(): Promise<void> {
+  if (processingQueue) return;
+  processingQueue = true;
+
+  try {
+    while (taskQueue.length > 0) {
+      const task = taskQueue.shift();
+      if (!task) continue;
+
+      // Track active check/upload to prevent concurrent duplicate attempts
+      activeUploads.add(task.fileId);
+
+      try {
+        const room = getSyncRoomId();
+        const exists = await checkRoomFileExists(room, task.fileId);
+        if (!exists) {
+          const base64 = await readDocumentFile(task.filePath);
+          const mime = mimeForFileType(task.fileType);
+          const blob = base64ToBlob(base64, mime);
+          if (blob.size > 0) {
+            const filename = task.title || task.filePath.split(/[\\/]/).pop() || task.docId;
+            const file = new File([blob], filename, { type: mime });
+            await uploadRoomFile(file, room, task.fileId);
+            console.log("[fileSyncRegistration] background-uploaded existing file to file-service:", task.fileId);
+          }
+        }
+      } catch (uploadErr) {
+        // Ignore background upload failures silently (e.g. offline, temporary error)
+        console.warn("[fileSyncRegistration] background file-service check/upload failed:", task.fileId, uploadErr);
+      } finally {
+        activeUploads.delete(task.fileId);
+      }
+    }
+  } finally {
+    processingQueue = false;
+  }
 }
