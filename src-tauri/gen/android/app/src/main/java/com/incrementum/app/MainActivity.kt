@@ -13,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import app.tauri.plugin.PluginManager
+import com.incrementum.app.BuildConfig
 
 class MainActivity : TauriActivity() {
 
@@ -91,7 +92,14 @@ class MainActivity : TauriActivity() {
     private fun hookWebViewPermissions() {
         val wv = findWebView(window.decorView.rootView) ?: return
         wv.settings.mediaPlaybackRequiresUserGesture = false
-        WebView.setWebContentsDebuggingEnabled(true)
+        // Chrome DevTools remote debugging instrumentation adds non-trivial
+        // overhead to every JS execution and DOM mutation. It must NOT be
+        // enabled in release APKs — doing so caused severe, app-wide lag on
+        // Android (see commit 4f7ecc09, which left it on unconditionally).
+        // Gate it to debug builds only.
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
         wv.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
                 runOnUiThread {
