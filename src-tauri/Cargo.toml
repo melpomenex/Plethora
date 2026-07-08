@@ -34,6 +34,15 @@ tauri-plugin-process = "2"
 # unlike localhost/battery which are desktop-only.
 tauri-plugin-os = "2"
 
+# Logging plugin — routes Rust `log`/`tracing` macros AND frontend JS console
+# output to platform-native sinks. On Android the Logcat target is enabled so
+# `adb logcat` shows app logs in release builds (essential for diagnosing
+# mobile perf/heating without a debug build, which has its own overhead).
+# On desktop, targets Stdout + a rotating log file.
+tauri-plugin-log = "2"
+# Referenced directly for log::LevelFilter in the log-plugin builder config.
+log = "0.4"
+
 # In-repo mobile plugin for importing documents from a folder recursively.
 # On desktop it opens a native folder dialog + walkdir scan; on Android it uses
 # SAF (ACTION_OPEN_DOCUMENT_TREE) and on iOS a UIDocumentPickerViewController in
@@ -63,7 +72,11 @@ anyhow = "1"
 thiserror = "1"
 
 # Logging
-tracing = "0.1"
+# The `log` feature bridges tracing events into the `log` facade, so they reach
+# tauri-plugin-log's global logger (and thus Logcat on Android / stdout + log
+# file on desktop). Without it, the app's 100+ tracing::warn!/info!/error!
+# calls would be invisible to the log plugin.
+tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = "0.3"
 
 # Async

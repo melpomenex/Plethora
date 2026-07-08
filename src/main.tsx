@@ -112,6 +112,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
 import { isNativeMobile, isPWA, isTauri } from "./lib/tauri";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
+import { installConsoleLogcatBridge } from "./lib/consoleLogcatBridge";
 
 import { MainLayout } from "./components/layout/MainLayout";
 import { DevPerformanceMonitor } from "./components/common/PerformanceMonitor";
@@ -200,6 +201,11 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 if (isNetworkDebugEnabled()) {
   installNetworkDebugInstrumentation();
 }
+
+// Forward JS console.log/warn/error to the native logger (adb logcat on
+// Android) so frontend output is visible in release mobile builds. Fire-and-
+// forget; the bridge is a no-op off native mobile.
+void installConsoleLogcatBridge();
 
 // Initialize PWA (works in both Tauri and Web)
 initializePWA();
