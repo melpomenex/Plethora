@@ -738,7 +738,7 @@ pub async fn update_document_priority(
     slider: i32,
     repo: State<'_, Repository>,
 ) -> Result<Document> {
-    let rating_value = if (1..=4).contains(&rating) { rating } else { 0 };
+    let rating_value = if (1..=5).contains(&rating) { rating } else { 0 };
     let slider_value = slider.clamp(0, 100);
     let score = calculate_document_priority_score(
         if rating_value > 0 {

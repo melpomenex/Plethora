@@ -127,6 +127,12 @@ mod tests {
     }
 
     #[test]
+    fn test_document_priority_score_highest_rating() {
+        let score = calculate_document_priority_score(Some(5), 90);
+        assert!((score - 95.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn test_document_priority_score_no_rating() {
         let score = calculate_document_priority_score(None, 40);
         assert!((score - 20.0).abs() < f64::EPSILON);

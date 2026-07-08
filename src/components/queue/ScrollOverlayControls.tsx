@@ -6,6 +6,7 @@ import {
   ChatCircle,
   CheckCircle,
   EyeSlash,
+  Flag,
   Lightbulb,
   List,
   Rss,
@@ -41,6 +42,7 @@ interface ScrollOverlayControlsProps {
   onOpenExtractDialog: () => void;
   onRate: (rating: number) => void;
   onDismiss: () => void;
+  onPriorityChange?: (slider: number) => void | Promise<void>;
   onGoToNext: () => void;
   onGoToPrevious: () => void;
   /** Toggle the AI assistant panel visibility (desktop only). */
@@ -51,6 +53,7 @@ interface ScrollOverlayControlsProps {
   onToggleSummary?: () => void;
   /** Render slot for ItemDetailsPopover in top bar */
   detailsButton?: React.ReactNode;
+  prioritySlider?: number;
   /** i18n labels (optional — falls back to English) */
   labels?: {
     exit?: string;
@@ -83,7 +86,32 @@ interface ScrollOverlayControlsProps {
     hideAssistant?: string;
     summarize?: string;
     closeSummary?: string;
+    priority?: string;
+    priorityLowest?: string;
+    priorityLow?: string;
+    priorityNormal?: string;
+    priorityHigh?: string;
+    priorityHighest?: string;
+    priorityFineTune?: string;
+    prioritySaving?: string;
+    prioritySaveFailed?: string;
   };
+}
+
+const PRIORITY_PRESETS = [
+  { value: 10, color: "#6B7280", label: "Lowest" },
+  { value: 30, color: "#9CA3AF", label: "Low" },
+  { value: 50, color: "#3B82F6", label: "Normal" },
+  { value: 70, color: "#F59E0B", label: "High" },
+  { value: 90, color: "#EF4444", label: "Highest" },
+] as const;
+
+function getPriorityPreset(slider: number) {
+  if (slider >= 81) return PRIORITY_PRESETS[4];
+  if (slider >= 61) return PRIORITY_PRESETS[3];
+  if (slider >= 41) return PRIORITY_PRESETS[2];
+  if (slider >= 21) return PRIORITY_PRESETS[1];
+  return PRIORITY_PRESETS[0];
 }
 
 export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
@@ -98,7 +126,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   isRating,
   scrollViewMode,
   helpText,
-  isEpub = false,
+  isEpub: _isEpub = false,
   isMobile = false,
   onExit,
   onShowSettings,
@@ -107,6 +135,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   onOpenExtractDialog,
   onRate,
   onDismiss,
+  onPriorityChange,
   onGoToNext,
   onGoToPrevious,
   isAssistantVisible = true,
@@ -114,6 +143,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   isSummaryActive = false,
   onToggleSummary,
   detailsButton,
+  prioritySlider,
   labels,
 }: ScrollOverlayControlsProps) {
   const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -149,7 +179,15 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
         ? "bg-orange-500/30"
         : itemType === "podcast"
           ? "bg-emerald-500/30"
-          : "bg-yellow-500/30";
+        : "bg-yellow-500/30";
+
+  const priorityControl = onPriorityChange && typeof prioritySlider === "number" ? (
+    <ScrollPriorityControl
+      value={prioritySlider}
+      onChange={onPriorityChange}
+      labels={labels}
+    />
+  ) : null;
 
   return (
     <>
@@ -172,6 +210,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
           </div>
 
           <div className="flex items-center gap-3 pointer-events-auto">
+            {priorityControl}
             {detailsButton}
             {!isMobile && (
               <>
@@ -415,6 +454,143 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
     </>
   );
 });
+
+function ScrollPriorityControl({
+  value,
+  onChange,
+  labels,
+}: {
+  value: number;
+  onChange: (slider: number) => void | Promise<void>;
+  labels?: ScrollOverlayControlsProps["labels"];
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [slider, setSlider] = useState(value);
+  const [committedValue, setCommittedValue] = useState(value);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+
+  useEffect(() => {
+    setSlider(value);
+    setCommittedValue(value);
+  }, [value]);
+
+  const currentPreset = getPriorityPreset(slider);
+  const presetLabels = [
+    labels?.priorityLowest ?? "Lowest",
+    labels?.priorityLow ?? "Low",
+    labels?.priorityNormal ?? "Normal",
+    labels?.priorityHigh ?? "High",
+    labels?.priorityHighest ?? "Highest",
+  ];
+  const currentLabel = presetLabels[PRIORITY_PRESETS.indexOf(currentPreset)];
+
+  const commitPriority = async (nextValue: number, closeAfterSave = false) => {
+    const normalized = Math.max(0, Math.min(100, Math.round(nextValue)));
+    setSlider(normalized);
+    if (normalized === committedValue && !saveFailed) {
+      if (closeAfterSave) setIsOpen(false);
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveFailed(false);
+    try {
+      await onChange(normalized);
+      setCommittedValue(normalized);
+      if (closeAfterSave) setIsOpen(false);
+    } catch (error) {
+      console.error("[ScrollPriorityControl] Failed to update priority:", error);
+      setSaveFailed(true);
+      setSlider(committedValue);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 rounded-lg bg-black/40 backdrop-blur-sm text-white text-sm transition-colors hover:bg-black/60",
+          isOpen && "bg-black/60"
+        )}
+        title={`${labels?.priority ?? "Priority"}: ${currentLabel}`}
+        aria-label={`${labels?.priority ?? "Priority"}: ${currentLabel}`}
+        aria-expanded={isOpen}
+      >
+        <Flag className="w-4 h-4" style={{ color: currentPreset.color }} weight="fill" />
+        <span className="hidden sm:inline">{currentLabel}</span>
+        <CaretDown className={cn("w-3 h-3 text-white/70 transition-transform", isOpen && "rotate-180")} />
+      </button>
+
+      {isOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-[55]"
+            role="presentation"
+            onClick={() => setIsOpen(false)}
+          />
+          <div className="absolute right-0 top-full z-[60] mt-2 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-white/15 bg-neutral-950/95 p-3 text-white shadow-2xl backdrop-blur-md">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-sm font-semibold">{labels?.priority ?? "Priority"}</span>
+              {isSaving && <span className="text-xs text-white/60">{labels?.prioritySaving ?? "Saving..."}</span>}
+              {saveFailed && !isSaving && <span className="text-xs text-red-300">{labels?.prioritySaveFailed ?? "Couldn't save"}</span>}
+            </div>
+
+            <div className="grid grid-cols-5 gap-1.5">
+              {PRIORITY_PRESETS.map((preset, index) => {
+                const isSelected = getPriorityPreset(slider).value === preset.value;
+                return (
+                  <button
+                    key={preset.value}
+                    type="button"
+                    onClick={() => void commitPriority(preset.value, true)}
+                    className={cn(
+                      "flex min-h-[48px] flex-col items-center justify-center gap-1 rounded-lg border px-1.5 py-2 text-[10px] transition-colors",
+                      isSelected
+                        ? "border-white/50 bg-white/15 text-white"
+                        : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white"
+                    )}
+                    title={presetLabels[index]}
+                  >
+                    <Flag className="h-4 w-4" style={{ color: preset.color }} weight="fill" />
+                    <span className="max-w-full truncate">{presetLabels[index]}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-white/65">{labels?.priorityFineTune ?? "Fine-tune"}</span>
+                <span className="font-semibold tabular-nums" style={{ color: currentPreset.color }}>{slider}%</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={slider}
+                onChange={(event) => {
+                  setSaveFailed(false);
+                  setSlider(Number(event.target.value));
+                }}
+                onMouseUp={(event) => void commitPriority(Number(event.currentTarget.value))}
+                onTouchEnd={(event) => void commitPriority(Number(event.currentTarget.value))}
+                onBlur={(event) => void commitPriority(Number(event.currentTarget.value))}
+                aria-label={labels?.priorityFineTune ?? "Fine-tune priority"}
+                className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-primary"
+                style={{ accentColor: currentPreset.color }}
+              />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 /** Compact touch-friendly rating button for the mobile bottom action bar. */
 function MobileRateButton({
