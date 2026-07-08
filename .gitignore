@@ -9,6 +9,7 @@ lerna-debug.log*
 
 # Local agent/tooling artifacts and session notes — not app code
 .agents/
+.zcode/
 handoff.md
 
 reasonix.toml

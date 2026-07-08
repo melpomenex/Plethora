@@ -16,6 +16,8 @@ import { getAllLearningItems, exportDeckAsApkg, exportDeckAsCsv } from "../../ap
 import { bulkSuspendItems, bulkUnsuspendItems } from "../../api/queue";
 import { matchesDeck } from "../../utils/studyDecks";
 import { useI18n } from "../../lib/i18n";
+import { useMobileShell } from "../../hooks/useMobileShell";
+import { MobileContextMenuSheet, mobileSheetItemClass } from "../common/MobileContextMenuSheet";
 import type { StudyDeck } from "../../types/study-decks";
 
 interface DeckItemContextMenuProps {
@@ -135,6 +137,101 @@ export function DeckItemContextMenu({
     removeDeck(deck.id);
     toast.success(`Deleted "${deck.name}"`);
   }, [deck.id, deck.name, removeDeck, toast]);
+
+  // ---- Mobile: bottom-sheet presentation ----
+  // The full-screen scrim makes "tap anywhere to close" robust. Rename and
+  // delete-confirm stay inline within the sheet.
+  const isMobile = useMobileShell();
+
+  if (isMobile) {
+    return (
+      <MobileContextMenuSheet open onClose={onClose} title={deck.name}>
+        <button className={mobileSheetItemClass} onClick={() => handleAction(() => onStartReview(deck.id))}>
+          <Play className="h-4 w-4 text-green-500" />
+          Study Now
+        </button>
+
+        {isRenaming ? (
+          <div className="px-4 py-3 flex items-center gap-2">
+            <PencilSimple className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRename();
+                if (e.key === "Escape") setIsRenaming(false);
+              }}
+              onBlur={handleRename}
+              autoFocus
+              className="flex-1 min-w-0 px-2 py-1.5 rounded border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        ) : (
+          <button
+            className={mobileSheetItemClass}
+            onClick={() => { setIsRenaming(true); setRenameValue(deck.name); }}
+          >
+            <PencilSimple className="h-4 w-4 text-muted-foreground" />
+            Rename
+          </button>
+        )}
+
+        <button className={mobileSheetItemClass} onClick={() => handleAction(handleDuplicate)}>
+          <Copy className="h-4 w-4 text-muted-foreground" />
+          Duplicate
+        </button>
+        <div className="h-px bg-border my-1" />
+        <button className={mobileSheetItemClass} onClick={() => handleAction(handleExportApkg)}>
+          <Download className="h-4 w-4 text-muted-foreground" />
+          Export as .apkg
+        </button>
+        <button className={mobileSheetItemClass} onClick={() => handleAction(handleExportCsv)}>
+          <FileXls className="h-4 w-4 text-muted-foreground" />
+          Export as .csv
+        </button>
+        <div className="h-px bg-border my-1" />
+        <button className={mobileSheetItemClass} onClick={() => handleAction(handleSuspendAll)}>
+          <Prohibit className="h-4 w-4 text-yellow-500" />
+          Suspend All Cards
+          <span className="ml-auto text-xs text-muted-foreground">{cardCount}</span>
+        </button>
+        <button className={mobileSheetItemClass} onClick={() => handleAction(handleUnsuspendAll)}>
+          <ArrowCounterClockwise className="h-4 w-4 text-green-500" />
+          Unsuspend All Cards
+          <span className="ml-auto text-xs text-muted-foreground">{cardCount}</span>
+        </button>
+        <div className="h-px bg-border my-1" />
+        {!showDeleteConfirm ? (
+          <button
+            className={mobileSheetItemClass + " text-destructive active:bg-destructive/10"}
+            onClick={() => setShowDeleteConfirm(true)}
+          >
+            <Trash className="h-4 w-4" />
+            Delete Deck
+          </button>
+        ) : (
+          <div className="px-4 py-3 flex items-center gap-2">
+            <span className="text-sm text-destructive flex-1">Delete &ldquo;{deck.name}&rdquo;?</span>
+            <button
+              onClick={() => handleAction(handleDelete)}
+              className="px-3 py-1.5 rounded bg-destructive text-destructive-foreground text-sm"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="px-3 py-1.5 rounded border border-border text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </MobileContextMenuSheet>
+    );
+  }
+
+  // ---- Desktop: floating menu (unchanged) ----
 
   const menuStyle = {
     left: Math.min(x, window.innerWidth - 240),

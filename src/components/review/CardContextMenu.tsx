@@ -14,6 +14,8 @@ import {
   Trash,
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
+import { useMobileShell } from "../../hooks/useMobileShell";
+import { MobileContextMenuSheet, mobileSheetItemClass } from "../common/MobileContextMenuSheet";
 import type { LearningItem } from "../../api/learning-items";
 
 interface CardContextMenuProps {
@@ -106,15 +108,166 @@ export function CardContextMenu({
     []
   );
 
+  const hasDecks = decks && decks.length > 0 && onMoveToDeck;
+  const plainQuestion = card.question.replace(/<[^>]*>/g, "").trim();
+  const plainAnswer = (card.answer ?? "").replace(/<[^>]*>/g, "").trim();
+
+  // ---- Mobile: bottom-sheet presentation ----
+  // The full-screen scrim makes "tap anywhere to close" robust (the core UX
+  // fix). Submenus that are hover-flyouts on desktop ("Move to Deck", "Set
+  // Priority") become drill-in panels here.
+  const isMobile = useMobileShell();
+  type MobilePanel = "root" | "moveToDeck" | "priority";
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("root");
+  useEffect(() => { setMobilePanel("root"); }, [card.id]);
+
+  if (isMobile) {
+    return (
+      <MobileContextMenuSheet
+        open
+        onClose={() => {
+          if (mobilePanel !== "root") setMobilePanel("root");
+          else onClose();
+        }}
+        title={
+          mobilePanel !== "root" ? (
+            <span className="flex items-center gap-2">
+              <button
+                className="p-1 -ml-1 rounded active:bg-muted"
+                onClick={() => setMobilePanel("root")}
+                aria-label="Back"
+              >
+                <CaretRight className="w-4 h-4 rotate-180" />
+              </button>
+              <span className="truncate">
+                {mobilePanel === "moveToDeck" ? t("cardContextMenu.moveToDeck") : t("cardContextMenu.setPriority")}
+              </span>
+            </span>
+          ) : undefined
+        }
+      >
+        {mobilePanel === "root" && (
+          <>
+            {onEditInStudio && (
+              <button className={mobileSheetItemClass} onClick={() => handleAction(() => onEditInStudio(card))}>
+                <Pencil className="h-4 w-4 text-muted-foreground" />
+                {t("cardContextMenu.edit")}
+              </button>
+            )}
+            <button className={mobileSheetItemClass} onClick={() => handleAction(() => onPreview(card.id))}>
+              <Eye className="h-4 w-4 text-muted-foreground" />
+              {t("cardContextMenu.preview")}
+            </button>
+            <div className="h-px bg-border my-1" />
+            {card.is_suspended ? (
+              <button className={mobileSheetItemClass} onClick={() => handleAction(() => onUnsuspend(card.id))}>
+                <ArrowCounterClockwise className="h-4 w-4 text-green-500" />
+                {t("cardContextMenu.unsuspend")}
+              </button>
+            ) : (
+              <button className={mobileSheetItemClass} onClick={() => handleAction(() => onSuspend(card.id))}>
+                <Prohibit className="h-4 w-4 text-yellow-500" />
+                {t("cardContextMenu.suspend")}
+              </button>
+            )}
+            {hasDecks && (
+              <button className={mobileSheetItemClass} onClick={() => setMobilePanel("moveToDeck")}>
+                <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                {t("cardContextMenu.moveToDeck")}
+                <CaretRight className="h-4 w-4 text-muted-foreground ml-auto" />
+              </button>
+            )}
+            <button className={mobileSheetItemClass} onClick={() => setMobilePanel("priority")}>
+              <Star className="h-4 w-4 text-muted-foreground" />
+              {t("cardContextMenu.setPriority")}
+              <CaretRight className="h-4 w-4 text-muted-foreground ml-auto" />
+            </button>
+            <div className="h-px bg-border my-1" />
+            <button className={mobileSheetItemClass} onClick={() => handleAction(() => onDuplicate(card))}>
+              <Sparkle className="h-4 w-4 text-muted-foreground" />
+              {t("cardContextMenu.duplicate")}
+            </button>
+            <button className={mobileSheetItemClass} onClick={() => handleAction(() => copyToClipboard(plainQuestion))}>
+              <Copy className="h-4 w-4 text-muted-foreground" />
+              {t("cardContextMenu.copyQuestion")}
+            </button>
+            {plainAnswer && (
+              <button className={mobileSheetItemClass} onClick={() => handleAction(() => copyToClipboard(plainAnswer))}>
+                <Clipboard className="h-4 w-4 text-muted-foreground" />
+                {t("cardContextMenu.copyAnswer")}
+              </button>
+            )}
+            <div className="h-px bg-border my-1" />
+            {!showDeleteConfirm ? (
+              <button
+                className={mobileSheetItemClass + " text-destructive active:bg-destructive/10"}
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash className="h-4 w-4" />
+                {t("cardContextMenu.delete")}
+              </button>
+            ) : (
+              <div className="px-4 py-3 flex items-center gap-3">
+                <span className="text-sm text-destructive flex-1">{t("cardContextMenu.deleteConfirm")}</span>
+                <button
+                  onClick={() => handleAction(() => onDelete(card.id))}
+                  className="px-3 py-1.5 rounded bg-destructive text-destructive-foreground text-sm"
+                >
+                  {t("common.confirm")}
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-3 py-1.5 rounded border border-border text-sm"
+                >
+                  {t("common.cancel")}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {mobilePanel === "moveToDeck" && hasDecks && (
+          <>
+            {decks!.map((deck) => (
+              <button
+                key={deck.id}
+                className={mobileSheetItemClass + " truncate"}
+                onClick={() => handleAction(() => onMoveToDeck!(card.id, deck.id))}
+              >
+                <span className="truncate">{deck.name}</span>
+              </button>
+            ))}
+          </>
+        )}
+
+        {mobilePanel === "priority" && (
+          <>
+            {[1, 2, 3, 4, 5].map((p) => (
+              <button key={p} className={mobileSheetItemClass} onClick={() => { setMobilePanel("root"); }}>
+                <span className="flex items-center gap-0.5">
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <Star
+                      key={i}
+                      className={"h-3.5 w-3.5 " + (i < p ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground/30")}
+                    />
+                  ))}
+                </span>
+                <span className="ml-1 text-xs text-muted-foreground">{p}</span>
+              </button>
+            ))}
+          </>
+        )}
+      </MobileContextMenuSheet>
+    );
+  }
+
+  // ---- Desktop: floating menu (unchanged) ----
+
   // Position menu to stay within viewport
   const menuStyle = {
     left: Math.min(x, window.innerWidth - 220),
     top: Math.min(y, window.innerHeight - 350),
   };
-
-  const hasDecks = decks && decks.length > 0 && onMoveToDeck;
-  const plainQuestion = card.question.replace(/<[^>]*>/g, "").trim();
-  const plainAnswer = (card.answer ?? "").replace(/<[^>]*>/g, "").trim();
 
   return createPortal(
     <div

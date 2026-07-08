@@ -4,6 +4,8 @@
  */
 
 import { useState, useCallback, useEffect, useRef, ReactNode } from "react";
+import { useMobileShell } from "../../hooks/useMobileShell";
+import { MobileContextMenuSheet, mobileSheetItemClass } from "./MobileContextMenuSheet";
 
 /**
  * Context menu item type
@@ -237,7 +239,99 @@ export function ContextMenu({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [visible, onClose]);
 
+  // ---- Mobile: bottom-sheet presentation ----
+  // On phones we render the native-Android-style bottom sheet instead of a
+  // floating menu. The sheet's full-screen scrim makes "tap anywhere to close"
+  // robust (the core UX fix). Submenus become a drill-in stack with a back
+  // button instead of hover flyouts (hover doesn't exist on touch).
+  const isMobile = useMobileShell();
+  const [mobileSubmenuStack, setMobileSubmenuStack] = useState<ContextMenuItem[]>([]);
+  // Reset the drill-in stack each time the menu (re)opens.
+  useEffect(() => {
+    if (visible) setMobileSubmenuStack([]);
+  }, [visible]);
+
   if (!visible) return null;
+
+  if (isMobile) {
+    // The list of items currently in view: the top-level items, or — if the
+    // user drilled into a submenu — that submenu's children.
+    const currentItems = mobileSubmenuStack.length > 0
+      ? mobileSubmenuStack[mobileSubmenuStack.length - 1].children ?? []
+      : items;
+    const depth = mobileSubmenuStack.length;
+
+    return (
+      <MobileContextMenuSheet
+        open={visible}
+        onClose={() => {
+          if (depth > 0) {
+            setMobileSubmenuStack((s) => s.slice(0, -1));
+          } else {
+            onClose();
+          }
+        }}
+        title={
+          depth > 0 ? (
+            <span className="flex items-center gap-2">
+              <button
+                className="p-1 -ml-1 rounded active:bg-muted"
+                onClick={() => setMobileSubmenuStack((s) => s.slice(0, -1))}
+                aria-label="Back"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <span className="truncate">{mobileSubmenuStack[depth - 1].label}</span>
+            </span>
+          ) : undefined
+        }
+      >
+        {currentItems.map((item, index) => {
+          if (item.type === ContextMenuItemType.Separator) {
+            return <div key={`sep-${index}`} className="h-px bg-border my-1" />;
+          }
+          const hasSubmenu = item.children && item.children.length > 0;
+          const isDanger = item.type === ContextMenuItemType.Danger;
+          return (
+            <button
+              key={item.id}
+              className={
+                mobileSheetItemClass +
+                (isDanger ? " text-destructive active:bg-destructive/10" : "") +
+                (item.disabled ? " opacity-50" : "")
+              }
+              disabled={item.disabled}
+              onClick={() => {
+                if (item.disabled) return;
+                if (hasSubmenu) {
+                  setMobileSubmenuStack((s) => [...s, item]);
+                } else {
+                  item.onClick?.();
+                  onClose();
+                }
+              }}
+            >
+              {item.icon && (
+                <span className="w-5 h-5 flex items-center justify-center text-muted-foreground">
+                  {item.icon}
+                </span>
+              )}
+              <span className="flex-1 truncate">{item.label}</span>
+              {hasSubmenu && (
+                <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              )}
+            </button>
+          );
+        })}
+      </MobileContextMenuSheet>
+    );
+  }
+
+  // ---- Desktop: floating menu (unchanged) ----
 
   const pos = adjustedPosition();
 
