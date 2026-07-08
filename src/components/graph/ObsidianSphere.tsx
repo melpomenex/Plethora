@@ -587,15 +587,19 @@ export function ObsidianSphere({
         draw(rotationRef.current, zoomRef.current);
       }
       
-      const shouldKeepRunning = (autoRotateRef.current && !selectedNodeRef.current) || isDraggingRef.current || Math.abs(dx) > 0.0001 || Math.abs(dy) > 0.0001;
-      
+      const shouldKeepRunning = ((autoRotateRef.current && !selectedNodeRef.current) || isDraggingRef.current || Math.abs(dx) > 0.0001 || Math.abs(dy) > 0.0001)
+        // Stop the loop when the tab/page is hidden — background tabs stay
+        // mounted, so without this auto-rotate would spin forever in an
+        // inactive tab, burning CPU.
+        && !document.hidden;
+
       if (shouldKeepRunning) {
         animationRef.current = requestAnimationFrame(animate);
       } else {
         isAnimatingRef.current = false;
       }
     };
-    
+
     animationRef.current = requestAnimationFrame(animate);
   }, [draw]);
 
@@ -603,6 +607,15 @@ export function ObsidianSphere({
   useEffect(() => {
     requestFrame();
   }, [requestFrame, autoRotate, isDragging, selectedNode]);
+
+  // Resume auto-rotate when the page becomes visible again (it pauses while
+  // document.hidden via the shouldKeepRunning check above).
+  useEffect(() => {
+    if (!autoRotate) return;
+    const onVis = () => { if (!document.hidden) requestFrame(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [autoRotate, requestFrame]);
 
   // Trigger single draw on any relevant state/theme changes
   useEffect(() => {

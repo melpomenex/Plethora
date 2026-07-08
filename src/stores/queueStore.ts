@@ -27,6 +27,29 @@ import {
 
 export type QueueFilterMode = "due-today" | "all-items" | "new-only" | "due-all";
 
+/**
+ * In-flight load dedupe. The queue views historically fired 2-3 overlapping
+ * loads on every mount (multiple useEffects + setQueueFilterMode's internal
+ * reload), which showed up as paired get_queue_items IPC calls ~30×/min and
+ * caused sustained CPU + GC pressure (heating/jank) on mobile. Each loader
+ * below coalesces concurrent calls with the same key into a single IPC round
+ * trip — callers all await the same promise.
+ */
+const inflightLoads = new Map<string, Promise<void>>();
+
+function dedupeLoad(key: string, run: () => Promise<void>): Promise<void> {
+  const existing = inflightLoads.get(key);
+  if (existing) return existing;
+  const p = run().finally(() => {
+    // Only clear our entry if it's still ours (a later identical load may
+    // have already replaced it).
+    if (inflightLoads.get(key) === p) inflightLoads.delete(key);
+  });
+  inflightLoads.set(key, p);
+  return p;
+}
+
+
 interface QueueState {
   // Data
   items: QueueItem[];
@@ -103,47 +126,49 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   // Actions
   loadQueue: async (forceAllItems?: boolean) => {
-    set({ isLoading: true, error: null });
-    try {
-      const mode = forceAllItems ? "all-items" : get().queueFilterMode;
-      const collectionId = useCollectionStore.getState().activeCollectionId;
-      let items: QueueItem[] = [];
-      switch (mode) {
-        case "due-today":
-          items = await getDueDocumentsOnly(collectionId);
-          break;
-        case "due-all":
-          items = await getDueQueueItems(undefined, collectionId);
-          break;
-        case "all-items":
-        case "new-only":
-        default:
-          items = await getQueue(collectionId);
-          break;
-      }
-      const now = new Date();
-      set({
-        items,
-        isLoading: false,
-      });
-      get().applyFilters();
-
-      const settings = useSettingsStore.getState().settings;
-      if (settings.learning.postpone.autoPostponeEnabled) {
-        const overdueCount = items.filter((i) => {
-          if (!i.dueDate) return true;
-          return new Date(i.dueDate) < now;
-        }).length;
-        if (overdueCount > 0) {
-          set({ showAutoPostponePrompt: true });
+    const mode = forceAllItems ? "all-items" : get().queueFilterMode;
+    const collectionId = useCollectionStore.getState().activeCollectionId;
+    return dedupeLoad(`loadQueue:${mode}:${collectionId ?? "default"}`, async () => {
+      set({ isLoading: true, error: null });
+      try {
+        let items: QueueItem[] = [];
+        switch (mode) {
+          case "due-today":
+            items = await getDueDocumentsOnly(collectionId);
+            break;
+          case "due-all":
+            items = await getDueQueueItems(undefined, collectionId);
+            break;
+          case "all-items":
+          case "new-only":
+          default:
+            items = await getQueue(collectionId);
+            break;
         }
+        const now = new Date();
+        set({
+          items,
+          isLoading: false,
+        });
+        get().applyFilters();
+
+        const settings = useSettingsStore.getState().settings;
+        if (settings.learning.postpone.autoPostponeEnabled) {
+          const overdueCount = items.filter((i) => {
+            if (!i.dueDate) return true;
+            return new Date(i.dueDate) < now;
+          }).length;
+          if (overdueCount > 0) {
+            set({ showAutoPostponePrompt: true });
+          }
+        }
+      } catch (error) {
+        set({
+          error: error instanceof Error ? error.message : "Failed to load queue",
+          isLoading: false,
+        });
       }
-    } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : "Failed to load queue",
-        isLoading: false,
-      });
-    }
+    });
   },
 
   loadStats: async () => {
@@ -157,40 +182,44 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   // Load only due documents (FSRS-scheduled with next_reading_date <= now or never read)
   loadDueDocumentsOnly: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const collectionId = useCollectionStore.getState().activeCollectionId;
-      const items = await getDueDocumentsOnly(collectionId);
-      set({
-        items,
-        isLoading: false,
-      });
-      get().applyFilters();
-    } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : "Failed to load due documents",
-        isLoading: false,
-      });
-    }
+    const collectionId = useCollectionStore.getState().activeCollectionId;
+    return dedupeLoad(`loadDueDocumentsOnly:${collectionId ?? "default"}`, async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const items = await getDueDocumentsOnly(collectionId);
+        set({
+          items,
+          isLoading: false,
+        });
+        get().applyFilters();
+      } catch (error) {
+        set({
+          error: error instanceof Error ? error.message : "Failed to load due documents",
+          isLoading: false,
+        });
+      }
+    });
   },
 
   // Load due queue items (includes documents, extracts, and learning items)
   loadDueQueueItems: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const collectionId = useCollectionStore.getState().activeCollectionId;
-      const items = await getDueQueueItems(undefined, collectionId);
-      set({
-        items,
-        isLoading: false,
-      });
-      get().applyFilters();
-    } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : "Failed to load due items",
-        isLoading: false,
-      });
-    }
+    const collectionId = useCollectionStore.getState().activeCollectionId;
+    return dedupeLoad(`loadDueQueueItems:${collectionId ?? "default"}`, async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const items = await getDueQueueItems(undefined, collectionId);
+        set({
+          items,
+          isLoading: false,
+        });
+        get().applyFilters();
+      } catch (error) {
+        set({
+          error: error instanceof Error ? error.message : "Failed to load due items",
+          isLoading: false,
+        });
+      }
+    });
   },
 
   // Set the queue filter mode and reload accordingly
