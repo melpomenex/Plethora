@@ -364,7 +364,11 @@ pub fn run() {
     // before this function is called. This ensures they are set early enough
     // to affect all WebKit initialization.
 
-    tracing_subscriber::fmt::init();
+    // NOTE: tracing initialization is now owned by tauri-plugin-log (registered
+    // on the builder below). The plugin installs a global `log` logger; the
+    // `log` feature on the `tracing` crate (see Cargo.toml) bridges tracing
+    // events into that logger, so tracing::warn!/info!/error! reach Logcat on
+    // Android and stdout+logfile on desktop.
 
     const LOCALHOST_PORT: u16 = 9527;
 
@@ -399,6 +403,32 @@ pub fn run() {
     })();
 
     let mut builder = tauri::Builder::default()
+        // Logging — registered first so every other plugin's init is captured.
+        // On Android, TargetKind::Stdout is auto-routed through android_logger
+        // to Logcat (see tauri-plugin-log src/lib.rs ~line 589), which is what
+        // makes `adb logcat` show app logs in release builds. On desktop we also
+        // tee to a rotating log file in the OS log dir. The `tracing` crate's
+        // `log` feature (Cargo.toml) bridges tracing::* events into this logger.
+        .plugin({
+            // Stdout → Logcat on Android (auto-routed by the plugin), and to the
+            // console on desktop. Added first so every later plugin's init logs.
+            let mut log_targets = vec![tauri_plugin_log::Target::new(
+                tauri_plugin_log::TargetKind::Stdout,
+            )];
+            // Desktop also tees to a rotating file in the OS log dir.
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            log_targets.push(tauri_plugin_log::Target::new(
+                tauri_plugin_log::TargetKind::LogDir { file_name: None },
+            ));
+            tauri_plugin_log::Builder::new()
+                .targets(log_targets)
+                .level(log::LevelFilter::Info)
+                // Silence chatty dependency modules.
+                .level_for("hyper", log::LevelFilter::Warn)
+                .level_for("rustls", log::LevelFilter::Warn)
+                .level_for("sqlx", log::LevelFilter::Warn)
+                .build()
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
