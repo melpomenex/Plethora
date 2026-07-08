@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.67.1] - 2026-07-08
+
+### Added
+
+- **App logs now reach `adb logcat` on Android release builds** — Wired up `tauri-plugin-log` with a Logcat target (auto-routed via `android_logger`) so the Rust side's `tracing` output and the frontend's `console.log/warn/error` are visible in `adb logcat` without a debug build. Previously these were invisible on release builds, making mobile diagnosis effectively blind. The `tracing` crate's `log` feature bridges the app's ~100 `tracing::*` macro calls into the logger, and a console-logcat bridge forwards JS console output on native mobile only (no-op on desktop).
+
+### Fixed & Improved
+
+- **Major mobile CPU/heating reduction** — The app no longer sustains ~127% CPU (a full core continuously) while idle in the foreground. The dominant cause was `ThemeBackdrop` running a full-screen canvas animation at 30fps forever with no idle pause; the RenderThread, WebView renderer, and main JS thread were all essentially busy with this one component. The animation now pauses after 10s of no interaction (resuming on touch/scroll), and is skipped entirely on native mobile builds. Background-tab timers that ran while their tab was inactive-but-mounted (RSS feed refresh, browser-tab selection poll, ObsidianSphere auto-rotate) are now gated to the active, visible tab. On-device measurement: idle CPU dropped from ~127% to ~7%, and SoC core temperatures fell ~13°C.
+- **Queue no longer over-fetches on mobile** — The mobile queue view was firing 2–3 overlapping queue loads on every mount (two `useEffect`s plus `setQueueFilterMode`'s internal reload), with no store-level dedupe, marshalling the full ~1086-item due pile across IPC on each call — about 30 times per minute. Concurrent identical loads are now coalesced into a single IPC round-trip, the mobile view's effects are collapsed into one active-tab-gated load, and the desktop view's effect no longer re-runs on stable Zustand action references. Measured: 30 calls/min → 4 on mount, then silent while idle.
+- **EPUB scrolling is smooth on mobile** — epub.js's continuous-scrolled manager fires `relocated` on every section boundary crossed during scrolling, and the handler ran expensive work on every fire: extracting and concatenating `body.textContent` of all mounted iframes, recomputing progress, resolving chapter labels, and triggering React re-renders mid-scroll. The text extraction and UI updates are now debounced to run once after scrolling settles (350ms / 250ms), while the spine-boundary guard and reading-position save remain immediate. The sustained main-thread + render-thread load during a long scroll is eliminated.
+
 ## [1.67.0] - 2026-07-08
 
 ### Added
