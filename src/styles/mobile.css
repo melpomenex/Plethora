@@ -1636,3 +1636,33 @@
     font-size: 13px;
   }
 }
+
+/* ==========================================================================
+   Mobile Context Menu (Bottom Sheet)
+   ==========================================================================
+   Used by MobileContextMenuSheet. Generous touch targets (48px min height per
+   the Material/Apple guideline), no hover-only affordances, and safe-area aware.
+   ============================================================================== */
+
+.mobile-context-menu-items {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Sheet rows are rendered by each menu as <button>s using the
+   mobileSheetItemClass helper. These rules ensure consistent, comfortable
+   touch targets and a pressed state on mobile (no hover available). */
+.mobile-context-menu-items button {
+  -webkit-tap-highlight-color: transparent;
+  border: none;
+  background: transparent;
+}
+
+.mobile-context-menu-items button:disabled {
+  opacity: 0.5;
+}
+
+/* Inline submenu container (tap-to-expand submenus in the sheet). */
+.mobile-context-menu-items .mobile-submenu-children {
+  background: var(--background, hsl(0 0% 100% / 0.35));
+}
+

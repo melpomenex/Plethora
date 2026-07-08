@@ -237,16 +237,41 @@ function PdfPageIndicator({
 // Set to true to use geometric selection instead of native DOM selection
 const ENABLE_CUSTOM_PDF_SELECTION = false;
 
-// Configure PDF.js worker across environments. Keep this best-effort so
-// load fallback logic can still render if worker init fails at runtime.
+// Configure the PDF.js worker.
+//
+// We build the Worker ourselves and pass it via `workerPort` rather than
+// handing PDF.js a `workerSrc` URL string. Two reasons:
+//
+//  1. Vite rewrites `new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url)`
+//     into an *absolute* "/assets/pdf.worker.min-<hash>.mjs" path. On Tauri
+//     Android (origin http://asset.localhost), and especially on older
+//     Android WebViews such as the Boox Palma's, spawning a module worker
+//     from that absolute path fails. PDF.js then falls back to its fake
+//     worker, re-reads `PDFWorker.workerSrc`, and throws
+//       "No GlobalWorkerOptions.workerSrc specified."
+//     which surfaces as "Failed to load PDF". Passing a Worker instance via
+//     `workerPort` skips the throwing getter entirely.
+//
+//  2. The `new Worker(new URL(...), { type: "module" })` form makes Vite emit
+//     a *relative* asset reference (same pattern as our argon2id / alignment
+//     workers), which resolves correctly under Tauri's custom protocol.
+//
+// The bootstrap worker (`src/workers/pdfjs.worker.ts`) also installs the
+// Promise/Uint8Array polyfills PDF.js v5 needs on older WebViews.
+//
+// This runs in the main thread only (browser/Tauri), not in Node test runs
+// where `Worker` is unavailable and pdfjs is mocked anyway (see test/setup.ts).
 try {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url
-  ).toString();
+  if (typeof Worker !== "undefined") {
+    pdfjsLib.GlobalWorkerOptions.workerPort = new Worker(
+      new URL("../../workers/pdfjs.worker.ts", import.meta.url),
+      { type: "module" }
+    );
+  }
 } catch {
-  // If URL construction fails, PDF.js will fall back to its default behavior
-  console.warn("[PDFViewer] Could not construct worker URL, using default");
+  // Worker construction is best-effort: if it fails, PDF.js will fall back
+  // to its fake (same-thread) worker via the load-retry logic below.
+  console.warn("[PDFViewer] Could not construct PDF worker, using fallback");
 }
 
 // Suppress verbose PDF.js warnings (Unicode mismatch, unknown glyph name, etc.)
@@ -1175,11 +1200,14 @@ export function PDFViewer({
               // Retry without a worker so PDFs still render. Create a fresh source:
               // PDF.js may detach data buffers while trying to transfer them to its worker.
               try {
-                console.warn("[PDFViewer] Worker/source load failed, retrying with workerSrc cleared:", workerError);
-                // Clear the workerSrc so PDF.js falls back to the inline fake worker.
+                console.warn("[PDFViewer] Worker/source load failed, retrying with workerPort cleared:", workerError);
+                // Drop the worker port so PDF.js falls back to its inline fake
+                // (same-thread) worker. Clearing workerPort (not workerSrc) is
+                // the correct reset path now that we configure via workerPort.
+                try { pdfjsLib.GlobalWorkerOptions.workerPort?.terminate(); } catch {}
+                pdfjsLib.GlobalWorkerOptions.workerPort = null;
                 pdfjsLib.GlobalWorkerOptions.workerSrc = "";
                 const source = sourceFactory.create();
-                // Pass source directly without disableWorker since it's deprecated/removed in modern PDF.js
                 const fallbackTask = pdfjsLib.getDocument(source as any);
                 return await fallbackTask.promise;
               } catch (fallbackError) {
