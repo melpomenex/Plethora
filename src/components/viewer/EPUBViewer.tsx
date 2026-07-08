@@ -988,7 +988,16 @@ export function EPUBViewer({
           }
 
           if (onContextTextChangeRef.current) {
-            // Extract text from current chapter only (not entire book)
+            // Extract text from current chapter only (not entire book).
+            // NOTE: in epub.js continuous-scrolled mode, `relocated` fires on
+            // every section boundary crossed during scrolling, and this reads
+            // body.textContent of ALL mounted iframes (continuous manager keeps
+            // several sections live) — doing that per-relocate during a long
+            // scroll is a big main-thread cost (measured ~17-21% JS during epub
+            // scroll). Debounce so it runs once after scrolling settles, not on
+            // every section transition.
+            let chapterTextTimer: ReturnType<typeof setTimeout> | null = null;
+            const DEBOUNCE_MS = 350;
             const extractCurrentChapterText = () => {
               try {
                 const contents = rendition?.getContents?.() as unknown as any[] | undefined;
@@ -1006,14 +1015,17 @@ export function EPUBViewer({
               }
             };
 
-            setTimeout(() => {
-              extractCurrentChapterText();
-            }, 100);
+            const scheduleExtract = () => {
+              if (chapterTextTimer) clearTimeout(chapterTextTimer);
+              chapterTextTimer = setTimeout(extractCurrentChapterText, DEBOUNCE_MS);
+            };
 
-            rendition.on("relocated", () => {
-              setTimeout(() => {
-                extractCurrentChapterText();
-              }, 100);
+            // Initial extraction (debounced so initial render work settles first).
+            scheduleExtract();
+
+            rendition.on("relocated", scheduleExtract);
+            rendition.on("destroy", () => {
+              if (chapterTextTimer) clearTimeout(chapterTextTimer);
             });
           }
 
@@ -1084,15 +1096,22 @@ export function EPUBViewer({
           };
 
           // Track location changes to save reading position
+          // The UI bits (progress %, chapter label) are debounced: in epub.js
+          // continuous-scrolled mode, `relocated` fires on every section
+          // boundary crossed during a scroll, and each setState here would
+          // trigger a React re-render mid-scroll (measured as a chunk of the
+          // ~17-21% main-thread cost during epub scrolling). Only the spine
+          // boundary guard + position save run immediately.
+          let uiUpdateTimer: ReturnType<typeof setTimeout> | null = null;
           rendition.on("relocated", (location: any) => {
             if (!mounted) return;
 
-            // Enforce spine boundaries
+            // Enforce spine boundaries (must be immediate — correctness)
             const currentSpineIndex = location.start?.index;
             if (typeof currentSpineIndex === 'number') {
               const startIdx = metadataRef.current?.chunkStartSpineIndex;
               const endIdx = metadataRef.current?.chunkEndSpineIndex;
-              
+
               if (startIdx !== undefined && currentSpineIndex < startIdx) {
                 const spine = epubBook.spine || (bookInstance ? bookInstance.spine : null);
                 if (spine) {
@@ -1103,7 +1122,7 @@ export function EPUBViewer({
                   }
                 }
               }
-              
+
               if (endIdx !== undefined && currentSpineIndex > endIdx) {
                 const spine = epubBook.spine || (bookInstance ? bookInstance.spine : null);
                 if (spine) {
@@ -1117,18 +1136,25 @@ export function EPUBViewer({
             }
 
             debouncedSavePosition();
-            try { updateProgress(location); } catch { /* ignore */ }
-            const chapter = resolveChapterLabel(location.start?.href || location.start?.page);
-            if (chapter) {
-              setCurrentChapter(chapter);
-            }
-            // Rebuild sync map when chapter changes
-            const href = location.start?.href;
-            if (href && href !== syncCurrentChapterRef.current && syncSegmentsRef.current.length > 0) {
-              syncCurrentChapterRef.current = href;
-              syncMapRef.current = new Map();
-              setTimeout(() => buildSyncMapRef.current(), 300);
-            }
+
+            // Debounce the UI updates so a long scroll doesn't re-render the
+            // reader chrome on every section transition.
+            if (uiUpdateTimer) clearTimeout(uiUpdateTimer);
+            uiUpdateTimer = setTimeout(() => {
+              if (!mounted) return;
+              try { updateProgress(location); } catch { /* ignore */ }
+              const chapter = resolveChapterLabel(location.start?.href || location.start?.page);
+              if (chapter) {
+                setCurrentChapter(chapter);
+              }
+              // Rebuild sync map when chapter changes
+              const href = location.start?.href;
+              if (href && href !== syncCurrentChapterRef.current && syncSegmentsRef.current.length > 0) {
+                syncCurrentChapterRef.current = href;
+                syncMapRef.current = new Map();
+                setTimeout(() => buildSyncMapRef.current(), 300);
+              }
+            }, 250);
           });
 
           // Enable text selection

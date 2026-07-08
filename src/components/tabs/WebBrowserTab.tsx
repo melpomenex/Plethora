@@ -41,6 +41,7 @@ import { createLearningItem } from "../../api/learning-items";
 import { createDocument } from "../../api/documents";
 import { AssistantPanel, type AssistantContext } from "../assistant/AssistantPanel";
 import { useToast } from "../common/Toast";
+import { useIsActiveTab } from "../common/Tabs";
 import { formatRelativeTime } from "../../utils/date";
 import { WEBVIEW_EXTRACT_BRIDGE_SCRIPT, SELECTION_STORAGE_KEY } from "../../lib/webview-extract-bridge";
 
@@ -351,6 +352,10 @@ function ExtractDialog({ extract, onSave, onClose }: ExtractDialogProps) {
 export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
   const { t } = useI18n();
   const toast = useToast();
+  // Only poll for webview selection while this tab is active — background tabs
+  // stay mounted, so without this the 500ms poll would run in any open browser
+  // tab, needlessly burning CPU.
+  const isActiveTab = useIsActiveTab();
   const [url, setUrl] = useState("");
   const [currentUrl, setCurrentUrl] = useState("");
   const [pageTitle, setPageTitle] = useState("");
@@ -991,9 +996,10 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
 
   // Poll for selection data from webview bridge
   useEffect(() => {
-    if (!isTauri() || !webviewRef.current) return;
-    
+    if (!isTauri() || !webviewRef.current || !isActiveTab) return;
+
     const pollInterval = setInterval(async () => {
+      if (document.hidden) return;
       try {
         const data = await pollWebviewSelection();
         if (data?.text && data.text.length >= 3) {
@@ -1010,9 +1016,9 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
         // Silent fail - polling is best-effort
       }
     }, 500); // Poll every 500ms
-    
+
     return () => clearInterval(pollInterval);
-  }, [isTauri, currentUrl, pageTitle, pollWebviewSelection]);
+  }, [isTauri, currentUrl, pageTitle, pollWebviewSelection, isActiveTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
    
   useEffect(() => {

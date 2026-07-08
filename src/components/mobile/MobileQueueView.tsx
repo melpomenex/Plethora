@@ -61,7 +61,6 @@ export function MobileQueueView({
     isLoading,
     selectedIds,
     loadQueue,
-    loadDueDocumentsOnly,
     setQueueFilterMode,
     setSelected,
     clearSelection,
@@ -74,7 +73,6 @@ export function MobileQueueView({
       isLoading: state.isLoading,
       selectedIds: state.selectedIds,
       loadQueue: state.loadQueue,
-      loadDueDocumentsOnly: state.loadDueDocumentsOnly,
       setQueueFilterMode: state.setQueueFilterMode,
       setSelected: state.setSelected,
       clearSelection: state.clearSelection,
@@ -153,27 +151,29 @@ export function MobileQueueView({
     progress: number;
   } | null>(null);
 
+  // Single load trigger: fire ONE queue fetch based on the active quick filter.
+  // Previously this was two separate effects — a bare `loadQueue()` on mount
+  // plus this quick-filter effect that called `setQueueFilterMode(...)` (which
+  // *itself* reloads) and then another explicit load — causing 3 overlapping
+  // IPC fetches on every mount and paired get_queue_items calls ~30×/min
+  // (sustained CPU/GC → jank/heating on mobile). Now `setQueueFilterMode` is
+  // the sole loader; the store also dedupes concurrent calls with the same key.
+  // Skipped entirely while the tab is inactive (frozen) so backgrounded tabs
+  // don't poll.
   useEffect(() => {
-    loadQueue();
-  }, [loadQueue]);
-
-  // Apply quick filter
-  useEffect(() => {
+    if (!isActiveTab) return;
     switch (quickFilter) {
       case "today":
         setQueueFilterMode("due-today");
-        loadDueDocumentsOnly();
         break;
       case "all":
         setQueueFilterMode("all-items");
-        loadQueue();
         break;
       case "new":
         setQueueFilterMode("new-only");
-        loadQueue();
         break;
     }
-  }, [quickFilter, setQueueFilterMode, loadDueDocumentsOnly, loadQueue]);
+  }, [quickFilter, isActiveTab, setQueueFilterMode]);
 
   // Filter items
   const filteredItems = useMemo(() => {

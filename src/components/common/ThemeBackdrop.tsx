@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useBattery } from "../../contexts/BatteryContext";
+import { isNativeMobile } from "../../lib/tauri";
 
 /* ------------------------------------------------------------------ */
 /*  Animation type registry – each key is a self-contained renderer   */
@@ -9,6 +10,14 @@ import { useBattery } from "../../contexts/BatteryContext";
 
 const BACKDROP_FPS = 30;
 const BACKDROP_FRAME_INTERVAL = 1000 / BACKDROP_FPS;
+
+/**
+ * How long (ms) of no user interaction the animation keeps running before it
+ * pauses. A decorative background doesn't need to animate while the user reads
+ * — freezing it after this idle period cuts sustained CPU/GPU load to ~zero on
+ * mobile (which was the dominant source of heating/jank: RenderThread ~57%).
+ */
+const IDLE_PAUSE_MS = 10_000;
 
 type AnimCtx = {
   cv: HTMLCanvasElement;
@@ -1323,6 +1332,10 @@ export function ThemeBackdrop() {
   const curTypeRef = useRef<string | null>(null);
   const [suspended, setSuspended] = useState(false);
   const [isVisible, setIsVisible] = useState(!document.hidden);
+  // Idle pause: true after IDLE_PAUSE_MS of no pointer/scroll/keys. The
+  // decorative animation freezes while idle to stop the sustained CPU/GPU
+  // load that heated phones. Resumes on the next interaction.
+  const [isIdle, setIsIdle] = useState(false);
 
   const animation = theme.effects?.backgroundAnimation;
   const { onBattery, battery: _battery } = useBattery();
@@ -1333,6 +1346,39 @@ export function ThemeBackdrop() {
   // Brightness via CSS filter — GPU-accelerated, zero per-frame cost.
   // Setting is stored in tenths (10 = 1.0x, 12 = 1.2x, etc.)
   const brightnessGain = Math.max(0.1, settings.animationBrightness / 10);
+
+  // On native mobile, animated backgrounds are pure cost (sustained CPU/GPU →
+  // heating) with little benefit, so skip the component entirely.
+  if (isNativeMobile()) return null;
+
+  // Activity tracker: any user interaction marks the user active and
+  // restarts the idle timer. After IDLE_PAUSE_MS of inactivity the animation
+  // is paused via setIsIdle(true).
+  useEffect(() => {
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const poke = () => {
+      setIsIdle(false);
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => setIsIdle(true), IDLE_PAUSE_MS);
+    };
+    poke();
+    const opts: AddEventListenerOptions = { passive: true };
+    const captureOpts: AddEventListenerOptions = { passive: true, capture: true };
+    window.addEventListener("pointermove", poke, opts);
+    window.addEventListener("pointerdown", poke, opts);
+    window.addEventListener("keydown", poke, opts);
+    // scroll fires on scrollable descendants, so listen in capture phase.
+    window.addEventListener("scroll", poke, captureOpts);
+    window.addEventListener("touchstart", poke, opts);
+    return () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      window.removeEventListener("pointermove", poke, opts);
+      window.removeEventListener("pointerdown", poke, opts);
+      window.removeEventListener("keydown", poke, opts);
+      window.removeEventListener("scroll", poke, captureOpts);
+      window.removeEventListener("touchstart", poke, opts);
+    };
+  }, []);
 
   useEffect(() => {
     const handleSuspend = (event: Event) => {
@@ -1375,6 +1421,10 @@ export function ThemeBackdrop() {
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !animation || suspended) return;
+    // Don't run the animation while idle, hidden, or unfocused — a decorative
+    // background needs no frames while the user reads. This is what stops the
+    // sustained RenderThread/GPU load that heated the phone.
+    if (!isVisible || isIdle) return;
 
     const ctx = cv.getContext("2d");
     if (!ctx) return;
@@ -1434,7 +1484,7 @@ export function ThemeBackdrop() {
       document.querySelectorAll(".anim-flash").forEach(e => e.remove());
       curTypeRef.current = null;
     };
-  }, [animation, density, suspended, isVisible, effectiveDensity]);
+  }, [animation, density, suspended, isVisible, isIdle, effectiveDensity]);
 
   if (!animation || suspended) return null;
 

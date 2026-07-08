@@ -262,10 +262,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   }, [
     queueMode,
     queueFilterMode,
-    loadQueue,
-    loadDueDocumentsOnly,
-    loadDueQueueItems,
-    loadStats,
+    // loadQueue/loadDueDocumentsOnly/loadDueQueueItems/loadStats are stable
+    // Zustand actions — deliberately omitted from deps to avoid spurious
+    // reloads (they previously caused repeated get_queue_items fetches when
+    // useShallow returned a new object reference).
     sessionCustomization.semanticStudy?.enabled,
     sessionCustomization.semanticStudy?.focalTopic,
   ]);

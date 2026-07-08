@@ -87,6 +87,7 @@ import { useCollectionStore } from "../../stores/collectionStore";
 import { useRssStudyStore } from "../../stores/rssStudyStore";
 import { useQueueStore } from "../../stores/queueStore";
 import { useTabsStore } from "../../stores/tabsStore";
+import { useIsActiveTab } from "../common/Tabs";
 import { cn } from "../../utils";
 import { SemanticGraphPanel } from "../review/SemanticGraphPanel";
 
@@ -98,6 +99,10 @@ const DEFAULT_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 export function RSSReader() {
   const { t } = useI18n();
   const { settings } = useSettingsStore();
+  // Only refresh feeds while this tab is the active, foreground tab — background
+  // tabs stay mounted (display:none) so without this the 5-min network refresh
+  // would run forever in any open-but-inactive RSS tab, burning CPU/battery.
+  const isActiveTab = useIsActiveTab();
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [selectedFeed, setSelectedFeed] = useState<Feed | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
@@ -673,7 +678,10 @@ export function RSSReader() {
   );
 
   useEffect(() => {
+    // Don't poll while the tab is inactive or the page hidden.
+    if (!isActiveTab) return;
     autoRefreshIntervalRef.current = setInterval(() => {
+      if (document.hidden) return;
       refreshAllFeeds("auto");
     }, DEFAULT_REFRESH_INTERVAL_MS);
 
@@ -687,7 +695,7 @@ export function RSSReader() {
         syncFeedbackTimeoutRef.current = null;
       }
     };
-  }, [refreshAllFeeds]);
+  }, [refreshAllFeeds, isActiveTab]);
 
   const handleAddFeed = async () => {
     if (!newFeedUrl.trim()) return;
