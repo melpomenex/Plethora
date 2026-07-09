@@ -35,6 +35,10 @@ import {
     extractPlaylistId,
 } from './youtubeDataApi';
 import { providerRequiresApiKey } from '../utils/llmProviderUtils';
+import {
+    fetchAndParsePodcastFeed,
+    parsedFeedToRecords,
+} from './podcastFeedParser';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
     'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -1029,70 +1033,102 @@ const commandHandlers: Record<string, CommandHandler> = {
         };
     },
 
-    // Podcast subscription & playback commands (browser fallback)
+    // Podcast subscription & playback commands (browser backend).
+    // Real IndexedDB-backed implementation so podcasts work on the PWA / Web
+    // App the same way documents and RSS feeds do. Mirrors the Rust
+    // subscribe_podcast/refresh/get_* commands using client-side RSS fetch +
+    // parse (see lib/podcastFeedParser.ts).
     subscribe_podcast: async (args) => {
-        // Browser fallback: return an empty feed object.
-        // Real podcast management requires Tauri or HTTP backend.
-        console.warn('[Browser] subscribe_podcast: no-op in browser fallback mode');
-        return {
-            id: `podcast-${Date.now()}`,
-            title: 'Browser Podcast',
-            description: '',
-            imageUrl: null,
-            author: null,
-            language: null,
-            link: null,
-            feedUrl: args.feedUrl as string || '',
-            lastFetched: null,
-            subscribedAt: new Date().toISOString(),
-            sortOrder: 0,
-            episodeCount: 0,
-            unplayedCount: 0,
-        };
+        const feedUrl = (args.feedUrl as string) || '';
+        if (!feedUrl) throw new Error('subscribe_podcast: feedUrl is required');
+
+        const feed = await fetchAndParsePodcastFeed(feedUrl);
+        if (!feed) throw new Error('Failed to parse podcast feed');
+
+        const { feedRecord, episodeRecords } = parsedFeedToRecords(feed);
+        await db.subscribePodcastFeed(feedRecord);
+        await db.upsertPodcastEpisodes(episodeRecords);
+
+        return toCamelCase({
+            ...feedRecord,
+            episode_count: episodeRecords.length,
+            unplayed_count: episodeRecords.filter((e) => !e.played).length,
+        });
     },
 
-    unsubscribe_podcast: async (_args) => {
-        console.warn('[Browser] unsubscribe_podcast: no-op in browser fallback mode');
+    unsubscribe_podcast: async (args) => {
+        const feedId = args.feedId as string;
+        if (!feedId) return;
+        await db.deleteEpisodesForFeed(feedId);
+        await db.deletePodcastFeed(feedId);
     },
 
     get_podcast_feeds: async () => {
-        return [];
+        const feeds = await db.getPodcastFeeds();
+        const result = [];
+        for (const feed of feeds) {
+            const episodes = await db.getPodcastEpisodes({ feedId: feed.id });
+            result.push({
+                ...feed,
+                episode_count: episodes.length,
+                unplayed_count: episodes.filter((e) => !e.played).length,
+            });
+        }
+        return toCamelCase(result);
     },
 
     refresh_podcast_feed: async (args) => {
         const feedId = args.feedId as string;
-        console.warn(`[Browser] refresh_podcast_feed(${feedId}): no-op in browser fallback mode`);
-        return {
-            id: feedId,
-            title: 'Unknown Podcast',
-            description: '',
-            imageUrl: null,
-            author: null,
-            language: null,
-            link: null,
-            feedUrl: '',
-            lastFetched: null,
-            subscribedAt: new Date().toISOString(),
-            sortOrder: 0,
-            episodeCount: 0,
-            unplayedCount: 0,
-        };
+        const existing = await db.getPodcastFeed(feedId);
+        if (!existing) throw new Error(`Podcast feed ${feedId} not found`);
+
+        const feed = await fetchAndParsePodcastFeed(existing.feed_url);
+        if (!feed) throw new Error('Failed to parse podcast feed on refresh');
+
+        const { feedRecord, episodeRecords } = parsedFeedToRecords(feed);
+        // Re-subscribe preserves subscribed_at / sort_order / auto-transcribe.
+        await db.subscribePodcastFeed(feedRecord);
+        await db.upsertPodcastEpisodes(episodeRecords);
+
+        return toCamelCase({
+            ...feedRecord,
+            episode_count: episodeRecords.length,
+            unplayed_count: episodeRecords.filter((e) => !e.played).length,
+        });
     },
 
-    get_podcast_episodes: async () => {
-        return [];
+    rename_podcast_feed: async (args) => {
+        const feedId = args.feedId as string;
+        const newTitle = args.newTitle as string;
+        if (!feedId || !newTitle) return;
+        await db.renamePodcastFeed(feedId, newTitle);
     },
 
-    mark_episode_played: async (_args) => {
-        console.warn('[Browser] mark_episode_played: no-op in browser fallback mode');
+    get_podcast_episodes: async (args) => {
+        const feedId = (args.feedId as string | null | undefined) ?? null;
+        const includePlayed = (args.includePlayed as boolean | undefined) ?? true;
+        const episodes = await db.getPodcastEpisodes({ feedId, includePlayed });
+        return toCamelCase(episodes);
     },
 
-    update_episode_position: async (_args) => {
-        console.warn('[Browser] update_episode_position: no-op in browser fallback mode');
+    mark_episode_played: async (args) => {
+        const episodeId = args.episodeId as string;
+        const played = (args.played as boolean | undefined) ?? true;
+        if (!episodeId) return;
+        await db.markPodcastEpisodePlayed(episodeId, played);
     },
 
-    get_episode_position: async (_args) => {
-        return 0;
+    update_episode_position: async (args) => {
+        const episodeId = args.episodeId as string;
+        const position = args.position as number;
+        if (!episodeId) return;
+        await db.updatePodcastEpisodePosition(episodeId, position);
+    },
+
+    get_episode_position: async (args) => {
+        const episodeId = args.episodeId as string;
+        if (!episodeId) return 0;
+        return db.getPodcastEpisodePosition(episodeId);
     },
 
     read_document_file: async (args) => {

@@ -383,6 +383,7 @@ interface ScrollQueueSettings {
   flashcardPercentage: number; // 0-100, percentage of queue that should be flashcards
   extractsCountAsFlashcards: boolean; // Whether extracts count towards the flashcard percentage
   autoProceed: boolean; // Auto-proceed to next item in the queue when a video/audio ends
+  ratingOrbsPosition?: "left" | "right" | "top" | "bottom"; // Snapped position of rating orbs
 }
 
 /**
@@ -701,6 +702,7 @@ export const defaultSettings: Settings = {
     flashcardPercentage: 30, // 30% of queue should be flashcards by default
     extractsCountAsFlashcards: true, // Extracts count towards the flashcard percentage
     autoProceed: false, // Auto-proceed to next item in the queue when a video/audio ends
+    ratingOrbsPosition: "right", // Snapped position of rating orbs
   },
   rssQueue: {
     includeInQueue: true,

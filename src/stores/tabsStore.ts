@@ -36,6 +36,12 @@ export interface Tab {
   data?: Record<string, unknown>;
 }
 
+export interface WorkspaceTabInfo {
+  tab: Tab;
+  paneId: string | null;
+  isActive: boolean;
+}
+
 // Split direction for panes
 export type SplitDirection = "horizontal" | "vertical";
 
@@ -157,6 +163,7 @@ export interface TabsState {
   findPaneContainingTab: (tabId: string) => TabPane | null;
   getAllPaneIds: () => string[];
   getTabPaneIds: () => string[];
+  getWorkspaceTabs: () => WorkspaceTabInfo[];
 
   // Persistence
   saveTabs: () => void;
@@ -1176,6 +1183,11 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   getTabPaneIds: () => {
     return collectTabPaneIds(get().rootPane);
   },
+
+  getWorkspaceTabs: () => get().tabs.map((tab) => {
+    const pane = findPaneContainingTabRecursive(get().rootPane, tab.id);
+    return { tab, paneId: pane?.id ?? null, isActive: pane?.activeTabId === tab.id };
+  }),
 
   saveTabs: () => {
     try {

@@ -2,6 +2,7 @@ import { getSyncRoomId } from "./yjsSync";
 import { useSettingsStore } from "../stores/settingsStore";
 import { encryptFile, decryptFile, encryptMetadata, decryptMetadata, DecryptError } from "./sync/encryption";
 import { getCachedSubKeys } from "./sync/roomCrypto";
+import { isTauri, invokeCommand } from "../lib/tauri";
 
 export type YjsFileMeta = {
   id: string;
@@ -82,7 +83,11 @@ export async function uploadRoomFile(file: File, room?: string, id?: string): Pr
     url.searchParams.set("id", id);
   }
 
-  const form = new FormData();
+  // The file bytes to upload and (optionally) the encrypted metadata sidecar.
+  let uploadBytes: Uint8Array;
+  let contentType: string;
+  let filename: string;
+  let encMetadata: string | undefined;
 
   if (fileKey) {
     // Encrypted path: encrypt the file bytes under the room's file sub-key,
@@ -92,20 +97,38 @@ export async function uploadRoomFile(file: File, room?: string, id?: string): Pr
     // is the opaque id (no leak).
     const plaintext = new Uint8Array(await file.arrayBuffer());
     const ciphertext = await encryptFile(plaintext, fileKey);
-    const encMetadata = await encryptMetadata(
+    encMetadata = await encryptMetadata(
       { filename: file.name, contentType: file.type, sizeBytes: file.size },
       fileKey,
     );
-    const blob = new Blob([ciphertext], { type: "application/octet-stream" });
+    uploadBytes = ciphertext;
+    contentType = "application/octet-stream";
     // Use the id (or "blob") as the field filename — it's opaque and the
     // server discards it in favor of the ?id= query param anyway.
-    const fieldFilename = id ? `${id}.bin` : "blob.bin";
-    form.append("file", blob, fieldFilename);
-    form.append("encMetadata", encMetadata);
+    filename = id ? `${id}.bin` : "blob.bin";
   } else {
     // Plaintext fallback (encryption not enabled on this room).
-    form.append("file", file);
+    uploadBytes = new Uint8Array(await file.arrayBuffer());
+    contentType = file.type || "application/octet-stream";
+    filename = file.name;
   }
+
+  if (isTauri()) {
+    // Route through the native backend: reqwest is not subject to CORS, whereas
+    // a webview `fetch()` on this cross-origin URL is blocked by CORS.
+    const meta = await invokeCommand<YjsFileMeta>("yjs_file_upload", {
+      url: url.toString(),
+      filename,
+      contentType,
+      bytes: Array.from(uploadBytes),
+      encMetadata: encMetadata ?? null,
+    });
+    return meta;
+  }
+
+  const form = new FormData();
+  form.append("file", new Blob([uploadBytes], { type: contentType }), filename);
+  if (encMetadata) form.append("encMetadata", encMetadata);
 
   const res = await fetch(url.toString(), {
     method: "POST",
@@ -120,22 +143,36 @@ export async function uploadRoomFile(file: File, room?: string, id?: string): Pr
 
 export async function downloadRoomFile(room: string, id: string): Promise<Blob> {
   const base = getYjsFileServiceBaseUrl();
-  const res = await fetch(`${base}/files/${encodeURIComponent(room)}/${encodeURIComponent(id)}`, {
-    method: "GET",
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`yjs file download failed (${res.status}): ${text || res.statusText}`);
-  }
-
+  const fileUrl = `${base}/files/${encodeURIComponent(room)}/${encodeURIComponent(id)}`;
   const fileKey = await getFileKey();
-  const encMetadataHeader = res.headers.get(ENCRYPTED_METADATA_HEADER);
+
+  // Fetch raw bytes + the encrypted-metadata header. In Tauri we go through the
+  // native backend (reqwest, not subject to CORS); in the browser we use
+  // webview fetch directly.
+  let packed: Uint8Array;
+  let encMetadataHeader: string | null;
+
+  if (isTauri()) {
+    const dl = await invokeCommand<{ bytes: number[]; encryptedMetadata: string | null }>(
+      "yjs_file_download",
+      { url: fileUrl },
+    );
+    packed = Uint8Array.from(dl.bytes);
+    encMetadataHeader = dl.encryptedMetadata;
+  } else {
+    const res = await fetch(fileUrl, { method: "GET" });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`yjs file download failed (${res.status}): ${text || res.statusText}`);
+    }
+    encMetadataHeader = res.headers.get(ENCRYPTED_METADATA_HEADER);
+    packed = new Uint8Array(await res.arrayBuffer());
+  }
 
   // Encrypted path: server returned an encMetadata header → decrypt the bytes
   // and recover the original content-type so callers (which key off blob.type)
   // keep working without changes.
   if (fileKey && encMetadataHeader) {
-    const packed = new Uint8Array(await res.arrayBuffer());
     let plaintext: Uint8Array;
     let contentType = "application/octet-stream";
     try {
@@ -154,7 +191,7 @@ export async function downloadRoomFile(room: string, id: string): Promise<Blob> 
         // Likely a legacy plaintext blob written before encryption was enabled,
         // or a wrong key. Return the raw bytes so the caller can decide.
         console.warn("[yjs-file-service] file decrypt failed; returning raw bytes (legacy?)", err);
-        return await res.blob();
+        return new Blob([packed], { type: contentType });
       }
       throw err;
     }
@@ -162,15 +199,18 @@ export async function downloadRoomFile(room: string, id: string): Promise<Blob> 
   }
 
   // Plaintext path (no key cached, or legacy blob with no encMetadata header).
-  return await res.blob();
+  return new Blob([packed], { type: "application/octet-stream" });
 }
 
 export async function checkRoomFileExists(room: string, id: string): Promise<boolean> {
   try {
     const base = getYjsFileServiceBaseUrl();
-    const res = await fetch(`${base}/files/${encodeURIComponent(room)}/${encodeURIComponent(id)}`, {
-      method: "HEAD",
-    });
+    const fileUrl = `${base}/files/${encodeURIComponent(room)}/${encodeURIComponent(id)}`;
+    if (isTauri()) {
+      // Route through the native backend: reqwest is not subject to CORS.
+      return await invokeCommand<boolean>("yjs_file_exists", { url: fileUrl });
+    }
+    const res = await fetch(fileUrl, { method: "HEAD" });
     return res.ok;
   } catch {
     return false;
