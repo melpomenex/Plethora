@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.69.0] - 2026-07-09
+
+### Added & Improved
+
+- **Relocatable Glassmorphic Rating Orbs** — Re-introduced rating actions as beautiful colored glass orbs in the queue Scroll Mode. Added custom drag/touch listener logic that dynamically snaps the orb container to any viewport edge (Left, Right, Top, or Bottom). Added a manual snap directional pad picker.
+- **Mobile Bottom Bar Simplification** — Simplified the bottom navigation bar on mobile screen layouts to focus on document navigation and progress tracking, letting the floating rating orbs float freely without interface duplication.
+- **Review Home Header Swap** — Repositioned the primary `Start Review` / `Continue Reading` buttons to the left of the `ActionMenu` breadcrumb button, ensuring the options dropdown expands leftwards toward the center of the viewport and never spills off-screen.
+- **Mobile Header Wrapping** — Added flex-wrap and responsive justification styles to the toggles container in review sessions, preventing card navigation buttons (next/previous arrows) from rendering off-screen on narrow devices.
+- **macOS Startup Dashboard Loading Hangs Resolved** — Fixed a blank window or freeze on startup caused by the `tauri-plugin-window-state` attempting to restore a corrupted, empty, or invalid state file. The application now auto-validates the window state on startup and deletes it if corrupted. Added a native application menu item "Clear Window State" on macOS and CLI flags (`--clear-window-state` / `--reset-window-state` / `-c`) to allow manual clearance.
+- **OPML Feed Import Protocol Regression Fixed** — Resolved an issue where RSS feeds using the `feed://` or `feed:` protocols were silently skipped during OPML imports. Traversal of XML elements (`<body>` and `<outline>`) is now case-insensitive, allowing mixed-case tags from different feed reader exports to parse successfully.
+
 ## [1.68.1] - 2026-07-09
 
 ### Fixed & Improved
