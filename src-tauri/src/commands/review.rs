@@ -835,10 +835,9 @@ pub trait RepositoryExt {
 
 impl RepositoryExt for Repository {
     async fn get_learning_item(&self, id: &str) -> Result<Option<LearningItem>> {
-        // Use get_all_learning_items and filter by id
-        // This is inefficient but works for now
-        let items = self.get_all_learning_items().await?;
-        Ok(items.into_iter().find(|item| item.id == id))
+        // Look up a single item by primary key instead of scanning the whole
+        // learning_items table and filtering in Rust.
+        self.get_learning_item_by_id(id).await
     }
 }
 
@@ -1074,6 +1073,79 @@ pub async fn get_all_review_results(repo: State<'_, Repository>) -> Result<Vec<s
             })
         })
         .collect())
+}
+
+/// Get review results for a specific set of review sessions.
+///
+/// This is the server-side-filtered variant of `get_all_review_results`: it
+/// pushes the session-id filter into SQL (parameterized `IN (...)`) so we only
+/// ship the matching rows across IPC instead of the whole table. The returned
+/// row shape is identical to `get_all_review_results` (used by the collection
+/// archive view, which previously filtered the full table client-side).
+///
+/// `session_ids` are chunked (900 at a time) to respect SQLite's bind limit
+/// (SQLITE_MAX_VARIABLE_NUMBER, default 999).
+#[tauri::command]
+pub async fn get_review_results_by_sessions(
+    session_ids: Vec<String>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<serde_json::Value>> {
+    if session_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Deduplicate so we don't bind the same id repeatedly.
+    let mut unique: Vec<String> = session_ids.into_iter().collect();
+    unique.sort_unstable();
+    unique.dedup();
+
+    // SQLite's default bind limit is 999; one column in the IN list means we
+    // can safely chunk at 900 per query.
+    const CHUNK_SIZE: usize = 900;
+
+    let mut out: Vec<serde_json::Value> = Vec::new();
+
+    for chunk in unique.chunks(CHUNK_SIZE) {
+        // Build positional placeholders ?1..?N
+        let placeholders: Vec<String> = chunk
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let sql = format!(
+            r#"SELECT id, collection_id, session_id, item_id, rating, time_taken,
+                      new_due_date, new_interval, new_ease_factor, timestamp
+               FROM review_results WHERE session_id IN ({})"#,
+            placeholders.join(",")
+        );
+
+        let mut query = sqlx::query(&sql);
+        for id in chunk {
+            query = query.bind(id);
+        }
+
+        let rows = query
+            .fetch_all(repo.pool())
+            .await
+            .map_err(crate::error::IncrementumError::Database)?;
+
+        for row in &rows {
+            out.push(serde_json::json!({
+                "id": row.get::<String, _>("id"),
+                "collectionId": row.get::<String, _>("collection_id"),
+                "reviewSessionId": row.get::<Option<String>, _>("session_id"),
+                "itemId": row.get::<String, _>("item_id"),
+                "rating": row.get::<i32, _>("rating"),
+                "timeTaken": row.get::<i32, _>("time_taken"),
+                "newDueDate": row.get::<Option<String>, _>("new_due_date"),
+                "newInterval": row.get::<f64, _>("new_interval"),
+                "newEaseFactor": row.get::<f64, _>("new_ease_factor"),
+                "timestamp": row.get::<String, _>("timestamp"),
+            }));
+        }
+    }
+
+    Ok(out)
 }
 
 /// Get all categories for a specific collection

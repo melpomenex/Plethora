@@ -6,7 +6,7 @@ use crate::error::{IncrementumError, Result};
 use crate::generator::LearningItemGenerator;
 use crate::models::{ItemState, ItemType, LearningItem};
 use sqlx::Row;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tauri::State;
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -61,22 +61,68 @@ pub async fn get_due_items(
     let items = repo
         .get_due_learning_items(&now, collection_id.as_deref())
         .await?;
+
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // ---- Batched prerequisite resolution (Finding K) ----
+    // Previously this did N+M sequential queries: one settings lookup per due
+    // item (`load_learning_item_prerequisites`), then one `learning_items`
+    // lookup per prerequisite id (itself a full-table scan). We now do at most
+    // TWO batched queries regardless of how many due items / prerequisites
+    // there are.
+    //
+    // Prerequisites are stored as JSON arrays in the `settings` table under
+    // keys of the form `card_prereq:{item_id}` (see
+    // `store_learning_item_prerequisites`).
+
+    // 1. Build the exact settings keys for every due item and fetch them all
+    //    at once: `SELECT key, value FROM settings WHERE key IN (...)`.
+    let prereq_keys: Vec<String> = items.iter().map(|i| format!("card_prereq:{}", i.id)).collect();
+    let prereqs_by_item = fetch_prerequisite_map(&prereq_keys, &repo).await?;
+
+    // 2. Collect the UNIQUE set of prerequisite ids across all due items.
+    let mut unique_prereq_ids: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for ids in prereqs_by_item.values() {
+        for id in ids {
+            if seen.insert(id.clone()) {
+                unique_prereq_ids.push(id.clone());
+            }
+        }
+    }
+
+    // 3. Fetch every prerequisite learning item in ONE batched query, reusing
+    //    the shared row decoder so decoding stays consistent with the rest of
+    //    the codebase.
+    let prereq_items_map = fetch_learning_items_by_ids(&unique_prereq_ids, &repo).await?;
+
+    // 4. Resolve blocking in memory, preserving the original semantics:
+    //    an item is blocked if ANY prerequisite is missing OR not yet "mature"
+    //    (review_count > 0 AND interval >= 21.0 AND state == Review).
     let mut filtered = Vec::new();
     for item in items {
-        let prerequisite_ids = load_learning_item_prerequisites(&item.id, &repo).await?;
+        let prerequisite_ids = prereqs_by_item.get(&item.id);
         let mut blocked = false;
-        for prerequisite_id in prerequisite_ids {
-            if let Some(prerequisite) = repo.get_learning_item(&prerequisite_id).await? {
-                let is_mature = prerequisite.review_count > 0
-                    && prerequisite.interval >= 21.0
-                    && matches!(prerequisite.state, ItemState::Review);
-                if !is_mature {
-                    blocked = true;
-                    break;
+        if let Some(prerequisite_ids) = prerequisite_ids {
+            for prerequisite_id in prerequisite_ids {
+                match prereq_items_map.get(prerequisite_id) {
+                    Some(prerequisite) => {
+                        let is_mature = prerequisite.review_count > 0
+                            && prerequisite.interval >= 21.0
+                            && matches!(prerequisite.state, ItemState::Review);
+                        if !is_mature {
+                            blocked = true;
+                            break;
+                        }
+                    }
+                    None => {
+                        // Prerequisite id referenced but no such learning item.
+                        blocked = true;
+                        break;
+                    }
                 }
-            } else {
-                blocked = true;
-                break;
             }
         }
         if !blocked {
@@ -84,6 +130,89 @@ pub async fn get_due_items(
         }
     }
     Ok(filtered)
+}
+
+/// Batched fetch of prerequisite id lists for many due items at once.
+///
+/// `keys` are the exact `settings` table keys (`card_prereq:{item_id}`) to
+/// look up. Returns a map from `item_id` (parsed out of the key) to its list
+/// of prerequisite item ids. Keys are chunked (900 at a time) to respect
+/// SQLite's bind limit.
+async fn fetch_prerequisite_map(
+    keys: &[String],
+    repo: &Repository,
+) -> Result<HashMap<String, Vec<String>>> {
+    if keys.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    const CHUNK_SIZE: usize = 900;
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+
+    for chunk in keys.chunks(CHUNK_SIZE) {
+        let placeholders: Vec<String> = chunk
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let sql = format!("SELECT key, value FROM settings WHERE key IN ({})", placeholders.join(","));
+        let mut query = sqlx::query(&sql);
+        for k in chunk {
+            query = query.bind(k);
+        }
+        let rows = query.fetch_all(repo.pool()).await?;
+
+        for row in &rows {
+            let key: String = row.try_get("key").unwrap_or_default();
+            let value: String = row.try_get("value").unwrap_or_default();
+            // Parse "card_prereq:{item_id}" back to item_id.
+            let item_id = match key.strip_prefix("card_prereq:") {
+                Some(id) => id.to_string(),
+                None => continue,
+            };
+            let ids: Vec<String> = serde_json::from_str(&value).unwrap_or_default();
+            map.insert(item_id, ids);
+        }
+    }
+
+    Ok(map)
+}
+
+/// Batched fetch of `LearningItem` rows by id. Reuses
+/// `Repository::row_to_learning_item` so decoding is identical to every other
+/// read path. Ids are chunked (500 at a time) to respect SQLite's bind limit,
+/// mirroring `get_review_log_for_items`.
+async fn fetch_learning_items_by_ids(
+    ids: &[String],
+    repo: &Repository,
+) -> Result<HashMap<String, LearningItem>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    const CHUNK_SIZE: usize = 500;
+    let mut map: HashMap<String, LearningItem> = HashMap::new();
+
+    for chunk in ids.chunks(CHUNK_SIZE) {
+        let placeholders: Vec<String> = chunk
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect();
+        let sql = format!("SELECT * FROM learning_items WHERE id IN ({})", placeholders.join(","));
+        let mut query = sqlx::query(&sql);
+        for id in chunk {
+            query = query.bind(id);
+        }
+        let rows = query.fetch_all(repo.pool()).await?;
+        for row in &rows {
+            if let Ok(item) = Repository::row_to_learning_item(row) {
+                map.insert(item.id.clone(), item);
+            }
+        }
+    }
+
+    Ok(map)
 }
 
 #[tauri::command]

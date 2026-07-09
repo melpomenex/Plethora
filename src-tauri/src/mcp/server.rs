@@ -9,6 +9,11 @@ pub struct MCPServer {
     info: MCPServerInfo,
     capabilities: MCPCapabilities,
     tool_registry: MCPToolRegistry,
+    /// Lazily-initialized, long-lived tokio runtime used to drive async tool
+    /// execution. Reusing a single runtime (instead of creating a fresh one per
+    /// `tools/call`) avoids the per-call allocation and thread-spin cost, and
+    /// avoids the "cannot start a runtime from within a runtime" panic.
+    runtime: std::sync::OnceLock<tokio::runtime::Runtime>,
 }
 
 impl MCPServer {
@@ -27,7 +32,27 @@ impl MCPServer {
                 prompts: None,
             },
             tool_registry: MCPToolRegistry::new(repository),
+            runtime: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Returns a handle to a single long-lived tokio runtime.
+    ///
+    /// The runtime is built once (lazily, on first tool call) and reused for
+    /// every subsequent `tools/call`. This avoids the per-call allocation and
+    /// thread-spin cost of creating a fresh `Runtime` on each request, and
+    /// avoids the "cannot start a runtime from within a runtime" panic that
+    /// would occur if `Runtime::new()` were invoked while already on a tokio
+    /// worker thread.
+    fn runtime(&self) -> &tokio::runtime::Handle {
+        self.runtime
+            .get_or_init(|| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .expect("failed to build MCP server tokio runtime")
+            })
+            .handle()
     }
 
     /// Start the MCP server (stdin/stdout communication)
@@ -133,12 +158,8 @@ impl MCPServer {
             .ok_or(JsonRpcError::invalid_params())?;
         let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
-        let result = tokio::runtime::Runtime::new()
-            .map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e.to_string(),
-                data: None,
-            })?
+        let result = self
+            .runtime()
             .block_on(self.tool_registry.execute_tool(name, arguments))
             .map_err(|e| JsonRpcError {
                 code: -32603,

@@ -18,6 +18,36 @@ fn emit_stream_event(app: &AppHandle, event: &str, payload: impl Serialize + Clo
     }
 }
 
+// Throttling for streamed token deltas: coalesce deltas before emitting an IPC
+// event so we don't flood the frontend with one event per token.
+const STREAM_FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(40);
+const STREAM_FLUSH_SIZE: usize = 256;
+
+/// Flush accumulated streamed text to the frontend as a single `llm:stream:chunk`
+/// event. Emits nothing (but still resets the flush timer) when the buffer is
+/// empty. The payload shape matches the per-token events it replaces:
+/// `{ "content": <text>, "done": <bool> }`.
+#[inline]
+fn flush_stream_chunk(
+    app: &AppHandle,
+    buf: &mut String,
+    last_flush: &mut std::time::Instant,
+    done: bool,
+) {
+    if !buf.is_empty() {
+        emit_stream_event(
+            app,
+            LLM_STREAM_CHUNK,
+            serde_json::json!({
+                "content": buf.as_str(),
+                "done": done,
+            }),
+        );
+        buf.clear();
+    }
+    *last_flush = std::time::Instant::now();
+}
+
 #[derive(Debug, Serialize)]
 struct OpenAIRequest {
     model: String,
@@ -565,6 +595,10 @@ async fn stream_openai(
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
 
+    // Coalesce token deltas before emitting to avoid one IPC event per token.
+    let mut chunk_buf = String::new();
+    let mut last_flush = std::time::Instant::now();
+
     while let Some(item) = stream.next().await {
         let chunk = item.map_err(|e| {
             emit_stream_event(
@@ -590,16 +624,17 @@ async fn stream_openai(
                 if let Ok(chunk_data) = serde_json::from_str::<OpenAIStreamChunk>(json_str) {
                     if let Some(choice) = chunk_data.choices.first() {
                         if let Some(content) = &choice.delta.content {
-                            emit_stream_event(
-                                app,
-                                LLM_STREAM_CHUNK,
-                                serde_json::json!({
-                                    "content": content,
-                                    "done": choice.finish_reason.is_some()
-                                }),
-                            );
+                            chunk_buf.push_str(content);
 
-                            if choice.finish_reason.is_some() {
+                            let finished = choice.finish_reason.is_some();
+                            if finished
+                                || last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
+                                || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
+                            {
+                                flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, finished);
+                            }
+
+                            if finished {
                                 emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
                                 return Ok(());
                             }
@@ -612,6 +647,8 @@ async fn stream_openai(
         buffer.clear();
     }
 
+    // Final flush for any remaining buffered text.
+    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
     emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
     Ok(())
 }
@@ -677,6 +714,10 @@ async fn stream_anthropic(
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
 
+    // Coalesce token deltas before emitting to avoid one IPC event per token.
+    let mut chunk_buf = String::new();
+    let mut last_flush = std::time::Instant::now();
+
     while let Some(item) = stream.next().await {
         let chunk = item.map_err(|e| {
             emit_stream_event(
@@ -704,22 +745,30 @@ async fn stream_anthropic(
                     "content_block_delta" => {
                         if let Some(delta) = chunk_data.delta {
                             if let Some(text) = delta.text {
-                                emit_stream_event(
-                                    app,
-                                    LLM_STREAM_CHUNK,
-                                    serde_json::json!({
-                                        "content": text,
-                                        "done": false
-                                    }),
-                                );
+                                chunk_buf.push_str(&text);
+
+                                if last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
+                                    || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
+                                {
+                                    flush_stream_chunk(
+                                        app,
+                                        &mut chunk_buf,
+                                        &mut last_flush,
+                                        false,
+                                    );
+                                }
                             }
                         }
                     }
                     "message_stop" => {
+                        // Stream ended: flush any remaining buffered text.
+                        flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
                         emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
                         return Ok(());
                     }
                     "error" => {
+                        // Flush any buffered text before surfacing the error.
+                        flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
                         emit_stream_event(
                             app,
                             LLM_STREAM_ERROR,
@@ -737,6 +786,8 @@ async fn stream_anthropic(
         buffer.clear();
     }
 
+    // Final flush for any remaining buffered text.
+    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
     emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
     Ok(())
 }
@@ -792,6 +843,10 @@ async fn stream_ollama(
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
 
+    // Coalesce token deltas before emitting to avoid one IPC event per token.
+    let mut chunk_buf = String::new();
+    let mut last_flush = std::time::Instant::now();
+
     while let Some(item) = stream.next().await {
         let chunk = item.map_err(|e| {
             emit_stream_event(
@@ -817,16 +872,17 @@ async fn stream_ollama(
                 if let Ok(chunk_data) = serde_json::from_str::<OpenAIStreamChunk>(json_str) {
                     if let Some(choice) = chunk_data.choices.first() {
                         if let Some(content) = &choice.delta.content {
-                            emit_stream_event(
-                                app,
-                                LLM_STREAM_CHUNK,
-                                serde_json::json!({
-                                    "content": content,
-                                    "done": choice.finish_reason.is_some()
-                                }),
-                            );
+                            chunk_buf.push_str(content);
 
-                            if choice.finish_reason.is_some() {
+                            let finished = choice.finish_reason.is_some();
+                            if finished
+                                || last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
+                                || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
+                            {
+                                flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, finished);
+                            }
+
+                            if finished {
                                 emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
                                 return Ok(());
                             }
@@ -839,6 +895,8 @@ async fn stream_ollama(
         buffer.clear();
     }
 
+    // Final flush for any remaining buffered text.
+    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
     emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
     Ok(())
 }

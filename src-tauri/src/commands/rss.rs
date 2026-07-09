@@ -321,27 +321,47 @@ pub async fn delete_rss_feed(id: String, repo: State<'_, Repository>) -> Result<
     Ok(())
 }
 
-/// Add article to database
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn create_rss_article(
-    feed_id: String,
-    url: String,
-    guid: Option<String>,
-    title: String,
-    author: Option<String>,
-    published_date: Option<String>,
-    content: Option<String>,
-    summary: Option<String>,
-    image_url: Option<String>,
-    repo: State<'_, Repository>,
+/// Inputs for creating/upserting an RSS article. Used by both
+/// `create_rss_article` (single) and `bulk_create_rss_articles` (batch) so the
+/// upsert logic is shared. Batching avoids one IPC round-trip per article
+/// during feed sync (previously `Promise.all(items.map(invoke))`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RssArticleInput {
+    pub feed_id: String,
+    pub url: String,
+    pub guid: Option<String>,
+    pub title: String,
+    pub author: Option<String>,
+    pub published_date: Option<String>,
+    pub content: Option<String>,
+    pub summary: Option<String>,
+    pub image_url: Option<String>,
+}
+
+/// Core upsert logic for a single RSS article (check by guid, then url, then
+/// insert). Shared by `create_rss_article` and `bulk_create_rss_articles` so
+/// behavior is identical between the single-item and batch paths.
+async fn upsert_rss_article(
+    pool: &sqlx::SqlitePool,
+    input: RssArticleInput,
 ) -> Result<RssArticle> {
     let now = Utc::now().to_rfc3339();
+    let RssArticleInput {
+        feed_id,
+        url,
+        guid,
+        title,
+        author,
+        published_date,
+        content,
+        summary,
+        image_url,
+    } = input;
 
     let existing_by_guid = if let Some(ref guid_value) = guid {
         sqlx::query("SELECT * FROM rss_articles WHERE guid = ?")
             .bind(guid_value)
-            .fetch_optional(repo.pool())
+            .fetch_optional(pool)
             .await
             .map_err(|e| {
                 crate::error::IncrementumError::Internal(format!(
@@ -356,7 +376,7 @@ pub async fn create_rss_article(
     let existing_by_url = if existing_by_guid.is_none() {
         sqlx::query("SELECT * FROM rss_articles WHERE url = ?")
             .bind(&url)
-            .fetch_optional(repo.pool())
+            .fetch_optional(pool)
             .await
             .map_err(|e| {
                 crate::error::IncrementumError::Internal(format!(
@@ -393,7 +413,7 @@ pub async fn create_rss_article(
         .bind(&image_url)
         .bind(&guid)
         .bind(&id)
-        .execute(repo.pool())
+        .execute(pool)
         .await
         .map_err(|e| {
             crate::error::IncrementumError::Internal(format!("Failed to update RSS article: {}", e))
@@ -423,7 +443,7 @@ pub async fn create_rss_article(
         .bind(&image_url)
         .bind(&guid)
         .bind(&id)
-        .execute(repo.pool())
+        .execute(pool)
         .await
         .map_err(|e| {
             crate::error::IncrementumError::Internal(format!("Failed to update RSS article: {}", e))
@@ -449,7 +469,7 @@ pub async fn create_rss_article(
         .bind(false)
         .bind(false)
         .bind(&now)
-        .execute(repo.pool())
+        .execute(pool)
         .await
         .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create RSS article: {}", e)))?;
     }
@@ -457,7 +477,7 @@ pub async fn create_rss_article(
     let row = if let Some(ref guid_value) = guid {
         if let Some(row) = sqlx::query("SELECT * FROM rss_articles WHERE guid = ?")
             .bind(guid_value)
-            .fetch_optional(repo.pool())
+            .fetch_optional(pool)
             .await
             .map_err(|e| {
                 crate::error::IncrementumError::Internal(format!(
@@ -470,7 +490,7 @@ pub async fn create_rss_article(
         } else {
             sqlx::query("SELECT * FROM rss_articles WHERE url = ?")
                 .bind(&url)
-                .fetch_one(repo.pool())
+                .fetch_one(pool)
                 .await
                 .map_err(|e| {
                     crate::error::IncrementumError::Internal(format!(
@@ -482,7 +502,7 @@ pub async fn create_rss_article(
     } else {
         sqlx::query("SELECT * FROM rss_articles WHERE url = ?")
             .bind(&url)
-            .fetch_one(repo.pool())
+            .fetch_one(pool)
             .await
             .map_err(|e| {
                 crate::error::IncrementumError::Internal(format!(
@@ -511,6 +531,57 @@ pub async fn create_rss_article(
         intelligence_score: row.try_get("intelligence_score").ok().flatten(),
     })
 }
+
+/// Add article to database
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn create_rss_article(
+    feed_id: String,
+    url: String,
+    guid: Option<String>,
+    title: String,
+    author: Option<String>,
+    published_date: Option<String>,
+    content: Option<String>,
+    summary: Option<String>,
+    image_url: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<RssArticle> {
+    upsert_rss_article(
+        repo.pool(),
+        RssArticleInput {
+            feed_id,
+            url,
+            guid,
+            title,
+            author,
+            published_date,
+            content,
+            summary,
+            image_url,
+        },
+    )
+    .await
+}
+
+/// Bulk-create/upsert many RSS articles in a single IPC call. Each article is
+/// upserted via the shared `upsert_rss_article` logic (identical semantics to
+/// `create_rss_article`), so this replaces the frontend's per-article
+/// `Promise.all(items.map(invoke("create_rss_article")))` fan-out — one IPC
+/// round-trip instead of N. Returns the resulting articles in input order.
+#[tauri::command]
+pub async fn bulk_create_rss_articles(
+    articles: Vec<RssArticleInput>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<RssArticle>> {
+    let pool = repo.pool();
+    let mut out = Vec::with_capacity(articles.len());
+    for article in articles {
+        out.push(upsert_rss_article(pool, article).await?);
+    }
+    Ok(out)
+}
+
 
 /// Get articles for a feed
 #[tauri::command]

@@ -942,13 +942,16 @@ async fn import_decks_to_learning_items(
                 .push(entry.clone());
         }
 
+        // Build a note-id lookup map once per deck (mirrors the `card_revlog`
+        // map above) instead of a linear `.find()` over all notes for every
+        // card, which was O(cards x notes) and cloned the full AnkiNote per
+        // card. We borrow the note (`&AnkiNote`) since downstream only needs
+        // `note.guid` and `build_learning_item(&note, ...)`.
+        let notes_by_id: std::collections::HashMap<i64, &AnkiNote> =
+            deck.notes.iter().map(|n| (n.id, n)).collect();
+
         for card in &deck.cards {
-            if let Some(note) = deck
-                .notes
-                .iter()
-                .find(|note| note.id == card.note_id)
-                .cloned()
-            {
+            if let Some(note) = notes_by_id.get(&card.note_id) {
                 // Skip if we've already imported this note (by GUID)
                 if !imported_note_guids.insert(note.guid.clone()) {
                     skipped_count += 1;
@@ -956,7 +959,7 @@ async fn import_decks_to_learning_items(
                     continue;
                 }
                 if let Some(item) =
-                    build_learning_item(&note, card, None, &deck.name, &repo, &media_map).await
+                    build_learning_item(note, card, None, &deck.name, &repo, &media_map).await
                 {
                     let created = repo.create_learning_item(&item).await?;
 

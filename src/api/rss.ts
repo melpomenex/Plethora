@@ -6,6 +6,22 @@ import { invokeCommand, isTauri } from "../lib/tauri";
 import { useCollectionStore } from "../stores/collectionStore";
 
 /**
+ * Detect a "command not registered" error from Tauri IPC, so callers can fall
+ * back to an older command path when running against a backend that predates a
+ * newer command (e.g. `bulk_create_rss_articles`). Tauri rejects unknown
+ * commands with a message like `command <name> not found`.
+ */
+function isCommandMissingError(err: unknown): boolean {
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : String(err ?? "");
+  return /command\s+\S+\s+not\s+found/i.test(msg) || /not\s+registered/i.test(msg);
+}
+
+/**
  * Feed item (article/blog post)
  */
 export interface FeedItem {
@@ -1137,27 +1153,52 @@ async function createOrUpdateFeedViaTauri(
 async function createArticlesViaTauri(feedId: string, items: FeedItem[]): Promise<void> {
   if (items.length === 0) return;
 
+  // Use the single bulk backend command instead of N per-article invokes
+  // (one IPC round-trip instead of one per item). Falls back to the per-article
+  // path if the backend predates the bulk command (older app build / partial
+  // upgrade) so feed sync keeps working.
   const feed = getFeed(feedId);
   const shouldAutoFetch = feed?.autoFetchFullContent === "always";
 
-  await Promise.all(
-    items.map((item) =>
-      invokeCommand("create_rss_article", {
-        feedId,
-        feed_id: feedId,
-        url: item.link,
-        guid: item.guid || null,
-        title: item.title,
-        author: item.author || null,
-        publishedDate: item.pubDate || null,
-        published_date: item.pubDate || null,
-        content: item.content || null,
-        summary: item.description || null,
-        imageUrl: getFeedItemThumbnail(item) || null,
-        image_url: getFeedItemThumbnail(item) || null,
-      })
-    )
-  );
+  const bulkPayload = items.map((item) => ({
+    feed_id: feedId,
+    url: item.link,
+    guid: item.guid || null,
+    title: item.title,
+    author: item.author || null,
+    published_date: item.pubDate || null,
+    content: item.content || null,
+    summary: item.description || null,
+    image_url: getFeedItemThumbnail(item) || null,
+  }));
+
+  try {
+    await invokeCommand("bulk_create_rss_articles", { articles: bulkPayload });
+  } catch (err) {
+    // Bulk command unavailable on older backends — fall back to per-article.
+    if (isCommandMissingError(err)) {
+      await Promise.all(
+        items.map((item) =>
+          invokeCommand("create_rss_article", {
+            feedId,
+            feed_id: feedId,
+            url: item.link,
+            guid: item.guid || null,
+            title: item.title,
+            author: item.author || null,
+            publishedDate: item.pubDate || null,
+            published_date: item.pubDate || null,
+            content: item.content || null,
+            summary: item.description || null,
+            imageUrl: getFeedItemThumbnail(item) || null,
+            image_url: getFeedItemThumbnail(item) || null,
+          })
+        )
+      );
+    } else {
+      throw err;
+    }
+  }
 
   // Trigger auto-fetch for "always" mode feeds after articles are created
   if (shouldAutoFetch) {

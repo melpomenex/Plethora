@@ -27,6 +27,7 @@ export interface APIKeys {
   openai?: string;
   anthropic?: string;
   openrouter?: string;
+  brave?: string;
 }
 
 /**

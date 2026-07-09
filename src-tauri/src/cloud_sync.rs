@@ -3,6 +3,7 @@
 //! Handles two-way synchronization between local data and cloud storage
 
 use chrono::{DateTime, Utc};
+use futures::future::try_join_all;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,6 +12,18 @@ use tokio::sync::RwLock;
 use crate::cloud::{CloudProvider, ConflictResolution, SyncConflict, SyncResult};
 use crate::database::Database;
 use crate::error::AppError;
+
+/// Maximum number of concurrent upload/download operations during two-way sync.
+/// Capped to avoid overwhelming the cloud provider (rate limits / connection
+/// ceilings). 8 is a reasonable default for typical cloud storage APIs.
+const SYNC_CONCURRENCY: usize = 8;
+
+/// Direction of a sync change batch, used by `run_change_batch`.
+#[derive(Clone, Copy)]
+enum ChangeDirection {
+    Upload,
+    Download,
+}
 
 /// Cloud sync manager
 pub struct CloudSyncManager {
@@ -86,23 +99,24 @@ impl CloudSyncManager {
             .detect_conflicts(&local_changes, &remote_changes)
             .await?;
 
-        // 4. Upload local changes
-        let mut uploaded = 0;
-        for change in &local_changes {
-            if !self.is_conflicted(change, &conflicts) {
-                self.upload_change(provider, change).await?;
-                uploaded += 1;
-            }
-        }
+        // 4. Upload local changes (parallelized with bounded concurrency)
+        //
+        // Previously this awaited each `upload_change` serially. Uploads are
+        // independent, so we run them concurrently, capped at
+        // `SYNC_CONCURRENCY` in flight. The work is delegated to
+        // `run_change_batch` so `self` and `provider` are passed as two
+        // distinct parameters (not derived one from the other), which lets the
+        // per-change futures borrow both without conflicting borrows of `self`.
+        // `try_join_all` short-circuits on the first error, matching the
+        // original `?`-bail.
+        let uploaded = self
+            .run_change_batch(provider, &local_changes, &conflicts, ChangeDirection::Upload)
+            .await?;
 
-        // 5. Download remote changes
-        let mut downloaded = 0;
-        for change in &remote_changes {
-            if !self.is_conflicted(change, &conflicts) {
-                self.download_change(provider, change).await?;
-                downloaded += 1;
-            }
-        }
+        // 5. Download remote changes (parallelized with bounded concurrency)
+        let downloaded = self
+            .run_change_batch(provider, &remote_changes, &conflicts, ChangeDirection::Download)
+            .await?;
 
         // 6. Update sync state
         let mut state = self.sync_state.write().await;
@@ -239,6 +253,46 @@ impl CloudSyncManager {
     /// Check if a change is conflicted
     fn is_conflicted(&self, change: &SyncChange, conflicts: &[SyncConflict]) -> bool {
         conflicts.iter().any(|c| c.item_id == change.item_id)
+    }
+
+    /// Run a batch of (upload or download) changes concurrently, bounded by
+    /// `SYNC_CONCURRENCY`. Non-conflicted changes are cloned into owned
+    /// `SyncChange`s so each per-change future owns its change and only borrows
+    /// `self` and `provider` (both passed as distinct parameters here, so the
+    /// borrow-checker sees them as independent lifetimes). Returns the number
+    /// of changes actually applied. Short-circuits on the first error.
+    async fn run_change_batch(
+        &self,
+        provider: &dyn CloudProvider,
+        changes: &[SyncChange],
+        conflicts: &[SyncConflict],
+        direction: ChangeDirection,
+    ) -> Result<usize, AppError> {
+        let pending: Vec<SyncChange> = changes
+            .iter()
+            .filter(|c| !self.is_conflicted(c, conflicts))
+            .cloned()
+            .collect();
+        let permits = Arc::new(tokio::sync::Semaphore::new(SYNC_CONCURRENCY));
+        // Boxed so the Vec has a concrete element type; the lifetime is tied to
+        // `self`/`provider`/`permits` which all outlive the `try_join_all`.
+        let mut futs: Vec<
+            std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), AppError>> + Send + '_>>,
+        > = Vec::with_capacity(pending.len());
+        for change in pending {
+            let permit = permits.clone();
+            futs.push(Box::pin(async move {
+                let _permit = permit
+                    .acquire_owned()
+                    .await
+                    .map_err(|e| AppError::Internal(format!("sync permit closed: {}", e)))?;
+                match direction {
+                    ChangeDirection::Upload => self.upload_change(provider, &change).await,
+                    ChangeDirection::Download => self.download_change(provider, &change).await,
+                }
+            }));
+        }
+        Ok(try_join_all(futs).await?.len())
     }
 
     /// Upload a local change to cloud

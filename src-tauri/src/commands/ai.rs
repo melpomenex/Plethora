@@ -118,7 +118,7 @@ pub async fn set_api_key(
     let provider_lower = provider.to_lowercase();
 
     match provider_lower.as_str() {
-        "openai" | "anthropic" | "openrouter" => {}
+        "openai" | "anthropic" | "openrouter" | "brave" => {}
         _ => {
             return Err(IncrementumError::InvalidInput(format!(
                 "Unknown provider: {}",
@@ -137,6 +137,7 @@ pub async fn set_api_key(
         "openai" => current.api_keys.openai = Some(api_key),
         "anthropic" => current.api_keys.anthropic = Some(api_key),
         "openrouter" => current.api_keys.openrouter = Some(api_key),
+        "brave" => current.api_keys.brave = Some(api_key),
         _ => unreachable!(),
     }
 
@@ -152,7 +153,7 @@ pub async fn get_masked_api_key(
 ) -> Result<Option<String>> {
     let provider_lower = provider.to_lowercase();
     match provider_lower.as_str() {
-        "openai" | "anthropic" | "openrouter" => {}
+        "openai" | "anthropic" | "openrouter" | "brave" => {}
         _ => {
             return Err(IncrementumError::InvalidInput(format!(
                 "Unknown provider: {}",
@@ -172,7 +173,7 @@ pub async fn remove_api_key(
 ) -> Result<()> {
     let provider_lower = provider.to_lowercase();
     match provider_lower.as_str() {
-        "openai" | "anthropic" | "openrouter" => {}
+        "openai" | "anthropic" | "openrouter" | "brave" => {}
         _ => {
             return Err(IncrementumError::InvalidInput(format!(
                 "Unknown provider: {}",
@@ -190,6 +191,7 @@ pub async fn remove_api_key(
         "openai" => current.api_keys.openai = None,
         "anthropic" => current.api_keys.anthropic = None,
         "openrouter" => current.api_keys.openrouter = None,
+        "brave" => current.api_keys.brave = None,
         _ => unreachable!(),
     }
 
@@ -697,4 +699,92 @@ pub async fn update_memory_from_chat(
     });
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BraveSearchResult {
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BraveWebResponse {
+    web: Option<BraveWebResultList>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BraveWebResultList {
+    results: Option<Vec<BraveWebResult>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BraveWebResult {
+    title: Option<String>,
+    url: Option<String>,
+    description: Option<String>,
+}
+
+/// Query the Brave Search API using the user-configured API key
+#[tauri::command]
+pub async fn brave_web_search(
+    query: String,
+    key_store: State<'_, ai_key_store::AIKeyStore>,
+) -> Result<Vec<BraveSearchResult>> {
+    let api_key = match key_store.get_key("brave").await {
+        Ok(Some(key)) => key,
+        _ => {
+            return Err(IncrementumError::InvalidInput(
+                "Brave Search API Key not configured in Settings".to_string(),
+            ))
+        }
+    };
+
+    if api_key.trim().is_empty() {
+        return Err(IncrementumError::InvalidInput(
+            "Brave Search API Key is empty".to_string(),
+        ));
+    }
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://api.search.brave.com/res/v1/web/search")
+        .query(&[("q", &query)])
+        .header("Accept", "application/json")
+        .header("X-Subscription-Token", &api_key)
+        .send()
+        .await
+        .map_err(|e| IncrementumError::Internal(format!("Brave Search HTTP request failed: {}", e)))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let err_text = response.text().await.unwrap_or_default();
+        return Err(IncrementumError::Internal(format!(
+            "Brave Search API returned error status {}: {}",
+            status,
+            err_text
+        )));
+    }
+
+    let search_res: BraveWebResponse = response
+        .json()
+        .await
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Failed to parse Brave Search JSON response: {}", e))
+        })?;
+
+    let mut results = Vec::new();
+    if let Some(web) = search_res.web {
+        if let Some(web_results) = web.results {
+            for res in web_results {
+                results.push(BraveSearchResult {
+                    title: res.title.unwrap_or_default(),
+                    url: res.url.unwrap_or_default(),
+                    snippet: res.description.unwrap_or_default(),
+                });
+            }
+        }
+    }
+
+    Ok(results)
 }

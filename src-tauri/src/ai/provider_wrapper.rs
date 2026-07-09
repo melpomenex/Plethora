@@ -140,6 +140,7 @@ pub struct APIKeys {
     pub openai: Option<String>,
     pub anthropic: Option<String>,
     pub openrouter: Option<String>,
+    pub brave: Option<String>,
 }
 
 /// Model preferences

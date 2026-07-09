@@ -58,6 +58,19 @@ impl MCPClient {
     }
 
     /// Start the MCP server using stdio transport
+    ///
+    /// NOTE: This and the other `*_stdio` helpers (`discover_tools_stdio`,
+    /// `call_tool_stdio`) use blocking `std::process` + blocking
+    /// `BufReader::read_line`/`writeln!` despite being declared `async`. They
+    /// can therefore pin a tokio worker thread for the duration of each stdio
+    /// round-trip. A proper fix requires converting to `tokio::process::Child`
+    /// + `tokio::io::AsyncBufReadExt`, but that changes the `child` field type
+    /// and ripples into `stop()`/`Drop`/`MCPClientManager` (`tokio`'s
+    /// `Child::kill` is async, which cannot be awaited from `Drop`). Wrapping
+    /// the blocking sections in `spawn_blocking` is *not* viable either,
+    /// because the closures would borrow the long-lived child's stdin/stdout
+    /// and `spawn_blocking` requires `Send + 'static`. This is therefore
+    /// deferred as an invasive change; see the fix for finding E.
     async fn start_stdio(&mut self) -> Result<(), String> {
         // Spawn the MCP server process
         let mut child = Command::new(&self.config.command)

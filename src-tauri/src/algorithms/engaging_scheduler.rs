@@ -285,10 +285,35 @@ impl EngagingScheduler {
         let now = Utc::now();
         let mut scored: Vec<ScoredQueueItem> = Vec::new();
 
+        // Incremental accumulators for the "time-appropriate sizing" bonus in
+        // `calculate_engagement_bonus`. Previously the whole `scored` vec was
+        // re-summed every iteration (O(N^2)); now we thread a running sum/count
+        // and pass the already-computed average in directly.
+        let mut sum_est_time: f64 = 0.0;
+        let mut count_est_time: usize = 0;
+
+        // O(1) topic lookups: `topic_history` is not mutated during this loop
+        // (it is only updated after scoring via `update_topic_history`), so we
+        // build the count map once instead of `iter().filter().count()` per item.
+        let mut topic_history_counts: HashMap<String, u32> = HashMap::new();
+        for topic in &self.topic_history {
+            *topic_history_counts.entry(topic.clone()).or_insert(0) += 1;
+        }
+
         for item in items {
+            let avg_time_so_far = sum_est_time / count_est_time.max(1) as f64;
+            let recent_topic_count = topic_history_counts
+                .get(
+                    item.category
+                        .as_deref()
+                        .unwrap_or("uncategorized"),
+                )
+                .copied()
+                .unwrap_or(0) as i32;
+
             let (base_priority, fsrs_reason) = self.calculate_fsrs_priority(item, now);
             let (engagement_priority, engagement_reason) =
-                self.calculate_engagement_bonus(item, &scored, now);
+                self.calculate_engagement_bonus(item, now, avg_time_so_far, recent_topic_count);
 
             let final_priority = (base_priority + engagement_priority).min(10.0);
 
@@ -300,6 +325,11 @@ impl EngagingScheduler {
                 engagement_priority: final_priority,
                 score_reason,
             });
+
+            // Update accumulators with this item's estimated_time for the next
+            // iteration (mirrors the previous "already_scored so far" semantics).
+            sum_est_time += item.estimated_time as f64;
+            count_est_time += 1;
         }
 
         // Sort by engagement priority (higher = sooner)
@@ -397,11 +427,17 @@ impl EngagingScheduler {
     }
 
     /// Calculate engagement bonus for variety and discovery
+    ///
+    /// `avg_time_so_far` and `recent_topic_count` are precomputed by the caller
+    /// (`score_queue_items`) using incremental accumulators / a topic count map,
+    /// avoiding the previous O(N^2) re-sum of `already_scored` and the O(history)
+    /// `topic_history` scan per item. The numeric results are identical.
     fn calculate_engagement_bonus(
         &mut self,
         item: &ItemEngagementMeta,
-        already_scored: &[ScoredQueueItem],
         now: DateTime<Utc>,
+        avg_time_so_far: f64,
+        recent_topic_count: i32,
     ) -> (f64, String) {
         let mut bonus = 0.0;
         let mut reasons: Vec<String> = Vec::new();
@@ -411,7 +447,6 @@ impl EngagingScheduler {
             .category
             .clone()
             .unwrap_or_else(|| "uncategorized".to_string());
-        let recent_topic_count = self.topic_history.iter().filter(|t| *t == &topic).count() as i32;
 
         if recent_topic_count >= self.preferences.max_same_topic_streak {
             // Penalty for too many similar items in a row
@@ -451,14 +486,10 @@ impl EngagingScheduler {
             reasons.push("Serendipity!".to_string());
         }
 
-        // Time-appropriate sizing: Mix long and short items
-        let avg_time_already: f64 = already_scored
-            .iter()
-            .map(|s| s.meta.estimated_time as f64)
-            .sum::<f64>()
-            / already_scored.len().max(1) as f64;
-
-        if avg_time_already > 15.0 && item.estimated_time < 10 {
+        // Time-appropriate sizing: Mix long and short items.
+        // `avg_time_so_far` is the running average of estimated_time over items
+        // scored so far (passed in by the caller; previously recomputed here).
+        if avg_time_so_far > 15.0 && item.estimated_time < 10 {
             // Bonus for short items after a series of long ones
             bonus += 0.5 * self.preferences.variety_preference;
             reasons.push("Quick read".to_string());

@@ -280,52 +280,43 @@ struct PdfPageImage {
     extension: String,
 }
 
-fn extract_pdf_page_images(doc: &Document) -> Vec<PdfPageImage> {
-    let mut results = Vec::new();
+fn extract_pdf_page_image(
+    doc: &Document,
+    page_number: usize,
+    page_id: lopdf::ObjectId,
+) -> Option<PdfPageImage> {
+    let page_images = doc.get_page_images(page_id).ok()?;
 
-    for (page_number, page_id) in doc.get_pages().iter() {
-        let page_images = match doc.get_page_images(*page_id) {
-            Ok(images) => images,
-            Err(_) => {
-                continue;
-            }
+    let mut best_image: Option<(Vec<u8>, String, i64)> = None;
+    for image in page_images {
+        let filters = image.filters.clone().unwrap_or_default();
+        let (extension, area) = if filters.iter().any(|f| f.eq_ignore_ascii_case("DCTDecode")) {
+            ("jpg".to_string(), image.width.saturating_mul(image.height))
+        } else if filters.iter().any(|f| f.eq_ignore_ascii_case("JPXDecode")) {
+            ("jp2".to_string(), image.width.saturating_mul(image.height))
+        } else {
+            continue;
         };
 
-        let mut best_image: Option<(Vec<u8>, String, i64)> = None;
-        for image in page_images {
-            let filters = image.filters.clone().unwrap_or_default();
-            let (extension, area) = if filters.iter().any(|f| f.eq_ignore_ascii_case("DCTDecode")) {
-                ("jpg".to_string(), image.width.saturating_mul(image.height))
-            } else if filters.iter().any(|f| f.eq_ignore_ascii_case("JPXDecode")) {
-                ("jp2".to_string(), image.width.saturating_mul(image.height))
-            } else {
-                continue;
-            };
-
-            if image.content.is_empty() {
-                continue;
-            }
-
-            let should_replace = best_image
-                .as_ref()
-                .map(|(_, _, best_area)| area > *best_area)
-                .unwrap_or(true);
-
-            if should_replace {
-                best_image = Some((image.content.to_vec(), extension, area));
-            }
+        if image.content.is_empty() {
+            continue;
         }
 
-        if let Some((bytes, extension, _)) = best_image {
-            results.push(PdfPageImage {
-                page_number: *page_number as usize,
-                bytes,
-                extension,
-            });
+        let should_replace = best_image
+            .as_ref()
+            .map(|(_, _, best_area)| area > *best_area)
+            .unwrap_or(true);
+
+        if should_replace {
+            best_image = Some((image.content.to_vec(), extension, area));
         }
     }
 
-    results
+    best_image.map(|(bytes, extension, _)| PdfPageImage {
+        page_number,
+        bytes,
+        extension,
+    })
 }
 
 async fn write_temp_image(bytes: &[u8], extension: &str) -> Result<PathBuf> {
@@ -415,19 +406,28 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
             }
         }
     } else {
-        let page_images = extract_pdf_page_images(&doc);
+        // Collect page object ids in document order. The pages map is a
+        // BTreeMap keyed by page number, so iterating yields ascending order and
+        // the Nth value corresponds to logical page N (1-indexed).
+        let ordered_page_ids: Vec<lopdf::ObjectId> = doc.get_pages().values().copied().collect();
 
-        let mut image_map = std::collections::HashMap::new();
-        for img in page_images {
-            image_map.insert(img.page_number, img);
-        }
-
-        // Loop through all pages in the document (1-indexed)
+        // Loop through all pages in the document (1-indexed). We extract each
+        // page's best image lazily inside the loop so only one page's image
+        // bytes are resident at a time: the Document itself stays loaded, but
+        // the extracted image Vec is dropped at the end of each iteration.
         for page_num in 1..=page_count {
-            if let Some(page_image) = image_map.remove(&page_num) {
-                let temp_file = write_temp_image(&page_image.bytes, &page_image.extension).await?;
+            let page_id = ordered_page_ids.get(page_num - 1).copied();
+            let page_image =
+                page_id.and_then(|id| extract_pdf_page_image(&doc, page_num, id));
+
+            if let Some(page_image) = page_image {
+                let temp_file =
+                    write_temp_image(&page_image.bytes, &page_image.extension).await?;
                 let result = provider.process_image(&temp_file).await;
                 let _ = tokio::fs::remove_file(&temp_file).await;
+                // Drop the page image bytes before OCR result handling so peak
+                // image memory stays bounded to one page.
+                drop(page_image);
 
                 match result {
                     Ok(ocr_result) => {

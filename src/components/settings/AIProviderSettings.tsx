@@ -12,6 +12,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { invokeCommand as invoke } from "../../lib/tauri";
 import { useState, useEffect } from "react";
 import { useI18n } from "../../lib/i18n";
+import { getAIConfig, setApiKey, isMaskedKey } from "../../api/ai";
 
 /**
  * AI Provider Settings
@@ -49,6 +50,15 @@ export function AISettings({ onChange }: { onChange: () => void }) {
   const [editedMemory, setEditedMemory] = useState("");
   const [isSavingMemory, setIsSavingMemory] = useState(false);
 
+  // Brave Search API key state. The key itself is stored in the OS keychain
+  // (via `setApiKey("brave", ...)`); here we only track whether one is stored
+  // (`hasBraveKey`) plus the transient input buffer (`braveKey`) used when the
+  // user types a new key to save/test. We never display the stored secret.
+  const [braveKey, setBraveKey] = useState("");
+  const [hasBraveKey, setHasBraveKey] = useState(false);
+  const [isTestingBrave, setIsTestingBrave] = useState(false);
+  const [braveTestResult, setBraveTestResult] = useState<string | null>(null);
+
   // Sync memoryEnabled state when settings change
   useEffect(() => {
     setMemoryEnabled(settings.ai.memoryEnabled || false);
@@ -66,6 +76,62 @@ export function AISettings({ onChange }: { onChange: () => void }) {
     }
     loadMemory();
   }, []);
+
+  // Load whether a Brave Search API key is already stored in the keychain.
+  // `getAIConfig()` returns masked keys ("••••••••") for anything present, so
+  // we only need the truthiness of `api_keys.brave` to show the "stored"
+  // indicator — we never display the secret itself.
+  useEffect(() => {
+    async function loadBraveStatus() {
+      try {
+        const cfg = await getAIConfig();
+        const braveVal = cfg?.api_keys?.brave || "";
+        setHasBraveKey(!!braveVal);
+      } catch (err) {
+        console.error("Failed to load Brave Search key status:", err);
+      }
+    }
+    loadBraveStatus();
+  }, []);
+
+  // Save the typed Brave key to the keychain (replacing any existing one),
+  // then clear the input so the secret is never left in component state.
+  const handleSaveBraveKey = async () => {
+    if (!braveKey) return;
+    try {
+      await setApiKey("brave", braveKey);
+      setHasBraveKey(true);
+      setBraveKey("");
+      setBraveTestResult(null);
+    } catch (err) {
+      console.error("Failed to save Brave Search API key:", err);
+      setBraveTestResult(t("aiSettings.connectionFailed", { provider: "Brave Search" }));
+    }
+  };
+
+  // Persist the typed key (if any) then run a live search to verify it works.
+  const handleTestBrave = async () => {
+    try {
+      setIsTestingBrave(true);
+      setBraveTestResult(null);
+      if (braveKey) {
+        await setApiKey("brave", braveKey);
+        setHasBraveKey(true);
+        setBraveKey("");
+      }
+      await invoke("brave_web_search", { query: "incrementum" });
+      setBraveTestResult("Brave Search: Connection successful");
+    } catch (err) {
+      // Surface the backend's real error (HTTP status / parse failure / etc.)
+      // instead of a generic "Connection failed", so miskeys/network issues
+      // are diagnosable.
+      const detail = err instanceof Error ? err.message : String(err);
+      setBraveTestResult(`${t("aiSettings.connectionFailed", { provider: "Brave Search" })} — ${detail}`);
+      console.error("Brave Search test failed:", err);
+    } finally {
+      setIsTestingBrave(false);
+    }
+  };
 
   const handleToggleMemory = (enabled: boolean) => {
     setMemoryEnabled(enabled);
@@ -151,6 +217,57 @@ export function AISettings({ onChange }: { onChange: () => void }) {
         onRemoveProvider={handleRemoveProvider}
         onTestConnection={handleTestConnection}
       />
+
+      {/* Brave Search API Key — powers web search in Document Q&A.
+          The backend reads this via the keychain (`brave_web_search`); the key
+          itself is never shown back, only a "stored" indicator. */}
+      <SettingsSection
+        title={t("aiSettings.braveApiKey")}
+        description={t("aiProvider.braveKeyDesc")}
+      >
+        <SettingsRow
+          label={t("aiSettings.braveApiKey")}
+          description={hasBraveKey ? t("aiProvider.braveKeyStored") : t("aiProvider.braveKeyNotStored")}
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="password"
+              value={braveKey}
+              onChange={(e) => setBraveKey(e.target.value)}
+              placeholder={hasBraveKey ? "Enter new key to replace…" : "bs-..."}
+              className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveBraveKey}
+                disabled={!braveKey}
+                className="px-3 py-2 bg-muted text-foreground rounded-lg hover:bg-muted/80 disabled:opacity-50 text-sm font-medium"
+              >
+                {t("common.save")}
+              </button>
+              <button
+                onClick={handleTestBrave}
+                disabled={isTestingBrave || (!braveKey && !hasBraveKey)}
+                className="px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 text-sm font-medium"
+              >
+                {isTestingBrave ? "…" : t("common.test")}
+              </button>
+            </div>
+          </div>
+        </SettingsRow>
+
+        {braveTestResult && (
+          <div
+            className={`mt-3 p-3 rounded-lg flex items-center gap-2 text-sm ${
+              braveTestResult.includes("successful")
+                ? "bg-green-500/10 text-green-500 border border-green-500/20"
+                : "bg-destructive/10 text-destructive border border-destructive/20"
+            }`}
+          >
+            <span>{braveTestResult}</span>
+          </div>
+        )}
+      </SettingsSection>
 
       {/* AI Model Settings */}
       <SettingsSection

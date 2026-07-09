@@ -570,9 +570,13 @@ pub async fn get_documents(
     collection_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<Document>> {
+    // The library/list UI never renders full document text, so use the summary
+    // accessors that NULL out the large content/content_hash/metadata columns
+    // to avoid shipping them across IPC. Callers needing the body should use
+    // get_document(id), which still loads full content.
     let docs = match collection_id {
-        Some(ref cid) => repo.list_documents_by_collection(cid).await?,
-        None => repo.list_documents().await?,
+        Some(ref cid) => repo.list_documents_summary_by_collection(cid).await?,
+        None => repo.list_documents_summary().await?,
     };
     Ok(docs)
 }

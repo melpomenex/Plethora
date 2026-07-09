@@ -11,6 +11,7 @@ use crate::error::{IncrementumError, Result};
 use crate::rss::models::*;
 use crate::rss::repository as repo;
 use chrono::Utc;
+use futures::stream::StreamExt;
 use std::collections::HashSet;
 
 /// Trigram similarity between two strings (simplified Levenshtein ratio)
@@ -378,8 +379,11 @@ pub async fn refresh_discoveries(repo: &Repository) -> Result<i32> {
 
     let subscribed = repo::get_subscribed_feed_urls(repo).await?;
 
-    let mut count = 0;
-
+    // Pre-filter the candidate domains: skip any that are already subscribed
+    // or already discovered. These are cheap local DB checks, so we keep them
+    // sequential. The expensive part (one HTTP fetch per domain via
+    // `discover_feed_from_site`) is parallelized below.
+    let mut candidates: Vec<String> = Vec::new();
     for domain in domains {
         // Skip if already subscribed
         if subscribed.iter().any(|s| s.contains(&domain)) {
@@ -392,14 +396,38 @@ pub async fn refresh_discoveries(repo: &Repository) -> Result<i32> {
             continue;
         }
 
-        // Attempt RSS auto-discovery
-        let site_url = format!("https://{}", domain);
-        let discovered = discover_feed_from_site(&site_url).await;
+        candidates.push(domain);
+    }
 
-        if let Some((feed_url, title, desc)) = discovered {
-            repo::create_discovered_site(repo, &site_url, Some(&title), desc.as_deref(), Some(&feed_url)).await?;
-            count += 1;
-        }
+    // Maximum number of concurrent site fetches. Each `discover_feed_from_site`
+    // builds its own reqwest client with a 10s timeout, so capping concurrency
+    // avoids opening too many simultaneous connections.
+    const DISCOVERY_CONCURRENCY: usize = 8;
+
+    // Parallelize the per-domain HTTP auto-discovery. `discover_feed_from_site`
+    // returns `Option` (it swallows internal errors as `None`), so a failed
+    // fetch for one domain simply yields `None` and is skipped — matching the
+    // original log-and-continue behavior.
+    let discovered: Vec<Option<(String, String, String, Option<String>)>> =
+        futures::stream::iter(candidates.into_iter().map(|domain| {
+            let site_url = format!("https://{}", domain);
+            async move {
+                discover_feed_from_site(&site_url)
+                    .await
+                    .map(|(feed_url, title, desc)| (site_url, feed_url, title, desc))
+            }
+        }))
+        .buffer_unordered(DISCOVERY_CONCURRENCY)
+        .collect()
+        .await;
+
+    // Insert successful discoveries sequentially (DB writes), preserving the
+    // original `?`-propagation on `create_discovered_site`.
+    let mut count = 0;
+    for (site_url, feed_url, title, desc) in discovered.into_iter().flatten() {
+        repo::create_discovered_site(repo, &site_url, Some(&title), desc.as_deref(), Some(&feed_url))
+            .await?;
+        count += 1;
     }
 
     Ok(count)

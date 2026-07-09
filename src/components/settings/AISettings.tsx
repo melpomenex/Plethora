@@ -52,10 +52,12 @@ export function AISettings() {
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [openrouterKey, setOpenrouterKey] = useState("");
+  const [braveKey, setBraveKey] = useState("");
   // Track which keys are stored in keychain (to show indicator)
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false);
   const [hasAnthropicKey, setHasAnthropicKey] = useState(false);
   const [hasOpenrouterKey, setHasOpenrouterKey] = useState(false);
+  const [hasBraveKey, setHasBraveKey] = useState(false);
 
   // Context window tokens (for document content)
   const { settings, updateSettingsCategory } = useSettingsStore();
@@ -81,12 +83,15 @@ export function AISettings() {
           const openaiVal = loaded.api_keys.openai || "";
           const anthropicVal = loaded.api_keys.anthropic || "";
           const openrouterVal = loaded.api_keys.openrouter || "";
+          const braveVal = loaded.api_keys.brave || "";
           setOpenaiKey(openaiVal && isMaskedKey(openaiVal) ? "" : openaiVal);
           setAnthropicKey(anthropicVal && isMaskedKey(anthropicVal) ? "" : anthropicVal);
           setOpenrouterKey(openrouterVal && isMaskedKey(openrouterVal) ? "" : openrouterVal);
+          setBraveKey(braveVal && isMaskedKey(braveVal) ? "" : braveVal);
           setHasOpenaiKey(!!openaiVal);
           setHasAnthropicKey(!!anthropicVal);
           setHasOpenrouterKey(!!openrouterVal);
+          setHasBraveKey(!!braveVal);
         }
         setContextWindowTokens(settings.ai.maxTokens);
         setPwaAssistantEnabled(settings.ai.pwaAssistantButtonEnabled);
@@ -128,14 +133,21 @@ export function AISettings() {
         setHasOpenrouterKey(true);
         setOpenrouterKey("");
       }
+      if (braveKey) {
+        await setApiKey("brave", braveKey);
+        setHasBraveKey(true);
+        setBraveKey("");
+      }
 
       // Update config (without plaintext keys — they're in the keychain now)
       const updatedConfig = {
         ...config,
         api_keys: {
+          ...config.api_keys,
           openai: hasOpenaiKey ? "••••••••" : undefined,
           anthropic: hasAnthropicKey ? "••••••••" : undefined,
           openrouter: hasOpenrouterKey ? "••••••••" : undefined,
+          brave: hasBraveKey ? "••••••••" : undefined,
         },
       };
 
@@ -171,14 +183,24 @@ export function AISettings() {
     }
   };
 
-  const handleTestConnection = async (provider: LLMProviderType) => {
+  const handleTestConnection = async (provider: LLMProviderType | "brave") => {
     try {
       setIsTesting(provider);
       setTestResult(null);
-      const result = await testAIConnection(provider);
-      setTestResult(`${provider}: ${result}`);
+      if (provider === "brave") {
+        if (braveKey) {
+          await setApiKey("brave", braveKey);
+          setHasBraveKey(true);
+          setBraveKey("");
+        }
+        await invokeCommand("brave_web_search", { query: "incrementum" });
+        setTestResult("Brave Search: Connection successful");
+      } else {
+        const result = await testAIConnection(provider);
+        setTestResult(`${provider}: ${result}`);
+      }
     } catch (error) {
-      setTestResult(t("aiSettings.connectionFailed", { provider }));
+      setTestResult(t("aiSettings.connectionFailed", { provider: provider === "brave" ? "Brave Search" : provider }));
       console.error("Test connection failed:", error);
     } finally {
       setIsTesting(null);
@@ -326,6 +348,38 @@ export function AISettings() {
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
               >
                 {isTesting === LLMProviderType.OpenRouter ? (
+                  <CircleNotch className="w-4 h-4 animate-spin" />
+                ) : (
+                  t("common.test")
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Brave Search */}
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              {t("aiSettings.braveApiKey")}
+              {hasBraveKey && (
+                <span className="ml-2 text-xs text-green-500 font-normal flex items-center gap-1">
+                  <Check className="w-3 h-3 inline" /> Key stored in keychain
+                </span>
+              )}
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={braveKey}
+                onChange={(e) => setBraveKey(e.target.value)}
+                placeholder={hasBraveKey ? "Enter new key to replace..." : "bs-..."}
+                className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <button
+                onClick={() => handleTestConnection("brave")}
+                disabled={isTesting === "brave"}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
+              >
+                {isTesting === "brave" ? (
                   <CircleNotch className="w-4 h-4 animate-spin" />
                 ) : (
                   t("common.test")
