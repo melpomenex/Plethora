@@ -402,6 +402,38 @@ pub fn run() {
         Ok(())
     })();
 
+    // Check for command line argument to clear window state
+    #[cfg(all(
+        not(debug_assertions),
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
+    {
+        let clear_requested = std::env::args().any(|arg| {
+            arg == "--clear-window-state"
+                || arg == "--reset-window-state"
+                || arg == "-c"
+        });
+
+        if clear_requested {
+            let mut state_file = None;
+            if cfg!(target_os = "macos") {
+                if let Some(data_dir) = dirs::data_dir() {
+                    state_file = Some(data_dir.join("Application Support/com.incrementum.app/.window-state.json"));
+                }
+            } else {
+                if let Some(config_dir) = dirs::config_dir() {
+                    state_file = Some(config_dir.join("com.incrementum.app/.window-state.json"));
+                }
+            }
+
+            if let Some(path) = state_file {
+                if path.exists() {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+    }
+
     let mut builder = tauri::Builder::default()
         // Logging — registered first so every other plugin's init is captured.
         // On Android, TargetKind::Stdout is auto-routed through android_logger
@@ -512,6 +544,14 @@ pub fn run() {
                         &[
                             &PredefinedMenuItem::about(app, Some("About Incrementum"), None)?,
                             &PredefinedMenuItem::separator(app)?,
+                            &MenuItem::with_id(
+                                app,
+                                "clear-window-state",
+                                "Clear Window State",
+                                true,
+                                None::<&str>,
+                            )?,
+                            &PredefinedMenuItem::separator(app)?,
                             &PredefinedMenuItem::hide(app, Some("Hide Incrementum"))?,
                             &PredefinedMenuItem::separator(app)?,
                             &PredefinedMenuItem::quit(app, Some("Quit Incrementum"))?,
@@ -563,6 +603,27 @@ pub fn run() {
                 let id = event.id.as_ref();
                 tracing::info!("[cmd+key] menu event fired: {}", id);
 
+                if id == "clear-window-state" {
+                    #[cfg(all(
+                        not(debug_assertions),
+                        not(any(target_os = "android", target_os = "ios"))
+                    ))]
+                    {
+                        if let Ok(config_dir) = app.path().app_config_dir() {
+                            let state_file = config_dir.join(".window-state.json");
+                            if state_file.exists() {
+                                let _ = std::fs::remove_file(&state_file);
+                            }
+                        }
+                    }
+                    use tauri_plugin_dialog::DialogExt;
+                    app.dialog()
+                        .message("Window state cleared. Please restart the application for changes to take effect.")
+                        .title("Window State Reset")
+                        .show(|_| {});
+                    return;
+                }
+
                 if !matches!(id, "accel-k" | "accel-p") {
                     return;
                 }
@@ -581,6 +642,31 @@ pub fn run() {
             let app_handle = app.handle().clone();
             install_panic_hook(app_handle.clone());
             log_startup(&app_handle, "startup: begin");
+
+            // Verify window state file is valid JSON, delete if corrupted or empty
+            #[cfg(all(
+                not(debug_assertions),
+                not(any(target_os = "android", target_os = "ios"))
+            ))]
+            {
+                if let Ok(config_dir) = app.path().app_config_dir() {
+                    let state_file = config_dir.join(".window-state.json");
+                    if state_file.exists() {
+                        let mut needs_delete = false;
+                        if let Ok(content) = std::fs::read_to_string(&state_file) {
+                            if content.trim().is_empty() || serde_json::from_str::<serde_json::Value>(&content).is_err() {
+                                needs_delete = true;
+                            }
+                        } else {
+                            needs_delete = true;
+                        }
+                        if needs_delete {
+                            tracing::warn!("Window state file is corrupted or empty, deleting to prevent startup hangs: {:?}", state_file);
+                            let _ = std::fs::remove_file(&state_file);
+                        }
+                    }
+                }
+            }
 
             // Register managed state for one-shot startup notices before any
             // code that might set one (e.g. database recovery) runs.

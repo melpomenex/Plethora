@@ -805,7 +805,12 @@ export function importOPML(opmlContent: string): Feed[] {
     );
 
     if (xmlUrl) {
-      const trimmedUrl = xmlUrl.trim();
+      let trimmedUrl = xmlUrl.trim();
+      if (trimmedUrl.startsWith("feed://")) {
+        trimmedUrl = "https://" + trimmedUrl.substring(7);
+      } else if (trimmedUrl.startsWith("feed:")) {
+        trimmedUrl = trimmedUrl.substring(5);
+      }
       if (!/^https?:\/\//i.test(trimmedUrl)) {
         return;
       }
@@ -837,11 +842,20 @@ export function importOPML(opmlContent: string): Feed[] {
     }
   };
 
-  const rootOutlines = Array.from(xmlDoc.querySelectorAll("body > outline"));
+  // Find body element case-insensitively
+  const body = Array.from(xmlDoc.documentElement.children).find(
+    (child) => child.tagName.toLowerCase() === "body"
+  );
+  const rootOutlines = body 
+    ? Array.from(body.children).filter((child) => child.tagName.toLowerCase() === "outline")
+    : [];
+
   if (rootOutlines.length > 0) {
     rootOutlines.forEach((outline) => parseOutline(outline));
   } else {
-    const outlines = Array.from(xmlDoc.querySelectorAll("outline"));
+    const outlines = Array.from(xmlDoc.getElementsByTagName("*")).filter(
+      (el) => el.tagName.toLowerCase() === "outline"
+    );
     outlines.forEach((outline) => parseOutline(outline));
   }
 
