@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowsInSimple,
+  ArrowsLeftRight,
   ArrowsOutSimple,
   BookOpen,
   Brain,
@@ -402,6 +403,17 @@ export function MobileNavigation({
             </div>
 
             <div className="mobile-more-section">
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("open-workspace-switcher"));
+                  setShowMoreMenu(false);
+                }}
+                className="mobile-more-item"
+              >
+                <ArrowsLeftRight className="w-5 h-5" />
+                <span className="flex-1 text-left">{t("workspace.switchWorkspace")}</span>
+              </button>
               <button
                 type="button"
                 onClick={() => {

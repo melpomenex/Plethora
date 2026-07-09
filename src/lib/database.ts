@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { PdfSelectionContext } from '../types/selection';
 
 // Database version - increment when schema changes
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const DB_NAME = 'incrementum';
 
 // Store names
@@ -18,6 +18,8 @@ const STORES = {
     files: 'files',
     syncState: 'sync_state',
     imageAssets: 'image_assets',
+    podcastFeeds: 'podcast_feeds',
+    podcastEpisodes: 'podcast_episodes',
 } as const;
 
 // Avoid storing extremely large document content in IndexedDB values.
@@ -103,6 +105,20 @@ export async function openDatabase(): Promise<IDBDatabase> {
             if (!database.objectStoreNames.contains(STORES.imageAssets)) {
                 const imageStore = database.createObjectStore(STORES.imageAssets, { keyPath: 'id' });
                 imageStore.createIndex('by_sha256', 'sha256', { unique: false });
+            }
+
+            // Podcast feeds store (browser-mode podcast subscriptions)
+            if (!database.objectStoreNames.contains(STORES.podcastFeeds)) {
+                const feedStore = database.createObjectStore(STORES.podcastFeeds, { keyPath: 'id' });
+                feedStore.createIndex('by_feed_url', 'feed_url', { unique: false });
+            }
+
+            // Podcast episodes store
+            if (!database.objectStoreNames.contains(STORES.podcastEpisodes)) {
+                const epStore = database.createObjectStore(STORES.podcastEpisodes, { keyPath: 'id' });
+                epStore.createIndex('by_feed_id', 'feed_id', { unique: false });
+                epStore.createIndex('by_guid', 'guid', { unique: false });
+                epStore.createIndex('by_played', 'played', { unique: false });
             }
         };
     });
@@ -888,6 +904,196 @@ export async function bulkPutImageAssets(assets: ImageAsset[]): Promise<void> {
             store.put(asset);
         }
         return new Promise((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Podcast feeds & episodes (browser-mode podcast subscriptions)
+//
+// Mirrors the Rust podcast tables (`podcast_feeds` / `podcast_episodes`) using
+// snake_case field names so values can be normalized with `toCamelCase` by the
+// browser backend before reaching the UI. Only metadata + playback state are
+// stored here — never audio bytes.
+// ---------------------------------------------------------------------------
+
+export interface PodcastFeedRecord {
+    id: string;
+    title: string;
+    description: string | null;
+    image_url: string | null;
+    author: string | null;
+    language: string | null;
+    link: string | null;
+    feed_url: string;
+    last_fetched: string | null;
+    subscribed_at: string;
+    sort_order: number;
+    auto_transcribe: boolean;
+    transcribe_language: string | null;
+}
+
+export interface PodcastEpisodeRecord {
+    id: string;
+    feed_id: string;
+    guid: string | null;
+    title: string;
+    description: string | null;
+    published_date: string | null;
+    duration: number | null; // seconds
+    audio_url: string;
+    audio_type: string | null;
+    file_size: number | null;
+    image_url: string | null;
+    link: string | null;
+    played: boolean;
+    playback_position: number; // seconds
+    date_added: string;
+    transcript_text: string | null;
+    transcript_status: string;
+    transcript_error: string | null;
+    transcribed_at: string | null;
+}
+
+export async function subscribePodcastFeed(feed: Partial<PodcastFeedRecord> & { id: string; feed_url: string }): Promise<PodcastFeedRecord> {
+    const now = new Date().toISOString();
+    // Preserve a previously stored subscription timestamp when re-subscribing
+    // (e.g. refresh path upserts the same feed id) so subscribed_at is stable.
+    const existing = await getPodcastFeed(feed.id);
+    const record: PodcastFeedRecord = {
+        id: feed.id,
+        title: feed.title ?? 'Untitled Podcast',
+        description: feed.description ?? null,
+        image_url: feed.image_url ?? null,
+        author: feed.author ?? null,
+        language: feed.language ?? null,
+        link: feed.link ?? null,
+        feed_url: feed.feed_url,
+        last_fetched: feed.last_fetched ?? now,
+        subscribed_at: existing?.subscribed_at ?? feed.subscribed_at ?? now,
+        sort_order: existing?.sort_order ?? feed.sort_order ?? 0,
+        auto_transcribe: existing?.auto_transcribe ?? feed.auto_transcribe ?? false,
+        transcribe_language: existing?.transcribe_language ?? feed.transcribe_language ?? null,
+    };
+    return put(STORES.podcastFeeds, record);
+}
+
+export async function getPodcastFeeds(): Promise<PodcastFeedRecord[]> {
+    const feeds = await getAll<PodcastFeedRecord>(STORES.podcastFeeds);
+    return feeds.sort((a, b) =>
+        new Date(b.subscribed_at).getTime() - new Date(a.subscribed_at).getTime()
+    );
+}
+
+export async function getPodcastFeed(id: string): Promise<PodcastFeedRecord | null> {
+    return getById<PodcastFeedRecord>(STORES.podcastFeeds, id);
+}
+
+export async function getPodcastFeedByUrl(url: string): Promise<PodcastFeedRecord | null> {
+    const matches = await getByIndex<PodcastFeedRecord>(STORES.podcastFeeds, 'by_feed_url', url);
+    return matches[0] ?? null;
+}
+
+export async function renamePodcastFeed(id: string, title: string): Promise<void> {
+    const existing = await getPodcastFeed(id);
+    if (!existing) return;
+    await put(STORES.podcastFeeds, { ...existing, title });
+}
+
+export async function deletePodcastFeed(id: string): Promise<void> {
+    return deleteById(STORES.podcastFeeds, id);
+}
+
+/**
+ * Upsert episodes for a feed. Existing episodes (matched by `id`, which already
+ * encodes guid/audioUrl) keep their `played` / `playback_position` state; only
+ * metadata fields are refreshed. New episodes are inserted.
+ */
+export async function upsertPodcastEpisodes(episodes: PodcastEpisodeRecord[]): Promise<void> {
+    if (episodes.length === 0) return;
+    const now = new Date().toISOString();
+    // Read existing rows first so we preserve playback state without mixing
+    // reads into the write transaction.
+    const existing = new Map<string, PodcastEpisodeRecord>();
+    for (const ep of episodes) {
+        const cur = await getById<PodcastEpisodeRecord>(STORES.podcastEpisodes, ep.id);
+        if (cur) existing.set(ep.id, cur);
+    }
+    return withRetry((database) => {
+        const tx = database.transaction(STORES.podcastEpisodes, 'readwrite');
+        const store = tx.objectStore(STORES.podcastEpisodes);
+        for (const ep of episodes) {
+            const prev = existing.get(ep.id);
+            const record: PodcastEpisodeRecord = {
+                ...ep,
+                played: prev?.played ?? ep.played ?? false,
+                playback_position: prev?.playback_position ?? ep.playback_position ?? 0,
+                transcript_text: prev?.transcript_text ?? ep.transcript_text ?? null,
+                transcript_status: prev?.transcript_status ?? ep.transcript_status ?? 'none',
+                transcript_error: prev?.transcript_error ?? ep.transcript_error ?? null,
+                transcribed_at: prev?.transcribed_at ?? ep.transcribed_at ?? null,
+                date_added: prev?.date_added ?? ep.date_added ?? now,
+            };
+            store.put(record);
+        }
+        return new Promise<void>((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+    });
+}
+
+export async function getPodcastEpisodes(opts: { feedId?: string | null; includePlayed?: boolean } = {}): Promise<PodcastEpisodeRecord[]> {
+    const { feedId = null, includePlayed = true } = opts;
+    let episodes: PodcastEpisodeRecord[];
+    if (feedId) {
+        episodes = await getByIndex<PodcastEpisodeRecord>(STORES.podcastEpisodes, 'by_feed_id', feedId);
+    } else {
+        episodes = await getAll<PodcastEpisodeRecord>(STORES.podcastEpisodes);
+    }
+    if (!includePlayed) {
+        episodes = episodes.filter((e) => !e.played);
+    }
+    // Newest first by published date; fall back to date_added.
+    return episodes.sort((a, b) => {
+        const at = new Date(a.published_date || a.date_added).getTime();
+        const bt = new Date(b.published_date || b.date_added).getTime();
+        return bt - at;
+    });
+}
+
+export async function getPodcastEpisode(id: string): Promise<PodcastEpisodeRecord | null> {
+    return getById<PodcastEpisodeRecord>(STORES.podcastEpisodes, id);
+}
+
+export async function markPodcastEpisodePlayed(id: string, played: boolean): Promise<void> {
+    const existing = await getPodcastEpisode(id);
+    if (!existing) return;
+    await put(STORES.podcastEpisodes, { ...existing, played });
+}
+
+export async function updatePodcastEpisodePosition(id: string, position: number): Promise<void> {
+    const existing = await getPodcastEpisode(id);
+    if (!existing) return;
+    await put(STORES.podcastEpisodes, { ...existing, playback_position: position });
+}
+
+export async function getPodcastEpisodePosition(id: string): Promise<number> {
+    const existing = await getPodcastEpisode(id);
+    return existing?.playback_position ?? 0;
+}
+
+export async function deleteEpisodesForFeed(feedId: string): Promise<void> {
+    const episodes = await getByIndex<PodcastEpisodeRecord>(STORES.podcastEpisodes, 'by_feed_id', feedId);
+    return withRetry((database) => {
+        const tx = database.transaction(STORES.podcastEpisodes, 'readwrite');
+        const store = tx.objectStore(STORES.podcastEpisodes);
+        for (const ep of episodes) {
+            store.delete(ep.id);
+        }
+        return new Promise<void>((resolve, reject) => {
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error);
         });

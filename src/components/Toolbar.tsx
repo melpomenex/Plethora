@@ -25,6 +25,7 @@ import type { QueueItem } from "../types/queue";
 import {
   Bookmarks,
   BookOpen,
+  ArrowsLeftRight,
   Brain,
   Camera,
   ChatCircle,
@@ -46,6 +47,8 @@ import {
   TextT,
 } from "@phosphor-icons/react";
 import { CollectionSwitcher } from "./collections/CollectionSwitcher";
+import { actionVariants } from "./common/UI";
+import { cn } from "../utils/cn";
 
 export type ToolbarPosition = "top" | "left" | "right";
 
@@ -86,12 +89,12 @@ function ToolbarButtonItem({ button, orientation = "horizontal" }: ToolbarButton
       disabled={button.disabled}
       title={`${button.label} (${button.shortcut})`}
       data-toolbar-orientation={orientation}
-      className={`
-        toolbar-button relative rounded transition-colors
-        disabled:opacity-50 disabled:cursor-not-allowed
-        ${button.disabled ? "text-muted-foreground" : "text-foreground"}
-        ${isVertical ? "p-2.5 w-full flex justify-center" : "p-2"}
-      `}
+      className={cn(
+        actionVariants({ variant: "tertiary", size: "icon" }),
+        "toolbar-button relative",
+        button.disabled ? "text-muted-foreground" : "text-foreground",
+        isVertical && "w-full",
+      )}
       aria-label={button.label}
     >
       <span className="toolbar-button-background" aria-hidden="true" />
@@ -615,6 +618,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       label: t("toolbar.commandPalette"),
       shortcut: "Ctrl+K",
       action: handleCommandPalette,
+      group: 4,
+    },
+    {
+      id: "workspace-switcher",
+      icon: ArrowsLeftRight,
+      label: t("workspace.switchWorkspace"),
+      shortcut: "",
+      action: () => window.dispatchEvent(new CustomEvent("open-workspace-switcher")),
       group: 4,
     },
   ];

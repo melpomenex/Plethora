@@ -8,12 +8,16 @@ import {
   QueueTab,
   ReviewTab,
   DocumentsTab,
+  ContinueReadingTab,
   AnalyticsTab,
   SettingsTab,
   RSSReader,
 } from "./TabRegistry";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
+import { getDocumentsWithProgress } from "../../api/position";
 import { QuickReviewWidget } from "../review/QuickReviewWidget";
+import { ActionButton, FocusPanel, SummarySection } from "../common/UI";
+import { selectDailyFocus } from "./dashboardFocus";
 import {
   BookOpen,
   Brain,
@@ -47,19 +51,27 @@ export function DashboardTab() {
   const activeCollectionId = useCollectionStore((s) => s.activeCollectionId);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hasResumableReading, setHasResumableReading] = useState(false);
 
   useEffect(() => {
     loadStats();
+    void getDocumentsWithProgress(1)
+      .then((items) => setHasResumableReading(items.some((item) => item.progress > 0 && item.progress < 100)))
+      .catch(() => setHasResumableReading(false));
   }, [activeCollectionId]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
    
 
   const loadStats = async () => {
     try {
+      setError(null);
+      setIsLoading(true);
       const data = await getDashboardStats(activeCollectionId ?? undefined);
       setStats(data);
     } catch (error) {
       console.error("Failed to load dashboard stats:", error);
+      setError(error instanceof Error ? error.message : t("dashboard.failedLoadAnalytics"));
     } finally {
       setIsLoading(false);
     }
@@ -67,13 +79,24 @@ export function DashboardTab() {
 
   const quickActions: QuickAction[] = [
     {
+      id: "continue-reading",
+      title: t("continueReading.title"),
+      description: t("dashboard.continueReading"),
+      icon: BookOpen,
+      iconBg: "bg-primary/10 text-primary",
+      tabType: "continue-reading",
+      tabTitle: t("tabs.continueReading"),
+      content: ContinueReadingTab,
+      closable: true,
+    },
+    {
       id: "queue",
       title: t("dashboard.readingQueue"),
       description: t("dashboard.continueReading"),
       icon: BookOpen,
       iconBg: "bg-blue-500/10 text-blue-500",
       tabType: "queue",
-      tabTitle: "Queue",
+      tabTitle: t("nav.queue"),
       content: QueueTab,
       closable: true,
       primary: true,
@@ -85,7 +108,7 @@ export function DashboardTab() {
       icon: Brain,
       iconBg: "bg-purple-500/10 text-purple-500",
       tabType: "review",
-      tabTitle: "Review",
+      tabTitle: t("tabs.review"),
       content: ReviewTab,
       closable: true,
       primary: true,
@@ -97,7 +120,7 @@ export function DashboardTab() {
       icon: Files,
       iconBg: "bg-green-500/10 text-green-500",
       tabType: "documents",
-      tabTitle: "Documents",
+      tabTitle: t("nav.documents"),
       content: DocumentsTab,
       closable: true,
     },
@@ -108,7 +131,7 @@ export function DashboardTab() {
       icon: Rss,
       iconBg: "bg-orange-500/10 text-orange-500",
       tabType: "rss",
-      tabTitle: "RSS Feeds",
+      tabTitle: t("tabs.rssFeeds"),
       content: RSSReader,
       closable: true,
     },
@@ -119,7 +142,7 @@ export function DashboardTab() {
       icon: ChartBar,
       iconBg: "bg-cyan-500/10 text-cyan-500",
       tabType: "analytics",
-      tabTitle: "Analytics",
+      tabTitle: t("nav.analytics"),
       content: AnalyticsTab,
       closable: true,
     },
@@ -130,7 +153,7 @@ export function DashboardTab() {
       icon: Gear,
       iconBg: "bg-slate-500/10 text-slate-500",
       tabType: "settings",
-      tabTitle: "Settings",
+      tabTitle: t("nav.settings"),
       content: SettingsTab,
       closable: true,
     },
@@ -152,7 +175,7 @@ export function DashboardTab() {
   const openSyncSettings = () => {
     localStorage.setItem("incrementum_settings_initial_tab", "sync");
     addTab({
-      title: "Settings",
+      title: t("nav.settings"),
       icon: null,
       type: "settings",
       content: SettingsTab,
@@ -178,6 +201,22 @@ export function DashboardTab() {
     // Placeholder until dashboard quick-review is wired to review queue ratings.
   };
 
+  const focusKind = selectDailyFocus({
+    cardsDue: stats?.cards_due_today ?? 0,
+    dueDocuments: stats?.due_documents ?? 0,
+    hasResumableReading,
+    documentCount: stats?.total_documents ?? documents.length,
+  });
+  const focusAction = quickActions.find((action) => action.id === focusKind)!;
+
+  const focusCount = focusAction.id === "review"
+    ? stats?.cards_due_today ?? 0
+    : focusAction.id === "queue"
+      ? stats?.due_documents ?? 0
+      : stats?.total_documents ?? documents.length;
+  const FocusIcon = focusAction.icon;
+  const hasNoDocuments = (stats?.total_documents ?? documents.length) === 0;
+
   return (
     <div className="h-full overflow-auto bg-background">
       <div className="max-w-6xl mx-auto p-4 md:p-6 lg:p-8 pb-24 md:pb-8">
@@ -191,7 +230,50 @@ export function DashboardTab() {
           </p>
         </div>
 
+        <FocusPanel className="mb-6 md:mb-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-primary">{t("dashboard.quickActions")}</p>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">
+                {hasNoDocuments
+                  ? t("dashboard.importFirst")
+                  : focusAction.id === "review"
+                  ? t("dashboard.startReview")
+                  : focusAction.id === "continue-reading"
+                    ? t("continueReading.title")
+                  : focusAction.id === "queue"
+                    ? t("dashboard.continueReading")
+                    : t("dashboard.browseDocuments")}
+              </h2>
+              <p className={error ? "mt-1 text-sm text-destructive" : "mt-1 text-sm text-muted-foreground"} role={error ? "alert" : undefined}>
+                {error
+                  ? `${t("dashboard.failedLoadAnalytics")}: ${error}`
+                  : isLoading
+                  ? t("dashboard.loadingAnalytics")
+                  : focusCount > 0
+                    ? t("dashboard.due", { count: focusCount })
+                    : t("dashboard.importFirst")}
+              </p>
+            </div>
+            <ActionButton
+              variant="primary"
+              size="large"
+              onClick={() => {
+                if (hasNoDocuments) {
+                  window.dispatchEvent(new CustomEvent("import-document"));
+                } else {
+                  openTab(focusAction);
+                }
+              }}
+            >
+              <FocusIcon className="h-5 w-5" aria-hidden="true" />
+              {hasNoDocuments ? t("dashboard.import") : focusAction.id === "review" ? t("dashboard.startReview") : t("common.open")}
+            </ActionButton>
+          </div>
+        </FocusPanel>
+
         {/* Quick Actions Grid - 2 columns mobile, 3 columns tablet+, adaptive rows */}
+        <SummarySection title={t("dashboard.quickActions")}>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8">
           {quickActions.map((action) => {
             const Icon = action.icon;
@@ -199,7 +281,7 @@ export function DashboardTab() {
               <button
                 key={action.id}
                 onClick={() => openTab(action)}
-                className="group relative flex flex-col items-start p-4 md:p-5 bg-card hover:bg-accent border border-border rounded-xl transition-all duration-200 hover:shadow-md active:scale-[0.98] text-left"
+                className="group relative flex min-h-32 flex-col items-start rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <div
                   className={`${action.iconBg} p-2.5 md:p-3 rounded-lg mb-3 transition-transform group-hover:scale-110`}
@@ -232,11 +314,13 @@ export function DashboardTab() {
             );
           })}
         </div>
+        </SummarySection>
 
         {/* Stats Section */}
+        <SummarySection title={t("dashboard.progress")}>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
           {/* Main Stats Card */}
-          <div className="lg:col-span-2 bg-card border border-border rounded-xl p-4 md:p-6">
+          <div className="lg:col-span-2 border border-border rounded-xl p-4 md:p-6">
             <div className="flex items-center justify-between mb-4 md:mb-6">
               <div className="flex items-center gap-2">
                 <TrendUp className="w-5 h-5 text-muted-foreground" />
@@ -338,7 +422,7 @@ export function DashboardTab() {
           </div>
 
           {/* Sync Card */}
-          <div className="bg-gradient-to-br from-primary/5 to-primary/10 border border-primary/20 rounded-xl p-4 md:p-6">
+          <div className="border border-primary/20 bg-primary/[0.04] rounded-xl p-4 md:p-6">
             <div className="flex items-center gap-3 mb-3">
               <div className="p-2 bg-primary/10 rounded-lg">
                 <svg
@@ -368,6 +452,7 @@ export function DashboardTab() {
             </button>
           </div>
         </div>
+        </SummarySection>
 
         {/* Tips Section */}
         <div className="mt-6 md:mt-8 p-4 md:p-5 bg-muted/50 border border-border rounded-xl">

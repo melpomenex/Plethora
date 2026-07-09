@@ -8,7 +8,8 @@ interface ScrollQueueSettingsProps {
   flashcardPercentage: number;
   extractsCountAsFlashcards: boolean;
   autoProceed: boolean;
-  onUpdateSetting: (key: string, value: number | boolean) => void;
+  ratingOrbsPosition?: "left" | "right" | "top" | "bottom";
+  onUpdateSetting: (key: string, value: number | boolean | string) => void;
 }
 
 export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
@@ -17,6 +18,7 @@ export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
   flashcardPercentage,
   extractsCountAsFlashcards,
   autoProceed,
+  ratingOrbsPosition,
   onUpdateSetting,
 }: ScrollQueueSettingsProps) {
   if (!isOpen) return null;
@@ -98,6 +100,26 @@ export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
                 )}
               />
             </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <label htmlFor="rating-orbs-position" className="text-sm font-medium text-foreground">Rating Orbs Position</label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Preferred position edge for rating buttons in Scroll Mode
+              </p>
+            </div>
+            <select
+              id="rating-orbs-position"
+              value={ratingOrbsPosition ?? "right"}
+              onChange={(e) => onUpdateSetting("ratingOrbsPosition", e.target.value)}
+              className="bg-background border border-input rounded-md px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 pointer-events-auto"
+            >
+              <option value="right">Right</option>
+              <option value="left">Left</option>
+              <option value="top">Top</option>
+              <option value="bottom">Bottom</option>
+            </select>
           </div>
         </div>
 

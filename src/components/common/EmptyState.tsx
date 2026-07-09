@@ -21,6 +21,7 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
+import { ActionButton } from "./UI";
 
 interface EmptyStateProps {
   icon?: "documents" | "queue" | "search" | "inbox" | "analytics" | "review" | "folder" | ReactNode;
@@ -82,21 +83,23 @@ export function EmptyState({
       {(action || secondaryAction) && (
         <div className="flex flex-col sm:flex-row items-center gap-3">
           {action && (
-            <button
+            <ActionButton
               onClick={action.onClick}
-              className="px-6 py-2.5 min-h-[44px] bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity flex items-center gap-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+              variant="primary"
+              size="large"
             >
               {action.icon}
               {action.label}
-            </button>
+            </ActionButton>
           )}
           {secondaryAction && (
-            <button
+            <ActionButton
               onClick={secondaryAction.onClick}
-              className="px-6 py-2.5 min-h-[44px] text-muted-foreground hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none rounded-lg"
+              variant="tertiary"
+              size="large"
             >
               {secondaryAction.label}
-            </button>
+            </ActionButton>
           )}
         </div>
       )}

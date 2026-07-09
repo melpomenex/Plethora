@@ -49,6 +49,9 @@ export interface FeedItem {
   intelligenceScore?: number;
   // Thumbnail
   thumbnail?: string;
+  // iTunes <itunes:duration> (raw string — "HH:MM:SS", "MM:SS", or seconds).
+  // Podcast-specific; consumed by the podcast feed mapper.
+  itunesDuration?: string;
 }
 
 /**
@@ -219,6 +222,7 @@ function parseRSSItem(item: Element): FeedItem | null {
   const pubDate = getElementText(item, "pubDate") || new Date().toISOString();
   const author = getElementText(item, "author") || getElementText(item, "dc\\:creator");
   const guid = getElementText(item, "guid");
+  const itunesDuration = getElementText(item, "itunes\\:duration") || undefined;
 
   // Categories
   const categories = Array.from(item.querySelectorAll("category"))
@@ -296,6 +300,7 @@ function parseRSSItem(item: Element): FeedItem | null {
       description,
       enclosure,
     }),
+    itunesDuration,
   };
 }
 
@@ -399,6 +404,7 @@ function parseAtomEntry(entry: Element): FeedItem | null {
       description: content,
       enclosure,
     }),
+    itunesDuration: getElementText(entry, "itunes\\:duration") || undefined,
   };
 }
 
