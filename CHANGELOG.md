@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.68.1] - 2026-07-09
+
+### Fixed & Improved
+
+- **macOS startup dashboard loading hangs resolved** — Fixed a blank window or freeze on startup caused by the `tauri-plugin-window-state` attempting to restore a corrupted, empty, or invalid state file. The application now auto-validates the window state on startup and deletes it if corrupted. Added a native application menu item "Clear Window State" on macOS and CLI flags (`--clear-window-state` / `--reset-window-state` / `-c`) to allow manual clearance.
+- **OPML feed import protocol regression fixed** — Resolved an issue where RSS feeds using the `feed://` or `feed:` protocols were silently skipped during OPML imports. Traversal of XML elements (`<body>` and `<outline>`) is now case-insensitive, allowing mixed-case tags from different feed reader exports to parse successfully.
+
 ## [1.68.0] - 2026-07-09
 
 ### Added
