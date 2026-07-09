@@ -3,7 +3,18 @@
  */
 
 import { invokeCommand, isTauri } from "../lib/tauri";
+import { browserInvoke } from "../lib/browser-backend";
 import type { TranscriptSegment as SyncTranscriptSegment } from "../components/media/TranscriptSync";
+
+/**
+ * True when running outside the Tauri desktop/mobile shell (PWA / Web App).
+ * In that mode every command is served by the IndexedDB-backed browser backend
+ * — the `/api/podcast/*` HTTP endpoints were never implemented server-side, so
+ * the old localhost-only HTTP branch only ever 404'd.
+ */
+function isWebMode(): boolean {
+  return !isTauri();
+}
 
 /**
  * Import a podcast episode as a document in the incremental reading system.
@@ -125,45 +136,18 @@ export async function searchPodcasts(query: string): Promise<PodcastSearchResult
         categories: r.primaryGenreName ? { "0": r.primaryGenreName } : null,
       }));
   } catch (error) {
-    console.error("Direct iTunes search failed, trying HTTP fallback...", error);
-    if (shouldUseHttp()) {
-      const res = await fetch(`${getApiBaseUrl()}/api/podcast/search?q=${encodeURIComponent(query)}`);
-      if (!res.ok) throw new Error(`Search failed: ${res.statusText}`);
-      return res.json();
-    }
+    console.error("Podcast search failed (iTunes Search API):", error);
     throw error;
   }
-}
-
-function getApiBaseUrl(): string {
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-    ? `${window.location.protocol}//${window.location.hostname}:8766`
-    : `${window.location.protocol}//${window.location.hostname}`;
-}
-
-function shouldUseHttp(): boolean {
-  if (isTauri()) return false;
-  const host = window.location.hostname;
-  return host === "localhost" || host === "127.0.0.1";
 }
 
 /**
  * Subscribe to a podcast feed. Returns the created PodcastFeed.
  */
 export async function subscribeToPodcast(feedUrl: string): Promise<PodcastFeed> {
-  if (isTauri()) {
-    return invokeCommand<PodcastFeed>("subscribe_podcast", { feedUrl });
+  if (isWebMode()) {
+    return browserInvoke<PodcastFeed>("subscribe_podcast", { feedUrl });
   }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/subscribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ feed_url: feedUrl }),
-    });
-    if (!res.ok) throw new Error(`Failed to subscribe: ${res.statusText}`);
-    return res.json();
-  }
-  // browserInvoke fallback — will return empty/defaults
   return invokeCommand<PodcastFeed>("subscribe_podcast", { feedUrl });
 }
 
@@ -171,35 +155,18 @@ export async function subscribeToPodcast(feedUrl: string): Promise<PodcastFeed> 
  * Rename a podcast feed.
  */
 export async function renamePodcastFeed(feedId: string, newTitle: string): Promise<void> {
-  if (isTauri()) {
-    return invokeCommand<void>("rename_podcast_feed", { feedId, newTitle });
+  if (isWebMode()) {
+    return browserInvoke<void>("rename_podcast_feed", { feedId, newTitle });
   }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/feeds/${feedId}/rename`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ new_title: newTitle }),
-    });
-    if (!res.ok) throw new Error(`Failed to rename: ${res.statusText}`);
-    return;
-  }
-  // browser fallback: no-op
-  console.warn("[Browser] renamePodcastFeed: no-op in browser fallback mode");
+  return invokeCommand<void>("rename_podcast_feed", { feedId, newTitle });
 }
 
 /**
  * Unsubscribe from a podcast feed.
  */
 export async function unsubscribeFromPodcast(feedId: string): Promise<void> {
-  if (isTauri()) {
-    return invokeCommand<void>("unsubscribe_podcast", { feedId });
-  }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/feeds/${feedId}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error(`Failed to unsubscribe: ${res.statusText}`);
-    return;
+  if (isWebMode()) {
+    return browserInvoke<void>("unsubscribe_podcast", { feedId });
   }
   return invokeCommand<void>("unsubscribe_podcast", { feedId });
 }
@@ -208,13 +175,8 @@ export async function unsubscribeFromPodcast(feedId: string): Promise<void> {
  * Get all subscribed podcast feeds.
  */
 export async function getSubscribedPodcasts(): Promise<PodcastFeed[]> {
-  if (isTauri()) {
-    return invokeCommand<PodcastFeed[]>("get_podcast_feeds");
-  }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/feeds`);
-    if (!res.ok) throw new Error(`Failed to get feeds: ${res.statusText}`);
-    return res.json();
+  if (isWebMode()) {
+    return browserInvoke<PodcastFeed[]>("get_podcast_feeds");
   }
   return invokeCommand<PodcastFeed[]>("get_podcast_feeds");
 }
@@ -223,15 +185,8 @@ export async function getSubscribedPodcasts(): Promise<PodcastFeed[]> {
  * Refresh (re-fetch) a podcast feed. Returns the updated PodcastFeed.
  */
 export async function refreshFeed(feedId: string): Promise<PodcastFeed> {
-  if (isTauri()) {
-    return invokeCommand<PodcastFeed>("refresh_podcast_feed", { feedId });
-  }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/feeds/${feedId}/refresh`, {
-      method: "POST",
-    });
-    if (!res.ok) throw new Error(`Failed to refresh feed: ${res.statusText}`);
-    return res.json();
+  if (isWebMode()) {
+    return browserInvoke<PodcastFeed>("refresh_podcast_feed", { feedId });
   }
   return invokeCommand<PodcastFeed>("refresh_podcast_feed", { feedId });
 }
@@ -243,38 +198,27 @@ export async function getPodcastEpisodes(
   feedId: string | null,
   includePlayed: boolean = true,
 ): Promise<PodcastEpisode[]> {
-  if (isTauri()) {
-    return invokeCommand<PodcastEpisode[]>("get_podcast_episodes", {
+  if (isWebMode()) {
+    return browserInvoke<PodcastEpisode[]>("get_podcast_episodes", {
       feedId,
       includePlayed,
     });
   }
-  if (shouldUseHttp()) {
-    const params = new URLSearchParams({ include_played: String(includePlayed) });
-    const url = feedId
-      ? `${getApiBaseUrl()}/api/podcast/feeds/${feedId}/episodes?${params}`
-      : `${getApiBaseUrl()}/api/podcast/feeds/episodes?${params}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Failed to get episodes: ${res.statusText}`);
-    return res.json();
-  }
-  return invokeCommand<PodcastEpisode[]>("get_podcast_episodes", { feedId, includePlayed });
+  return invokeCommand<PodcastEpisode[]>("get_podcast_episodes", {
+    feedId,
+    includePlayed,
+  });
 }
 
 /**
  * Get the episode queue (unplayed episodes across all feeds).
  */
 export async function getEpisodeQueue(): Promise<PodcastEpisode[]> {
-  if (isTauri()) {
-    return invokeCommand<PodcastEpisode[]>("get_podcast_episodes", {
+  if (isWebMode()) {
+    return browserInvoke<PodcastEpisode[]>("get_podcast_episodes", {
       feedId: null,
       includePlayed: false,
     });
-  }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/feeds/episodes?include_played=false`);
-    if (!res.ok) throw new Error(`Failed to get episode queue: ${res.statusText}`);
-    return res.json();
   }
   return invokeCommand<PodcastEpisode[]>("get_podcast_episodes", {
     feedId: null,
@@ -304,16 +248,8 @@ export async function markEpisodePlayed(
     })();
     return;
   }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/played`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ played }),
-    });
-    if (!res.ok) throw new Error(`Failed to mark episode: ${res.statusText}`);
-    return;
-  }
-  return invokeCommand<void>("mark_episode_played", { episodeId, played });
+  // Web/PWA: persist to IndexedDB (no cross-device sync from browser).
+  return browserInvoke<void>("mark_episode_played", { episodeId, played });
 }
 
 /**
@@ -342,30 +278,16 @@ export async function updateEpisodePosition(
     })();
     return;
   }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/position`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ position }),
-    });
-    if (!res.ok) throw new Error(`Failed to update position: ${res.statusText}`);
-    return;
-  }
-  return invokeCommand<void>("update_episode_position", { episodeId, position });
+  // Web/PWA: persist to IndexedDB (no cross-device sync from browser).
+  return browserInvoke<void>("update_episode_position", { episodeId, position });
 }
 
 /**
  * Get playback position for an episode.
  */
 export async function getEpisodePosition(episodeId: string): Promise<number> {
-  if (isTauri()) {
-    return invokeCommand<number>("get_episode_position", { episodeId });
-  }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/position`);
-    if (!res.ok) throw new Error(`Failed to get position: ${res.statusText}`);
-    const data = await res.json();
-    return data.position ?? 0;
+  if (isWebMode()) {
+    return browserInvoke<number>("get_episode_position", { episodeId });
   }
   return invokeCommand<number>("get_episode_position", { episodeId });
 }
@@ -375,18 +297,10 @@ export async function downloadEpisodeAudio(
   audioUrl: string,
   audioType?: string,
 ): Promise<string> {
-  if (isTauri()) {
-    return invokeCommand<string>("download_podcast_episode", { episodeId, audioUrl, audioType });
-  }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/download`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ audioUrl, audioType }),
-    });
-    if (!res.ok) throw new Error(`Failed to download: ${res.statusText}`);
-    const data = await res.json();
-    return data.path;
+  if (isWebMode()) {
+    // Browser backend does not download audio for offline use; episodes stream
+    // from their remote audio URL. Return the remote URL so callers can play.
+    return browserInvoke<string>("download_podcast_episode", { episodeId, audioUrl, audioType });
   }
   return invokeCommand<string>("download_podcast_episode", { episodeId, audioUrl, audioType });
 }
@@ -394,14 +308,9 @@ export async function downloadEpisodeAudio(
 export async function getDownloadedEpisodePath(
   episodeId: string,
 ): Promise<string | null> {
-  if (isTauri()) {
-    return invokeCommand<string | null>("get_downloaded_episode_path", { episodeId });
-  }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/download`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.path ?? null;
+  if (isWebMode()) {
+    // No local download in browser mode; signal "not downloaded".
+    return browserInvoke<string | null>("get_downloaded_episode_path", { episodeId });
   }
   return invokeCommand<string | null>("get_downloaded_episode_path", { episodeId });
 }
@@ -409,15 +318,8 @@ export async function getDownloadedEpisodePath(
 export async function deleteDownloadedEpisode(
   episodeId: string,
 ): Promise<void> {
-  if (isTauri()) {
-    return invokeCommand<void>("delete_downloaded_episode", { episodeId });
-  }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/download`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error(`Failed to delete download: ${res.statusText}`);
-    return;
+  if (isWebMode()) {
+    return browserInvoke<void>("delete_downloaded_episode", { episodeId });
   }
   return invokeCommand<void>("delete_downloaded_episode", { episodeId });
 }
@@ -491,21 +393,9 @@ export async function transcribePodcastEpisode(
       autoSegment: autoSegment ?? null,
     });
   }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/transcribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: model ?? null,
-        language: language ?? null,
-        auto_segment: autoSegment ?? null,
-      }),
-    });
-    if (!res.ok) throw new Error(`Failed to start transcription: ${res.statusText}`);
-    return;
-  }
-  // browser: no-op
-  console.warn("[Browser] transcribePodcastEpisode: no-op in browser fallback mode");
+  // Browser/PWA: transcription requires the desktop FFmpeg/Groq chunking
+  // pipeline and is not available in web mode.
+  console.warn("[Browser] transcribePodcastEpisode: not available in browser mode");
 }
 
 /**
@@ -838,20 +728,7 @@ export async function savePodcastTranscript(
     }
     return;
   }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/transcript`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        status,
-        error: error ?? null,
-        transcript: transcript ?? null,
-      }),
-    });
-    if (!res.ok) throw new Error(`Failed to save transcript: ${res.statusText}`);
-    return;
-  }
-  throw new Error("Transcripts not available in browser fallback mode");
+  throw new Error("Transcripts not available in browser mode");
 }
 
 /**
@@ -891,12 +768,7 @@ export async function getPodcastTranscript(
       }),
     };
   }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/transcript`);
-    if (!res.ok) throw new Error(`Failed to get transcript: ${res.statusText}`);
-    return res.json();
-  }
-  throw new Error("Transcripts not available in browser fallback mode");
+  throw new Error("Transcripts not available in browser mode");
 }
 
 /** Raw backend shape (ms + snake_case) before normalization. */
@@ -918,14 +790,7 @@ export async function cancelPodcastTranscription(episodeId: string): Promise<voi
   if (isTauri()) {
     return invokeCommand<void>("cancel_podcast_transcription", { episodeId });
   }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/episodes/${episodeId}/cancel-transcription`, {
-      method: "POST",
-    });
-    if (!res.ok) throw new Error(`Failed to cancel transcription: ${res.statusText}`);
-    return;
-  }
-  console.warn("[Browser] cancelPodcastTranscription: no-op in browser fallback mode");
+  console.warn("[Browser] cancelPodcastTranscription: not available in browser mode");
 }
 
 /**
@@ -939,16 +804,7 @@ export async function setFeedAutoTranscribe(
   if (isTauri()) {
     return invokeCommand<void>("set_feed_auto_transcribe", { feedId, enabled, language });
   }
-  if (shouldUseHttp()) {
-    const res = await fetch(`${getApiBaseUrl()}/api/podcast/feeds/${feedId}/auto-transcribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled, language: language ?? null }),
-    });
-    if (!res.ok) throw new Error(`Failed to set auto-transcribe: ${res.statusText}`);
-    return;
-  }
-  console.warn("[Browser] setFeedAutoTranscribe: no-op in browser fallback mode");
+  console.warn("[Browser] setFeedAutoTranscribe: not available in browser mode");
 }
 
 /**

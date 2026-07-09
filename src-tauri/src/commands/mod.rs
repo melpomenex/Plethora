@@ -45,6 +45,7 @@ pub mod sync;
 pub mod tas;
 pub mod video;
 pub mod youtube_playlist;
+pub mod yjs_file;
 pub use crate::error::Result;
 
 pub use ai::*;
@@ -84,6 +85,7 @@ pub use semantic_search::*;
 pub use substack::*;
 pub use video::*;
 pub use youtube_playlist::*;
+pub use yjs_file::*;
 
 pub use cloud::backup::*;
 pub use cloud::oauth::*;

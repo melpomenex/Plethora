@@ -80,4 +80,16 @@ export default [
       "react-hooks/exhaustive-deps": "off",
     },
   },
+  // Release and diagnostics scripts intentionally use CommonJS so they run in
+  // Node environments without an ESM loader. Do not require an unrelated
+  // module-system migration merely to lint those scripts.
+  {
+    files: ["scripts/**/*.cjs"],
+    languageOptions: {
+      sourceType: "commonjs",
+    },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 ];

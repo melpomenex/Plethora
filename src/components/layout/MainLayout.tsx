@@ -17,6 +17,7 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { ThemeBackdrop } from "../common/ThemeBackdrop";
 import { KeyboardShortcutsHelp } from "../common/KeyboardShortcutsHelp";
 import { ImageSaveOverlay } from "../viewer/ImageSaveOverlay";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { isTauri, invokeCommand, listen } from "../../lib/tauri";
 import type { StartupNotice } from "../../types";
 import { checkForUpdates } from "../../utils/updateChecker";
@@ -74,6 +75,7 @@ export function MainLayout() {
   const documentsLoadedRef = useRef(false);
   const [activePaneTabId, setActivePaneTabId] = useState<string | null>(null);
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
+  const [isWorkspaceSwitcherOpen, setIsWorkspaceSwitcherOpen] = useState(false);
 
   const toolbarPosition = useSettingsStore((state) => state.settings.interface.toolbarPosition);
 
@@ -172,9 +174,12 @@ export function MainLayout() {
 
     window.addEventListener("show-shortcuts-help", handleShowHelp);
     window.addEventListener("toggle-theme", handleToggleTheme);
+    const handleOpenWorkspaceSwitcher = () => setIsWorkspaceSwitcherOpen(true);
+    window.addEventListener("open-workspace-switcher", handleOpenWorkspaceSwitcher);
     return () => {
       window.removeEventListener("show-shortcuts-help", handleShowHelp);
       window.removeEventListener("toggle-theme", handleToggleTheme);
+      window.removeEventListener("open-workspace-switcher", handleOpenWorkspaceSwitcher);
     };
   }, []);
 
@@ -231,12 +236,12 @@ export function MainLayout() {
         .then((update) => {
           if (!update) return;
           toast.info(
-            "Update available",
-            `Version ${update.latestVersion.replace(/^v/, "")} is ready to install.`,
+            t("mainLayout.updateAvailable"),
+            t("mainLayout.updateReady", { version: update.latestVersion.replace(/^v/, "") }),
             {
               duration: 15000,
               action: {
-                label: "View",
+                label: t("mainLayout.view"),
                 onClick: () => openTabByType("settings"),
               },
             }
@@ -260,14 +265,12 @@ export function MainLayout() {
 
     const showDatabaseRecoveredToast = () => {
       toast.error(
-        "Database was reset",
-        "Your local database was corrupted and has been reset to a fresh, " +
-          "empty database. The corrupt file was backed up on disk. " +
-          "Restore from a cloud backup if you have one.",
+        t("mainLayout.databaseReset"),
+        t("mainLayout.databaseResetDesc"),
         {
           duration: 0, // persistent until dismissed
           action: {
-            label: "Open Settings",
+            label: t("mainLayout.openSettings"),
             onClick: () => openTabByType("settings"),
           },
         }
@@ -276,23 +279,22 @@ export function MainLayout() {
 
     const showAutoBackupToast = (backupPath: string) => {
       toast.success(
-        "Auto-Backup Found",
-        "An automatic database backup from a previous installation was found. " +
-          "Would you like to restore your transcripts, settings, and cards?",
+        t("mainLayout.autoBackupFound"),
+        t("mainLayout.autoBackupFoundDesc"),
         {
           duration: 0,
           action: {
-            label: "Restore",
+            label: t("mainLayout.restore"),
             onClick: async () => {
               try {
-                toast.info("Restoring backup...", "Please wait while the database is being restored.");
+                toast.info(t("mainLayout.restoringBackup"), t("mainLayout.restoringBackupDesc"));
                 await invokeCommand("restore_local_db_backup", { backupPath });
-                
+
                 const { relaunch } = await import("@tauri-apps/plugin-process");
                 await relaunch();
               } catch (err) {
                 console.error("[MainLayout] Failed to restore auto-backup:", err);
-                toast.error("Restore Failed", err instanceof Error ? err.message : String(err));
+                toast.error(t("mainLayout.restoreFailed"), err instanceof Error ? err.message : String(err));
               }
             },
           },
@@ -347,7 +349,7 @@ export function MainLayout() {
       if (!sharedUrl) return;
       
       const toastId = toast.info(
-        "Importing shared link...",
+        t("mainLayout.importingSharedLink"),
         sharedUrl,
         { duration: 0 }
       );
@@ -355,15 +357,15 @@ export function MainLayout() {
       try {
         const { importFromUrl, loadDocuments } = useDocumentStore.getState();
         const doc = await importFromUrl(sharedUrl);
-        
+
         toast.dismiss(toastId);
         toast.success(
-          "Imported successfully",
-          doc.title || "Shared link added to your queue.",
+          t("mainLayout.importedSuccessfully"),
+          doc.title || t("mainLayout.sharedLinkAdded"),
           {
             duration: 10000,
             action: {
-              label: "Open",
+              label: t("mainLayout.open"),
               onClick: () => {
                 addTab({
                   title: doc.title,
@@ -387,7 +389,7 @@ export function MainLayout() {
         toast.dismiss(toastId);
         console.error("[Share Target] Failed to import shared URL:", err);
         toast.error(
-          "Import failed",
+          t("mainLayout.importFailed"),
           err instanceof Error ? err.message : String(err)
         );
       }
@@ -1227,6 +1229,7 @@ export function MainLayout() {
           onClose={() => useUIStore.getState().setTwitterImportDialogOpen(false)}
         />
         <ImageSaveOverlay />
+        <WorkspaceSwitcher isOpen={isWorkspaceSwitcherOpen} onClose={() => setIsWorkspaceSwitcherOpen(false)} />
       </VimiumNavigationProvider>
     </MobileLayoutWrapper>
   );
