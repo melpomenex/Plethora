@@ -668,14 +668,3 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   clearBulkResult: () => set({ bulkOperationResult: null }),
 }));
-
-// Lazy subscribe to avoid circular import: collectionStore imports queueStore.
-// The guard ensures both the store reference and its .subscribe method exist.
-if (typeof useCollectionStore !== "undefined" && typeof useCollectionStore.subscribe === "function") {
-  useCollectionStore.subscribe(
-    () => {
-      const { applyFilters } = useQueueStore.getState();
-      applyFilters();
-    }
-  );
-}

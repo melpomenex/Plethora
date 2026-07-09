@@ -25,6 +25,8 @@ import { importAnkiPackageFromPicker } from "../../utils/ankiImport";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
+import { ActionButton, ActionMenu, FocusPanel } from "../common/UI";
+import { getReviewHomeAction } from "./reviewFocus";
 
 interface ReviewHomeProps {
   onStartReview: () => Promise<void>;
@@ -172,6 +174,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   const reviewCount = scopedItems.filter((item) => item.state === "review").length;
 
   const estimatedSeconds = scopedItems.length * 30;
+  const reviewHomeAction = getReviewHomeAction(scopedItems.length);
 
   const deckStats = useMemo(() => {
     return (decks || []).map((deck) => ({
@@ -256,7 +259,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-4 rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <FocusPanel className="flex flex-col gap-4">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-3xl font-bold text-foreground">{t("review.title")}</h1>
@@ -264,55 +267,36 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                 {t("review.subtitle")}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setIsDecksModalOpen(true)}
-                className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
-              >
-                <Stack className="h-4 w-4" />
-                {t("reviewHome.viewDecks")}
-              </button>
-              <button
-                onClick={loadStats}
-                className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
-              >
-                <ArrowsClockwise className="h-4 w-4" />
-                {t("common.refresh")}
-              </button>
-              <button
-                onClick={() => setIsFlashcardStudioOpen(true)}
-                className="inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary hover:bg-primary/15"
-              >
-                <Sparkle className="h-4 w-4" />
-                {t("extracts.createFlashcards")}
-              </button>
-              <button
-                onClick={handleImportDeck}
-                disabled={isAnkiImporting}
-                className="inline-flex items-center gap-2 rounded-md bg-blue-500 px-3 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                <Upload className="h-4 w-4" />
-                {isAnkiImporting ? t("review.importing") : t("review.importDeck")}
-              </button>
-              {onOpenDeckManager && (
-                <button
-                  onClick={onOpenDeckManager}
-                  className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
-                >
-                  <FolderPlus className="h-4 w-4" />
-                  {t("review.deckManager.title")}
-                </button>
+            <div className="flex items-center gap-2">
+              {reviewHomeAction === "start-review" ? (
+                <ActionButton variant="primary" size="large" onClick={() => void onStartReview()} disabled={isLoading}>
+                  <Lightning className="h-4 w-4" aria-hidden="true" />
+                  {t("dashboard.startReview")}
+                </ActionButton>
+              ) : (
+                <ActionButton variant="primary" size="large" onClick={() => window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" }))}>
+                  <Compass className="h-4 w-4" aria-hidden="true" />
+                  {t("dashboard.continueReading")}
+                </ActionButton>
               )}
-              <button
-                onClick={() => setIsReviewPreviewOpen(true)}
-                disabled={isLoading}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
-              >
-                <Lightning className="h-4 w-4" />
-                {t("dashboard.startReview")}
-              </button>
+              <ActionMenu
+                label={t("reviewHome.viewDecks")}
+                items={[
+                  { label: t("reviewHome.viewDecks"), icon: Stack, onSelect: () => setIsDecksModalOpen(true) },
+                  { label: t("common.refresh"), icon: ArrowsClockwise, onSelect: loadStats },
+                  { label: t("extracts.createFlashcards"), icon: Sparkle, onSelect: () => setIsFlashcardStudioOpen(true) },
+                  { label: isAnkiImporting ? t("review.importing") : t("review.importDeck"), icon: Upload, onSelect: handleImportDeck, disabled: isAnkiImporting },
+                  ...(onOpenDeckManager ? [{ label: t("review.deckManager.title"), icon: FolderPlus, onSelect: onOpenDeckManager }] : []),
+                  { label: t("review.preview"), icon: Lightning, onSelect: () => setIsReviewPreviewOpen(true), disabled: isLoading },
+                ]}
+              />
             </div>
           </div>
+          <p className="text-sm text-muted-foreground">
+            {reviewHomeAction === "start-review"
+              ? `${dueToday.length} ${t("reviewHome.dueToday")} · ${formatMinutes(estimatedSeconds)}`
+              : t("emptyState.allCaughtUp")}
+          </p>
           <p className="text-xs text-muted-foreground">
             {t("reviewHome.inSessionTools")} <kbd className="px-1 py-0.5 rounded bg-muted">Ctrl/⌘+I</kbd> {t("reviewHome.fsrsInspector")},{" "}
             <kbd className="px-1 py-0.5 rounded bg-muted">Ctrl/⌘+Shift+Z</kbd> {t("reviewHome.zenMode")}.
@@ -397,7 +381,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
               </p>
             </div>
           </div>
-        </div>
+        </FocusPanel>
 
         <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
           <div className="rounded-2xl border border-border bg-card p-6">

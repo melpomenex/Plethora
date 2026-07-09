@@ -109,6 +109,13 @@ export const useCollectionStore = create<CollectionState>()((set, get) => ({
   },
 }));
 
+// This subscription must be registered from this module. queueStore imports
+// collectionStore too, so reading useCollectionStore while queueStore is
+// evaluating hits the temporal-dead-zone and prevents the app from starting.
+useCollectionStore.subscribe(() => {
+  useQueueStore.getState().applyFilters();
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Cross-device sync: refresh the store when a collection arrives from another
 // device. The replication layer (src/lib/sync/entities/collections.ts) writes

@@ -7,6 +7,7 @@ import {
   CaretUp,
   Clock,
   DeviceMobile,
+  DotsThree,
   EyeSlash,
   Funnel,
   Graph,
@@ -58,6 +59,8 @@ import { TASQueueIndicator } from "../tas";
 import { postponeItem } from "../../api/queue";
 import { dismissDocument } from "../../api/documents";
 import { useToast } from "../common/Toast";
+import { EmptyState } from "../common/EmptyState";
+import { getQueuePrimaryAction } from "./queueActions";
 import { getSessionStats, clearQueueSession } from "../../lib/queueSession";
 import { useI18n } from "../../lib/i18n";
 import { ScheduleView } from "../schedule/ScheduleView";
@@ -335,7 +338,12 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     const customizationOptions: SessionCustomizationOptions = {
       maxItems: sessionCustomization.maxItems,
       filters: sessionCustomization.filters,
-      itemTypes: sessionCustomization.itemTypes,
+      // The `itemTypes` gate is a reading-mode session-customization concept.
+      // In review mode the queue is already restricted to learning items
+      // above, so passing `learningItems: false` (its default) here would
+      // strip every card and leave the Review Queue empty. Omit it so the
+      // other filters (tags/categories/priority/excludeSuspended) still apply.
+      itemTypes: queueMode === "review" ? undefined : sessionCustomization.itemTypes,
       priorityPreset: preset,
       semanticStudy: sessionCustomization.semanticStudy,
     };
@@ -443,6 +451,13 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     }
   };
 
+  const openItemActions = (item: QueueItem, target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    setSelectedId(item.id);
+    setCtxItem(item);
+    setCtxPos({ x: Math.max(8, rect.right - 220), y: rect.bottom + 4 });
+  };
+
   const handleCtxSuspend = async (item: QueueItem) => {
     setCtxPos(null);
     setCtxItem(null);
@@ -451,7 +466,21 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       const { bulkSuspendItems } = await import("../../api/queue");
       const result = await bulkSuspendItems([item.id]);
       if (result.failed.length === 0) {
-        toast.success(t("queue.suspended"), t("queue.scheduleUpdated"));
+        toast.success(t("queue.suspended"), t("queue.scheduleUpdated"), {
+          action: {
+            label: t("queue.undo"),
+            onClick: async () => {
+              try {
+                const { bulkUnsuspendItems } = await import("../../api/queue");
+                await bulkUnsuspendItems([item.id]);
+                await refreshQueue();
+                toast.success(t("queue.restored"), t("queue.scheduleUpdated"));
+              } catch (error) {
+                toast.error(t("queue.couldNotRestoreItem"), error instanceof Error ? error.message : t("queue.pleaseRefresh"));
+              }
+            },
+          },
+        });
       } else {
         toast.error(t("queue.operationFailed"), result.errors.join(", "));
       }
@@ -466,7 +495,20 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     setCtxItem(null);
     try {
       await postponeItem(item.id, days);
-      toast.success(t("queue.postponed"), t("queue.reviewScheduleUpdated", { days }));
+      toast.success(t("queue.postponed"), t("queue.reviewScheduleUpdated", { days }), {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              await postponeItem(item.id, -days);
+              await refreshQueue();
+              toast.success("Restored", t("queue.scheduleUpdated"));
+            } catch (error) {
+              toast.error("Could not restore item", error instanceof Error ? error.message : "Please refresh and try again.");
+            }
+          },
+        },
+      });
       await refreshQueue();
     } catch (error) {
       toast.error(t("queue.operationFailed"), error instanceof Error ? error.message : "Unknown error");
@@ -487,7 +529,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       }
       await refreshQueue();
     } catch (error) {
-      toast.error(t("queue.operationFailed"), error instanceof Error ? error.message : "Unknown error");
+      toast.error(t("queue.operationFailed"), error instanceof Error ? error.message : t("queue.unknownError"));
     }
   };
 
@@ -499,7 +541,20 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
     try {
       await dismissDocument(item.documentId, true);
-      toast.success(t("queueScroll.documentDismissed"), t("queueScroll.documentDismissedDesc"));
+      toast.success(t("queueScroll.documentDismissed"), t("queueScroll.documentDismissedDesc"), {
+        action: {
+          label: t("queue.undo"),
+          onClick: async () => {
+            try {
+              await dismissDocument(item.documentId, false);
+              await refreshQueue();
+              toast.success(t("queue.restored"), t("queue.scheduleUpdated"));
+            } catch (error) {
+              toast.error(t("queue.couldNotRestoreDocument"), error instanceof Error ? error.message : t("queue.pleaseRefresh"));
+            }
+          },
+        },
+      });
       await refreshQueue();
     } catch (error) {
       console.error("Failed to dismiss document:", error);
@@ -797,10 +852,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             <button
               onClick={() => setSemanticGraphOpen(true)}
               className="px-4 py-2 bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 rounded-md hover:from-blue-500/20 hover:to-indigo-500/20 transition-all flex items-center gap-1.5 font-medium shadow-sm"
-              title="Visualize semantic relationships in this queue"
+              title={t("queue.semanticGraphTooltip")}
             >
               <Graph className="w-4 h-4" />
-              <span>Semantic Graph</span>
+              <span>{t("queue.semanticGraph")}</span>
             </button>
             <button
               onClick={() => {
@@ -1030,9 +1085,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                   <Sparkle className="w-4 h-4 text-blue-500 dark:text-blue-400" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">Studying Custom Semantic Cluster</h3>
+                  <h3 className="text-sm font-semibold text-foreground">{t("queue.studyingCluster")}</h3>
                   <p className="text-xs text-muted-foreground">
-                    Filtered to {visibleItems.length} items closely related to your selected cluster focus.
+                    {t("queue.clusterFiltered", { count: visibleItems.length })}
                   </p>
                 </div>
               </div>
@@ -1040,7 +1095,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                 onClick={() => setCustomSubset(null)}
                 className="px-3 py-1.5 bg-background border border-border hover:bg-muted text-foreground font-semibold rounded-lg text-xs transition-all shadow-sm"
               >
-                Clear Cluster
+                {t("queue.clearCluster")}
               </button>
             </div>
           )}
@@ -1051,9 +1106,12 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             sessionCustomization.semanticStudy?.enabled && sessionCustomization.semanticStudy?.focalTopic ? (
               <div className="p-8 text-center max-w-md mx-auto my-12 glass-card rounded-2xl border border-blue-500/20 bg-blue-500/5 dark:bg-blue-400/5 animate-scaleIn">
                 <Warning className="w-12 h-12 text-blue-500 dark:text-blue-400 mx-auto mb-4" />
-                <h3 className="text-base font-semibold text-foreground mb-2">No Related Items Found</h3>
+                <h3 className="text-base font-semibold text-foreground mb-2">{t("queue.noRelatedItems")}</h3>
                 <p className="text-xs text-muted-foreground mb-6">
-                  We couldn't find any items in your library semantically matching <strong>"{sessionCustomization.semanticStudy?.focalTopic}"</strong> at the threshold of {sessionCustomization.semanticStudy?.relatednessThreshold}%.
+                  {t("queue.noRelatedItemsDesc", {
+                    topic: sessionCustomization.semanticStudy?.focalTopic ?? "",
+                    threshold: sessionCustomization.semanticStudy?.relatednessThreshold ?? 0,
+                  })}
                 </p>
                 <div className="flex items-center justify-center gap-3">
                   <button
@@ -1065,7 +1123,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                     }}
                     className="px-4 py-2 bg-background border border-border hover:bg-muted text-foreground rounded-xl text-xs font-semibold transition-all shadow-sm"
                   >
-                    Clear Funnel
+                    {t("queue.clearFunnel")}
                   </button>
                   <button
                     onClick={() => {
@@ -1076,16 +1134,23 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                     }}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition-all shadow-sm shadow-blue-500/10"
                   >
-                    Decrease Strictness (10%)
+                    {t("queue.decreaseStrictness")}
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="text-center py-12 text-muted-foreground">
-                {queueMode === "reading"
-                  ? t("queue.emptyReading")
-                  : t("queue.emptyReview")}
-              </div>
+              <EmptyState
+                icon="queue"
+                title={queueMode === "reading" ? t("queue.emptyReading") : t("queue.emptyReview")}
+                description={items.length === 0 ? t("emptyState.queueDesc") : t("queue.noMatchingFilters")}
+                action={items.length === 0 ? {
+                  label: t("emptyState.goToDocuments"),
+                  onClick: () => window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" })),
+                } : {
+                  label: t("queue.showAllItems"),
+                  onClick: () => setQueueFilterMode("all-items"),
+                }}
+              />
             )
           ) : (
             <>
@@ -1298,6 +1363,28 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                             <div className="flex items-center gap-3">
                               <PriorityGlyph vector={priorityVector} />
 
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleCtxStudyNow(item);
+                                }}
+                                className="min-h-9 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              >
+                                {getQueuePrimaryAction(item.itemType) === "study-now" ? t("queue.studyNow") : t("queue.openDocument")}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openItemActions(item, event.currentTarget);
+                                }}
+                                className="min-h-9 min-w-9 rounded-md border border-border bg-background p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                aria-label={`More actions for ${item.documentTitle}`}
+                              >
+                                <DotsThree className="h-4 w-4" weight="bold" aria-hidden="true" />
+                              </button>
+
                               {/* Dismiss Button - Only for documents */}
                               {item.itemType === "document" && (
                                 <button
@@ -1485,6 +1572,28 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                           </div>
                           <div className="flex items-center gap-3">
                             <PriorityGlyph vector={priorityVector} />
+
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleCtxStudyNow(item);
+                              }}
+                              className="min-h-9 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            >
+                              {getQueuePrimaryAction(item.itemType) === "study-now" ? t("queue.studyNow") : t("queue.openDocument")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openItemActions(item, event.currentTarget);
+                              }}
+                              className="min-h-9 min-w-9 rounded-md border border-border bg-background p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                              aria-label={`More actions for ${item.documentTitle}`}
+                            >
+                              <DotsThree className="h-4 w-4" weight="bold" aria-hidden="true" />
+                            </button>
 
                             {/* Dismiss Button - Only for documents */}
                             {item.itemType === "document" && (
@@ -1700,12 +1809,16 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           <div className="fixed inset-0 z-[9998]" onContextMenu={(e) => { e.preventDefault(); setCtxPos(null); setCtxItem(null); }} />
           <div
             ref={ctxMenuRef}
+            role="menu"
+            aria-label={`Actions for ${ctxItem.documentTitle}`}
             className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[220px] animate-in fade-in-0 zoom-in-95 duration-100"
             style={{ left: ctxPos.x, top: ctxPos.y }}
           >
             {/* Study / Open */}
             <button
-              className="w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/80 flex items-center gap-2"
+              autoFocus
+              role="menuitem"
+              className="w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/80 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               onClick={() => handleCtxStudyNow(ctxItem)}
             >
               <Play className="w-4 h-4 text-emerald-500" />
@@ -1835,7 +1948,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         embeddingConfig={embeddingConfig}
         onStartSessionWithFilter={(filteredItems) => {
           setCustomSubset(filteredItems);
-          toast.success("Semantic Study Active", `Loaded a custom cluster of ${filteredItems.length} items to study.`);
+          toast.success(t("queue.semanticStudyActive"), t("queue.semanticStudyLoaded", { count: filteredItems.length }));
         }}
       />
       </>
@@ -1876,7 +1989,9 @@ const StatusPill = React.memo(function StatusPill({ status }: { status: ReturnTy
                 ? "bg-amber-500/15 text-amber-600 dark:text-amber-300"
                 : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300";
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${styles}`}>{label}</span>
+    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${styles}`} role="status" aria-label={`Queue status: ${label}`}>
+      {label}
+    </span>
   );
 });
 

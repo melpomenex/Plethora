@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import {
   useToastStore,
   Toast,
@@ -127,6 +127,16 @@ describe("Toast Component", () => {
 
     expect(screen.getByText("Title")).toBeInTheDocument();
     expect(screen.getByText("This is a message")).toBeInTheDocument();
+  });
+
+  it("runs a recovery action from a toast", () => {
+    const undo = vi.fn();
+    useToastStore.setState({
+      toasts: [{ id: "undo", type: ToastType.Success, title: "Postponed", action: { label: "Undo", onClick: undo } }],
+    });
+    render(<Toast />);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(undo).toHaveBeenCalledOnce();
   });
 
   it("should render multiple toasts", () => {

@@ -16,6 +16,13 @@ import {
   TextT,
   WarningCircle,
   X,
+  DotsSixVertical,
+  DotsSix,
+  ArrowsOutCardinal,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
 
@@ -35,6 +42,8 @@ interface ScrollOverlayControlsProps {
   /** When true (mobile), render a persistent thumb-reachable bottom action bar
    *  instead of the desktop side-orb + bottom-arrow chrome. */
   isMobile?: boolean;
+  ratingOrbsPosition?: "left" | "right" | "top" | "bottom";
+  onUpdateRatingOrbsPosition?: (position: "left" | "right" | "top" | "bottom") => void;
   onExit: () => void;
   onShowSettings: () => void;
   onShowRssSettings: () => void;
@@ -114,6 +123,20 @@ function getPriorityPreset(slider: number) {
   return PRIORITY_PRESETS[0];
 }
 
+const getTooltipClass = (pos: "left" | "right" | "top" | "bottom") => {
+  switch (pos) {
+    case "left":
+      return "absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-black/90 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-[-4px] group-hover:translate-x-0 whitespace-nowrap shadow-md border border-white/10 z-50 pointer-events-none";
+    case "top":
+      return "absolute top-full mt-3 left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/90 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-[-4px] group-hover:translate-y-0 whitespace-nowrap shadow-md border border-white/10 z-50 pointer-events-none";
+    case "bottom":
+      return "absolute bottom-full mb-3 left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/90 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-[4px] group-hover:translate-y-0 whitespace-nowrap shadow-md border border-white/10 z-50 pointer-events-none";
+    case "right":
+    default:
+      return "absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-black/90 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-[4px] group-hover:translate-x-0 whitespace-nowrap shadow-md border border-white/10 z-50 pointer-events-none";
+  }
+};
+
 export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   showControls,
   currentIndex,
@@ -128,6 +151,8 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   helpText,
   isEpub: _isEpub = false,
   isMobile = false,
+  ratingOrbsPosition = "right",
+  onUpdateRatingOrbsPosition,
   onExit,
   onShowSettings,
   onShowRssSettings,
@@ -147,6 +172,90 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   labels,
 }: ScrollOverlayControlsProps) {
   const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  
+  // Dragging and Snapping Logic for Rating Orbs
+  const [showPositionMenu, setShowPositionMenu] = useState(false);
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragTriggered, setIsDragTriggered] = useState(false);
+
+  const startDrag = (clientX: number, clientY: number, currentTarget: HTMLElement) => {
+    const rect = currentTarget.getBoundingClientRect();
+    setDragOffset({
+      x: clientX - rect.left,
+      y: clientY - rect.top,
+    });
+    setDragPos({
+      x: rect.left,
+      y: rect.top,
+    });
+    setIsDragTriggered(true);
+  };
+
+  useEffect(() => {
+    if (!isDragTriggered) return;
+
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
+      setDragPos({
+        x: clientX - dragOffset.x,
+        y: clientY - dragOffset.y,
+      });
+    };
+
+    const handleUp = (e: MouseEvent | TouchEvent) => {
+      setIsDragTriggered(false);
+      
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      const releaseX = 'changedTouches' in e && e.changedTouches[0]
+        ? e.changedTouches[0].clientX 
+        : ('touches' in e && e.touches[0] 
+            ? e.touches[0].clientX 
+            : (e as MouseEvent).clientX);
+      const releaseY = 'changedTouches' in e && e.changedTouches[0]
+        ? e.changedTouches[0].clientY 
+        : ('touches' in e && e.touches[0] 
+            ? e.touches[0].clientY 
+            : (e as MouseEvent).clientY);
+
+      const x = releaseX ?? (dragPos ? dragPos.x + 30 : viewportWidth / 2);
+      const y = releaseY ?? (dragPos ? dragPos.y + 150 : viewportHeight / 2);
+
+      const distLeft = x;
+      const distRight = viewportWidth - x;
+      const distTop = y;
+      const distBottom = viewportHeight - y;
+
+      const minDist = Math.min(distLeft, distRight, distTop, distBottom);
+      let newPosition: "left" | "right" | "top" | "bottom" = "right";
+      
+      if (minDist === distLeft) newPosition = "left";
+      else if (minDist === distRight) newPosition = "right";
+      else if (minDist === distTop) newPosition = "top";
+      else if (minDist === distBottom) newPosition = "bottom";
+
+      if (onUpdateRatingOrbsPosition) {
+        onUpdateRatingOrbsPosition(newPosition);
+      }
+      setDragPos(null);
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("touchend", handleUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      window.removeEventListener("touchmove", handleMove);
+      window.removeEventListener("touchend", handleUp);
+    };
+  }, [isDragTriggered, dragOffset, dragPos, onUpdateRatingOrbsPosition]);
+
   const isDocOrRss = itemType === "document" || itemType === "rss";
   const showRatingButtons = itemType !== "flashcard" && itemType !== "extract";
 
@@ -294,55 +403,224 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
         </div>
       )}
 
-      {/* Side Rating Controls */}
-      {!isMobile && (showRatingButtons || itemType === "flashcard" || itemType === "extract") && (
-        <div className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 pointer-events-auto">
-          {itemType === "flashcard" || itemType === "extract" ? (
-            <button type="button" onClick={onDismiss} disabled={isRating} className="group p-3 rounded-full bg-slate-500/80 backdrop-blur-sm hover:bg-slate-500 hover:scale-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" title={labels?.dismissTitle ?? "Dismiss"}>
-              <EyeSlash className="w-6 h-6 text-white" />
-              <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{labels?.dismissLabel ?? "Dismiss"}</span>
+      {/* Side/Floating Rating Controls */}
+      {(showRatingButtons || itemType === "flashcard" || itemType === "extract") && (() => {
+        const isDraggingActive = dragPos !== null;
+        
+        let snapClasses = "";
+        let layoutClasses = "";
+        
+        if (!isDraggingActive) {
+          switch (ratingOrbsPosition) {
+            case "left":
+              snapClasses = "left-6 top-1/2 -translate-y-1/2";
+              layoutClasses = "flex-col";
+              break;
+            case "top":
+              snapClasses = "top-28 left-1/2 -translate-x-1/2";
+              layoutClasses = "flex-row items-center";
+              break;
+            case "bottom":
+              snapClasses = "bottom-28 left-1/2 -translate-x-1/2";
+              layoutClasses = "flex-row items-center";
+              break;
+            case "right":
+            default:
+              snapClasses = "right-6 top-1/2 -translate-y-1/2";
+              layoutClasses = "flex-col";
+              break;
+          }
+        }
+
+        const isHorizontal = ratingOrbsPosition === "top" || ratingOrbsPosition === "bottom";
+
+        const DragHandle = () => (
+          <div
+            onMouseDown={(e) => startDrag(e.clientX, e.clientY, e.currentTarget.parentElement!)}
+            onTouchStart={(e) => {
+              if (e.touches && e.touches[0]) {
+                startDrag(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget.parentElement!);
+              }
+            }}
+            className={cn(
+              "flex items-center justify-center p-2 text-white/40 hover:text-white cursor-grab active:cursor-grabbing rounded-lg hover:bg-white/10 transition-colors",
+              isHorizontal ? "mr-1 border-r border-white/10 pr-2" : "mb-1 border-b border-white/10 pb-2"
+            )}
+            title="Drag to move panel"
+          >
+            {isHorizontal ? <DotsSix className="w-5 h-5" /> : <DotsSixVertical className="w-5 h-5" />}
+          </div>
+        );
+
+        const PositionConfig = () => (
+          <div className={cn("relative flex items-center justify-center", isHorizontal ? "ml-1 pl-2 border-l border-white/10" : "mt-1 pt-2 border-t border-white/10")}>
+            <button
+              onClick={() => setShowPositionMenu(!showPositionMenu)}
+              className="p-2 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+              title="Change panel edge"
+            >
+              <ArrowsOutCardinal className="w-5 h-5" />
             </button>
-          ) : itemType === "document" && !isNewDocument ? (
-            <>
-              <button type="button" onClick={() => onRate(1)} disabled={isRating} className="group p-3 rounded-full bg-red-500/80 backdrop-blur-sm hover:bg-red-500 hover:scale-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" title={labels?.againTitle ?? "Again"}>
-                <WarningCircle className="w-6 h-6 text-white" />
-                <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{labels?.again ?? "Again"}</span>
-              </button>
-              <button type="button" onClick={() => onRate(2)} disabled={isRating} className="group p-3 rounded-full bg-orange-500/80 backdrop-blur-sm hover:bg-orange-500 hover:scale-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" title={labels?.hardTitle ?? "Hard"}>
-                <Star className="w-6 h-6 text-white" />
-                <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{labels?.hard ?? "Hard"}</span>
-              </button>
-              <button type="button" onClick={() => onRate(3)} disabled={isRating} className="group p-3 rounded-full bg-blue-500/80 backdrop-blur-sm hover:bg-blue-500 hover:scale-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" title={labels?.goodTitle ?? "Good"}>
-                <CheckCircle className="w-6 h-6 text-white" />
-                <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{labels?.good ?? "Good"}</span>
-              </button>
-              <button type="button" onClick={() => onRate(4)} disabled={isRating} className="group p-3 rounded-full bg-green-500/80 backdrop-blur-sm hover:bg-green-500 hover:scale-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed" title={labels?.easyTitle ?? "Easy"}>
-                <Sparkle className="w-6 h-6 text-white" />
-                <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{labels?.easy ?? "Easy"}</span>
-              </button>
-              {itemType === "document" && (
-                <button type="button" onClick={onDismiss} disabled={isRating} className="group p-3 rounded-full bg-slate-500/80 backdrop-blur-sm hover:bg-slate-500 hover:scale-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed mt-2" title={labels?.dismissTitle ?? "Dismiss"}>
+            {showPositionMenu && (
+              <div
+                className={cn(
+                  "absolute bg-slate-900/95 border border-white/10 rounded-xl p-2 flex gap-1.5 shadow-xl z-50 backdrop-blur-md",
+                  ratingOrbsPosition === "left" && "left-full ml-2 top-1/2 -translate-y-1/2 flex-col",
+                  ratingOrbsPosition === "right" && "right-full mr-2 top-1/2 -translate-y-1/2 flex-col",
+                  ratingOrbsPosition === "top" && "top-full mt-2 left-1/2 -translate-x-1/2 flex-row",
+                  ratingOrbsPosition === "bottom" && "bottom-full mb-2 left-1/2 -translate-x-1/2 flex-row"
+                )}
+              >
+                <button onClick={() => { onUpdateRatingOrbsPosition?.("left"); setShowPositionMenu(false); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "left" && "bg-white/20 text-white")} title="Move Left"><ArrowLeft className="w-4 h-4" /></button>
+                <button onClick={() => { onUpdateRatingOrbsPosition?.("top"); setShowPositionMenu(false); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "top" && "bg-white/20 text-white")} title="Move Top"><ArrowUp className="w-4 h-4" /></button>
+                <button onClick={() => { onUpdateRatingOrbsPosition?.("bottom"); setShowPositionMenu(false); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "bottom" && "bg-white/20 text-white")} title="Move Bottom"><ArrowDown className="w-4 h-4" /></button>
+                <button onClick={() => { onUpdateRatingOrbsPosition?.("right"); setShowPositionMenu(false); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "right" && "bg-white/20 text-white")} title="Move Right"><ArrowRight className="w-4 h-4" /></button>
+              </div>
+            )}
+          </div>
+        );
+
+        const getOrbClass = (colorFromTo: string, glowColor: string, hoverColors: string) => {
+          return cn(
+            "group relative p-3 rounded-full border border-white/20 border-t-white/40 border-b-white/5",
+            "backdrop-blur-md shadow-lg disabled:opacity-50 disabled:cursor-not-allowed",
+            "transition-all duration-300 ease-out hover:scale-115 active:scale-95",
+            `bg-gradient-to-br ${colorFromTo} hover:${hoverColors}`,
+            `shadow-[0_0_15px_${glowColor}] hover:shadow-[0_0_25px_${glowColor}]`
+          );
+        };
+
+        const topHighlight = (
+          <div className="absolute top-1 left-1/2 -translate-x-1/2 w-8 h-3 bg-white/20 rounded-full filter blur-[0.5px] pointer-events-none" />
+        );
+
+        const style = isDraggingActive
+          ? { position: "fixed" as const, left: dragPos.x, top: dragPos.y, transform: "none", zIndex: 100 }
+          : undefined;
+
+        return (
+          <div
+            style={style}
+            className={cn(
+              "absolute flex gap-3 pointer-events-auto p-2 bg-gradient-to-br from-slate-900/75 to-slate-900/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] transition-all duration-200 ease-out select-none",
+              snapClasses,
+              layoutClasses
+            )}
+          >
+            {/* Drag Handle */}
+            <DragHandle />
+
+            {/* Ratings Orbs */}
+            <div className={cn("flex gap-3", layoutClasses)}>
+              {itemType === "flashcard" || itemType === "extract" ? (
+                <button
+                  type="button"
+                  onClick={onDismiss}
+                  disabled={isRating}
+                  className={getOrbClass("from-slate-500/80 to-slate-600/80", "rgba(148,163,184,0.3)", "from-slate-400 to-slate-500")}
+                  title={labels?.dismissTitle ?? "Dismiss"}
+                >
+                  {topHighlight}
                   <EyeSlash className="w-6 h-6 text-white" />
-                  <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{labels?.dismissLabel ?? "Dismiss"}</span>
+                  <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.dismissLabel ?? "Dismiss"}</span>
                 </button>
+              ) : itemType === "document" && !isNewDocument ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onRate(1)}
+                    disabled={isRating}
+                    className={getOrbClass("from-red-500/85 to-red-600/85", "rgba(239,68,68,0.4)", "from-red-400 to-red-500")}
+                    title={labels?.againTitle ?? "Again"}
+                  >
+                    {topHighlight}
+                    <WarningCircle className="w-6 h-6 text-white" />
+                    <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.again ?? "Again"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRate(2)}
+                    disabled={isRating}
+                    className={getOrbClass("from-orange-500/85 to-orange-600/85", "rgba(249,115,22,0.4)", "from-orange-400 to-orange-500")}
+                    title={labels?.hardTitle ?? "Hard"}
+                  >
+                    {topHighlight}
+                    <Star className="w-6 h-6 text-white" />
+                    <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.hard ?? "Hard"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRate(3)}
+                    disabled={isRating}
+                    className={getOrbClass("from-blue-500/85 to-blue-600/85", "rgba(59,130,246,0.4)", "from-blue-400 to-blue-500")}
+                    title={labels?.goodTitle ?? "Good"}
+                  >
+                    {topHighlight}
+                    <CheckCircle className="w-6 h-6 text-white" />
+                    <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.good ?? "Good"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRate(4)}
+                    disabled={isRating}
+                    className={getOrbClass("from-green-500/85 to-green-600/85", "rgba(34,197,94,0.4)", "from-green-400 to-green-500")}
+                    title={labels?.easyTitle ?? "Easy"}
+                  >
+                    {topHighlight}
+                    <Sparkle className="w-6 h-6 text-white" />
+                    <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.easy ?? "Easy"}</span>
+                  </button>
+                  {itemType === "document" && (
+                    <button
+                      type="button"
+                      onClick={onDismiss}
+                      disabled={isRating}
+                      className={getOrbClass("from-slate-500/80 to-slate-600/80", "rgba(148,163,184,0.3)", "from-slate-400 to-slate-500")}
+                      title={labels?.dismissTitle ?? "Dismiss"}
+                    >
+                      {topHighlight}
+                      <EyeSlash className="w-6 h-6 text-white" />
+                      <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.dismissLabel ?? "Dismiss"}</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onRate(3)}
+                    disabled={isRating}
+                    className={getOrbClass("from-orange-500/85 to-orange-600/85", "rgba(249,115,22,0.4)", "from-orange-400 to-orange-500")}
+                    title={itemType === "document" ? (labels?.markAsReadGood ?? "Mark as read (Good)") : (labels?.markAsRead ?? "Mark as read")}
+                  >
+                    {topHighlight}
+                    <CheckCircle className="w-6 h-6 text-white" />
+                    <span className={getTooltipClass(ratingOrbsPosition)}>
+                      {itemType === "document" ? (labels?.markAsReadGood ?? "Mark as read (Good)") : (labels?.markAsRead ?? "Mark as read")}
+                    </span>
+                  </button>
+                  {itemType === "document" && (
+                    <button
+                      type="button"
+                      onClick={onDismiss}
+                      disabled={isRating}
+                      className={getOrbClass("from-slate-500/80 to-slate-600/80", "rgba(148,163,184,0.3)", "from-slate-400 to-slate-500")}
+                      title={labels?.dismissTitle ?? "Dismiss"}
+                    >
+                      {topHighlight}
+                      <EyeSlash className="w-6 h-6 text-white" />
+                      <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.dismissLabel ?? "Dismiss"}</span>
+                    </button>
+                  )}
+                </>
               )}
-            </>
-          ) : (
-            <>
-              <button type="button" onClick={() => onRate(3)} disabled={isRating} className="group relative p-4 rounded-full bg-orange-500/80 backdrop-blur-sm hover:bg-orange-500 hover:scale-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed active:scale-95" title={itemType === "document" ? (labels?.markAsReadGood ?? "Mark as read (Good)") : (labels?.markAsRead ?? "Mark as read")}>
-                <CheckCircle className="w-7 h-7 text-white" />
-                <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{itemType === "document" ? (labels?.markAsReadGood ?? "Mark as read (Good)") : (labels?.markAsRead ?? "Mark as read")}</span>
-              </button>
-              {itemType === "document" && (
-                <button type="button" onClick={onDismiss} disabled={isRating} className="group p-3 rounded-full bg-slate-500/80 backdrop-blur-sm hover:bg-slate-500 hover:scale-110 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed mt-2" title={labels?.dismissTitle ?? "Dismiss"}>
-                  <EyeSlash className="w-6 h-6 text-white" />
-                  <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">{labels?.dismissLabel ?? "Dismiss"}</span>
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      )}
+            </div>
+
+            {/* Quick Position Snapper */}
+            <PositionConfig />
+          </div>
+        );
+      })()}
 
       {/* Bottom Navigation (desktop/PWA layout — vertical carets) */}
       {!isMobile && (
@@ -359,7 +637,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
       {/* Mobile Bottom Action Bar */}
       {isMobile && (
         <div className="absolute left-0 right-0 pointer-events-auto bottom-[calc(56px+env(safe-area-inset-bottom,0px))] px-3 pb-2">
-          <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/70 px-3 py-2 shadow-2xl backdrop-blur-md">
+          <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/70 px-3 py-2 shadow-2xl backdrop-blur-md">
             {/* Previous */}
             <button
               onClick={onGoToPrevious}
@@ -373,55 +651,10 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
               <CaretUp className="w-6 h-6" weight="bold" />
             </button>
 
-            {/* Rating cluster — mirrors the side-orb logic, horizontal + touch-sized */}
-            {showRatingButtons && (
-              <div className="flex-1 flex items-center justify-center gap-1.5">
-                {itemType === "document" && !isNewDocument ? (
-                  <>
-                    {/* Reviewed document: full FSRS Again/Hard/Good/Easy */}
-                    <MobileRateButton label={labels?.again ?? "Again"} title={labels?.againTitle ?? "Again"} color="bg-red-500/90 active:bg-red-600" disabled={isRating} onClick={() => onRate(1)} />
-                    <MobileRateButton label={labels?.hard ?? "Hard"} title={labels?.hardTitle ?? "Hard"} color="bg-orange-500/90 active:bg-orange-600" disabled={isRating} onClick={() => onRate(2)} />
-                    <MobileRateButton label={labels?.good ?? "Good"} title={labels?.goodTitle ?? "Good"} color="bg-blue-500/90 active:bg-blue-600" disabled={isRating} onClick={() => onRate(3)} />
-                    <MobileRateButton label={labels?.easy ?? "Easy"} title={labels?.easyTitle ?? "Easy"} color="bg-green-500/90 active:bg-green-600" disabled={isRating} onClick={() => onRate(4)} />
-                  </>
-                ) : (
-                  /* New/unreviewed document: single prominent Mark-as-read (rating 3) */
-                  <button
-                    onClick={() => onRate(3)}
-                    disabled={isRating}
-                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-orange-500/90 active:bg-orange-600 text-white text-sm font-semibold shadow-lg disabled:opacity-50 transition-colors"
-                    title={itemType === "document" ? (labels?.markAsReadGood ?? "Mark as read (Good)") : (labels?.markAsRead ?? "Mark as read")}
-                  >
-                    <CheckCircle className="w-5 h-5" />
-                    {itemType === "document" ? (labels?.markAsReadGood ?? "Mark as Read") : (labels?.markAsRead ?? "Mark as Read")}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {!showRatingButtons && (
-              <button
-                onClick={onDismiss}
-                disabled={isRating}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-500/90 active:bg-slate-600 text-white text-sm font-semibold shadow-lg disabled:opacity-50 transition-colors"
-                title={labels?.dismissTitle ?? "Dismiss"}
-              >
-                <EyeSlash className="w-5 h-5" />
-                {labels?.dismissLabel ?? "Dismiss"}
-              </button>
-            )}
-
-            {/* Dismiss (documents only) */}
-            {showRatingButtons && itemType === "document" && (
-              <button
-                onClick={onDismiss}
-                disabled={isRating}
-                className="flex flex-col items-center justify-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl text-white/80 text-[10px] font-medium active:bg-white/10 transition-colors disabled:opacity-50"
-                title={labels?.dismissTitle ?? "Dismiss"}
-              >
-                <EyeSlash className="w-6 h-6" />
-              </button>
-            )}
+            {/* Progress counter in the center */}
+            <div className="text-white/60 text-xs font-mono select-none px-4">
+              {currentIndex + 1} / {totalItems}
+            </div>
 
             {/* Next */}
             <button

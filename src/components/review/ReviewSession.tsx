@@ -504,7 +504,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         </div>
 
         {/* Mode Toggles & Queue Navigation */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-start md:justify-end">
           <button
             onClick={() => setIsZenMode(!isZenMode)}
             className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${

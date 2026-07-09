@@ -31,11 +31,17 @@ const invokeCommandMock = vi.fn().mockImplementation((cmd: string) => {
 });
 
 // Provide settings for the Groq key/model lookup in groqTranscription.ts.
-vi.mock("../../lib/tauri", () => ({
-  invokeCommand: (...args: unknown[]) => invokeCommandMock(...args),
-  isTauri: () => true,
-  isPWA: () => false,
-}));
+// Spread the real module so any other named exports the code-under-test reaches
+// transitively (e.g. isNativeMobile via browser-backend) remain defined.
+vi.mock("../../lib/tauri", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/tauri")>();
+  return {
+    ...actual,
+    invokeCommand: (...args: unknown[]) => invokeCommandMock(...args),
+    isTauri: () => true,
+    isPWA: () => false,
+  };
+});
 
 vi.mock("../../stores/settingsStore", () => ({
   useSettingsStore: {

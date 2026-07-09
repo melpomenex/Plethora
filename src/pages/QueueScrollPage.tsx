@@ -3307,6 +3307,7 @@ export function QueueScrollPage() {
         flashcardPercentage={settings.scrollQueue.flashcardPercentage}
         extractsCountAsFlashcards={settings.scrollQueue.extractsCountAsFlashcards}
         autoProceed={settings.scrollQueue.autoProceed}
+        ratingOrbsPosition={settings.scrollQueue.ratingOrbsPosition}
         onUpdateSetting={(key, value) => updateSettingsCategory('scrollQueue', { [key]: value })}
       />
 
@@ -3314,6 +3315,8 @@ export function QueueScrollPage() {
       <ScrollOverlayControls
         showControls={showControls}
         isMobile={isMobile}
+        ratingOrbsPosition={settings.scrollQueue.ratingOrbsPosition}
+        onUpdateRatingOrbsPosition={(pos) => updateSettingsCategory('scrollQueue', { ratingOrbsPosition: pos })}
         isEpub={(() => {
           if (currentItem?.type !== "document") return false;
           const doc = documents.find(d => d.id === currentItem.documentId);
