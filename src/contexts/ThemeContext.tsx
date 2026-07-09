@@ -3,9 +3,13 @@
  * Manages theme state and CSS variable injection
  */
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
-import { builtInThemes } from "../themes/builtin";
+// Only import the default fallback themes eagerly. The full `builtInThemes`
+// catalog (~5043 lines) is lazy-loaded on mount (see loadBuiltinCatalog below)
+// so it ships in its own chunk instead of the initial bundle. Tree-shaking keeps
+// just these two small theme constants in the app-root bundle.
+import { superGameBroTheme, milkyMatchaTheme } from "../themes/builtin";
 import { loadGoogleFont } from "../utils/fonts";
 import { invokeCommand } from "../lib/tauri";
 
@@ -233,13 +237,54 @@ function saveLastThemeId(themeId: ThemeId): void {
 }
 
 export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
-  const [themes, setThemes] = useState<Theme[]>(() => [...builtInThemes, ...loadCustomThemes()]);
+  // Start with just the default fallback themes eagerly available. The full
+  // built-in catalog is lazy-loaded below (loadBuiltinCatalog) so the large
+  // themes/builtin module ships in its own chunk instead of the initial bundle.
+  const [themes, setThemes] = useState<Theme[]>(() => {
+    const customThemes = loadCustomThemes();
+    const initialBuiltins = [superGameBroTheme, milkyMatchaTheme];
+    // De-duplicate in case a custom theme shadows a fallback id.
+    const seen = new Set(initialBuiltins.map((t) => t.id));
+    const merged = [...initialBuiltins, ...customThemes.filter((t) => !seen.has(t.id))];
+    return merged;
+  });
 
   const [currentThemeId, setCurrentThemeId] = useState<ThemeId>(() => {
     return defaultTheme || loadLastThemeId();
   });
 
+  // Track the ids of known built-in themes. Used to filter builtins out when
+  // persisting custom themes. Pre-seeded with the eagerly-loaded fallback ids;
+  // populated with the full set once the catalog loads.
+  const builtinThemeIdsRef = useRef<Set<string>>(
+    new Set([superGameBroTheme.id, milkyMatchaTheme.id])
+  );
+
   const currentTheme = themes.find((t) => t.id === currentThemeId) || themes[0];
+
+  // Lazy-load the full built-in theme catalog on mount. Until it resolves, the
+  // app renders with the active/default fallback theme; once loaded, the catalog
+  // is merged in (custom themes are preserved and take precedence on id clash).
+  useEffect(() => {
+    let cancelled = false;
+    import("../themes/builtin")
+      .then((mod) => {
+        if (cancelled) return;
+        const catalog: Theme[] = mod.builtInThemes ?? [];
+        builtinThemeIdsRef.current = new Set(catalog.map((t) => t.id));
+        setThemes((prev) => {
+          const existingIds = new Set(prev.map((t) => t.id));
+          const additions = catalog.filter((t) => !existingIds.has(t.id));
+          return [...prev, ...additions];
+        });
+      })
+      .catch((err) => {
+        console.error("Failed to load built-in theme catalog:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Apply theme to DOM whenever it changes
   useEffect(() => {
@@ -275,19 +320,21 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   const addCustomTheme = (theme: Theme) => {
     const newThemes = [...themes, theme];
     setThemes(newThemes);
-    saveCustomThemes(newThemes.filter((t) => !builtInThemes.find((bt) => bt.id === t.id)));
+    const builtinIds = builtinThemeIdsRef.current;
+    saveCustomThemes(newThemes.filter((t) => !builtinIds.has(t.id)));
   };
 
   const removeCustomTheme = (themeId: ThemeId) => {
     // Prevent removing built-in themes
-    if (builtInThemes.find((t) => t.id === themeId)) {
+    if (builtinThemeIdsRef.current.has(themeId)) {
       console.warn("Cannot remove built-in theme");
       return;
     }
 
     const newThemes = themes.filter((t) => t.id !== themeId);
     setThemes(newThemes);
-    saveCustomThemes(newThemes.filter((t) => !builtInThemes.find((bt) => bt.id === t.id)));
+    const builtinIds = builtinThemeIdsRef.current;
+    saveCustomThemes(newThemes.filter((t) => !builtinIds.has(t.id)));
 
     // Switch to default theme if current theme is removed
     if (currentThemeId === themeId) {

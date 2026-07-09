@@ -27,6 +27,7 @@ import {
   Flask,
   FloppyDisk,
   Gear,
+  Globe,
   PaperPlaneTilt,
   Sparkle,
   TextT,
@@ -35,8 +36,9 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { renderMarkdown } from "../../utils/markdown";
-import { detectChapterReference, buildChapterQAContext, getChapterTitles, type ChapterReference } from "../../utils/chapterUtils";
+import { detectChapterReference, buildChapterQAContext, getChapterTitles, extractSections, type ChapterReference, type DocumentSection } from "../../utils/chapterUtils";
 import { useI18n } from "../../lib/i18n";
+import { invokeCommand } from "../../lib/tauri";
 
 // Re-export types with simpler names for local use
 type Message = QAMessage;
@@ -50,6 +52,7 @@ interface DocumentMention {
 
 // Mention token format in input: @{documentId}
 const MENTION_REGEX = /@{([^}]+)}/g;
+const SECTION_REGEX = /#{([^}]+)}/g;
 
 export function DocumentQATab() {
   // Use store for persistent state
@@ -90,6 +93,45 @@ export function DocumentQATab() {
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [inputDraft, setInputDraft] = useState("");
 
+  // Section autocomplete state
+  const [sections, setSections] = useState<DocumentSection[]>([]);
+  const [showSectionPopup, setShowSectionPopup] = useState(false);
+  const [sectionQuery, setSectionQuery] = useState("");
+  const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
+  const [selectedSection, setSelectedSection] = useState<DocumentSection | null>(null);
+  const [isLoadingSections, setIsLoadingSections] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+
+  const targetDocId = useMemo(() => {
+    return mentions.length > 0 ? mentions[0].id : selectedDocumentId;
+  }, [mentions, selectedDocumentId]);
+
+  // Load sections for current active document reactively
+  useEffect(() => {
+    if (!targetDocId) {
+      setSections([]);
+      return;
+    }
+
+    setIsLoadingSections(true);
+    getDocument(targetDocId)
+      .then((fullDoc) => {
+        if (fullDoc && fullDoc.content) {
+          const extracted = extractSections(fullDoc.content);
+          setSections(extracted);
+        } else {
+          setSections([]);
+        }
+      })
+      .catch((err) => {
+        console.warn("Failed to load sections for document:", err);
+        setSections([]);
+      })
+      .finally(() => {
+        setIsLoadingSections(false);
+      });
+  }, [targetDocId]);
+
   const userQueries = useMemo(() => {
     return messages
       .filter((m) => m.role === "user")
@@ -123,6 +165,13 @@ export function DocumentQATab() {
   const filteredDocuments = documents.filter((doc) =>
     doc.title.toLowerCase().includes(mentionQuery.toLowerCase())
   );
+
+  // Filter sections for autocomplete
+  const filteredSections = useMemo(() => {
+    return sections.filter((sec) =>
+      sec.title.toLowerCase().includes(sectionQuery.toLowerCase())
+    );
+  }, [sections, sectionQuery]);
   const activeResearchDocumentId = useMemo(() => {
     if (researchDocumentId) return researchDocumentId;
     if (mentions.length > 0) return mentions[0].id;
@@ -251,14 +300,28 @@ export function DocumentQATab() {
   }, [documents]);
 
   // Format input for display (replace tokens with badges)
-  const formatInputForDisplay = useCallback((text: string, mentionList: DocumentMention[]): string => {
+  const formatInputForDisplay = useCallback((text: string, mentionList: DocumentMention[], activeSec?: DocumentSection | null): string => {
     let formatted = text;
     mentionList.forEach((mention) => {
       const token = `@{${mention.id}}`;
       formatted = formatted.replace(token, `@${mention.title}`);
     });
+
+    // Replace #{section-id} with #SectionTitle
+    const sectionMatches = formatted.match(/#{([^}]+)}/g);
+    if (sectionMatches) {
+      sectionMatches.forEach((token) => {
+        const secId = token.slice(2, -1);
+        const matchedSec = activeSec && activeSec.id === secId 
+          ? activeSec 
+          : sections.find(s => s.id === secId);
+        if (matchedSec) {
+          formatted = formatted.replace(token, `#${matchedSec.title}`);
+        }
+      });
+    }
     return formatted;
-  }, []);
+  }, [sections]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -268,20 +331,37 @@ export function DocumentQATab() {
     const cursorPosition = e.target.selectionStart;
     const beforeCursor = value.slice(0, cursorPosition);
     const atMatch = beforeCursor.match(/@(\w*)$/);
+    const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
 
     if (atMatch) {
       setShowMentionPopup(true);
       setMentionQuery(atMatch[1]);
       setMentionCursorIndex(0);
+      setShowSectionPopup(false);
+    } else if (hashMatch) {
+      setShowSectionPopup(true);
+      setSectionQuery(hashMatch[1]);
+      setSectionCursorIndex(0);
+      setShowMentionPopup(false);
     } else {
       setShowMentionPopup(false);
       setMentionQuery("");
+      setShowSectionPopup(false);
+      setSectionQuery("");
     }
 
     const { mentions: newMentions } = parseMentions(value);
     setMentions(newMentions);
 
-    setInput(formatInputForDisplay(value, newMentions));
+    // If section token is deleted, clear selected section
+    const hasSectionToken = SECTION_REGEX.test(value);
+    let nextSec = selectedSection;
+    if (!hasSectionToken) {
+      setSelectedSection(null);
+      nextSec = null;
+    }
+
+    setInput(formatInputForDisplay(value, newMentions, nextSec));
   };
 
   const handleSelectDocument = (doc: { id: string; title: string }) => {
@@ -302,12 +382,42 @@ export function DocumentQATab() {
         value.slice(0, atPosition) + mentionToken + " " + value.slice(cursorPosition);
 
       setRawInput(newValue);
-      setInput(formatInputForDisplay(newValue, [...mentions, { id: doc.id, title: doc.title, index: atPosition }]));
+      setInput(formatInputForDisplay(newValue, [...mentions, { id: doc.id, title: doc.title, index: atPosition }], selectedSection));
       setShowMentionPopup(false);
 
       // Set cursor after the mention
       setTimeout(() => {
         const newPosition = atPosition + mentionToken.length + 1;
+        textarea.setSelectionRange(newPosition, newPosition);
+        textarea.focus();
+      }, 0);
+    }
+  };
+
+  const handleSelectSection = (sec: DocumentSection) => {
+    if (!textareaRef.current) return;
+
+    const textarea = textareaRef.current;
+    const cursorPosition = textarea.selectionStart;
+    const value = rawInput;
+
+    const beforeCursor = value.slice(0, cursorPosition);
+    const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
+
+    if (hashMatch) {
+      const hashPosition = cursorPosition - hashMatch[0].length;
+      const sectionToken = `#{${sec.id}}`;
+      const newValue =
+        value.slice(0, hashPosition) + sectionToken + " " + value.slice(cursorPosition);
+
+      setRawInput(newValue);
+      setSelectedSection(sec);
+      setShowSectionPopup(false);
+
+      setInput(formatInputForDisplay(newValue, mentions, sec));
+
+      setTimeout(() => {
+        const newPosition = hashPosition + sectionToken.length + 1;
         textarea.setSelectionRange(newPosition, newPosition);
         textarea.focus();
       }, 0);
@@ -330,6 +440,21 @@ export function DocumentQATab() {
       } else if (e.key === "Escape") {
         setShowMentionPopup(false);
       }
+    } else if (showSectionPopup) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSectionCursorIndex((prev) =>
+          prev < filteredSections.length - 1 ? prev + 1 : prev
+        );
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSectionCursorIndex((prev) => (prev > 0 ? prev - 1 : 0));
+      } else if (e.key === "Enter" && filteredSections.length > 0) {
+        e.preventDefault();
+        handleSelectSection(filteredSections[sectionCursorIndex]);
+      } else if (e.key === "Escape") {
+        setShowSectionPopup(false);
+      }
     } else if (e.key === "ArrowUp") {
       const textarea = textareaRef.current;
       if (textarea && textarea.selectionStart === 0 && userQueries.length > 0) {
@@ -344,7 +469,7 @@ export function DocumentQATab() {
           setRawInput(historicalQuery);
           const { mentions: newMentions } = parseMentions(historicalQuery);
           setMentions(newMentions);
-          setInput(formatInputForDisplay(historicalQuery, newMentions));
+          setInput(formatInputForDisplay(historicalQuery, newMentions, selectedSection));
         }
       }
     } else if (e.key === "ArrowDown") {
@@ -364,7 +489,7 @@ export function DocumentQATab() {
         setRawInput(newQuery);
         const { mentions: newMentions } = parseMentions(newQuery);
         setMentions(newMentions);
-        setInput(formatInputForDisplay(newQuery, newMentions));
+        setInput(formatInputForDisplay(newQuery, newMentions, selectedSection));
       }
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -378,7 +503,7 @@ export function DocumentQATab() {
     setRawInput(newValue);
     const { mentions: newMentions } = parseMentions(newValue);
     setMentions(newMentions);
-    setInput(formatInputForDisplay(newValue, newMentions));
+    setInput(formatInputForDisplay(newValue, newMentions, selectedSection));
   };
 
   const clearConversation = () => {
@@ -470,17 +595,31 @@ export function DocumentQATab() {
     }
   };
 
-  // Build aggregated content from mentioned documents (chapter-aware)
+  // Build aggregated content from mentioned documents (chapter-aware or section-aware)
   const buildMultiDocumentContext = async (
     documentIds: string[],
-    chapterRef?: ChapterReference | null
-  ): Promise<{ content: string; isChapterSpecific: boolean; chapterNumber?: number }> => {
+    chapterRef?: ChapterReference | null,
+    sectionId?: string | null
+  ): Promise<{ content: string; isChapterSpecific: boolean; chapterNumber?: number; isSectionSpecific?: boolean; sectionTitle?: string }> => {
     if (documentIds.length === 0) {
       // If no documents mentioned, search all documents
       return {
         content: "User is asking about their documents. Search across all available documents to find relevant information.",
         isChapterSpecific: false,
       };
+    }
+
+    // Check if section is specified and available in sections state
+    if (sectionId && sections.length > 0) {
+      const sec = sections.find(s => s.id === sectionId);
+      if (sec) {
+        return {
+          content: `Document: ${documents.find(d => d.id === documentIds[0])?.title || "Document"}\nSection: ${sec.title}\n\n${sec.content}`,
+          isChapterSpecific: false,
+          isSectionSpecific: true,
+          sectionTitle: sec.title,
+        };
+      }
     }
 
     // Get content for each document (with chapter extraction if referenced)
@@ -691,6 +830,11 @@ export function DocumentQATab() {
     // Detect chapter references in the query
     const chapterRef = detectChapterReference(rawInput);
 
+    // Detect section references in the query
+    const sectionMatch = rawInput.match(SECTION_REGEX);
+    const matchedSectionId = sectionMatch ? sectionMatch[0].slice(2, -1) : null;
+    const activeSection = matchedSectionId ? (sections.find(s => s.id === matchedSectionId) || selectedSection) : null;
+
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: "user",
@@ -737,7 +881,8 @@ ${mentionedDocumentIds.length > 0
 - Create extracts from important passages
 - Summarize and explain topics
 
-${chapterRef ? `**CHAPTER CONTEXT**: The user is asking about Chapter ${chapterRef.number}. Focus your answer and flashcard creation on that specific chapter.\n\n` : ''}`
+${chapterRef ? `**CHAPTER CONTEXT**: The user is asking about Chapter ${chapterRef.number}. Focus your answer and flashcard creation on that specific chapter.\n\n` : ''}
+${activeSection ? `**SECTION CONTEXT**: The user is asking about Section "${activeSection.title}". Focus your answer and flashcard creation on that specific section.\n\n` : ''}`
   : `The user is asking a general question. Answer based on your knowledge.`}
 
 **CRITICAL: TOOL USAGE**
@@ -782,18 +927,37 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
 \`\`\`` : ''}`,
       };
 
-      // Get document context (chapter-aware)
-      const { content: documentContext, isChapterSpecific, chapterNumber } = await buildMultiDocumentContext(
+      // Get document context (chapter-aware or section-aware)
+      const { content: documentContext, isChapterSpecific, chapterNumber, isSectionSpecific, sectionTitle } = await buildMultiDocumentContext(
         mentionedDocumentIds,
-        chapterRef
+        chapterRef,
+        matchedSectionId
       );
 
-      let userQuestion = savedRawInput.replace(MENTION_REGEX, "").trim();
+      let userQuestion = savedRawInput.replace(MENTION_REGEX, "").replace(SECTION_REGEX, "").trim();
+
+      let webSearchContext = "";
+      if (webSearchEnabled) {
+        try {
+          interface BraveSearchResult {
+            title: string;
+            url: string;
+            snippet: string;
+          }
+          const results = await invokeCommand<BraveSearchResult[]>("brave_web_search", { query: userQuestion });
+          if (results && results.length > 0) {
+            webSearchContext = "\n\n**Web Search Results (Brave Search)**:\n" +
+              results.map((r, i) => `[${i + 1}] **${r.title}** (${r.url})\n   ${r.snippet}`).join("\n\n") + "\n\nUse the web search results to supplement your answer when necessary, citing them as [1], [2], etc.";
+          }
+        } catch (searchError) {
+          console.warn("Brave Search failed:", searchError);
+        }
+      }
 
       // Whole-library RAG branch: when no specific document is mentioned,
       // retrieve relevant chunks across the collection and answer with
       // citations instead of the placeholder "search all documents" prompt.
-      if (mentionedDocumentIds.length === 0) {
+      if (mentionedDocumentIds.length === 0 && !webSearchEnabled) {
         try {
           const { ragChat, buildRagOptions } = await import("../../api/rag");
           const { resolveEmbeddingConfigForRag } = await import("../assistant/ragConfig");
@@ -850,13 +1014,15 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
       
       if (isChapterSpecific && chapterNumber) {
         contextPrefix = `[Focusing on Chapter ${chapterNumber}]\n\n`;
+      } else if (isSectionSpecific && sectionTitle) {
+        contextPrefix = `[Focusing on Section: ${sectionTitle}]\n\n`;
       }
 
       const userPrompt: LLMMessage = {
         role: "user",
         content: mentionedDocumentIds.length > 0
-          ? `${contextPrefix}Document context:\n${documentContext}\n\nUser question: ${userQuestion}`
-          : userQuestion,
+          ? `${contextPrefix}Document context:\n${documentContext}${webSearchContext}\n\nUser question: ${userQuestion}`
+          : `${webSearchContext}\n\nUser question: ${userQuestion}`.trim(),
       };
 
       // Include recent messages (excluding system messages) for context
@@ -876,7 +1042,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         {
           type: mentionedDocumentIds.length > 0 ? "document" : "general",
           documentId: mentionedDocumentIds[0],
-          content: documentContext,
+          content: mentionedDocumentIds.length > 0 ? documentContext + webSearchContext : webSearchContext,
         },
         provider.apiKey,
         provider.baseUrl,
@@ -1329,6 +1495,19 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
             )}
           </div>
           <button
+            onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+            title="Toggle Web Search"
+            className={`px-4 py-3 border rounded-lg transition-all flex items-center gap-1.5 ${
+              webSearchEnabled
+                ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20"
+                : "bg-muted/50 border-border text-muted-foreground hover:bg-muted"
+            }`}
+            disabled={isProcessing}
+          >
+            <Globe className={`w-5 h-5 ${webSearchEnabled ? "animate-pulse" : ""}`} />
+            <span className="text-xs font-semibold hidden md:inline">Web Search</span>
+          </button>
+          <button
             onClick={handleSendMessage}
             disabled={!rawInput.trim() || isProcessing}
             className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -1366,6 +1545,35 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                         {doc.metadata.author}
                       </div>
                     )}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="px-4 py-2 bg-muted text-xs text-muted-foreground">
+              Use ↑↓ to navigate, Enter to select, Escape to close
+            </div>
+          </div>
+        )}
+
+        {/* Section autocomplete popup */}
+        {showSectionPopup && filteredSections.length > 0 && (
+          <div
+            className="absolute bottom-full left-4 right-4 mb-2 max-w-4xl mx-auto bg-card border border-border rounded-lg shadow-lg overflow-hidden z-10"
+          >
+            <div className="max-h-48 overflow-auto">
+              {filteredSections.map((sec, index) => (
+                <button
+                  key={sec.id}
+                  onClick={() => handleSelectSection(sec)}
+                  className={`w-full px-4 py-2 text-left hover:bg-muted transition-colors flex items-center gap-3 ${
+                    index === sectionCursorIndex ? "bg-muted" : ""
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-foreground truncate">
+                      {sec.title}
+                    </div>
                   </div>
                 </button>
               ))}

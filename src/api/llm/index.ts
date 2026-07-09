@@ -159,16 +159,51 @@ export async function streamChatWithLLM(
 ): Promise<void> {
   const unlisteners: UnlistenFn[] = [];
 
+  // Debounce incoming chunks via requestAnimationFrame so we coalesce many
+  // per-token IPC events into at most one `onChunk` call per animation frame.
+  let pending = "";
+  let rafScheduled = false;
+  let rafId: number | null = null;
+
+  const flushPending = () => {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    rafScheduled = false;
+    if (pending.length > 0) {
+      const text = pending;
+      pending = "";
+      options.onChunk(text);
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (rafScheduled) return;
+    rafScheduled = true;
+    rafId = requestAnimationFrame(() => {
+      rafScheduled = false;
+      rafId = null;
+      if (pending.length > 0) {
+        const text = pending;
+        pending = "";
+        options.onChunk(text);
+      }
+    });
+  };
+
   try {
     const chunkUnlisten = await listen<{ content: string; done: boolean }>(
       "llm:stream:chunk",
       (event) => {
-        options.onChunk(event.payload.content);
+        pending += event.payload.content;
+        scheduleFlush();
       }
     );
     unlisteners.push(chunkUnlisten);
 
     const doneUnlisten = await listen("llm:stream:done", () => {
+      flushPending();
       options.onDone?.();
     });
     unlisteners.push(doneUnlisten);
@@ -176,6 +211,7 @@ export async function streamChatWithLLM(
     const errorUnlisten = await listen<{ error: string }>(
       "llm:stream:error",
       (event) => {
+        flushPending();
         options.onError?.(event.payload.error);
       }
     );
@@ -191,7 +227,9 @@ export async function streamChatWithLLM(
       baseUrl: request.baseUrl,
     });
   } finally {
-    // Clean up listeners after a delay to ensure all events are received
+    // Final synchronous flush of any buffered text, then clean up listeners
+    // after a delay to ensure all events are received.
+    flushPending();
     setTimeout(() => {
       unlisteners.forEach((unlisten) => {
         try {

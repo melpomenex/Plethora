@@ -792,6 +792,161 @@ impl Repository {
         Ok(docs)
     }
 
+    /// Lightweight variant of [`list_documents`](Self::list_documents) for the
+    /// library/list UI. The library list only needs metadata (title, progress,
+    /// scheduling fields, cover image, etc.) and never renders the document's
+    /// full text, so we avoid shipping the large `content`/`content_hash`/
+    /// `metadata` columns across IPC by selecting them as NULL. The row-mapping
+    /// code is identical to `list_documents` (it already treats these columns
+    /// as optional), so callers simply see `content: None`, etc.
+    pub async fn list_documents_summary(&self) -> Result<Vec<Document>> {
+        // NOTE: content / content_hash / metadata are intentionally NULLed out
+        // here to keep the IPC payload small; the library list never needs them.
+        let rows = sqlx::query(
+            "SELECT id, collection_id, title, file_path, file_type, \
+             NULL AS content, NULL AS content_hash, \
+             total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, \
+             position_json, progress_percent, category, tags, date_added, date_modified, \
+             date_last_reviewed, extract_count, learning_item_count, priority_rating, \
+             priority_slider, priority_score, is_archived, is_favorite, is_dismissed, \
+             NULL AS metadata, cover_image_url, cover_image_source, \
+             next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, \
+             consecutive_count \
+             FROM documents ORDER BY date_added DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut docs = Vec::new();
+        for row in rows {
+            let file_type: String = row.get("file_type");
+            let tags_json: String = row.get("tags");
+            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+            docs.push(Document {
+                id: row.get("id"),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                title: row.get("title"),
+                file_path: row.get("file_path"),
+                file_type: Self::parse_file_type(&file_type),
+                content: None,
+                content_hash: None,
+                total_pages: row.get("total_pages"),
+                current_page: row.get("current_page"),
+                current_scroll_percent: row.try_get("current_scroll_percent").ok(),
+                current_cfi: row.try_get("current_cfi").ok(),
+                current_view_state: row.try_get("current_view_state").ok(),
+                position_json: row.try_get("position_json").ok(),
+                progress_percent: row.try_get("progress_percent").ok(),
+                category: row.get("category"),
+                tags,
+                date_added: row.get("date_added"),
+                date_modified: row.get("date_modified"),
+                date_last_reviewed: row.get("date_last_reviewed"),
+                extract_count: row.get("extract_count"),
+                learning_item_count: row.get("learning_item_count"),
+                priority_rating: row.get("priority_rating"),
+                priority_slider: row.get("priority_slider"),
+                priority_score: row.get("priority_score"),
+                is_archived: row.get("is_archived"),
+                is_favorite: row.get("is_favorite"),
+                is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                metadata: None,
+                cover_image_url: row.try_get("cover_image_url").ok(),
+                cover_image_source: row.try_get("cover_image_source").ok(),
+                // Scheduling fields - use try_get for compatibility with existing databases
+                next_reading_date: row.try_get("next_reading_date").ok(),
+                reading_count: row.try_get("reading_count").unwrap_or(0),
+                stability: row.try_get("stability").ok(),
+                difficulty: row.try_get("difficulty").ok(),
+                reps: row.try_get("reps").ok(),
+                total_time_spent: row.try_get("total_time_spent").ok(),
+                consecutive_count: row.try_get("consecutive_count").ok(),
+            });
+        }
+
+        Ok(docs)
+    }
+
+    /// Collection-scoped variant of [`list_documents_summary`](Self::list_documents_summary).
+    /// See that method for why `content`/`content_hash`/`metadata` are NULLed.
+    pub async fn list_documents_summary_by_collection(
+        &self,
+        collection_id: &str,
+    ) -> Result<Vec<Document>> {
+        // NOTE: content / content_hash / metadata are intentionally NULLed out
+        // here to keep the IPC payload small; the library list never needs them.
+        let rows = sqlx::query(
+            "SELECT id, collection_id, title, file_path, file_type, \
+             NULL AS content, NULL AS content_hash, \
+             total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, \
+             position_json, progress_percent, category, tags, date_added, date_modified, \
+             date_last_reviewed, extract_count, learning_item_count, priority_rating, \
+             priority_slider, priority_score, is_archived, is_favorite, is_dismissed, \
+             NULL AS metadata, cover_image_url, cover_image_source, \
+             next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, \
+             consecutive_count \
+             FROM documents WHERE collection_id = ? ORDER BY date_added DESC",
+        )
+        .bind(collection_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut docs = Vec::new();
+        for row in rows {
+            let file_type: String = row.get("file_type");
+            let tags_json: String = row.get("tags");
+            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+
+            docs.push(Document {
+                id: row.get("id"),
+                collection_id: row
+                    .try_get("collection_id")
+                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                title: row.get("title"),
+                file_path: row.get("file_path"),
+                file_type: Self::parse_file_type(&file_type),
+                content: None,
+                content_hash: None,
+                total_pages: row.get("total_pages"),
+                current_page: row.get("current_page"),
+                current_scroll_percent: row.try_get("current_scroll_percent").ok(),
+                current_cfi: row.try_get("current_cfi").ok(),
+                current_view_state: row.try_get("current_view_state").ok(),
+                position_json: row.try_get("position_json").ok(),
+                progress_percent: row.try_get("progress_percent").ok(),
+                category: row.get("category"),
+                tags,
+                date_added: row.get("date_added"),
+                date_modified: row.get("date_modified"),
+                date_last_reviewed: row.get("date_last_reviewed"),
+                extract_count: row.get("extract_count"),
+                learning_item_count: row.get("learning_item_count"),
+                priority_rating: row.get("priority_rating"),
+                priority_slider: row.get("priority_slider"),
+                priority_score: row.get("priority_score"),
+                is_archived: row.get("is_archived"),
+                is_favorite: row.get("is_favorite"),
+                is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                metadata: None,
+                cover_image_url: row.try_get("cover_image_url").ok(),
+                cover_image_source: row.try_get("cover_image_source").ok(),
+                // Scheduling fields - use try_get for compatibility with existing databases
+                next_reading_date: row.try_get("next_reading_date").ok(),
+                reading_count: row.try_get("reading_count").unwrap_or(0),
+                stability: row.try_get("stability").ok(),
+                difficulty: row.try_get("difficulty").ok(),
+                reps: row.try_get("reps").ok(),
+                total_time_spent: row.try_get("total_time_spent").ok(),
+                consecutive_count: row.try_get("consecutive_count").ok(),
+            });
+        }
+
+        Ok(docs)
+    }
+
     pub async fn list_documents_for_queue(&self) -> Result<Vec<Document>> {
         let rows = sqlx::query(
             "SELECT id, title, file_path, file_type, content_hash, total_pages, current_page, \
@@ -2191,6 +2346,25 @@ impl Repository {
         Ok(items)
     }
 
+    /// Fetch a single learning item by its primary key, without scanning the
+    /// whole table. Use this instead of `get_all_learning_items().find(...)`
+    /// when only one item is needed (e.g. review scheduling). Mirrors the other
+    /// `get_*_by_id` accessors and reuses the shared `row_to_learning_item`
+    /// mapper so decoding stays consistent. Unlike `get_all_learning_items`,
+    /// this does NOT filter out suspended items — a suspended item looked up by
+    /// id is still returned.
+    pub async fn get_learning_item_by_id(&self, id: &str) -> Result<Option<LearningItem>> {
+        let row = sqlx::query("SELECT * FROM learning_items WHERE id = ?1 LIMIT 1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        match row {
+            Some(row) => Ok(Some(Self::row_to_learning_item(&row)?)),
+            None => Ok(None),
+        }
+    }
+
     pub async fn create_or_get_image_asset(
         &self,
         mime_type: &str,
@@ -2486,7 +2660,13 @@ impl Repository {
         Ok(())
     }
 
-    /// Batch-insert review log entries (used for Anki revlog import)
+    /// Batch-insert review log entries (used for Anki revlog import).
+    ///
+    /// Inserts all entries in a single transaction using chunked multi-row
+    /// `INSERT` statements instead of one round-trip per row. The chunk size
+    /// is derived from SQLite's bind limit: each row binds 11 columns, and the
+    /// default `SQLITE_MAX_VARIABLE_NUMBER` is 999, so up to `90` rows
+    /// (`999 / 11`) fit per statement. We use 90 to stay safely under the limit.
     pub async fn batch_insert_review_log(
         &self,
         entries: &[crate::anki::AnkiRevLogEntry],
@@ -2495,46 +2675,54 @@ impl Repository {
         if entries.is_empty() {
             return Ok(());
         }
-        for entry in entries {
-            let id = uuid::Uuid::new_v4().to_string();
-            // revlog id is a millisecond timestamp
-            let timestamp =
-                chrono::DateTime::from_timestamp_millis(entry.id).unwrap_or_else(Utc::now);
-            let interval_days = if entry.ivl < 0 {
-                // Negative intervals are in seconds
-                entry.ivl as f64 / 86400.0
-            } else {
-                entry.ivl as f64
-            };
-            let last_interval_days = if entry.last_ivl < 0 {
-                Some(entry.last_ivl as f64 / 86400.0)
-            } else {
-                Some(entry.last_ivl as f64)
-            };
-            let ease_factor = entry.factor as f64 / 1000.0;
 
-            sqlx::query(
-                r#"
-                INSERT INTO review_log (
+        // 11 columns per row -> floor(999 / 11) = 90 rows per statement.
+        const COLS_PER_ROW: usize = 11;
+        const CHUNK_SIZE: usize = 999 / COLS_PER_ROW;
+
+        let mut tx = self.pool().begin().await?;
+
+        for chunk in entries.chunks(CHUNK_SIZE) {
+            let mut builder: sqlx::QueryBuilder<Sqlite> = sqlx::QueryBuilder::new(
+                r#"INSERT INTO review_log (
                     id, item_id, rating, interval_days, last_interval_days,
                     ease_factor, time_ms, review_type, source, anki_revlog_id, timestamp
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-                "#,
-            )
-            .bind(&id)
-            .bind(item_id)
-            .bind(entry.ease)
-            .bind(interval_days)
-            .bind(last_interval_days)
-            .bind(ease_factor)
-            .bind(entry.time_ms)
-            .bind(entry.rev_type)
-            .bind("anki-import")
-            .bind(entry.id)
-            .bind(timestamp)
-            .execute(&self.pool)
-            .await?;
+                ) "#,
+            );
+            builder.push_values(chunk.iter(), |mut b, entry| {
+                let id = uuid::Uuid::new_v4().to_string();
+                // revlog id is a millisecond timestamp
+                let timestamp =
+                    chrono::DateTime::from_timestamp_millis(entry.id).unwrap_or_else(Utc::now);
+                let interval_days = if entry.ivl < 0 {
+                    // Negative intervals are in seconds
+                    entry.ivl as f64 / 86400.0
+                } else {
+                    entry.ivl as f64
+                };
+                let last_interval_days = if entry.last_ivl < 0 {
+                    Some(entry.last_ivl as f64 / 86400.0)
+                } else {
+                    Some(entry.last_ivl as f64)
+                };
+                let ease_factor = entry.factor as f64 / 1000.0;
+
+                b.push_bind(id)
+                    .push_bind(item_id)
+                    .push_bind(entry.ease)
+                    .push_bind(interval_days)
+                    .push_bind(last_interval_days)
+                    .push_bind(ease_factor)
+                    .push_bind(entry.time_ms)
+                    .push_bind(entry.rev_type)
+                    .push_bind("anki-import")
+                    .push_bind(entry.id)
+                    .push_bind(timestamp);
+            });
+            builder.build().execute(&mut *tx).await?;
         }
+
+        tx.commit().await?;
         Ok(())
     }
 

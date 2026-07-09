@@ -103,11 +103,14 @@ export default defineConfig(async ({ mode }) => {
         external: isPWA ? ["@tauri-apps/plugin-fs", "@tauri-apps/plugin-dialog", "@tauri-apps/api/path"] : [],
         output: {
           manualChunks: (id) => {
-            // Don't split lazy-loaded tab components - keep them in the main bundle
-            // to avoid dynamic import issues in Tauri
-            if (id.includes("DocumentQATab") || id.includes("tabs/")) {
-              return undefined;
-            }
+            // Let lazy-loaded tab components (React.lazy(() => import(...))) split
+            // into their own chunks. Previously every `tabs/` module was forced back
+            // into the main bundle via `return undefined`, which defeated React.lazy
+            // and bloats the initial bundle. Tauri v2 with relative `base: "./"`
+            // (set above) supports dynamic imports fine.
+            // NOTE: if a specific tab breaks at runtime due to a dynamic-import
+            // edge case, isolate that one module here instead of disabling the
+            // split globally.
             // Vendor chunks for large libraries
             if (id.includes("node_modules/react") || id.includes("node_modules/react-dom") || id.includes("node_modules/react-router-dom")) {
               return "react-vendor";

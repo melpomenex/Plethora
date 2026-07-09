@@ -612,7 +612,11 @@ export function RSSReader() {
         const currentFeeds = await getSubscribedFeedsAuto();
         let hadFeedErrors = false;
 
-        for (const feed of currentFeeds) {
+        // Refresh feeds in parallel with bounded concurrency. Previously this
+        // was a serial `for ... await` loop, so N feeds took N round-trips; now
+        // up to CONCURRENCY feeds are fetched/synced at once. Each feed is
+        // wrapped in its own try/catch so one failure doesn't block the others.
+        const refreshOneFeed = async (feed: Feed): Promise<boolean> => {
           try {
             const updated = await fetchFeed(feed.feedUrl);
             if (updated) {
@@ -650,12 +654,28 @@ export function RSSReader() {
                 }
               }
             }
+            return true;
           } catch (error) {
             console.warn(`[RSS Auto-Refresh] Failed to refresh feed ${feed.title}:`, error);
-            hadFeedErrors = true;
-            // Continue with other feeds even if one fails
+            return false;
           }
-        }
+        };
+
+        // Simple bounded-concurrency runner (no extra deps). Feed counts are
+        // modest, but capping parallelism avoids flooding the network/scheduler.
+        const CONCURRENCY = 6;
+        let cursor = 0;
+        const workers: Promise<void>[] = [];
+        const runWorker = async () => {
+          while (cursor < currentFeeds.length) {
+            const feed = currentFeeds[cursor++];
+            const ok = await refreshOneFeed(feed);
+            if (!ok) hadFeedErrors = true;
+          }
+        };
+        const workerCount = Math.min(CONCURRENCY, currentFeeds.length);
+        for (let i = 0; i < workerCount; i++) workers.push(runWorker());
+        await Promise.all(workers);
 
         // Reload feeds after updating
         await loadFeeds();
@@ -677,19 +697,42 @@ export function RSSReader() {
     [isAutoRefreshing, scheduleSyncFeedbackReset]
   );
 
+  // Auto-refresh interval. Paused while the tab is hidden (so backgrounded
+  // windows don't keep polling) and restarted on visibility. The interval
+  // duration is unchanged.
   useEffect(() => {
-    // Don't poll while the tab is inactive or the page hidden.
+    // Don't poll while the tab itself is inactive.
     if (!isActiveTab) return;
-    autoRefreshIntervalRef.current = setInterval(() => {
-      if (document.hidden) return;
-      refreshAllFeeds("auto");
-    }, DEFAULT_REFRESH_INTERVAL_MS);
 
-    return () => {
+    const startInterval = () => {
+      if (autoRefreshIntervalRef.current) return;
+      autoRefreshIntervalRef.current = setInterval(() => {
+        refreshAllFeeds("auto");
+      }, DEFAULT_REFRESH_INTERVAL_MS);
+    };
+    const stopInterval = () => {
       if (autoRefreshIntervalRef.current) {
         clearInterval(autoRefreshIntervalRef.current);
         autoRefreshIntervalRef.current = null;
       }
+    };
+
+    // Pause polling immediately when the page is hidden (backgrounded windows
+    // don't keep polling), and restart on visibility.
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopInterval();
+      } else {
+        startInterval();
+      }
+    };
+
+    if (!document.hidden) startInterval();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      stopInterval();
       if (syncFeedbackTimeoutRef.current) {
         clearTimeout(syncFeedbackTimeoutRef.current);
         syncFeedbackTimeoutRef.current = null;

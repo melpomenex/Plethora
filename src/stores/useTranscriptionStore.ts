@@ -18,6 +18,7 @@ interface TranscriptionState {
   fetchProfiles: () => Promise<void>;
   loadTranscript: (bookId: string, chapterId: string) => Promise<void>;
   addSegment: (segment: TranscriptSegment) => void;
+  addSegments: (segments: TranscriptSegment[]) => void;
   setStatus: (status: 'idle' | 'processing' | 'downloading') => void;
   setDownloadProgress: (id: string, progress: number) => void;
   setTranscriptionProgress: (progress: number) => void;
@@ -51,6 +52,17 @@ export const useTranscriptionStore = create<TranscriptionState>((set) => ({
     }));
   },
 
+  // Batched append (Finding G, Part 2/3): the backend emits one
+  // `transcription://segments-batch` event per batch instead of one event per
+  // segment. Append the whole array in a single set() so we produce ONE new
+  // array identity (one re-render) per batch rather than per segment.
+  addSegments: (segments) => {
+    if (!segments || segments.length === 0) return;
+    set((state) => ({
+      activeSegments: [...state.activeSegments, ...segments].sort((a, b) => a.start_ms - b.start_ms)
+    }));
+  },
+
   setStatus: (status) => set({ currentStatus: status }),
   
   setDownloadProgress: (id, progress) => {
@@ -80,7 +92,13 @@ if (isTauri()) {
 
   safeListen<number>("transcription://progress", (event) => {
     const p = typeof event.payload === 'number' ? event.payload : (event.payload as any).progress ?? 0;
-    useTranscriptionStore.getState().setTranscriptionProgress(p);
+    // Debounce: only write to the store when the INTEGER percent changes. The
+    // backend now throttles these (Finding G), but in case multiple sources feed
+    // this event, avoid a full set()/re-render for sub-integer deltas.
+    const rounded = Math.round(p);
+    if (rounded !== useTranscriptionStore.getState().transcriptionProgress) {
+      useTranscriptionStore.getState().setTranscriptionProgress(rounded);
+    }
   });
 
   safeListen<{ id: string; progress: number }>("transcription://download-progress", (event) => {
@@ -101,6 +119,11 @@ if (isTauri()) {
 
   safeListen<TranscriptSegment>("transcription://segment", (event) => {
     useTranscriptionStore.getState().addSegment(event.payload);
+  });
+
+  // Batched segment events (Finding G, Part 2): one event per batch of segments.
+  safeListen<TranscriptSegment[]>("transcription://segments-batch", (event) => {
+    useTranscriptionStore.getState().addSegments(event.payload);
   });
 
   safeListen<void>("transcription://idle", () => {

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::database::Repository;
 use crate::error::{IncrementumError, Result};
@@ -295,6 +296,58 @@ pub async fn get_episode_position(episode_id: String, repo: State<'_, Repository
 /// Managed state for podcast transcription cancellation tokens
 pub type PodcastTranscriptionTokens = Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>;
 
+/// Minimum integer-percent change required before re-emitting a throttled
+/// progress event. Values smaller than this are coalesced.
+const PROGRESS_MIN_DELTA_PCT: i32 = 1;
+/// Minimum elapsed time between two throttled progress emissions.
+const PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(50);
+
+/// Build a progress callback that throttles `podcast://transcription-progress`
+/// emissions so the IPC bus isn't flooded (the engine fires the callback many
+/// times per second). Emits only when the integer percent changed by
+/// >= `PROGRESS_MIN_DELTA_PCT` AND >= `PROGRESS_MIN_INTERVAL` elapsed since the
+/// last emit; the final 100% is always emitted. Throttle state lives in `state`
+/// (shared `Arc<Mutex<(i32, Instant)>>` of `(last_emitted_pct, last_emit_time)`).
+fn throttled_progress_cb(
+    app: AppHandle,
+    episode_id: String,
+    state: Arc<Mutex<(i32, Instant)>>,
+) -> Box<dyn Fn(i32) + Send + Sync> {
+    Box::new(move |p: i32| {
+        // Map the engine's 0..100 progress into the 30..100 band (download took
+        // the first 30%). Clamp to [0, 100].
+        let mapped = (30 + ((p as f64 / 100.0) * 70.0) as i32).clamp(0, 100);
+        let is_final = p >= 100;
+
+        let should_emit = {
+            let mut guard = match state.lock() {
+                Ok(g) => g,
+                Err(e) => e.into_inner(), // poisoned — proceed anyway
+            };
+            let (last_pct, last_emit) = *guard;
+            let pct_changed = (mapped - last_pct).abs() >= PROGRESS_MIN_DELTA_PCT;
+            let time_ok = last_emit.elapsed() >= PROGRESS_MIN_INTERVAL;
+            if is_final || (pct_changed && time_ok) {
+                *guard = (mapped, Instant::now());
+                true
+            } else {
+                false
+            }
+        };
+
+        if should_emit {
+            let _ = app.emit(
+                "podcast://transcription-progress",
+                serde_json::json!({
+                    "episodeId": &episode_id,
+                    "status": "transcribing",
+                    "progress": mapped
+                }),
+            );
+        }
+    })
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PodcastTranscriptResponse {
     pub text: String,
@@ -427,6 +480,9 @@ async fn run_transcription_job(
             IncrementumError::Internal(format!("Failed to create temp file: {}", e))
         })?;
 
+        // Local throttle state for download progress (last_emitted_pct, last_emit).
+        let mut dl_throttle: (i32, Instant) = (-1, Instant::now() - Duration::from_secs(1));
+
         let mut stream = response.bytes_stream();
         while let Some(item) = stream.next().await {
             if cancel_token.load(Ordering::Relaxed) {
@@ -443,14 +499,20 @@ async fn run_transcription_job(
 
             if total_size > 0 {
                 let download_pct = (downloaded as f64 / total_size as f64) * 30.0;
-                let _ = app_handle.emit(
-                    "podcast://transcription-progress",
-                    serde_json::json!({
-                        "episodeId": &episode_id,
-                        "status": "downloading",
-                        "progress": download_pct as i32
-                    }),
-                );
+                let pct = download_pct as i32;
+                let pct_changed = (pct - dl_throttle.0).abs() >= PROGRESS_MIN_DELTA_PCT;
+                let time_ok = dl_throttle.1.elapsed() >= PROGRESS_MIN_INTERVAL;
+                if pct_changed && time_ok {
+                    dl_throttle = (pct, Instant::now());
+                    let _ = app_handle.emit(
+                        "podcast://transcription-progress",
+                        serde_json::json!({
+                            "episodeId": &episode_id,
+                            "status": "downloading",
+                            "progress": pct
+                        }),
+                    );
+                }
             }
         }
         file.flush()
@@ -515,6 +577,17 @@ async fn run_transcription_job(
     let app_clone = app_handle.clone();
     let ep_id = episode_id.clone();
 
+    // Throttle progress events so we don't flood the IPC bus on every callback
+    // invocation (the engine may fire the progress callback many times per
+    // second). An event is emitted only when BOTH:
+    //   - the integer percent changed by >= 1, AND
+    //   - >= 50ms elapsed since the last emit.
+    // The final 100% is always emitted regardless of throttle. State is shared
+    // across the three engine branches below via an Arc (only one branch runs).
+    // (last_emitted_pct, last_emit_instant)
+    let throttle: Arc<Mutex<(i32, Instant)>> =
+        Arc::new(Mutex::new((-1, Instant::now() - Duration::from_secs(1))));
+
     if cancel_token.load(Ordering::Relaxed) {
         let _ = std::fs::remove_file(&temp_file);
         repo.update_episode_transcript_status(&episode_id, "error", Some("Cancelled"), None)
@@ -553,17 +626,7 @@ async fn run_transcription_job(
                             guard.push(seg);
                         }
                     },
-                    Some(Box::new(move |p: i32| {
-                        let mapped = 30 + ((p as f64 / 100.0) * 70.0) as i32;
-                        let _ = app_clone.emit(
-                            "podcast://transcription-progress",
-                            serde_json::json!({
-                                "episodeId": &ep_id,
-                                "status": "transcribing",
-                                "progress": mapped
-                            }),
-                        );
-                    })),
+                    Some(throttled_progress_cb(app_clone.clone(), ep_id.clone(), throttle.clone())),
                 )
                 .await
                 .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
@@ -581,17 +644,7 @@ async fn run_transcription_job(
                             guard.push(seg);
                         }
                     },
-                    Some(Box::new(move |p: i32| {
-                        let mapped = 30 + ((p as f64 / 100.0) * 70.0) as i32;
-                        let _ = app_clone.emit(
-                            "podcast://transcription-progress",
-                            serde_json::json!({
-                                "episodeId": &ep_id,
-                                "status": "transcribing",
-                                "progress": mapped
-                            }),
-                        );
-                    })),
+                    Some(throttled_progress_cb(app_clone.clone(), ep_id.clone(), throttle.clone())),
                 )
                 .await
                 .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
@@ -609,17 +662,7 @@ async fn run_transcription_job(
                             guard.push(seg);
                         }
                     },
-                    Some(Box::new(move |p: i32| {
-                        let mapped = 30 + ((p as f64 / 100.0) * 70.0) as i32;
-                        let _ = app_clone.emit(
-                            "podcast://transcription-progress",
-                            serde_json::json!({
-                                "episodeId": &ep_id,
-                                "status": "transcribing",
-                                "progress": mapped
-                            }),
-                        );
-                    })),
+                    Some(throttled_progress_cb(app_clone.clone(), ep_id.clone(), throttle.clone())),
                 )
                 .await
                 .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;

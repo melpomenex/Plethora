@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getCurrentLocale, t } from "../i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { en } from "../i18n/locales/en";
@@ -20,7 +20,7 @@ const allLocales = { en, zh, es, de, fr, ja } as const;
 const localeNames = { en: "English", zh: "Chinese", es: "Spanish", de: "German", fr: "French", ja: "Japanese" };
 
 describe("i18n", () => {
-  it("normalizes regional locales to supported base languages", () => {
+  it("normalizes regional locales to supported base languages", async () => {
     useSettingsStore.setState((state) => ({
       settings: {
         ...state.settings,
@@ -32,7 +32,12 @@ describe("i18n", () => {
     }));
 
     expect(getCurrentLocale()).toBe("zh");
-    expect(t("review.title")).toBe("复习");
+    // Non-English locales are lazy-loaded (code-split) and auto-loaded when the
+    // language setting changes. The dynamic import resolves asynchronously, so
+    // wait for `t()` to reflect the Chinese dictionary before asserting.
+    await vi.waitFor(() => {
+      expect(t("review.title")).toBe("复习");
+    });
   });
 
   it("interpolates placeholders and falls back to english", () => {

@@ -769,8 +769,19 @@ impl GLMOCRProvider {
         mime: &str,
     ) -> Result<OCRResult> {
         let start = std::time::Instant::now();
-        let encoded = base64::engine::general_purpose::STANDARD.encode(image_data);
-        let data_url = format!("data:{};base64,{}", mime, encoded);
+
+        // Build the data URL into a single pre-sized buffer. This avoids the
+        // separate `encoded` String and the `format!` copy, so only one copy of
+        // the base64 payload (inside `data_url`) is resident transiently.
+        let prefix = "data:";
+        let separator = ";base64,";
+        let base64_len = (image_data.len() + 2) / 3 * 4;
+        let mut data_url =
+            String::with_capacity(prefix.len() + mime.len() + separator.len() + base64_len);
+        data_url.push_str(prefix);
+        data_url.push_str(mime);
+        data_url.push_str(separator);
+        base64::engine::general_purpose::STANDARD.encode_string(image_data, &mut data_url);
 
         let request_body = serde_json::json!({
             "model": self.model.as_str(),

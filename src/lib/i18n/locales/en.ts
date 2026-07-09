@@ -2382,6 +2382,7 @@ export const en: Dict = {
   "aiSettings.openaiApiKey": "OpenAI API Key",
   "aiSettings.anthropicApiKey": "Anthropic API Key",
   "aiSettings.openrouterApiKey": "OpenRouter API Key",
+  "aiSettings.braveApiKey": "Brave Search API Key",
   "aiSettings.openaiModel": "OpenAI Model",
   "aiSettings.anthropicModel": "Anthropic Model",
   "aiSettings.maxTokens": "Max Tokens (Response)",
@@ -2406,6 +2407,9 @@ export const en: Dict = {
 
   "aiProvider.modelSettingsDesc": "Configure AI model behavior and context limits",
   "aiProvider.contextWindowDesc": "Set the maximum context window size used for AI requests",
+  "aiProvider.braveKeyDesc": "API key for Brave Search, used for web search in Document Q&A",
+  "aiProvider.braveKeyStored": "A key is stored in the OS keychain. Enter a new one to replace it.",
+  "aiProvider.braveKeyNotStored": "Get a key at api.search.brave.com (free tier available).",
 
   "llmProvider.configuredProviders": "Configured Providers",
   "llmProvider.addProvider": "Add Provider",

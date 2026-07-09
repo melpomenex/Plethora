@@ -741,7 +741,7 @@ pub fn run() {
                 let bg_key_store = ai_key_store.clone();
                 drop(ai_state_handle);
                 tauri::async_runtime::spawn(async move {
-                    for provider in &["openai", "anthropic", "openrouter"] {
+                    for provider in &["openai", "anthropic", "openrouter", "brave"] {
                         match bg_key_store.get_key(provider).await {
                             Ok(Some(key)) => {
                                 let mut config =
@@ -751,6 +751,7 @@ pub fn run() {
                                     "openai" => current.api_keys.openai = Some(key),
                                     "anthropic" => current.api_keys.anthropic = Some(key),
                                     "openrouter" => current.api_keys.openrouter = Some(key),
+                                    "brave" => current.api_keys.brave = Some(key),
                                     _ => {}
                                 }
                             }
@@ -980,6 +981,7 @@ pub fn run() {
             commands::get_review_streak,
             commands::get_review_sessions_by_collection,
             commands::get_all_review_results,
+            commands::get_review_results_by_sessions,
             commands::get_categories_by_collection,
             commands::calculate_sm2_next,
             commands::rate_document,
@@ -1013,6 +1015,7 @@ pub fn run() {
             commands::generate_questions,
             commands::list_ollama_models,
             commands::test_ai_connection,
+            commands::brave_web_search,
             commands::generate_progressive_summaries,
             commands::get_memory_content,
             commands::save_memory_content,
@@ -1142,6 +1145,7 @@ pub fn run() {
             commands::update_rss_feed,
             commands::delete_rss_feed,
             commands::create_rss_article,
+            commands::bulk_create_rss_articles,
             commands::get_rss_articles,
             commands::mark_rss_article_read,
             commands::mark_rss_feed_read,

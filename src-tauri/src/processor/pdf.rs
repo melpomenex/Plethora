@@ -4,6 +4,7 @@ use crate::error::Result;
 use crate::processor::ExtractedContent;
 use base64::{engine::general_purpose, Engine as _};
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::path::Path;
 
 /// Extract content from a PDF file including text and metadata
@@ -23,9 +24,14 @@ pub async fn extract_pdf_content(file_path: &str) -> Result<ExtractedContent> {
 
     let file_size = buffer.len();
 
+    // Wrap the buffer in an Arc so the blocking text-extraction task and the
+    // metadata extraction share a single allocation instead of cloning the
+    // (potentially 50-200MB) PDF bytes. The spawn_blocking closure takes only
+    // a cheap Arc clone; `lopdf::Document::load_mem` borrows the same bytes.
+    let buffer = std::sync::Arc::new(buffer);
+    let buffer_for_text = std::sync::Arc::clone(&buffer);
+
     // Extract text using pdf-extract with a timeout to prevent hanging on large PDFs
-    // Clone buffer for the blocking task
-    let buffer_for_text = buffer.clone();
     let text = match tokio::time::timeout(
         std::time::Duration::from_secs(10),
         tokio::task::spawn_blocking(move || pdf_extract::extract_text_from_mem(&buffer_for_text)),
@@ -215,8 +221,7 @@ pub async fn extract_pdf_cover_data_url(file_path: &str) -> Result<Option<String
     }
 
     if let Some((bytes, mime, _)) = best_image {
-        let encoded = general_purpose::STANDARD.encode(bytes);
-        return Ok(Some(format!("data:{};base64,{}", mime, encoded)));
+        return Ok(Some(build_data_url(&mime, &bytes)));
     }
 
     Ok(None)
@@ -310,9 +315,23 @@ pub async fn convert_pdf_to_html(file_path: &str) -> Result<String> {
     }
 
     let page_image_data_urls = extract_page_images_data_urls(&doc);
-    let mut html = String::new();
 
-    html.push_str(&format!(
+    // Pre-allocate the output buffer so per-page appends don't repeatedly
+    // reallocate. The HTML for a page is roughly a few multiples of its text
+    // length plus its embedded image data URLs.
+    let estimated_capacity = usable_pages
+        .iter()
+        .map(|(_, text)| text.len() * 2)
+        .sum::<usize>()
+        + page_image_data_urls
+            .iter()
+            .map(|urls| urls.iter().map(|url| url.len() + 128).sum::<usize>())
+            .sum::<usize>()
+        + 8192;
+    let mut html = String::with_capacity(estimated_capacity);
+
+    let _ = write!(
+        html,
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -480,11 +499,12 @@ pub async fn convert_pdf_to_html(file_path: &str) -> Result<String> {
         html_escape(&title),
         html_escape(&title),
         page_count.max(usable_pages.len())
-    ));
+    );
 
     for (source_page_idx, page_text) in usable_pages.iter() {
         let page_num = source_page_idx + 1;
-        html.push_str(&format!(
+        let _ = write!(
+            html,
             r#"
     <div class="page" id="page-{}">
         <div class="page-header">Page {} of {}</div>
@@ -493,18 +513,19 @@ pub async fn convert_pdf_to_html(file_path: &str) -> Result<String> {
             page_num,
             page_num,
             page_count.max(usable_pages.len())
-        ));
+        );
 
         if let Some(images) = page_image_data_urls.get(*source_page_idx) {
             if !images.is_empty() {
                 html.push_str("            <div class=\"page-images\">\n");
                 for (image_idx, data_url) in images.iter().enumerate() {
-                    html.push_str(&format!(
+                    let _ = write!(
+                        html,
                         "                <img src=\"{}\" alt=\"Image {} from page {}\" loading=\"lazy\" />\n",
                         html_escape(data_url),
                         image_idx + 1,
                         page_num
-                    ));
+                    );
                 }
                 html.push_str("            </div>\n");
             }
@@ -557,6 +578,12 @@ fn has_usable_text(text: &str) -> bool {
 }
 
 fn extract_page_images_data_urls(doc: &lopdf::Document) -> Vec<Vec<String>> {
+    // NOTE: base64 data URLs are materialized for every image of every page
+    // upfront. A deeper optimization would encode them lazily inside the render
+    // loop so only one page's images are resident at a time, but that requires
+    // restructuring the call site. The encoding here avoids the intermediate
+    // `encoded` String + `format!` copy by building the data URL directly into a
+    // pre-sized buffer via `encode_string`.
     doc.get_pages()
         .values()
         .map(|page_id| {
@@ -580,12 +607,27 @@ fn extract_page_images_data_urls(doc: &lopdf::Document) -> Vec<Vec<String>> {
                         return None;
                     }
 
-                    let encoded = general_purpose::STANDARD.encode(image.content);
-                    Some(format!("data:{};base64,{}", mime, encoded))
+                    Some(build_data_url(mime, &image.content))
                 })
                 .collect()
         })
         .collect()
+}
+
+/// Build a `data:{mime};base64,{payload}` URL in a single pre-sized String,
+/// avoiding the separate base64 `String` and the `format!` copy.
+fn build_data_url(mime: &str, data: &[u8]) -> String {
+    let prefix = "data:";
+    let separator = ";base64,";
+    // base64 expands 3 bytes to 4 chars; round up.
+    let base64_len = (data.len() + 2) / 3 * 4;
+    let capacity = prefix.len() + mime.len() + separator.len() + base64_len;
+    let mut url = String::with_capacity(capacity);
+    url.push_str(prefix);
+    url.push_str(mime);
+    url.push_str(separator);
+    general_purpose::STANDARD.encode_string(data, &mut url);
+    url
 }
 
 fn split_text_across_pages(text: &str, page_count: usize) -> Vec<String> {
@@ -629,7 +671,9 @@ fn render_page_text_as_html(text: &str) -> String {
         .filter(|block| !block.is_empty())
         .collect::<Vec<_>>();
 
-    let mut html = String::new();
+    // The rendered HTML is at least as long as the source text; pre-allocate to
+    // avoid repeated growth while appending blocks.
+    let mut html = String::with_capacity(text.len() + 256);
     for block in blocks {
         if let Some(table_html) = render_table_block(block) {
             html.push_str(&table_html);
@@ -641,17 +685,19 @@ fn render_page_text_as_html(text: &str) -> String {
             } else {
                 "h3"
             };
-            html.push_str(&format!(
+            let _ = write!(
+                html,
                 "            <{}>{}</{}>\n",
                 tag,
                 html_escape(block),
                 tag
-            ));
+            );
         } else if block.lines().count() > 1 && looks_like_preserved_line_block(block) {
-            html.push_str(&format!(
+            let _ = write!(
+                html,
                 "            <div class=\"line-block\">{}</div>\n",
                 html_escape(block)
-            ));
+            );
         } else {
             let paragraph = block
                 .lines()
@@ -659,7 +705,7 @@ fn render_page_text_as_html(text: &str) -> String {
                 .filter(|line| !line.is_empty())
                 .collect::<Vec<_>>()
                 .join(" ");
-            html.push_str(&format!("            <p>{}</p>\n", html_escape(&paragraph)));
+            let _ = write!(html, "            <p>{}</p>\n", html_escape(&paragraph));
         }
     }
 
@@ -728,14 +774,15 @@ fn render_list_block(block: &str) -> String {
         .iter()
         .all(|line| list_marker_kind(line) == Some(true));
     let tag = if ordered { "ol" } else { "ul" };
-    let mut html = format!("            <{}>\n", tag);
+    let mut html = String::with_capacity(block.len() + lines.len() * 32 + 64);
+    let _ = write!(html, "            <{}>\n", tag);
 
     for line in lines {
         let item = strip_list_marker(line);
-        html.push_str(&format!("                <li>{}</li>\n", html_escape(item)));
+        let _ = write!(html, "                <li>{}</li>\n", html_escape(item));
     }
 
-    html.push_str(&format!("            </{}>\n", tag));
+    let _ = write!(html, "            </{}>\n", tag);
     html
 }
 
@@ -782,11 +829,12 @@ fn render_table_block(block: &str) -> Option<String> {
         return None;
     }
 
-    let mut html = String::from("            <table>\n");
+    let mut html = String::with_capacity(block.len() + rows.len() * 64 + 32);
+    html.push_str("            <table>\n");
     for row in rows {
         html.push_str("                <tr>");
         for cell in row {
-            html.push_str(&format!("<td>{}</td>", html_escape(cell.trim())));
+            let _ = write!(html, "<td>{}</td>", html_escape(cell.trim()));
         }
         html.push_str("</tr>\n");
     }

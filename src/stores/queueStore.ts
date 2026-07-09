@@ -11,7 +11,7 @@ import {
   type BulkOperationResult,
   type QueueStats
 } from "../api/queue";
-import { getAllLearningItems } from "../api/learning-items";
+import { getAllLearningItems, getLearningItem } from "../api/learning-items";
 import { useCollectionStore } from "./collectionStore";
 import type { QueueItem, SortOptions, SearchFilters } from "../types";
 import { useDocumentStore } from "./documentStore";
@@ -436,7 +436,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
     // Learning item
     const itemId = queueItem.learningItemId ?? queueItem.id;
-    const item = await getAllLearningItems().then((items) => items.find((i) => i.id === itemId));
+    // Fetch a single item by id instead of pulling the entire learning_items table.
+    const item = await getLearningItem(itemId);
     if (!item) throw new Error("Learning item not found");
 
     const stability = item.memory_state?.stability ?? 1;

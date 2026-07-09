@@ -237,6 +237,11 @@ impl VectorStore {
         .map_err(IncrementumError::from)?;
 
         let mut records = Vec::new();
+        // Collect cache inserts here so we take the (std, blocking) EMBEDDING_CACHE
+        // write guard ONCE after the loop instead of once per row. No `.await`
+        // may run while that guard is held, so we keep all lock scope to the
+        // synchronous map mutations below.
+        let mut cache_inserts: Vec<(String, Vec<f32>)> = Vec::with_capacity(rows.len());
         for row in rows {
             let embedding_bytes: Vec<u8> = row.try_get("embedding")?;
             let embedding = bytes_to_embedding(&embedding_bytes);
@@ -244,10 +249,7 @@ impl VectorStore {
             let id: String = row.try_get("id")?;
 
             if self.cache_enabled {
-                let mut cache = EMBEDDING_CACHE.write().expect("embedding cache rwlock poisoned");
-                if let Some(ref mut c) = *cache {
-                    c.put(id.clone(), embedding.clone());
-                }
+                cache_inserts.push((id.clone(), embedding.clone()));
             }
 
             records.push(EmbeddingRecord {
@@ -264,6 +266,16 @@ impl VectorStore {
                 access_count: row.try_get("access_count")?,
                 last_accessed_at: row.try_get("last_accessed_at").ok(),
             });
+        }
+
+        // Single write-lock acquisition to populate the cache for all rows.
+        if self.cache_enabled && !cache_inserts.is_empty() {
+            let mut cache = EMBEDDING_CACHE.write().expect("embedding cache rwlock poisoned");
+            if let Some(ref mut c) = *cache {
+                for (id, embedding) in cache_inserts {
+                    c.put(id, embedding);
+                }
+            }
         }
 
         self.update_access_counts(&records).await?;
@@ -310,39 +322,137 @@ impl VectorStore {
             (rows, len)
         };
 
-        // Compute similarities
+        // Compute similarities.
+        //
+        // The decode + cosine computation is CPU-bound and can be large (N·D), so
+        // we move it off the tokio worker thread via `spawn_blocking`. The closure
+        // captures the loaded rows and query by move; `SqliteRow` is `Send`.
+        //
+        // Instead of collecting ALL candidates and doing an O(N log N) full sort
+        // followed by `truncate(limit)`, we keep a bounded min-heap of size `limit`
+        // (O(N log k)). After the scan we drain the heap and sort the (at most k)
+        // survivors descending by similarity to preserve the original output order.
+        //
+        // TODO(future): this is still a sequential brute-force scan. Consider
+        // pre-normalized embeddings (dot product with no sqrt) for ~2x speedup,
+        // rayon parallelism across candidates, and/or an ANN index (e.g. hnsw)
+        // for sublinear search. None of those are added here to avoid data
+        // migrations and dependency changes in this PR.
         let min_sim = min_similarity.unwrap_or(0.0);
-        let mut results: Vec<SimilarityResult> = rows
-            .iter()
-            .filter_map(|row| {
-                let embedding_bytes: Vec<u8> = row.try_get("embedding").ok()?;
+        let query_owned: Vec<f32> = query_embedding.to_vec();
+
+        let results = tokio::task::spawn_blocking(move || -> Vec<SimilarityResult> {
+            use std::cmp::Reverse;
+            use std::collections::BinaryHeap;
+
+            // Entry ordered by similarity so that wrapping in `Reverse` turns the
+            // max-heap into a min-heap keyed on similarity (the heap's head is the
+            // smallest similarity currently held).
+            //
+            // All four ordering traits are implemented manually (rather than
+            // derived) because `f32` is not `Eq` (NaN), yet `BinaryHeap` requires
+            // `Ord` (and thus `Eq`). Cosine similarity of finite non-zero-norm
+            // vectors is always finite, so the `partial_cmp().unwrap_or(Equal)`
+            // total order is sound for the values we actually store.
+            struct SimEntry {
+                similarity: f32,
+                result: SimilarityResult,
+            }
+            impl PartialEq for SimEntry {
+                fn eq(&self, other: &Self) -> bool {
+                    self.similarity == other.similarity
+                }
+            }
+            impl Eq for SimEntry {}
+            impl PartialOrd for SimEntry {
+                fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                    Some(self.cmp(other))
+                }
+            }
+            impl Ord for SimEntry {
+                fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                    self.similarity
+                        .partial_cmp(&other.similarity)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                }
+            }
+
+            // Guard against limit == 0 (no results requested).
+            if limit == 0 {
+                return Vec::new();
+            }
+
+            let mut heap: BinaryHeap<Reverse<SimEntry>> = BinaryHeap::with_capacity(limit);
+
+            for row in &rows {
+                let embedding_bytes: Vec<u8> = match row.try_get("embedding") {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                };
                 let candidate_embedding = bytes_to_embedding(&embedding_bytes);
 
-                if candidate_embedding.len() != query_embedding.len() {
+                if candidate_embedding.len() != query_owned.len() {
                     // Dimension mismatch - skip
-                    return None;
+                    continue;
                 }
 
-                let similarity = cosine_similarity(query_embedding, &candidate_embedding);
-
-                if similarity >= min_sim {
-                    Some(SimilarityResult {
-                        document_id: row.try_get("document_id").ok()?,
-                        embedding_id: row.try_get("id").ok()?,
-                        chunk_index: row.try_get("chunk_index").unwrap_or(0),
-                        chunk_text: row.try_get("chunk_text").ok(),
-                        similarity,
-                        model: row.try_get("model").ok()?,
-                    })
-                } else {
-                    None
+                let similarity = cosine_similarity(&query_owned, &candidate_embedding);
+                if similarity < min_sim {
+                    continue;
                 }
-            })
-            .collect();
 
-        // Sort by similarity (descending) and take top-k
-        results.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap());
-        results.truncate(limit);
+                let result = SimilarityResult {
+                    document_id: match row.try_get("document_id") {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    },
+                    embedding_id: match row.try_get("id") {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    },
+                    chunk_index: row.try_get("chunk_index").unwrap_or(0),
+                    chunk_text: row.try_get("chunk_text").ok(),
+                    similarity,
+                    model: match row.try_get("model") {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    },
+                };
+
+                let entry = SimEntry {
+                    similarity,
+                    result,
+                };
+
+                if heap.len() < limit {
+                    heap.push(Reverse(entry));
+                } else if let Some(Reverse(peek)) = heap.peek() {
+                    // peek is the smallest similarity currently held; replace it
+                    // only when the new candidate is strictly better.
+                    if similarity > peek.similarity {
+                        heap.pop();
+                        heap.push(Reverse(entry));
+                    }
+                }
+            }
+
+            // Drain survivors and return them sorted descending by similarity,
+            // matching the previous "sort_by descending then truncate" semantics.
+            let mut out: Vec<SimilarityResult> = heap
+                .into_iter()
+                .map(|Reverse(e)| e.result)
+                .collect();
+            out.sort_by(|a, b| {
+                b.similarity
+                    .partial_cmp(&a.similarity)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            out
+        })
+        .await
+        .map_err(|e| {
+            IncrementumError::Internal(format!("similarity scan task failed: {}", e))
+        })?;
 
         let elapsed = start_time.elapsed();
         info!(
@@ -367,6 +477,10 @@ impl VectorStore {
 
         let mut total_bytes = 0i64;
         let mut model_counts: HashMap<String, i64> = HashMap::new();
+        // Collect ids to evict from the cache so we take the (std, blocking)
+        // EMBEDDING_CACHE write guard ONCE after the loop instead of once per
+        // row. The guard scope is restricted to synchronous map mutations.
+        let mut cache_evict_ids: Vec<String> = Vec::with_capacity(rows.len());
 
         for row in &rows {
             let id: String = row.try_get("id")?;
@@ -377,9 +491,16 @@ impl VectorStore {
             *model_counts.entry(model).or_insert(0) += 1;
 
             if self.cache_enabled {
-                let mut cache = EMBEDDING_CACHE.write().expect("embedding cache rwlock poisoned");
-                if let Some(ref mut c) = *cache {
-                    c.pop(&id);
+                cache_evict_ids.push(id);
+            }
+        }
+
+        // Single write-lock acquisition to evict all rows from the cache.
+        if self.cache_enabled && !cache_evict_ids.is_empty() {
+            let mut cache = EMBEDDING_CACHE.write().expect("embedding cache rwlock poisoned");
+            if let Some(ref mut c) = *cache {
+                for id in &cache_evict_ids {
+                    c.pop(id);
                 }
             }
         }
@@ -588,10 +709,32 @@ impl VectorStore {
     }
 
     async fn update_access_counts(&self, records: &[EmbeddingRecord]) -> Result<()> {
+        if records.is_empty() {
+            return Ok(());
+        }
+
         let now = chrono::Utc::now().to_rfc3339();
 
+        // Previously this issued N independent UPDATEs (N round trips + N
+        // implicit auto-commits). We now wrap them in a SINGLE transaction:
+        // one BEGIN, N reused prepared-statement executes, one COMMIT. Behavior
+        // is identical (each id's access_count += 1, last_accessed_at = now),
+        // and per-row errors are still logged-and-swallowed (access counts are
+        // non-critical bookkeeping) — the function continues to return Ok(()),
+        // matching the prior contract of "never fails, best-effort".
+        let mut tx = match self.repository.pool().begin().await {
+            Ok(tx) => tx,
+            Err(e) => {
+                warn!("Failed to begin access_count txn: {}", e);
+                return Ok(());
+            }
+        };
+
         for record in records {
-            sqlx::query(
+            // Continue on per-row errors to preserve prior tolerance; the
+            // transaction itself is not poisoned by a failed statement in
+            // SQLite, so remaining rows still execute.
+            if let Err(e) = sqlx::query(
                 r#"
                 UPDATE embeddings SET
                     access_count = access_count + 1,
@@ -601,10 +744,15 @@ impl VectorStore {
             )
             .bind(&now)
             .bind(&record.id)
-            .execute(self.repository.pool())
+            .execute(&mut *tx)
             .await
-            .map_err(|e| warn!("Failed to update access count for {}: {}", record.id, e))
-            .ok();
+            {
+                warn!("Failed to update access count for {}: {}", record.id, e);
+            }
+        }
+
+        if let Err(e) = tx.commit().await {
+            warn!("Failed to commit access_count batch: {}", e);
         }
 
         Ok(())
@@ -697,7 +845,13 @@ fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
     bytes
 }
 
-/// Convert bytes back to a float32 embedding vector
+/// Convert bytes back to a float32 embedding vector.
+///
+/// NOTE: this allocates a fresh `Vec<f32>` per candidate during `find_similar`.
+/// That allocation is acceptable for now, but storing embeddings pre-normalized
+/// (unit L2 norm) at insert time would let us drop the per-row norm computation
+/// in `cosine_similarity` and reduce to a plain dot product. That is a storage /
+/// data-migration change and is intentionally NOT done in this PR.
 fn bytes_to_embedding(bytes: &[u8]) -> Vec<f32> {
     let num_floats = bytes.len() / 4;
     let mut embedding = vec![0.0f32; num_floats];
@@ -706,7 +860,11 @@ fn bytes_to_embedding(bytes: &[u8]) -> Vec<f32> {
 }
 
 /// Calculate cosine similarity between two vectors
-/// Returns a value between -1 and 1, where 1 means identical direction
+/// Returns a value between -1 and 1, where 1 means identical direction.
+///
+/// The math below is intentionally kept correct (full dot product + two norms +
+/// two sqrts). If embeddings were stored pre-normalized this would collapse to a
+/// single dot product (no sqrt), but we avoid that storage migration here.
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() {
         warn!("Dimension mismatch: {} vs {}", a.len(), b.len());

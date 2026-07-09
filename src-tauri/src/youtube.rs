@@ -271,7 +271,9 @@ pub async fn setup_ytdlp() -> Result<String, String> {
     }
 
     // Verify installation
-    let version = get_ytdlp_version_from_path(&install_path)?;
+    let version = tokio::task::spawn_blocking(move || get_ytdlp_version_from_path(&install_path))
+        .await
+        .map_err(|e| format!("yt-dlp version check task join error: {}", e))??;
 
     Ok(version)
 }
@@ -449,16 +451,25 @@ pub async fn download_video(
 
     let output_path = output_dir.join(&options.output_template);
 
-    let mut name_cmd = ytdlp_command()?;
-    name_cmd.args([
-        "--get-filename",
-        "-o",
-        output_path.to_str().expect("output path is valid UTF-8"),
-        url,
-    ]);
-    let name_output = name_cmd
-        .output()
-        .map_err(|e| format!("Failed to run yt-dlp to get filename: {}", e))?;
+    let output_path_str = output_path
+        .to_str()
+        .expect("output path is valid UTF-8")
+        .to_string();
+    let url_for_name = url.to_string();
+    let name_output = tokio::task::spawn_blocking(move || -> Result<std::process::Output, String> {
+        let mut name_cmd = ytdlp_command()?;
+        name_cmd.args([
+            "--get-filename",
+            "-o",
+            output_path_str.as_str(),
+            url_for_name.as_str(),
+        ]);
+        name_cmd
+            .output()
+            .map_err(|e| format!("Failed to run yt-dlp to get filename: {}", e))
+    })
+    .await
+    .map_err(|e| format!("yt-dlp filename task join error: {}", e))??;
     if !name_output.status.success() {
         let err = String::from_utf8_lossy(&name_output.stderr);
         return Err(format!("Failed to determine download filename: {}", err));
@@ -486,30 +497,38 @@ pub async fn download_video(
         download_filepath = final_filepath.with_extension(format!("raw.{}", ext));
     }
 
-    let mut cmd = ytdlp_command()?;
-    cmd.arg("-f").arg(&options.format);
-    cmd.arg("-o").arg(
-        download_filepath
-            .to_str()
-            .expect("download path is valid UTF-8"),
-    );
+    let download_filepath_str = download_filepath
+        .to_str()
+        .expect("download path is valid UTF-8")
+        .to_string();
+    let format_arg = options.format.clone();
+    let subtitles = options.subtitles;
+    let auto_captions = options.auto_captions;
+    let embed_subs = options.embed_subs;
+    let url_for_download = url.to_string();
+    let output = tokio::task::spawn_blocking(move || -> Result<std::process::Output, String> {
+        let mut cmd = ytdlp_command()?;
+        cmd.arg("-f").arg(format_arg);
+        cmd.arg("-o").arg(download_filepath_str);
 
-    if options.subtitles {
-        cmd.arg("--write-subs");
-        cmd.arg("--sub-lang").arg("en");
-    }
-    if options.auto_captions {
-        cmd.arg("--write-auto-subs");
-    }
-    if options.embed_subs {
-        cmd.arg("--embed-subs");
-    }
+        if subtitles {
+            cmd.arg("--write-subs");
+            cmd.arg("--sub-lang").arg("en");
+        }
+        if auto_captions {
+            cmd.arg("--write-auto-subs");
+        }
+        if embed_subs {
+            cmd.arg("--embed-subs");
+        }
 
-    cmd.arg(url);
+        cmd.arg(url_for_download);
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
+        cmd.output()
+            .map_err(|e| format!("Failed to run yt-dlp: {}", e))
+    })
+    .await
+    .map_err(|e| format!("yt-dlp download task join error: {}", e))??;
 
     if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
@@ -1089,7 +1108,10 @@ pub fn extract_video_id(url: &str) -> Option<String> {
 /// Tauri command: Check if yt-dlp is available
 #[tauri::command]
 pub async fn check_ytdlp() -> Result<bool, String> {
-    if check_ytdlp_installed()? {
+    let installed = tokio::task::spawn_blocking(check_ytdlp_installed)
+        .await
+        .map_err(|e| format!("yt-dlp check task join error: {}", e))??;
+    if installed {
         return Ok(true);
     }
     check_ytdlp_in_app_dir()
@@ -1111,13 +1133,17 @@ pub async fn get_ytdlp_path() -> Result<String, String> {
 /// Tauri command: Get video info
 #[tauri::command]
 pub async fn get_youtube_video_info(url: String) -> Result<YouTubeVideoInfo, String> {
-    extract_video_info(&url)
+    tokio::task::spawn_blocking(move || extract_video_info(&url))
+        .await
+        .map_err(|e| format!("yt-dlp video info task join error: {}", e))?
 }
 
 /// Tauri command: Get video formats
 #[tauri::command]
 pub async fn get_youtube_formats(url: String) -> Result<Vec<YouTubeFormat>, String> {
-    get_video_formats(&url)
+    tokio::task::spawn_blocking(move || get_video_formats(&url))
+        .await
+        .map_err(|e| format!("yt-dlp formats task join error: {}", e))?
 }
 
 /// Tauri command: Download video
@@ -1210,13 +1236,17 @@ pub async fn search_youtube_videos(
     query: String,
     api_key: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    search_youtube(&query, api_key.as_deref())
+    tokio::task::spawn_blocking(move || search_youtube(&query, api_key.as_deref()))
+        .await
+        .map_err(|e| format!("yt-dlp search task join error: {}", e))?
 }
 
 /// Tauri command: Get playlist info
 #[tauri::command]
 pub async fn get_youtube_playlist_info(url: String) -> Result<serde_json::Value, String> {
-    get_playlist_info(&url)
+    tokio::task::spawn_blocking(move || get_playlist_info(&url))
+        .await
+        .map_err(|e| format!("yt-dlp playlist task join error: {}", e))?
 }
 
 /// Tauri command: Extract video ID
@@ -1231,8 +1261,10 @@ pub async fn import_youtube_video_internal(
     repo: &Repository,
 ) -> Result<Document, String> {
     // First, verify yt-dlp is available
-    let ytdlp_available =
-        check_ytdlp_installed().map_err(|e| format!("Failed to check yt-dlp: {}", e))?;
+    let ytdlp_available = tokio::task::spawn_blocking(check_ytdlp_installed)
+        .await
+        .map_err(|e| format!("yt-dlp check task join error: {}", e))
+        .map_err(|e| format!("Failed to check yt-dlp: {}", e))??;
 
     if !ytdlp_available {
         return Err(
@@ -1240,7 +1272,11 @@ pub async fn import_youtube_video_internal(
         );
     }
 
-    let info = extract_video_info(url).map_err(|e| format!("Failed to fetch video info: {}", e))?;
+    let url_for_info = url.to_string();
+    let info = tokio::task::spawn_blocking(move || extract_video_info(&url_for_info))
+        .await
+        .map_err(|e| format!("yt-dlp video info task join error: {}", e))?
+        .map_err(|e| format!("Failed to fetch video info: {}", e))?;
 
     let video_id = &info.id;
 
