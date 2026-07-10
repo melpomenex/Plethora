@@ -10,45 +10,12 @@
  * `resize` and `orientationchange` (debounced via requestAnimationFrame).
  */
 
-import { useEffect, useState } from "react";
-import {
-  getFormFactor,
-  isNativeMobile,
-  resetFormFactorCache,
-  type FormFactor,
-} from "../lib/tauri";
+import { usePresentation } from "../contexts/PresentationContext";
+import { isNativeMobile, type FormFactor } from "../lib/tauri";
 
 export function useFormFactor(): FormFactor {
-  const [formFactor, setFormFactor] = useState<FormFactor>(() => getFormFactor());
-
-  useEffect(() => {
-    let rafId: number | null = null;
-
-    const recompute = () => {
-      // The memoized value must be recomputed after an orientation/size change.
-      resetFormFactorCache();
-      setFormFactor(getFormFactor());
-    };
-
-    const schedule = () => {
-      if (rafId !== null) return;
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        recompute();
-      });
-    };
-
-    window.addEventListener("resize", schedule);
-    window.addEventListener("orientationchange", schedule);
-
-    return () => {
-      if (rafId !== null) window.cancelAnimationFrame(rafId);
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("orientationchange", schedule);
-    };
-  }, []);
-
-  return formFactor;
+  const { mode } = usePresentation();
+  return mode === "compact-desktop" ? "desktop" : mode;
 }
 
 /**

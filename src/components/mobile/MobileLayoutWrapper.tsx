@@ -16,6 +16,8 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
 import { useEdgeSwipeForward } from "../../hooks/useEdgeSwipeForward";
 import { useSwipeBetweenTabs } from "../../hooks/useSwipeBetweenTabs";
+import { AdaptiveAppScaffold } from "../layout/AdaptiveAppScaffold";
+import { requestOverlayBack } from "../../lib/overlayStack";
 
 interface MobileLayoutWrapperProps {
   children: React.ReactNode;
@@ -113,16 +115,29 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
     };
   }, []);
 
+  useEffect(() => {
+    const handleSystemBack = (event: Event) => {
+      if (requestOverlayBack()) event.preventDefault();
+    };
+    window.addEventListener("incrementum:system-back", handleSystemBack);
+    return () =>
+      window.removeEventListener("incrementum:system-back", handleSystemBack);
+  }, []);
+
   // Desktop (and wide tablets in landscape) render the full tabbed interface.
   // useMobileShell() returns true for native phones/tablets-in-portrait and for
   // narrow browser/PWA windows — including inside the actual native Android/iOS
   // build, where the old `isTauri()` gate used to suppress the mobile shell.
   if (!isMobile) {
-    return <>{children}</>;
+    return (
+      <AdaptiveAppScaffold mobile={false} fullscreen={isFullscreen}>
+        {children}
+      </AdaptiveAppScaffold>
+    );
   }
 
   return (
-    <>
+    <AdaptiveAppScaffold mobile fullscreen={isFullscreen}>
       {/* PWA Components */}
       <PWAInstallPrompt />
       <OfflineIndicator />
@@ -141,6 +156,6 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
         unreadCount={unreadCount}
         hidden={isFullscreen}
       />
-    </>
+    </AdaptiveAppScaffold>
   );
 }

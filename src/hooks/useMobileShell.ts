@@ -15,40 +15,8 @@
  * should call this hook instead of combining `isTauri()` + `getDeviceInfo()`.
  */
 
-import { useEffect, useState } from "react";
-import { isNativePhone, getFormFactor, resetFormFactorCache } from "../lib/tauri";
-
-function computeMobileShell(): boolean {
-  // Native phone: always mobile, regardless of orientation/viewport.
-  if (isNativePhone()) return true;
-  // Native tablet or browser/PWA: viewport-driven.
-  return getFormFactor() !== "desktop";
-}
+import { usePresentation } from "../contexts/PresentationContext";
 
 export function useMobileShell(): boolean {
-  const [mobileShell, setMobileShell] = useState<boolean>(() => computeMobileShell());
-
-  useEffect(() => {
-    let rafId: number | null = null;
-
-    const schedule = () => {
-      if (rafId !== null) return;
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        resetFormFactorCache();
-        setMobileShell(computeMobileShell());
-      });
-    };
-
-    window.addEventListener("resize", schedule);
-    window.addEventListener("orientationchange", schedule);
-
-    return () => {
-      if (rafId !== null) window.cancelAnimationFrame(rafId);
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("orientationchange", schedule);
-    };
-  }, []);
-
-  return mobileShell;
+  return usePresentation().isMobileShell;
 }

@@ -70,7 +70,7 @@ export function PerformanceMonitorPanel() {
     return (
       <button
         onClick={() => setIsVisible(true)}
-        className="fixed bottom-4 right-4 z-50 p-3 bg-primary text-primary-foreground rounded-full shadow-lg hover:scale-110 transition-transform"
+        className="performance-monitor-fab fixed bottom-4 right-4 z-50 p-3 bg-primary text-primary-foreground rounded-full shadow-lg hover:scale-110 transition-transform"
         title={t("performanceMonitor.show")}
       >
         <Pulse className="w-5 h-5" />
@@ -79,7 +79,7 @@ export function PerformanceMonitorPanel() {
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[600px] max-h-[80vh] bg-background border border-border rounded-lg shadow-xl flex flex-col">
+    <div className="performance-monitor-panel fixed bottom-4 right-4 z-50 w-[600px] max-h-[80vh] bg-background border border-border rounded-lg shadow-xl flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-2">

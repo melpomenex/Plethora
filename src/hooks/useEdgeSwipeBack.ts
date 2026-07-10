@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { shouldIgnoreGlobalGesture } from "../lib/gestureTargets";
 
 /**
  * useEdgeSwipeBack
@@ -43,6 +44,10 @@ export function useEdgeSwipeBack(
     let horizontal = false;
 
     const onStart = (e: TouchEvent) => {
+      if (shouldIgnoreGlobalGesture(e.target)) {
+        tracking = false;
+        return;
+      }
       if (e.touches.length !== 1) {
         tracking = false;
         return;

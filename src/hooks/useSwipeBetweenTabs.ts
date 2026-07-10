@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { shouldIgnoreGlobalGesture } from "../lib/gestureTargets";
 
 /**
  * useSwipeBetweenTabs
@@ -63,7 +64,7 @@ export function useSwipeBetweenTabs(
       // Skip touches that begin on a swipeable queue row — the row owns its
       // own horizontal gestures (postpone / suspend).
       const target = e.target as HTMLElement | null;
-      if (target && target.closest(".swipeable-item")) {
+      if (shouldIgnoreGlobalGesture(target)) {
         tracking = false;
         return;
       }

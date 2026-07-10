@@ -1,0 +1,140 @@
+import {
+  useEffect,
+  useId,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
+import { X } from "@phosphor-icons/react";
+import { usePresentation } from "../../contexts/PresentationContext";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
+import { cn } from "../../utils/cn";
+
+const FOCUSABLE =
+  'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+export function ResponsiveDialogSheet({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  initialFocusRef,
+  closeLabel = "Close",
+  presentation = "auto",
+  className,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  description?: ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
+  initialFocusRef?: RefObject<HTMLElement | null>;
+  closeLabel?: string;
+  presentation?: "auto" | "sheet" | "dialog";
+  className?: string;
+}) {
+  const { mode } = usePresentation();
+  const titleId = useId();
+  const descriptionId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const useSheet =
+    presentation === "sheet" ||
+    (presentation === "auto" && (mode === "phone" || mode === "tablet"));
+  useOverlayDismissal(open, onClose, 100);
+
+  useEffect(() => {
+    if (!open) return;
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    const frame = window.requestAnimationFrame(() => {
+      const target =
+        initialFocusRef?.current ??
+        panelRef.current?.querySelector<HTMLElement>(FOCUSABLE) ??
+        panelRef.current;
+      target?.focus();
+    });
+
+    const handleTab = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = Array.from(
+        panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE),
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        panelRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleTab);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleTab);
+      previousFocusRef.current?.focus();
+    };
+  }, [open, initialFocusRef]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div className="adaptive-dialog-layer">
+      <button
+        type="button"
+        className="adaptive-dialog-backdrop"
+        aria-label={closeLabel}
+        onClick={onClose}
+      />
+      <div
+        ref={panelRef}
+        className={cn(
+          "adaptive-dialog-panel",
+          useSheet ? "adaptive-dialog-sheet" : "adaptive-dialog-centered",
+          className,
+        )}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={description ? descriptionId : undefined}
+        tabIndex={-1}
+      >
+        <header className="adaptive-dialog-header">
+          <div className="min-w-0">
+            <h2 id={titleId} className="adaptive-dialog-title">
+              {title}
+            </h2>
+            {description && (
+              <p id={descriptionId} className="adaptive-dialog-description">
+                {description}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            className="adaptive-icon-button"
+            aria-label={closeLabel}
+            onClick={onClose}
+          >
+            <X size={20} />
+          </button>
+        </header>
+        <div className="adaptive-dialog-body">{children}</div>
+        {footer && <footer className="adaptive-dialog-footer">{footer}</footer>}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+

@@ -38,6 +38,11 @@ import { ThemePicker } from "./ThemePicker";
 import { IntegrationSettings } from "./IntegrationSettings";
 import { HandbookSettings } from "./HandbookSettings";
 import { NotificationSettings } from "./NotificationSettings";
+import {
+  AdaptiveContentHeader,
+  SafeScrollContainer,
+  StickyActionBar,
+} from "../adaptive";
 import { AudioTranscriptionSettings } from "./AudioTranscriptionSettings";
 import { TTSSettings } from "./TTSSettings";
 import { EmbeddingSettings } from "./EmbeddingSettings";
@@ -378,7 +383,7 @@ export function SettingsPage() {
   const currentTabConfig = SETTINGS_TABS.find((t) => t.id === activeTab);
 
   return (
-    <div className="flex h-full bg-background">
+    <div className="flex h-full min-w-0 bg-background" data-responsive-surface="settings">
       {/* Sidebar / Mobile Menu */}
       <div
         className={cn(
@@ -475,51 +480,41 @@ export function SettingsPage() {
           isMobile && showMobileMenu ? "hidden" : "flex"
         )}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 border-b border-border gap-3">
-          <div className="flex items-center gap-3">
-            {/* Mobile Back Button */}
-            {isMobile && (
-                <button
-                  onClick={handleMobileBack}
-                  className="p-2 -ml-2 rounded-full hover:bg-muted"
-                  aria-label={t("settings.backToMenu")}
-                >
-                <ArrowLeft className="w-5 h-5" />
+        <AdaptiveContentHeader
+          className="border-b border-border py-3 md:py-4"
+          title={
+            <span className="flex items-center gap-2">
+              {currentTabConfig && <currentTabConfig.icon className="h-5 w-5 text-muted-foreground" />}
+              {currentTabConfig ? t(currentTabConfig.label) : ""}
+            </span>
+          }
+          description={currentTabConfig?.description}
+          status={hasChanges ? <span className="text-sm text-muted-foreground">{t("settings.unsavedChanges")}</span> : undefined}
+          secondaryActions={
+            isMobile ? (
+              <button
+                onClick={handleMobileBack}
+                className="adaptive-icon-button"
+                aria-label={t("settings.backToMenu")}
+              >
+                <ArrowLeft className="h-5 w-5" />
               </button>
-            )}
-            <div>
-              <h2 className="text-lg md:text-xl font-semibold text-foreground flex items-center gap-2">
-                {currentTabConfig && (
-                  <currentTabConfig.icon className="w-5 h-5 text-muted-foreground" />
-                )}
-                {currentTabConfig ? t(currentTabConfig.label) : ""}
-              </h2>
-              {!isMobile && currentTabConfig && (
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  {currentTabConfig.description}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {hasChanges && (
-            <div className="flex items-center gap-2">
-              <span className="hidden md:inline text-sm text-muted-foreground">
-                {t("settings.unsavedChanges")}
-              </span>
+            ) : undefined
+          }
+          primaryAction={
+            hasChanges ? (
               <button
                 onClick={handleSave}
-                className="px-4 py-2 md:py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors min-h-[44px] text-sm font-medium"
+                className="min-h-[44px] rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
               >
                 {t("common.save")}
               </button>
-            </div>
-          )}
-        </div>
+            ) : undefined
+          }
+        />
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        <SafeScrollContainer className="flex-1 p-4 md:p-6">
           {activeTab === SettingsTab.General && (
             <GeneralSettings onChange={() => setHasChanges(true)} />
           )}
@@ -551,10 +546,10 @@ export function SettingsPage() {
             <PrivacySettings onChange={() => setHasChanges(true)} />
           )}
           {activeTab === SettingsTab.Handbook && <HandbookSettings />}
-        </div>
+        </SafeScrollContainer>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 border-t border-border bg-muted/30">
+        <StickyActionBar className="justify-between bg-muted/30">
           <button
             onClick={handleReset}
             className="text-sm text-muted-foreground hover:text-destructive transition-colors"
@@ -562,7 +557,7 @@ export function SettingsPage() {
             {t("settings.resetToDefault")}
           </button>
           <p className="text-xs text-muted-foreground">{t("settings.autoSaved")}</p>
-        </div>
+        </StickyActionBar>
       </div>
     </div>
   );

@@ -25,6 +25,7 @@ import {
 import { getEnergyLogs, calculateEnergyCorrelation } from "../../utils/energyTracker";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useI18n } from "../../lib/i18n";
+import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
 
 export function AnalyticsTab() {
   const { addTab } = useTabsStore();
@@ -93,14 +94,13 @@ export function AnalyticsTab() {
   }
 
   return (
-    <div className="h-full overflow-auto p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">{t("nav.dashboard")}</h1>
-        <p className="text-muted-foreground mt-1">
-          {t("analytics.subtitle")}
-        </p>
-      </div>
+    <SafeScrollContainer className="bg-background" data-responsive-surface="analytics">
+      <div className="mx-auto max-w-7xl space-y-6 px-4 pb-24 md:px-6 md:pb-8">
+      <AdaptiveContentHeader
+        className="px-0 pt-5 pb-0 md:pt-6"
+        title={t("nav.analytics")}
+        description={t("analytics.subtitle")}
+      />
 
       {/* Quick Actions — kept near the top so the primary Start Review / Browse
           Documents actions are reachable without scrolling past all the stats. */}
@@ -333,6 +333,7 @@ export function AnalyticsTab() {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </SafeScrollContainer>
   );
 }
