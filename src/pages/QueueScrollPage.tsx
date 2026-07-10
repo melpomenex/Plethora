@@ -493,27 +493,28 @@ export function QueueScrollPage() {
     setRssSelectedText(text);
   }, [MAX_SELECTION_CHARS]);
 
+  const documentsMap = useMemo(() => {
+    const map = new Map<string, typeof documents[number]>();
+    for (let i = 0; i < documents.length; i++) {
+      const d = documents[i];
+      map.set(d.id, d);
+    }
+    return map;
+  }, [documents]);
+
   // Filter documents
   // When a custom semantic cluster is active, use those items as the base queue instead
   const documentQueueItems = useMemo(() => {
     const baseItems = customSubset ?? allQueueItems;
     return baseItems.filter((item) => {
       if (item.itemType !== "document") return false;
-
-      // Skip recently rated documents to prevent them from reappearing immediately
       if (ratedDocumentIds.has(item.documentId)) return false;
-
-      const doc = documents.find(d => d.id === item.documentId);
-
-      // Skip if document not loaded yet (shouldn't happen after loadDocuments() awaits)
+      const doc = documentsMap.get(item.documentId);
       if (!doc) return false;
-
-      // Skip dismissed documents (they remain in database and searchable)
       if (doc.isDismissed) return false;
-
       return true;
     });
-  }, [allQueueItems, customSubset, documents, ratedDocumentIds]);
+  }, [allQueueItems, customSubset, documentsMap, ratedDocumentIds]);
 
   // Smart start position calculation
   const calculateSmartStart = useCallback(async (totalItems: number) => {
@@ -758,70 +759,80 @@ export function QueueScrollPage() {
    * - Length variety (mix long and short items)
    * - Discovery injection (surface new items)
    */
+  const stableRandomCacheRef = useRef<Map<string, number>>(new Map());
+
   const applyVarietyMixing = useCallback((items: ScrollItem[]): ScrollItem[] => {
     if (items.length <= 3) return items;
 
-    const maxSameCategory = 3; // Max consecutive items from same category
-    const result: ScrollItem[] = [];
-    const categoryCounts: Map<string, number> = new Map();
-
-    // Sort items by engagement score (higher = more priority)
+    const maxSameCategory = 3;
     const sorted = [...items].sort((a, b) =>
       (b.engagementScore ?? 0) - (a.engagementScore ?? 0)
     );
 
-    for (const item of sorted) {
-      const category = item.category ?? "uncategorized";
-      const currentCount = categoryCounts.get(category) ?? 0;
+    const result: ScrollItem[] = [];
+    let lastCategory: string | null = null;
+    let streak = 0;
+    const deferred: ScrollItem[] = [];
 
-      if (currentCount < maxSameCategory) {
-        result.push(item);
-        categoryCounts.set(category, currentCount + 1);
+    for (let idx = 0; idx < sorted.length; idx++) {
+      const item = sorted[idx];
+      const cat = item.category ?? "uncategorized";
+      if (cat === lastCategory) {
+        if (streak >= maxSameCategory) {
+          deferred.push(item);
+          continue;
+        }
+        streak++;
       } else {
-        // Find a position later in the result where we can insert this
-        // without violating the category constraint
-        let inserted = false;
-        for (let i = result.length - 1; i >= 0; i--) {
-          const itemAtPos = result[i];
-          const catAtPos = itemAtPos.category ?? "uncategorized";
-          if (catAtPos !== category) {
-            let consecutiveSame = 0;
-            for (let j = i; j < result.length && consecutiveSame < maxSameCategory; j++) {
-              if ((result[j]?.category ?? "uncategorized") === category) {
-                consecutiveSame++;
-              } else {
-                break;
-              }
-            }
-            if (consecutiveSame < maxSameCategory) {
-              result.splice(i + 1, 0, item);
-              inserted = true;
-              break;
-            }
+        lastCategory = cat;
+        streak = 1;
+      }
+      result.push(item);
+    }
+
+    if (deferred.length > 0) {
+      let insertPos = 0;
+      for (let d = 0; d < deferred.length; d++) {
+        const item = deferred[d];
+        const cat = item.category ?? "uncategorized";
+        let placed = false;
+        for (let r = insertPos; r < result.length; r++) {
+          const curCat = result[r]?.category ?? "uncategorized";
+          const nextCat = result[r + 1]?.category ?? null;
+          if (curCat !== cat && nextCat !== cat) {
+            result.splice(r + 1, 0, item);
+            insertPos = r + 1;
+            placed = true;
+            break;
           }
         }
-
-        if (!inserted) {
-          // Add to end anyway - better to show it than lose it
-          result.push(item);
-        }
+        if (!placed) result.push(item);
       }
     }
 
     return result;
   }, []);
 
-  // Helper to generate deterministic "random" value from string (0-1 range)
-  // This ensures stable scores across renders while still providing variety
   const getStableRandom = useCallback((str: string, offset: number = 0): number => {
+    const key = str + "|" + offset;
+    const cache = stableRandomCacheRef.current;
+    const hit = cache.get(key);
+    if (hit !== undefined) return hit;
     let hash = 0;
-    const combined = str + offset;
-    for (let i = 0; i < combined.length; i++) {
-      const char = combined.charCodeAt(i);
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
       hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
+      hash = hash & hash;
     }
-    return Math.abs(hash) / 2147483647; // Normalize to 0-1
+    hash = ((hash << 5) - hash) + offset;
+    hash = hash & hash;
+    const val = Math.abs(hash) / 2147483647;
+    if (cache.size > 2048) {
+      const first = cache.keys().next().value;
+      if (first) cache.delete(first);
+    }
+    cache.set(key, val);
+    return val;
   }, []);
 
   // Interleave: Due flashcards first, then documents, then RSS
@@ -856,16 +867,14 @@ export function QueueScrollPage() {
 
       const docItems: ScrollItem[] = documentQueueItems
         .map((item) => {
-          const doc = documents.find(d => d.id === item.documentId);
+          const doc = documentsMap.get(item.documentId);
           if (doc?.isArchived) {
             return null;
           }
-          // Calculate engagement score based on priority and variety factors
           const isNew = !doc?.dateLastReviewed;
           const priority = item.priority ?? 5;
           const recencyBoost = isNew ? 2 : 0;
           const baseScore = priority + recencyBoost;
-          // Add stable "randomness" for serendipity (0-1.5 bonus)
           const serendipityBonus = getStableRandom(item.id, 2) * 1.5;
 
           return {
@@ -1035,8 +1044,7 @@ export function QueueScrollPage() {
       }
 
       const extractItems: ScrollItem[] = activeExtracts.map((extract) => {
-        // Find document title
-        const doc = documents.find(d => d.id === extract.document_id);
+        const doc = documentsMap.get(extract.document_id);
         const title = doc ? doc.title : t("queueScroll.unknownDocument");
 
         return {
@@ -1046,7 +1054,6 @@ export function QueueScrollPage() {
           extract: extract,
           category: extract.category ?? doc?.category ?? "extracts",
           estimatedTime: 3,
-          // Use stable random based on extract ID
           engagementScore: 5 + getStableRandom(extract.id, 4) * 1.5,
         };
       });
@@ -1120,14 +1127,14 @@ export function QueueScrollPage() {
     return () => {
       cancelled = true;
     };
-  }, [documentQueueItems, documents, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing]);
+  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];
   const currentDocument = useMemo(() => {
     if (!currentItem || currentItem.type !== "document" || !currentItem.documentId) return null;
-    return documents.find((doc) => doc.id === currentItem.documentId) ?? null;
-  }, [currentItem, documents]);
+    return documentsMap.get(currentItem.documentId) ?? null;
+  }, [currentItem, documentsMap]);
   const isNewDocument =
     currentDocument
       ? (currentDocument.reps ?? currentDocument.readingCount ?? 0) <= 0

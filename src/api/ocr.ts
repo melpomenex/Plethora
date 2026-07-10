@@ -107,6 +107,23 @@ export const AVAILABLE_LANGUAGES = [
   { code: OCRLanguage.Hebrew, name: "Hebrew" },
 ];
 
+let tesseractModPromise: Promise<typeof import("tesseract.js")> | null = null;
+function getTesseractModule() {
+  if (!tesseractModPromise) tesseractModPromise = import("tesseract.js");
+  return tesseractModPromise;
+}
+
+const workerCache = new Map<string, Awaited<ReturnType<typeof import("tesseract.js")["createWorker"]>>>();
+
+async function getCachedWorker(lang: string) {
+  const existing = workerCache.get(lang);
+  if (existing) return existing;
+  const Tesseract = await getTesseractModule();
+  const worker = await Tesseract.createWorker(lang);
+  workerCache.set(lang, worker);
+  return worker;
+}
+
 /**
  * Perform OCR on an image
  */
@@ -114,8 +131,7 @@ export async function performOCR(
   image: string | File | HTMLImageElement,
   options: OCROptions = {}
 ): Promise<OCRResult> {
-  // Dynamic import of Tesseract.js
-  const Tesseract = await import("tesseract.js");
+  const Tesseract = await getTesseractModule();
 
   const {
     language = OCRLanguage.English,
@@ -124,16 +140,23 @@ export async function performOCR(
   const langStr = Array.isArray(language) ? language.join("+") : language;
 
   try {
-    const result = await Tesseract.recognize(image, langStr, {
-      logger: (_m: { status: string; progress: number }) => {
-        // Tesseract progress logging (silenced)
-      },
-    });
+    const worker = await getCachedWorker(langStr);
+    const result = await worker.recognize(image, {}, {
+      logger: () => {},
+    } as any);
 
     return parseTesseractResult(result.data);
-  } catch (error) {
-    console.error("OCR failed:", error);
-    throw new Error(`OCR processing failed: ${error}`);
+  } catch {
+    // Fallback to direct recognize (creates temp worker internally)
+    try {
+      const result = await Tesseract.recognize(image, langStr, {
+        logger: () => {},
+      });
+      return parseTesseractResult(result.data);
+    } catch (error) {
+      console.error("OCR failed:", error);
+      throw new Error(`OCR processing failed: ${error}`);
+    }
   }
 }
 
@@ -195,11 +218,12 @@ export async function performOCRWithProgress(
   onProgress: (progress: number, status: string) => void,
   options: OCROptions = {}
 ): Promise<OCRResult> {
-  const Tesseract = await import("tesseract.js");
+  const Tesseract = await getTesseractModule();
 
   const { language = OCRLanguage.English } = options;
   const langStr = Array.isArray(language) ? language.join("+") : language;
 
+  // For progress, create dedicated worker (don't use cached to avoid logger conflict)
   const worker = await Tesseract.createWorker(langStr);
 
   try {
@@ -213,7 +237,7 @@ export async function performOCRWithProgress(
           onProgress(0, m.status);
         }
       },
-    } as any); // eslint-disable-line @typescript-eslint/no-explicit-any -- Tesseract accepts logger in options despite type mismatch
+    } as any);
 
     await worker.terminate();
 
@@ -236,7 +260,7 @@ export function getLanguageDisplayName(code: string): string {
  * Preload OCR language data
  */
 export async function preloadLanguage(language: string = OCRLanguage.English): Promise<void> {
-  const Tesseract = await import("tesseract.js");
+  const Tesseract = await getTesseractModule();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loadLanguage is a worker action not in top-level types
   await (Tesseract as any).loadLanguage(language);
 }
@@ -259,21 +283,30 @@ export async function extractTextFromImage(
 }
 
 /**
- * Extract text from multiple images (batch processing)
+ * Extract text from multiple images (batch processing) with limited concurrency
  */
 export async function extractTextFromMultipleImages(
   images: Array<string | File>,
   onProgress?: (current: number, total: number) => void,
   options?: OCROptions
 ): Promise<OCRResult[]> {
-  const results: OCRResult[] = [];
+  const results: OCRResult[] = new Array(images.length);
+  let idx = 0;
+  let completed = 0;
 
-  for (let i = 0; i < images.length; i++) {
-    onProgress?.(i + 1, images.length);
-    const result = await performOCR(images[i], options);
-    results.push(result);
+  async function worker() {
+    while (true) {
+      const i = idx++;
+      if (i >= images.length) break;
+      const result = await performOCR(images[i], options);
+      results[i] = result;
+      completed++;
+      onProgress?.(completed, images.length);
+    }
   }
 
+  const concurrency = Math.min(2, images.length);
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
   return results;
 }
 

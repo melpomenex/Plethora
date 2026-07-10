@@ -36,9 +36,13 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { renderMarkdown } from "../../utils/markdown";
-import { detectChapterReference, buildChapterQAContext, getChapterTitles, extractSections, type ChapterReference, type DocumentSection } from "../../utils/chapterUtils";
+import { detectChapterReference, buildChapterQAContext, getChapterTitles, type ChapterReference } from "../../utils/chapterUtils";
 import { useI18n } from "../../lib/i18n";
 import { invokeCommand } from "../../lib/tauri";
+import { useDocumentSections } from "../../hooks/useDocumentSections";
+import { SectionMentionPopup } from "../common/SectionMentionPopup";
+import type { SectionNode } from "../../utils/sectionIndex";
+import { buildSectionFocusedContext } from "../../utils/sectionIndex";
 
 // Re-export types with simpler names for local use
 type Message = QAMessage;
@@ -93,44 +97,51 @@ export function DocumentQATab() {
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const [inputDraft, setInputDraft] = useState("");
 
-  // Section autocomplete state
-  const [sections, setSections] = useState<DocumentSection[]>([]);
+  // Section autocomplete state - new hierarchical model
   const [showSectionPopup, setShowSectionPopup] = useState(false);
   const [sectionQuery, setSectionQuery] = useState("");
   const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
-  const [selectedSection, setSelectedSection] = useState<DocumentSection | null>(null);
-  const [isLoadingSections, setIsLoadingSections] = useState(false);
+  const [selectedSection, setSelectedSection] = useState<SectionNode | null>(null);
+  const [fullContent, setFullContent] = useState("");
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
   const targetDocId = useMemo(() => {
     return mentions.length > 0 ? mentions[0].id : selectedDocumentId;
   }, [mentions, selectedDocumentId]);
 
-  // Load sections for current active document reactively
   useEffect(() => {
     if (!targetDocId) {
-      setSections([]);
+      setFullContent("");
       return;
     }
-
-    setIsLoadingSections(true);
     getDocument(targetDocId)
       .then((fullDoc) => {
         if (fullDoc && fullDoc.content) {
-          const extracted = extractSections(fullDoc.content);
-          setSections(extracted);
+          setFullContent(fullDoc.content);
         } else {
-          setSections([]);
+          extractDocumentText(targetDocId)
+            .then((res) => {
+              if (res?.content) setFullContent(res.content);
+              else setFullContent("");
+            })
+            .catch(() => setFullContent(""));
         }
       })
-      .catch((err) => {
-        console.warn("Failed to load sections for document:", err);
-        setSections([]);
-      })
-      .finally(() => {
-        setIsLoadingSections(false);
-      });
+      .catch(() => setFullContent(""));
   }, [targetDocId]);
+
+  const {
+    tree: sectionTree,
+    flat: sectionFlat,
+    getById: getSectionById,
+    buildSectionFocusedContext: buildFocusedCtxFromHook,
+  } = useDocumentSections({
+    documentId: targetDocId,
+    content: fullContent,
+    useStoreOutline: true,
+  });
+
+  const sections = sectionFlat;
 
   const userQueries = useMemo(() => {
     return messages
@@ -166,11 +177,26 @@ export function DocumentQATab() {
     doc.title.toLowerCase().includes(mentionQuery.toLowerCase())
   );
 
-  // Filter sections for autocomplete
+  // Filter sections for autocomplete - fuzzy scoring with breadcrumb
   const filteredSections = useMemo(() => {
-    return sections.filter((sec) =>
-      sec.title.toLowerCase().includes(sectionQuery.toLowerCase())
-    );
+    if (!sectionQuery) return sections;
+    const q = sectionQuery.toLowerCase();
+    const scored = sections
+      .map((sec) => {
+        const titleLower = sec.title.toLowerCase();
+        const breadLower = sec.breadcrumb.join(" > ").toLowerCase();
+        let score = 0;
+        if (titleLower.startsWith(q)) score += 100;
+        else if (titleLower.includes(q)) score += 50;
+        if (breadLower.includes(q)) score += 20;
+        if (sec.preview.toLowerCase().includes(q)) score += 5;
+        return { sec, score };
+      })
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score || a.sec.level - b.sec.level)
+      .slice(0, 100)
+      .map((s) => s.sec);
+    return scored.length > 0 ? scored : sections.filter((sec) => sec.title.toLowerCase().includes(q) || sec.breadcrumb.join(" ").toLowerCase().includes(q));
   }, [sections, sectionQuery]);
   const activeResearchDocumentId = useMemo(() => {
     if (researchDocumentId) return researchDocumentId;
@@ -299,29 +325,29 @@ export function DocumentQATab() {
     return { text, mentions: newMentions };
   }, [documents]);
 
-  // Format input for display (replace tokens with badges)
-  const formatInputForDisplay = useCallback((text: string, mentionList: DocumentMention[], activeSec?: DocumentSection | null): string => {
+  // Format input for display (replace tokens with badges) - now tree-aware with breadcrumb
+  const formatInputForDisplay = useCallback((text: string, mentionList: DocumentMention[], activeSec?: SectionNode | null): string => {
     let formatted = text;
     mentionList.forEach((mention) => {
       const token = `@{${mention.id}}`;
       formatted = formatted.replace(token, `@${mention.title}`);
     });
 
-    // Replace #{section-id} with #SectionTitle
     const sectionMatches = formatted.match(/#{([^}]+)}/g);
     if (sectionMatches) {
       sectionMatches.forEach((token) => {
         const secId = token.slice(2, -1);
         const matchedSec = activeSec && activeSec.id === secId 
           ? activeSec 
-          : sections.find(s => s.id === secId);
+          : getSectionById(secId) || sections.find(s => s.id === secId);
         if (matchedSec) {
-          formatted = formatted.replace(token, `#${matchedSec.title}`);
+          const label = matchedSec.breadcrumb.length > 0 ? `${matchedSec.breadcrumb[matchedSec.breadcrumb.length - 1]} > ${matchedSec.title}` : matchedSec.title;
+          formatted = formatted.replace(token, `#${label}`);
         }
       });
     }
     return formatted;
-  }, [sections]);
+  }, [sections, getSectionById]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -394,7 +420,7 @@ export function DocumentQATab() {
     }
   };
 
-  const handleSelectSection = (sec: DocumentSection) => {
+  const handleSelectSection = (sec: SectionNode) => {
     if (!textareaRef.current) return;
 
     const textarea = textareaRef.current;
@@ -609,15 +635,22 @@ export function DocumentQATab() {
       };
     }
 
-    // Check if section is specified and available in sections state
-    if (sectionId && sections.length > 0) {
-      const sec = sections.find(s => s.id === sectionId);
-      if (sec) {
+    // Check if section is specified and available - new tree-aware with surrounding context
+    if (sectionId) {
+      const ids = rawInput.match(SECTION_REGEX)?.map((t) => t.slice(2, -1)) || [sectionId];
+      const nodes = ids.map((id) => getSectionById(id) || sections.find((s) => s.id === id)).filter(Boolean) as SectionNode[];
+      if (nodes.length > 0) {
+        const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 4000;
+        const focused = nodes.length === 1
+          ? buildSectionFocusedContext(nodes, fullContent, { maxTokens, includeNeighbors: true })
+          : buildFocusedCtxFromHook(nodes.map((n) => n.id), maxTokens);
+        const docTitle = documents.find((d) => d.id === documentIds[0])?.title || "Document";
+        const titles = nodes.map((n) => (n.breadcrumb.length > 0 ? `${n.breadcrumb.join(" > ")} > ${n.title}` : n.title)).join(", ");
         return {
-          content: `Document: ${documents.find(d => d.id === documentIds[0])?.title || "Document"}\nSection: ${sec.title}\n\n${sec.content}`,
+          content: `Document: ${docTitle}\nFocused Section(s): ${titles}\n\n${focused}`,
           isChapterSpecific: false,
           isSectionSpecific: true,
-          sectionTitle: sec.title,
+          sectionTitle: titles,
         };
       }
     }
@@ -830,10 +863,13 @@ export function DocumentQATab() {
     // Detect chapter references in the query
     const chapterRef = detectChapterReference(rawInput);
 
-    // Detect section references in the query
-    const sectionMatch = rawInput.match(SECTION_REGEX);
-    const matchedSectionId = sectionMatch ? sectionMatch[0].slice(2, -1) : null;
-    const activeSection = matchedSectionId ? (sections.find(s => s.id === matchedSectionId) || selectedSection) : null;
+    // Detect section references in the query (support multiple)
+    const sectionMatches = rawInput.match(SECTION_REGEX);
+    const matchedSectionIds = sectionMatches ? sectionMatches.map((t) => t.slice(2, -1)) : [];
+    const matchedSectionId = matchedSectionIds[0] || null;
+    const activeSectionsAll = matchedSectionIds
+      .map((id) => getSectionById(id) || sections.find((s) => s.id === id))
+      .filter(Boolean) as SectionNode[];
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -882,7 +918,7 @@ ${mentionedDocumentIds.length > 0
 - Summarize and explain topics
 
 ${chapterRef ? `**CHAPTER CONTEXT**: The user is asking about Chapter ${chapterRef.number}. Focus your answer and flashcard creation on that specific chapter.\n\n` : ''}
-${activeSection ? `**SECTION CONTEXT**: The user is asking about Section "${activeSection.title}". Focus your answer and flashcard creation on that specific section.\n\n` : ''}`
+${activeSectionsAll.length > 0 ? `**SECTION CONTEXT**: The user is asking about Section(s) "${activeSectionsAll.map((s) => (s.breadcrumb.length > 0 ? s.breadcrumb.join(" > ") + " > " + s.title : s.title)).join(", ")}". Focus your answer and flashcard creation on those specific sections. Token estimates: ${activeSectionsAll.map((s) => Math.ceil(s.content.length / 4)).join(", ")} tokens.\n\n` : ''}`
   : `The user is asking a general question. Answer based on your knowledge.`}
 
 **CRITICAL: TOOL USAGE**
@@ -1293,8 +1329,8 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         </div>
       )}
 
-      {/* Mention badges and chapter detection in input area */}
-      {(mentions.length > 0 || detectedChapter) && (
+      {/* Mention badges, chapter detection, section focus - new tree-aware */}
+      {(mentions.length > 0 || detectedChapter || selectedSection) && (
         <div className="px-4 pt-2 flex flex-wrap gap-2">
           {mentions.map((mention) => (
             <span
@@ -1316,6 +1352,31 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
               <BookOpen className="w-3 h-3" />
               Chapter {detectedChapter.number}
               {detectedChapter.title && `: ${detectedChapter.title}`}
+            </span>
+          )}
+          {selectedSection && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 text-sm rounded-full"
+              title={selectedSection.breadcrumb.length > 0 ? selectedSection.breadcrumb.join(" > ") : selectedSection.title}
+            >
+              <BookOpen className="w-3 h-3" />
+              {selectedSection.breadcrumb.length > 0
+                ? `${selectedSection.breadcrumb[selectedSection.breadcrumb.length - 1]} > ${selectedSection.title}`
+                : selectedSection.title}
+              <span className="text-[10px] bg-white/50 dark:bg-black/20 px-1 rounded ml-1">
+                {Math.ceil(selectedSection.content.length / 4)} tokens
+              </span>
+              <button
+                onClick={() => {
+                  setSelectedSection(null);
+                  const newRaw = rawInput.replace(SECTION_REGEX, "").trim();
+                  setRawInput(newRaw);
+                  setInput(newRaw);
+                }}
+                className="hover:bg-emerald-200 dark:hover:bg-emerald-800 rounded-full p-0.5 ml-1"
+              >
+                <X className="w-3 h-3" />
+              </button>
             </span>
           )}
         </div>
@@ -1555,33 +1616,16 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
           </div>
         )}
 
-        {/* Section autocomplete popup */}
-        {showSectionPopup && filteredSections.length > 0 && (
-          <div
-            className="absolute bottom-full left-4 right-4 mb-2 max-w-4xl mx-auto bg-card border border-border rounded-lg shadow-lg overflow-hidden z-10"
-          >
-            <div className="max-h-48 overflow-auto">
-              {filteredSections.map((sec, index) => (
-                <button
-                  key={sec.id}
-                  onClick={() => handleSelectSection(sec)}
-                  className={`w-full px-4 py-2 text-left hover:bg-muted transition-colors flex items-center gap-3 ${
-                    index === sectionCursorIndex ? "bg-muted" : ""
-                  }`}
-                >
-                  <BookOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-foreground truncate">
-                      {sec.title}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-            <div className="px-4 py-2 bg-muted text-xs text-muted-foreground">
-              Use ↑↓ to navigate, Enter to select, Escape to close
-            </div>
-          </div>
+        {/* Section autocomplete popup - new tree-aware */}
+        {showSectionPopup && (
+          <SectionMentionPopup
+            tree={sectionTree}
+            flat={sectionFlat}
+            query={sectionQuery}
+            selectedIndex={sectionCursorIndex}
+            onSelect={handleSelectSection}
+            open={showSectionPopup}
+          />
         )}
       </div>
     </div>

@@ -18,6 +18,7 @@ import {
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
 import { normalizeHighlightColor } from "../../utils/highlightColors";
+import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 import { buildSegmentCfiMap, findActiveSegment, type SyncSegment } from "../../utils/epubSync";
 import { dispatchCommandPaletteOpen, isCommandPaletteOpenShortcut } from "../../utils/commandPaletteShortcut";
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
@@ -708,6 +709,11 @@ export function EPUBViewer({
         setToc(filteredToc);
         tocRef.current = filteredToc;
         onLoadRef.current?.(filteredToc);
+        if (documentId) {
+          try {
+            useDocumentOutlineStore.getState().setOutline(documentId, { epubToc: filteredToc });
+          } catch {}
+        }
 
         const initializeRendition = async (): Promise<boolean> => {
 

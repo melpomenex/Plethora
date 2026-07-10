@@ -35,6 +35,7 @@ import {
 } from "./pdfTextSelection";
 import { useI18n } from "../../lib/i18n";
 import { useVimModeStore } from "../../stores/vimModeStore";
+import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 // Custom selection engine imports
 import { usePdfCustomSelection } from "./selection";
 import { SelectionRenderer } from "./selection";
@@ -359,10 +360,10 @@ type PdfSearchMatch = {
 };
 
 type ZoomMode = "custom" | "fit-width" | "fit-page";
-const VIRTUALIZATION_THRESHOLD_PAGES = 80;
-const VIRTUAL_WINDOW_PAGES = 10;
+const VIRTUALIZATION_THRESHOLD_PAGES = 40;
+const VIRTUAL_WINDOW_PAGES = 6;
 const PAGE_GAP_PX = 24;
-const ENABLE_PDF_VIRTUALIZATION = false;
+const ENABLE_PDF_VIRTUALIZATION = true;
 const USER_SCROLL_LOCKOUT_MS = 1200;
 const NAV_SETTLE_THRESHOLD_PX = 40;
 const NAV_SETTLE_STABLE_MS = 180;
@@ -1258,6 +1259,11 @@ export function PDFViewer({
         const outlineData = await pdfDoc.getOutline();
         if (outlineData) {
           setOutline(outlineData);
+          if (documentId) {
+            try {
+              useDocumentOutlineStore.getState().setOutline(documentId, { pdfOutline: outlineData });
+            } catch {}
+          }
         }
 
       } catch (err) {

@@ -37,6 +37,10 @@ import { useI18n } from "../../lib/i18n";
 import { getAssistantContextErrorMessage, type ResolvedAssistantContext } from "../../utils/assistantContext";
 import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 import { invokeCommand, isTauri } from "../../lib/tauri";
+import { useDocumentSections } from "../../hooks/useDocumentSections";
+import { SectionMentionPopup } from "../common/SectionMentionPopup";
+import type { SectionNode } from "../../utils/sectionIndex";
+import { getDocument } from "../../api/documents";
 
 export interface AssistantContext {
   type: "document" | "web" | "video" | "general";
@@ -260,6 +264,15 @@ export function AssistantPanel({
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Section # mention support - new tree UX
+  const [showSectionPopup, setShowSectionPopup] = useState(false);
+  const [sectionQuery, setSectionQuery] = useState("");
+  const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
+  const [selectedSectionNodes, setSelectedSectionNodes] = useState<SectionNode[]>([]);
+  const [assistantFullContent, setAssistantFullContent] = useState("");
+
+  const SECTION_REGEX = /#{([^}]+)}/g;
+
   // Use external provider if provided
   const effectiveProvider = externalSelectedProvider ?? selectedProvider;
   const [isInputHovered, setIsInputHovered] = useState(false);
@@ -273,6 +286,37 @@ export function AssistantPanel({
   // instead of the single-document chatWithContext path.
   const [useWholeLibraryScope, setUseWholeLibraryScope] = useState(false);
   const configuredProvidersList = useLLMProvidersStore((state) => state.providers);
+
+  // Document sections for # mentions
+  const {
+    tree: assistantSectionTree,
+    flat: assistantSectionFlat,
+    getById: assistantGetSectionById,
+    buildSectionFocusedContext: assistantBuildFocusedContext,
+  } = useDocumentSections({
+    documentId: context?.documentId,
+    content: assistantFullContent || context?.content || "",
+    useStoreOutline: true,
+  });
+
+  // Load full document content for section parsing when documentId changes
+  useEffect(() => {
+    if (!context?.documentId) {
+      setAssistantFullContent("");
+      return;
+    }
+    let mounted = true;
+    getDocument(context.documentId)
+      .then((doc) => {
+        if (mounted && doc?.content) setAssistantFullContent(doc.content);
+      })
+      .catch(() => {
+        if (mounted) setAssistantFullContent("");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [context?.documentId]);
 
   // Clean, human-friendly model name formatter
   const getFriendlyModelName = (providerId: string, rawModelName?: string) => {
@@ -711,7 +755,15 @@ export function AssistantPanel({
         const base = title
           ? `📄 ${title}`
           : `📄 Viewing document${ctx.documentId ? ` (ID: ${ctx.documentId})` : ""}`;
-        return `${base}${ctx.position?.pageNumber ? ` • Page ${ctx.position.pageNumber}` : ""}${typeof ctx.position?.scrollPercent === "number" ? ` • ${ctx.position.scrollPercent.toFixed(1)}%` : ""}${ctx.selection ? `. Selected text: "${ctx.selection.slice(0, 100)}..."` : ""}`;
+        let msg = `${base}${ctx.position?.pageNumber ? ` • Page ${ctx.position.pageNumber}` : ""}${typeof ctx.position?.scrollPercent === "number" ? ` • ${ctx.position.scrollPercent.toFixed(1)}%` : ""}${ctx.selection ? `. Selected text: "${ctx.selection.slice(0, 100)}..."` : ""}`;
+        if (selectedSectionNodes.length > 0) {
+          const focusLabels = selectedSectionNodes
+            .map((n) => (n.breadcrumb.length > 0 ? `${n.breadcrumb.join(" > ")} > ${n.title}` : n.title))
+            .join(", ");
+          const tokens = selectedSectionNodes.map((n) => Math.ceil(n.content.length / 4)).reduce((a, b) => a + b, 0);
+          msg += ` • Focused: ${focusLabels} (${tokens} tokens)`;
+        }
+        return msg;
       }
       case "web": {
         const title = ctx.metadata?.title;
@@ -753,6 +805,8 @@ export function AssistantPanel({
     historyDraftRef.current = "";
     setHistoryIndex(null);
     clearAttachedImages();
+    setShowSectionPopup(false);
+    setSectionQuery("");
     setIsLoading(true);
 
     try {
@@ -961,6 +1015,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
+      setSelectedSectionNodes([]);
     }
   };
 
@@ -1079,9 +1134,23 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
             message: llmContext?.statusMessage,
           };
 
-      const contextContent = typeof resolvedContext.content === "string"
-        ? resolvedContext.content.trim()
-        : "";
+      let finalResolvedContent = resolvedContext.content ?? "";
+      if (selectedSectionNodes.length > 0 && llmContext?.type === "document") {
+        const maxTokens = effectiveContextWindow;
+        const focusedCtx = assistantBuildFocusedContext(
+          selectedSectionNodes.map((n) => n.id),
+          maxTokens
+        );
+        if (focusedCtx) {
+          finalResolvedContent = focusedCtx;
+        }
+      }
+
+      const contextContent = typeof finalResolvedContent === "string"
+        ? finalResolvedContent.trim()
+        : typeof resolvedContext.content === "string"
+          ? resolvedContext.content.trim()
+          : "";
       if (resolvedContext.status !== "ready" || !contextContent) {
         throw new Error(resolvedContext.message || getAssistantContextErrorMessage(llmContext?.status));
       }
@@ -1092,7 +1161,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         documentId: llmContext?.documentId,
         url: llmContext?.url,
         selection: llmContext?.selection,
-        content: resolvedContext.content ?? contextContent,
+        content: finalResolvedContent || contextContent,
         contextWindowTokens: effectiveContextWindow,
         memoryEnabled: useSettingsStore.getState().settings.ai.memoryEnabled,
       };
@@ -1582,9 +1651,98 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     if (historyIndex === null) {
       historyDraftRef.current = value;
     }
+
+    if (context?.type !== "document") {
+      setShowSectionPopup(false);
+      return;
+    }
+
+    const textarea = textareaRef.current;
+    const cursorPos = textarea ? textarea.selectionStart : value.length;
+    const beforeCursor = value.slice(0, cursorPos);
+    const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
+
+    if (hashMatch) {
+      setShowSectionPopup(true);
+      setSectionQuery(hashMatch[1]);
+      setSectionCursorIndex(0);
+    } else {
+      setShowSectionPopup(false);
+      setSectionQuery("");
+    }
+
+    const hasTokens = SECTION_REGEX.test(value);
+    if (!hasTokens && selectedSectionNodes.length > 0) {
+      setSelectedSectionNodes([]);
+    }
+  };
+
+  const handleSelectAssistantSection = (node: SectionNode) => {
+    if (!textareaRef.current) return;
+    const textarea = textareaRef.current;
+    const cursorPos = textarea.selectionStart;
+    const beforeCursor = input.slice(0, cursorPos);
+    const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
+    if (hashMatch) {
+      const hashPos = cursorPos - hashMatch[0].length;
+      const token = `#{${node.id}}`;
+      const newValue = input.slice(0, hashPos) + token + " " + input.slice(cursorPos);
+      setInput(newValue);
+      setSelectedSectionNodes((prev) => {
+        if (prev.find((n) => n.id === node.id)) return prev;
+        return [...prev, node];
+      });
+      setShowSectionPopup(false);
+      setSectionQuery("");
+      setTimeout(() => {
+        const newPos = hashPos + token.length + 1;
+        textarea.setSelectionRange(newPos, newPos);
+        textarea.focus();
+      }, 0);
+    }
+  };
+
+  const getFilteredAssistantSections = () => {
+    if (!sectionQuery) return assistantSectionFlat;
+    const q = sectionQuery.toLowerCase();
+    return assistantSectionFlat
+      .map((sec) => {
+        const titleLower = sec.title.toLowerCase();
+        const breadLower = sec.breadcrumb.join(" > ").toLowerCase();
+        let score = 0;
+        if (titleLower.startsWith(q)) score += 100;
+        else if (titleLower.includes(q)) score += 50;
+        if (breadLower.includes(q)) score += 20;
+        return { sec, score };
+      })
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 100)
+      .map((s) => s.sec);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showSectionPopup) {
+      const filtered = getFilteredAssistantSections();
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSectionCursorIndex((prev) => (prev < filtered.length - 1 ? prev + 1 : prev));
+        return;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSectionCursorIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        return;
+      } else if (e.key === "Enter" && filtered.length > 0) {
+        e.preventDefault();
+        handleSelectAssistantSection(filtered[sectionCursorIndex] || filtered[0]);
+        return;
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setShowSectionPopup(false);
+        return;
+      }
+    }
+
     if (!e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && textareaRef.current) {
       if (e.key === "ArrowUp" && isCaretOnFirstLine(textareaRef.current)) {
         e.preventDefault();
@@ -1603,7 +1761,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       e.preventDefault();
       handleSendMessage();
     }
-    // Trap Tab key so focus stays in the input instead of jumping to transcript/page elements
+    if (e.key === "Tab" && showSectionPopup) {
+      e.preventDefault();
+      return;
+    }
     if (e.key === "Tab") {
       e.preventDefault();
     }
@@ -2137,7 +2298,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       </div>
 
       {/* Input Area */}
-      <div className="flex-shrink-0 p-3 border-t border-border bg-card">
+      <div className="flex-shrink-0 p-3 border-t border-border bg-card relative">
         <div className="flex flex-col gap-2">
           {/* Image Preview Strip */}
           {attachedImages.length > 0 && (
@@ -2169,11 +2330,55 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </div>
           )}
 
+          {/* Selected section chips - new */}
+          {selectedSectionNodes.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {selectedSectionNodes.map((node) => (
+                <span
+                  key={node.id}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 text-[11px] rounded-full"
+                  title={node.breadcrumb.join(" > ")}
+                >
+                  <TextT className="w-3 h-3" />
+                  {node.breadcrumb.length > 0 ? `${node.breadcrumb[node.breadcrumb.length - 1]} > ${node.title}` : node.title}
+                  <span className="text-[9px] bg-white/50 dark:bg-black/20 px-1 rounded ml-1">
+                    {Math.ceil(node.content.length / 4)} tok
+                  </span>
+                  <button
+                    onClick={() => {
+                      setSelectedSectionNodes((prev) => prev.filter((n) => n.id !== node.id));
+                      const newInput = input.replace(`#{${node.id}}`, "").replace(/\s{2,}/g, " ").trim();
+                      setInput(newInput);
+                    }}
+                    className="hover:bg-emerald-200 dark:hover:bg-emerald-800 rounded-full p-0.5"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Available Tools Hint */}
           <div className="text-xs text-muted-foreground flex items-center gap-1">
             <Sparkle className="w-3 h-3" />
-            <span>Type /tools to see available tools</span>
+            <span>Type /tools to see available tools • # for sections</span>
           </div>
+
+          {/* SectionMentionPopup - positioned above input */}
+          {showSectionPopup && context?.type === "document" && (
+            <div className="absolute bottom-full left-3 right-3 mb-2">
+              <SectionMentionPopup
+                tree={assistantSectionTree}
+                flat={assistantSectionFlat}
+                query={sectionQuery}
+                selectedIndex={sectionCursorIndex}
+                onSelect={handleSelectAssistantSection}
+                open={showSectionPopup}
+                maxHeight={260}
+              />
+            </div>
+          )}
 
           {/* Text Input */}
           <div

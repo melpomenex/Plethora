@@ -50,8 +50,25 @@ const _ANIM: Record<string, AnimFn> = {
         speed: Math.random() * 4 + 6,
         opacity: Math.random() * 0.54 + 0.18,
       });
+    let flashAlpha = 0;
+    let flash2Alpha = 0;
+    let flash2Delay = 0;
     (function draw(timestamp) { if (!shouldRender(timestamp)) { frame(requestAnimationFrame(draw)); return; }
       ctx.clearRect(0, 0, cv.width, cv.height);
+      if (flashAlpha > 0.001) {
+        ctx.fillStyle = `rgba(200,220,255,${flashAlpha})`;
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        flashAlpha *= 0.88;
+        if (flashAlpha < 0.005) flashAlpha = 0;
+      }
+      if (flash2Delay > 0) {
+        flash2Delay--;
+      } else if (flash2Alpha > 0.001) {
+        ctx.fillStyle = `rgba(200,220,255,${flash2Alpha})`;
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        flash2Alpha *= 0.90;
+        if (flash2Alpha < 0.005) flash2Alpha = 0;
+      }
       for (const d of drops) {
         ctx.beginPath();
         ctx.moveTo(d.x, d.y);
@@ -67,22 +84,11 @@ const _ANIM: Record<string, AnimFn> = {
     })();
     timer(window.setInterval(() => {
       if (Math.random() < 0.3) {
-        const flash = document.createElement("div");
-        flash.className = "anim-flash";
-        flash.style.cssText = "position:fixed;inset:0;background:rgba(200,220,255,0.18);z-index:0;pointer-events:none;transition:opacity .15s;";
-        document.body.appendChild(flash);
-        setTimeout(() => { flash.style.opacity = "0"; }, 80);
-        setTimeout(() => {
-          flash.remove();
-          if (Math.random() < 0.5) {
-            const f2 = document.createElement("div");
-            f2.className = "anim-flash";
-            f2.style.cssText = "position:fixed;inset:0;background:rgba(200,220,255,0.12);z-index:0;pointer-events:none;transition:opacity .2s;";
-            document.body.appendChild(f2);
-            setTimeout(() => { f2.style.opacity = "0"; }, 60);
-            setTimeout(() => f2.remove(), 300);
-          }
-        }, 150);
+        flashAlpha = 0.18;
+        if (Math.random() < 0.5) {
+          flash2Delay = 9;
+          flash2Alpha = 0.12;
+        }
       }
     }, 8000));
   },
@@ -483,8 +489,15 @@ const _ANIM: Record<string, AnimFn> = {
       for (let i = 0; i < 10; i++) { cx += (Math.random() - 0.5) * 60; cy += cv.height / 10; segs.push({ x: cx, y: cy }); }
       return { segs, a: 0.7 };
     }
+    let flashAlpha = 0;
     (function draw(timestamp) { if (!shouldRender(timestamp)) { frame(requestAnimationFrame(draw)); return; }
       ctx.clearRect(0, 0, cv.width, cv.height);
+      if (flashAlpha > 0.001) {
+        ctx.fillStyle = `rgba(180,180,255,${flashAlpha})`;
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        flashAlpha *= 0.88;
+        if (flashAlpha < 0.005) flashAlpha = 0;
+      }
       for (const d of drops) {
         ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(d.x + 0.5, d.y + d.len);
         ctx.strokeStyle = "rgba(160,170,200,0.18)"; ctx.lineWidth = 0.6; ctx.stroke();
@@ -503,12 +516,7 @@ const _ANIM: Record<string, AnimFn> = {
     timer(window.setInterval(() => {
       if (Math.random() < 0.3) {
         bolts.push(mkBolt());
-        const fl = document.createElement("div");
-        fl.className = "anim-flash";
-        fl.style.cssText = "position:fixed;inset:0;background:rgba(180,180,255,0.15);z-index:0;pointer-events:none;transition:opacity .15s;";
-        document.body.appendChild(fl);
-        setTimeout(() => { fl.style.opacity = "0"; }, 80);
-        setTimeout(() => fl.remove(), 300);
+        flashAlpha = 0.15;
       }
     }, 5000));
   },

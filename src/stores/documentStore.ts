@@ -10,28 +10,32 @@ import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
 
+let fileSyncModPromise: Promise<typeof import("../lib/fileSyncRegistration")> | null = null;
+let docReplicationModPromise: Promise<typeof import("../lib/documentReplication")> | null = null;
+
+function getFileSyncModule() {
+  if (!fileSyncModPromise) fileSyncModPromise = import("../lib/fileSyncRegistration");
+  return fileSyncModPromise;
+}
+function getDocReplicationModule() {
+  if (!docReplicationModPromise) docReplicationModPromise = import("../lib/documentReplication");
+  return docReplicationModPromise;
+}
+
 function registerImportedFileSyncLazy(doc: Document): Promise<string | null> {
-  return import("../lib/fileSyncRegistration").then(({ registerImportedFileSync }) =>
-    registerImportedFileSync(doc),
-  );
+  return getFileSyncModule().then(({ registerImportedFileSync }) => registerImportedFileSync(doc));
 }
 
 function registerExistingFilesSyncLazy(docs: Document[]): Promise<void> {
-  return import("../lib/fileSyncRegistration").then(({ registerExistingFilesSync }) =>
-    registerExistingFilesSync(docs),
-  );
+  return getFileSyncModule().then(({ registerExistingFilesSync }) => registerExistingFilesSync(docs));
 }
 
 function publishDocumentLazy(doc: Document): Promise<void> {
-  return import("../lib/documentReplication").then(({ publishDocument }) =>
-    publishDocument(doc),
-  );
+  return getDocReplicationModule().then(({ publishDocument }) => publishDocument(doc));
 }
 
 function deleteDocumentSyncLazy(id: string): Promise<void> {
-  return import("../lib/documentReplication").then(({ deleteDocumentSync }) =>
-    deleteDocumentSync(id),
-  );
+  return getDocReplicationModule().then(({ deleteDocumentSync }) => deleteDocumentSync(id));
 }
 
 function runDeferredSyncSetup(task: () => void): void {
@@ -443,24 +447,30 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const autoSegment = settings.documents.autoProcessOnImport;
     const collectionId = useCollectionStore.getState().activeCollectionId;
     let totalExtracts = 0;
+    let lastProgressAt = 0;
+
+    const shouldUpdateProgress = () => {
+      const now = Date.now();
+      if (now - lastProgressAt > 120) {
+        lastProgressAt = now;
+        return true;
+      }
+      return false;
+    };
 
     try {
+      if (autoSegment) set({ isSegmenting: true });
       for (let i = 0; i < filePaths.length; i++) {
         const filePath = filePaths[i];
         const fileName = filePath.split('/').pop() || filePath;
 
-        set({
-          importProgress: { current: i, total: filePaths.length, fileName }
-        });
+        if (i === 0 || shouldUpdateProgress()) {
+          set({ importProgress: { current: i, total: filePaths.length, fileName } });
+        }
 
         try {
           const doc = await documentsApi.importDocument(filePath, collectionId);
 
-          // Register the file with the sync manifest so other devices in the
-          // room can discover + pull it. Best-effort: failures (sync disabled,
-          // file unreadable) are logged by the helper and must not break the
-          // local import. Runs after the document is persisted so even if
-          // registration fails the doc is safely stored.
           const fileId = await registerImportedFileSyncLazy(doc).catch((e) => {
             console.warn("[documentStore] file-sync registration failed", e);
             return null;
@@ -473,8 +483,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
             });
           }
 
-          // Publish the document row to the sync room so other devices' libraries
-          // receive it (their SQLite is separate from ours). Best-effort.
           await publishDocumentLazy(doc).catch((e) => {
             console.warn("[documentStore] document publish failed", e);
           });
@@ -482,10 +490,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
           imported.push(doc);
 
           if (autoSegment) {
-            set({ isSegmenting: true });
             const count = await get().segmentDocument(doc.id, doc.fileType);
             totalExtracts += count;
-            set({ isSegmenting: false });
           }
 
           if (isAudiobookFile(fileName)) {
@@ -495,10 +501,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
           console.error(`Failed to import ${fileName}:`, error);
         }
 
-        set({
-          importProgress: { current: i + 1, total: filePaths.length, fileName }
-        });
+        if (i === filePaths.length - 1 || shouldUpdateProgress()) {
+          set({ importProgress: { current: i + 1, total: filePaths.length, fileName } });
+        }
       }
+      if (autoSegment) set({ isSegmenting: false });
 
       set((state) => ({
         documents: [...state.documents, ...imported],
