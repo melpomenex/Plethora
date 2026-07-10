@@ -40,5 +40,36 @@ __pypackages__/
 *.npmignore
 *.nvmrc
 
-# Only ignore specific large/unneeded files, not all source files
-# The previous broad ignores like **/*.tsx were preventing the build from working
+# Python envs and packages
+.venv/
+venv/
+.uv/
+.cache/
+requirements.txt
+
+# Non-Vercel directories
+whisper.cpp/
+browser_extension/
+demo/
+docs/
+mobile-screenshots/
+vendor/
+yjs-sync/
+.agents/
+.agent/
+.claude/
+.codegraph/
+.opencode/
+.reasonix/
+.zcode/
+
+# Configs & logs
+Dockerfile.frontend
+nginx.conf
+docker-compose.yml
+PKGBUILD
+xcom.py
+*.log
+android_logcat.log
+macos_app.log
+
