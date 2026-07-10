@@ -102,32 +102,32 @@ Incrementum features a fully-adaptive responsive layout tailored for mobile devi
     <tr>
       <td width="33%" align="center">
         <p><b>Dashboard</b></p>
-        <img src="mobile-screenshots/1_dashboard.png" width="220" alt="Dashboard View" />
+        <img src="mobile-screenshots/1_dashboard.png?v=2" width="220" alt="Dashboard View" />
       </td>
       <td width="33%" align="center">
         <p><b>Queue</b></p>
-        <img src="mobile-screenshots/2_queue.png" width="220" alt="Queue View" />
+        <img src="mobile-screenshots/2_queue.png?v=2" width="220" alt="Queue View" />
       </td>
       <td width="33%" align="center">
         <p><b>Review</b></p>
-        <img src="mobile-screenshots/3_review.png" width="220" alt="Review View" />
+        <img src="mobile-screenshots/3_review.png?v=2" width="220" alt="Review View" />
       </td>
     </tr>
     <tr>
       <td width="33%" align="center">
         <br />
         <p><b>Documents</b></p>
-        <img src="mobile-screenshots/4_documents.png" width="220" alt="Documents View" />
+        <img src="mobile-screenshots/4_documents.png?v=2" width="220" alt="Documents View" />
       </td>
       <td width="33%" align="center">
         <br />
         <p><b>Settings</b></p>
-        <img src="mobile-screenshots/5_settings.png" width="220" alt="Settings View" />
+        <img src="mobile-screenshots/5_settings.png?v=2" width="220" alt="Settings View" />
       </td>
       <td width="33%" align="center">
         <br />
         <p><b>Statistics</b></p>
-        <img src="mobile-screenshots/6_analytics.png" width="220" alt="Statistics View" />
+        <img src="mobile-screenshots/6_analytics.png?v=2" width="220" alt="Statistics View" />
       </td>
     </tr>
   </table>
