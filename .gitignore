@@ -87,6 +87,21 @@ src-tauri/bin/notebooklm-runtime/**/*
 squashfs-root/
 incrementum-tauri
 
+# Tauri sidecar binaries — regenerated at build time by scripts/download-sidecars.js.
+# Do NOT commit these; they bloat the repo and break Vercel clone (254MB pack).
+# Kept un-ignored: whisper-wrapper.sh, notebooklm-* launchers, pocket-tts-* launchers.
+src-tauri/bin/ffmpeg-*
+src-tauri/bin/whisper-aarch64-*
+src-tauri/bin/whisper-linux
+src-tauri/bin/whisper-macos
+src-tauri/bin/whisper-universal-*
+src-tauri/bin/whisper-x86_64-*
+src-tauri/bin/sherpa-onnx-*
+src-tauri/bin/libggml*
+src-tauri/bin/libwhisper*
+src-tauri/bin/libonnxruntime*
+src-tauri/bin/*.placeholder.dll
+
 # Android assets copied during build
 src-tauri/gen/android/app/src/main/assets/
 
