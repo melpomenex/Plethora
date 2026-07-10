@@ -23,12 +23,15 @@ const path = require('path');
 
   // Wait for application mount
   await page.waitForSelector('nav.mobile-bottom-nav', { timeout: 15000 });
-  console.log('App loaded. Taking screenshots...');
+  console.log('App loaded. Waiting 2.5s for hydration...');
+  await page.waitForTimeout(2500);
 
   // Helper to take screenshot
   const takeScreenshot = async (name) => {
     // Wait for any animations/rendering to stabilize
     await page.waitForTimeout(1000);
+    const activeText = await page.locator('.mobile-nav-item.active .mobile-nav-label').textContent().catch(() => 'None');
+    console.log(`Active navigation item: ${activeText}`);
     const screenshotPath = path.join(outputDir, `${name}.png`);
     await page.screenshot({ path: screenshotPath });
     console.log(`Saved screenshot: ${screenshotPath}`);
