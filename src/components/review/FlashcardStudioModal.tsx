@@ -3244,14 +3244,14 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   }, [addDeck, selectedDocument?.id, t, toast]);
 
   const contextContent = useMemo(() => {
-    if (!selectedDocumentText) return undefined;
     const selectedChapters = Array.isArray(contextSelection.chapters) ? contextSelection.chapters : [];
-    
+
     switch (contextSelection.mode) {
       case "full":
-        return selectedDocumentText.slice(0, maxTokens * CHARS_PER_TOKEN);
-      
+        return selectedDocumentText?.slice(0, maxTokens * CHARS_PER_TOKEN);
+
       case "chapters": {
+        if (!selectedDocumentText) return undefined;
         if (selectedChapters.length === 0) {
           return selectedDocumentText.slice(0, maxTokens * CHARS_PER_TOKEN);
         }
@@ -3260,12 +3260,17 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
           .map((num) => buildChapterQAContext(selectedDocument.title, selectedDocumentText, num, perChapterTokens))
           .join("\n\n---\n\n");
       }
-      
+
       case "excerpt":
-        return contextSelection.excerpt || selectedDocumentText.slice(0, maxTokens * CHARS_PER_TOKEN);
-      
+        // The excerpt is self-sufficient and must reach the AI even when the full
+        // document text hasn't been loaded (e.g. EPUB right-click → Create Flashcard,
+        // where list_documents omits the content column). Fall back to the document
+        // text only when no excerpt is present.
+        return contextSelection.excerpt || selectedDocumentText?.slice(0, maxTokens * CHARS_PER_TOKEN);
+
       case "pages":
         // Approximate: assume 500 words per page, 4 chars per word
+        if (!selectedDocumentText) return undefined;
         if (contextSelection.pageRange) {
           const charsPerPage = 2000;
           const start = (contextSelection.pageRange.start - 1) * charsPerPage;
@@ -3273,12 +3278,12 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
           return selectedDocumentText.slice(start, end);
         }
         return selectedDocumentText.slice(0, maxTokens * CHARS_PER_TOKEN);
-      
+
       case "search":
-        return contextSelection.excerpt || selectedDocumentText.slice(0, maxTokens * CHARS_PER_TOKEN);
-      
+        return contextSelection.excerpt || selectedDocumentText?.slice(0, maxTokens * CHARS_PER_TOKEN);
+
       default:
-        return selectedDocumentText.slice(0, maxTokens * CHARS_PER_TOKEN);
+        return selectedDocumentText?.slice(0, maxTokens * CHARS_PER_TOKEN);
     }
   }, [selectedDocument, selectedDocumentText, contextSelection, maxTokens]);
 
@@ -3458,7 +3463,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         { role: "user", content: userContent },
       ];
 
-      const hasDocumentContent = selectedDocument && contextContent?.trim();
+      const hasDocumentContent = !!(contextContent?.trim());
       const response = await chatWithContext(
         currentProvider.provider,
         currentProvider.model,
@@ -3658,9 +3663,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       
       llmMessages.push(...history, { role: "user", content: userMessage.content });
 
-      // Use 'general' context type when document content isn't available,
-      // even if a document is selected — prevents 'Document context is unavailable' error
-      const hasDocumentContent = selectedDocument && contextContent?.trim();
+      // Use 'general' context type only when there is genuinely nothing to send.
+      // A bare excerpt (e.g. selected EPUB text via right-click → Create Flashcard)
+      // is enough to use document context even if the full document isn't loaded.
+      const hasDocumentContent = !!(contextContent?.trim());
       const response = await chatWithContext(
         currentProvider.provider,
         currentProvider.model,
