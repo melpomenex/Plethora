@@ -64,28 +64,27 @@
   position: absolute;
   pointer-events: none;
   border-radius: 2px;
-  mix-blend-mode: multiply;
 }
 
 /* Default yellow highlight color */
 .pdf-highlight.yellow {
-  background-color: rgba(255, 235, 59, 0.5);
+  background-color: rgba(245, 158, 11, 0.20);
 }
 
 .pdf-highlight.green {
-  background-color: rgba(76, 175, 80, 0.4);
+  background-color: rgba(34, 197, 94, 0.20);
 }
 
 .pdf-highlight.blue {
-  background-color: rgba(33, 150, 243, 0.4);
+  background-color: rgba(59, 130, 246, 0.20);
 }
 
 .pdf-highlight.pink {
-  background-color: rgba(233, 30, 99, 0.4);
+  background-color: rgba(236, 72, 153, 0.20);
 }
 
 .pdf-highlight.purple {
-  background-color: rgba(156, 39, 176, 0.4);
+  background-color: rgba(168, 85, 247, 0.20);
 }
 
 /* ============================================================

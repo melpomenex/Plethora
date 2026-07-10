@@ -9,6 +9,8 @@
 import { browserInvoke } from './browser-backend.js';
 
 let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
+let tauriApiLoadPromise: Promise<void> | null = null;
+let backendReadyPromise: Promise<void> | null = null;
 let tauriDialogOpen: ((options: unknown) => Promise<string | string[] | null>) | null = null;
 let tauriEventListen: (<T>(event: string, handler: (event: T) => void) => Promise<() => void>) | null = null;
 let tauriConvertFileSrc: ((path: string, protocol?: string) => string) | null = null;
@@ -193,14 +195,18 @@ async function loadTauriAPI(): Promise<void> {
     return;
   }
 
-  try {
-    const coreModule = await import("@tauri-apps/api/core");
-    tauriInvoke = coreModule.invoke;
-    tauriConvertFileSrc = coreModule.convertFileSrc;
-  } catch (error) {
-    console.error("Failed to load Tauri API:", error);
-    throw new Error("Tauri API not available");
-  }
+  tauriApiLoadPromise ??= import("@tauri-apps/api/core")
+    .then((coreModule) => {
+      tauriInvoke = coreModule.invoke;
+      tauriConvertFileSrc = coreModule.convertFileSrc;
+    })
+    .catch((error) => {
+      tauriApiLoadPromise = null;
+      console.error("Failed to load Tauri API:", error);
+      throw new Error("Tauri API not available");
+    });
+
+  await tauriApiLoadPromise;
 }
 
 /**
@@ -248,6 +254,10 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
       throw new Error("Failed to load Tauri invoke API");
     }
     try {
+      if (command !== "wait_for_backend_ready") {
+        backendReadyPromise ??= tauriInvoke("wait_for_backend_ready").then(() => undefined);
+        await backendReadyPromise;
+      }
       return await tauriInvoke(command, args) as T;
     } catch (error) {
       console.error(`Tauri command "${command}" failed:`, error);

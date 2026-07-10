@@ -17,7 +17,7 @@ import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
 import { useEdgeSwipeForward } from "../../hooks/useEdgeSwipeForward";
 import { useSwipeBetweenTabs } from "../../hooks/useSwipeBetweenTabs";
 import { AdaptiveAppScaffold } from "../layout/AdaptiveAppScaffold";
-import { requestOverlayBack } from "../../lib/overlayStack";
+import { requestApplicationBack } from "../../lib/applicationBack";
 
 interface MobileLayoutWrapperProps {
   children: React.ReactNode;
@@ -37,7 +37,7 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
 
   useEdgeSwipeBack(
     () => {
-      useTabsStore.getState().goToPreviousTab();
+      requestApplicationBack();
     },
     { disabled: gesturesDisabled },
   );
@@ -117,7 +117,7 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
 
   useEffect(() => {
     const handleSystemBack = (event: Event) => {
-      if (requestOverlayBack()) event.preventDefault();
+      if (requestApplicationBack()) event.preventDefault();
     };
     window.addEventListener("incrementum:system-back", handleSystemBack);
     return () =>

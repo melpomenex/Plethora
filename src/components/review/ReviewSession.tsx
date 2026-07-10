@@ -612,8 +612,8 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 md:gap-6 flex-1 min-h-0">
-        <div className="flex flex-col gap-4 md:gap-6 min-h-0">
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_320px] gap-4 md:gap-6 md:flex-1 md:min-h-0">
+        <div className="flex flex-col gap-4 md:gap-6 md:min-h-0">
           <div className="hidden md:flex bg-card border border-border rounded-lg p-4 flex-wrap gap-4 text-sm text-muted-foreground">
             <div>
               {t("review.timeRemaining")}: <span className="text-foreground font-semibold">{minMinutes}-{maxMinutes} min</span>
@@ -640,7 +640,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           />
 
           {/* Card and Ratings */}
-          <div ref={swipeRef} className="flex-1 flex flex-col min-h-0 relative touch-pan-y">
+          <div ref={swipeRef} className="md:flex-1 flex flex-col md:min-h-0 relative touch-pan-y">
             {/* Swipe Indicator Overlay */}
             {swipeDirection && isAnswerShown && (
               <div
@@ -740,7 +740,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
 
       {/* Audio review mode status pill */}
       {audioReview.isEnabled && audioReview.status !== "idle" && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-card border border-border shadow-lg flex items-center gap-2 text-sm">
+        <div className="audio-review-pill fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-card border border-border shadow-lg flex items-center gap-2 text-sm">
           <SpeakerHigh className="w-4 h-4 text-primary animate-pulse" />
           <span className="text-foreground">
             {audioReview.status === "speaking-question" && "Reading question…"}

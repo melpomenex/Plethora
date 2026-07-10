@@ -2,7 +2,8 @@
 import React, { useMemo, useCallback } from "react";
 import type { PageViewport } from "pdfjs-dist";
 import type { PdfRect } from "../../types/selection";
-import { HIGHLIGHT_COLORS, type HighlightColor } from "./SelectionPopup";
+import { type HighlightColor } from "./SelectionPopup";
+import { normalizeHighlightColor } from "../../utils/highlightColors";
 
 export interface StoredHighlight {
   /** Unique identifier for the highlight */
@@ -130,7 +131,7 @@ export const HighlightLayer: React.FC<HighlightLayerProps> = ({
               top: rect.top,
               width: rect.width,
               height: rect.height,
-              backgroundColor: HIGHLIGHT_COLORS[highlight.color],
+              backgroundColor: normalizeHighlightColor(highlight.color),
               cursor: interactive ? "pointer" : "default",
               pointerEvents: interactive ? "auto" : "none",
             }}

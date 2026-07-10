@@ -222,7 +222,7 @@ export function Toast() {
 
   return (
     <div 
-      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-full p-4 pointer-events-none"
+      className="toast-container fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-full p-4 pointer-events-none"
       aria-live="polite"
       aria-atomic="true"
     >

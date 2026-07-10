@@ -42,6 +42,12 @@ export interface WorkspaceTabInfo {
   isActive: boolean;
 }
 
+export interface SettingsReturnDestination {
+  tabId: string;
+  paneId: string;
+  title: string;
+}
+
 // Split direction for panes
 export type SplitDirection = "horizontal" | "vertical";
 
@@ -145,6 +151,8 @@ export interface TabsState {
   goToPreviousTab: () => boolean;
   // Navigate forward (edge-swipe forward). Returns true if navigation happened.
   goToNextTab: () => boolean;
+  getSettingsReturnDestination: () => SettingsReturnDestination | null;
+  returnFromSettings: () => boolean;
   closeOtherTabs: (tabId: string) => void;
   closeTabsToRight: (tabId: string) => void;
   closeAllTabs: () => void;
@@ -683,6 +691,73 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       };
     });
     setTimeout(() => get().saveTabs(), 0);
+  },
+
+  getSettingsReturnDestination: () => {
+    const state = get();
+    const settingsTab = state.tabs.find((tab) => tab.type === "settings");
+    if (!settingsTab) return null;
+
+    const settingsPane = findPaneContainingTabRecursive(state.rootPane, settingsTab.id);
+    if (!settingsPane || settingsPane.activeTabId !== settingsTab.id) return null;
+
+    const paneIds = new Set(settingsPane.tabIds);
+    for (let index = state.activeTabHistory.length - 1; index >= 0; index--) {
+      const candidateId = state.activeTabHistory[index];
+      if (candidateId === settingsTab.id || !paneIds.has(candidateId)) continue;
+
+      const candidate = state.tabs.find(
+        (tab) => tab.id === candidateId && tab.type !== "settings",
+      );
+      if (candidate) {
+        return {
+          tabId: candidate.id,
+          paneId: settingsPane.id,
+          title: candidate.title,
+        };
+      }
+    }
+
+    return null;
+  },
+
+  returnFromSettings: () => {
+    const state = get();
+    const settingsTab = state.tabs.find((tab) => tab.type === "settings");
+    if (!settingsTab) return false;
+
+    const settingsPane = findPaneContainingTabRecursive(state.rootPane, settingsTab.id);
+    if (!settingsPane || settingsPane.activeTabId !== settingsTab.id) return false;
+
+    const destination = state.getSettingsReturnDestination();
+    const dashboardInPane = state.tabs.find(
+      (tab) => tab.type === "dashboard" && settingsPane.tabIds.includes(tab.id),
+    );
+    const targetId = destination?.tabId ?? dashboardInPane?.id ?? null;
+
+    if (targetId) {
+      set((current) => ({
+        rootPane: updatePaneInTree(current.rootPane, settingsPane.id, (pane) => ({
+          ...(pane as TabPane),
+          activeTabId: targetId,
+        })),
+        forwardTabHistory: [
+          ...current.forwardTabHistory.filter((id) => id !== settingsTab.id),
+          settingsTab.id,
+        ],
+      }));
+      setTimeout(() => get().saveTabs(), 0);
+      return true;
+    }
+
+    // Keep fallback creation on the app's existing navigation path so the
+    // dashboard receives its canonical component, title, and singleton rules.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("navigate", { detail: "/dashboard" }));
+      return true;
+    }
+
+    return false;
   },
 
   // Edge-swipe back: activate the tab visited just before the current one.

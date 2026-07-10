@@ -705,7 +705,7 @@ export function DragDropUpload({
 
       {/* Upload panel */}
       {showUploadPanel && uploadQueue.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-40 w-96 bg-card border border-border rounded-lg shadow-lg overflow-hidden">
+        <div className="drag-drop-upload-container fixed bottom-4 right-4 z-40 w-96 bg-card border border-border rounded-lg shadow-lg overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">

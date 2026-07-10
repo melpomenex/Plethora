@@ -18,6 +18,7 @@ import {
   type NotebookLMResearchError,
   type ResearchArtifactDraft,
 } from "../../features/documentQa/notebooklmResearch";
+import { createDocumentQaRequestContent, loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
 import {
   BookOpen,
   ChatCircle,
@@ -41,8 +42,12 @@ import { useI18n } from "../../lib/i18n";
 import { invokeCommand } from "../../lib/tauri";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
-import type { SectionNode } from "../../utils/sectionIndex";
-import { buildSectionFocusedContext } from "../../utils/sectionIndex";
+import {
+  buildDocumentSections,
+  resolveSectionFocusedContext,
+  type FocusedSectionContextResult,
+  type SectionNode,
+} from "../../utils/sectionIndex";
 
 // Re-export types with simpler names for local use
 type Message = QAMessage;
@@ -101,7 +106,7 @@ export function DocumentQATab() {
   const [showSectionPopup, setShowSectionPopup] = useState(false);
   const [sectionQuery, setSectionQuery] = useState("");
   const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
-  const [selectedSection, setSelectedSection] = useState<SectionNode | null>(null);
+  const [selectedSections, setSelectedSections] = useState<SectionNode[]>([]);
   const [fullContent, setFullContent] = useState("");
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
@@ -134,7 +139,6 @@ export function DocumentQATab() {
     tree: sectionTree,
     flat: sectionFlat,
     getById: getSectionById,
-    buildSectionFocusedContext: buildFocusedCtxFromHook,
   } = useDocumentSections({
     documentId: targetDocId,
     content: fullContent,
@@ -142,6 +146,11 @@ export function DocumentQATab() {
   });
 
   const sections = sectionFlat;
+
+  useEffect(() => {
+    setSelectedSections([]);
+    setRawInput((value) => value.replace(SECTION_REGEX, "").trim());
+  }, [targetDocId]);
 
   const userQueries = useMemo(() => {
     return messages
@@ -222,7 +231,8 @@ export function DocumentQATab() {
 
   // Detect chapter references in the query reactively
   useEffect(() => {
-    const chapterRef = detectChapterReference(rawInput);
+    const visibleQuery = rawInput.replace(MENTION_REGEX, "").replace(SECTION_REGEX, "");
+    const chapterRef = detectChapterReference(visibleQuery);
     const targetDocId = mentions.length > 0 ? mentions[0].id : selectedDocumentId;
     
     if (chapterRef && targetDocId) {
@@ -326,7 +336,7 @@ export function DocumentQATab() {
   }, [documents]);
 
   // Format input for display (replace tokens with badges) - now tree-aware with breadcrumb
-  const formatInputForDisplay = useCallback((text: string, mentionList: DocumentMention[], activeSec?: SectionNode | null): string => {
+  const formatInputForDisplay = useCallback((text: string, mentionList: DocumentMention[], activeSections: SectionNode[] = []): string => {
     let formatted = text;
     mentionList.forEach((mention) => {
       const token = `@{${mention.id}}`;
@@ -337,8 +347,8 @@ export function DocumentQATab() {
     if (sectionMatches) {
       sectionMatches.forEach((token) => {
         const secId = token.slice(2, -1);
-        const matchedSec = activeSec && activeSec.id === secId 
-          ? activeSec 
+        const matchedSec = activeSections.find((section) => section.id === secId)
+          ? activeSections.find((section) => section.id === secId)
           : getSectionById(secId) || sections.find(s => s.id === secId);
         if (matchedSec) {
           const label = matchedSec.breadcrumb.length > 0 ? `${matchedSec.breadcrumb[matchedSec.breadcrumb.length - 1]} > ${matchedSec.title}` : matchedSec.title;
@@ -381,13 +391,17 @@ export function DocumentQATab() {
 
     // If section token is deleted, clear selected section
     const hasSectionToken = SECTION_REGEX.test(value);
-    let nextSec = selectedSection;
+    let nextSections = selectedSections;
     if (!hasSectionToken) {
-      setSelectedSection(null);
-      nextSec = null;
+      setSelectedSections([]);
+      nextSections = [];
+    } else {
+      const tokenIds = value.match(SECTION_REGEX)?.map((token) => token.slice(2, -1)) ?? [];
+      nextSections = selectedSections.filter((section) => tokenIds.includes(section.id));
+      setSelectedSections(nextSections);
     }
 
-    setInput(formatInputForDisplay(value, newMentions, nextSec));
+    setInput(formatInputForDisplay(value, newMentions, nextSections));
   };
 
   const handleSelectDocument = (doc: { id: string; title: string }) => {
@@ -408,7 +422,7 @@ export function DocumentQATab() {
         value.slice(0, atPosition) + mentionToken + " " + value.slice(cursorPosition);
 
       setRawInput(newValue);
-      setInput(formatInputForDisplay(newValue, [...mentions, { id: doc.id, title: doc.title, index: atPosition }], selectedSection));
+      setInput(formatInputForDisplay(newValue, [...mentions, { id: doc.id, title: doc.title, index: atPosition }], selectedSections));
       setShowMentionPopup(false);
 
       // Set cursor after the mention
@@ -437,10 +451,12 @@ export function DocumentQATab() {
         value.slice(0, hashPosition) + sectionToken + " " + value.slice(cursorPosition);
 
       setRawInput(newValue);
-      setSelectedSection(sec);
+      const selectedWithDocument = { ...sec, documentId: targetDocId };
+      const nextSections = [...selectedSections.filter((section) => section.id !== sec.id), selectedWithDocument];
+      setSelectedSections(nextSections);
       setShowSectionPopup(false);
 
-      setInput(formatInputForDisplay(newValue, mentions, sec));
+      setInput(formatInputForDisplay(newValue, mentions, nextSections));
 
       setTimeout(() => {
         const newPosition = hashPosition + sectionToken.length + 1;
@@ -495,7 +511,10 @@ export function DocumentQATab() {
           setRawInput(historicalQuery);
           const { mentions: newMentions } = parseMentions(historicalQuery);
           setMentions(newMentions);
-          setInput(formatInputForDisplay(historicalQuery, newMentions, selectedSection));
+          const tokenIds = historicalQuery.match(SECTION_REGEX)?.map((token) => token.slice(2, -1)) ?? [];
+          const historicalSections = sections.filter((section) => tokenIds.includes(section.id));
+          setSelectedSections(historicalSections);
+          setInput(formatInputForDisplay(historicalQuery, newMentions, historicalSections));
         }
       }
     } else if (e.key === "ArrowDown") {
@@ -515,7 +534,10 @@ export function DocumentQATab() {
         setRawInput(newQuery);
         const { mentions: newMentions } = parseMentions(newQuery);
         setMentions(newMentions);
-        setInput(formatInputForDisplay(newQuery, newMentions, selectedSection));
+        const tokenIds = newQuery.match(SECTION_REGEX)?.map((token) => token.slice(2, -1)) ?? [];
+        const historicalSections = sections.filter((section) => tokenIds.includes(section.id));
+        setSelectedSections(historicalSections);
+        setInput(formatInputForDisplay(newQuery, newMentions, historicalSections));
       }
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -529,7 +551,7 @@ export function DocumentQATab() {
     setRawInput(newValue);
     const { mentions: newMentions } = parseMentions(newValue);
     setMentions(newMentions);
-    setInput(formatInputForDisplay(newValue, newMentions, selectedSection));
+    setInput(formatInputForDisplay(newValue, newMentions, selectedSections));
   };
 
   const clearConversation = () => {
@@ -621,11 +643,15 @@ export function DocumentQATab() {
     }
   };
 
+  const loadDocumentText = async (documentId: string): Promise<string> => {
+    return loadDocumentQaText(documentId, { getDocument, extractDocumentText });
+  };
+
   // Build aggregated content from mentioned documents (chapter-aware or section-aware)
   const buildMultiDocumentContext = async (
     documentIds: string[],
     chapterRef?: ChapterReference | null,
-    sectionId?: string | null
+    focusedSection?: FocusedSectionContextResult | null
   ): Promise<{ content: string; isChapterSpecific: boolean; chapterNumber?: number; isSectionSpecific?: boolean; sectionTitle?: string }> => {
     if (documentIds.length === 0) {
       // If no documents mentioned, search all documents
@@ -635,24 +661,15 @@ export function DocumentQATab() {
       };
     }
 
-    // Check if section is specified and available - new tree-aware with surrounding context
-    if (sectionId) {
-      const ids = rawInput.match(SECTION_REGEX)?.map((t) => t.slice(2, -1)) || [sectionId];
-      const nodes = ids.map((id) => getSectionById(id) || sections.find((s) => s.id === id)).filter(Boolean) as SectionNode[];
-      if (nodes.length > 0) {
-        const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 4000;
-        const focused = nodes.length === 1
-          ? buildSectionFocusedContext(nodes, fullContent, { maxTokens, includeNeighbors: true })
-          : buildFocusedCtxFromHook(nodes.map((n) => n.id), maxTokens);
-        const docTitle = documents.find((d) => d.id === documentIds[0])?.title || "Document";
-        const titles = nodes.map((n) => (n.breadcrumb.length > 0 ? `${n.breadcrumb.join(" > ")} > ${n.title}` : n.title)).join(", ");
-        return {
-          content: `Document: ${docTitle}\nFocused Section(s): ${titles}\n\n${focused}`,
-          isChapterSpecific: false,
-          isSectionSpecific: true,
-          sectionTitle: titles,
-        };
-      }
+    if (focusedSection?.ok) {
+      const docTitle = documents.find((d) => d.id === documentIds[0])?.title || "Document";
+      const titles = focusedSection.labels.join(", ");
+      return {
+        content: `Document: ${docTitle}\nFocused Section(s): ${titles}\n\n${focusedSection.content}`,
+        isChapterSpecific: false,
+        isSectionSpecific: true,
+        sectionTitle: titles,
+      };
     }
 
     // Get content for each document (with chapter extraction if referenced)
@@ -861,14 +878,13 @@ export function DocumentQATab() {
         : [];
 
     // Detect chapter references in the query
-    const chapterRef = detectChapterReference(rawInput);
+    const chapterRef = detectChapterReference(rawInput.replace(MENTION_REGEX, "").replace(SECTION_REGEX, ""));
 
     // Detect section references in the query (support multiple)
     const sectionMatches = rawInput.match(SECTION_REGEX);
     const matchedSectionIds = sectionMatches ? sectionMatches.map((t) => t.slice(2, -1)) : [];
-    const matchedSectionId = matchedSectionIds[0] || null;
-    const activeSectionsAll = matchedSectionIds
-      .map((id) => getSectionById(id) || sections.find((s) => s.id === id))
+    const selectedSectionSnapshot = matchedSectionIds
+      .map((id) => selectedSections.find((section) => section.id === id) || getSectionById(id) || sections.find((section) => section.id === id))
       .filter(Boolean) as SectionNode[];
 
     const userMessage: Message = {
@@ -885,6 +901,7 @@ export function DocumentQATab() {
     setRawInput("");
     setInput("");
     setMentions([]);
+    setSelectedSections([]);
     setDetectedChapter(null);
     setProviderError(null);
     setIsProcessing(true);
@@ -905,6 +922,69 @@ export function DocumentQATab() {
 
       const provider = enabledProviders[0];
 
+      let focusedSectionContext: FocusedSectionContextResult | null = null;
+      if (matchedSectionIds.length > 0) {
+        if (mentionedDocumentIds.length !== 1) {
+          addMessage({
+            id: `error-${Date.now()}`,
+            role: "system",
+            content: "Section context is unavailable because a # heading must belong to one active document. Select one document and choose the heading again.",
+            timestamp: Date.now(),
+          });
+          return;
+        }
+
+        const documentId = mentionedDocumentIds[0];
+        const currentText = await loadDocumentText(documentId);
+        if (!currentText) {
+          addMessage({
+            id: `error-${Date.now()}`,
+            role: "system",
+            content: "The selected section could not be loaded from this document. Retry text extraction or select another heading before asking again.",
+            timestamp: Date.now(),
+          });
+          return;
+        }
+
+        const parsedCurrentSections = buildDocumentSections(currentText).flat.map((section) => ({ ...section, documentId }));
+        const currentSections = [
+          ...sectionFlat.map((section) => ({ ...section, documentId })),
+          ...parsedCurrentSections.filter((parsed) => !sectionFlat.some((section) => section.id === parsed.id)),
+        ];
+        const requestedSections = matchedSectionIds.map((id) =>
+          selectedSectionSnapshot.find((section) => section.id === id)
+          ?? ({
+            id,
+            title: id,
+            level: 1,
+            breadcrumb: [],
+            preview: "",
+            content: "",
+            children: [],
+            parentId: null,
+            documentId,
+            hasAuthoritativeRange: false,
+          } satisfies SectionNode)
+        );
+        const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 4000;
+        focusedSectionContext = resolveSectionFocusedContext(requestedSections, currentSections, currentText, {
+          documentId,
+          maxTokens,
+          includeNeighbors: true,
+        });
+        if (!focusedSectionContext.ok) {
+          const failed = focusedSectionContext.unresolved.map((item) => item.label).join(", ");
+          addMessage({
+            id: `error-${Date.now()}`,
+            role: "system",
+            content: `The selected section context is no longer available${failed ? ` for: ${failed}` : ""}. Retry text extraction or select the heading again. No LLM request was sent.`,
+            timestamp: Date.now(),
+          });
+          return;
+        }
+        setFullContent(currentText);
+      }
+
       const mcpTools = (await getIncrementumMCPTools()) || [];
       const systemPrompt: LLMMessage = {
         role: "system",
@@ -918,7 +998,7 @@ ${mentionedDocumentIds.length > 0
 - Summarize and explain topics
 
 ${chapterRef ? `**CHAPTER CONTEXT**: The user is asking about Chapter ${chapterRef.number}. Focus your answer and flashcard creation on that specific chapter.\n\n` : ''}
-${activeSectionsAll.length > 0 ? `**SECTION CONTEXT**: The user is asking about Section(s) "${activeSectionsAll.map((s) => (s.breadcrumb.length > 0 ? s.breadcrumb.join(" > ") + " > " + s.title : s.title)).join(", ")}". Focus your answer and flashcard creation on those specific sections. Token estimates: ${activeSectionsAll.map((s) => Math.ceil(s.content.length / 4)).join(", ")} tokens.\n\n` : ''}`
+${focusedSectionContext?.ok ? `**SECTION CONTEXT**: The user is asking about Section(s) "${focusedSectionContext.labels.join(", ")}". Focus your answer and flashcard creation on those specific sections. Resolved context estimate: ${focusedSectionContext.estimatedTokens} tokens.\n\n` : ''}`
   : `The user is asking a general question. Answer based on your knowledge.`}
 
 **CRITICAL: TOOL USAGE**
@@ -967,7 +1047,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
       const { content: documentContext, isChapterSpecific, chapterNumber, isSectionSpecific, sectionTitle } = await buildMultiDocumentContext(
         mentionedDocumentIds,
         chapterRef,
-        matchedSectionId
+        focusedSectionContext
       );
 
       let userQuestion = savedRawInput.replace(MENTION_REGEX, "").replace(SECTION_REGEX, "").trim();
@@ -1047,17 +1127,21 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         }
       }
       let contextPrefix = "";
-      
       if (isChapterSpecific && chapterNumber) {
         contextPrefix = `[Focusing on Chapter ${chapterNumber}]\n\n`;
-      } else if (isSectionSpecific && sectionTitle) {
-        contextPrefix = `[Focusing on Section: ${sectionTitle}]\n\n`;
       }
+
+      const requestContent = createDocumentQaRequestContent({
+        documentContext,
+        userQuestion,
+        focusLabel: isSectionSpecific ? sectionTitle : undefined,
+        webSearchContext,
+      });
 
       const userPrompt: LLMMessage = {
         role: "user",
         content: mentionedDocumentIds.length > 0
-          ? `${contextPrefix}Document context:\n${documentContext}${webSearchContext}\n\nUser question: ${userQuestion}`
+          ? `${contextPrefix}${requestContent.userPromptContent}`
           : `${webSearchContext}\n\nUser question: ${userQuestion}`.trim(),
       };
 
@@ -1078,7 +1162,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         {
           type: mentionedDocumentIds.length > 0 ? "document" : "general",
           documentId: mentionedDocumentIds[0],
-          content: mentionedDocumentIds.length > 0 ? documentContext + webSearchContext : webSearchContext,
+          content: mentionedDocumentIds.length > 0 ? requestContent.contextContent : webSearchContext,
         },
         provider.apiKey,
         provider.baseUrl,
@@ -1330,7 +1414,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
       )}
 
       {/* Mention badges, chapter detection, section focus - new tree-aware */}
-      {(mentions.length > 0 || detectedChapter || selectedSection) && (
+      {(mentions.length > 0 || detectedChapter || selectedSections.length > 0) && (
         <div className="px-4 pt-2 flex flex-wrap gap-2">
           {mentions.map((mention) => (
             <span
@@ -1354,8 +1438,9 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
               {detectedChapter.title && `: ${detectedChapter.title}`}
             </span>
           )}
-          {selectedSection && (
+          {selectedSections.map((selectedSection) => (
             <span
+              key={selectedSection.id}
               className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 text-sm rounded-full"
               title={selectedSection.breadcrumb.length > 0 ? selectedSection.breadcrumb.join(" > ") : selectedSection.title}
             >
@@ -1368,17 +1453,19 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
               </span>
               <button
                 onClick={() => {
-                  setSelectedSection(null);
-                  const newRaw = rawInput.replace(SECTION_REGEX, "").trim();
+                  const token = `#{${selectedSection.id}}`;
+                  const nextSections = selectedSections.filter((section) => section.id !== selectedSection.id);
+                  setSelectedSections(nextSections);
+                  const newRaw = rawInput.replace(token, "").replace(/\s{2,}/g, " ").trim();
                   setRawInput(newRaw);
-                  setInput(newRaw);
+                  setInput(formatInputForDisplay(newRaw, mentions, nextSections));
                 }}
                 className="hover:bg-emerald-200 dark:hover:bg-emerald-800 rounded-full p-0.5 ml-1"
               >
                 <X className="w-3 h-3" />
               </button>
             </span>
-          )}
+          ))}
         </div>
       )}
 

@@ -865,7 +865,7 @@ export function VimiumFindBar({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[999999] bg-background border border-border rounded-lg shadow-lg p-2 flex items-center gap-2">
+    <div className="vimium-container fixed bottom-4 left-1/2 -translate-x-1/2 z-[999999] bg-background border border-border rounded-lg shadow-lg p-2 flex items-center gap-2">
       <span className="text-muted-foreground">/</span>
       <input
         type="text"
@@ -916,7 +916,7 @@ export function VimiumCommandBar({
   });
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[999999] bg-background border border-border rounded-lg shadow-lg overflow-hidden min-w-[420px]">
+    <div className="vimium-container fixed bottom-4 left-1/2 -translate-x-1/2 z-[999999] bg-background border border-border rounded-lg shadow-lg overflow-hidden min-w-[420px]">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <span className="text-muted-foreground">:</span>
         <input
@@ -1079,7 +1079,7 @@ export function VimiumNavigationProvider({
         document.body
       )}
       {enabled && mode !== NavigationMode.Normal && createPortal(
-        <div className="fixed bottom-4 right-4 z-[999997] bg-background border border-border rounded-md px-3 py-1 text-xs text-muted-foreground shadow">
+        <div className="vimium-container fixed bottom-4 right-4 z-[999997] bg-background border border-border rounded-md px-3 py-1 text-xs text-muted-foreground shadow">
           Vimium: {mode}
         </div>,
         document.body

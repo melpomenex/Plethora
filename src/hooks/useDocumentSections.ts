@@ -140,6 +140,9 @@ export function useDocumentSections(options: UseDocumentSectionsOptions): UseDoc
 
     const finalTree = builtTree;
     const finalFlat = builtFlat.length > 0 ? builtFlat : flattenTree(finalTree);
+    for (const node of finalFlat) {
+      node.documentId = documentId;
+    }
 
     setCache(cacheKey, { tree: finalTree, flat: finalFlat, hash: `${contentHashResolved}:${outlineHash}` });
 
