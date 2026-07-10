@@ -17,8 +17,8 @@ import { useDocumentOutlineStore } from "../stores/documentOutlineStore";
 interface UseDocumentSectionsOptions {
   documentId?: string;
   content?: unknown;
-  pdfOutline?: Array<{ title: string; pageNumber?: number; items?: unknown[] }>;
-  epubToc?: Array<{ label?: string; title?: string; href?: string; subitems?: unknown[] }>;
+  pdfOutline?: any[];
+  epubToc?: any[];
   contentHash?: string;
   useStoreOutline?: boolean;
 }
