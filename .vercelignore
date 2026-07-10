@@ -51,7 +51,6 @@ requirements.txt
 whisper.cpp/
 browser_extension/
 demo/
-docs/
 mobile-screenshots/
 vendor/
 yjs-sync/
