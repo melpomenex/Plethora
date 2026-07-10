@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.70.0] - 2026-07-10
+
+### Added
+
+- **Hierarchical # Section Mentions with Tree UX** — Typing `#` in Document Q&A or Assistant now shows a tree of chapters > headings > subheadings with breadcrumbs, page numbers, 80-char previews, fuzzy search (title ×2 + breadcrumb), keyboard nav (↑↓/Tab expand/Enter/Esc), virtualization for 500+ headings, and greeting header "Sections in this document (N)". Selected chips show breadcrumb chain + token estimate and clear action. Focused context includes surrounding paragraphs with `[Previous context]/[Focused]/[Next]` labels, 70% token budget truncation, and token saving ~70% vs full document.
+
+### Fixed & Improved
+
+- **Fixed `yjs_file_upload decode failed: error decoding response body`** — Rust `YjsFileMeta` now uses `rename_all="camelCase"` + snake_case aliases + defaults to handle server camelCase (`sizeBytes`, `createdAt`, `contentType`, `encMetadata`); reads raw bytes then `serde_json::from_slice` with 500-char body preview on failure; background file-service upload queue capped at 3 retries, degraded from `warn` to `debug`, and skips duplicates.
+- **Fixed Assistant crash `content.charCodeAt is not a function`** — `useDocumentSections` now normalizes `Uint8Array`/`number[]` content via `normalizeContent` and accepts `any[]` outline types, preventing crash when Assistant context is binary.
+- **Performance sweep** — Vite `manualChunks` splits `three-vendor`, `transformers-vendor`, `ocr-vendor`, `charts-vendor`, `katex-vendor`, `yjs-vendor`, `sql-vendor`, `markdown-vendor`, `zip-vendor`, `tiktoken-vendor` (main bundle 2.3MB → 1.32MB); `markdown.ts` LRU caches 64 docs/1024 inline + `escapeHtmlFast` 923× speedup; `wordHighlighter` cached IndexedText; `queueStore` single-pass filter + memoized Sets + `parallelWithLimit(6)` for postponeAll; `documentStore` cached module promises + throttled progress 120ms + batched flags; `rss.ts` concurrency 6; `PDFViewer` virtualization enabled threshold 40 window 6; `QueueScrollPage` `documentsMap` + O(n) `applyVarietyMixing`; `RSSReader` virtualized with `@tanstack/react-virtual`; `imageCompression` offloaded to Web Worker `OffscreenCanvas` + `toBlob`; `ocr` pooled workers per lang + batch concurrency 2; `ThemeBackdrop` rain/lightning DOM divs → canvas `flashAlpha` fillRect.
+
 ## [1.69.0] - 2026-07-09
 
 ### Added & Improved
