@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowLeft,
   ArrowsClockwise,
@@ -270,6 +271,7 @@ export function RSSReader() {
   // Reference to the auto-refresh interval
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const syncFeedbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const rssListParentRef = useRef<HTMLDivElement | null>(null);
 
   const scheduleSyncFeedbackReset = useCallback((delayMs = 3500) => {
     if (syncFeedbackTimeoutRef.current) {
@@ -1368,6 +1370,25 @@ export function RSSReader() {
     return styles;
   }, [preferences]);
 
+  const rssVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => rssListParentRef.current,
+    estimateSize: () => 96,
+    overscan: 10,
+  });
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    const idx = items.findIndex(({ item }) => item.id === selectedItem.id);
+    if (idx >= 0) {
+      try {
+        rssVirtualizer.scrollToIndex(idx, { align: "auto" });
+      } catch {
+        // ignore
+      }
+    }
+  }, [selectedItem?.id]);
+
   // Scroll mode view - render before main layout
   if (scrollMode) {
     return <RSSScrollMode onExit={() => setScrollMode(false)} initialFeedId={selectedFeed?.id} />;
@@ -2262,184 +2283,72 @@ export function RSSReader() {
                   />
                 </div>
               ) : (
-                <div className="flex-1 overflow-y-auto transition-all duration-300">
-                  <div className={`mx-auto w-full ${selectedItem ? "" : "max-w-4xl p-4"}`}>
-                    {items.map(({ feed, item }) => {
-                    const imageUrl = item.enclosure?.type?.startsWith("image/")
-                      ? item.enclosure.url
-                      : undefined;
-
-                    const viewModePref = preferences?.view_mode || "card";
-                    const isCompactView = viewModePref === "compact";
-                    const density = preferences?.density || "normal";
-
-                    const paddingClass = isCompactView
-                      ? "px-3 py-1.5"
-                      : density === "compact"
-                      ? "px-3 py-2"
-                      : density === "comfortable"
-                      ? "px-5 py-4"
-                      : "px-4 py-3";
-
-                    const excerptLen = preferences?.excerpt_length ?? 150;
-
-                    return (
-                      <article
-                        key={`${feed.id}-${item.id}`}
-                        data-article-id={item.id}
-                        onClick={() => handleItemClick(feed, item)}
-                        className={`group border-b border-border/60 hover:bg-muted/40 cursor-pointer transition-all ${paddingClass} ${
-                          selectedItem?.id === item.id ? "bg-muted/50 border-l-2 border-primary" : "border-l-2 border-transparent"
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className={`${isCompactView ? "mt-1" : "mt-2"} flex items-center gap-1.5 flex-shrink-0`}>
-                            <div
-                              className={`h-2 w-2 rounded-full ${
-                                item.read ? "bg-muted" : "bg-orange-500"
-                              }`}
-                            />
-                            <IntelligenceIndicator score={item.intelligenceScore} />
-                          </div>
-
-                          {!isCompactView && (preferences?.show_thumbnails ?? true) && imageUrl && (
-                            <div className="w-16 h-12 rounded-md overflow-hidden bg-muted/70 flex-shrink-0 border border-border/60">
-                              <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+                <div ref={rssListParentRef} className="flex-1 overflow-y-auto transition-all duration-300">
+                  <div style={{ height: `${rssVirtualizer.getTotalSize()}px`, position: "relative" }} className={`mx-auto w-full ${selectedItem ? "" : "max-w-4xl"}`}>
+                    {rssVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const entry = items[virtualRow.index];
+                      if (!entry) return null;
+                      const { feed, item } = entry;
+                      const imageUrl = item.enclosure?.type?.startsWith("image/") ? item.enclosure.url : undefined;
+                      const viewModePref = preferences?.view_mode || "card";
+                      const isCompactView = viewModePref === "compact";
+                      const density = preferences?.density || "normal";
+                      const paddingClass = isCompactView ? "px-3 py-1.5" : density === "compact" ? "px-3 py-2" : density === "comfortable" ? "px-5 py-4" : "px-4 py-3";
+                      const excerptLen = preferences?.excerpt_length ?? 150;
+                      return (
+                        <div
+                          key={`${feed.id}-${item.id}`}
+                          data-index={virtualRow.index}
+                          ref={rssVirtualizer.measureElement}
+                          style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
+                        >
+                          <article
+                            data-article-id={item.id}
+                            onClick={() => handleItemClick(feed, item)}
+                            className={`group border-b border-border/60 hover:bg-muted/40 cursor-pointer transition-all ${paddingClass} ${selectedItem?.id === item.id ? "bg-muted/50 border-l-2 border-primary" : "border-l-2 border-transparent"}`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className={`${isCompactView ? "mt-1" : "mt-2"} flex items-center gap-1.5 flex-shrink-0`}>
+                                <div className={`h-2 w-2 rounded-full ${item.read ? "bg-muted" : "bg-orange-500"}`} />
+                                <IntelligenceIndicator score={item.intelligenceScore} />
+                              </div>
+                              {!isCompactView && (preferences?.show_thumbnails ?? true) && imageUrl && (
+                                <div className="w-16 h-12 rounded-md overflow-hidden bg-muted/70 flex-shrink-0 border border-border/60">
+                                  <img src={imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <h3 className={`text-sm font-semibold ${isCompactView ? "" : "mb-1"} ${item.read ? "text-muted-foreground" : "text-foreground"}`}>{item.title}</h3>
+                                {!isCompactView && (item.fullContent || item.description) && (
+                                  <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                                    {item.fullContent ? generateArticleExcerpt(item.fullContent, excerptLen) : generateArticleExcerpt(item.description || "", excerptLen)}
+                                  </p>
+                                )}
+                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                                  {(preferences?.show_feed_icon ?? true) && getFeedIcon(feed) && (
+                                    <img src={getFeedIcon(feed)} alt="" className="w-3.5 h-3.5 rounded-sm object-cover flex-shrink-0" loading="lazy" />
+                                  )}
+                                  <span className="font-medium truncate">{feed.title}</span>
+                                  {(preferences?.show_author ?? true) && item.author && (<><span>•</span><span className="truncate">by {item.author}</span></>)}
+                                  {(preferences?.show_date ?? true) && (<><span>•</span><span>{formatFeedDate(item.pubDate)}</span></>)}
+                                  {item.fullContent && (<span className="flex items-center gap-1 text-blue-500"><span>•</span><TextT className="w-3 h-3" /><span>Full</span></span>)}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                                {!item.fullContent && (
+                                  <button onClick={(e) => { e.stopPropagation(); void fetchArticleFullContent(item.id, item.link); }} className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors" title="Fetch full content"><Download className="w-4 h-4" /></button>
+                                )}
+                                <button onClick={(e) => { e.stopPropagation(); handleToggleFavorite(feed, item); }} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors" title={item.favorite ? t("rssReader.removeFavorite") : t("rssReader.addFavorite")}>{item.favorite ? <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" /> : <Star className="w-4 h-4" />}</button>
+                                <a href={item.link} onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleOpenOriginal(item.link); }} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors" title={t("rssReader.openOriginal")}><ArrowSquareOut className="w-4 h-4" /></a>
+                                {item.read && (<button onClick={(e) => { e.stopPropagation(); void handleMarkUnread(feed, item); }} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors" title="Mark as unread"><EyeSlash className="w-4 h-4" /></button>)}
+                                <button onClick={(e) => { e.stopPropagation(); setShowTrainingMenu(true); setTrainingMenuPosition({ x: e.clientX, y: e.clientY }); }} className="p-1.5 text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 rounded transition-colors" title="Train intelligence"><GraduationCap className="w-4 h-4" /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setSelectedItem(item); setSelectedItemFeed(feed); setShowTagInput(true); }} className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-colors" title="Tag article"><Tag className="w-4 h-4" /></button>
+                              </div>
                             </div>
-                          )}
-
-                          <div className="flex-1 min-w-0">
-                            <h3
-                              className={`text-sm font-semibold ${isCompactView ? "" : "mb-1"} ${
-                                item.read ? "text-muted-foreground" : "text-foreground"
-                              }`}
-                            >
-                              {item.title}
-                            </h3>
-                            {/* Show excerpt from full content if available, otherwise from description */}
-                            {!isCompactView && (item.fullContent || item.description) && (
-                              <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-                                {item.fullContent
-                                  ? generateArticleExcerpt(item.fullContent, excerptLen)
-                                  : generateArticleExcerpt(item.description || "", excerptLen)}
-                              </p>
-                            )}
-                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                              {(preferences?.show_feed_icon ?? true) && getFeedIcon(feed) && (
-                                <img
-                                  src={getFeedIcon(feed)}
-                                  alt=""
-                                  className="w-3.5 h-3.5 rounded-sm object-cover flex-shrink-0"
-                                />
-                              )}
-                              <span className="font-medium truncate">{feed.title}</span>
-                              {(preferences?.show_author ?? true) && item.author && (
-                                <>
-                                  <span>•</span>
-                                  <span className="truncate">by {item.author}</span>
-                                </>
-                              )}
-                              {(preferences?.show_date ?? true) && (
-                                <>
-                                  <span>•</span>
-                                  <span>{formatFeedDate(item.pubDate)}</span>
-                                </>
-                              )}
-                              {/* Full content availability indicator */}
-                              {item.fullContent && (
-                                <span className="flex items-center gap-1 text-blue-500">
-                                  <span>•</span>
-                                  <TextT className="w-3 h-3" />
-                                  <span>Full</span>
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                            {/* Fetch Full Content quick action - only show if no full content */}
-                            {!item.fullContent && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void fetchArticleFullContent(item.id, item.link);
-                                }}
-                                className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
-                                title="Fetch full content"
-                              >
-                                <Download className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleToggleFavorite(feed, item);
-                              }}
-                              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors"
-                              title={
-                                item.favorite
-                                  ? t("rssReader.removeFavorite")
-                                  : t("rssReader.addFavorite")
-                              }
-                            >
-                              {item.favorite ? (
-                                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                              ) : (
-                                <Star className="w-4 h-4" />
-                              )}
-                            </button>
-                            <a
-                              href={item.link}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                void handleOpenOriginal(item.link);
-                              }}
-                              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors"
-                              title={t("rssReader.openOriginal")}
-                            >
-                              <ArrowSquareOut className="w-4 h-4" />
-                            </a>
-                            {item.read && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleMarkUnread(feed, item);
-                                }}
-                                className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors"
-                                title="Mark as unread"
-                              >
-                                <EyeSlash className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowTrainingMenu(true);
-                                setTrainingMenuPosition({ x: e.clientX, y: e.clientY });
-                              }}
-                              className="p-1.5 text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 rounded transition-colors"
-                              title="Train intelligence"
-                            >
-                              <GraduationCap className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedItem(item);
-                                setSelectedItemFeed(feed);
-                                setShowTagInput(true);
-                              }}
-                              className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-colors"
-                              title="Tag article"
-                            >
-                              <Tag className="w-4 h-4" />
-                            </button>
-                          </div>
+                          </article>
                         </div>
-                      </article>
-                    );
-                  })}
+                      );
+                    })}
                   </div>
                 </div>
               )}

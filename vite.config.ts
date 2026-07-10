@@ -103,19 +103,10 @@ export default defineConfig(async ({ mode }) => {
         external: isPWA ? ["@tauri-apps/plugin-fs", "@tauri-apps/plugin-dialog", "@tauri-apps/api/path"] : [],
         output: {
           manualChunks: (id) => {
-            // Let lazy-loaded tab components (React.lazy(() => import(...))) split
-            // into their own chunks. Previously every `tabs/` module was forced back
-            // into the main bundle via `return undefined`, which defeated React.lazy
-            // and bloats the initial bundle. Tauri v2 with relative `base: "./"`
-            // (set above) supports dynamic imports fine.
-            // NOTE: if a specific tab breaks at runtime due to a dynamic-import
-            // edge case, isolate that one module here instead of disabling the
-            // split globally.
-            // Vendor chunks for large libraries
             if (id.includes("node_modules/react") || id.includes("node_modules/react-dom") || id.includes("node_modules/react-router-dom")) {
               return "react-vendor";
             }
-            if (id.includes("node_modules/@tanstack/react-query")) {
+            if (id.includes("node_modules/@tanstack/react-query") || id.includes("node_modules/@tanstack/react-virtual")) {
               return "query-vendor";
             }
             if (id.includes("node_modules/pdfjs-dist")) {
@@ -130,6 +121,39 @@ export default defineConfig(async ({ mode }) => {
             if (id.includes("node_modules/zustand")) {
               return "zustand";
             }
+            if (id.includes("node_modules/three")) {
+              return "three-vendor";
+            }
+            if (id.includes("node_modules/@huggingface/transformers")) {
+              return "transformers-vendor";
+            }
+            if (id.includes("node_modules/tesseract.js") || id.includes("node_modules/tesseract.js-core")) {
+              return "ocr-vendor";
+            }
+            if (id.includes("node_modules/recharts")) {
+              return "charts-vendor";
+            }
+            if (id.includes("node_modules/katex")) {
+              return "katex-vendor";
+            }
+            if (id.includes("node_modules/yjs") || id.includes("node_modules/y-websocket") || id.includes("node_modules/y-indexeddb") || id.includes("node_modules/lib0") || id.includes("node_modules/y-protocols") || id.includes("node_modules/y-map")) {
+              return "yjs-vendor";
+            }
+            if (id.includes("node_modules/sql.js")) {
+              return "sql-vendor";
+            }
+            if (id.includes("node_modules/hash-wasm")) {
+              return "hash-vendor";
+            }
+            if (id.includes("node_modules/react-markdown") || id.includes("node_modules/dompurify")) {
+              return "markdown-vendor";
+            }
+            if (id.includes("node_modules/jszip")) {
+              return "zip-vendor";
+            }
+            if (id.includes("node_modules/@dqbd/tiktoken")) {
+              return "tiktoken-vendor";
+            }
             return undefined;
           },
         },
@@ -137,10 +161,19 @@ export default defineConfig(async ({ mode }) => {
       chunkSizeWarningLimit: 1000,
     },
     optimizeDeps: {
-      // Avoid forcing re-optimization to prevent esbuild deadlock in Tauri dev.
       force: false,
-      // Include jszip and handle its CommonJS format
-      include: ["jszip", "react", "react-dom", "dompurify"],
+      include: [
+        "jszip",
+        "react",
+        "react-dom",
+        "dompurify",
+        "zustand",
+        "react-markdown",
+        "katex",
+        "recharts",
+        "yjs",
+        "sql.js",
+      ],
       esbuildOptions: {
         sourcemap: false,
         plugins: [],

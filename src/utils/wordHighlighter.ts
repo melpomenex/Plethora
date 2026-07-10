@@ -1,6 +1,14 @@
 const HIGHLIGHT_CLASS = "tts-word-highlight";
 const CHUNK_HIGHLIGHT_CLASS = "tts-chunk-highlight";
 
+function hashString(str: string): number {
+  let h = 5381;
+  for (let i = 0; i < Math.min(str.length, 400); i++) {
+    h = ((h << 5) + h) ^ str.charCodeAt(i);
+  }
+  return h >>> 0;
+}
+
 interface HighlightRange {
   node: Node;
   startOffset: number;
@@ -26,6 +34,11 @@ export class WordHighlighter {
   private previousRanges: HighlightRange[] = [];
   private lastTargetScrollTop: number | null = null;
   private lastUserScrollTime = 0;
+  private cachedIndexedText: IndexedText | null = null;
+  private cachedSignature: string | null = null;
+  private cachedScrollableContainer: HTMLElement | null | undefined = undefined;
+  private cachedScrollableForContainer: HTMLElement | null = null;
+  private cachedCharOffset = new Map<string, number>();
 
   private userInteractionListener = () => {
     this.lastUserScrollTime = Date.now();
@@ -34,6 +47,11 @@ export class WordHighlighter {
   init(container: HTMLElement, useChunkLevel = false): void {
     this.container = container;
     this.useChunkLevel = useChunkLevel;
+    this.cachedIndexedText = null;
+    this.cachedSignature = null;
+    this.cachedScrollableContainer = undefined;
+    this.cachedScrollableForContainer = null;
+    this.cachedCharOffset.clear();
     this.injectStyles();
     this.setupInteractionListeners();
   }
@@ -102,13 +120,17 @@ export class WordHighlighter {
       }
     });
     this.previousRanges = [];
-    this.lastTargetScrollTop = null;
   }
 
   destroy(): void {
     this.clear();
     this.removeInteractionListeners();
     this.container = null;
+    this.cachedIndexedText = null;
+    this.cachedSignature = null;
+    this.cachedScrollableContainer = undefined;
+    this.cachedScrollableForContainer = null;
+    this.cachedCharOffset.clear();
     if (this.styleElement?.parentNode) {
       this.styleElement.parentNode.removeChild(this.styleElement);
     }
@@ -140,19 +162,34 @@ export class WordHighlighter {
   }
 
   private findScrollableContainer(el: HTMLElement): HTMLElement | null {
+    if (
+      this.cachedScrollableForContainer === this.container &&
+      this.cachedScrollableContainer !== undefined
+    ) {
+      return this.cachedScrollableContainer;
+    }
+
     const doc = el.ownerDocument;
     const win = doc?.defaultView || window;
 
     let current = el.parentElement;
     while (current) {
-      const style = win.getComputedStyle(current);
-      const overflowY = style.overflowY;
-      const isScrollable =
-        overflowY === "auto" ||
-        overflowY === "scroll" ||
+      const hasAttr =
         current.hasAttribute("data-document-scroll-container") ||
         current.getAttribute("data-epub-viewer") === "true";
-      if (isScrollable && current.scrollHeight > current.clientHeight) {
+      if (hasAttr && current.scrollHeight > current.clientHeight) {
+        this.cachedScrollableContainer = current;
+        this.cachedScrollableForContainer = this.container;
+        return current;
+      }
+      const style = win.getComputedStyle(current);
+      const overflowY = style.overflowY;
+      if (
+        (overflowY === "auto" || overflowY === "scroll") &&
+        current.scrollHeight > current.clientHeight
+      ) {
+        this.cachedScrollableContainer = current;
+        this.cachedScrollableForContainer = this.container;
         return current;
       }
       current = current.parentElement;
@@ -172,14 +209,22 @@ export class WordHighlighter {
         if (iframeElement) {
           let parentEl = iframeElement.parentElement;
           while (parentEl) {
-            const style = win.parent.getComputedStyle(parentEl);
-            const overflowY = style.overflowY;
-            const isScrollable =
-              overflowY === "auto" ||
-              overflowY === "scroll" ||
+            const hasAttr =
               parentEl.hasAttribute("data-document-scroll-container") ||
               parentEl.getAttribute("data-epub-viewer") === "true";
-            if (isScrollable && parentEl.scrollHeight > parentEl.clientHeight) {
+            if (hasAttr && parentEl.scrollHeight > parentEl.clientHeight) {
+              this.cachedScrollableContainer = parentEl;
+              this.cachedScrollableForContainer = this.container;
+              return parentEl;
+            }
+            const style = win.parent.getComputedStyle(parentEl);
+            const overflowY = style.overflowY;
+            if (
+              (overflowY === "auto" || overflowY === "scroll") &&
+              parentEl.scrollHeight > parentEl.clientHeight
+            ) {
+              this.cachedScrollableContainer = parentEl;
+              this.cachedScrollableForContainer = this.container;
               return parentEl;
             }
             parentEl = parentEl.parentElement;
@@ -192,18 +237,28 @@ export class WordHighlighter {
 
     if (doc) {
       const docScroll = doc.querySelector("[data-document-scroll-container]");
-      if (docScroll) return docScroll as HTMLElement;
+      if (docScroll) {
+        this.cachedScrollableContainer = docScroll as HTMLElement;
+        this.cachedScrollableForContainer = this.container;
+        return docScroll as HTMLElement;
+      }
     }
     if (win !== win.parent) {
       try {
         const parentDoc = win.parent.document;
         const docScroll = parentDoc.querySelector("[data-document-scroll-container]");
-        if (docScroll) return docScroll as HTMLElement;
+        if (docScroll) {
+          this.cachedScrollableContainer = docScroll as HTMLElement;
+          this.cachedScrollableForContainer = this.container;
+          return docScroll as HTMLElement;
+        }
       } catch {
         // Ignore inaccessible parent frames.
       }
     }
 
+    this.cachedScrollableContainer = null;
+    this.cachedScrollableForContainer = this.container;
     return null;
   }
 
@@ -240,29 +295,49 @@ export class WordHighlighter {
   }
 
   private getCharOffsetForWord(text: string, wordIndex: number): number {
+    const cacheKey = `${hashString(text.slice(0, 200))}:${text.length}:${wordIndex}`;
+    const hit = this.cachedCharOffset.get(cacheKey);
+    if (hit !== undefined) return hit;
     const words = text.split(/\s+/);
     let offset = 0;
     for (let i = 0; i < wordIndex && i < words.length; i++) {
       const idx = text.indexOf(words[i], offset);
       if (idx >= 0) offset = idx + words[i].length + 1;
     }
+    if (this.cachedCharOffset.size > 200) {
+      const first = this.cachedCharOffset.keys().next().value;
+      if (first) this.cachedCharOffset.delete(first);
+    }
+    this.cachedCharOffset.set(cacheKey, offset);
     return offset;
+  }
+
+  private getContainerSignature(): string {
+    if (!this.container) return "";
+    return `${this.container.childNodes.length}:${this.container.textContent?.length ?? 0}`;
   }
 
   private findTextRanges(searchText: string, startChar: number, endChar: number): HighlightRange[] {
     if (!this.container) return [];
 
-    const doc = this.container.ownerDocument || document;
-    const textNodes: Text[] = [];
-    const walker = doc.createTreeWalker(this.container, NodeFilter.SHOW_TEXT, null);
-    let node: Text | null;
-    while ((node = walker.nextNode() as Text | null)) {
-      if (node.textContent && node.textContent.trim()) {
-        textNodes.push(node);
+    const signature = this.getContainerSignature();
+    let indexedText: IndexedText;
+    if (this.cachedSignature === signature && this.cachedIndexedText) {
+      indexedText = this.cachedIndexedText;
+    } else {
+      const doc = this.container.ownerDocument || document;
+      const textNodes: Text[] = [];
+      const walker = doc.createTreeWalker(this.container, NodeFilter.SHOW_TEXT, null);
+      let node: Text | null;
+      while ((node = walker.nextNode() as Text | null)) {
+        if (node.textContent && node.textContent.trim()) {
+          textNodes.push(node);
+        }
       }
+      indexedText = this.buildIndexedText(textNodes);
+      this.cachedIndexedText = indexedText;
+      this.cachedSignature = signature;
     }
-
-    const indexedText = this.buildIndexedText(textNodes);
     const normalizedSearchText = this.normalizeForMatch(searchText);
     const normalizedStartChar = this.normalizePrefixForOffset(searchText.slice(0, startChar)).length;
     const normalizedEndChar = this.normalizePrefixForOffset(searchText.slice(0, endChar)).length;

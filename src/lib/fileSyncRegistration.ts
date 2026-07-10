@@ -472,6 +472,9 @@ function enqueueBackgroundUpload(task: UploadTask): void {
   void processUploadQueue();
 }
 
+const uploadFailCounts = new Map<string, number>();
+const MAX_UPLOAD_RETRIES = 3;
+
 async function processUploadQueue(): Promise<void> {
   if (processingQueue) return;
   processingQueue = true;
@@ -481,26 +484,85 @@ async function processUploadQueue(): Promise<void> {
       const task = taskQueue.shift();
       if (!task) continue;
 
-      // Track active check/upload to prevent concurrent duplicate attempts
+      const failCount = uploadFailCounts.get(task.fileId) || 0;
+      if (failCount >= MAX_UPLOAD_RETRIES) {
+        continue;
+      }
+
       activeUploads.add(task.fileId);
 
       try {
         const room = getSyncRoomId();
-        const exists = await checkRoomFileExists(room, task.fileId);
-        if (!exists) {
-          const base64 = await readDocumentFile(task.filePath);
-          const mime = mimeForFileType(task.fileType);
-          const blob = base64ToBlob(base64, mime);
-          if (blob.size > 0) {
-            const filename = task.title || task.filePath.split(/[\\/]/).pop() || task.docId;
-            const file = new File([blob], filename, { type: mime });
-            await uploadRoomFile(file, room, task.fileId);
-            console.log("[fileSyncRegistration] background-uploaded existing file to file-service:", task.fileId);
-          }
+        if (!room) {
+          continue;
         }
-      } catch (uploadErr) {
-        // Ignore background upload failures silently (e.g. offline, temporary error)
-        console.warn("[fileSyncRegistration] background file-service check/upload failed:", task.fileId, uploadErr);
+
+        let exists = false;
+        try {
+          exists = await checkRoomFileExists(room, task.fileId);
+        } catch {
+          exists = false;
+        }
+
+        if (!exists) {
+          let base64: string;
+          try {
+            base64 = await readDocumentFile(task.filePath);
+          } catch {
+            continue;
+          }
+
+          const mime = mimeForFileType(task.fileType);
+          let blob: Blob;
+          try {
+            blob = base64ToBlob(base64, mime);
+          } catch {
+            continue;
+          }
+
+          if (blob.size === 0) {
+            continue;
+          }
+
+          const filename = task.title || task.filePath.split(/[\\/]/).pop() || task.docId;
+          const file = new File([blob], filename, { type: mime });
+
+          try {
+            await uploadRoomFile(file, room, task.fileId);
+            uploadFailCounts.delete(task.fileId);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err || "");
+            const isDecodeError = msg.includes("decode failed") || msg.includes("decoding response body");
+            const isNetworkError = msg.includes("request failed") || msg.includes("Failed to fetch") || msg.includes("NetworkError");
+
+            const nextFails = failCount + 1;
+            uploadFailCounts.set(task.fileId, nextFails);
+
+            if (nextFails >= MAX_UPLOAD_RETRIES) {
+              if (isDecodeError) {
+                console.warn(
+                  `[fileSyncRegistration] file-service upload for ${task.fileId} failed after ${nextFails} retries (decode error, likely server not ready). Will retry on next app start.`,
+                );
+              } else {
+                console.debug(`[fileSyncRegistration] background upload giving up for ${task.fileId} after ${nextFails} tries:`, msg);
+              }
+            } else if (!isNetworkError && !isDecodeError) {
+              console.debug(`[fileSyncRegistration] background file-service upload failed for ${task.fileId} (retry ${nextFails}/${MAX_UPLOAD_RETRIES}):`, msg);
+              taskQueue.push(task);
+            }
+            continue;
+          }
+
+          console.log("[fileSyncRegistration] background-uploaded existing file to file-service:", task.fileId);
+        } else {
+          uploadFailCounts.delete(task.fileId);
+        }
+      } catch {
+        const nextFails = (uploadFailCounts.get(task.fileId) || 0) + 1;
+        uploadFailCounts.set(task.fileId, nextFails);
+        if (nextFails < MAX_UPLOAD_RETRIES) {
+          taskQueue.push(task);
+        }
       } finally {
         activeUploads.delete(task.fileId);
       }

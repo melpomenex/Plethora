@@ -23,19 +23,28 @@ use crate::error::IncrementumError;
 /// (`src/lib/yjs-file-service.ts`). Kept loose (all fields optional except the
 /// ones the server always returns) so evolution of the server payload does not
 /// break deserialization.
+///
+/// The file-service has historically returned both camelCase (`sizeBytes`,
+/// `createdAt`, `contentType`) and snake_case (`size_bytes`, `created_at`)
+/// depending on deployment / version, so we accept both via `alias` + tolerate
+/// missing optionals. `rename_all = camelCase` makes the primary mapping
+/// camelCase, which matches the current TS type and the Go server's JSON tags.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct YjsFileMeta {
     pub id: String,
     pub room: String,
     #[serde(default)]
     pub filename: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "content_type")]
     pub content_type: Option<String>,
+    #[serde(alias = "size_bytes", default)]
     pub size_bytes: i64,
+    #[serde(alias = "created_at", default)]
     pub created_at: String,
-    #[serde(default)]
+    #[serde(default, alias = "deleted_at")]
     pub deleted_at: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "enc_metadata", alias = "encMetadata")]
     pub enc_metadata: Option<String>,
 }
 
@@ -107,9 +116,26 @@ pub async fn yjs_file_upload(
         )));
     }
 
-    res.json::<YjsFileMeta>()
+    let body_bytes = res
+        .bytes()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("yjs_file_upload decode failed: {}", e)))
+        .map_err(|e| IncrementumError::Internal(format!("yjs_file_upload body read failed: {}", e)))?;
+
+    match serde_json::from_slice::<YjsFileMeta>(&body_bytes) {
+        Ok(meta) => Ok(meta),
+        Err(e) => {
+            let body_preview = String::from_utf8_lossy(&body_bytes);
+            let preview = if body_preview.len() > 500 {
+                format!("{}...[truncated {} bytes]", &body_preview[..500], body_bytes.len())
+            } else {
+                body_preview.to_string()
+            };
+            Err(IncrementumError::Internal(format!(
+                "yjs_file_upload decode failed: {} | body: {}",
+                e, preview
+            )))
+        }
+    }
 }
 
 /// Download a file from the room file-service. Returns the raw bytes plus any

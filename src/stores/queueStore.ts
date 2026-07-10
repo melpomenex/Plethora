@@ -41,12 +41,47 @@ function dedupeLoad(key: string, run: () => Promise<void>): Promise<void> {
   const existing = inflightLoads.get(key);
   if (existing) return existing;
   const p = run().finally(() => {
-    // Only clear our entry if it's still ours (a later identical load may
-    // have already replaced it).
     if (inflightLoads.get(key) === p) inflightLoads.delete(key);
   });
   inflightLoads.set(key, p);
   return p;
+}
+
+type DocRef = { id: string; isArchived?: boolean; isDismissed?: boolean };
+let lastDocsRef: DocRef[] | null = null;
+let lastArchivedSet: Set<string> = new Set();
+let lastDismissedSet: Set<string> = new Set();
+
+function getArchivedDismissedSets(documents: DocRef[]) {
+  if (lastDocsRef === documents) {
+    return { archived: lastArchivedSet, dismissed: lastDismissedSet };
+  }
+  const archived = new Set<string>();
+  const dismissed = new Set<string>();
+  for (let i = 0; i < documents.length; i++) {
+    const doc = documents[i];
+    if (doc.isArchived) archived.add(doc.id);
+    if (doc.isDismissed) dismissed.add(doc.id);
+  }
+  lastDocsRef = documents;
+  lastArchivedSet = archived;
+  lastDismissedSet = dismissed;
+  return { archived, dismissed };
+}
+
+async function parallelWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let index = 0;
+  async function worker() {
+    while (true) {
+      const current = index++;
+      if (current >= tasks.length) break;
+      results[current] = await tasks[current]();
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
 }
 
 
@@ -289,75 +324,52 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   applyFilters: () => {
     const { items, searchQuery, filters, sortOptions } = get();
-    let filtered = [...items];
     const documents = useDocumentStore.getState().documents;
-    const archivedDocumentIds = new Set(
-      documents.filter((doc) => doc.isArchived).map((doc) => doc.id)
-    );
-    const dismissedDocumentIds = new Set(
-      documents.filter((doc) => doc.isDismissed).map((doc) => doc.id)
-    );
+    const { archived: archivedDocumentIds, dismissed: dismissedDocumentIds } = getArchivedDismissedSets(documents as any);
 
-    // Collection filtering is now handled by the backend
+    const hasArchived = archivedDocumentIds.size > 0;
+    const hasDismissed = dismissedDocumentIds.size > 0;
+    const query = searchQuery ? searchQuery.toLowerCase() : "";
+    const hasQuery = query.length > 0;
+    const categoryFilter = filters.categories && filters.categories.length > 0 ? new Set(filters.categories) : null;
+    const tagFilter = filters.tags && filters.tags.length > 0 ? new Set(filters.tags) : null;
+    const minP = filters.minPriority;
+    const maxP = filters.maxPriority;
 
-    if (archivedDocumentIds.size > 0) {
-      filtered = filtered.filter((item) => !item.documentId || !archivedDocumentIds.has(item.documentId));
-    }
-
-    // Filter out dismissed documents from queue view (they remain searchable)
-    if (dismissedDocumentIds.size > 0) {
-      filtered = filtered.filter((item) => !item.documentId || !dismissedDocumentIds.has(item.documentId));
-    }
-
-    // Apply search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (item) =>
-          item.documentTitle.toLowerCase().includes(query) ||
-          (item.tags ?? []).some((tag) => tag.toLowerCase().includes(query))
-      );
-    }
-
-    // Apply filters
-    if (filters.categories && filters.categories.length > 0) {
-      filtered = filtered.filter((item) =>
-        filters.categories?.includes(item.category || "")
-      );
-    }
-
-    if (filters.tags && filters.tags.length > 0) {
-      filtered = filtered.filter((item) =>
-        (item.tags ?? []).some((tag) => filters.tags?.includes(tag))
-      );
-    }
-
-    if (filters.minPriority !== undefined) {
-      filtered = filtered.filter((item) => item.priority >= filters.minPriority!);
-    }
-
-    if (filters.maxPriority !== undefined) {
-      filtered = filtered.filter((item) => item.priority <= filters.maxPriority!);
-    }
-
-    // Apply sorting
-    filtered.sort((a, b) => {
-      const key = sortOptions.field;
-      const aVal = key === "title" ? a.documentTitle : a.priority;
-      const bVal = key === "title" ? b.documentTitle : b.priority;
-
-      if (typeof aVal === "string" && typeof bVal === "string") {
-        return sortOptions.direction === "asc"
-          ? aVal.localeCompare(bVal)
-          : bVal.localeCompare(aVal);
+    const filtered: QueueItem[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (hasArchived && item.documentId && archivedDocumentIds.has(item.documentId)) continue;
+      if (hasDismissed && item.documentId && dismissedDocumentIds.has(item.documentId)) continue;
+      if (hasQuery) {
+        const title = item.documentTitle;
+        const lowerTitle = title.toLowerCase();
+        if (!lowerTitle.includes(query)) {
+          const tags = item.tags;
+          if (!tags || !tags.some((t) => t.toLowerCase().includes(query))) continue;
+        }
       }
-
-      if (typeof aVal === "number" && typeof bVal === "number") {
-        return sortOptions.direction === "asc" ? aVal - bVal : bVal - aVal;
+      if (categoryFilter && !categoryFilter.has(item.category || "")) continue;
+      if (tagFilter) {
+        const tags = item.tags;
+        if (!tags || !tags.some((t) => tagFilter.has(t))) continue;
       }
+      if (minP !== undefined && item.priority < minP) continue;
+      if (maxP !== undefined && item.priority > maxP) continue;
+      filtered.push(item);
+    }
 
-      return 0;
-    });
+    const field = sortOptions.field;
+    const dir = sortOptions.direction === "asc" ? 1 : -1;
+    if (field === "priority") {
+      filtered.sort((a, b) => dir * (a.priority - b.priority));
+    } else {
+      filtered.sort((a, b) => {
+        const av = a.documentTitle;
+        const bv = b.documentTitle;
+        return dir * av.localeCompare(bv);
+      });
+    }
 
     set({ filteredItems: filtered });
   },
@@ -568,11 +580,10 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
       const { results, stats } = enginePostponeAll(inputs, config);
 
-      // Persist postponed items
-      for (const result of results) {
-        if (result.postponed) {
-          await postponeItem(result.id, result.increase);
-        }
+      const toPersist = results.filter((r) => r.postponed);
+      if (toPersist.length > 0) {
+        const tasks = toPersist.map((result) => () => postponeItem(result.id, result.increase));
+        await parallelWithLimit(tasks, 6);
       }
 
       set({ postponeStats: stats, postponeLoading: false });

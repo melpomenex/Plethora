@@ -21,6 +21,25 @@ function isCommandMissingError(err: unknown): boolean {
   return /command\s+\S+\s+not\s+found/i.test(msg) || /not\s+registered/i.test(msg);
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= items.length) break;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 /**
  * Feed item (article/blog post)
  */
@@ -1111,15 +1130,17 @@ async function getFeedsViaTauri(): Promise<Feed[]> {
     collectionId,
     collection_id: collectionId,
   });
-  const feedsWithItems = await Promise.all(
-    feeds.map(async (feed) => {
+  const feedsWithItems = await mapWithConcurrency(
+    feeds,
+    6,
+    async (feed) => {
       const articles = await invokeCommand<TauriRssArticle[]>("get_rss_articles", {
         feedId: feed.id,
         feed_id: feed.id,
         limit: 50,
       });
       return tauriFeedToFrontend(feed, articles);
-    })
+    }
   );
 
   return feedsWithItems;
@@ -1291,8 +1312,10 @@ export async function getFeedsViaHttp(): Promise<Feed[]> {
 
   const feeds: Array<BackendRssFeed & { unread_count: number }> = await response.json();
 
-  const feedsWithItems = await Promise.all(
-    feeds.map(async (feed) => {
+  const feedsWithItems = await mapWithConcurrency(
+    feeds,
+    6,
+    async (feed) => {
       const articlesResponse = await fetch(
         `${getApiBaseUrl()}/api/rss/feeds/${feed.id}/articles?limit=50`
       );
@@ -1301,7 +1324,7 @@ export async function getFeedsViaHttp(): Promise<Feed[]> {
         return backendFeedToFrontend(feed, articles);
       }
       return backendFeedToFrontend(feed);
-    })
+    }
   );
 
   return feedsWithItems;
@@ -1699,9 +1722,8 @@ export async function markFeedReadAuto(feedId: string): Promise<void> {
   }
   if (shouldUseHttpBackend()) {
     try {
-      // In web mode, mark all articles for this feed as read
       const articles = await getArticlesViaHttp(feedId, 1000);
-      await Promise.all(articles.map((a) => markArticleReadViaHttp(a.id, true)));
+      await mapWithConcurrency(articles, 6, (a) => markArticleReadViaHttp(a.id, true));
       return;
     } catch (error) {
       console.warn("[RSS] HTTP backend unavailable, updating local feed.", error);
