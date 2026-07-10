@@ -574,6 +574,7 @@
   max-width: 400px;
   height: 100dvh;
   padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 16px));
   background: #1a1a1a;
   z-index: 1001;
   overflow-y: auto;
@@ -581,7 +582,7 @@
 
 .mobile-settings-content {
   padding: 20px;
-  max-height: calc(100dvh - 20px);
+  max-height: none;
   overflow-y: auto;
 }
 
@@ -1690,4 +1691,26 @@
 /* Inline submenu container (tap-to-expand submenus in the sheet). */
 .mobile-context-menu-items .mobile-submenu-children {
   background: var(--background, hsl(0 0% 100% / 0.35));
+}
+
+/* ==========================================================================
+   Bottom Nav Overlap Adjustments
+   ========================================================================== */
+
+/* Ensure all fixed bottom-anchored elements float above the bottom nav bar on mobile/tablet */
+:root[data-presentation="phone"] .toast-container,
+:root[data-presentation="tablet"] .toast-container,
+:root[data-presentation="phone"] .audio-review-pill,
+:root[data-presentation="tablet"] .audio-review-pill,
+:root[data-presentation="phone"] .clipboard-watcher-container,
+:root[data-presentation="tablet"] .clipboard-watcher-container,
+:root[data-presentation="phone"] .drag-drop-upload-container,
+:root[data-presentation="tablet"] .drag-drop-upload-container,
+:root[data-presentation="phone"] .global-paste-container,
+:root[data-presentation="tablet"] .global-paste-container,
+:root[data-presentation="phone"] .vimium-container,
+:root[data-presentation="tablet"] .vimium-container,
+:root[data-presentation="phone"] .import-progress-container,
+:root[data-presentation="tablet"] .import-progress-container {
+  bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)) !important;
 }

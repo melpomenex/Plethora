@@ -15,7 +15,7 @@ export type {
   TabPane, 
   SplitPane, 
   Pane, 
-  SplitDirection 
+  SplitDirection,
+  SettingsReturnDestination,
 } from "./tabsStore";
 export { useRssStudyStore } from "./rssStudyStore";
-

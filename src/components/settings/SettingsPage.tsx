@@ -2,7 +2,7 @@
  * Settings page - Main settings UI with search functionality
  */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   ArrowLeft,
   ArrowsClockwise,
@@ -52,10 +52,11 @@ import { cn } from "../../utils";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { isTauri } from "../../lib/tauri";
 import { checkForUpdates, type UpdateInfo } from "../../utils/updateChecker";
-import { useSettingsStore } from "../../stores";
+import { useSettingsStore, useTabsStore } from "../../stores";
 import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { loadGoogleFont } from "../../utils/fonts";
 import { useI18n } from "../../lib/i18n";
+import { registerContextualBackHandler } from "../../lib/contextualBack";
 
 /**
  * Settings tab
@@ -317,6 +318,17 @@ export function SettingsPage() {
   const isMobile = useMobileShell();
   const initialTabKey = "incrementum_settings_initial_tab";
   const { t } = useI18n();
+  const tabs = useTabsStore((state) => state.tabs);
+  const rootPane = useTabsStore((state) => state.rootPane);
+  const activeTabHistory = useTabsStore((state) => state.activeTabHistory);
+  const returnFromSettings = useTabsStore((state) => state.returnFromSettings);
+  const returnDestination = useMemo(
+    () => useTabsStore.getState().getSettingsReturnDestination(),
+    [tabs, rootPane, activeTabHistory],
+  );
+  const appReturnLabel = returnDestination
+    ? t("settings.backToDestination", { destination: returnDestination.title })
+    : t("settings.backToApp");
 
   useEffect(() => {
     const initial = localStorage.getItem(initialTabKey) as SettingsTab | null;
@@ -345,19 +357,37 @@ export function SettingsPage() {
       .sort((a, b) => b.score - a.score);
   }, [searchQuery]);
 
-  const handleTabChange = (tab: SettingsTab) => {
-    if (hasChanges) {
-      const confirm = window.confirm(
-        "You have unsaved changes. Are you sure you want to switch tabs?"
-      );
-      if (!confirm) return;
-    }
-    setActiveTab(tab);
+  const confirmDiscardChanges = useCallback(() => {
+    if (!hasChanges) return true;
+    if (!window.confirm(t("settings.discardChangesConfirm"))) return false;
     setHasChanges(false);
+    return true;
+  }, [hasChanges, t]);
+
+  const handleTabChange = (tab: SettingsTab) => {
+    if (!confirmDiscardChanges()) return;
+    setActiveTab(tab);
     if (isMobile) {
       setShowMobileMenu(false);
     }
   };
+
+  const attemptBack = useCallback((kind: "hierarchy" | "app") => {
+    if (!confirmDiscardChanges()) return true;
+
+    if (kind === "hierarchy" && isMobile && !showMobileMenu) {
+      setShowMobileMenu(true);
+      return true;
+    }
+
+    returnFromSettings();
+    return true;
+  }, [confirmDiscardChanges, isMobile, returnFromSettings, showMobileMenu]);
+
+  useEffect(
+    () => registerContextualBackHandler(() => attemptBack("hierarchy"), 20),
+    [attemptBack],
+  );
 
   const handleSave = () => {
     setHasChanges(false);
@@ -374,11 +404,6 @@ export function SettingsPage() {
     setSearchQuery("");
   };
 
-  // Mobile back button handler
-  const handleMobileBack = () => {
-    setShowMobileMenu(true);
-  };
-
   // Current tab config
   const currentTabConfig = SETTINGS_TABS.find((t) => t.id === activeTab);
 
@@ -387,7 +412,7 @@ export function SettingsPage() {
       {/* Sidebar / Mobile Menu */}
       <div
         className={cn(
-          "flex-shrink-0 border-r border-border bg-muted/30 text-foreground",
+          "flex-shrink-0 border-r border-border bg-muted/30 text-foreground h-full flex flex-col overflow-hidden",
           isMobile ? (showMobileMenu ? "w-full" : "hidden") : "w-64"
         )}
       >
@@ -397,6 +422,16 @@ export function SettingsPage() {
             <SettingsIcon className="w-5 h-5" />
             <h1 className="text-lg font-semibold">{t("settings.title")}</h1>
           </div>
+
+          <button
+            type="button"
+            onClick={() => attemptBack("app")}
+            className="mb-4 flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label={appReturnLabel}
+          >
+            <ArrowLeft className="h-4 w-4 flex-shrink-0" />
+            <span className="truncate">{appReturnLabel}</span>
+          </button>
 
           {/* Search Bar */}
           <div
@@ -427,7 +462,7 @@ export function SettingsPage() {
         </div>
 
         {/* Navigation */}
-        <nav className="p-2 space-y-1 overflow-y-auto" style={{ maxHeight: "calc(100% - 140px)" }}>
+        <nav className="p-2 space-y-1 flex-1 overflow-y-auto">
           {searchQuery ? (
             // Search Results
             searchResults && searchResults.length > 0 ? (
@@ -481,7 +516,7 @@ export function SettingsPage() {
         )}
       >
         <AdaptiveContentHeader
-          className="border-b border-border py-3 md:py-4"
+          className="settings-content-header border-b border-border py-3 md:py-4"
           title={
             <span className="flex items-center gap-2">
               {currentTabConfig && <currentTabConfig.icon className="h-5 w-5 text-muted-foreground" />}
@@ -492,13 +527,24 @@ export function SettingsPage() {
           status={hasChanges ? <span className="text-sm text-muted-foreground">{t("settings.unsavedChanges")}</span> : undefined}
           secondaryActions={
             isMobile ? (
-              <button
-                onClick={handleMobileBack}
-                className="adaptive-icon-button"
-                aria-label={t("settings.backToMenu")}
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => attemptBack("hierarchy")}
+                  className="adaptive-icon-button"
+                  aria-label={t("settings.backToMenu")}
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => attemptBack("app")}
+                  className="adaptive-icon-button"
+                  aria-label={appReturnLabel}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             ) : undefined
           }
           primaryAction={

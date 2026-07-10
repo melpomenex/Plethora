@@ -31,7 +31,7 @@ vi.mock("../settingsStore", () => ({
   },
 }));
 
-import { useTabsStore, createTabPane } from "../tabsStore";
+import { useTabsStore, createSplitPane, createTabPane } from "../tabsStore";
 
 const DummyComponent = () => null;
 
@@ -44,6 +44,7 @@ describe("tabsStore activeTabHistory and MRU close behavior", () => {
       rootPane: initialPane,
       closedTabs: [],
       activeTabHistory: [],
+      forwardTabHistory: [],
     });
   });
 
@@ -119,5 +120,91 @@ describe("tabsStore activeTabHistory and MRU close behavior", () => {
     // The active tab should switch to C (the most recently active remaining tab)
     // instead of A (which would be index-1 of B).
     expect((state.rootPane as any).activeTabId).toBe(idC);
+  });
+
+  it("resolves and returns to the most recent non-settings destination", () => {
+    const documentsId = useTabsStore.getState().addTab({
+      title: "Documents",
+      icon: "documents",
+      type: "documents",
+      content: DummyComponent,
+      closable: true,
+    });
+    const settingsId = useTabsStore.getState().addTab({
+      title: "Settings",
+      icon: "settings",
+      type: "settings",
+      content: DummyComponent,
+      closable: true,
+    });
+
+    expect(useTabsStore.getState().getSettingsReturnDestination()).toMatchObject({
+      tabId: documentsId,
+      title: "Documents",
+    });
+    expect(useTabsStore.getState().returnFromSettings()).toBe(true);
+    expect((useTabsStore.getState().rootPane as any).activeTabId).toBe(documentsId);
+    expect(useTabsStore.getState().forwardTabHistory).toContain(settingsId);
+  });
+
+  it("updates the return destination when the singleton settings tab is reopened", () => {
+    useTabsStore.getState().addTab({ title: "Documents", icon: null, type: "documents", content: DummyComponent, closable: true });
+    const queueId = useTabsStore.getState().addTab({ title: "Queue", icon: null, type: "queue", content: DummyComponent, closable: true });
+    useTabsStore.getState().addTab({ title: "Settings", icon: null, type: "settings", content: DummyComponent, closable: true });
+    useTabsStore.getState().returnFromSettings();
+    const paneId = useTabsStore.getState().rootPane.id;
+    useTabsStore.getState().setActiveTab(paneId, queueId);
+    useTabsStore.getState().addTab({ title: "Settings", icon: null, type: "settings", content: DummyComponent, closable: true });
+
+    expect(useTabsStore.getState().getSettingsReturnDestination()?.tabId).toBe(queueId);
+  });
+
+  it("skips stale and closed return targets", () => {
+    const documentsId = useTabsStore.getState().addTab({ title: "Documents", icon: null, type: "documents", content: DummyComponent, closable: true });
+    const queueId = useTabsStore.getState().addTab({ title: "Queue", icon: null, type: "queue", content: DummyComponent, closable: true });
+    const settingsId = useTabsStore.getState().addTab({ title: "Settings", icon: null, type: "settings", content: DummyComponent, closable: true });
+    useTabsStore.getState().closeTab(queueId);
+    useTabsStore.setState({
+      activeTabHistory: [documentsId, "missing-tab", queueId, settingsId],
+    });
+
+    expect(useTabsStore.getState().getSettingsReturnDestination()?.tabId).toBe(documentsId);
+  });
+
+  it("resolves the prior tab in the split pane that contains settings", () => {
+    const left = createTabPane(["left-document"], "left-document");
+    const right = createTabPane(["right-queue", "settings"], "settings");
+    useTabsStore.setState({
+      tabs: [
+        { id: "left-document", title: "Left document", icon: null, type: "documents", content: DummyComponent, closable: true },
+        { id: "right-queue", title: "Right queue", icon: null, type: "queue", content: DummyComponent, closable: true },
+        { id: "settings", title: "Settings", icon: null, type: "settings", content: DummyComponent, closable: true },
+      ],
+      rootPane: createSplitPane("horizontal", [left, right]),
+      activeTabHistory: ["left-document", "right-queue", "settings"],
+    });
+
+    expect(useTabsStore.getState().getSettingsReturnDestination()).toEqual({
+      tabId: "right-queue",
+      paneId: right.id,
+      title: "Right queue",
+    });
+    expect(useTabsStore.getState().returnFromSettings()).toBe(true);
+    expect(useTabsStore.getState().findPaneById(right.id)).toMatchObject({
+      activeTabId: "right-queue",
+    });
+  });
+
+  it("uses the dashboard navigation fallback when settings is the only tab", () => {
+    useTabsStore.getState().addTab({ title: "Settings", icon: null, type: "settings", content: DummyComponent, closable: true });
+    const navigate = vi.fn();
+    window.addEventListener("navigate", navigate);
+
+    expect(useTabsStore.getState().getSettingsReturnDestination()).toBeNull();
+    expect(useTabsStore.getState().returnFromSettings()).toBe(true);
+    expect(navigate).toHaveBeenCalledOnce();
+    expect((navigate.mock.calls[0][0] as CustomEvent).detail).toBe("/dashboard");
+
+    window.removeEventListener("navigate", navigate);
   });
 });

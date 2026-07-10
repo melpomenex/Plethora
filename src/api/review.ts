@@ -216,7 +216,16 @@ export const RATING_COLORS: Record<ReviewRating, string> = {
 export function formatInterval(days: number): string {
   if (days < 1) return "< 1 day";
   if (days === 1) return "1 day";
-  if (days < 30) return `${days} days`;
-  if (days < 365) return `${Math.floor(days / 30)} months`;
-  return `${Math.floor(days / 365)} years`;
+  if (days < 30) {
+    const formatted = days.toFixed(1);
+    return `${formatted.endsWith(".0") ? Math.round(days) : formatted} days`;
+  }
+  const months = days / 30;
+  if (days < 365) {
+    const formatted = months.toFixed(1);
+    return `${formatted.endsWith(".0") ? Math.round(months) : formatted} months`;
+  }
+  const years = days / 365;
+  const formatted = years.toFixed(1);
+  return `${formatted.endsWith(".0") ? Math.round(years) : formatted} years`;
 }

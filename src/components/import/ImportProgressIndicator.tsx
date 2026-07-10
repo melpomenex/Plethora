@@ -202,7 +202,7 @@ export function ImportProgressOverlay({ imports, onClose }: ImportProgressOverla
   const hasErrors = imports.some((i) => i.status === "error");
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-80 max-h-96 overflow-y-auto">
+    <div className="import-progress-container fixed bottom-4 right-4 z-50 w-80 max-h-96 overflow-y-auto">
       <div className="bg-card border border-border rounded-xl shadow-xl overflow-hidden">
         {/* Header */}
         <div className="p-3 border-b border-border bg-muted/30 flex items-center justify-between">

@@ -598,6 +598,12 @@
     display: none;
   }
 
+  /* Settings has two essential navigation layers on phones: back to the
+     section menu and return to the prior app location. Keep both visible. */
+  :root[data-presentation="phone"] .settings-content-header .adaptive-content-header-secondary {
+    display: flex;
+  }
+
   :root[data-pointer="coarse"] .adaptive-icon-button,
   :root[data-pointer="coarse"] .adaptive-header-overflow-item,
   :root[data-presentation="phone"] .adaptive-icon-button,

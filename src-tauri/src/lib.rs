@@ -52,8 +52,12 @@ mod sponsorblock;
 use anyhow::Context;
 use database::Database;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use tauri::{Emitter, Manager};
+use tokio::sync::Notify;
 use url::Url;
 
 // Global state for the database
@@ -68,6 +72,32 @@ impl AppState {
     fn new() -> Self {
         Self {
             db: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+/// Gates frontend commands until database migrations and managed services are
+/// ready. Native mobile webviews can begin issuing IPC while setup is still in
+/// progress, so repository state must exist early without being queried early.
+#[derive(Default)]
+struct BackendReadyState {
+    ready: AtomicBool,
+    notify: Notify,
+}
+
+impl BackendReadyState {
+    fn mark_ready(&self) {
+        self.ready.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+    }
+
+    async fn wait(&self) {
+        while !self.ready.load(Ordering::Acquire) {
+            let notified = self.notify.notified();
+            if self.ready.load(Ordering::Acquire) {
+                break;
+            }
+            notified.await;
         }
     }
 }
@@ -164,6 +194,37 @@ fn install_panic_hook(app: tauri::AppHandle) {
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[tauri::command]
+async fn wait_for_backend_ready(
+    state: tauri::State<'_, BackendReadyState>,
+) -> Result<(), String> {
+    state.wait().await;
+    Ok(())
+}
+
+#[cfg(test)]
+mod backend_ready_tests {
+    use super::BackendReadyState;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn waiters_are_released_only_after_backend_is_ready() {
+        let state = Arc::new(BackendReadyState::default());
+        let waiter_state = Arc::clone(&state);
+        let waiter = tokio::spawn(async move { waiter_state.wait().await });
+
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished());
+
+        state.mark_ready();
+        tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("backend-ready waiter timed out")
+            .expect("backend-ready waiter panicked");
+    }
 }
 
 #[tauri::command]
@@ -671,8 +732,18 @@ pub fn run() {
             // Register managed state for one-shot startup notices before any
             // code that might set one (e.g. database recovery) runs.
             startup_notice::register(&app_handle);
+            app.manage(BackendReadyState::default());
 
             let result: anyhow::Result<()> = tauri::async_runtime::block_on(async {
+                // Instantly register critical managed states with lazy/placeholder values.
+                // This happens within the active Tokio runtime context, preventing abort crashes.
+                // It ensures that any early IPC calls from the fast-loading mobile WebView
+                // resolve the State injection successfully rather than throwing "state not managed" errors.
+                app.manage(AppState::new());
+                app.manage(AIState::default());
+                app.manage(FocusTimer::new());
+                app.manage(commands::podcast::PodcastTranscriptionTokens::default());
+
                 let app_dir = app
                     .path()
                     .app_data_dir()
@@ -741,45 +812,47 @@ pub fn run() {
                     }
                 }
 
+                // Retrieve the AppState managed early on the builder and store the database in it
+                let app_state = app.state::<AppState>();
+                let pool = db.pool().clone();
+                *app_state.db.lock().expect("app state mutex poisoned") = Some(db);
+
                 log_startup(&app_handle, "startup: database initialized");
 
-                db.migrate().await.context("Failed to run migrations")?;
+                // Register the real repository immediately so early mobile IPC
+                // can resolve State<Repository>. invokeCommand waits on
+                // BackendReadyState, so normal commands cannot query it before
+                // migrations complete.
+                let repo = database::Repository::new(pool.clone());
+                if !app.manage(repo.clone()) {
+                    anyhow::bail!("Repository state was already managed before database setup");
+                }
+
+                crate::database::migrations::run_migrations(&pool)
+                    .await
+                    .context("Failed to run migrations")?;
 
                 log_startup(&app_handle, "startup: migrations complete");
 
-                // Store database in app state
-                let state = AppState::new();
-                *state.db.lock().expect("app state mutex poisoned") = Some(db);
-
-                // Clone the pool for creating repositories before state is moved
-                let pool = state
-                    .db
-                    .lock()
-                    .expect("app state mutex poisoned")
-                    .as_ref()
-                    .expect("db just set above")
-                    .pool()
-                    .clone();
-
-                let repo = database::Repository::new(pool.clone());
-
-                // Register the repository in managed state as early as possible.
-                // The rest of setup (cloud auth loading, AI keys, transcription
-                // queues, demo import, browser sync) runs async work that can
-                // take a noticeable amount of time — especially on mobile, where
-                // the WebView loads quickly. If we deferred this to the end of
-                // setup, the frontend could mount and invoke a command taking
-                // `State<'_, Repository>` (e.g. `get_due_items`) before this runs,
-                // producing "state not managed for field `repo`" errors.
-                app.manage(repo.clone());
-
-                // Initialize cloud auth provider (managed immediately so commands can access it)
+                // Initialize cloud auth provider and AI key store (managed immediately so commands can access them)
                 let auth_store = cloud::auth_store::AuthStore::new(app_dir.clone());
                 let cloud_auth_provider = cloud::auth_store::CloudAuthProvider::new();
+                let ai_key_store = commands::ai_key_store::AIKeyStore::new(app_dir.clone());
 
-                app.manage(state);
                 app.manage(cloud_auth_provider.clone());
                 app.manage(auth_store.clone());
+                app.manage(ai_key_store.clone());
+                app.manage(pocket_tts::PocketTTSState::default());
+                app.manage(transcription::TranscriptionState {
+                    job_queue: transcription::job_queue::JobQueue::new(
+                        app.handle().clone(),
+                        repo.clone(),
+                    ),
+                    auto_queue: transcription::auto_queue::AutoTranscriptionQueue::new(
+                        app.handle().clone(),
+                        repo.clone(),
+                    ),
+                });
 
                 // block app startup.  Providers are registered into the managed
                 // state once loaded.
@@ -817,9 +890,6 @@ pub fn run() {
                     }
                     tracing::info!("Cloud auth token loading complete");
                 });
-                app.manage(AIState::default());
-                let ai_key_store = commands::ai_key_store::AIKeyStore::new(app_dir.clone());
-                app.manage(ai_key_store.clone());
 
                 // Load API keys from keychain into in-memory AIState on startup.
                 let ai_state_handle: tauri::State<'_, AIState> = app.state::<AIState>();
@@ -849,22 +919,6 @@ pub fn run() {
                     }
                     tracing::info!("AI API keys loaded from keychain");
                 });
-
-                app.manage(FocusTimer::new());
-                app.manage(pocket_tts::PocketTTSState::default());
-                app.manage(transcription::TranscriptionState {
-                    job_queue: transcription::job_queue::JobQueue::new(
-                        app.handle().clone(),
-                        repo.clone(),
-                    ),
-                    auto_queue: transcription::auto_queue::AutoTranscriptionQueue::new(
-                        app.handle().clone(),
-                        repo.clone(),
-                    ),
-                });
-
-                // Podcast transcription cancellation tokens
-                app.manage(commands::podcast::PodcastTranscriptionTokens::default());
 
                 // Check and import demo content in the background so it doesn't
                 // block app startup.
@@ -922,6 +976,9 @@ pub fn run() {
                     }
                 }
 
+                app.state::<BackendReadyState>().mark_ready();
+                log_startup(&app_handle, "startup: backend ready");
+
                 Ok(())
             });
 
@@ -935,6 +992,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            wait_for_backend_ready,
             download_update_apk,
             consume_startup_notice,
             restore_local_db_backup,

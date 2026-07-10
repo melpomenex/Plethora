@@ -86,7 +86,7 @@ export function ClipboardQuickAddWatcher() {
   const preview = capturedText.length > 140 ? `${capturedText.slice(0, 140)}...` : capturedText;
 
   return (
-    <div className="fixed bottom-4 left-4 z-[120] w-[min(420px,calc(100vw-2rem))] rounded-lg border border-border bg-card p-3 shadow-2xl">
+    <div className="clipboard-watcher-container fixed bottom-4 left-4 z-[120] w-[min(420px,calc(100vw-2rem))] rounded-lg border border-border bg-card p-3 shadow-2xl">
       <p className="text-xs font-semibold text-foreground">{t("clipboardWatcher.clipboardQuickAdd")}</p>
       <p className="mt-1 text-xs text-muted-foreground">{preview}</p>
       <div className="mt-3 flex items-center gap-2">

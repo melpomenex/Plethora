@@ -451,7 +451,7 @@ export function GlobalPasteHandler() {
     const canImport = isImage || isPdf || SUPPORTED_EXTENSIONS.includes(ext);
 
     return (
-      <div className="fixed bottom-4 left-1/2 z-[140] -translate-x-1/2">
+      <div className="global-paste-container fixed bottom-4 left-1/2 z-[140] -translate-x-1/2">
         <div className="w-[min(400px,calc(100vw-2rem))] rounded-xl border border-border bg-card p-4 shadow-2xl">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
