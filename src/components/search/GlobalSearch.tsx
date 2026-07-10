@@ -378,19 +378,23 @@ export function GlobalSearch({
 
       {/* MagnifyingGlass Modal */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-24 animate-glass-fade-in">
+        <div className="adaptive-dialog-layer adaptive-search-layer animate-glass-fade-in">
           {/* Backdrop with blur */}
-          <div
-            className="absolute inset-0 bg-black/40"
+          <button
+            type="button"
+            className="adaptive-dialog-backdrop"
+            aria-label="Close search"
             onClick={() => setIsOpen(false)}
           />
 
           {/* MagnifyingGlass Panel with glass styling */}
           <div
-            className="relative w-full max-w-2xl glass-panel-heavy animate-glass-scale-in overflow-hidden"
+            className="adaptive-dialog-panel adaptive-dialog-centered adaptive-search-panel glass-panel-heavy animate-glass-scale-in"
             role="dialog"
             aria-modal="true"
             aria-label="Global search"
+            data-gesture-lock
+            data-responsive-surface="search-import"
           >
             {/* Accessibility announcements */}
             <output
@@ -421,6 +425,7 @@ export function GlobalSearch({
                 <button
                   onClick={() => setQuery("")}
                   className="p-1.5 glass-button rounded-lg"
+                  aria-label="Clear search"
                 >
                   <X className="w-4 h-4 text-muted-foreground" />
                 </button>
@@ -432,6 +437,8 @@ export function GlobalSearch({
                     ? "bg-primary-400/20 text-primary-300 backdrop-blur-sm"
                     : "glass-button"
                 }`}
+                aria-label="Search filters"
+                aria-expanded={showFilters}
               >
                 <Sliders className="w-4 h-4" />
               </button>
@@ -479,7 +486,7 @@ export function GlobalSearch({
             {/* Results */}
             <div
               ref={resultsRef}
-              className="max-h-96 overflow-y-auto"
+              className="adaptive-search-results max-h-96 overflow-y-auto"
             >
               {/* URL Import Mode */}
               {isURLMode ? (

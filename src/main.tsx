@@ -118,6 +118,7 @@ import { MainLayout } from "./components/layout/MainLayout";
 import { DevPerformanceMonitor } from "./components/common/PerformanceMonitor";
 import { Analytics } from "@vercel/analytics/react";
 import { BatteryProvider } from "./contexts/BatteryContext";
+import { PresentationProvider } from "./contexts/PresentationContext";
 
 import AuthCallback from "./routes/auth-callback";
 import ScreenshotOverlay from "./routes/screenshot-overlay";
@@ -332,24 +333,26 @@ const reactRoot = ReactDOM.createRoot(rootEl);
 reactRoot.render(
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <BatteryProvider>
-        <HashRouter>
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
-              {/* OAuth callback route - must be before catch-all */}
-              <Route path="/auth/callback" element={<AuthCallback />} />
-              <Route path="/screenshot-overlay" element={<ScreenshotOverlay />} />
-              {/* Catch-all route - MainLayout handles tab-based navigation internally */}
-              <Route path="*" element={<MainLayout />} />
-            </Routes>
-          </Suspense>
-          <DevPerformanceMonitor />
-          {/* Only load Vercel Analytics in web/PWA mode, not in Tauri desktop */}
-          {!isTauri() && <Analytics />}
-        </HashRouter>
-        </BatteryProvider>
-      </ThemeProvider>
+      <PresentationProvider>
+        <ThemeProvider>
+          <BatteryProvider>
+          <HashRouter>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                {/* OAuth callback route - must be before catch-all */}
+                <Route path="/auth/callback" element={<AuthCallback />} />
+                <Route path="/screenshot-overlay" element={<ScreenshotOverlay />} />
+                {/* Catch-all route - MainLayout handles tab-based navigation internally */}
+                <Route path="*" element={<MainLayout />} />
+              </Routes>
+            </Suspense>
+            <DevPerformanceMonitor />
+            {/* Only load Vercel Analytics in web/PWA mode, not in Tauri desktop */}
+            {!isTauri() && <Analytics />}
+          </HashRouter>
+          </BatteryProvider>
+        </ThemeProvider>
+      </PresentationProvider>
     </QueryClientProvider>
   </ErrorBoundary>
 );

@@ -8,7 +8,7 @@
  * - Responsive icon sizing
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsInSimple,
   ArrowsLeftRight,
@@ -32,6 +32,7 @@ import { useI18n } from "../../lib/i18n";
 import { useTabsStore } from "../../stores";
 import type { TabType } from "../../stores/tabsStore";
 import { usePWAStatus } from "../pwa";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 import {
   DashboardTab,
   QueueTab,
@@ -185,6 +186,9 @@ export function MobileNavigation({
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [fullscreenState, setFullscreenState] = useState(isFullscreen());
   const [showIosInstallHelp, setShowIosInstallHelp] = useState(false);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const moreSheetRef = useRef<HTMLDivElement>(null);
+  const moreWasOpenRef = useRef(false);
   const { canInstall, install, isStandalone } = usePWAStatus();
   const isIOSDevice =
     typeof navigator !== "undefined" &&
@@ -243,7 +247,33 @@ export function MobileNavigation({
     () => allNavItems.filter((item) => !primaryNavItems.find((primary) => primary.id === item.id)),
     []
   );
-  const moreMenuActive = moreItems.some((item) => item.tabType === activeTab?.type);
+  const activeMoreItem = moreItems.find(
+    (item) => item.tabType === activeTab?.type,
+  );
+  const moreMenuActive = Boolean(activeMoreItem);
+
+  const closeMoreMenu = () => {
+    setShowMoreMenu(false);
+    setShowIosInstallHelp(false);
+  };
+
+  useOverlayDismissal(showMoreMenu, closeMoreMenu, 100);
+
+  useEffect(() => {
+    if (showMoreMenu) {
+      moreWasOpenRef.current = true;
+      window.requestAnimationFrame(() => {
+        moreSheetRef.current
+          ?.querySelector<HTMLElement>("button")
+          ?.focus();
+      });
+      return;
+    }
+    if (moreWasOpenRef.current) {
+      moreWasOpenRef.current = false;
+      moreButtonRef.current?.focus();
+    }
+  }, [showMoreMenu]);
 
   const openTab = (item: NavItem) => {
     const existing = tabs.find((tab) => tab.type === item.tabType);
@@ -324,20 +354,28 @@ export function MobileNavigation({
         );
       })}
       <button
+        ref={moreButtonRef}
         type="button"
         onClick={() => {
           setShowMoreMenu(true);
           setShowIosInstallHelp(false);
         }}
         className={`mobile-nav-item ${showMoreMenu || moreMenuActive ? 'active' : ''}`}
-        aria-label={t("mobileNav.moreSections")}
+        aria-label={
+          activeMoreItem
+            ? `${t("mobileNav.moreSections")}: ${t(activeMoreItem.label)}`
+            : t("mobileNav.moreSections")
+        }
         aria-expanded={showMoreMenu}
+        aria-current={moreMenuActive ? "page" : undefined}
       >
         <span className="mobile-nav-item-background" aria-hidden="true" />
         <div className="mobile-nav-icon">
           <List className="w-6 h-6" />
         </div>
-        <span className="mobile-nav-label">{t("nav.more")}</span>
+        <span className="mobile-nav-label">
+          {activeMoreItem ? t(activeMoreItem.label) : t("nav.more")}
+        </span>
       </button>
     </nav>
 
@@ -345,26 +383,24 @@ export function MobileNavigation({
       {showMoreMenu && (
         <div 
           className="mobile-more-overlay"
-          onClick={() => {
-            setShowMoreMenu(false);
-            setShowIosInstallHelp(false);
-          }}
+          onClick={closeMoreMenu}
         >
           <div 
+            ref={moreSheetRef}
             className="mobile-more-sheet"
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mobile-more-title"
           >
             <div className="mobile-more-header">
               <div>
                 <p className="mobile-more-eyebrow">{t("nav.more")}</p>
-                <h3 className="mobile-more-title">{t("mobileNav.sectionsAndActions")}</h3>
+                <h3 id="mobile-more-title" className="mobile-more-title">{t("mobileNav.sectionsAndActions")}</h3>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setShowMoreMenu(false);
-                  setShowIosInstallHelp(false);
-                }}
+                onClick={closeMoreMenu}
                 className="mobile-more-close"
                 aria-label={t("mobileNav.closeMenu")}
               >
@@ -389,6 +425,7 @@ export function MobileNavigation({
                       setShowIosInstallHelp(false);
                     }}
                     className={`mobile-more-item ${activeTab?.type === item.tabType ? "mobile-more-item-active" : ""}`}
+                    aria-current={activeTab?.type === item.tabType ? "page" : undefined}
                   >
                     <Icon className="w-5 h-5" />
                     <span className="flex-1 text-left">{t(item.label)}</span>

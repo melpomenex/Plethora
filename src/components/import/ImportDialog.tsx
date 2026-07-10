@@ -10,10 +10,10 @@ import {
   Clock,
   TextT,
   WarningCircle,
-  X,
 } from "@phosphor-icons/react";
 import { fetchUrlContent, type FetchedUrlContent } from '../../api/documents';
 import { ImportDialogSkeleton } from '../common/Skeleton';
+import { ResponsiveDialogSheet } from '../adaptive';
 
 interface ImportDialogProps {
   url: string;
@@ -63,19 +63,6 @@ export function ImportDialog({ url, isOpen, onClose, onImport }: ImportDialogPro
       loadPreview();
     }
   }, [isOpen, url]);
-
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener("keydown", handleEscape);
-      return () => document.removeEventListener("keydown", handleEscape);
-    }
-  }, [isOpen, onClose]);
 
   const loadPreview = async () => {
     setLoading(true);
@@ -182,21 +169,33 @@ export function ImportDialog({ url, isOpen, onClose, onImport }: ImportDialogPro
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold">Import from Web</h2>
+    <ResponsiveDialogSheet
+      open={isOpen}
+      onClose={onClose}
+      title="Import from Web"
+      description={url}
+      className="responsive-import-dialog"
+      footer={
+        <div className="flex items-center justify-between gap-3">
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+            className="min-h-[44px] rounded-lg px-4 py-2.5 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label="Cancel import"
           >
-            <X className="w-5 h-5" />
+            Cancel
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={!preview || !importOptions.title}
+            className="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label="Import document"
+          >
+            {loading && <CircleNotch className="h-4 w-4 animate-spin" aria-hidden="true" />}
+            Import
           </button>
         </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+      }
+    >
           {loading && <ImportDialogSkeleton />}
 
           {error && (
@@ -346,30 +345,6 @@ export function ImportDialog({ url, isOpen, onClose, onImport }: ImportDialogPro
               </div>
             </>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={onClose}
-            className="px-4 py-2.5 min-h-[44px] text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-            aria-label="Cancel import"
-          >
-            Cancel
-          </button>
-          <div className="flex gap-2">
-            <button
-              onClick={handleImport}
-              disabled={!preview || !importOptions.title}
-              className="px-4 py-2.5 min-h-[44px] bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none flex items-center gap-2"
-              aria-label="Import document"
-            >
-              {loading && <CircleNotch className="w-4 h-4 animate-spin" aria-hidden="true" />}
-              Import
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </ResponsiveDialogSheet>
   );
 }

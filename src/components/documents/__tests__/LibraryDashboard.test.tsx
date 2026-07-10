@@ -163,6 +163,7 @@ vi.mock("../../../lib/tauri", () => ({
   isTauri: () => false,
   isMac: () => false,
   invokeCommand: vi.fn(),
+  getPlatform: () => "mac",
   // Mobile-shell detection — these tests render DocumentsView in desktop/grid
   // mode, so report a desktop form factor with no native mobile.
   nativePlatform: () => null,

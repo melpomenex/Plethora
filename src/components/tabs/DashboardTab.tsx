@@ -4,6 +4,8 @@ import { useDocumentStore } from "../../stores/documentStore";
 import { useCollectionStore } from "../../stores/collectionStore";
 import type { TabType } from "../../stores/tabsStore";
 import { useI18n } from "../../lib/i18n";
+import { usePresentationMode } from "../../contexts/PresentationContext";
+import { type DocumentWithProgress } from "../../types/position";
 import {
   QueueTab,
   ReviewTab,
@@ -12,11 +14,13 @@ import {
   AnalyticsTab,
   SettingsTab,
   RSSReader,
+  DocumentViewer,
 } from "./TabRegistry";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
 import { getDocumentsWithProgress } from "../../api/position";
 import { QuickReviewWidget } from "../review/QuickReviewWidget";
 import { ActionButton, FocusPanel, SummarySection } from "../common/UI";
+import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
 import { selectDailyFocus } from "./dashboardFocus";
 import {
   BookOpen,
@@ -49,16 +53,26 @@ export function DashboardTab() {
   const { addTab } = useTabsStore();
   const documents = useDocumentStore((state) => state.documents);
   const activeCollectionId = useCollectionStore((s) => s.activeCollectionId);
+  const mode = usePresentationMode();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasResumableReading, setHasResumableReading] = useState(false);
+  const [resumableDocs, setResumableDocs] = useState<DocumentWithProgress[]>([]);
 
   useEffect(() => {
     loadStats();
-    void getDocumentsWithProgress(1)
-      .then((items) => setHasResumableReading(items.some((item) => item.progress > 0 && item.progress < 100)))
-      .catch(() => setHasResumableReading(false));
+    void getDocumentsWithProgress(10)
+      .then((items) => {
+        const filtered = items.filter((item) => item.progress > 0 && item.progress < 100);
+        setResumableDocs(filtered.slice(0, 3));
+        setHasResumableReading(filtered.length > 0);
+      })
+      .catch((err) => {
+        console.error("Failed to load documents with progress on dashboard:", err);
+        setResumableDocs([]);
+        setHasResumableReading(false);
+      });
   }, [activeCollectionId]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
    
@@ -183,6 +197,27 @@ export function DashboardTab() {
     });
   };
 
+  const openDocument = (doc: DocumentWithProgress) => {
+    const full = documents.find((d) => d.id === doc.id);
+    const fileType = full?.fileType;
+    const icon = fileType === "pdf"
+      ? "📕"
+      : fileType === "epub"
+        ? "📖"
+        : fileType === "youtube"
+          ? "📺"
+          : "📄";
+
+    addTab({
+      title: doc.title,
+      icon,
+      type: "document-viewer",
+      content: DocumentViewer,
+      closable: true,
+      data: { documentId: doc.id },
+    });
+  };
+
   const quickReviewCards = useMemo(
     () =>
       documents.slice(0, 10).map((doc) => ({
@@ -218,17 +253,13 @@ export function DashboardTab() {
   const hasNoDocuments = (stats?.total_documents ?? documents.length) === 0;
 
   return (
-    <div className="h-full overflow-auto bg-background">
-      <div className="max-w-6xl mx-auto p-4 md:p-6 lg:p-8 pb-24 md:pb-8">
-        {/* Header */}
-        <div className="mb-6 md:mb-8">
-          <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-foreground mb-2">
-            {t("dashboard.welcomeBack")}
-          </h1>
-          <p className="text-sm md:text-base text-muted-foreground">
-            {t("dashboard.companion")}
-          </p>
-        </div>
+    <SafeScrollContainer className="bg-background" data-responsive-surface="dashboard">
+      <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pb-24 md:pb-8">
+        <AdaptiveContentHeader
+          className="px-0 pt-5 pb-5 md:pt-7 md:pb-7"
+          title={t("dashboard.welcomeBack")}
+          description={t("dashboard.companion")}
+        />
 
         <FocusPanel className="mb-6 md:mb-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -274,37 +305,37 @@ export function DashboardTab() {
 
         {/* Quick Actions Grid - 2 columns mobile, 3 columns tablet+, adaptive rows */}
         <SummarySection title={t("dashboard.quickActions")}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 md:gap-4 mb-6 md:mb-8">
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (
               <button
                 key={action.id}
                 onClick={() => openTab(action)}
-                className="group relative flex min-h-32 flex-col items-start rounded-xl border border-border bg-card p-4 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="group relative flex min-h-[110px] md:min-h-[130px] flex-col items-start rounded-xl border border-border bg-card p-3 md:p-4 text-left transition-all hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <div
-                  className={`${action.iconBg} p-2.5 md:p-3 rounded-lg mb-3 transition-transform group-hover:scale-110`}
+                  className={`${action.iconBg} p-2 md:p-3 rounded-lg mb-2 md:mb-3 transition-transform group-hover:scale-110`}
                 >
-                  <Icon className="w-5 h-5 md:w-6 md:h-6" />
+                  <Icon className="w-4 h-4 md:w-5 md:h-5" />
                 </div>
-                <h3 className="font-semibold text-sm md:text-base text-foreground mb-0.5">
+                <h3 className="font-semibold text-xs md:text-sm text-foreground mb-0.5 line-clamp-1">
                   {action.title}
                 </h3>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[10px] md:text-xs text-muted-foreground line-clamp-2 md:line-clamp-none">
                   {action.description}
                 </p>
                 {action.primary && stats && (
-                  <div className="absolute top-3 right-3 md:top-4 md:right-4">
-                    <div className="flex items-center gap-1 text-xs font-medium text-primary">
+                  <div className="absolute top-2 right-2 md:top-3 md:right-3">
+                    <div className="flex items-center gap-1 text-[10px] font-medium text-primary">
                       {action.id === "queue" && (stats.due_documents || stats.cards_due_today || 0) > 0 && (
                         <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                          {t("dashboard.due", { count: stats.due_documents || stats.cards_due_today || 0 })}
+                          {mode === "phone" ? (stats.due_documents || stats.cards_due_today || 0) : t("dashboard.due", { count: stats.due_documents || stats.cards_due_today || 0 })}
                         </span>
                       )}
                       {action.id === "review" && stats.cards_due_today > 0 && (
                         <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                          {t("dashboard.due", { count: stats.cards_due_today })}
+                          {mode === "phone" ? stats.cards_due_today : t("dashboard.due", { count: stats.cards_due_today })}
                         </span>
                       )}
                     </div>
@@ -316,11 +347,49 @@ export function DashboardTab() {
         </div>
         </SummarySection>
 
+        {/* Continue Reading Section */}
+        {hasResumableReading && resumableDocs.length > 0 && (
+          <SummarySection title={t("continueReading.title")}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8">
+              {resumableDocs.map((doc) => (
+                <button
+                  key={doc.id}
+                  onClick={() => openDocument(doc)}
+                  className="group text-left p-4 bg-card rounded-xl border border-border transition-all hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary flex flex-col justify-between min-h-[110px]"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2 w-full">
+                    <h4 className="font-semibold text-xs md:text-sm text-foreground line-clamp-2 flex-1 group-hover:text-primary transition-colors">
+                      {doc.title}
+                    </h4>
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      {formatTimeAgo(doc.date_modified)}
+                    </span>
+                  </div>
+                  <div className="w-full space-y-1.5 mt-auto">
+                    <div className="relative h-1.5 bg-muted rounded-full overflow-hidden w-full">
+                      <div
+                        className="absolute top-0 left-0 h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${Math.min(doc.progress, 100)}%` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                      <span>{Math.round(doc.progress)}% {t("continueReading.complete")}</span>
+                      <span className="text-primary font-medium group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
+                        {t("continueReading.resume")} →
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </SummarySection>
+        )}
+
         {/* Stats Section */}
         <SummarySection title={t("dashboard.progress")}>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
           {/* Main Stats Card */}
-          <div className="lg:col-span-2 border border-border rounded-xl p-4 md:p-6">
+          <div className="md:col-span-2 border border-border rounded-xl p-4 md:p-6">
             <div className="flex items-center justify-between mb-4 md:mb-6">
               <div className="flex items-center gap-2">
                 <TrendUp className="w-5 h-5 text-muted-foreground" />
@@ -337,53 +406,53 @@ export function DashboardTab() {
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-4 md:gap-6">
-              <div className="text-center md:text-left">
-                <div className="flex items-center justify-center md:justify-start gap-2 mb-1">
-                  <Files className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-2xl md:text-3xl font-bold text-foreground">
-                    {isLoading ? (
-                      <span className="animate-pulse">...</span>
-                    ) : (
-                      stats?.total_documents ?? 0
-                    )}
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6">
+              <div className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0">
+                <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
+                  <Files className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
+                  <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
+                    {t("dashboard.documents")}
                   </span>
                 </div>
-                <p className="text-xs md:text-sm text-muted-foreground">
-                  {t("dashboard.documents")}
-                </p>
+                <span className="text-lg sm:text-2xl md:text-3xl font-bold text-foreground">
+                  {isLoading ? (
+                    <span className="animate-pulse">...</span>
+                  ) : (
+                    stats?.total_documents ?? 0
+                  )}
+                </span>
               </div>
 
-              <div className="text-center md:text-left">
-                <div className="flex items-center justify-center md:justify-start gap-2 mb-1">
-                  <Target className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-2xl md:text-3xl font-bold text-foreground">
-                    {isLoading ? (
-                      <span className="animate-pulse">...</span>
-                    ) : (
-                      stats?.cards_due_today ?? 0
-                    )}
+              <div className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0">
+                <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
+                  <Target className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
+                  <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
+                    {t("layout.dueToday")}
                   </span>
                 </div>
-                <p className="text-xs md:text-sm text-muted-foreground">
-                  {t("layout.dueToday")}
-                </p>
+                <span className="text-lg sm:text-2xl md:text-3xl font-bold text-foreground">
+                  {isLoading ? (
+                    <span className="animate-pulse">...</span>
+                  ) : (
+                    stats?.cards_due_today ?? 0
+                  )}
+                </span>
               </div>
 
-              <div className="text-center md:text-left">
-                <div className="flex items-center justify-center md:justify-start gap-2 mb-1">
-                  <Lightning className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-2xl md:text-3xl font-bold text-foreground">
-                    {isLoading ? (
-                      <span className="animate-pulse">...</span>
-                    ) : (
-                      stats?.cards_learned ?? 0
-                    )}
+              <div className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0">
+                <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
+                  <Lightning className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
+                  <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
+                    {t("dashboard.cardsLearned")}
                   </span>
                 </div>
-                <p className="text-xs md:text-sm text-muted-foreground">
-                  {t("dashboard.cardsLearned")}
-                </p>
+                <span className="text-lg sm:text-2xl md:text-3xl font-bold text-foreground">
+                  {isLoading ? (
+                    <span className="animate-pulse">...</span>
+                  ) : (
+                    stats?.cards_learned ?? 0
+                  )}
+                </span>
               </div>
             </div>
 
@@ -477,6 +546,15 @@ export function DashboardTab() {
           />
         </div>
       </div>
-    </div>
+    </SafeScrollContainer>
   );
+}
+
+function formatTimeAgo(timestamp: number) {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  return `${Math.floor(seconds / 604800)}w ago`;
 }

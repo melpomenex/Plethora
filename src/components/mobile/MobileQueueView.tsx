@@ -368,7 +368,7 @@ export function MobileQueueView({
   }, [bulkDelete, toast, t, exitSelection, loadQueue]);
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col w-full min-w-0 h-full bg-background" data-responsive-surface="queue">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border bg-card">
         <div className="flex items-center justify-between mb-3">
@@ -447,7 +447,7 @@ export function MobileQueueView({
       {/* Quick Filters (Reading only) */}
       {activeTab === "reading" && (
         <div className="px-4 py-2 border-b border-border bg-card/50">
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide" data-horizontal-scroll>
             <button
               onClick={() => setQuickFilter("today")}
               className={cn(

@@ -27,6 +27,7 @@ import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import { ActionButton, ActionMenu, FocusPanel } from "../common/UI";
 import { getReviewHomeAction } from "./reviewFocus";
+import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
 
 interface ReviewHomeProps {
   onStartReview: () => Promise<void>;
@@ -257,18 +258,22 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6">
-      <div className="flex flex-col gap-6">
+    <SafeScrollContainer className="bg-background" data-responsive-surface="review">
+      <div className="flex flex-col gap-4 p-4 pb-24 md:gap-6 md:p-6 md:pb-8">
         <FocusPanel className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">{t("review.title")}</h1>
-              <p className="text-muted-foreground">
-                {t("review.subtitle")}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {reviewHomeAction === "start-review" ? (
+          <AdaptiveContentHeader
+            className="p-0"
+            title={t("review.title")}
+            description={t("review.subtitle")}
+            status={
+              <span className="text-sm text-muted-foreground">
+                {reviewHomeAction === "start-review"
+                  ? `${dueToday.length} ${t("reviewHome.dueToday")} · ${formatMinutes(estimatedSeconds)}`
+                  : t("emptyState.allCaughtUp")}
+              </span>
+            }
+            primaryAction={
+              reviewHomeAction === "start-review" ? (
                 <ActionButton variant="primary" size="large" onClick={() => void onStartReview()} disabled={isLoading}>
                   <Lightning className="h-4 w-4" aria-hidden="true" />
                   {t("dashboard.startReview")}
@@ -278,7 +283,9 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                   <Compass className="h-4 w-4" aria-hidden="true" />
                   {t("dashboard.continueReading")}
                 </ActionButton>
-              )}
+              )
+            }
+            secondaryActions={
               <ActionMenu
                 label={t("reviewHome.viewDecks")}
                 items={[
@@ -290,13 +297,8 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                   { label: t("review.preview"), icon: Lightning, onSelect: () => setIsReviewPreviewOpen(true), disabled: isLoading },
                 ]}
               />
-            </div>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {reviewHomeAction === "start-review"
-              ? `${dueToday.length} ${t("reviewHome.dueToday")} · ${formatMinutes(estimatedSeconds)}`
-              : t("emptyState.allCaughtUp")}
-          </p>
+            }
+          />
           <p className="text-xs text-muted-foreground">
             {t("reviewHome.inSessionTools")} <kbd className="px-1 py-0.5 rounded bg-muted">Ctrl/⌘+I</kbd> {t("reviewHome.fsrsInspector")},{" "}
             <kbd className="px-1 py-0.5 rounded bg-muted">Ctrl/⌘+Shift+Z</kbd> {t("reviewHome.zenMode")}.
@@ -568,6 +570,6 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
           onStartReview();
         }}
       />
-    </div>
+    </SafeScrollContainer>
   );
 }

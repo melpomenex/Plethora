@@ -16,6 +16,8 @@
   --mobile-density-space-2: 10px;
   --mobile-density-space-3: 14px;
   --mobile-density-space-4: 18px;
+  --overlay-backdrop-z: 1050;
+  --overlay-sheet-z: 1051;
 }
 
 /* ==========================================================================
@@ -244,18 +246,18 @@
 
 /* Add bottom padding to prevent content from being hidden by mobile nav (applies to phone and tablet) */
 .mobile-main-content {
-  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)) !important;
+  width: 100%;
+  height: calc(100% - var(--shell-mobile-nav-height, 56px));
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding-bottom: 0 !important;
 }
 
 /* Ensure content never extends under the Android/iOS status bar / top toolbar.
    The top inset is consumed by .app-shell, but keep this as a belt-and-suspenders
    guard for the mobile content wrapper itself. */
-@supports (padding: env(safe-area-inset-top)) {
-  .mobile-main-content.safe-top {
-    padding-top: env(safe-area-inset-top, 0px);
-  }
-}
-
 .mobile-bottom-nav {
   position: fixed;
   bottom: 0;
@@ -276,8 +278,10 @@
   display: flex;
   justify-content: space-around;
   gap: 2px;
-  padding: 4px 6px;
-  padding-bottom: max(4px, env(safe-area-inset-bottom));
+  padding-top: 4px;
+  padding-right: calc(6px + var(--shell-safe-right, 0px));
+  padding-bottom: max(4px, var(--shell-safe-bottom, 0px));
+  padding-left: calc(6px + var(--shell-safe-left, 0px));
   z-index: 1000;
   user-select: none;
   transition: transform 0.2s ease, opacity 0.2s ease;
@@ -288,6 +292,20 @@
   transform: translateY(100%);
   opacity: 0;
   pointer-events: none;
+}
+
+:root[data-presentation="phone"] .performance-monitor-fab,
+:root[data-presentation="tablet"] .performance-monitor-fab {
+  bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+:root[data-presentation="phone"] .performance-monitor-panel,
+:root[data-presentation="tablet"] .performance-monitor-panel {
+  right: 0.75rem;
+  bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  left: 0.75rem;
+  width: auto;
+  max-height: calc(var(--app-viewport-height, 100dvh) - 6rem);
 }
 
 .mobile-nav-item {
@@ -362,6 +380,10 @@
   font-weight: 500;
   position: relative;
   z-index: 1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mobile-nav-item::after {
@@ -410,11 +432,14 @@
 .mobile-more-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1050;
+  z-index: var(--overlay-backdrop-z);
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding: 16px 16px calc(88px + env(safe-area-inset-bottom, 0px));
+  padding: max(16px, var(--shell-safe-top, 0px))
+    max(16px, var(--shell-safe-right, 0px))
+    calc(var(--shell-mobile-nav-height, 56px) + 24px)
+    max(16px, var(--shell-safe-left, 0px));
   background: color-mix(in srgb, black 45%, transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -422,7 +447,7 @@
 
 .mobile-more-sheet {
   width: min(100%, 420px);
-  max-height: 70vh;
+  max-height: min(70vh, calc(var(--app-viewport-height, 100dvh) - var(--shell-mobile-nav-height, 56px) - 48px));
   overflow-y: auto;
   border-radius: 24px;
   background:
@@ -433,6 +458,7 @@
     );
   border: 1px solid color-mix(in srgb, var(--color-primary) 10%, var(--color-border));
   box-shadow: 0 22px 60px color-mix(in srgb, black 28%, transparent);
+  overscroll-behavior: contain;
 }
 
 .mobile-more-header {
@@ -1665,4 +1691,3 @@
 .mobile-context-menu-items .mobile-submenu-children {
   background: var(--background, hsl(0 0% 100% / 0.35));
 }
-

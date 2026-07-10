@@ -78,6 +78,7 @@ import { enqueueAutoTranscription } from "../../api/transcription";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { useToast } from "../common/Toast";
+import { AdaptiveContentHeader, AdaptiveInspector } from "../adaptive";
 
 const MODE_STORAGE_KEY = "documentsViewMode";
 const SAVED_VIEWS_KEY = "documentsSavedViews";
@@ -850,106 +851,42 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     >
       <div className="h-full flex flex-col bg-cream">
         {/* Header */}
-        <div className="border-b border-border bg-card p-3 sm:p-4">
-          {/* Title and Import Actions - Single Row on Mobile */}
-          <div className="flex items-start justify-between gap-3 mb-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-            <div className="min-w-0 flex-1">
-              <h1 className="text-xl sm:text-2xl font-semibold text-foreground">
-                {t("documentsView.title")}
-              </h1>
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                {t("documentsView.headerSummary", { count: sortedDocuments.length })}
-              </p>
-            </div>
-
-            {/* Desktop Import Buttons */}
-            <div className="hidden sm:flex flex-wrap items-center gap-2 justify-end">
-              {enableYouTubeImport && (
-                <button
-                  onClick={() => setShowYouTubeImport(true)}
-                  className="px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors flex items-center gap-2 text-sm whitespace-nowrap"
-                  title={t("documentsView.importYouTubeVideo")}
-                >
-                  <YoutubeLogo className="w-4 h-4" />
-                  {t("documentsView.importYouTube")}
-                </button>
-              )}
-              <button
-                onClick={() => setShowArxivImport(true)}
-                className="px-3 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors flex items-center gap-2 text-sm whitespace-nowrap"
-                title={t("documentsView.importArxivTitle")}
-              >
-                <FileTextIcon className="w-4 h-4" />
-                {t("documentsView.arxiv")}
-              </button>
-              <button
-                onClick={() => setShowWebArticleImport(true)}
-                className="px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors flex items-center gap-2 text-sm whitespace-nowrap"
-                title={t("documentsView.importWebArticles")}
-              >
-                <Globe className="w-4 h-4" />
-                {t("documentsView.webArticle")}
-              </button>
-              <button
-                onClick={() => setShowAudiobookImport(true)}
-                className="px-3 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 transition-colors flex items-center gap-2 text-sm whitespace-nowrap"
-                title={t("documentsView.importAudiobooks")}
-              >
-                <Headphones className="w-4 h-4" />
-                {t("documentsView.audiobook")}
-              </button>
-              {(false as boolean) && isTauri() && (
-                <button
-                  onClick={() => setShowAnnaArchiveSearch(true)}
-                  className="px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors flex items-center gap-2 text-sm whitespace-nowrap"
-                  title={t("documentsView.annasArchiveTooltip")}
-                >
-                  <BookOpen className="w-4 h-4" />
-                  {t("documentsView.annasArchive")}
-                </button>
-              )}
+        <div className="border-b border-border bg-card p-3 sm:p-4" data-responsive-surface="documents">
+          <AdaptiveContentHeader
+            className="p-0 pb-3"
+            title={t("documentsView.title")}
+            description={t("documentsView.headerSummary", { count: sortedDocuments.length })}
+            primaryAction={
               <button
                 onClick={handleImport}
                 disabled={isImporting}
                 data-tutorial="import-button"
-                className="px-3 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap"
+                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isImporting ? t("documentsView.importing") : t("documentsView.importDocument")}
+                <Plus className="h-5 w-5" aria-hidden="true" />
+                <span>{isImporting ? t("documentsView.importing") : t("documentsView.importDocument")}</span>
               </button>
+            }
+            secondaryActions={
               <button
                 onClick={handleImportFolder}
                 disabled={isImporting}
-                title={t("documentsView.importFolderDesc")}
-                className="px-3 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap flex items-center gap-1.5"
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-foreground hover:bg-muted/80 disabled:opacity-50"
               >
-                <FolderOpen className="w-4 h-4" />
+                <FolderOpen className="h-4 w-4" aria-hidden="true" />
                 {t("documentsView.importFolder")}
               </button>
-            </div>
-
-            {/* Mobile Import Actions - Top Right */}
-            <div className="flex sm:hidden items-center gap-1.5 flex-shrink-0">
-              <button
-                onClick={handleImport}
-                disabled={isImporting}
-                className="px-3 py-2.5 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[44px] min-h-[44px]"
-                aria-label={
-                  isImporting ? t("documentsView.importing") : t("documentsView.importDocument")
-                }
-              >
-                <Plus className="w-5 h-5" />
-              </button>
-              <MobileImportMenu
-                enableYouTubeImport={enableYouTubeImport}
-                onYouTubeClick={() => setShowYouTubeImport(true)}
-                onArxivClick={() => setShowArxivImport(true)}
-                onWebArticleClick={() => setShowWebArticleImport(true)}
-                onAudiobookClick={() => setShowAudiobookImport(true)}
-                onAnnaArchiveClick={() => setShowAnnaArchiveSearch(true)}
-                onFolderClick={handleImportFolder}
-              />
-            </div>
-          </div>
+            }
+            overflowActions={[
+              ...(enableYouTubeImport
+                ? [{ id: "youtube", label: t("documentsView.importYouTube"), icon: <YoutubeLogo className="h-4 w-4" />, onSelect: () => setShowYouTubeImport(true) }]
+                : []),
+              { id: "arxiv", label: t("documentsView.arxiv"), icon: <FileTextIcon className="h-4 w-4" />, onSelect: () => setShowArxivImport(true) },
+              { id: "web", label: t("documentsView.webArticle"), icon: <Globe className="h-4 w-4" />, onSelect: () => setShowWebArticleImport(true) },
+              { id: "audio", label: t("documentsView.audiobook"), icon: <Headphones className="h-4 w-4" />, onSelect: () => setShowAudiobookImport(true) },
+              { id: "folder", label: t("documentsView.importFolder"), icon: <FolderOpen className="h-4 w-4" />, onSelect: handleImportFolder, disabled: isImporting },
+            ]}
+          />
 
           {/* Controls Bar */}
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
@@ -1517,19 +1454,12 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
             );
           })()}
 
-          {isInspectorOpen && (
-            <aside className="w-80 border-l border-border bg-card p-4 overflow-auto documents-inspector">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold text-foreground">
-                  {t("documentsView.inspector")}
-                </h2>
-                <button
-                  onClick={() => setInspectorOpen(false)}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+          <AdaptiveInspector
+            open={isInspectorOpen}
+            onClose={() => setInspectorOpen(false)}
+            title={t("documentsView.inspector")}
+            className="documents-inspector"
+          >
               {!activeDocument ? (
                 <div className="text-sm text-muted-foreground">
                   {t("documentsView.selectDocumentDetails")}
@@ -1674,8 +1604,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                   </div>
                 </div>
               )}
-            </aside>
-          )}
+          </AdaptiveInspector>
         </div>
 
         {enableYouTubeImport && showYouTubeImport && (
