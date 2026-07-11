@@ -8,6 +8,7 @@ import {
 import { getLearningItemsByExtract, getItemTypeName, type LearningItem } from "../../api/learning-items";
 import { cn } from "../../utils";
 import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils/ankiLatex";
+import { normalizeClozeSyntax } from "../../utils/cloze";
 
 interface GeneratedCardsPopoverProps {
   extractId: string;
@@ -75,17 +76,18 @@ function renderClozeText(item: LearningItem, isAnswerRevealed: boolean) {
   return <>{parts}</>;
   }
 
+  const normalizedClozeText = normalizeClozeSyntax(item.cloze_text);
   // Fallback: parse {{cN::content}} or [[cN::content]] markers from cloze_text
   const rawClozePattern = /\{\{c(\d+)::(.+?)(?:::(.+?))?\}\}/g;
-  if (rawClozePattern.test(item.cloze_text)) {
+  if (rawClozePattern.test(normalizedClozeText)) {
     rawClozePattern.lastIndex = 0;
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
     let match;
-    while ((match = rawClozePattern.exec(item.cloze_text)) !== null) {
+    while ((match = rawClozePattern.exec(normalizedClozeText)) !== null) {
       if (match.index > lastIndex) {
         parts.push(
-          <span key={`t-${parts.length}`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(item.cloze_text.slice(lastIndex, match.index)) }} />
+          <span key={`t-${parts.length}`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(normalizedClozeText.slice(lastIndex, match.index)) }} />
         );
       }
       const hint = match[3];
@@ -102,9 +104,9 @@ function renderClozeText(item: LearningItem, isAnswerRevealed: boolean) {
       }
       lastIndex = match.index + match[0].length;
     }
-    if (lastIndex < item.cloze_text.length) {
+    if (lastIndex < normalizedClozeText.length) {
       parts.push(
-        <span key={`t-end`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(item.cloze_text.slice(lastIndex)) }} />
+        <span key={`t-end`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(normalizedClozeText.slice(lastIndex)) }} />
       );
     }
     return <>{parts}</>;

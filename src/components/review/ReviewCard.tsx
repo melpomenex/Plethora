@@ -11,6 +11,7 @@ import {
 import { useTTS } from "../../hooks/useTTS";
 import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils/ankiLatex";
 import { getImageAssetById } from "../../api/image-registry";
+import { normalizeClozeSyntax } from "../../utils/cloze";
 import { CardSourceContext } from "./CardSourceContext";
 import { useI18n } from "../../lib/i18n";
 import type {
@@ -254,10 +255,11 @@ export const ReviewCard = React.memo(function ReviewCard({
         );
       }
 
+      const normalizedClozeText = normalizeClozeSyntax(card.cloze_text);
       // Fallback: regex-based cloze rendering for {{cN::content}} or [[cN::content]] markers
       // (AI-generated cloze cards use {{c1::text}} syntax)
       const rawClozePattern = /\{\{c(\d+)::(.+?)(?:::(.+?))?\}\}/g;
-      const hasRawCloze = rawClozePattern.test(card.cloze_text);
+      const hasRawCloze = rawClozePattern.test(normalizedClozeText);
       // Reset regex lastIndex since test() advances it
       rawClozePattern.lastIndex = 0;
 
@@ -265,10 +267,10 @@ export const ReviewCard = React.memo(function ReviewCard({
         const parts: React.ReactNode[] = [];
         let lastIndex = 0;
         let match;
-        while ((match = rawClozePattern.exec(card.cloze_text)) !== null) {
+        while ((match = rawClozePattern.exec(normalizedClozeText)) !== null) {
           if (match.index > lastIndex) {
             parts.push(
-              <span key={`t-${parts.length}`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(card.cloze_text.slice(lastIndex, match.index)) }} />
+              <span key={`t-${parts.length}`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(normalizedClozeText.slice(lastIndex, match.index)) }} />
             );
           }
           if (showAnswer) {
@@ -285,9 +287,9 @@ export const ReviewCard = React.memo(function ReviewCard({
           }
           lastIndex = match.index + match[0].length;
         }
-        if (lastIndex < card.cloze_text.length) {
+        if (lastIndex < normalizedClozeText.length) {
           parts.push(
-            <span key={`t-end`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(card.cloze_text.slice(lastIndex)) }} />
+            <span key={`t-end`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(normalizedClozeText.slice(lastIndex)) }} />
           );
         }
         return (

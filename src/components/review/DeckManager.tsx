@@ -61,6 +61,12 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   const { decks, updateDeck, removeDeck, addDeck } = useStudyDeckStore();
   const { selectedDeckId, setSelectedDeckId } = useReviewStore();
 
+  const sortedDecks = useMemo(() => {
+    return [...(decks || [])].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true })
+    );
+  }, [decks]);
+
   const [allCards, setAllCards] = useState<LearningItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedDeckId, setExpandedDeckId] = useState<string | null>(selectedDeckId);
@@ -105,6 +111,17 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   useEffect(() => {
     loadAllItems();
   }, [loadAllItems]);
+
+  useEffect(() => {
+    const pendingCardId = sessionStorage.getItem("incrementum:pending-flashcard-id");
+    if (!pendingCardId || allCards.length === 0) return;
+    if (allCards.some((card) => card.id === pendingCardId)) {
+      setPreviewCardId(pendingCardId);
+      setRightPanelView("preview");
+      if (isMobile) setMobileCardOpen(true);
+    }
+    sessionStorage.removeItem("incrementum:pending-flashcard-id");
+  }, [allCards, isMobile]);
 
   // On mobile, auto-select first deck when cards load and none is selected
   useEffect(() => {
@@ -605,8 +622,8 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   }, [decks, toast, loadAllItems]);
 
   const deckOptions = useMemo(
-    () => decks.map((d) => ({ id: d.id, name: d.name })),
-    [decks]
+    () => sortedDecks.map((d) => ({ id: d.id, name: d.name })),
+    [sortedDecks]
   );
 
   const toggleSort = useCallback(
@@ -706,7 +723,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
             className="flex-1 text-sm bg-muted/60 border border-border rounded-md px-2 py-1.5 text-foreground"
           >
             <option value="">Select a deck…</option>
-            {decks.map((deck) => {
+            {sortedDecks.map((deck) => {
               const counts = deckCardCounts.get(deck.id);
               return (
                 <option key={deck.id} value={deck.id}>
@@ -779,9 +796,12 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
               style={{ width: widths.left }}
             >
               <div className="p-1.5 space-y-0.5">
-                {decks.map((deck) => {
+                {sortedDecks.map((deck) => {
                   const counts = deckCardCounts.get(deck.id);
                   const isExpanded = expandedDeckId === deck.id;
+                  const parts = deck.name.split("::");
+                  const displayName = parts[parts.length - 1];
+                  const level = parts.length - 1;
 
                   return (
                     <button
@@ -795,6 +815,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                           ? "bg-primary/10 border border-primary/20"
                           : "hover:bg-muted/50 border border-transparent"
                       }`}
+                      style={{ paddingLeft: `${8 + level * 12}px` }}
                     >
                       <div className="flex items-center gap-1.5">
                         {isExpanded ? (
@@ -817,7 +838,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                                 onClick={(e) => e.stopPropagation()}
                               />
                             ) : (
-                              <div className="text-sm font-medium truncate">{deck.name}</div>
+                              <div className="text-sm font-medium truncate">{displayName}</div>
                             )}
                           <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
                             <span className="tabular-nums">{counts?.total ?? 0}</span>

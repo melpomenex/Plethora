@@ -83,6 +83,14 @@ describe("sync:conversations — stripImages", () => {
           content: "it is a thing",
           timestamp: 2,
           toolCalls: [{ name: "search", parameters: { q: "thing" }, status: "pending" }],
+          sourceContext: {
+            documentId: "abc",
+            sectionIds: ["section-2"],
+            labels: ["Chapter Two"],
+            contentHash: "hash",
+            contextKey: "key",
+            ranges: [{ start: 20, end: 40 }],
+          },
         },
       ],
       input: "draft",
@@ -98,6 +106,7 @@ describe("sync:conversations — stripImages", () => {
     // Message without images stays intact.
     expect(stripped.messages[1].toolCalls).toHaveLength(1);
     expect(stripped.messages[1].content).toBe("it is a thing");
+    expect(stripped.messages[1].sourceContext?.labels).toEqual(["Chapter Two"]);
     // Top-level fields preserved.
     expect(stripped.key).toBe("document:abc");
     expect(stripped.input).toBe("draft");

@@ -535,6 +535,12 @@ export function MainLayout() {
     return () => window.removeEventListener("navigate" as any, handleNavigate);
   }, [openTabByType]);
 
+  useEffect(() => {
+    const handleOpenFlashcard = () => openTabByType("review");
+    window.addEventListener("incrementum:open-flashcard", handleOpenFlashcard);
+    return () => window.removeEventListener("incrementum:open-flashcard", handleOpenFlashcard);
+  }, [openTabByType]);
+
   const vimiumCommands = useMemo<VimiumCommand[]>(() => {
     const cmds: VimiumCommand[] = [
       {

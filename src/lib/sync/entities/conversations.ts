@@ -26,6 +26,7 @@
 import { createReplicatedMap, type ReplicatedMap } from "../replicatedMap";
 import { isTauri } from "../../tauri";
 import { nowHLC } from "../syncClock";
+import type { SectionSourceReference } from "../../../utils/sectionIndex";
 
 /** localStorage key the AssistantPanel reads/writes. Must match exactly. */
 export const ASSISTANT_CONVERSATIONS_KEY = "assistant-panel-conversations-v1";
@@ -43,6 +44,7 @@ export interface SyncedMessage {
     result?: unknown;
     status: "pending" | "success" | "error";
   }>;
+  sourceContext?: SectionSourceReference;
   /** Images are STRIPPED before publishing (see module doc). Kept on the type
    * because getLocal reads them from localStorage where they still exist. */
   images?: Array<{ id: string; dataUrl: string; fileName?: string; fileSize?: number }>;
@@ -104,6 +106,12 @@ function coerceMessage(raw: unknown): SyncedMessage | null {
   if (typeof m.timestamp !== "number") return null;
   const out: SyncedMessage = { id: m.id, role, content: m.content, timestamp: m.timestamp };
   if (Array.isArray(m.toolCalls)) out.toolCalls = m.toolCalls as SyncedMessage["toolCalls"];
+  if (m.sourceContext && typeof m.sourceContext === "object") {
+    const source = m.sourceContext as Partial<SectionSourceReference>;
+    if (Array.isArray(source.sectionIds) && Array.isArray(source.labels) && Array.isArray(source.ranges)) {
+      out.sourceContext = source as SectionSourceReference;
+    }
+  }
   if (Array.isArray(m.images)) out.images = m.images as SyncedMessage["images"];
   return out;
 }

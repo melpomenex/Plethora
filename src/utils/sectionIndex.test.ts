@@ -193,6 +193,36 @@ describe("sectionIndex", () => {
     expect(result.ok).toBe(false);
     expect(result.content).toBe("");
     expect(result.unresolved).toHaveLength(2);
+    expect(result.failure).toBe("unresolved");
+  });
+
+  it("rejects an ambiguous duplicate heading instead of guessing", () => {
+    const content = "# Part A\n## Summary\nAlpha.\n# Part B\n## Summary\nBeta.";
+    const { flat } = buildDocumentSections(content);
+    const stale = {
+      ...flat.find((node) => node.title === "Summary")!,
+      id: "stale",
+      breadcrumb: [],
+      hasAuthoritativeRange: false,
+      content: "",
+    };
+    const result = resolveSectionFocusedContext([stale], flat, content, { documentId: "doc-1" });
+    expect(result.ok).toBe(false);
+    expect(result.failure).toBe("ambiguous");
+    expect(result.unresolved[0].code).toBe("ambiguous");
+  });
+
+  it("returns stable provenance and exact selected ranges", () => {
+    const content = "# Opening\nIgnore.\n# Target\nKeep this.\n# Ending\nIgnore.";
+    const { flat } = buildDocumentSections(content);
+    const target = flat.find((node) => node.title === "Target")!;
+    const result = resolveSectionFocusedContext([target], flat, content, { documentId: "doc-1" });
+    expect(result.ok).toBe(true);
+    expect(result.source.documentId).toBe("doc-1");
+    expect(result.source.sectionIds).toEqual([target.id]);
+    expect(result.source.ranges).toEqual([{ start: target.startChar, end: target.endChar }]);
+    expect(result.source.contentHash).toBeTruthy();
+    expect(result.source.contextKey).toBeTruthy();
   });
 
   it("coalesces overlapping parent and child ranges while retaining both labels", () => {

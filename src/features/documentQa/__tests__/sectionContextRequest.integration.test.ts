@@ -80,4 +80,25 @@ describe("Document Q&A focused-section provider boundary", () => {
       expect(args.context.content.match(/The decisive body phrase is forty-two\./g)).toHaveLength(1);
     },
   );
+
+  it("keeps a non-opening EPUB chapter isolated for card creation", () => {
+    const epubText = "<h1>Chapter One</h1><p>Opening material.</p><h1>Chapter Two</h1><p>Unique EPUB card source.</p><h1>Chapter Three</h1><p>Closing material.</p>";
+    const { flat } = buildDocumentSections(epubText);
+    const chapterTwo = flat.find((section) => section.title === "Chapter Two")!;
+    const focused = resolveSectionFocusedContext([chapterTwo], flat, epubText, {
+      documentId: "epub-1",
+      maxTokens: 1000,
+      includeNeighbors: false,
+    });
+    expect(focused.ok).toBe(true);
+    const request = createDocumentQaRequestContent({
+      documentContext: focused.content,
+      userQuestion: "Create Q&A and cloze cards",
+      focusLabel: focused.labels.join(", "),
+    });
+    expect(request.userPromptContent).toContain("Unique EPUB card source");
+    expect(request.contextContent).toContain("Unique EPUB card source");
+    expect(request.contextContent).not.toContain("Opening material");
+    expect(request.contextContent).not.toContain("Closing material");
+  });
 });

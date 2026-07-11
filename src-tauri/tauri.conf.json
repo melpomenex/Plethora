@@ -47,23 +47,7 @@
       "bin/pocket-tts"
     ],
     "resources": [
-      "scripts/anna_download.py",
-      "bin/libggml-base.so*",
-      "bin/libggml-base*.dylib",
-      "bin/libggml-cpu.so*",
-      "bin/libggml-cpu*.dylib",
-      "bin/libggml-blas*.dylib",
-      "bin/libggml-metal*.dylib",
-      "bin/libggml-vulkan.so*",
-      "bin/libggml.so*",
-      "bin/libggml*.dylib",
-      "bin/libwhisper.so*",
-      "bin/libwhisper*.dylib",
-      "bin/libonnxruntime.so*",
-      "bin/libonnxruntime*.dylib",
-      "bin/onnxruntime*.dll",
-      "bin/libwhisper*.dll",
-      "bin/libggml*.dll"
+      "scripts/anna_download.py"
     ],
     "icon": [
       "icons/32x32.png",

@@ -25,6 +25,16 @@ export interface SectionContextDiagnostic {
   id: string;
   label: string;
   reason: string;
+  code?: "wrong-document" | "ambiguous" | "unresolved";
+}
+
+export interface SectionSourceReference {
+  documentId?: string;
+  sectionIds: string[];
+  labels: string[];
+  contentHash: string;
+  contextKey: string;
+  ranges: Array<{ start: number; end: number }>;
 }
 
 export interface FocusedSectionContextResult {
@@ -35,6 +45,8 @@ export interface FocusedSectionContextResult {
   truncated: boolean;
   sections: SectionNode[];
   unresolved: SectionContextDiagnostic[];
+  source: SectionSourceReference;
+  failure?: "ambiguous" | "unresolved";
 }
 
 interface HeadingInfo {
@@ -54,13 +66,15 @@ interface LRUEntry {
 const MAX_CACHE = 20;
 const documentSectionCache = new Map<string, LRUEntry>();
 
-function hashString(str: string): string {
+export function hashSectionContent(str: string): string {
   let h = 5381;
   for (let i = 0; i < str.length; i++) {
     h = (h * 33) ^ str.charCodeAt(i);
   }
   return (h >>> 0).toString(36);
 }
+
+const hashString = hashSectionContent;
 
 function cleanPreview(text: string): string {
   return text
@@ -423,15 +437,24 @@ function rangeIsCurrent(section: SectionNode, fullContent: string): boolean {
   return current.length > 0 && current === section.content.trim();
 }
 
-function findStructuralMatch(section: SectionNode, available: SectionNode[]): SectionNode | undefined {
+function findStructuralMatch(
+  section: SectionNode,
+  available: SectionNode[]
+): { match?: SectionNode; ambiguous: boolean } {
   const normalize = (value: string) => value.toLowerCase().replace(/[\s:._-]+/g, " ").trim();
   const title = normalize(section.title);
   const breadcrumb = section.breadcrumb.map(normalize).join(" > ");
   const candidates = available.filter((candidate) =>
     candidate.hasAuthoritativeRange && normalize(candidate.title) === title
   );
-  return candidates.find((candidate) => candidate.breadcrumb.map(normalize).join(" > ") === breadcrumb)
-    ?? (candidates.length === 1 ? candidates[0] : undefined);
+  const breadcrumbMatches = candidates.filter(
+    (candidate) => candidate.breadcrumb.map(normalize).join(" > ") === breadcrumb
+  );
+  if (breadcrumbMatches.length === 1) return { match: breadcrumbMatches[0], ambiguous: false };
+  if (breadcrumbMatches.length > 1) return { ambiguous: true };
+  return candidates.length === 1
+    ? { match: candidates[0], ambiguous: false }
+    : { ambiguous: candidates.length > 1 };
 }
 
 function escapeRegExp(value: string): string {
@@ -507,28 +530,57 @@ export function resolveSectionFocusedContext(
   const { documentId, maxTokens = 4000, includeNeighbors = true, radiusChars = 300 } = options;
   const unresolved: SectionContextDiagnostic[] = [];
   const resolved: SectionNode[] = [];
+  const contentHash = hashSectionContent(fullContent);
+  const emptySource = (): SectionSourceReference => ({
+    documentId,
+    sectionIds: resolved.map((section) => section.id),
+    labels: resolved.map(sectionLabel),
+    contentHash,
+    contextKey: hashSectionContent(`${documentId ?? "unknown"}:${contentHash}:${resolved.map((section) => section.id).join(",")}`),
+    ranges: resolved.flatMap((section) =>
+      section.startChar !== undefined && section.endChar !== undefined
+        ? [{ start: section.startChar, end: section.endChar }]
+        : []
+    ),
+  });
 
   for (const requested of selected) {
     const label = sectionLabel(requested);
     if (documentId && requested.documentId && requested.documentId !== documentId) {
-      unresolved.push({ id: requested.id, label, reason: "belongs to a different document" });
+      unresolved.push({ id: requested.id, label, reason: "belongs to a different document", code: "wrong-document" });
       continue;
     }
     const currentById = available.find((candidate) => candidate.id === requested.id);
+    const structural = findStructuralMatch(requested, available);
     const candidate = currentById && rangeIsCurrent(currentById, fullContent)
       ? currentById
       : rangeIsCurrent(requested, fullContent)
         ? requested
-        : findStructuralMatch(requested, available) ?? recoverOutlineRangeFromText(requested, available, fullContent);
+        : structural.match ?? recoverOutlineRangeFromText(requested, available, fullContent);
     if (!candidate || !rangeIsCurrent(candidate, fullContent)) {
-      unresolved.push({ id: requested.id, label, reason: "has no current document-text range" });
+      unresolved.push({
+        id: requested.id,
+        label,
+        reason: structural.ambiguous ? "matches multiple current document headings" : "has no current document-text range",
+        code: structural.ambiguous ? "ambiguous" : "unresolved",
+      });
       continue;
     }
     resolved.push({ ...candidate, documentId: documentId ?? candidate.documentId });
   }
 
   if (unresolved.length > 0 || resolved.length !== selected.length) {
-    return { ok: false, content: "", labels: resolved.map(sectionLabel), estimatedTokens: 0, truncated: false, sections: resolved, unresolved };
+    return {
+      ok: false,
+      content: "",
+      labels: resolved.map(sectionLabel),
+      estimatedTokens: 0,
+      truncated: false,
+      sections: resolved,
+      unresolved,
+      source: emptySource(),
+      failure: unresolved.some((item) => item.code === "ambiguous") ? "ambiguous" : "unresolved",
+    };
   }
 
   const unique = new Map<string, SectionNode>();
@@ -585,6 +637,14 @@ export function resolveSectionFocusedContext(
     truncated,
     sections: resolved,
     unresolved: [],
+    source: {
+      documentId,
+      sectionIds: resolved.map((section) => section.id),
+      labels: resolved.map(sectionLabel),
+      contentHash,
+      contextKey: hashSectionContent(`${documentId ?? "unknown"}:${contentHash}:${resolved.map((section) => section.id).join(",")}`),
+      ranges: groups.map((group) => ({ start: group.start, end: group.end })),
+    },
   };
 }
 

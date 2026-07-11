@@ -94,6 +94,8 @@ import { buildChapterQAContext, getChapterTitles } from "../../utils/chapterUtil
 import type { ImageOcclusionRegion, MultipleChoiceOption } from "../../types/learningItemInteractions";
 import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
 import { ExtractBrowserPanel } from "./ExtractBrowserPanel";
+import { extractDocumentText, getDocument } from "../../api/documents";
+import { loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
 
 type DraftCardType = "qa" | "cloze" | "multiple-choice" | "image-occlusion";
 type ViewMode = "chat" | "templates" | "history" | "extracts";
@@ -165,7 +167,7 @@ interface GenerationHistoryItem {
   documentName?: string;
 }
 
-interface ContextSelection {
+export interface ContextSelection {
   mode: ContextMode;
   chapters: number[];
   pageRange: { start: number; end: number } | null;
@@ -183,7 +185,7 @@ const DEFAULT_CONTEXT_SELECTION: ContextSelection = {
   searchResults: [],
 };
 
-function normalizeContextSelection(value: unknown): ContextSelection {
+export function normalizeContextSelection(value: unknown): ContextSelection {
   const raw = (value && typeof value === "object" ? value : {}) as Partial<ContextSelection>;
   const mode: ContextMode =
     raw.mode === "full" || raw.mode === "chapters" || raw.mode === "pages" || raw.mode === "excerpt" || raw.mode === "search"
@@ -191,14 +193,23 @@ function normalizeContextSelection(value: unknown): ContextSelection {
       : DEFAULT_CONTEXT_SELECTION.mode;
   return {
     mode,
-    chapters: Array.isArray(raw.chapters) ? raw.chapters : [],
+    chapters: Array.isArray(raw.chapters)
+      ? raw.chapters.filter((chapter): chapter is number => typeof chapter === "number" && Number.isInteger(chapter) && chapter > 0)
+      : [],
     pageRange:
       raw.pageRange && typeof raw.pageRange.start === "number" && typeof raw.pageRange.end === "number"
-        ? raw.pageRange
+        ? {
+            start: Math.max(1, Math.floor(raw.pageRange.start)),
+            end: Math.max(Math.max(1, Math.floor(raw.pageRange.start)), Math.floor(raw.pageRange.end)),
+          }
         : null,
     excerpt: typeof raw.excerpt === "string" ? raw.excerpt : "",
     searchQuery: typeof raw.searchQuery === "string" ? raw.searchQuery : "",
-    searchResults: Array.isArray(raw.searchResults) ? raw.searchResults : [],
+    searchResults: Array.isArray(raw.searchResults)
+      ? raw.searchResults.filter((result): result is { start: number; end: number; preview: string } =>
+          Boolean(result) && typeof result.start === "number" && typeof result.end === "number" && typeof result.preview === "string"
+        )
+      : [],
   };
 }
 
@@ -981,7 +992,7 @@ function ContextControlPanel({
   onChange,
   maxTokens,
 }: {
-  document: { id: string; title: string; content?: string } | null;
+  document: { id: string; title: string; content?: string | null } | null;
   selection: ContextSelection;
   onChange: (selection: ContextSelection) => void;
   maxTokens: number;
@@ -997,13 +1008,14 @@ function ContextControlPanel({
     if (!document?.content) return [];
     return getChapterTitles(document.content);
   }, [document]);
-  const selectedChapters = Array.isArray(selection.chapters) ? selection.chapters : [];
+  const safeSelection = normalizeContextSelection(selection);
+  const selectedChapters = safeSelection.chapters;
   
   const estimatedTokens = useMemo(() => {
     let text = "";
     if (!document?.content) return 0;
     
-    switch (selection.mode) {
+    switch (safeSelection.mode) {
       case "full":
         text = document.content;
         break;
@@ -1013,13 +1025,13 @@ function ContextControlPanel({
           .join("\n\n");
         break;
       case "excerpt":
-        text = selection.excerpt;
+        text = safeSelection.excerpt;
         break;
       default:
         text = document.content.slice(0, maxTokens * CHARS_PER_TOKEN);
     }
     return estimateTokens(text);
-  }, [document, selection, maxTokens]);
+  }, [document, safeSelection, selectedChapters, maxTokens]);
   
   const handleSearch = useCallback(() => {
     if (!searchQuery.trim() || !document?.content) return;
@@ -1066,11 +1078,11 @@ function ContextControlPanel({
           <div className="text-left">
             <div className="text-sm font-medium text-foreground">{t("flashcardStudio.contextControlTitle")}</div>
             <div className="text-xs text-muted-foreground">
-              {selection.mode === "full" && t("flashcardStudio.contextModeFullSummary")}
-              {selection.mode === "chapters" && t("flashcardStudio.contextModeChaptersSummary", { count: selectedChapters.length })}
-              {selection.mode === "pages" && t("flashcardStudio.contextModePagesSummary")}
-              {selection.mode === "excerpt" && t("flashcardStudio.contextModeExcerptSummary")}
-              {selection.mode === "search" && t("flashcardStudio.contextModeSearchSummary")}
+              {safeSelection.mode === "full" && t("flashcardStudio.contextModeFullSummary")}
+              {safeSelection.mode === "chapters" && t("flashcardStudio.contextModeChaptersSummary", { count: selectedChapters.length })}
+              {safeSelection.mode === "pages" && t("flashcardStudio.contextModePagesSummary")}
+              {safeSelection.mode === "excerpt" && t("flashcardStudio.contextModeExcerptSummary")}
+              {safeSelection.mode === "search" && t("flashcardStudio.contextModeSearchSummary")}
               {" · "}
               {t("flashcardStudio.tokensWithCount", { count: formatTokenCount(estimatedTokens) })}
             </div>
@@ -1095,7 +1107,7 @@ function ContextControlPanel({
                 onClick={() => onChange({ ...selection, mode: mode.id as ContextMode })}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  selection.mode === mode.id
+                  safeSelection.mode === mode.id
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted text-muted-foreground hover:text-foreground"
                 )}
@@ -1107,7 +1119,7 @@ function ContextControlPanel({
           </div>
           
           {/* Chapter Selection */}
-          {selection.mode === "chapters" && chapters.length > 0 && (
+          {safeSelection.mode === "chapters" && chapters.length > 0 && (
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.selectChapters")}</div>
               <div className="max-h-48 overflow-y-auto space-y-1 border border-border rounded-lg p-2">
@@ -1136,7 +1148,7 @@ function ContextControlPanel({
           )}
           
           {/* Page Range */}
-          {selection.mode === "pages" && (
+          {safeSelection.mode === "pages" && (
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.enterPageRange")}</div>
               <div className="flex items-center gap-2">
@@ -1175,7 +1187,7 @@ function ContextControlPanel({
           )}
           
           {/* Excerpt */}
-          {selection.mode === "excerpt" && (
+          {safeSelection.mode === "excerpt" && (
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.pasteExcerptPrompt")}</div>
               <textarea
@@ -1204,7 +1216,7 @@ function ContextControlPanel({
           )}
           
           {/* MagnifyingGlass */}
-          {selection.mode === "search" && (
+          {safeSelection.mode === "search" && (
             <div className="space-y-2">
               <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.searchWithinDocument")}</div>
               <div className="flex gap-2">
@@ -1224,9 +1236,9 @@ function ContextControlPanel({
                 </button>
               </div>
               
-              {selection.searchResults.length > 0 && (
+              {safeSelection.searchResults.length > 0 && (
                 <div className="space-y-1 max-h-48 overflow-y-auto border border-border rounded-lg p-2">
-                  {selection.searchResults.map((result, i) => (
+                  {safeSelection.searchResults.map((result, i) => (
                     <button
                       key={i}
                       onClick={() => onChange({ ...selection, excerpt: result.preview })}
@@ -1244,9 +1256,9 @@ function ContextControlPanel({
           <div className="flex items-center justify-between pt-2 border-t border-border">
             <div className="text-xs text-muted-foreground">
               {t("flashcardStudio.estimatedTokensPrefix")} <span className="font-medium text-foreground">{formatTokenCount(estimatedTokens)}</span> {t("flashcardStudio.tokens")}
-              {selection.mode !== "full" && (
+              {safeSelection.mode !== "full" && (
                 <span className="text-green-600 ml-2">
-                  {t("flashcardStudio.savesTokens", { count: formatTokenCount(estimateTokens(document.content) - estimatedTokens) })}
+                  {t("flashcardStudio.savesTokens", { count: formatTokenCount(estimateTokens(document.content || "") - estimatedTokens) })}
                 </span>
               )}
             </div>
@@ -2880,6 +2892,8 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const [isNotebookLoading, setIsNotebookLoading] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [resolvedDocumentContent, setResolvedDocumentContent] = useState<string | undefined>(undefined);
+  const [contextLoadState, setContextLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [contextLoadError, setContextLoadError] = useState<string | null>(null);
   const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -2902,6 +2916,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const [isImageImporting, setIsImageImporting] = useState(false);
   const [isImageRegistryOpen, setIsImageRegistryOpen] = useState(false);
   const appliedSeedKeyRef = useRef<string | null>(null);
+  const seededDocumentIdRef = useRef<string | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -3140,22 +3155,28 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     if (typeof resolvedDocumentContent === "string" && resolvedDocumentContent.trim().length > 0) {
       return resolvedDocumentContent;
     }
-    return selectedDocument?.content;
+    return typeof selectedDocument?.content === "string" ? selectedDocument.content : undefined;
   }, [resolvedDocumentContent, selectedDocument?.content]);
 
   useEffect(() => {
     if (!isOpen || !selectedDocument) {
       setResolvedDocumentContent(undefined);
+      setContextLoadState("idle");
+      setContextLoadError(null);
       return;
     }
 
     // If extracted content is already available, prefer it immediately.
     if (selectedDocument.content?.trim()) {
       setResolvedDocumentContent(selectedDocument.content);
+      setContextLoadState("ready");
+      setContextLoadError(null);
       return;
     }
 
     let cancelled = false;
+    setContextLoadState("loading");
+    setContextLoadError(null);
     const resolveMediaTranscript = async () => {
       try {
         if (selectedDocument.fileType === "video" || selectedDocument.fileType === "audio") {
@@ -3166,11 +3187,14 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
             const transcript = await getVideoTranscript(selectedDocument.id);
             if (!cancelled) {
               setResolvedDocumentContent(transcript?.transcript?.trim() || undefined);
+              setContextLoadState(transcript?.transcript?.trim() ? "ready" : "error");
             }
           } catch (transcriptError) {
             console.warn("Failed to resolve video/audio transcript", transcriptError);
             if (!cancelled) {
               setResolvedDocumentContent(undefined);
+              setContextLoadState("error");
+              setContextLoadError(t("flashcardStudio.transcriptUnavailableDesc"));
               toast.info(
                 t("flashcardStudio.transcriptUnavailable"),
                 t("flashcardStudio.transcriptUnavailableDesc")
@@ -3190,17 +3214,24 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
           if (!cancelled) {
             const transcript = segments.map((segment) => segment.text).join(" ").trim();
             setResolvedDocumentContent(transcript || undefined);
+            setContextLoadState(transcript ? "ready" : "error");
+            if (!transcript) setContextLoadError(t("flashcardStudio.transcriptUnavailableDesc"));
           }
           return;
         }
 
+        const canonical = await loadDocumentQaText(selectedDocument.id, { getDocument, extractDocumentText });
         if (!cancelled) {
-          setResolvedDocumentContent(undefined);
+          setResolvedDocumentContent(canonical || undefined);
+          setContextLoadState(canonical ? "ready" : "error");
+          setContextLoadError(canonical ? null : "No readable text could be extracted from this document.");
         }
       } catch (error) {
         console.warn("Failed to resolve transcript content for flashcard context", error);
         if (!cancelled) {
           setResolvedDocumentContent(undefined);
+          setContextLoadState("error");
+          setContextLoadError(error instanceof Error ? error.message : "Document context could not be loaded.");
         }
       }
     };
@@ -3210,6 +3241,20 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       cancelled = true;
     };
   }, [isOpen, selectedDocument]);
+
+  const previousDocumentIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = previousDocumentIdRef.current;
+    previousDocumentIdRef.current = selectedDocumentId;
+    if (previous && previous !== selectedDocumentId) {
+      if (seededDocumentIdRef.current === selectedDocumentId) {
+        seededDocumentIdRef.current = null;
+      } else {
+        setContextSelection(DEFAULT_CONTEXT_SELECTION);
+      }
+    }
+  }, [isOpen, selectedDocumentId]);
 
   const selectedDeck = useMemo(() => {
     if (!selectedDeckId) return null;
@@ -3244,17 +3289,18 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   }, [addDeck, selectedDocument?.id, t, toast]);
 
   const contextContent = useMemo(() => {
-    const selectedChapters = Array.isArray(contextSelection.chapters) ? contextSelection.chapters : [];
+    const normalizedSelection = normalizeContextSelection(contextSelection);
+    const selectedChapters = normalizedSelection.chapters;
 
-    switch (contextSelection.mode) {
+    switch (normalizedSelection.mode) {
       case "full":
         return selectedDocumentText?.slice(0, maxTokens * CHARS_PER_TOKEN);
 
       case "chapters": {
         if (!selectedDocumentText) return undefined;
-        if (selectedChapters.length === 0) {
-          return selectedDocumentText.slice(0, maxTokens * CHARS_PER_TOKEN);
-        }
+        if (selectedChapters.length === 0) return undefined;
+        const availableChapterNumbers = new Set(getChapterTitles(selectedDocumentText).map((chapter) => chapter.number));
+        if (selectedChapters.some((chapter) => !availableChapterNumbers.has(chapter))) return undefined;
         const perChapterTokens = Math.floor(maxTokens / selectedChapters.length);
         return selectedChapters
           .map((num) => buildChapterQAContext(selectedDocument.title, selectedDocumentText, num, perChapterTokens))
@@ -3262,30 +3308,42 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       }
 
       case "excerpt":
-        // The excerpt is self-sufficient and must reach the AI even when the full
-        // document text hasn't been loaded (e.g. EPUB right-click → Create Flashcard,
-        // where list_documents omits the content column). Fall back to the document
-        // text only when no excerpt is present.
-        return contextSelection.excerpt || selectedDocumentText?.slice(0, maxTokens * CHARS_PER_TOKEN);
+        // A seeded excerpt is self-sufficient even when the full EPUB body is
+        // still loading. An empty explicit excerpt is invalid; never broaden it.
+        return normalizedSelection.excerpt.trim() || undefined;
 
       case "pages":
         // Approximate: assume 500 words per page, 4 chars per word
         if (!selectedDocumentText) return undefined;
-        if (contextSelection.pageRange) {
+        if (normalizedSelection.pageRange) {
           const charsPerPage = 2000;
-          const start = (contextSelection.pageRange.start - 1) * charsPerPage;
-          const end = contextSelection.pageRange.end * charsPerPage;
-          return selectedDocumentText.slice(start, end);
+          const start = (normalizedSelection.pageRange.start - 1) * charsPerPage;
+          const end = normalizedSelection.pageRange.end * charsPerPage;
+          const pageContent = selectedDocumentText.slice(start, end).trim();
+          return pageContent || undefined;
         }
-        return selectedDocumentText.slice(0, maxTokens * CHARS_PER_TOKEN);
+        return undefined;
 
       case "search":
-        return contextSelection.excerpt || selectedDocumentText?.slice(0, maxTokens * CHARS_PER_TOKEN);
+        return normalizedSelection.excerpt.trim() || undefined;
 
       default:
-        return selectedDocumentText?.slice(0, maxTokens * CHARS_PER_TOKEN);
+        return undefined;
     }
   }, [selectedDocument, selectedDocumentText, contextSelection, maxTokens]);
+
+  const contextValidationError = useMemo(() => {
+    if (!selectedDocument) return null;
+    if (contextLoadState === "loading") return "Document context is still loading.";
+    if (contextLoadState === "error" && !selectedDocumentText) return contextLoadError || "Document context is unavailable.";
+    if (contextSelection.mode === "full") return selectedDocumentText?.trim() ? null : "No readable document text is available.";
+    if (contextContent?.trim()) return null;
+    if (contextSelection.mode === "chapters") return "Select an available chapter before generating cards.";
+    if (contextSelection.mode === "pages") return "Apply a valid page range that contains document text.";
+    if (contextSelection.mode === "excerpt") return "Add an excerpt before generating cards.";
+    if (contextSelection.mode === "search") return "Search the document and select a result before generating cards.";
+    return "Choose valid document context before generating cards.";
+  }, [contextContent, contextLoadError, contextLoadState, contextSelection.mode, selectedDocument, selectedDocumentText]);
 
   const stats = useMemo(() => {
     const selected = draftCards.filter((c) => c.selected);
@@ -3349,6 +3407,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     appliedSeedKeyRef.current = seed.key;
 
     if (seed.documentId !== undefined) {
+      seededDocumentIdRef.current = seed.documentId;
       setSelectedDocumentId(seed.documentId);
     }
 
@@ -3533,6 +3592,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     }
     if (isNotebookProviderSelected && !selectedNotebookId) {
       toast.error(t("flashcardStudio.noNotebookSelected"), t("flashcardStudio.noNotebookSelectedDesc"));
+      return;
+    }
+    if (selectedDocument && contextValidationError) {
+      toast.error("Context unavailable", contextValidationError);
       return;
     }
 
@@ -4275,6 +4338,18 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         {/* Context Control Panel */}
         {selectedDocument && (
           <div className="px-6 py-3 border-b border-border bg-muted/10">
+            {contextLoadState === "loading" && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground" role="status">
+                <CircleNotch className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
+                Loading document context…
+              </div>
+            )}
+            {contextLoadState === "error" && !selectedDocumentText && (
+              <div className="mb-2 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive" role="alert">
+                <WarningCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{contextLoadError || "Document context could not be loaded. Close and reopen the studio to retry."}</span>
+              </div>
+            )}
             <ContextControlPanel
               document={{
                 id: selectedDocument.id,

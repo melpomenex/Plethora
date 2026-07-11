@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useDocumentQAStore, type QAMessage, type QAToolCall } from "../../stores";
+import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useDocumentQAStore, useStudyDeckStore, type QAMessage, type QAToolCall } from "../../stores";
 import { chatWithContext, type LLMMessage } from "../../api/llm";
 import { getDocument, extractDocumentText } from "../../api/documents";
 import { getExtracts } from "../../api/extracts";
@@ -48,6 +48,12 @@ import {
   type FocusedSectionContextResult,
   type SectionNode,
 } from "../../utils/sectionIndex";
+import { ChatFlashcardCollection } from "../assistant/ChatFlashcardCollection";
+import {
+  nonFlashcardToolCalls,
+  toolCallsToFlashcardArtifacts,
+  type ChatFlashcardArtifact,
+} from "../../features/assistant/chatFlashcardArtifacts";
 
 // Re-export types with simpler names for local use
 type Message = QAMessage;
@@ -732,17 +738,155 @@ export function DocumentQATab() {
     return { cleanedContent, toolCalls };
   };
 
-  const executeToolCalls = async (messageId: string, calls: ToolCall[]) => {
-    for (const call of calls) {
+  const normalizeToolParameters = (
+    toolName: string,
+    parameters: Record<string, unknown>,
+    sourceContext?: FocusedSectionContextResult["source"]
+  ) => {
+    const normalized = { ...parameters };
+    const documentId = sourceContext?.documentId || targetDocId;
+    const docTitle = documents.find((d) => d.id === documentId)?.title;
+    
+    const attachableTools = new Set([
+      "create_cloze_card",
+      "create_qa_card",
+      "create_extract",
+      "batch_create_cards",
+    ]);
+
+    if (documentId && attachableTools.has(toolName) && normalized.document_id == null) {
+      normalized.document_id = documentId;
+    }
+
+    // Auto-tag with deck:<base title> for card/extract tools.
+    // Strips parenthetical author info (e.g. "Book (Author)" → "deck:Book")
+    // so tags match deck names more reliably.
+    if (docTitle && attachableTools.has(toolName)) {
+      const baseTitle = docTitle.replace(/\s*\([^)]*\)\s*$/, "").trim();
+      const deckTag = `deck:${baseTitle || docTitle}`;
+      const existingTags: string[] = Array.isArray(normalized.tags)
+        ? normalized.tags.map((t: unknown) => String(t))
+        : [];
+      if (!existingTags.some((t) => t.toLowerCase() === deckTag.toLowerCase())) {
+        normalized.tags = [...existingTags, deckTag];
+      }
+    }
+
+    return normalized;
+  };
+
+  const executeToolCalls = async (messageId: string, calls: ToolCall[], sourceContext?: FocusedSectionContextResult["source"]) => {
+    const results: Array<{ name: string; status: "success" | "error"; error?: string }> = [];
+    const batchDeckNames: string[] = [];
+
+    for (let index = 0; index < calls.length; index += 1) {
+      const call = calls[index];
+      let parameters = normalizeToolParameters(call.name, call.parameters, sourceContext);
+
+      // If this is a card/extract call and we created decks earlier in this batch,
+      // ensure the card tags include the deck names so tag-based filtering works.
+      if (batchDeckNames.length > 0) {
+        const cardTools = new Set(["create_qa_card", "create_cloze_card", "batch_create_cards", "create_extract"]);
+        if (cardTools.has(call.name)) {
+          const existingTags: string[] = Array.isArray(parameters.tags)
+            ? parameters.tags.map((t: unknown) => String(t))
+            : [];
+          for (const deckName of batchDeckNames) {
+            const normalized = deckName.toLowerCase();
+            const hasMatch = existingTags.some(
+              (t) => t.toLowerCase() === normalized || t.toLowerCase() === `deck:${normalized}`
+            );
+            if (!hasMatch) {
+              existingTags.push(deckName);
+            }
+          }
+          parameters = { ...parameters, tags: existingTags };
+        }
+      }
+
+      updateToolCall(messageId, index, { parameters });
+
       try {
-        const result = await callIncrementumMCPTool(call.name, call.parameters);
-        updateToolCall(messageId, call.name, { result, status: "success" });
+        const result = await callIncrementumMCPTool(call.name, parameters);
+        
+        if (result.isError) {
+          updateToolCall(messageId, index, {
+            result: JSON.stringify(result.content),
+            status: "error",
+          });
+          results.push({ name: call.name, status: "error", error: "Tool returned error" });
+        } else {
+          updateToolCall(messageId, index, {
+            result,
+            status: "success",
+          });
+          results.push({ name: call.name, status: "success" });
+        }
+
+        // Sync deck creation to frontend store and track for card tagging
+        if (call.name === "create_deck" && !result.isError) {
+          try {
+            const parsed = JSON.parse(result.content?.[0]?.text ?? "{}");
+            if (parsed.success && parsed.name) {
+              useStudyDeckStore.getState().addDeck(parsed.name, parsed.tags ?? [parsed.name]);
+              batchDeckNames.push(parsed.name);
+            }
+          } catch { /* non-critical */ }
+        }
+
+        // Auto-create deck in frontend store from tags on card creation
+        if (!result.isError && parameters.tags && Array.isArray(parameters.tags)) {
+          for (const tag of parameters.tags as string[]) {
+            const deckName = tag.startsWith("deck:") ? tag.slice(5) : null;
+            if (deckName) {
+              const store = useStudyDeckStore.getState();
+              const baseName = deckName.replace(/\s*\([^)]*\)\s*$/, "").trim() || deckName;
+              const exists = store.decks.some((d) => {
+                const dBase = d.name.replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase();
+                return dBase === baseName.toLowerCase() || d.name.toLowerCase() === deckName.toLowerCase();
+              });
+              if (!exists) {
+                const docId = parameters.document_id as string | undefined || targetDocId;
+                store.addDeck(baseName, [baseName], docId);
+              }
+            }
+          }
+        }
       } catch (error) {
-        updateToolCall(messageId, call.name, {
-          result: error instanceof Error ? error.message : error,
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        updateToolCall(messageId, index, {
+          result: errorMsg,
           status: "error",
         });
+        results.push({ name: call.name, status: "error", error: errorMsg });
       }
+    }
+  };
+
+  const openChatCard = (artifact: ChatFlashcardArtifact) => {
+    if (!artifact.persistedCardId) return;
+    sessionStorage.setItem("incrementum:pending-flashcard-id", artifact.persistedCardId);
+    window.dispatchEvent(new CustomEvent("incrementum:open-flashcard", {
+      detail: { cardId: artifact.persistedCardId, artifact },
+    }));
+  };
+
+  const retryChatCard = async (messageId: string, artifact: ChatFlashcardArtifact) => {
+    const message = messages.find((item) => item.id === messageId);
+    const call = message?.toolCalls?.[artifact.callIndex];
+    if (!call) return;
+    updateToolCall(messageId, artifact.callIndex, { status: "pending", result: undefined });
+    try {
+      const result = await callIncrementumMCPTool(call.name, call.parameters);
+      updateToolCall(messageId, artifact.callIndex, {
+        status: result.isError ? "error" : "success",
+        result: result.isError ? JSON.stringify(result.content) : result,
+      });
+    } catch (error) {
+      updateToolCall(messageId, artifact.callIndex, {
+        status: "error",
+        result: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
@@ -898,6 +1042,12 @@ export function DocumentQATab() {
     addMessage(userMessage);
     setHistoryIndex(-1);
     const savedRawInput = rawInput;
+    const restoreComposer = () => {
+      setRawInput(savedRawInput);
+      setMentions(parseMentions(savedRawInput).mentions);
+      setSelectedSections(selectedSectionSnapshot);
+      setInput(formatInputForDisplay(savedRawInput, mentions, selectedSectionSnapshot));
+    };
     setRawInput("");
     setInput("");
     setMentions([]);
@@ -916,6 +1066,7 @@ export function DocumentQATab() {
           timestamp: Date.now(),
         };
         addMessage(errorMsg);
+        restoreComposer();
         setIsProcessing(false);
         return;
       }
@@ -931,6 +1082,7 @@ export function DocumentQATab() {
             content: "Section context is unavailable because a # heading must belong to one active document. Select one document and choose the heading again.",
             timestamp: Date.now(),
           });
+          restoreComposer();
           return;
         }
 
@@ -943,6 +1095,7 @@ export function DocumentQATab() {
             content: "The selected section could not be loaded from this document. Retry text extraction or select another heading before asking again.",
             timestamp: Date.now(),
           });
+          restoreComposer();
           return;
         }
 
@@ -980,6 +1133,7 @@ export function DocumentQATab() {
             content: `The selected section context is no longer available${failed ? ` for: ${failed}` : ""}. Retry text extraction or select the heading again. No LLM request was sent.`,
             timestamp: Date.now(),
           });
+          restoreComposer();
           return;
         }
         setFullContent(currentText);
@@ -1182,12 +1336,13 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         timestamp: Date.now(),
         sourceDocuments: mentionedDocumentIds.length > 0 ? mentionedDocumentIds : undefined,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        sourceContext: focusedSectionContext?.ok ? focusedSectionContext.source : undefined,
       };
 
       addMessage(assistantMessage);
 
       if (toolCalls.length > 0) {
-        await executeToolCalls(assistantMessage.id, toolCalls);
+        await executeToolCalls(assistantMessage.id, toolCalls, focusedSectionContext?.ok ? focusedSectionContext.source : undefined);
       }
     } catch (error) {
       const errorMessage = {
@@ -1569,9 +1724,21 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                   )}
 
                   {/* Tool calls */}
-                  {message.toolCalls && message.toolCalls.length > 0 && (
-                    <div className="mt-3 space-y-2">
-                      {message.toolCalls.map((tool, idx) => (
+                  {message.toolCalls && message.toolCalls.length > 0 && (() => {
+                    const artifacts = toolCallsToFlashcardArtifacts(message.id, message.toolCalls, {
+                      source: message.sourceContext,
+                      timestamp: message.timestamp,
+                    });
+                    const genericTools = nonFlashcardToolCalls(message.toolCalls);
+                    return (
+                    <>
+                      <ChatFlashcardCollection
+                        artifacts={artifacts}
+                        onOpen={openChatCard}
+                        onRetry={(artifact) => void retryChatCard(message.id, artifact)}
+                      />
+                      {genericTools.length > 0 && <div className="mt-3 space-y-2">
+                      {genericTools.map((tool, idx) => (
                         <div
                           key={idx}
                           className={`text-xs px-2 py-1 rounded flex items-center gap-2 ${
@@ -1586,8 +1753,10 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                           {tool.status === "pending" && <CircleNotch className="w-3 h-3 animate-spin" />}
                         </div>
                       ))}
-                    </div>
-                  )}
+                    </div>}
+                    </>
+                    );
+                  })()}
                 </div>
 
                 {/* Mentioned documents in user message */}

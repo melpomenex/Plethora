@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseClozeDeletions, hasRawClozeSyntax, stripClozeMarkers } from "../utils/cloze";
+import { parseClozeDeletions, hasRawClozeSyntax, stripClozeMarkers, normalizeClozeSyntax } from "../utils/cloze";
 
 describe("parseClozeDeletions", () => {
   it("parses single cloze deletion", () => {
@@ -59,5 +59,27 @@ describe("stripClozeMarkers", () => {
   it("preserves hints are stripped", () => {
     expect(stripClozeMarkers("Capital is {{c1::Paris::hint}}."))
       .toBe("Capital is Paris.");
+  });
+
+  it("handles simplified clozes for stripping", () => {
+    expect(stripClozeMarkers("dopamine is not a {{pleasure chemical}}; it is the force that makes us {{act}}."))
+      .toBe("dopamine is not a pleasure chemical; it is the force that makes us act.");
+  });
+});
+
+describe("normalizeClozeSyntax", () => {
+  it("leaves standard cloze syntax untouched", () => {
+    expect(normalizeClozeSyntax("The {{c1::dopamine}} is a chemical."))
+      .toBe("The {{c1::dopamine}} is a chemical.");
+  });
+
+  it("converts simplified clozes to standard ones", () => {
+    expect(normalizeClozeSyntax("dopamine is not a {{pleasure chemical}}; it is the force that makes us {{act}}."))
+      .toBe("dopamine is not a {{c1::pleasure chemical}}; it is the force that makes us {{c2::act}}.");
+  });
+
+  it("handles double-colon prefixes correctly", () => {
+    expect(normalizeClozeSyntax("make us {{::act}}."))
+      .toBe("make us {{c1::act}}.");
   });
 });

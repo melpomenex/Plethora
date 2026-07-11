@@ -20,7 +20,6 @@ import {
   SidebarSimple,
   Sparkle,
   TextT,
-  WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import { compressImage, readFileAsDataUrl } from "../../utils/imageCompression";
@@ -39,8 +38,20 @@ import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 import { invokeCommand, isTauri } from "../../lib/tauri";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
-import type { SectionNode } from "../../utils/sectionIndex";
-import { getDocument } from "../../api/documents";
+import {
+  resolveSectionFocusedContext,
+  type SectionNode,
+  type SectionSourceReference,
+} from "../../utils/sectionIndex";
+import { extractDocumentText, getDocument } from "../../api/documents";
+import { createDocumentQaRequestContent, loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
+import { ChatFlashcardCollection } from "./ChatFlashcardCollection";
+import {
+  buildFlashcardToolInstruction,
+  nonFlashcardToolCalls,
+  toolCallsToFlashcardArtifacts,
+  type ChatFlashcardArtifact,
+} from "../../features/assistant/chatFlashcardArtifacts";
 
 export interface AssistantContext {
   type: "document" | "web" | "video" | "general";
@@ -81,6 +92,7 @@ interface Message {
   timestamp: number;
   images?: AttachedImage[];
   toolCalls?: ToolCall[];
+  sourceContext?: SectionSourceReference;
 }
 
 interface ToolCall {
@@ -291,8 +303,6 @@ export function AssistantPanel({
   const {
     tree: assistantSectionTree,
     flat: assistantSectionFlat,
-    getById: assistantGetSectionById,
-    buildSectionFocusedContext: assistantBuildFocusedContext,
   } = useDocumentSections({
     documentId: context?.documentId,
     content: assistantFullContent || context?.content || "",
@@ -306,9 +316,9 @@ export function AssistantPanel({
       return;
     }
     let mounted = true;
-    getDocument(context.documentId)
-      .then((doc) => {
-        if (mounted && doc?.content) setAssistantFullContent(doc.content);
+    loadDocumentQaText(context.documentId, { getDocument, extractDocumentText })
+      .then((content) => {
+        if (mounted) setAssistantFullContent(content);
       })
       .catch(() => {
         if (mounted) setAssistantFullContent("");
@@ -972,6 +982,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         content: displayContent,
         timestamp: Date.now(),
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        sourceContext: response.sourceContext,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -1006,6 +1017,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         }
       }
     } catch (error) {
+      setInput(userInput);
+      historyDraftRef.current = userInput;
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
         role: "system",
@@ -1022,7 +1035,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
   const callLLM = async (
     prompt: string,
     contextData: Record<string, unknown>
-  ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string }> => {
+  ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string; sourceContext?: SectionSourceReference }> => {
     try {
       // Get all providers to check if selected provider exists but is disabled
       const allProviders = useLLMProvidersStore.getState().providers;
@@ -1135,15 +1148,29 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           };
 
       let finalResolvedContent = resolvedContext.content ?? "";
+      let sourceContext: SectionSourceReference | undefined;
       if (selectedSectionNodes.length > 0 && llmContext?.type === "document") {
-        const maxTokens = effectiveContextWindow;
-        const focusedCtx = assistantBuildFocusedContext(
-          selectedSectionNodes.map((n) => n.id),
-          maxTokens
-        );
-        if (focusedCtx) {
-          finalResolvedContent = focusedCtx;
+        const documentId = llmContext.documentId;
+        if (!documentId) throw new Error("Select the document that owns this section, then choose the heading again.");
+        const canonicalText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
+        const focused = resolveSectionFocusedContext(selectedSectionNodes, assistantSectionFlat, canonicalText, {
+          documentId,
+          maxTokens: effectiveContextWindow,
+          includeNeighbors: true,
+        });
+        if (!focused.ok) {
+          const labels = focused.unresolved.map((item) => item.label).join(", ");
+          throw new Error(`The selected section${labels ? ` (${labels})` : ""} is stale or ambiguous. Reselect it before sending; no request was made.`);
         }
+        finalResolvedContent = focused.content;
+        sourceContext = focused.source;
+        const request = createDocumentQaRequestContent({
+          documentContext: focused.content,
+          userQuestion: prompt.replace(SECTION_REGEX, "").trim(),
+          focusLabel: focused.labels.join(", "),
+        });
+        const lastUserIdx = llmMessages.map((message) => message.role).lastIndexOf("user");
+        if (lastUserIdx >= 0) llmMessages[lastUserIdx] = { role: "user", content: request.userPromptContent };
       }
 
       const contextContent = typeof finalResolvedContent === "string"
@@ -1181,9 +1208,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         aiControls?.documentSnippetLength
       );
 
-      return { content: response.content, imagesStripped, modelName };
+      return { content: response.content, imagesStripped, modelName, sourceContext };
     } catch (error) {
       console.error("LLM API error:", error);
+      if (selectedSectionNodes.length > 0) throw error;
       // Better error handling - Tauri errors can be strings or objects
       const errorMessage = error instanceof Error
         ? error.message
@@ -1557,6 +1585,35 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     return normalized;
   };
 
+  const openChatCard = (artifact: ChatFlashcardArtifact) => {
+    if (!artifact.persistedCardId) return;
+    sessionStorage.setItem("incrementum:pending-flashcard-id", artifact.persistedCardId);
+    window.dispatchEvent(new CustomEvent("incrementum:open-flashcard", {
+      detail: { cardId: artifact.persistedCardId, artifact },
+    }));
+  };
+
+  const retryChatCard = async (messageId: string, artifact: ChatFlashcardArtifact) => {
+    const message = messages.find((item) => item.id === messageId);
+    const call = message?.toolCalls?.[artifact.callIndex];
+    if (!call) return;
+    updateToolCall(messageId, artifact.callIndex, { status: "pending", result: undefined });
+    try {
+      const parameters = normalizeToolParameters(call.name, call.parameters);
+      const result = await callIncrementumMCPTool(call.name, parameters);
+      updateToolCall(messageId, artifact.callIndex, {
+        parameters,
+        status: result.isError ? "error" : "success",
+        result: result.isError ? JSON.stringify(result.content) : result,
+      });
+    } catch (error) {
+      updateToolCall(messageId, artifact.callIndex, {
+        status: "error",
+        result: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   const buildToolInstruction = (tools: MCPTool[]) => {
     if (tools.length === 0) {
       return "Answer normally. Tool calls are unavailable.";
@@ -1568,12 +1625,15 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       .filter((t) => t.name.includes("card") || t.name.includes("cloze") || t.name === "batch_create_cards")
       .map((t) => t.name)
       .join(", ");
+    const sharedCardPolicy = buildFlashcardToolInstruction(tools.map((tool) => tool.name));
 
     return `You are a helpful assistant with access to document content and tools. You can answer questions about the content AND create learning items from it.
 
 **Available Tools**: ${toolNames}
 
 ${toolDescriptions}
+
+${sharedCardPolicy}
 
 ## CRITICAL RULES — Respond vs. Act
 
@@ -2268,9 +2328,21 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               )}
 
               {/* Tool Calls */}
-              {message.toolCalls && message.toolCalls.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {message.toolCalls.map((tool, idx) => (
+              {message.toolCalls && message.toolCalls.length > 0 && (() => {
+                const artifacts = toolCallsToFlashcardArtifacts(message.id, message.toolCalls, {
+                  source: message.sourceContext,
+                  timestamp: message.timestamp,
+                });
+                const genericTools = nonFlashcardToolCalls(message.toolCalls);
+                return (
+                <>
+                  <ChatFlashcardCollection
+                    artifacts={artifacts}
+                    onOpen={openChatCard}
+                    onRetry={(artifact) => void retryChatCard(message.id, artifact)}
+                  />
+                  {genericTools.length > 0 && <div className="mt-2 space-y-1">
+                  {genericTools.map((tool, idx) => (
                     <div
                       key={idx}
                       className={`text-xs px-2 py-1 rounded flex items-center gap-2 ${tool.status === "success"
@@ -2290,8 +2362,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                       )}
                     </div>
                   ))}
-                </div>
-              )}
+                </div>}
+                </>
+                );
+              })()}
             </div>
           ))
         )}

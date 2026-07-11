@@ -22,6 +22,7 @@ import { parseSm20State, sm20Retrievability } from "../../lib/sm20";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { sanitizeHtml } from "../common/RichContentRenderer";
+import { normalizeClozeSyntax } from "../../utils/cloze";
 
 interface ZenReviewModeProps {
   onExit: () => void;
@@ -62,11 +63,18 @@ function ZenCard({
 
   // Render cloze text by parsing [[cN::content]] markers
   const renderQuestion = () => {
-    const clozeText = card.cloze_text;
+    const originalClozeText = card.cloze_text;
+    let clozeText = card.cloze_text;
+    if (clozeText) {
+      clozeText = normalizeClozeSyntax(clozeText);
+      clozeText = clozeText.replace(/\{\{c(\d+)::(.+?)(?:::(.+?))?\}\}/g, (match, num, content, hint) => {
+        return hint ? `[[c${num}::${content}::${hint}]]` : `[[c${num}::${content}]]`;
+      });
+    }
 
     // Range-based cloze rendering (preferred when ranges are available)
-    if (clozeText && card.cloze_ranges && card.cloze_ranges.length > 0) {
-      const text = clozeText as string;
+    if (originalClozeText && card.cloze_ranges && card.cloze_ranges.length > 0) {
+      const text = originalClozeText as string;
       const ranges = card.cloze_ranges as [number, number][];
       let lastIndex = 0;
       const parts: React.ReactNode[] = [];

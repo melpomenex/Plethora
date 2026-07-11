@@ -118,4 +118,38 @@ describe("matchesDeck", () => {
     expect(matchesDeck(easyCard, difficultyDeck)).toBe(false);
     expect(matchesDeck(hardCard, difficultyDeck)).toBe(true);
   });
+  it("should filter by tags including deck: prefix and tree-like sub-decks", () => {
+    const tagDeck: StudyDeck = {
+      id: "deck-1",
+      name: "Biology",
+      tagFilters: ["Biology"],
+      filterType: "tags",
+    };
+
+    const directTagCard = {
+      tags: ["Biology"],
+    };
+
+    const prefixedTagCard = {
+      tags: ["deck:Biology"],
+    };
+
+    const subdeckTagCard = {
+      tags: ["deck:Biology::CellStructure"],
+    };
+
+    const slashSubdeckTagCard = {
+      tags: ["deck:Biology/Genetics"],
+    };
+
+    const unrelatedTagCard = {
+      tags: ["deck:Chemistry"],
+    };
+
+    expect(matchesDeck(directTagCard, tagDeck)).toBe(true);
+    expect(matchesDeck(prefixedTagCard, tagDeck)).toBe(true);
+    expect(matchesDeck(subdeckTagCard, tagDeck)).toBe(true);
+    expect(matchesDeck(slashSubdeckTagCard, tagDeck)).toBe(true);
+    expect(matchesDeck(unrelatedTagCard, tagDeck)).toBe(false);
+  });
 });

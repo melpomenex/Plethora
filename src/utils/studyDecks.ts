@@ -15,14 +15,25 @@ export function normalizeTagList(tags: string[]): string[] {
   return Array.from(seen.values());
 }
 
+function tagMatchesFilter(tag: string, filter: string): boolean {
+  const normTag = normalize(tag);
+  const normFilter = normalize(filter);
+  
+  const cleanTag = normTag.startsWith("deck:") ? normTag.slice(5) : normTag;
+  const cleanFilter = normFilter.startsWith("deck:") ? normFilter.slice(5) : normFilter;
+  
+  return cleanTag === cleanFilter || 
+         cleanTag.startsWith(cleanFilter + "::") ||
+         cleanTag.startsWith(cleanFilter + "/");
+}
+
 export function matchesDeckTags(tags: string[], deck: StudyDeck | null): boolean {
   if (!deck) return true;
   if (!tags || tags.length === 0) return false;
   if (!deck.tagFilters || deck.tagFilters.length === 0) return false;
 
-  const tagSet = new Set(tags.map((tag) => normalize(tag)));
   for (const filter of deck.tagFilters) {
-    if (tagSet.has(normalize(filter))) {
+    if (tags.some((tag) => tagMatchesFilter(tag, filter))) {
       return true;
     }
   }

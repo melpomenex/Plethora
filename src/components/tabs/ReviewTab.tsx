@@ -41,6 +41,15 @@ export function ReviewTab() {
     };
   }, [resetSession]);
 
+  useEffect(() => {
+    const handleOpenFlashcard = () => setReviewTabMode("deck-manager");
+    window.addEventListener("incrementum:open-flashcard", handleOpenFlashcard);
+    if (sessionStorage.getItem("incrementum:pending-flashcard-id")) {
+      setReviewTabMode("deck-manager");
+    }
+    return () => window.removeEventListener("incrementum:open-flashcard", handleOpenFlashcard);
+  }, [setReviewTabMode]);
+
   if (reviewTabMode === "session") {
     return <ReviewSession onExit={handleExit} />;
   }

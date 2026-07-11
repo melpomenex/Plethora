@@ -177,12 +177,18 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   const estimatedSeconds = scopedItems.length * 30;
   const reviewHomeAction = getReviewHomeAction(scopedItems.length);
 
+  const sortedDecks = useMemo(() => {
+    return [...(decks || [])].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true })
+    );
+  }, [decks]);
+
   const deckStats = useMemo(() => {
-    return (decks || []).map((deck) => ({
+    return sortedDecks.map((deck) => ({
       deck,
       count: dueItems.filter((item) => matchesDeck(item, deck)).length,
     }));
-  }, [decks, dueItems]);
+  }, [sortedDecks, dueItems]);
 
   const handleAddDeck = () => {
     const name = newDeckName.trim();
@@ -315,7 +321,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
             >
               {t("reviewHome.allDecks")}
             </button>
-            {decks?.map((deck) => (
+            {sortedDecks?.map((deck) => (
               <button
                 key={deck.id}
                 onClick={() => toggleDeckSelection(deck.id)}
@@ -406,34 +412,40 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                   {t("reviewHome.noDecks")}
                 </div>
               )}
-              {deckStats?.map(({ deck, count }) => (
-                <button
-                  key={deck.id}
-                  onClick={() => toggleDeckSelection(deck.id)}
-                  onDoubleClick={() => {
-                    clearDeckSelection();
-                    toggleDeckSelection(deck.id);
-                    onStartReview();
-                  }}
-                  className={`flex flex-col gap-2 rounded-lg border px-4 py-3 text-left transition-colors ${
-                    activeDeckIds.includes(deck.id)
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-background hover:bg-muted"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-base font-semibold text-foreground">{deck.name}</span>
-                    <span className="text-xs text-muted-foreground">{t("reviewHome.countDue", { count })}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {deck.tagFilters.map((tag) => (
-                      <span key={tag} className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </button>
-              ))}
+              {deckStats?.map(({ deck, count }) => {
+                const parts = deck.name.split("::");
+                const displayName = parts[parts.length - 1];
+                const level = parts.length - 1;
+                return (
+                  <button
+                    key={deck.id}
+                    onClick={() => toggleDeckSelection(deck.id)}
+                    onDoubleClick={() => {
+                      clearDeckSelection();
+                      toggleDeckSelection(deck.id);
+                      onStartReview();
+                    }}
+                    className={`flex flex-col gap-2 rounded-lg border px-4 py-3 text-left transition-colors ${
+                      activeDeckIds.includes(deck.id)
+                        ? "border-primary bg-primary/10"
+                        : "border-border bg-background hover:bg-muted"
+                    }`}
+                    style={{ marginLeft: `${level * 16}px` }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-base font-semibold text-foreground">{displayName}</span>
+                      <span className="text-xs text-muted-foreground">{t("reviewHome.countDue", { count })}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {deck.tagFilters.map((tag) => (
+                        <span key={tag} className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
