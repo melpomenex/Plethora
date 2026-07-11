@@ -220,6 +220,8 @@ interface GeneralSettings {
 /**
  * Interface Settings
  */
+export type VolumeRockerMode = "none" | "page" | "scroll";
+
 interface InterfaceSettings {
   showSidebar: boolean;
   showStats: boolean;
@@ -240,7 +242,7 @@ interface InterfaceSettings {
     button: 0 | 1 | 2;
     modifier: "none" | "ctrl" | "alt" | "shift" | "meta";
   };
-  volumeRockerScroll?: "none" | "page" | "scroll";
+  volumeRockerScroll?: VolumeRockerMode;
 }
 
 /**

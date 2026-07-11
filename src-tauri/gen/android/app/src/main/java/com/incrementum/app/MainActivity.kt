@@ -1,11 +1,14 @@
 package com.incrementum.app
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.view.KeyEvent
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -136,6 +139,46 @@ class MainActivity : TauriActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Android WebView does not expose KEYCODE_VOLUME_* as DOM keyboard events.
+     * Forward them while a reader explicitly opts in, and leave normal system
+     * volume handling untouched everywhere else.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val key = when (event.keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> "VolumeUp"
+            KeyEvent.KEYCODE_VOLUME_DOWN -> "VolumeDown"
+            else -> return super.dispatchKeyEvent(event)
+        }
+
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val repeat = event.repeatCount > 0
+            val webView = findWebView(window.decorView.rootView)
+                ?: return super.dispatchKeyEvent(event)
+            val script = "document.body?.dispatchEvent(new KeyboardEvent('keydown'," +
+                "{key:'$key',code:'$key',repeat:$repeat,bubbles:true,cancelable:true})) ?? true"
+            webView.evaluateJavascript(script) { wasNotCanceled ->
+                // dispatchEvent returns false only when a configured reader
+                // synchronously called preventDefault(). Otherwise reproduce
+                // Android's normal volume behavior, including its system UI.
+                if (wasNotCanceled != "false") {
+                    adjustSystemVolume(event.keyCode)
+                }
+            }
+        }
+        return true
+    }
+
+    private fun adjustSystemVolume(keyCode: Int) {
+        val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            AudioManager.ADJUST_RAISE
+        } else {
+            AudioManager.ADJUST_LOWER
+        }
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager.adjustVolume(direction, AudioManager.FLAG_SHOW_UI)
     }
 
     private fun findWebView(view: View): WebView? {

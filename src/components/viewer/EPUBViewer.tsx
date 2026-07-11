@@ -23,6 +23,7 @@ import { buildSegmentCfiMap, findActiveSegment, type SyncSegment } from "../../u
 import { dispatchCommandPaletteOpen, isCommandPaletteOpenShortcut } from "../../utils/commandPaletteShortcut";
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
+import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
 
 // Define outside component to keep a stable reference across renders
 const FONT_FAMILY_MAP: Record<string, string> = {
@@ -1946,25 +1947,16 @@ export function EPUBViewer({
     }
 
     // Volume rocker scrolling/paging
-    if (e.key === "VolumeUp" || e.key === "VolumeDown") {
-      const mode = settings.interface.volumeRockerScroll || "none";
-      if (mode !== "none") {
-        e.preventDefault();
-        e.stopPropagation();
-        const direction = e.key === "VolumeUp" ? "up" : "down";
-        if (mode === "page") {
-          if (e.repeat) return;
-          if (direction === "up") {
-            handlePrevPage();
-          } else {
-            handleNextPage();
-          }
-        } else if (mode === "scroll") {
-          scrollEpub(direction);
-        }
-        return;
-      }
-    }
+    if (handleVolumeRockerNavigation(
+      e,
+      settings.interface.volumeRockerScroll || "none",
+      {
+        pageUp: handlePrevPage,
+        pageDown: handleNextPage,
+        scrollUp: () => scrollEpub("up"),
+        scrollDown: () => scrollEpub("down"),
+      },
+    )) return;
 
     const lowerKey = e.key.toLowerCase();
 

@@ -34,6 +34,7 @@ import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import { clearInvalidSyncedFilePath } from "../../lib/fileSyncRegistration";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { PDFViewer } from "./PDFViewer";
 import { MarkdownViewer } from "./MarkdownViewer";
@@ -3138,29 +3139,16 @@ export function DocumentViewer({
       if (!isFocusedInViewer) return;
 
       // Volume rocker scrolling/paging
-      if (e.key === "VolumeUp" || e.key === "VolumeDown") {
-        const mode = settings.interface.volumeRockerScroll || "none";
-        if (mode !== "none") {
-          e.preventDefault();
-          e.stopPropagation();
-          const direction = e.key === "VolumeUp" ? "up" : "down";
-          if (mode === "page") {
-            if (e.repeat) return;
-            if (direction === "up") {
-              handlePrevPage();
-            } else {
-              handleNextPage();
-            }
-          } else if (mode === "scroll") {
-            if (docType === "html") {
-              scrollHtmlIframe(direction);
-            } else {
-              scrollDocumentContainer(direction);
-            }
-          }
-          return;
-        }
-      }
+      if (handleVolumeRockerNavigation(
+        e,
+        settings.interface.volumeRockerScroll || "none",
+        {
+          pageUp: handlePrevPage,
+          pageDown: handleNextPage,
+          scrollUp: () => docType === "html" ? scrollHtmlIframe("up") : scrollDocumentContainer("up"),
+          scrollDown: () => docType === "html" ? scrollHtmlIframe("down") : scrollDocumentContainer("down"),
+        },
+      )) return;
 
       const mod = e.ctrlKey || e.metaKey;
       const lowerKey = e.key.toLowerCase();
