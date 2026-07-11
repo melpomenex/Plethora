@@ -692,6 +692,30 @@ export function EPUBViewer({
 
         if (!mounted) return;
 
+        // Safe monkey-patch for epubjs Section.prototype.destroy race condition:
+        // When a rendition is destroyed during a pending section fetch/load, epubjs
+        // unloads the section and nulls out Section.prototype.hooks. Any pending section
+        // load promises that resolve after this will throw "TypeError: undefined is not
+        // an object (evaluating 'this.hooks.content')". We prevent this by keeping
+        // hooks reference valid even after destruction.
+        try {
+          const spine = epubBook.spine as any;
+          if (spine && spine.spineItems && spine.spineItems.length > 0) {
+            const SectionClass = spine.spineItems[0].constructor as any;
+            if (SectionClass && SectionClass.prototype && !SectionClass.prototype.__patchedForDestroy) {
+              SectionClass.prototype.__patchedForDestroy = true;
+              const originalDestroy = SectionClass.prototype.destroy;
+              SectionClass.prototype.destroy = function() {
+                const hooks = this.hooks;
+                originalDestroy.apply(this, arguments);
+                this.hooks = hooks; // Restore hooks reference so trigger() does not throw
+              };
+            }
+          }
+        } catch (e) {
+          console.warn("EPUBViewer: Failed to apply Section.destroy patch", e);
+        }
+
         const tocData = await epubBook.loaded.navigation;
         
         let filteredToc = tocData.toc;
