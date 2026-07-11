@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import * as pdfjsLib from "pdfjs-dist";
+import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { EventBus } from "pdfjs-dist/web/pdf_viewer.mjs";
 import { PdfPageViewWrapper } from "./PdfPageView";
 import {
@@ -263,6 +264,10 @@ const ENABLE_CUSTOM_PDF_SELECTION = false;
 // This runs in the main thread only (browser/Tauri), not in Node test runs
 // where `Worker` is unavailable and pdfjs is mocked anyway (see test/setup.ts).
 try {
+  // Keep workerSrc populated even when workerPort is preferred. If Android's
+  // WebView rejects the module Worker, PDF.js can still import this bundle as
+  // its same-thread fallback instead of throwing that workerSrc is missing.
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
   if (typeof Worker !== "undefined") {
     pdfjsLib.GlobalWorkerOptions.workerPort = new Worker(
       new URL("../../workers/pdfjs.worker.ts", import.meta.url),
@@ -1207,7 +1212,7 @@ export function PDFViewer({
                 // the correct reset path now that we configure via workerPort.
                 try { pdfjsLib.GlobalWorkerOptions.workerPort?.terminate(); } catch {}
                 pdfjsLib.GlobalWorkerOptions.workerPort = null;
-                pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+                pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
                 const source = sourceFactory.create();
                 const fallbackTask = pdfjsLib.getDocument(source as any);
                 return await fallbackTask.promise;

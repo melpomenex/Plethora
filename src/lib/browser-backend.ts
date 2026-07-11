@@ -2811,7 +2811,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         const apiKey = args.apiKey as string | undefined;
         const baseUrl = args.baseUrl as string | undefined;
 
-        if (providerRequiresApiKey(provider as 'openai' | 'anthropic' | 'ollama' | 'openrouter', baseUrl) && !apiKey) {
+        if (providerRequiresApiKey(provider as 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'openrouter', baseUrl) && !apiKey) {
             throw new Error('API key is required');
         }
 
@@ -2819,12 +2819,13 @@ const commandHandlers: Record<string, CommandHandler> = {
         const providerConfig: Record<string, { url: string; defaultModel: string }> = {
             openrouter: { url: baseUrl || 'https://openrouter.ai/api/v1', defaultModel: 'anthropic/claude-3.5-sonnet' },
             openai: { url: baseUrl || 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
+            gemini: { url: baseUrl || 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-3.5-flash' },
             anthropic: { url: baseUrl || 'https://api.anthropic.com/v1', defaultModel: 'claude-3-5-sonnet-20241022' },
         };
 
         const config = providerConfig[provider];
         if (!config) {
-            throw new Error(`Provider '${provider}' is not supported in browser mode. Supported: openrouter, openai`);
+            throw new Error(`Provider '${provider}' is not supported in browser mode. Supported: openrouter, openai, gemini, anthropic`);
         }
 
         const actualModel = model || config.defaultModel;
@@ -3038,6 +3039,10 @@ const commandHandlers: Record<string, CommandHandler> = {
                 createModelInfo('claude-3-5-haiku-20241022', 'Claude 3.5 Haiku', 200000, { prompt: 0.0008, completion: 0.004 }),
                 createModelInfo('claude-3-opus-20240229', 'Claude 3 Opus', 200000, { prompt: 0.015, completion: 0.075 }),
             ],
+            gemini: [
+                createModelInfo('gemini-3.5-flash', 'Gemini 3.5 Flash', 1000000),
+                createModelInfo('gemini-3.5-pro', 'Gemini 3.5 Pro', 1000000),
+            ],
             ollama: [
                 createModelInfo('llama3.2', 'Llama 3.2', 128000),
                 createModelInfo('mistral', 'Mistral', 32000),
@@ -3058,9 +3063,11 @@ const commandHandlers: Record<string, CommandHandler> = {
             ],
         };
 
-        if (provider === 'openai' && (apiKey?.trim() || !providerRequiresApiKey('openai', baseUrl))) {
+        if ((provider === 'openai' || provider === 'gemini') && (apiKey?.trim() || !providerRequiresApiKey(provider, baseUrl))) {
             try {
-                const url = baseUrl || 'https://api.openai.com/v1';
+                const url = baseUrl || (provider === 'gemini'
+                    ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+                    : 'https://api.openai.com/v1');
                 const headers: Record<string, string> = {};
                 if (apiKey?.trim()) {
                     headers['Authorization'] = `Bearer ${apiKey}`;

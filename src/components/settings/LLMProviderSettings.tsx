@@ -21,7 +21,7 @@ import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 
 export interface LLMProviderConfig {
   id: string;
-  provider: "openai" | "anthropic" | "ollama" | "openrouter";
+  provider: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter";
   name: string;
   apiKey: string;
   baseUrl?: string;
@@ -64,6 +64,14 @@ const PROVIDER_INFO = {
       "claude-3-opus-20240229",
     ],
   },
+  gemini: {
+    name: "Google Gemini",
+    description: "Gemini Flash and Pro models via Google AI",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-3.5-flash",
+    icon: "✨",
+    models: ["gemini-3.5-flash", "gemini-3.5-pro"],
+  },
   ollama: {
     name: "Ollama",
     description: "Local LLM models (Llama, Mistral, etc.)",
@@ -103,7 +111,7 @@ export function LLMProviderSettings({
   const { t } = useI18n();
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingProvider, setEditingProvider] = useState<LLMProviderConfig | null>(null);
-  const [newProviderType, setNewProviderType] = useState<"openai" | "anthropic" | "ollama" | "openrouter">("openai");
+  const [newProviderType, setNewProviderType] = useState<"openai" | "anthropic" | "gemini" | "ollama" | "openrouter">("openai");
   const [newProviderName, setNewProviderName] = useState("");
   const [newProviderApiKey, setNewProviderApiKey] = useState("");
   const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
@@ -119,7 +127,7 @@ export function LLMProviderSettings({
   const [ollamaStatus, setOllamaStatus] = useState<string | null>(null);
 
   const isEditing = editingProvider !== null;
-  const resolvedBaseUrl = (providerType: "openai" | "anthropic" | "ollama" | "openrouter", baseUrl: string) =>
+  const resolvedBaseUrl = (providerType: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter", baseUrl: string) =>
     baseUrl || PROVIDER_INFO[providerType].baseUrl;
   const newProviderNeedsApiKey = providerRequiresApiKey(
     newProviderType,
@@ -342,7 +350,7 @@ export function LLMProviderSettings({
             <Key className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
             <p className="text-muted-foreground">{t("llmProvider.noApiKeysConfigured")}</p>
             <p className="text-sm text-muted-foreground mt-2">
-              Add your OpenAI, Anthropic, Ollama, or OpenRouter API keys to get started
+              Add your OpenAI, Anthropic, Gemini, Ollama, or OpenRouter API keys to get started
             </p>
           </div>
         ) : (
@@ -467,7 +475,7 @@ export function LLMProviderSettings({
               Provider Type
             </label>
             <div className="grid grid-cols-2 gap-3">
-              {(["openai", "anthropic", "ollama", "openrouter"] as const).map((type) => {
+              {(["openai", "anthropic", "gemini", "ollama", "openrouter"] as const).map((type) => {
                 const info = PROVIDER_INFO[type];
                 return (
                   <button

@@ -132,6 +132,7 @@ export function PwaAssistantButton({
     if (
       stored === "openai" ||
       stored === "anthropic" ||
+      stored === "gemini" ||
       stored === "ollama" ||
       stored === "openrouter"
     ) {

@@ -5,7 +5,7 @@
 
 import { invokeCommand, listen, type UnlistenFn } from "../../lib/tauri";
 
-export type LLMProvider = "openai" | "anthropic" | "ollama" | "openrouter";
+export type LLMProvider = "openai" | "anthropic" | "gemini" | "ollama" | "openrouter";
 
 export interface LLMTextContentPart {
   type: "text";
@@ -312,6 +312,12 @@ export const PROVIDER_CONFIGS = {
       "claude-3-5-haiku-20241022",
       "claude-3-opus-20240229",
     ],
+  },
+  gemini: {
+    name: "Google Gemini",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-3.5-flash",
+    models: ["gemini-3.5-flash", "gemini-3.5-pro"],
   },
   ollama: {
     name: "Ollama",

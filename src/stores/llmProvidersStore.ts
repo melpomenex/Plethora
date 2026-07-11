@@ -6,7 +6,7 @@ import { providerAllowsKeylessAccess } from '../utils/llmProviderUtils';
 
 export interface LLMProviderConfig {
   id: string;
-  provider: 'openai' | 'anthropic' | 'ollama' | 'openrouter';
+  provider: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'openrouter';
   name: string;
   apiKey: string;
   baseUrl?: string;
@@ -26,7 +26,7 @@ interface LLMProvidersState {
   removeProvider: (id: string) => void;
   getProvider: (id: string) => LLMProviderConfig | undefined;
   getEnabledProviders: () => LLMProviderConfig[];
-  getProvidersByType: (type: 'openai' | 'anthropic' | 'ollama' | 'openrouter') => LLMProviderConfig[];
+  getProvidersByType: (type: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'openrouter') => LLMProviderConfig[];
 }
 
 export const useLLMProvidersStore = create<LLMProvidersState>()(

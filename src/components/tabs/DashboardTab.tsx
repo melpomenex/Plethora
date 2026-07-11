@@ -197,6 +197,17 @@ export function DashboardTab() {
     });
   };
 
+  const importDocument = () => {
+    const documentsAction = quickActions.find((action) => action.id === "documents")!;
+    openTab(documentsAction);
+    // DocumentsView owns the native/mobile picker. On a fresh installation it
+    // is not mounted yet, so wait until React has committed the newly opened
+    // library tab before asking it to import.
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("import-document"));
+    }, 100);
+  };
+
   const openDocument = (doc: DocumentWithProgress) => {
     const full = documents.find((d) => d.id === doc.id);
     const fileType = full?.fileType;
@@ -291,7 +302,7 @@ export function DashboardTab() {
               size="large"
               onClick={() => {
                 if (hasNoDocuments) {
-                  window.dispatchEvent(new CustomEvent("import-document"));
+                  importDocument();
                 } else {
                   openTab(focusAction);
                 }

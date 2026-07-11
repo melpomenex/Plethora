@@ -268,7 +268,7 @@ pub async fn llm_chat(
     }
 
     let result = match provider.as_str() {
-        "openai" => {
+        "openai" | "gemini" => {
             call_openai_with_key(
                 &client,
                 &model,
@@ -478,7 +478,7 @@ pub async fn llm_stream_chat(
     }
 
     match provider.as_str() {
-        "openai" => {
+        "openai" | "gemini" => {
             stream_openai(
                 &app,
                 &client,
@@ -908,6 +908,13 @@ pub async fn llm_get_models(
     base_url: Option<String>,
 ) -> Result<Vec<ModelInfo>, String> {
     match provider.as_str() {
+        "gemini" => {
+            let api_key = normalize_api_key(api_key)
+                .ok_or_else(|| "API key is required".to_string())?;
+            let client = Client::new();
+            let url = normalize_base_url(base_url, "gemini");
+            fetch_openai_compatible_models(&client, &url, Some(&api_key)).await
+        }
         "openai" => {
             let normalized_api_key = normalize_api_key(api_key.clone());
             if normalized_api_key.is_some()
@@ -1319,7 +1326,7 @@ pub async fn llm_test_connection(
     }
 
     let result = match provider.as_str() {
-        "openai" => {
+        "openai" | "gemini" => {
             test_openai_connection(
                 &client,
                 &base_url,
@@ -1991,6 +1998,7 @@ fn get_default_model(provider: &str) -> String {
     match provider {
         "openai" => "gpt-4o".to_string(),
         "anthropic" => "claude-3-5-sonnet-20241022".to_string(),
+        "gemini" => "gemini-3.5-flash".to_string(),
         "ollama" => "llama3.2".to_string(),
         // Use a free model that's actually available on OpenRouter
         "openrouter" => "google/gemma-2-9b-it:free".to_string(),
@@ -2087,6 +2095,7 @@ fn get_default_base_url(provider: &str) -> String {
     match provider {
         "openai" => "https://api.openai.com/v1".to_string(),
         "anthropic" => "https://api.anthropic.com/v1".to_string(),
+        "gemini" => "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
         "ollama" => "http://localhost:11434/v1".to_string(),
         "openrouter" => "https://openrouter.ai/api/v1".to_string(),
         _ => "".to_string(),

@@ -112,8 +112,8 @@ interface AssistantPanelProps {
   onWidthChange?: (width: number) => void;
   position?: AssistantPosition;
   onPositionChange?: (position: AssistantPosition) => void;
-  selectedProvider?: "openai" | "anthropic" | "ollama" | "openrouter";
-  onProviderChange?: (provider: "openai" | "anthropic" | "ollama" | "openrouter") => void;
+  selectedProvider?: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter";
+  onProviderChange?: (provider: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter") => void;
   appendContextMessages?: boolean;
 }
 
@@ -263,9 +263,9 @@ export function AssistantPanel({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [availableTools, setAvailableTools] = useState<MCPTool[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "ollama" | "openrouter">(() => {
+  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "ollama" | "openrouter">(() => {
     const stored = localStorage.getItem("assistant-llm-provider");
-    if (stored === "openai" || stored === "anthropic" || stored === "ollama" || stored === "openrouter") {
+    if (stored === "openai" || stored === "anthropic" || stored === "gemini" || stored === "ollama" || stored === "openrouter") {
       return stored;
     }
     return "openai";
@@ -333,6 +333,7 @@ export function AssistantPanel({
     if (!rawModelName) {
       if (providerId === "openai") return "GPT-4o";
       if (providerId === "anthropic") return "Claude 3.5 Sonnet";
+      if (providerId === "gemini") return "Gemini 3.5 Flash";
       if (providerId === "ollama") return "Llama 3.2";
       if (providerId === "openrouter") return "Claude 3.5 Sonnet";
       return "Select Model";
@@ -355,6 +356,8 @@ export function AssistantPanel({
     if (modelLower.includes("claude-3-haiku")) return "Claude 3 Haiku";
     
     // OpenRouter / Gemini / DeepSeek mappings
+    if (modelLower.includes("gemini-3.5-flash")) return "Gemini 3.5 Flash";
+    if (modelLower.includes("gemini-3.5-pro")) return "Gemini 3.5 Pro";
     if (modelLower.includes("google/gemini-2.5-flash")) return "Gemini 2.5 Flash";
     if (modelLower.includes("google/gemini-pro-1.5")) return "Gemini 1.5 Pro";
     if (modelLower.includes("google/gemini-flash-1.5") || modelLower.includes("google/gemini-1.5-flash")) return "Gemini 1.5 Flash";
@@ -392,7 +395,7 @@ export function AssistantPanel({
   };
 
   // Provider configuration active status checker
-  const getProviderStatus = (providerId: "openai" | "anthropic" | "ollama" | "openrouter") => {
+  const getProviderStatus = (providerId: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter") => {
     const config = configuredProvidersList.find(p => p.provider === providerId);
     if (!config) return "not-configured";
     if (!config.enabled) return "disabled";
@@ -1949,7 +1952,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
   const currentProvider = providers.find((p) => p.id === effectiveProvider);
 
-  const handleProviderChange = (providerId: "openai" | "anthropic" | "ollama" | "openrouter") => {
+  const handleProviderChange = (providerId: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter") => {
     setSelectedProvider(providerId);
     onProviderChange?.(providerId);
   };
