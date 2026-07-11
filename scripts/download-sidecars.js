@@ -228,6 +228,24 @@ function ensureSherpaSidecar(targetTriple) {
   }
 }
 
+// Whisper is built statically (BUILD_SHARED_LIBS=OFF), so on Windows the only
+// DLL that ever lands in bin/ is the onnxruntime.dll that sherpa-onnx drops
+// alongside its sidecar. tauri.windows.conf.json declares `bin/*.dll` as a
+// required resource glob, and Tauri hard-fails the build when that glob matches
+// zero files. If sherpa-onnx provisioning flakes (transient curl failure) the
+// glob would be empty, so seed a `.placeholder.dll` on Windows that satisfies
+// the glob while staying out of the real sidecar path. The placeholder name
+// matches the existing `*.placeholder.dll` gitignore entry, so it never leaks
+// into source control.
+function ensureWindowsDllPlaceholder(targetTriple) {
+  if (!targetTriple.includes('windows')) return;
+  const placeholder = path.join(BIN_DIR, 'onnxruntime.placeholder.dll');
+  if (!fs.existsSync(placeholder)) {
+    fs.writeFileSync(placeholder, Buffer.alloc(0));
+    console.log(`Seeded ${placeholder} so the bin/*.dll resource glob is never empty.`);
+  }
+}
+
 function commandExists(cmd) {
   try {
     if (process.platform === 'win32') {
@@ -1127,6 +1145,11 @@ async function main() {
   // Provision the sherpa-onnx sidecar (used by Parakeet local transcription).
   // Platform-agnostic: downloads the right prebuilt tarball for the target triple.
   ensureSherpaSidecar(targetTriple);
+
+  // Seed a Windows DLL placeholder so tauri.windows.conf.json's `bin/*.dll`
+  // resource glob is never empty (it would be if sherpa-onnx provisioning
+  // flakes, since whisper is built statically and emits no DLLs).
+  ensureWindowsDllPlaceholder(targetTriple);
 
   // Build bundled notebooklm sidecar/runtime used by NotebookLM integration.
   if (notebooklmMustExist && (notebooklmRequired || !fs.existsSync(notebooklmPath))) {

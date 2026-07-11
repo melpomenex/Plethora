@@ -60,29 +60,56 @@ interface ContextMenuStore {
   showMenu: (id: string, position: ContextMenuPosition, items: ContextMenuItem[]) => void;
   hideMenu: (id: string) => void;
   hideAll: () => void;
+  subscribe: (listener: (id: string) => void) => () => void;
 }
 
 const createContextMenuStore = () => {
+  const menus = new Map<string, ContextMenuState>();
+  const listeners = new Set<(id: string) => void>();
+
+  const notify = (id: string) => {
+    listeners.forEach((listener) => listener(id));
+  };
+
   let store: ContextMenuStore = {
-    menus: new Map(),
+    menus,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     showMenu: (id, position, items) => {
-      const existing = store.menus.get(id);
-      store.menus.set(id, {
+      // Hide all other menus first
+      menus.forEach((menu, existingId) => {
+        if (existingId !== id && menu.visible) {
+          menus.set(existingId, { ...menu, visible: false });
+          notify(existingId);
+        }
+      });
+
+      const existing = menus.get(id);
+      menus.set(id, {
         visible: true,
         position,
         items,
         parentId: existing?.parentId,
       });
+      notify(id);
     },
     hideMenu: (id) => {
-      const menu = store.menus.get(id);
+      const menu = menus.get(id);
       if (menu) {
-        store.menus.set(id, { ...menu, visible: false });
+        menus.set(id, { ...menu, visible: false });
+        notify(id);
       }
     },
     hideAll: () => {
-      store.menus.forEach((menu, id) => {
-        store.menus.set(id, { ...menu, visible: false });
+      menus.forEach((menu, id) => {
+        if (menu.visible) {
+          menus.set(id, { ...menu, visible: false });
+          notify(id);
+        }
       });
     },
   };
@@ -101,43 +128,31 @@ export function useContextMenu(menuId: string) {
     items: [],
   });
 
+  useEffect(() => {
+    const current = contextMenuStore.menus.get(menuId);
+    if (current) {
+      setState(current);
+    }
+
+    const unsubscribe = contextMenuStore.subscribe((id) => {
+      if (id === menuId) {
+        const updated = contextMenuStore.menus.get(menuId);
+        if (updated) {
+          setState({ ...updated });
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [menuId]);
+
   const showMenu = useCallback((position: ContextMenuPosition, items: ContextMenuItem[]) => {
     contextMenuStore.showMenu(menuId, position, items);
-    setState({
-      visible: true,
-      position,
-      items,
-    });
   }, [menuId]);
 
   const hideMenu = useCallback(() => {
     contextMenuStore.hideMenu(menuId);
-    setState((prev) => ({ ...prev, visible: false }));
   }, [menuId]);
-
-  useEffect(() => {
-    const handleClick = () => {
-      if (state.visible) {
-        hideMenu();
-      }
-    };
-
-    if (state.visible) {
-      document.addEventListener("click", handleClick);
-      return () => document.removeEventListener("click", handleClick);
-    }
-  }, [state.visible, hideMenu]);
-
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && state.visible) {
-        hideMenu();
-      }
-    };
-
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [state.visible, hideMenu]);
 
   return {
     visible: state.visible,
@@ -237,6 +252,73 @@ export function ContextMenu({
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [visible, onClose]);
+
+  useEffect(() => {
+    if (!visible) return;
+
+    const handleOutsideInteraction = (e: MouseEvent | TouchEvent) => {
+      const menu = menuRef.current;
+      if (!menu) return;
+
+      if (!menu.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+
+    const handleDismissal = () => {
+      onClose();
+    };
+
+    document.addEventListener("mousedown", handleOutsideInteraction);
+    document.addEventListener("pointerdown", handleOutsideInteraction);
+    document.addEventListener("contextmenu", handleOutsideInteraction);
+
+    document.addEventListener("scroll", handleDismissal, { capture: true });
+    window.addEventListener("resize", handleDismissal);
+    window.addEventListener("blur", handleDismissal);
+    document.addEventListener("visibilitychange", handleDismissal);
+
+    // Also attach to all same-origin iframes on the page (e.g. EPUB/document viewer iframes)
+    const iframes = Array.from(document.querySelectorAll("iframe"));
+    const attachedDocuments: Document[] = [];
+
+    iframes.forEach((iframe) => {
+      try {
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (iframeDoc) {
+          iframeDoc.addEventListener("mousedown", handleOutsideInteraction);
+          iframeDoc.addEventListener("pointerdown", handleOutsideInteraction);
+          iframeDoc.addEventListener("contextmenu", handleOutsideInteraction);
+          iframeDoc.addEventListener("scroll", handleDismissal, { capture: true });
+          attachedDocuments.push(iframeDoc);
+        }
+      } catch (err) {
+        // Cross-origin iframe, ignore security errors
+        console.warn("Could not attach context menu listeners to iframe", err);
+      }
+    });
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideInteraction);
+      document.removeEventListener("pointerdown", handleOutsideInteraction);
+      document.removeEventListener("contextmenu", handleOutsideInteraction);
+      document.removeEventListener("scroll", handleDismissal, { capture: true });
+      window.removeEventListener("resize", handleDismissal);
+      window.removeEventListener("blur", handleDismissal);
+      document.removeEventListener("visibilitychange", handleDismissal);
+
+      attachedDocuments.forEach((iframeDoc) => {
+        try {
+          iframeDoc.removeEventListener("mousedown", handleOutsideInteraction);
+          iframeDoc.removeEventListener("pointerdown", handleOutsideInteraction);
+          iframeDoc.removeEventListener("contextmenu", handleOutsideInteraction);
+          iframeDoc.removeEventListener("scroll", handleDismissal, { capture: true });
+        } catch {
+          // Ignore
+        }
+      });
+    };
   }, [visible, onClose]);
 
   // ---- Mobile: bottom-sheet presentation ----
@@ -466,7 +548,6 @@ export function ContextMenu({
                   position={submenuState.position}
                   onClose={() => {
                     setSubmenuState(null);
-                    onClose();
                   }}
                 />
               )}
