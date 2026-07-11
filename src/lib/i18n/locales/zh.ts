@@ -2330,6 +2330,8 @@ export const zh: Dict = {
   "rssReader.importNewsletterDesc": "粘贴任意邮件订阅 URL 以订阅",
   "rssReader.importOpml": "导入 OPML",
   "rssReader.importOpmlSuccess": "成功导入 {count} 个订阅源",
+  "rssReader.importOpmlError": "无法导入 OPML 文件。请确保它是有效的 OPML/XML 文件。",
+  "rssReader.importOpmlEmpty": "此 OPML 文件中未找到订阅源。",
   "rssReader.lastSync": "上次同步 {time}",
   "rssReader.markAllRead": "全部标记为已读",
   "rssReader.moreOptions": "更多选项",

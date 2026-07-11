@@ -43,6 +43,7 @@ import {
   toggleItemFavoriteAuto,
   getFeedFolders,
   importOpmlAuto,
+  importOPML,
   exportOpmlAuto,
   syncFeedToTauri,
   formatFeedDate,
@@ -1017,44 +1018,82 @@ export function RSSReader() {
     // unselectable. application/octet-stream is included so such files remain
     // pickable.
     input.accept = ".opml,.xml,text/xml,application/xml,text/x-opml,application/octet-stream";
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
 
-        reader.onload = async (event) => {
-          const content = event.target?.result as string;
-          const result = await importOpmlAuto(content);
-          const importedFeeds = result.feeds || [];
-          const count = result.count;
-          if (importedFeeds.length > 0) {
-            if (isTauri()) {
-              for (const feed of importedFeeds) {
-                try {
-                  const updated = await fetchFeed(feed.feedUrl);
-                  if (updated) {
-                    const merged = {
-                      ...updated,
-                      category: feed.category ?? updated.category,
-                    };
-                    await syncFeedToTauri(merged);
-                  } else {
-                    await syncFeedToTauri(feed);
-                  }
-                } catch (error) {
-                  console.warn("Failed to fetch feed during OPML import:", feed.feedUrl, error);
-                  await syncFeedToTauri(feed);
-                }
-              }
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      // Read the file as text, then parse + sync. Every step is wrapped so a
+      // failure in any one feed (or in loadFeeds) can never silently swallow the
+      // whole import — previously an unhandled rejection in reader.onload made
+      // the import appear to do nothing at all (no alert, no error, no feeds).
+      let content: string;
+      try {
+        content = await file.text();
+      } catch (readErr) {
+        console.error("[RSS] Failed to read OPML file:", readErr);
+        alert(t("rssReader.importOpmlError"));
+        return;
+      }
+
+      let importedFeeds: ReturnType<typeof importOPML> = [];
+      let count = 0;
+      try {
+        const result = await importOpmlAuto(content);
+        importedFeeds = result.feeds || [];
+        count = result.count;
+      } catch (parseErr) {
+        console.error("[RSS] OPML parse failed:", parseErr);
+        alert(t("rssReader.importOpmlError"));
+        return;
+      }
+
+      if (importedFeeds.length === 0) {
+        // The file was read but no feeds could be parsed out of it — most often
+        // a malformed/non-OPML file. Tell the user rather than reporting a
+        // misleading "Imported 0 feeds successfully".
+        alert(t("rssReader.importOpmlEmpty"));
+        return;
+      }
+
+      // Sync each feed; never let one feed's failure abort the rest or skip the
+      // final summary. fetch failures fall back to the metadata from the OPML.
+      if (isTauri()) {
+        let synced = 0;
+        for (const feed of importedFeeds) {
+          try {
+            const updated = await fetchFeed(feed.feedUrl);
+            if (updated) {
+              const merged = {
+                ...updated,
+                category: feed.category ?? updated.category,
+              };
+              await syncFeedToTauri(merged);
             } else {
-              importedFeeds.forEach((feed) => subscribeToFeed(feed));
+              await syncFeedToTauri(feed);
+            }
+            synced++;
+          } catch (error) {
+            console.warn("Failed to sync feed during OPML import:", feed.feedUrl, error);
+            try {
+              await syncFeedToTauri(feed);
+              synced++;
+            } catch (syncErr) {
+              console.warn("Feed could not be synced from OPML metadata:", feed.feedUrl, syncErr);
             }
           }
-          await loadFeeds();
-          alert(t("rssReader.importOpmlSuccess", { count }));
-        };
-        reader.readAsText(file);
+        }
+        count = synced;
+      } else {
+        importedFeeds.forEach((feed) => subscribeToFeed(feed));
       }
+
+      try {
+        await loadFeeds();
+      } catch (loadErr) {
+        console.warn("[RSS] loadFeeds after OPML import failed:", loadErr);
+      }
+      alert(t("rssReader.importOpmlSuccess", { count }));
     };
     input.click();
   };

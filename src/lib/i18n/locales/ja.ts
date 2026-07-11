@@ -2243,6 +2243,8 @@ export const ja: Dict = {
   "rssReader.importNewsletterDesc": "ニュースレター URL を貼り付けて購読",
   "rssReader.importOpml": "OPML をインポート",
   "rssReader.importOpmlSuccess": "{count} 個のフィードを正常にインポートしました",
+  "rssReader.importOpmlError": "OPMLファイルをインポートできませんでした。有効なOPML/XMLファイルであることを確認してください。",
+  "rssReader.importOpmlEmpty": "このOPMLファイルにはフィードが見つかりませんでした。",
   "rssReader.lastSync": "最終同期 {time}",
   "rssReader.markAllRead": "すべて既読にする",
   "rssReader.moreOptions": "その他のオプション",

@@ -466,7 +466,11 @@ jobs:
       - name: Install Arch dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg patchelf npm nodejs rust cargo clang lld sqlite pipewire
+          # cmake is required to build whisper.cpp from source via download-sidecars.js
+          # (triggered by the prebuild hook during `tauri build`). Without it the job
+          # dies with "cmake: command not found". The sidecar binaries are gitignored,
+          # so every Arch release build compiles whisper.cpp itself.
+          pacman -S --noconfirm base-devel cmake webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg patchelf npm nodejs rust cargo clang lld sqlite pipewire
 
       - name: Install frontend dependencies
         # Retry npm ci to ride out transient npm-registry connectivity failures

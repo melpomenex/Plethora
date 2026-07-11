@@ -48,7 +48,7 @@ fn main() {
     let target_triple = std::env::var("TARGET").unwrap_or_default();
     println!("cargo:rustc-env=TAURI_TARGET_TRIPLE={}", target_triple);
 
-    // Ensure the sherpa-onnx sidecar placeholder exists for the current target.
+    // Ensure 0-byte sidecar placeholders exist for the current target.
     // Tauri's bundler requires every externalBin entry to be present at build time.
     // If the real binary can't be downloaded (e.g. CI without network), a 0-byte
     // placeholder keeps the build from failing. At runtime, engine.rs detects the
@@ -59,14 +59,27 @@ fn main() {
     if bin_dir.is_dir() {
         let target = std::env::var("TARGET").unwrap_or_default();
         if !target.is_empty() {
-            let sidecar_name = if target.contains("windows") {
-                format!("sherpa-onnx-{}.exe", target)
-            } else {
-                format!("sherpa-onnx-{}", target)
-            };
-            let sidecar_path = bin_dir.join(&sidecar_name);
-            if !sidecar_path.exists() {
-                std::fs::write(&sidecar_path, []).ok();
+            // Seed 0-byte placeholders for every externalBin entry that isn't already
+            // present. Tauri's bundler checks all externalBin paths at build time and
+            // fails with "resource path `bin/<name>-<triple>` doesn't exist" if any is
+            // missing. The real binaries are provisioned at build/release time by
+            // scripts/download-sidecars.js (or, historically, were committed to git),
+            // but `cargo test`/`cargo check` workflows like CI Regression Gate don't
+            // run that script. A 0-byte placeholder satisfies the bundler; at runtime,
+            // engine.rs::check_sidecar_usable detects the empty sidecar and returns a
+            // clear "sidecar not available" error instead of trying to execute it.
+            // Only externalBin entries without a committed launcher need this —
+            // pocket-tts-* launchers are tracked in git, so they always resolve.
+            for base in ["whisper", "sherpa-onnx"] {
+                let sidecar_name = if target.contains("windows") {
+                    format!("{}-{}.exe", base, target)
+                } else {
+                    format!("{}-{}", base, target)
+                };
+                let sidecar_path = bin_dir.join(&sidecar_name);
+                if !sidecar_path.exists() {
+                    std::fs::write(&sidecar_path, []).ok();
+                }
             }
         }
     }

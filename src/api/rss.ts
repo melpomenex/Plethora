@@ -818,6 +818,18 @@ export function importOPML(opmlContent: string): Feed[] {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(opmlContent, "text/xml");
 
+  // Detect a strict-XML parse failure. DOMParser doesn't throw for malformed
+  // XML; it returns a document whose root is a <parsererror> element. Many
+  // real-world OPML exports (from feed readers, CMSes, etc.) contain minor
+  // well-formedness errors — a bare "&" in a title, an unescaped "<", a stray
+  // entity — that make parseFromString fail and would otherwise silently yield
+  // zero imported feeds. When that happens, fall back to a tolerant regex pass
+  // that salvages every <outline ... xmlUrl="..."> entry.
+  const parseError = xmlDoc.querySelector("parsererror");
+  if (parseError || !xmlDoc.documentElement) {
+    return parseOpmlFallback(opmlContent);
+  }
+
   const feeds: Feed[] = [];
   const seenUrls = new Set<string>();
 
@@ -830,34 +842,14 @@ export function importOPML(opmlContent: string): Feed[] {
     );
 
     if (xmlUrl) {
-      let trimmedUrl = xmlUrl.trim();
-      if (trimmedUrl.startsWith("feed://")) {
-        trimmedUrl = "https://" + trimmedUrl.substring(7);
-      } else if (trimmedUrl.startsWith("feed:")) {
-        trimmedUrl = trimmedUrl.substring(5);
-      }
-      if (!/^https?:\/\//i.test(trimmedUrl)) {
-        return;
-      }
-      if (seenUrls.has(trimmedUrl)) {
-        return;
-      }
-      seenUrls.add(trimmedUrl);
-      feeds.push({
-        id: generateFeedId(trimmedUrl),
+      const feed = buildOpmlFeed({
+        rawUrl: xmlUrl,
         title,
-        description: "",
-        link: htmlUrl || trimmedUrl,
-        feedUrl: trimmedUrl,
+        htmlUrl: htmlUrl || undefined,
         category,
-        lastUpdated: new Date().toISOString(),
-        lastFetched: new Date().toISOString(),
-        updateInterval: 60,
-        items: [],
-        subscribeDate: new Date().toISOString(),
-        unreadCount: 0,
-        autoMarkAfterDays: undefined,
+        seenUrls,
       });
+      if (feed) feeds.push(feed);
       return;
     }
 
@@ -871,7 +863,7 @@ export function importOPML(opmlContent: string): Feed[] {
   const body = Array.from(xmlDoc.documentElement.children).find(
     (child) => child.tagName.toLowerCase() === "body"
   );
-  const rootOutlines = body 
+  const rootOutlines = body
     ? Array.from(body.children).filter((child) => child.tagName.toLowerCase() === "outline")
     : [];
 
@@ -882,6 +874,98 @@ export function importOPML(opmlContent: string): Feed[] {
       (el) => el.tagName.toLowerCase() === "outline"
     );
     outlines.forEach((outline) => parseOutline(outline));
+  }
+
+  return feeds;
+}
+
+/**
+ * Normalize an OPML feed URL and build a Feed object, applying the same
+ * feed:// and feed: handling, http(s) validation, and de-duplication used by
+ * the DOM-based parser. Returns null if the URL is invalid or already seen.
+ */
+function buildOpmlFeed(args: {
+  rawUrl: string;
+  title: string;
+  htmlUrl?: string;
+  category?: string;
+  seenUrls: Set<string>;
+}): Feed | null {
+  let trimmedUrl = args.rawUrl.trim();
+  if (trimmedUrl.startsWith("feed://")) {
+    trimmedUrl = "https://" + trimmedUrl.substring(7);
+  } else if (trimmedUrl.startsWith("feed:")) {
+    trimmedUrl = trimmedUrl.substring(5);
+  }
+  if (!/^https?:\/\//i.test(trimmedUrl)) {
+    return null;
+  }
+  if (args.seenUrls.has(trimmedUrl)) {
+    return null;
+  }
+  args.seenUrls.add(trimmedUrl);
+  return {
+    id: generateFeedId(trimmedUrl),
+    title: args.title,
+    description: "",
+    link: args.htmlUrl || trimmedUrl,
+    feedUrl: trimmedUrl,
+    category: args.category,
+    lastUpdated: new Date().toISOString(),
+    lastFetched: new Date().toISOString(),
+    updateInterval: 60,
+    items: [],
+    subscribeDate: new Date().toISOString(),
+    unreadCount: 0,
+    autoMarkAfterDays: undefined,
+  };
+}
+
+/**
+ * Tolerant regex-based OPML fallback used when strict XML parsing fails.
+ * Extracts every <outline ...> element and reads its xmlUrl/title/text/htmlUrl
+ * attributes without requiring the document to be well-formed XML. This
+ * recovers feeds from real-world exports that contain bare "&", stray entities,
+ * or other well-formedness errors that defeat DOMParser.
+ *
+ * Category/folder structure is best-effort: because a flat regex scan can't
+ * reliably track open/close nesting, feeds recovered this way are imported
+ * without a category. The priority is to recover the subscriptions — folder
+ * assignment can be fixed by the user afterwards.
+ */
+function parseOpmlFallback(opmlContent: string): Feed[] {
+  const feeds: Feed[] = [];
+  const seenUrls = new Set<string>();
+
+  // Match each <outline ... /> or <outline ... > opening tag, capturing its
+  // full attribute list. The "s" flag is intentionally omitted — outline tags
+  // never span multiple lines in practice, and we want "." to stay line-bound
+  // so a tag can't accidentally swallow a newline gap between siblings.
+  const outlineRe = /<outline\b([^>]*)\/?>/gi;
+  // Captures name="value" and name='value' pairs.
+  const attrRe = /(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+
+  let match: RegExpExecArray | null;
+  while ((match = outlineRe.exec(opmlContent)) !== null) {
+    const attrString = match[1] || "";
+    const attrs: Record<string, string> = {};
+    let am: RegExpExecArray | null;
+    attrRe.lastIndex = 0;
+    while ((am = attrRe.exec(attrString)) !== null) {
+      attrs[am[1].toLowerCase()] = am[2] ?? am[3] ?? "";
+    }
+
+    const xmlUrl = attrs["xmlurl"];
+    if (!xmlUrl) continue; // non-leaf outline (a folder); skip in fallback mode
+
+    const title = attrs["title"] || attrs["text"] || "Unknown Feed";
+    const feed = buildOpmlFeed({
+      rawUrl: xmlUrl,
+      title,
+      htmlUrl: attrs["htmlurl"],
+      seenUrls,
+    });
+    if (feed) feeds.push(feed);
   }
 
   return feeds;

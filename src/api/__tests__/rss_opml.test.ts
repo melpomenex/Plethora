@@ -62,4 +62,38 @@ describe("OPML Import Parser Tests", () => {
     expect(feeds[0].feedUrl).toBe("https://example3.com/rss");
     expect(feeds[0].category).toBe("Folder");
   });
+
+  it("should fall back to tolerant parsing when XML is malformed (bare &)", () => {
+    // A bare "&" in an attribute makes this not well-formed XML, which makes
+    // DOMParser emit a <parsererror>. The fallback regex pass should still
+    // recover the feed.
+    const opml = `<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <body>
+    <outline type="rss" text="Research & News" title="Research & News" xmlUrl="https://example.com/rss"/>
+    <outline type="rss" text="Another Feed" xmlUrl="https://example2.com/feed"/>
+  </body>
+</opml>`;
+
+    const feeds = importOPML(opml);
+    expect(feeds.length).toBe(2);
+    expect(feeds[0].feedUrl).toBe("https://example.com/rss");
+    expect(feeds[1].feedUrl).toBe("https://example2.com/feed");
+  });
+
+  it("should dedupe feeds in the fallback path", () => {
+    const opml = `<?xml version="1.0"?><opml><body>
+      <outline text="A & B" xmlUrl="https://example.com/rss"/>
+      <outline text="A and B" xmlUrl="https://example.com/rss"/>
+    </body></opml>`;
+    const feeds = importOPML(opml);
+    expect(feeds.length).toBe(1);
+  });
+
+  it("should return [] for non-OPML content without throwing", () => {
+    expect(() => importOPML("")).not.toThrow();
+    expect(() => importOPML("<html><body>not opml</body></html>")).not.toThrow();
+    expect(importOPML("<<<garbage>>>")).toEqual([]);
+  });
 });
+

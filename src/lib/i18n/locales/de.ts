@@ -2280,6 +2280,8 @@ export const de: Dict = {
   "rssReader.importNewsletterDesc": "Füge eine beliebige Newsletter-URL ein, um sie zu abonnieren",
   "rssReader.importOpml": "OPML importieren",
   "rssReader.importOpmlSuccess": "{count} Feeds erfolgreich importiert",
+  "rssReader.importOpmlError": "OPML-Datei konnte nicht importiert werden. Stellen Sie sicher, dass es sich um eine gültige OPML/XML-Datei handelt.",
+  "rssReader.importOpmlEmpty": "In dieser OPML-Datei wurden keine Feeds gefunden.",
   "rssReader.lastSync": "Letzter Sync {time}",
   "rssReader.markAllRead": "Alle als gelesen markieren",
   "rssReader.moreOptions": "Weitere Optionen",

@@ -1608,6 +1608,8 @@ export const en: Dict = {
   "rssReader.backToArticles": "Back to articles",
   "rssReader.selectStory": "Select a story to start reading",
   "rssReader.importOpmlSuccess": "Imported {count} feeds successfully",
+  "rssReader.importOpmlError": "Could not import the OPML file. Make sure it is a valid OPML/XML file.",
+  "rssReader.importOpmlEmpty": "No feeds were found in this OPML file.",
   "rssReader.failedParseFeed": "Failed to parse feed. Please check the URL.",
   "rssReader.errorAddingFeed": "Error adding feed: {error}",
   "rssReader.failedRefreshFeed": "Failed to refresh feed: {error}",

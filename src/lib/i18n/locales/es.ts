@@ -2280,6 +2280,8 @@ export const es: Dict = {
   "rssReader.importNewsletterDesc": "Pega cualquier URL de boletín para suscribirte",
   "rssReader.importOpml": "Importar OPML",
   "rssReader.importOpmlSuccess": "Se importaron {count} fuentes con éxito",
+  "rssReader.importOpmlError": "No se pudo importar el archivo OPML. Asegúrate de que sea un archivo OPML/XML válido.",
+  "rssReader.importOpmlEmpty": "No se encontraron fuentes en este archivo OPML.",
   "rssReader.lastSync": "Última sincronización {time}",
   "rssReader.markAllRead": "Marcar todo como leído",
   "rssReader.moreOptions": "Más opciones",
