@@ -81,6 +81,22 @@ fn main() {
                     std::fs::write(&sidecar_path, []).ok();
                 }
             }
+
+            // Seed a placeholder shared library so the platform resource globs
+            // in tauri.linux.conf.json (`bin/*.so*`) and the Windows config
+            // (`bin/*.dll`) never match zero files — Tauri hard-fails the build
+            // in that case. The real libraries are dropped into bin/ by
+            // download-sidecars.js; cargo test/check workflows don't run that
+            // script, so without a placeholder the Linux build dies with
+            // "glob pattern bin/*.so* path not found". A 0-byte placeholder
+            // satisfies the glob and is gitignored (see *.placeholder.so /
+            // *.placeholder.dll). It never enters the real sidecar path.
+            if target.contains("linux") {
+                let placeholder = bin_dir.join("libplaceholder.so");
+                if !placeholder.exists() {
+                    std::fs::write(&placeholder, []).ok();
+                }
+            }
         }
     }
 
