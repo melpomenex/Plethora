@@ -23,6 +23,7 @@ import { useSwipeGesture, getSwipeIndicatorStyle, SWIPE_RATINGS } from "../../ho
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { useAudioReviewMode } from "../../hooks/useAudioReviewMode";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
 import { BreakReminderModal, useBreakReminder } from "./BreakReminderModal";
 import { ZenReviewMode } from "./ZenReviewMode";
 import { FSRSInspector, useFSRSInspector } from "./FSRSInspector";
@@ -100,6 +101,9 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   const { isOpen: isInspectorOpen, setIsOpen: setIsInspectorOpen } = useFSRSInspector();
   const toast = useToast();
   const haptic = useHapticFeedback();
+  const volumeRockerMode = useSettingsStore(
+    (state) => state.settings.interface.volumeRockerScroll ?? "none",
+  );
 
   // FSRS explanation modal for first-time reviewers
   const { shouldShow: showFSRSExplanation, markShown: markFSRSShown } = useFSRSExplanation();
@@ -318,6 +322,42 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       ) {
         return;
       }
+
+      // Hardware volume rocker (and PageUp/PageDown when enabled) navigates
+      // or scrolls the review content per the user's interface setting.
+      // Handled before the shortcut bindings below so it can consume the key
+      // without interfering with Space/1-4/Cmd+... review shortcuts.
+      const getScrollableContentElement = (): HTMLElement | null => {
+        // Prefer the active Extract's scroll container when present...
+        const extractScroll = containerRef.current?.querySelector(
+          '[data-extract-scroll="true"]',
+        ) as HTMLElement | null;
+        if (extractScroll && extractScroll.scrollHeight > extractScroll.clientHeight + 4) {
+          return extractScroll;
+        }
+        // ...else fall back to the session's primary scroll container.
+        return containerRef.current ?? null;
+      };
+      const scrollContentVertically = (direction: "up" | "down") => {
+        const scrollable = getScrollableContentElement();
+        if (!scrollable) return;
+        scrollable.scrollBy({ top: direction === "down" ? 180 : -180, behavior: "smooth" });
+      };
+      if (
+        handleVolumeRockerNavigation(
+          e,
+          volumeRockerMode,
+          {
+            pageUp: () => goToIndex(currentIndex - 1),
+            pageDown: () => goToIndex(currentIndex + 1),
+            scrollUp: () => scrollContentVertically("up"),
+            scrollDown: () => scrollContentVertically("down"),
+          },
+        )
+      ) {
+        return;
+      }
+
       const mod = e.metaKey || e.ctrlKey;
       const lowerKey = e.key.toLowerCase();
 
@@ -390,6 +430,9 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     toast,
     handleDeleteCurrent,
     handleSuspendCurrent,
+    volumeRockerMode,
+    goToIndex,
+    currentIndex,
   ]);
 
   if (isLoading) {

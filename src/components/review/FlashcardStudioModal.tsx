@@ -2040,7 +2040,7 @@ function ImageOcclusionLightbox({
 
   return (
     <div
-      className="fixed inset-0 z-[140] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[9993] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -2262,7 +2262,7 @@ function CardEditLightbox({
 
   return (
     <div
-      className="fixed inset-0 z-[140] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[9993] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
@@ -4108,7 +4108,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-stretch justify-center bg-black/60 backdrop-blur-sm p-0 sm:items-center sm:p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-[9990] flex items-stretch justify-center bg-black/60 backdrop-blur-sm p-0 sm:items-center sm:p-4 animate-in fade-in duration-200"
       onClick={onClose}
       onPasteCapture={(event) => {
         if (isImageRegistryOpen) return;
@@ -4483,7 +4483,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                 </div>
 
                 {/* Input */}
-                <div className="border-t border-border px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-card">
+                <div className="border-t border-border px-4 pt-4 pb-[calc(max(1rem,env(safe-area-inset-bottom))+var(--shell-mobile-nav-height,0px))] bg-card">
                   <div className="relative">
                     <textarea
                       ref={inputRef}
@@ -4876,7 +4876,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
             {/* FloppyDisk Action */}
             {draftCards.length > 0 && (
-              <div className="border-t border-border bg-card px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+              <div className="border-t border-border bg-card px-4 pt-4 pb-[calc(max(1rem,env(safe-area-inset-bottom))+var(--shell-mobile-nav-height,0px))]">
                 <button
                   onClick={handleSaveSelected}
                   disabled={isSaving || stats.selected === 0}
@@ -4899,7 +4899,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       </div>
 
       {isImageRegistryOpen && (
-        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-black/60 p-4">
+        <div className="fixed inset-0 z-[9991] flex items-center justify-center bg-black/60 p-4">
           <div className="h-[88vh] w-full max-w-7xl">
             <ImageRegistryLibrary
               initialSelectedIds={selectedImageAssetIds}
@@ -4923,7 +4923,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       {/* Keyboard Shortcuts Modal */}
       {showShortcuts && (
         <div
-          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50"
+          className="fixed inset-0 z-[9992] flex items-center justify-center bg-black/50"
           onClick={() => setShowShortcuts(false)}
         >
           <div
