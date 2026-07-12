@@ -76,6 +76,7 @@ import { useSummaryCache } from "../../utils/rssSummary";
 import { SUMMARY_LENGTH_CONFIG, SUMMARY_LOADING_STAGES, type SummaryLength, type SummaryFocus } from "../../types/rssSummary";
 import { TrainingMenu } from "./TrainingMenu";
 import { useClassifiersStore } from "../../stores/classifiersStore";
+import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
 
 interface RSSScrollItem {
   feed: Feed;
@@ -665,6 +666,21 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
       if (
         (e.target as HTMLElement).tagName === "INPUT" ||
         (e.target as HTMLElement).tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+
+      // RSS Scroll Mode owns the hardware rocker: volume up moves backward in
+      // the article queue and volume down moves forward. Using page mode also
+      // suppresses key-repeat so one press can never skip several articles.
+      if (
+        (e.key === "VolumeUp" || e.key === "VolumeDown") &&
+        handleVolumeRockerNavigation(e, "page", {
+          pageUp: goToPrevious,
+          pageDown: goToNext,
+          scrollUp: goToPrevious,
+          scrollDown: goToNext,
+        })
       ) {
         return;
       }
@@ -1955,14 +1971,14 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
               isTransitioning ? "opacity-50 scale-[0.98]" : "opacity-100 scale-100"
             )}
           >
-            <div className="h-full flex flex-col pt-14 pb-16 px-4 md:pt-16 md:pb-20 md:px-6">
+            <div className="h-full flex flex-col pt-12 pb-[calc(0.5rem+env(safe-area-inset-bottom))] px-4 md:pt-16 md:pb-6 md:px-6">
               {/* Article header */}
-              <header className="flex-shrink-0 mb-3 md:mb-6">
+              <header className="flex-shrink-0 mb-2.5 md:mb-5">
                 <div className="flex flex-row items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     {/* Feed source indicator */}
-                    <div className="flex flex-wrap items-center gap-2 mb-2 md:mb-4 text-xs md:text-sm">
-                      <div className="flex items-center gap-1.5 px-2 py-0.5 md:px-3 md:py-1 bg-muted rounded-full">
+                    <div className="flex flex-wrap items-center gap-1.5 mb-1.5 md:mb-3 text-[11px] md:text-sm">
+                      <div className="flex items-center gap-1.5 min-w-0 max-w-[75%] md:max-w-none px-2 py-0.5 md:px-3 md:py-1 bg-muted/70 rounded-md md:rounded-full">
                         {getFeedIcon(renderedItem.feed) ? (
                           <img
                             src={getFeedIcon(renderedItem.feed)}
@@ -1972,7 +1988,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
                         ) : (
                           <Rss className="w-3.5 h-3.5 md:w-4 md:h-4 text-orange-500" />
                         )}
-                        <span className="font-medium text-foreground">
+                        <span className="font-medium text-foreground truncate">
                           {renderedItem.feed.title}
                         </span>
                       </div>
@@ -1988,11 +2004,11 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
                     </div>
 
                     {/* Title */}
-                    <h1 className="text-base sm:text-lg md:text-2xl lg:text-3xl font-bold text-foreground leading-snug md:leading-tight">
+                    <h1 className="text-[1.05rem] sm:text-lg md:text-2xl lg:text-3xl font-semibold text-foreground leading-[1.25] md:leading-tight tracking-[-0.015em] text-balance">
                       {renderedItem.item.title}
                     </h1>
 
-                    <div className="flex flex-wrap items-center gap-2 mt-2 md:mt-4">
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5 md:mt-3">
                       {renderedItem.item.thumbnail && (
                         <button
                           onClick={() => setIsImageExpanded(!isImageExpanded)}
@@ -2022,7 +2038,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
                   {!isImageExpanded && renderedItem.item.thumbnail && (
                     <div
                       onClick={() => setIsImageExpanded(true)}
-                      className="w-16 h-16 sm:w-20 sm:h-20 md:w-28 md:h-28 rounded-lg md:rounded-xl overflow-hidden border border-border/60 bg-muted/30 flex-shrink-0 cursor-pointer hover:scale-105 active:scale-95 transition-all duration-300 shadow-sm"
+                      className="w-14 h-14 sm:w-20 sm:h-20 md:w-28 md:h-28 rounded-lg md:rounded-xl overflow-hidden border border-border/60 bg-muted/30 flex-shrink-0 cursor-pointer hover:scale-105 active:scale-95 transition-all duration-300 shadow-sm"
                       title="Click to expand cover image"
                     >
                       <img
@@ -2140,7 +2156,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
               ) : (
                 <div
                   ref={contentRef}
-                  className="flex-1 overflow-y-auto rss-article-content prose prose-lg max-w-none dark:prose-invert select-text"
+                  className="flex-1 min-h-0 overflow-y-auto rss-article-content prose prose-base md:prose-lg max-w-none dark:prose-invert select-text pb-2"
                   onClick={(e) => {
                     const target = e.target as HTMLElement;
                     const link = target.closest("a[href]") as HTMLAnchorElement | null;
@@ -2160,12 +2176,12 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
               )}
 
               {/* Article footer */}
-              <footer className="flex-shrink-0 mt-4 md:mt-6 pt-3 md:pt-4 border-t border-border flex items-center justify-between">
-                <div className="flex flex-wrap items-center gap-2 md:gap-4">
+              <footer className="flex-shrink-0 mt-2 md:mt-5 pt-2 md:pt-3 border-t border-border/70 flex items-center justify-between">
+                <div className="flex w-full md:w-auto items-center justify-between md:justify-start gap-1 md:gap-3">
                   <button
                     onClick={() => handleToggleFavorite(renderedItem.feed.id, renderedItem.item.id)}
                     className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 md:px-4 md:py-2 rounded-md md:rounded-lg transition-colors",
+                      "flex items-center gap-1.5 p-2 md:px-4 md:py-2 rounded-lg transition-colors active:scale-95",
                       renderedItem.item.favorite
                         ? "bg-yellow-500/10 text-yellow-600"
                         : "bg-muted hover:bg-muted/80 text-muted-foreground"
@@ -2176,7 +2192,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
                     ) : (
                       <Star className="w-3.5 h-3.5 md:w-4 md:h-4" />
                     )}
-                    <span className="text-xs md:text-sm font-medium">
+                    <span className="hidden sm:inline text-xs md:text-sm font-medium">
                       {renderedItem.item.favorite ? "Favorited" : "Favorite"}
                     </span>
                   </button>
@@ -2187,27 +2203,27 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
                       e.preventDefault();
                       void handleOpenOriginal(renderedItem.item.link);
                     }}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-muted hover:bg-muted/80 text-muted-foreground rounded-md md:rounded-lg transition-colors text-xs md:text-sm font-medium"
+                    className="flex items-center gap-1.5 p-2 md:px-3 md:py-2 bg-muted hover:bg-muted/80 text-muted-foreground rounded-lg transition-colors active:scale-95 text-xs md:text-sm font-medium"
                   >
                     <ArrowSquareOut className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                    <span>Read Original</span>
+                    <span className="hidden sm:inline">Read Original</span>
                   </a>
 
                   <button
                     onClick={() => void handleCopyLink(renderedItem.item.link || renderedItem.item.guid)}
                     title={t("rss.copyLink")}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-muted hover:bg-muted/80 text-muted-foreground rounded-md md:rounded-lg transition-colors text-xs md:text-sm font-medium"
+                    className="flex items-center gap-1.5 p-2 md:px-3 md:py-2 bg-muted hover:bg-muted/80 text-muted-foreground rounded-lg transition-colors active:scale-95 text-xs md:text-sm font-medium"
                   >
                     <LinkSimple className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                    <span>{t("rss.copyLink")}</span>
+                    <span className="hidden sm:inline">{t("rss.copyLink")}</span>
                   </button>
 
                   {/* Training controls */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-0.5 ml-auto pl-1 border-l border-border/70">
                     <button
                       onClick={() => void handleQuickTrain("like")}
                       className={cn(
-                        "p-2 rounded-lg transition-colors",
+                        "p-2 rounded-lg transition-all active:scale-95",
                         trainPulse === "like"
                           ? "text-emerald-500 bg-emerald-500/20 train-pulse-like"
                           : "text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10"
@@ -2219,7 +2235,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
                     <button
                       onClick={() => void handleQuickTrain("dislike")}
                       className={cn(
-                        "p-2 rounded-lg transition-colors",
+                        "p-2 rounded-lg transition-all active:scale-95",
                         trainPulse === "dislike"
                           ? "text-red-500 bg-red-500/20 train-pulse-dislike"
                           : "text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
@@ -2231,7 +2247,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
                     <button
                       onClick={() => setShowTrainingMenu(true)}
                       className={cn(
-                        "p-2 rounded-lg transition-colors",
+                        "p-2 rounded-lg transition-all active:scale-95",
                         showTrainingMenu
                           ? "text-emerald-500 bg-emerald-500/10"
                           : "text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10"
