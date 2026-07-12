@@ -5,6 +5,16 @@ export type PdfDest = {
   zoom: number | null;
 };
 
+export type PdfSourceAnchorState = {
+  fingerprint?: string | null;
+  pageNumber: number;
+  blockId?: string;
+  textQuote?: string;
+  rect?: { x: number; y: number; width: number; height: number };
+  intraBlockOffset?: number;
+  mappingConfidence?: number;
+};
+
 export type ViewState = {
   docId: string;
   pageNumber: number;
@@ -13,6 +23,7 @@ export type ViewState = {
   rotation?: number;
   viewMode?: string;
   dest?: PdfDest | null;
+  pdfAnchor?: PdfSourceAnchorState | null;
   scrollTop?: number | null;
   scrollLeft?: number | null;
   scrollPercent?: number | null;

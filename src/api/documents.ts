@@ -258,6 +258,66 @@ export async function readDocumentFile(filePath: string): Promise<string> {
   return await invokeCommand<string>("read_document_file", { filePath });
 }
 
+export interface PdfDocumentSourceInfo {
+  documentId: string;
+  size: number;
+  identity: string;
+  fingerprint: string;
+  maxChunkSize: number;
+}
+
+export interface PdfDocumentRange {
+  offset: number;
+  bytes: number[];
+  identity: string;
+  eof: boolean;
+}
+
+/** Resolve an imported PDF to an authorized, immutable native byte source. */
+export async function getPdfDocumentSourceInfo(documentId: string): Promise<PdfDocumentSourceInfo> {
+  return await invokeCommand<PdfDocumentSourceInfo>("get_pdf_document_source_info", { documentId });
+}
+
+/** Read one bounded range from an authorized imported PDF. */
+export async function readPdfDocumentRange(
+  documentId: string,
+  offset: number,
+  length: number,
+  expectedIdentity: string
+): Promise<PdfDocumentRange> {
+  return await invokeCommand<PdfDocumentRange>("read_pdf_document_range", {
+    documentId,
+    offset,
+    length,
+    expectedIdentity,
+  });
+}
+
+export async function getPdfReflowCachePage<T>(options: {
+  documentId: string;
+  sourceIdentity: string;
+  schemaVersion: number;
+  engineVersion: string;
+  pageNumber: number;
+}): Promise<T | null> {
+  return await invokeCommand<T | null>("get_pdf_reflow_cache_page", options);
+}
+
+export async function putPdfReflowCachePage<T>(options: {
+  documentId: string;
+  sourceIdentity: string;
+  schemaVersion: number;
+  engineVersion: string;
+  pageNumber: number;
+  page: T;
+}): Promise<void> {
+  return await invokeCommand<void>("put_pdf_reflow_cache_page", options as Record<string, unknown>);
+}
+
+export async function deletePdfReflowCache(documentId: string): Promise<void> {
+  return await invokeCommand<void>("delete_pdf_reflow_cache", { documentId });
+}
+
 /**
  * Extract text content from a document (for documents without content)
  * Returns the extracted text and whether it was newly extracted

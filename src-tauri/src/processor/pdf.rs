@@ -227,11 +227,12 @@ pub async fn extract_pdf_cover_data_url(file_path: &str) -> Result<Option<String
     Ok(None)
 }
 
-/// Convert a PDF file to HTML format for better text selection and extraction
+/// Convert a PDF file to HTML format for legacy export and OCR workflows.
 ///
-/// This creates a structured HTML document with the PDF's text content,
-/// preserving page breaks and basic formatting for improved readability
-/// and text selection compared to PDF.js rendering.
+/// This whole-document converter intentionally is not the mobile semantic
+/// reflow engine. Mobile reading uses PDF.js geometry, versioned per-page
+/// blocks, quality classification, and source anchors; keeping this path
+/// isolated prevents its plain-text ordering from being treated as authoritative.
 pub async fn convert_pdf_to_html(file_path: &str) -> Result<String> {
     let path = Path::new(file_path);
 

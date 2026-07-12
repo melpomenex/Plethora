@@ -453,4 +453,79 @@
   border-radius: 2px !important;
   transition: background-color 0.1s ease !important;
 }
+.pdf-mobile-reflow .pdf-reflow-content {
+  color: hsl(var(--foreground));
+  font-family: var(--pdf-reflow-font-family, Georgia, "Times New Roman", serif);
+  font-size: var(--pdf-reflow-font-size, 19px);
+  line-height: var(--pdf-reflow-line-height, 1.72);
+  overflow-wrap: anywhere;
+}
 
+.pdf-mobile-reflow .pdf-reflow-block {
+  margin-block: 0 1.05em;
+}
+
+.pdf-mobile-reflow h2 {
+  margin-block: 1.6em 0.55em;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 1.45em;
+  line-height: 1.18;
+}
+
+.pdf-mobile-reflow table {
+  min-width: 100%;
+  border-collapse: collapse;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.82em;
+}
+
+.pdf-mobile-reflow td {
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 0.55rem;
+  text-align: start;
+}
+
+.pdf-mobile-reflow .pdf-reflow-source-action {
+  color: hsl(var(--muted-foreground));
+  opacity: 0.72;
+}
+
+.pdf-mobile-reflow .pdf-reflow-highlight {
+  border-radius: 0.18em;
+  padding-inline: 0.06em;
+}
+
+.pdf-mobile-reflow .pdf-reflow-highlight.yellow { background: rgb(250 204 21 / 0.45); }
+.pdf-mobile-reflow .pdf-reflow-highlight.green { background: rgb(74 222 128 / 0.38); }
+.pdf-mobile-reflow .pdf-reflow-highlight.blue { background: rgb(96 165 250 / 0.38); }
+.pdf-mobile-reflow .pdf-reflow-highlight.pink { background: rgb(244 114 182 / 0.38); }
+.pdf-mobile-reflow .pdf-reflow-highlight.purple { background: rgb(192 132 252 / 0.38); }
+
+.pdf-mobile-reflow .pdf-reflow-search-target {
+  border-radius: 0.35rem;
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 0.3rem;
+}
+
+.pdf-mobile-reflow[data-reader-theme="light"],
+.pdf-mobile-reflow[data-reader-theme="dark"] {
+  min-height: 100%;
+}
+
+.pdf-mobile-reflow[data-image-scaling="fit"] img { max-width: 100%; height: auto; }
+.pdf-mobile-reflow[data-image-scaling="original"] img { max-width: none; }
+.pdf-mobile-reflow[data-image-scaling="hide"] img,
+.pdf-mobile-reflow[data-image-scaling="hide"] figure { display: none; }
+
+@media (max-width: 767px) {
+  [data-document-scroll-container] {
+    overscroll-behavior: contain;
+  }
+
+  .pdf-reader-toolbar button,
+  .pdf-reader-toolbar input,
+  .pdf-reader-toolbar select {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

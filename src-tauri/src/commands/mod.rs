@@ -26,6 +26,8 @@ pub mod notifications;
 pub mod ocr;
 pub mod ocr_runtime;
 pub mod podcast;
+pub mod pdf_mobile;
+pub mod pdf_reflow_cache;
 pub mod position;
 pub mod queue;
 pub mod queue_bulk;
@@ -91,6 +93,8 @@ pub use cloud::backup::*;
 pub use cloud::oauth::*;
 pub use cloud::sync::*;
 pub use podcast::*;
+pub use pdf_mobile::*;
+pub use pdf_reflow_cache::*;
 pub use sync::*;
 pub use tas::*;
 

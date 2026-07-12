@@ -77,8 +77,24 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 // Mock PDF.js for test environment to avoid DOMMatrix dependency.
+class MockPDFDataRangeTransport {
+  private rangeListeners: Array<(begin: number, chunk: Uint8Array) => void> = [];
+  constructor(
+    public length: number,
+    public initialData: Uint8Array | null,
+    public progressiveDone = false,
+  ) {}
+  addRangeListener(listener: (begin: number, chunk: Uint8Array) => void) { this.rangeListeners.push(listener); }
+  onDataRange(begin: number, chunk: Uint8Array) { this.rangeListeners.forEach((listener) => listener(begin, chunk)); }
+  onDataProgress() {}
+  transportReady() {}
+  abort() {}
+}
+
 vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: { workerSrc: "" },
+  PDFDataRangeTransport: MockPDFDataRangeTransport,
+  PasswordResponses: { NEED_PASSWORD: 1, INCORRECT_PASSWORD: 2 },
   getDocument: vi.fn(() => ({
     promise: Promise.resolve({
       numPages: 0,

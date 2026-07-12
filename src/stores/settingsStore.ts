@@ -110,10 +110,22 @@ export interface EmbeddingSettings {
 /**
  * PDF Settings
  */
-interface PDFSettings {
+export interface PDFSettings {
   defaultZoom: number;
   twoPageSpread: boolean;
   showOcrPageBreaks: boolean;
+  preferredMobileMode: "auto" | "reflow" | "fixed";
+  reflowFontFamily: "serif" | "sans-serif" | "monospace";
+  reflowFontSize: number;
+  reflowLineHeight: number;
+  reflowMargin: number;
+  reflowDirection: "auto" | "ltr" | "rtl";
+  reflowImageScaling: "fit" | "original" | "hide";
+  reflowTheme: "system" | "light" | "dark";
+  fixedMobileMode: "fit-width" | "fit-page" | "crop" | "columns";
+  fixedColumns: number;
+  fixedColumnDirection: "ltr" | "rtl";
+  fixedColumnOverlap: number;
 }
 
 /**
@@ -565,6 +577,18 @@ export const defaultSettings: Settings = {
       defaultZoom: 1.0,
       twoPageSpread: false,
       showOcrPageBreaks: false,
+      preferredMobileMode: "auto",
+      reflowFontFamily: "serif",
+      reflowFontSize: 19,
+      reflowLineHeight: 1.72,
+      reflowMargin: 16,
+      reflowDirection: "auto",
+      reflowImageScaling: "fit",
+      reflowTheme: "system",
+      fixedMobileMode: "fit-width",
+      fixedColumns: 1,
+      fixedColumnDirection: "ltr",
+      fixedColumnOverlap: 0.08,
     },
     epubSettings: {
       fontSize: 16,

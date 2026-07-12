@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, type CSSProperties } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { EventBus } from "pdfjs-dist/web/pdf_viewer.mjs";
@@ -10,6 +10,8 @@ import {
   CornersOut,
   List,
   Scan,
+  SlidersHorizontal,
+  X,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
 import type { PdfDest, ViewState } from "../../types/readerPosition";
@@ -18,7 +20,7 @@ import type { DocumentPosition } from "../../types/position";
 import type { DocumentMetadata, Document } from "../../types/document";
 import { saveDocumentPosition, getDocumentPosition, pagePosition, scrollPosition as createScrollPosition } from "../../api/position";
 import { getDocumentAuto, updateDocumentProgressAuto } from "../../api/documents";
-import { isTauri } from "../../lib/tauri";
+import { getFormFactor, isTauri } from "../../lib/tauri";
 import {
   deriveCurrentPageFromOffsets,
   isNavigationSettled,
@@ -48,6 +50,19 @@ import { OcrProgressOverlay } from "./OcrProgressOverlay";
 import { OcrTextPreview } from "./OcrTextPreview";
 import { usePdfOcrManager } from "./PdfOcrManager";
 import { createPdfLoadSourceFactories } from "./pdfLoadSources";
+import { createNativePdfRangeSource, type NativePdfRangeTransport } from "./nativePdfRangeTransport";
+import { normalizePdfError, pdfErrorUserMessage, pdfRecoveryActionsFor, shouldRetryPdfWorker, type NormalizedPdfError } from "./pdfErrors";
+import { PdfDiagnostics } from "./pdfDiagnostics";
+import { initialPdfReaderState, reducePdfReaderState } from "./pdfReaderState";
+import { isPdfFeatureEnabled } from "./pdfFeatureFlags";
+import { createBrowserPdfReflowCache } from "./pdfReflowCache";
+import { createPdfReflowDocument, pdfReflowCacheKey, type PdfReflowBlock, type PdfReflowDocument } from "./pdfReflowTypes";
+import { PdfReflowScheduler } from "./pdfReflowScheduler";
+import { PdfReflowRenderer } from "./PdfReflowRenderer";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { loadPdfMobilePreferences, pdfMobilePreferencesFromSettings, savePdfMobilePreferences } from "./pdfMobilePreferences";
+import { PdfReflowOcrController, type PdfPageOcrUpdate } from "./pdfReflowOcr";
+import { anchorFromReflowBlock, resolveReflowBlock } from "./pdfAnchorResolver";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import type { PdfVimRuntime } from "../../utils/vim/readerRuntimes";
 // Import PDF.js text layer styles
@@ -306,6 +321,7 @@ interface PDFViewerProps {
   doc?: Document;
   fileData?: Uint8Array | null;
   fileUrl?: string | null;
+  useNativeRange?: boolean;
   pageNumber: number;
   scale: number;
   zoomMode?: ZoomMode;
@@ -333,6 +349,7 @@ interface PDFViewerProps {
     scrollPercent: number;
     scale?: number;
     dest?: PdfDest | null;
+    pdfAnchor?: ViewState["pdfAnchor"];
   }) => void;
   onPdfInfo?: (info: { fingerprint?: string | null }) => void;
   restoreState?: ViewState | null;
@@ -383,6 +400,7 @@ export function PDFViewer({
   doc,
   fileData,
   fileUrl,
+  useNativeRange = false,
   pageNumber,
   scale,
   zoomMode: externalZoomMode,
@@ -422,7 +440,39 @@ export function PDFViewer({
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<NormalizedPdfError | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const diagnosticsRef = useRef(new PdfDiagnostics());
+  const [readerState, setReaderState] = useState(initialPdfReaderState);
+  const [passwordValue, setPasswordValue] = useState("");
+  const passwordSubmitRef = useRef<((password: string) => void) | null>(null);
+  const [pdfSourceIdentity, setPdfSourceIdentity] = useState<{ identity: string; fingerprint: string } | null>(null);
+  const [reflowDocument, setReflowDocument] = useState<PdfReflowDocument | null>(null);
+  const [mobilePdfMode, setMobilePdfMode] = useState<"fixed" | "reflow">("fixed");
+  const reflowCacheRef = useRef(createBrowserPdfReflowCache());
+  const reflowSchedulerRef = useRef<PdfReflowScheduler | null>(null);
+  const modeOverriddenRef = useRef(false);
+  const isPhone = typeof window !== "undefined" && getFormFactor() === "phone";
+  const pdfSettings = useSettingsStore((state) => state.settings.documents.pdfSettings);
+  const updateSettingsCategory = useSettingsStore((state) => state.updateSettingsCategory);
+  const [mobilePreferences, setMobilePreferences] = useState(() => loadPdfMobilePreferences(documentId, pdfMobilePreferencesFromSettings(pdfSettings)));
+  const [showMobileSettings, setShowMobileSettings] = useState(false);
+  const [mobileChromeVisible, setMobileChromeVisible] = useState(true);
+  const reflowOcrRef = useRef(new PdfReflowOcrController());
+  const [pageOcrUpdate, setPageOcrUpdate] = useState<PdfPageOcrUpdate | null>(null);
+  const [reflowSearchBlockId, setReflowSearchBlockId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMobilePreferences(loadPdfMobilePreferences(documentId, pdfMobilePreferencesFromSettings(pdfSettings)));
+  }, [documentId]);
+
+  const updateMobilePreferences = useCallback((updates: Partial<typeof mobilePreferences>) => {
+    setMobilePreferences((current) => {
+      const next = { ...current, ...updates };
+      savePdfMobilePreferences(documentId, next);
+      return next;
+    });
+  }, [documentId]);
   const [outline, setOutline] = useState<any[]>([]);
   const [flatOutline, setFlatOutline] = useState<{ title: string; dest: any; pageNumber: number }[]>([]);
   const [showTOC, setShowTOC] = useState(false);
@@ -742,6 +792,8 @@ export function PDFViewer({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const scrollPositionRef = useRef({ x: 0, y: 0 });
+  const pinchRef = useRef<{ distance: number; scale: number } | null>(null);
+  const fixedColumnIndexRef = useRef(0);
 
   const highlightConfigRef = useRef<{ query: string; pageNumber: number; textQuote?: string; resolved: boolean } | null>(null);
   useEffect(() => {
@@ -1184,10 +1236,19 @@ export function PDFViewer({
 
   useEffect(() => {
     let mounted = true;
+    const nativeTransports: NativePdfRangeTransport[] = [];
 
     const loadPDF = async () => {
       setIsLoading(true);
       setError(null);
+      setPdf(null);
+      setPdfSourceIdentity(null);
+      setReflowDocument(null);
+      setMobilePdfMode("fixed");
+      reflowSchedulerRef.current?.cancel();
+      setReaderState(reducePdfReaderState(initialPdfReaderState, { type: "OPEN" }));
+      setPasswordValue("");
+      passwordSubmitRef.current = null;
 
       try {
         const loadDocument = async () => {
@@ -1195,6 +1256,53 @@ export function PDFViewer({
           // Previously disabled on WebKitGTK/Tauri to avoid glyph parsing issues, but this
           // broke text selectability on PDFs that work fine in native Linux readers.
           const shouldDisableFontFace = false;
+          const awaitLoadingTask = async (
+            loadingTask: pdfjsLib.PDFDocumentLoadingTask,
+            sourceFailure?: Promise<never>,
+          ) => {
+            loadingTask.onPassword = (updatePassword, reason) => {
+              if (!mounted) return;
+              const incorrect = reason === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD;
+              passwordSubmitRef.current = updatePassword;
+              setPasswordValue("");
+              setReaderState((state) => reducePdfReaderState(state, { type: "REQUEST_PASSWORD", incorrect }));
+            };
+            return sourceFailure
+              ? await Promise.race([loadingTask.promise, sourceFailure])
+              : await loadingTask.promise;
+          };
+          if (useNativeRange) {
+            const loadNative = async () => {
+              const native = await createNativePdfRangeSource(documentId);
+              nativeTransports.push(native.transport);
+              diagnosticsRef.current = native.diagnostics;
+              setPdfSourceIdentity({ identity: native.info.identity, fingerprint: native.info.fingerprint });
+              const loadingTask = pdfjsLib.getDocument({
+                range: native.transport,
+                length: native.info.size,
+                verbosity: 0,
+                disableStream: true,
+                disableAutoFetch: false,
+                disableFontFace: shouldDisableFontFace,
+              } as any);
+              return await awaitLoadingTask(loadingTask, native.failure);
+            };
+
+            try {
+              return await loadNative();
+            } catch (nativeError) {
+              const normalized = normalizePdfError(nativeError);
+              if (!shouldRetryPdfWorker(normalized)) throw normalized;
+              // A readable native source can still hit a worker bootstrap bug.
+              // Recreate both worker and range transport for the retry; source
+              // failures never enter this branch.
+              try { pdfjsLib.GlobalWorkerOptions.workerPort?.terminate(); } catch {}
+              pdfjsLib.GlobalWorkerOptions.workerPort = null;
+              pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+              return await loadNative();
+            }
+          }
+
           const sources = createPdfLoadSourceFactories({
             fileUrl,
             fileData,
@@ -1210,7 +1318,7 @@ export function PDFViewer({
             try {
               const source = sourceFactory.create();
               const loadingTask = pdfjsLib.getDocument(source as any);
-              return await loadingTask.promise;
+              return await awaitLoadingTask(loadingTask);
             } catch (workerError) {
               // Some packaged runtimes fail to initialize the PDF worker.
               // Retry without a worker so PDFs still render. Create a fresh source:
@@ -1225,7 +1333,7 @@ export function PDFViewer({
                 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
                 const source = sourceFactory.create();
                 const fallbackTask = pdfjsLib.getDocument(source as any);
-                return await fallbackTask.promise;
+                return await awaitLoadingTask(fallbackTask);
               } catch (fallbackError) {
                 lastError = fallbackError;
               }
@@ -1247,6 +1355,11 @@ export function PDFViewer({
         setTextSelectionCapability(initialCapability);
         onTextSelectionCapabilityChange?.(initialCapability);
         setPdf(pdfDoc);
+        if (!useNativeRange) {
+          const fingerprint = (pdfDoc as any).fingerprints?.[0] ?? (pdfDoc as any).fingerprint ?? documentId;
+          setPdfSourceIdentity({ identity: String(fingerprint), fingerprint: String(fingerprint) });
+        }
+        setReaderState((state) => reducePdfReaderState(state, { type: "READY" }));
         onPdfInfo?.({ fingerprint: (pdfDoc as any).fingerprint ?? null });
         textCacheRef.current.clear();
         pageOffsetsRef.current = [];
@@ -1283,7 +1396,10 @@ export function PDFViewer({
 
       } catch (err) {
         if (!mounted) return;
-        setError(err instanceof Error ? err.message : "Failed to load PDF");
+        const normalized = normalizePdfError(err);
+        diagnosticsRef.current.update({ errorCategory: normalized.category });
+        setError(normalized);
+        setReaderState((state) => reducePdfReaderState(state, { type: "FAIL", error: normalized }));
       } finally {
         if (mounted) {
           setIsLoading(false);
@@ -1295,10 +1411,214 @@ export function PDFViewer({
 
     return () => {
       mounted = false;
+      for (const transport of nativeTransports) transport.abort();
+      passwordSubmitRef.current = null;
     };
     // Note: onLoad is intentionally excluded from deps - it's a callback that
     // shouldn't trigger reloading the PDF source.
-  }, [fileData, fileUrl, isTauriRuntime, onTextSelectionCapabilityChange]);
+  }, [documentId, fileData, fileUrl, isTauriRuntime, onTextSelectionCapabilityChange, retryNonce, useNativeRange]);
+
+  useEffect(() => {
+    if (!pdf || !pdfSourceIdentity || !isPhone || !isPdfFeatureEnabled("semanticReflow")) {
+      reflowSchedulerRef.current?.cancel();
+      return;
+    }
+    let disposed = false;
+    const cache = reflowCacheRef.current;
+    const base = createPdfReflowDocument({
+      documentId,
+      sourceIdentity: pdfSourceIdentity.identity,
+      fingerprint: pdfSourceIdentity.fingerprint,
+      pageCount: pdf.numPages,
+      language: metadata?.language,
+    });
+    const start = async () => {
+      const cached = await cache.get(pdfReflowCacheKey(base));
+      const initial = cached ?? base;
+      if (disposed) return;
+      setReflowDocument(initial);
+      setReaderState((state) => reducePdfReaderState(state, { type: "ANALYZE" }));
+      const scheduler = new PdfReflowScheduler(pdf, initial, cache, (page, document) => {
+        if (disposed) return;
+        const readyPages = Object.values(document.pages).filter((candidate) => candidate.state === "ready");
+        const confidence = readyPages.length
+          ? readyPages.reduce((sum, candidate) => sum + candidate.confidence, 0) / readyPages.length
+          : 0;
+        const classification = page.classification;
+        const next = { ...document, confidence, classification };
+        setReflowDocument(next);
+        diagnosticsRef.current.update({ classification });
+        setReaderState((state) => reducePdfReaderState(state, { type: "PARTIAL_REFLOW" }));
+        const preferred = mobilePreferences.preferredMobileMode;
+        if (!modeOverriddenRef.current && page.pageNumber === pageNumber
+          && (preferred === "reflow" || (preferred === "auto" && classification === "semantic"))) {
+          setMobilePdfMode("reflow");
+        }
+      });
+      reflowSchedulerRef.current = scheduler;
+      await scheduler.start(pageNumber);
+      if (!disposed) setReaderState((state) => reducePdfReaderState(state, { type: "READY" }));
+    };
+    void start();
+    return () => {
+      disposed = true;
+      reflowSchedulerRef.current?.cancel();
+    };
+  }, [documentId, isPhone, metadata?.language, mobilePreferences.preferredMobileMode, pdf, pdfSourceIdentity]);
+
+  useEffect(() => {
+    if (reflowSchedulerRef.current) void reflowSchedulerRef.current.start(pageNumber);
+  }, [pageNumber]);
+
+  const handleReflowScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const sections = Array.from(container.querySelectorAll<HTMLElement>("[data-pdf-reflow-page]"));
+    let current = pageNumber;
+    for (const section of sections) {
+      if (section.offsetTop <= container.scrollTop + 96) current = Number(section.dataset.pdfReflowPage ?? current);
+      else break;
+    }
+    if (current !== pageNumber) onPageChange?.(current);
+    const currentBlockElement = container.querySelector<HTMLElement>(`[data-pdf-reflow-page="${current}"] [data-pdf-reflow-block]`);
+    const blockId = currentBlockElement?.dataset.pdfReflowBlock;
+    const block = reflowDocument?.pages[current]?.blocks.find((candidate) => candidate.id === blockId);
+    const denominator = Math.max(1, container.scrollHeight - container.clientHeight);
+    onScrollPositionChange?.({
+      pageNumber: current,
+      scrollTop: container.scrollTop,
+      scrollLeft: 0,
+      scrollHeight: container.scrollHeight,
+      clientHeight: container.clientHeight,
+      scrollPercent: (container.scrollTop / denominator) * 100,
+      pdfAnchor: block ? anchorFromReflowBlock(block, pdfSourceIdentity?.fingerprint) : { pageNumber: current, fingerprint: pdfSourceIdentity?.fingerprint },
+    });
+  }, [onPageChange, onScrollPositionChange, pageNumber, pdfSourceIdentity?.fingerprint, reflowDocument]);
+
+  const handleReflowSelection = useCallback(() => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? "";
+    if (!text || !selection?.rangeCount || !reflowDocument) {
+      onSelectionChange?.("", null);
+      return;
+    }
+    const node = selection.getRangeAt(0).commonAncestorContainer;
+    const baseElement = node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement;
+    const element = baseElement?.closest<HTMLElement>("[data-pdf-reflow-block]");
+    const blockId = element?.dataset.pdfReflowBlock;
+    const block = Object.values(reflowDocument.pages).flatMap((page) => page.blocks).find((candidate) => candidate.id === blockId);
+    if (!block) return;
+    onSelectionChange?.(text, {
+      type: "pdf",
+      documentId,
+      fingerprint: pdfSourceIdentity?.fingerprint,
+      source: "native",
+      pages: [{
+        pageNumber: block.source.pageNumber,
+        viewportRects: [],
+        pdfRects: block.source.rects.map((rect) => ({ x1: rect.x, y1: rect.y, x2: rect.x + rect.width, y2: rect.y + rect.height })),
+      }],
+      tokenData: block.source.tokenIds.length ? {
+        startTokenId: block.source.tokenIds[0],
+        endTokenId: block.source.tokenIds.at(-1)!,
+        tokenIds: block.source.tokenIds,
+      } : undefined,
+      reflowBlockIds: [block.id],
+      mappingConfidence: block.source.confidence,
+    });
+  }, [documentId, onSelectionChange, pdfSourceIdentity?.fingerprint, reflowDocument]);
+
+  const handleMobileSurfaceClick = useCallback((event: React.MouseEvent) => {
+    if (!isPhone || event.target instanceof Element && event.target.closest("button,a,input,select,textarea,[role=dialog]")) return;
+    if (window.getSelection()?.toString().trim()) return;
+    setMobileChromeVisible((visible) => !visible);
+  }, [isPhone]);
+
+  const handleViewOriginalBlock = useCallback((block: PdfReflowBlock) => {
+    modeOverriddenRef.current = true;
+    setMobilePdfMode("fixed");
+    onPageChange?.(block.source.pageNumber);
+  }, [onPageChange]);
+
+  const scrollReflowToPage = useCallback((targetPage: number, behavior: ScrollBehavior = "smooth") => {
+    const container = scrollContainerRef.current;
+    const section = container?.querySelector<HTMLElement>(`[data-pdf-reflow-page="${targetPage}"]`);
+    if (!section) return false;
+    section.scrollIntoView({ block: "start", behavior });
+    onPageChange?.(targetPage);
+    return true;
+  }, [onPageChange]);
+
+  useEffect(() => {
+    if (mobilePdfMode !== "reflow" || !reflowDocument || !restoreState) return;
+    const block = restoreState.pdfAnchor ? resolveReflowBlock(reflowDocument, restoreState.pdfAnchor) : null;
+    const frame = requestAnimationFrame(() => {
+      if (block) {
+        document.getElementById(block.id)?.scrollIntoView({ block: "start", behavior: "auto" });
+      } else {
+        scrollReflowToPage(restoreState.pageNumber, "auto");
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [mobilePdfMode, reflowDocument, restoreState, scrollReflowToPage]);
+
+  useEffect(() => {
+    if (mobilePdfMode !== "reflow" || !highlightPageNumber) return;
+    const quote = (highlightTextQuote || highlightQuery || "").trim().toLocaleLowerCase();
+    const block = quote
+      ? reflowDocument?.pages[highlightPageNumber]?.blocks.find((candidate) => candidate.text.toLocaleLowerCase().includes(quote))
+      : undefined;
+    if (block) {
+      setReflowSearchBlockId(block.id);
+      requestAnimationFrame(() => document.getElementById(block.id)?.scrollIntoView({ block: "center", behavior: "smooth" }));
+    } else {
+      scrollReflowToPage(highlightPageNumber);
+    }
+  }, [highlightPageNumber, highlightQuery, highlightTextQuote, mobilePdfMode, reflowDocument, scrollReflowToPage]);
+
+  useEffect(() => {
+    if (mobilePdfMode !== "reflow" || !reflowDocument || !searchQuery?.trim()) {
+      setReflowSearchBlockId(null);
+      return;
+    }
+    const query = searchQuery.trim().toLocaleLowerCase();
+    const matches = Object.values(reflowDocument.pages)
+      .sort((a, b) => a.pageNumber - b.pageNumber)
+      .flatMap((page) => page.blocks.filter((block) => block.text.toLocaleLowerCase().includes(query)));
+    const targetIndex = Math.max(0, Math.min(matches.length - 1, searchNavigationRequest?.targetIndex ?? 0));
+    const target = matches[targetIndex];
+    setReflowSearchBlockId(target?.id ?? null);
+    onSearchResultsChange?.({
+      query: searchQuery,
+      totalMatches: matches.length,
+      activeMatchIndex: target ? targetIndex : -1,
+      isSearchable: true,
+      status: "ready",
+    });
+    if (target) requestAnimationFrame(() => document.getElementById(target.id)?.scrollIntoView({ block: "center", behavior: "smooth" }));
+  }, [mobilePdfMode, onSearchResultsChange, reflowDocument, searchNavigationRequest?.requestId, searchNavigationRequest?.targetIndex, searchQuery]);
+
+  const handleRequestPageOcr = useCallback(async (reflowPage: import("./pdfReflowTypes").PdfReflowPage) => {
+    if (!pdf || !reflowDocument) return;
+    setReaderState((state) => reducePdfReaderState(state, { type: "START_OCR" }));
+    const pageProxy = await pdf.getPage(reflowPage.pageNumber);
+    const recognized = await reflowOcrRef.current.recognize(
+      pageProxy,
+      reflowPage.pageNumber,
+      useSettingsStore.getState().settings.documents.ocr.language || "eng",
+      (update) => {
+        setPageOcrUpdate(update);
+        diagnosticsRef.current.update({ ocrState: update.state === "low-confidence" ? "ready" : update.state });
+      },
+    );
+    if (recognized) {
+      const next = await reflowCacheRef.current.putPage(reflowDocument, recognized);
+      setReflowDocument(next);
+      setReaderState((state) => reducePdfReaderState(state, { type: "PARTIAL_REFLOW" }));
+    } else {
+      setReaderState((state) => reducePdfReaderState(state, { type: "READY" }));
+    }
+  }, [pdf, reflowDocument]);
 
   useEffect(() => {
     publishTextSelectionCapability(pageTextSelectionAvailabilityRef.current);
@@ -2558,9 +2878,26 @@ export function PDFViewer({
   }, [restoreState]);
 
 
+  const columnScrollLeft = (index: number, container: HTMLDivElement) => {
+    const logicalIndex = mobilePreferences.fixedColumnDirection === "rtl"
+      ? Math.max(0, mobilePreferences.fixedColumns - 1 - index)
+      : index;
+    return logicalIndex * (container.clientWidth * (1 - mobilePreferences.fixedColumnOverlap));
+  };
+
   const handlePrevPage = () => {
+    if (mobilePdfMode === "fixed" && mobilePreferences.fixedMobileMode === "columns" && fixedColumnIndexRef.current > 0) {
+      fixedColumnIndexRef.current -= 1;
+      const container = scrollContainerRef.current;
+      if (container) container.scrollTo({ left: columnScrollLeft(fixedColumnIndexRef.current, container), behavior: "smooth" });
+      return;
+    }
     if (pageNumber > effectiveStartPage) {
       const nextPageNumber = pageNumber - 1;
+      if (mobilePdfMode === "reflow") {
+        if (scrollReflowToPage(nextPageNumber)) return;
+        setMobilePdfMode("fixed");
+      }
       const token = ++navTokenCounterRef.current;
       activeNavTokenRef.current = token;
       pendingNavRef.current = { token, pageNumber: nextPageNumber, destArray: null };
@@ -2573,8 +2910,19 @@ export function PDFViewer({
   };
 
   const handleNextPage = () => {
+    if (mobilePdfMode === "fixed" && mobilePreferences.fixedMobileMode === "columns" && fixedColumnIndexRef.current < mobilePreferences.fixedColumns - 1) {
+      fixedColumnIndexRef.current += 1;
+      const container = scrollContainerRef.current;
+      if (container) container.scrollTo({ left: columnScrollLeft(fixedColumnIndexRef.current, container), behavior: "smooth" });
+      return;
+    }
     if (pageNumber < effectiveEndPage) {
+      fixedColumnIndexRef.current = 0;
       const nextPageNumber = pageNumber + 1;
+      if (mobilePdfMode === "reflow") {
+        if (scrollReflowToPage(nextPageNumber)) return;
+        setMobilePdfMode("fixed");
+      }
       const token = ++navTokenCounterRef.current;
       activeNavTokenRef.current = token;
       pendingNavRef.current = { token, pageNumber: nextPageNumber, destArray: null };
@@ -2594,6 +2942,10 @@ export function PDFViewer({
     if (!Number.isFinite(targetPage)) return;
     const clamped = Math.max(effectiveStartPage, Math.min(effectiveEndPage, targetPage));
     if (clamped === pageNumber) return;
+    if (mobilePdfMode === "reflow") {
+      if (scrollReflowToPage(clamped)) return;
+      setMobilePdfMode("fixed");
+    }
     const token = ++navTokenCounterRef.current;
     activeNavTokenRef.current = token;
     pendingNavRef.current = { token, pageNumber: clamped, destArray: null };
@@ -2673,12 +3025,44 @@ export function PDFViewer({
       isProgrammaticScrollRef.current = true;
     }
     setShowTOC(false);
+    if (mobilePdfMode === "reflow") {
+      if (scrollReflowToPage(nextPageNumber)) return;
+      setMobilePdfMode("fixed");
+    }
     onPageChange?.(nextPageNumber);
-  }, [logNav, onPageChange, resolveOutlineDest, setNavigationMode, effectiveStartPage, effectiveEndPage]);
+  }, [logNav, mobilePdfMode, onPageChange, resolveOutlineDest, scrollReflowToPage, setNavigationMode, effectiveStartPage, effectiveEndPage]);
 
   const handleZoomModeChange = (mode: ZoomMode) => {
     setZoomMode(mode);
     onZoomModeChange?.(mode);
+  };
+
+  const applyFixedMobileMode = (mode: typeof mobilePreferences.fixedMobileMode) => {
+    updateMobilePreferences({ fixedMobileMode: mode });
+    fixedColumnIndexRef.current = 0;
+    if (mode === "fit-width") return handleZoomModeChange("fit-width");
+    if (mode === "fit-page") return handleZoomModeChange("fit-page");
+    const container = scrollContainerRef.current;
+    const pageSize = fallbackPageSize;
+    if (!container || !pageSize) return handleZoomModeChange("fit-width");
+    if (mode === "columns") {
+      const columnWidth = pageSize.width / Math.max(1, mobilePreferences.fixedColumns);
+      const nextScale = Math.max(0.5, Math.min(4, (container.clientWidth - 32) / columnWidth));
+      setZoomMode("custom");
+      onZoomModeChange?.("custom");
+      onScaleChange?.(nextScale);
+      requestAnimationFrame(() => container.scrollTo({ left: columnScrollLeft(0, container), behavior: "smooth" }));
+      return;
+    }
+    const sourceRects = reflowDocument?.pages[pageNumber]?.blocks.flatMap((block) => block.source.rects) ?? [];
+    if (sourceRects.length === 0) return handleZoomModeChange("fit-width");
+    const left = Math.min(...sourceRects.map((rect) => rect.x));
+    const right = Math.max(...sourceRects.map((rect) => rect.x + rect.width));
+    const nextScale = Math.max(0.5, Math.min(4, (container.clientWidth - 24) / Math.max(1, right - left)));
+    setZoomMode("custom");
+    onZoomModeChange?.("custom");
+    onScaleChange?.(nextScale);
+    requestAnimationFrame(() => container.scrollTo({ left: Math.max(0, left * nextScale - 12), behavior: "smooth" }));
   };
 
   const renderOutline = (items: any[], depth = 0): React.ReactElement[] => {
@@ -2920,6 +3304,30 @@ export function PDFViewer({
     setIsDragging(false);
   };
 
+  const handleTouchStart = (event: React.TouchEvent) => {
+    if (mobilePdfMode !== "fixed" || event.touches.length !== 2) return;
+    const [first, second] = Array.from(event.touches);
+    pinchRef.current = {
+      distance: Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY),
+      scale,
+    };
+  };
+
+  const handleTouchMove = (event: React.TouchEvent) => {
+    if (!pinchRef.current || event.touches.length !== 2) return;
+    event.preventDefault();
+    const [first, second] = Array.from(event.touches);
+    const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+    const next = Math.max(0.5, Math.min(4, pinchRef.current.scale * distance / Math.max(1, pinchRef.current.distance)));
+    setZoomMode("custom");
+    onZoomModeChange?.("custom");
+    onScaleChange?.(next);
+  };
+
+  const handleTouchEnd = () => {
+    pinchRef.current = null;
+  };
+
   const selectionStatusLabel = useMemo(() => {
     if (textSelectionCapability.analyzedPages === 0) {
       return "Detecting selectable text...";
@@ -3104,10 +3512,71 @@ export function PDFViewer({
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
+      {readerState.phase === "password-required" && (
+        <form
+          className="m-4 rounded-lg border border-border bg-card p-4 text-foreground"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!passwordValue || !passwordSubmitRef.current) return;
+            setReaderState((state) => reducePdfReaderState(state, { type: "OPEN" }));
+            passwordSubmitRef.current(passwordValue);
+            setPasswordValue("");
+          }}
+        >
+          <p className="font-medium">
+            {readerState.incorrectPassword ? "That password did not unlock the PDF." : "This PDF is password protected."}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <input
+              autoFocus
+              type="password"
+              autoComplete="off"
+              value={passwordValue}
+              onChange={(event) => setPasswordValue(event.target.value)}
+              aria-label="PDF password"
+              className="min-h-11 min-w-0 flex-1 rounded-md border border-input bg-background px-3"
+            />
+            <button type="submit" className="min-h-11 rounded-md bg-primary px-4 text-primary-foreground">
+              Unlock
+            </button>
+          </div>
+        </form>
+      )}
+
       {error && (
         <div className="p-4 bg-destructive/10 border border-destructive text-destructive rounded-lg m-4">
-          Failed to load PDF: {error}
-          {doc && <ReaderFileDownload doc={doc} />}
+          <p className="font-medium">{pdfErrorUserMessage(error)}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc?.fileId), hasLocalFile: Boolean(doc?.filePath) }).includes("retry") && (
+              <button
+                type="button"
+                className="min-h-11 rounded-md border border-destructive/40 px-4 text-sm font-medium"
+                onClick={() => setRetryNonce((value) => value + 1)}
+              >
+                Try again
+              </button>
+            )}
+            {doc?.filePath && pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc.fileId), hasLocalFile: true }).includes("open-original") && (
+              <button
+                type="button"
+                className="min-h-11 rounded-md border border-destructive/40 px-4 text-sm"
+                onClick={() => void import("@tauri-apps/plugin-opener").then(({ openPath }) => openPath(doc.filePath))}
+              >
+                Open original
+              </button>
+            )}
+            {pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc?.fileId), hasLocalFile: Boolean(doc?.filePath) }).includes("copy-diagnostics") && <button
+              type="button"
+              className="min-h-11 rounded-md border border-destructive/40 px-4 text-sm"
+              onClick={() => void navigator.clipboard?.writeText(diagnosticsRef.current.toSafeText())}
+            >
+              Copy diagnostics
+            </button>}
+          </div>
+          {doc && pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc.fileId), hasLocalFile: Boolean(doc.filePath) }).includes("download") && <ReaderFileDownload doc={doc} />}
+          {pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc?.fileId), hasLocalFile: Boolean(doc?.filePath) }).includes("locate") && (
+            <p className="mt-2 text-sm">Re-import or locate the original PDF from the document menu.</p>
+          )}
         </div>
       )}
 
@@ -3147,8 +3616,37 @@ export function PDFViewer({
         {/* Main Viewer Area */}
         <div className="flex-1 flex flex-col">
           {/* Viewer Toolbar */}
-          <div className="flex items-center justify-between p-1 md:p-2 border-b border-border bg-card gap-2 overflow-x-auto">
+          <div className={cn(
+            "pdf-reader-toolbar flex items-center justify-between p-1 md:p-2 border-b border-border bg-card gap-2 overflow-x-auto transition-all duration-200",
+            isPhone && !mobileChromeVisible && "pointer-events-none absolute inset-x-0 top-0 z-30 -translate-y-full opacity-0",
+          )}>
             <div className="flex items-center gap-0.5 md:gap-1">
+              {isPhone && reflowDocument && (
+                <button
+                  type="button"
+                  className="min-h-11 rounded-md border border-border px-3 text-xs font-medium"
+                  onClick={() => {
+                    modeOverriddenRef.current = true;
+                    setMobilePdfMode((mode) => {
+                      const next = mode === "fixed" ? "reflow" : "fixed";
+                      updateMobilePreferences({ preferredMobileMode: next });
+                      return next;
+                    });
+                  }}
+                >
+                  {mobilePdfMode === "fixed" ? "Reflow" : "Original"}
+                </button>
+              )}
+              {isPhone && (
+                <button
+                  type="button"
+                  className="flex min-h-11 min-w-11 items-center justify-center rounded-md text-muted-foreground"
+                  onClick={() => setShowMobileSettings(true)}
+                  aria-label="PDF reading settings"
+                >
+                  <SlidersHorizontal className="h-5 w-5" />
+                </button>
+              )}
               <button
                 onClick={() => setShowTOC(!showTOC)}
                 className={cn(
@@ -3251,21 +3749,64 @@ export function PDFViewer({
           {/* Canvas Container */}
           <div
             ref={scrollContainerRef}
-            onScroll={handleScroll}
+            onScroll={mobilePdfMode === "reflow" ? handleReflowScroll : handleScroll}
             className={cn(
-              "flex-1 min-h-0 overflow-auto bg-muted/30 p-4",
-              "[contain:strict]", // GPU-compositing isolation for scroll perf
+              "flex-1 min-h-0 overflow-auto",
+              mobilePdfMode === "fixed" ? "bg-muted/30 p-4 [contain:strict]" : "bg-background px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-5",
               isDragging && "cursor-grabbing",
               !isDragging && ocr.flowState === "idle" && (scale > 1 || zoomMode === "custom") && "cursor-grab",
               ocr.flowState !== "idle" && !isDragging && "cursor-crosshair"
             )}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseLeave}
+            onMouseDown={mobilePdfMode === "fixed" ? handleMouseDown : undefined}
+            onMouseMove={mobilePdfMode === "fixed" ? handleMouseMove : undefined}
+            onMouseUp={mobilePdfMode === "fixed" ? handleMouseUp : handleReflowSelection}
+            onMouseLeave={mobilePdfMode === "fixed" ? handleMouseLeave : undefined}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             data-document-scroll-container
+            onClick={handleMobileSurfaceClick}
           >
-            {isLoading ? (
+            {mobilePdfMode === "reflow" && reflowDocument ? (
+              <div
+                className="pdf-mobile-reflow mx-auto w-full max-w-[42rem]"
+                dir={mobilePreferences.reflowDirection}
+                data-image-scaling={mobilePreferences.reflowImageScaling}
+                data-reader-theme={mobilePreferences.reflowTheme}
+                style={{
+                  paddingInline: `${mobilePreferences.reflowMargin}px`,
+                  colorScheme: mobilePreferences.reflowTheme === "system" ? undefined : mobilePreferences.reflowTheme,
+                  backgroundColor: mobilePreferences.reflowTheme === "light" ? "#fffdf8" : mobilePreferences.reflowTheme === "dark" ? "#171717" : undefined,
+                  color: mobilePreferences.reflowTheme === "light" ? "#24211d" : mobilePreferences.reflowTheme === "dark" ? "#f3f0e8" : undefined,
+                  "--pdf-reflow-font-size": `${mobilePreferences.reflowFontSize}px`,
+                  "--pdf-reflow-line-height": mobilePreferences.reflowLineHeight,
+                  "--pdf-reflow-font-family": mobilePreferences.reflowFontFamily === "serif"
+                    ? "Georgia, 'Times New Roman', serif"
+                    : mobilePreferences.reflowFontFamily === "monospace"
+                      ? "ui-monospace, SFMono-Regular, monospace"
+                      : "ui-sans-serif, system-ui, sans-serif",
+                } as CSSProperties}
+              >
+                <PdfReflowRenderer
+                  pages={Object.values(reflowDocument.pages).sort((a, b) => a.pageNumber - b.pageNumber)}
+                  onViewOriginal={handleViewOriginalBlock}
+                  onRequestOcr={(page) => void handleRequestPageOcr(page)}
+                  highlights={persistedHighlights}
+                  activeSearchBlockId={reflowSearchBlockId}
+                />
+                {pageOcrUpdate && pageOcrUpdate.state !== "ready" && (
+                  <div className="sticky bottom-3 mt-4 rounded-xl border border-border bg-card/95 p-3 text-sm shadow-lg backdrop-blur" role="status">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>{pageOcrUpdate.message ?? `Recognizing page ${pageOcrUpdate.pageNumber}`}</span>
+                      {(pageOcrUpdate.state === "queued" || pageOcrUpdate.state === "processing") && (
+                        <button type="button" className="min-h-11 px-3" onClick={() => { reflowOcrRef.current.cancel(); setPageOcrUpdate({ ...pageOcrUpdate, state: "cancelled" }); }}>Cancel</button>
+                      )}
+                    </div>
+                    <progress className="mt-2 w-full" max="100" value={pageOcrUpdate.progress} />
+                  </div>
+                )}
+              </div>
+            ) : isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="text-muted-foreground">{t("viewer.loadingPdf")}</div>
               </div>
@@ -3374,8 +3915,86 @@ export function PDFViewer({
             )}
           </div>
 
+          {showMobileSettings && isPhone && (
+            <div className="fixed inset-0 z-[80] flex items-end bg-black/45" onClick={() => setShowMobileSettings(false)}>
+              <div
+                className="w-full rounded-t-2xl bg-card px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 text-foreground shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-label="PDF reading settings"
+              >
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="font-semibold">Reading settings</h2>
+                  <button type="button" className="flex min-h-11 min-w-11 items-center justify-center" onClick={() => setShowMobileSettings(false)} aria-label="Close settings">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <label className="mb-4 block text-sm">
+                  Text size <span className="float-right tabular-nums">{mobilePreferences.reflowFontSize}px</span>
+                  <input className="mt-2 w-full" type="range" min="15" max="30" value={mobilePreferences.reflowFontSize} onChange={(event) => updateMobilePreferences({ reflowFontSize: Number(event.target.value) })} />
+                </label>
+                <label className="mb-4 block text-sm">
+                  Line spacing <span className="float-right tabular-nums">{mobilePreferences.reflowLineHeight.toFixed(2)}</span>
+                  <input className="mt-2 w-full" type="range" min="1.3" max="2.2" step="0.05" value={mobilePreferences.reflowLineHeight} onChange={(event) => updateMobilePreferences({ reflowLineHeight: Number(event.target.value) })} />
+                </label>
+                <label className="mb-4 block text-sm">
+                  Page margins <span className="float-right tabular-nums">{mobilePreferences.reflowMargin}px</span>
+                  <input className="mt-2 w-full" type="range" min="0" max="36" value={mobilePreferences.reflowMargin} onChange={(event) => updateMobilePreferences({ reflowMargin: Number(event.target.value) })} />
+                </label>
+                <div className="mb-4 grid grid-cols-3 gap-2" aria-label="Font family">
+                  {(["serif", "sans-serif", "monospace"] as const).map((font) => (
+                    <button key={font} type="button" className={cn("min-h-11 rounded-md border px-2 text-sm", mobilePreferences.reflowFontFamily === font && "border-primary bg-primary/10")} onClick={() => updateMobilePreferences({ reflowFontFamily: font })}>{font}</button>
+                  ))}
+                </div>
+                <div className="mb-4 grid grid-cols-3 gap-2" aria-label="Text direction">
+                  {(["auto", "ltr", "rtl"] as const).map((direction) => (
+                    <button key={direction} type="button" className={cn("min-h-11 rounded-md border px-2 uppercase", mobilePreferences.reflowDirection === direction && "border-primary bg-primary/10")} onClick={() => updateMobilePreferences({ reflowDirection: direction })}>{direction}</button>
+                  ))}
+                </div>
+                <div className="mb-4 grid grid-cols-3 gap-2" aria-label="Reader theme">
+                  {(["system", "light", "dark"] as const).map((theme) => (
+                    <button key={theme} type="button" className={cn("min-h-11 rounded-md border px-2", mobilePreferences.reflowTheme === theme && "border-primary bg-primary/10")} onClick={() => updateMobilePreferences({ reflowTheme: theme })}>{theme}</button>
+                  ))}
+                </div>
+                <div className="mb-4 grid grid-cols-3 gap-2" aria-label="Image scaling">
+                  {(["fit", "original", "hide"] as const).map((imageScaling) => (
+                    <button key={imageScaling} type="button" className={cn("min-h-11 rounded-md border px-2", mobilePreferences.reflowImageScaling === imageScaling && "border-primary bg-primary/10")} onClick={() => updateMobilePreferences({ reflowImageScaling: imageScaling })}>{imageScaling}</button>
+                  ))}
+                </div>
+                <div className="mb-4 grid grid-cols-2 gap-2" aria-label="Original page layout">
+                  {(["fit-width", "fit-page", "crop", "columns"] as const).map((mode) => (
+                    <button key={mode} type="button" className={cn("min-h-11 rounded-md border px-2 text-sm", mobilePreferences.fixedMobileMode === mode && "border-primary bg-primary/10")} onClick={() => applyFixedMobileMode(mode)}>{mode.replace("-", " ")}</button>
+                  ))}
+                </div>
+                {mobilePreferences.fixedMobileMode === "columns" && (
+                  <label className="mb-4 block text-sm">
+                    Document columns
+                    <select className="mt-2 min-h-11 w-full rounded-md border border-border bg-background px-3" value={mobilePreferences.fixedColumns} onChange={(event) => updateMobilePreferences({ fixedColumns: Number(event.target.value) })}>
+                      <option value={1}>1 column</option>
+                      <option value={2}>2 columns</option>
+                      <option value={3}>3 columns</option>
+                    </select>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {(["ltr", "rtl"] as const).map((direction) => <button key={direction} type="button" className={cn("min-h-11 rounded-md border uppercase", mobilePreferences.fixedColumnDirection === direction && "border-primary bg-primary/10")} onClick={() => updateMobilePreferences({ fixedColumnDirection: direction })}>{direction}</button>)}
+                    </div>
+                    <span className="mt-3 block">Panel overlap {Math.round(mobilePreferences.fixedColumnOverlap * 100)}%</span>
+                    <input className="mt-1 w-full" type="range" min="0" max="0.25" step="0.01" value={mobilePreferences.fixedColumnOverlap} onChange={(event) => updateMobilePreferences({ fixedColumnOverlap: Number(event.target.value) })} />
+                  </label>
+                )}
+                <button
+                  type="button"
+                  className="min-h-11 w-full rounded-md border border-border text-sm font-medium"
+                  onClick={() => updateSettingsCategory("documents", { pdfSettings: { ...pdfSettings, ...mobilePreferences } })}
+                >
+                  Use these defaults for new PDFs
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Page Navigation Footer */}
-          {numPages > 0 && !isLoading && (
+          {numPages > 0 && !isLoading && (!isPhone || mobileChromeVisible) && (
             <div className="flex items-center justify-center gap-4 p-3 border-t border-border bg-card text-xs text-muted-foreground">
               <span>Use arrow keys to navigate</span>
               <span>•</span>

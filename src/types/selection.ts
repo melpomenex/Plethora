@@ -37,6 +37,9 @@ export interface PdfSelectionContext {
   pages: PdfSelectionPage[];
   /** Token identifiers for custom selection engine (only when source='custom') */
   tokenData?: PdfSelectionTokenData;
+  /** Semantic-reflow anchors; geometry remains the source of truth when present. */
+  reflowBlockIds?: string[];
+  mappingConfidence?: number;
 }
 
 export interface EpubSelectionContext {

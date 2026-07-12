@@ -32,6 +32,16 @@ const normalizeViewState = (state: ViewState): Omit<ViewState, "updatedAt"> => {
     rotation: state.rotation,
     viewMode: state.viewMode,
     dest: normalizeDest(state.dest ?? null),
+    pdfAnchor: state.pdfAnchor ? {
+      ...state.pdfAnchor,
+      rect: state.pdfAnchor.rect ? {
+        x: roundTo(state.pdfAnchor.rect.x, 2),
+        y: roundTo(state.pdfAnchor.rect.y, 2),
+        width: roundTo(state.pdfAnchor.rect.width, 2),
+        height: roundTo(state.pdfAnchor.rect.height, 2),
+      } : undefined,
+      mappingConfidence: typeof state.pdfAnchor.mappingConfidence === "number" ? roundTo(state.pdfAnchor.mappingConfidence, 3) : undefined,
+    } : null,
     scrollTop: typeof state.scrollTop === "number" ? Math.round(state.scrollTop) : null,
     scrollLeft: typeof state.scrollLeft === "number" ? Math.round(state.scrollLeft) : null,
     scrollPercent: typeof state.scrollPercent === "number" ? roundTo(state.scrollPercent, 2) : null,

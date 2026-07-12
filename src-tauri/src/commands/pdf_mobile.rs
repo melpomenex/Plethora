@@ -1,0 +1,371 @@
+//! Secure, memory-bounded PDF byte access for native mobile PDF.js.
+
+use crate::database::Repository;
+use crate::models::FileType;
+use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::fs::{File, Metadata};
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
+use tauri::State;
+
+pub const MAX_PDF_RANGE_BYTES: u64 = 512 * 1024;
+const FINGERPRINT_SAMPLE_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfNativeError {
+    pub code: &'static str,
+    pub message: String,
+    pub recoverable: bool,
+}
+
+impl PdfNativeError {
+    fn new(code: &'static str, message: impl Into<String>, recoverable: bool) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            recoverable,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfDocumentSourceInfo {
+    pub document_id: String,
+    pub size: u64,
+    pub identity: String,
+    pub fingerprint: String,
+    pub max_chunk_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfDocumentRange {
+    pub offset: u64,
+    pub bytes: Vec<u8>,
+    pub identity: String,
+    pub eof: bool,
+}
+
+#[derive(Debug)]
+struct InspectedPdf {
+    path: PathBuf,
+    size: u64,
+    identity: String,
+    fingerprint: String,
+}
+
+fn modified_nanos(metadata: &Metadata) -> u128 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+        .map(|value| value.as_nanos())
+        .unwrap_or(0)
+}
+
+fn identity_for(path: &Path, metadata: &Metadata) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(path.as_os_str().to_string_lossy().as_bytes());
+    hasher.update(metadata.len().to_le_bytes());
+    hasher.update(modified_nanos(metadata).to_le_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn sampled_fingerprint(path: &Path, size: u64) -> std::result::Result<String, PdfNativeError> {
+    let mut file = File::open(path).map_err(|error| {
+        PdfNativeError::new(
+            "pdf_source_unavailable",
+            format!("Could not open the PDF: {error}"),
+            true,
+        )
+    })?;
+    let sample_len = usize::try_from(size.min(FINGERPRINT_SAMPLE_BYTES as u64)).unwrap_or(0);
+    let mut first = vec![0_u8; sample_len];
+    file.read_exact(&mut first).map_err(|error| {
+        PdfNativeError::new(
+            "pdf_source_unavailable",
+            format!("Could not fingerprint the PDF: {error}"),
+            true,
+        )
+    })?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(size.to_le_bytes());
+    hasher.update(&first);
+    if size > FINGERPRINT_SAMPLE_BYTES as u64 {
+        let tail_len = usize::try_from(size.min(FINGERPRINT_SAMPLE_BYTES as u64)).unwrap_or(0);
+        file.seek(SeekFrom::Start(size - tail_len as u64)).map_err(|error| {
+            PdfNativeError::new(
+                "pdf_source_unavailable",
+                format!("Could not seek in the PDF: {error}"),
+                true,
+            )
+        })?;
+        let mut last = vec![0_u8; tail_len];
+        file.read_exact(&mut last).map_err(|error| {
+            PdfNativeError::new(
+                "pdf_source_unavailable",
+                format!("Could not fingerprint the PDF: {error}"),
+                true,
+            )
+        })?;
+        hasher.update(last);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn inspect_pdf_path(path: &Path, include_fingerprint: bool) -> std::result::Result<InspectedPdf, PdfNativeError> {
+    let canonical = std::fs::canonicalize(path).map_err(|error| {
+        let code = if error.kind() == std::io::ErrorKind::NotFound {
+            "pdf_source_missing"
+        } else if error.kind() == std::io::ErrorKind::PermissionDenied {
+            "pdf_source_unauthorized"
+        } else {
+            "pdf_source_unavailable"
+        };
+        PdfNativeError::new(code, "The PDF is not available on this device.", true)
+    })?;
+    let metadata = std::fs::metadata(&canonical).map_err(|error| {
+        PdfNativeError::new(
+            "pdf_source_unavailable",
+            format!("Could not inspect the PDF: {error}"),
+            true,
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err(PdfNativeError::new(
+            "pdf_source_unauthorized",
+            "The selected PDF source is not a regular file.",
+            false,
+        ));
+    }
+    let is_pdf = canonical
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false);
+    if !is_pdf {
+        return Err(PdfNativeError::new(
+            "pdf_not_pdf",
+            "The document source is not a PDF.",
+            false,
+        ));
+    }
+    let size = metadata.len();
+    let identity = identity_for(&canonical, &metadata);
+    let fingerprint = if include_fingerprint { sampled_fingerprint(&canonical, size)? } else { String::new() };
+    Ok(InspectedPdf {
+        path: canonical,
+        size,
+        identity,
+        fingerprint,
+    })
+}
+
+fn read_range_from_path(
+    inspected: &InspectedPdf,
+    offset: u64,
+    length: u64,
+) -> std::result::Result<PdfDocumentRange, PdfNativeError> {
+    if length > MAX_PDF_RANGE_BYTES {
+        return Err(PdfNativeError::new(
+            "pdf_range_too_large",
+            format!("PDF byte ranges are limited to {MAX_PDF_RANGE_BYTES} bytes."),
+            true,
+        ));
+    }
+    if offset > inspected.size {
+        return Err(PdfNativeError::new(
+            "pdf_invalid_range",
+            "The requested PDF byte range begins after the end of the file.",
+            false,
+        ));
+    }
+
+    let available = inspected.size.saturating_sub(offset);
+    let read_len = length.min(available);
+    let mut bytes = vec![0_u8; usize::try_from(read_len).unwrap_or(0)];
+    if read_len > 0 {
+        let mut file = File::open(&inspected.path).map_err(|error| {
+            PdfNativeError::new(
+                "pdf_source_unavailable",
+                format!("Could not open the PDF range: {error}"),
+                true,
+            )
+        })?;
+        file.seek(SeekFrom::Start(offset)).map_err(|error| {
+            PdfNativeError::new(
+                "pdf_invalid_range",
+                format!("Could not seek to the PDF range: {error}"),
+                false,
+            )
+        })?;
+        file.read_exact(&mut bytes).map_err(|error| {
+            PdfNativeError::new(
+                "pdf_source_changed",
+                format!("The PDF changed while its byte range was being read: {error}"),
+                true,
+            )
+        })?;
+    }
+
+    Ok(PdfDocumentRange {
+        offset,
+        eof: offset.saturating_add(read_len) >= inspected.size,
+        bytes,
+        identity: inspected.identity.clone(),
+    })
+}
+
+async fn inspect_document_pdf(
+    document_id: &str,
+    repo: &Repository,
+    include_fingerprint: bool,
+) -> std::result::Result<InspectedPdf, PdfNativeError> {
+    let document = repo
+        .get_document(document_id)
+        .await
+        .map_err(|_| {
+            PdfNativeError::new(
+                "pdf_source_unavailable",
+                "Could not resolve the PDF document.",
+                true,
+            )
+        })?
+        .ok_or_else(|| {
+            PdfNativeError::new(
+                "pdf_source_missing",
+                "The PDF document no longer exists in the library.",
+                true,
+            )
+        })?;
+    if !matches!(document.file_type, FileType::Pdf) {
+        return Err(PdfNativeError::new(
+            "pdf_not_pdf",
+            "The requested document is not a PDF.",
+            false,
+        ));
+    }
+    if document.file_path.trim().is_empty() {
+        return Err(PdfNativeError::new(
+            "pdf_source_missing",
+            "This PDF has not been downloaded to this device.",
+            true,
+        ));
+    }
+    // The caller supplies only a database document ID. The path is taken from
+    // that authorized row, so arbitrary paths and traversal input cannot cross
+    // this command boundary.
+    inspect_pdf_path(Path::new(&document.file_path), include_fingerprint)
+}
+
+#[tauri::command]
+pub async fn get_pdf_document_source_info(
+    document_id: String,
+    repo: State<'_, Repository>,
+) -> std::result::Result<PdfDocumentSourceInfo, PdfNativeError> {
+    let inspected = inspect_document_pdf(&document_id, &repo, true).await?;
+    Ok(PdfDocumentSourceInfo {
+        document_id,
+        size: inspected.size,
+        identity: inspected.identity,
+        fingerprint: inspected.fingerprint,
+        max_chunk_size: MAX_PDF_RANGE_BYTES,
+    })
+}
+
+#[tauri::command]
+pub async fn read_pdf_document_range(
+    document_id: String,
+    offset: u64,
+    length: u64,
+    expected_identity: String,
+    repo: State<'_, Repository>,
+) -> std::result::Result<PdfDocumentRange, PdfNativeError> {
+    let inspected = inspect_document_pdf(&document_id, &repo, false).await?;
+    if inspected.identity != expected_identity {
+        return Err(PdfNativeError::new(
+            "pdf_source_changed",
+            "The PDF changed after it was opened. Reload it to continue.",
+            true,
+        ));
+    }
+    read_range_from_path(&inspected, offset, length)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn fixture(bytes: &[u8]) -> (tempfile::TempDir, InspectedPdf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fixture.pdf");
+        let mut file = File::create(&path).unwrap();
+        file.write_all(bytes).unwrap();
+        file.sync_all().unwrap();
+        let inspected = inspect_pdf_path(&path, true).unwrap();
+        (dir, inspected)
+    }
+
+    #[test]
+    fn reads_exact_and_overlapping_ranges() {
+        let (_dir, inspected) = fixture(b"%PDF-0123456789");
+        assert_eq!(read_range_from_path(&inspected, 0, 5).unwrap().bytes, b"%PDF-");
+        assert_eq!(read_range_from_path(&inspected, 3, 6).unwrap().bytes, b"F-0123");
+    }
+
+    #[test]
+    fn truncates_at_eof_and_accepts_empty_ranges() {
+        let (_dir, inspected) = fixture(b"%PDF-1234");
+        let tail = read_range_from_path(&inspected, 7, 99).unwrap();
+        assert_eq!(tail.bytes, b"34");
+        assert!(tail.eof);
+        let empty = read_range_from_path(&inspected, inspected.size, 0).unwrap();
+        assert!(empty.bytes.is_empty());
+        assert!(empty.eof);
+    }
+
+    #[test]
+    fn rejects_ranges_after_eof_and_oversized_ranges() {
+        let (_dir, inspected) = fixture(b"%PDF-1234");
+        assert_eq!(
+            read_range_from_path(&inspected, inspected.size + 1, 1)
+                .unwrap_err()
+                .code,
+            "pdf_invalid_range"
+        );
+        assert_eq!(
+            read_range_from_path(&inspected, 0, MAX_PDF_RANGE_BYTES + 1)
+                .unwrap_err()
+                .code,
+            "pdf_range_too_large"
+        );
+    }
+
+    #[test]
+    fn rejects_missing_non_pdf_and_directory_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(inspect_pdf_path(&dir.path().join("missing.pdf"), true).unwrap_err().code, "pdf_source_missing");
+        let text = dir.path().join("not-pdf.txt");
+        std::fs::write(&text, b"hello").unwrap();
+        assert_eq!(inspect_pdf_path(&text, true).unwrap_err().code, "pdf_not_pdf");
+        let fake_dir = dir.path().join("folder.pdf");
+        std::fs::create_dir(&fake_dir).unwrap();
+        assert_eq!(inspect_pdf_path(&fake_dir, true).unwrap_err().code, "pdf_source_unauthorized");
+    }
+
+    #[test]
+    fn identity_changes_when_file_metadata_changes() {
+        let (dir, inspected) = fixture(b"%PDF-before");
+        let path = dir.path().join("fixture.pdf");
+        std::fs::write(&path, b"%PDF-after-and-longer").unwrap();
+        let changed = inspect_pdf_path(&path, true).unwrap();
+        assert_ne!(inspected.identity, changed.identity);
+        assert_ne!(inspected.fingerprint, changed.fingerprint);
+    }
+}

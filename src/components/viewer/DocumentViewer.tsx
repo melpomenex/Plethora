@@ -30,6 +30,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useDocumentStore, useTabsStore, useQueueStore } from "../../stores";
 import { convertFileSrc, isNativeMobile, isTauri } from "../../lib/tauri";
+import { shouldUseNativeMobilePdfSource } from "./pdfFeatureFlags";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import { clearInvalidSyncedFilePath } from "../../lib/fileSyncRegistration";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -356,6 +357,7 @@ export function DocumentViewer({
   const [zoomMode, setZoomMode] = useState<"custom" | "fit-width" | "fit-page">("fit-width");
   const [fileData, setFileData] = useState<Uint8Array | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [useNativePdfRange, setUseNativePdfRange] = useState(false);
   const [epubUrl, setEpubUrl] = useState<string | null>(null);
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
   const [mediaSource, setMediaSource] = useState<ResolvedLocalMediaSource | null>(null);
@@ -1179,6 +1181,7 @@ export function DocumentViewer({
       scrollPercent: number;
       scale?: number;
       dest?: ViewState["dest"];
+      pdfAnchor?: ViewState["pdfAnchor"];
     }) => {
       // Don't save scroll state during restoration to prevent overwriting saved position with "Page 1"
       if (restorationInProgressRef.current || suppressPdfAutoScroll) {
@@ -1206,6 +1209,7 @@ export function DocumentViewer({
           rotation: 0,
           viewMode,
           dest: state.dest ?? null,
+          pdfAnchor: state.pdfAnchor ?? null,
           scrollTop: state.scrollTop,
           scrollLeft: state.scrollLeft,
           scrollPercent: state.scrollPercent,
@@ -1809,6 +1813,7 @@ export function DocumentViewer({
     mediaSourceRef.current = null;
     setMediaSource(null);
     setPdfUrl(null);
+    setUseNativePdfRange(false);
     setEpubUrl(null);
 
     if (needsFileData) {
@@ -1832,8 +1837,12 @@ export function DocumentViewer({
         // path below: epub.js resolves zipped spine resources more reliably
         // from an ArrayBuffer than from Android/Tauri asset URLs.
         if (isNativeMobile() && inferredType === "pdf") {
-          const url = await convertFileSrc(doc.filePath);
-          setPdfUrl(url);
+          if (shouldUseNativeMobilePdfSource({ nativeMobile: true, fileType: inferredType })) {
+            setUseNativePdfRange(true);
+          } else {
+            const url = await convertFileSrc(doc.filePath);
+            setPdfUrl(url);
+          }
           setIsLoading(false);
           return;
         }
@@ -5801,7 +5810,7 @@ export function DocumentViewer({
             onSave={({ content }) => saveEditableDocumentContent(content)}
             onSelectionChange={(text) => updateSelection(text, undefined)}
           />
-        ) : docType === "pdf" && (fileData || pdfUrl) ? (
+        ) : docType === "pdf" && (fileData || pdfUrl || useNativePdfRange) ? (
           pdfViewMode === "ocr-html" && ocrResult ? (
             ocrResult.format === "html" ? (
               <div ref={htmlViewerContainerRef} data-html-viewer="true" className="h-full w-full overflow-hidden bg-background relative">
@@ -5887,6 +5896,7 @@ export function DocumentViewer({
             doc={currentDocument}
             fileData={fileData}
             fileUrl={pdfUrl}
+            useNativeRange={useNativePdfRange}
             onTextLayerRootsChange={(roots, container) => {
               setPdfTextLayerRoots(roots);
               setPdfScrollContainer(container);
