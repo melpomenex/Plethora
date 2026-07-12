@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { handleVolumeRockerNavigation } from "../volumeRockerNavigation";
+import {
+  handleVolumeRockerNavigation,
+  isVolumeRockerNavigationKey,
+} from "../volumeRockerNavigation";
 
 function callbacks() {
   return {
@@ -47,5 +50,35 @@ describe("handleVolumeRockerNavigation", () => {
     expect(handleVolumeRockerNavigation(disabled, "none", handlers)).toBe(false);
     expect(disabled.defaultPrevented).toBe(false);
   });
-});
 
+  it("identifies hardware and configured e-ink rocker keys", () => {
+    expect(isVolumeRockerNavigationKey("VolumeUp", "none")).toBe(true);
+    expect(isVolumeRockerNavigationKey("VolumeDown", "scroll")).toBe(true);
+    expect(isVolumeRockerNavigationKey("PageDown", "scroll")).toBe(true);
+    expect(isVolumeRockerNavigationKey("PageUp", "none")).toBe(false);
+  });
+
+  it("scrolls without changing an independently managed overlay state", () => {
+    let overlayVisible = false;
+    let scrollTop = 0;
+    const event = new KeyboardEvent("keydown", { key: "VolumeDown", cancelable: true });
+
+    handleVolumeRockerNavigation(event, "scroll", {
+      pageUp: vi.fn(),
+      pageDown: vi.fn(),
+      scrollUp: () => { scrollTop -= 120; },
+      scrollDown: () => { scrollTop += 120; },
+    });
+
+    expect(scrollTop).toBe(120);
+    expect(overlayVisible).toBe(false);
+    overlayVisible = true;
+    handleVolumeRockerNavigation(event, "scroll", {
+      pageUp: vi.fn(),
+      pageDown: vi.fn(),
+      scrollUp: vi.fn(),
+      scrollDown: () => { scrollTop += 120; },
+    });
+    expect(overlayVisible).toBe(true);
+  });
+});

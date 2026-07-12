@@ -12,6 +12,7 @@ import { saveDocumentPosition, cfiPosition } from "../../api/position";
 import {
   CaretDown,
   CaretLeft,
+  CaretRight,
   CaretUp,
   Gear,
   List,
@@ -219,6 +220,18 @@ export function EPUBViewer({
   const [showTocDrawer, setShowTocDrawer] = useState(false);
   const [showDesktopToc, setShowDesktopToc] = useState(true);
   const [containerHasSize, setContainerHasSize] = useState(false);
+
+  useEffect(() => {
+    if (!embedded) return;
+    const openToc = () => setShowTocDrawer(true);
+    const openSettings = () => setShowSettingsSheet(true);
+    window.addEventListener("incrementum-epub-open-toc", openToc);
+    window.addEventListener("incrementum-epub-open-settings", openSettings);
+    return () => {
+      window.removeEventListener("incrementum-epub-open-toc", openToc);
+      window.removeEventListener("incrementum-epub-open-settings", openSettings);
+    };
+  }, [embedded]);
 
   // ResizeObserver to track container visibility/dimensions
   useEffect(() => {
@@ -829,6 +842,8 @@ export function EPUBViewer({
             let epubTouchStartX = 0;
             let epubTouchStartY = 0;
             let epubTouchStartT = 0;
+            let epubLongPressTimer: ReturnType<typeof setTimeout> | null = null;
+            let epubLongPressTriggered = false;
             const EPUB_SWIPE_MIN_DIST = 45;
             const EPUB_SWIPE_MIN_VEL = 0.35;
             const dispatchQueueSwipe = (direction: "next" | "prev") => {
@@ -845,8 +860,37 @@ export function EPUBViewer({
               epubTouchStartX = e.touches[0].clientX;
               epubTouchStartY = e.touches[0].clientY;
               epubTouchStartT = Date.now();
+              epubLongPressTriggered = false;
+              if (epubLongPressTimer) clearTimeout(epubLongPressTimer);
+              if (embedded && !(e.target as Element | null)?.closest("button, input, textarea, select, a")) {
+                epubLongPressTimer = setTimeout(() => {
+                  const selection = contents.window.getSelection();
+                  if (selection && !selection.isCollapsed && selection.toString().trim()) return;
+                  epubLongPressTriggered = true;
+                  try {
+                    contents.window.parent.dispatchEvent(new CustomEvent("incrementum-queue-long-press"));
+                  } catch {
+                    /* parent unreachable — ignore */
+                  }
+                }, 550);
+              }
+            }, { passive: true });
+            contents.document.addEventListener("touchmove", (e: TouchEvent) => {
+              if (e.touches.length !== 1 || !epubLongPressTimer) return;
+              const dx = e.touches[0].clientX - epubTouchStartX;
+              const dy = e.touches[0].clientY - epubTouchStartY;
+              if (Math.hypot(dx, dy) > 12) {
+                clearTimeout(epubLongPressTimer);
+                epubLongPressTimer = null;
+              }
             }, { passive: true });
             contents.document.addEventListener("touchend", (e: TouchEvent) => {
+              if (epubLongPressTimer) clearTimeout(epubLongPressTimer);
+              epubLongPressTimer = null;
+              if (epubLongPressTriggered) {
+                epubLongPressTriggered = false;
+                return;
+              }
               if (e.changedTouches.length !== 1) return;
               const endX = e.changedTouches[0].clientX;
               const endY = e.changedTouches[0].clientY;
@@ -1644,6 +1688,18 @@ export function EPUBViewer({
     }
   };
 
+  useEffect(() => {
+    if (!embedded) return;
+    const previousPage = () => handlePrevPage();
+    const nextPage = () => handleNextPage();
+    window.addEventListener("incrementum-epub-previous-page", previousPage);
+    window.addEventListener("incrementum-epub-next-page", nextPage);
+    return () => {
+      window.removeEventListener("incrementum-epub-previous-page", previousPage);
+      window.removeEventListener("incrementum-epub-next-page", nextPage);
+    };
+  }, [embedded, rendition, metadata]);
+
   // Watch for TTS chapter advance signal
   const chapterSignalRef = useRef(advanceChapterSignal);
   useEffect(() => {
@@ -1951,10 +2007,38 @@ export function EPUBViewer({
       e,
       settings.interface.volumeRockerScroll || "none",
       {
-        pageUp: handlePrevPage,
-        pageDown: handleNextPage,
-        scrollUp: () => scrollEpub("up"),
-        scrollDown: () => scrollEpub("down"),
+        pageUp: () => {
+          if (isMobile) {
+            try {
+              window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+            } catch { /* ignore */ }
+          }
+          handlePrevPage();
+        },
+        pageDown: () => {
+          if (isMobile) {
+            try {
+              window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+            } catch { /* ignore */ }
+          }
+          handleNextPage();
+        },
+        scrollUp: () => {
+          if (isMobile) {
+            try {
+              window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+            } catch { /* ignore */ }
+          }
+          scrollEpub("up");
+        },
+        scrollDown: () => {
+          if (isMobile) {
+            try {
+              window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+            } catch { /* ignore */ }
+          }
+          scrollEpub("down");
+        },
       },
     )) return;
 
@@ -2264,6 +2348,7 @@ export function EPUBViewer({
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs text-muted-foreground">{progressPercent}%</span>
                     <button
                       type="button"
                       data-chrome-control="true"
@@ -2279,6 +2364,24 @@ export function EPUBViewer({
                       className="px-3 py-1.5 text-xs rounded-full border border-border bg-card text-foreground"
                     >
                       Aa
+                    </button>
+                    <button
+                      type="button"
+                      data-chrome-control="true"
+                      onClick={handlePrevPage}
+                      className="p-1.5 rounded-full border border-border bg-card text-foreground"
+                      aria-label={t("viewer.prev")}
+                    >
+                      <CaretLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      data-chrome-control="true"
+                      onClick={handleNextPage}
+                      className="p-1.5 rounded-full border border-border bg-card text-foreground"
+                      aria-label={t("viewer.next")}
+                    >
+                      <CaretRight className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
@@ -2294,78 +2397,6 @@ export function EPUBViewer({
               </div>
             </div>
           )}
-
-          {/* Mobile chrome - Bottom Bar */}
-          <div
-            className={cn(
-              "absolute left-0 right-0 bottom-0 z-40 transition-all duration-300 pb-[env(safe-area-inset-bottom)]",
-              chromeVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-full pointer-events-none"
-            )}
-          >
-            <div
-              className={cn(
-                "mx-3 rounded-2xl bg-background/95 backdrop-blur border border-border shadow-lg",
-                embedded ? "mb-36" : "mb-16"
-              )}
-            >
-              <div className="px-4 py-3 space-y-2">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <div className="flex items-center gap-3">
-                    <span>{progressPercent}%</span>
-                    <button
-                      type="button"
-                      data-chrome-control="true"
-                      onClick={() => setShowTocDrawer(true)}
-                      className="px-2.5 py-1 text-xs rounded-full border border-border bg-card text-foreground"
-                    >
-                      TOC
-                    </button>
-                    <button
-                      type="button"
-                      data-chrome-control="true"
-                      onClick={() => setShowSettingsSheet(true)}
-                      className="px-2.5 py-1 text-xs rounded-full border border-border bg-card text-foreground"
-                    >
-                      Aa
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      data-chrome-control="true"
-                      onClick={handlePrevPage}
-                      className="px-3 py-1.5 text-xs rounded-full border border-border bg-card text-foreground"
-                    >
-                      {t("viewer.prev")}
-                    </button>
-                    <button
-                      type="button"
-                      data-chrome-control="true"
-                      onClick={handleNextPage}
-                      className="px-3 py-1.5 text-xs rounded-full border border-border bg-card text-foreground"
-                    >
-                      {t("viewer.next")}
-                    </button>
-                    <button
-                      type="button"
-                      data-chrome-control="true"
-                      onClick={() => setChromeVisible(false)}
-                      className="p-1.5 rounded-full border border-border bg-card text-foreground"
-                      aria-label={t("viewer.hideToolbar")}
-                    >
-                      <CaretDown className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-primary transition-all"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
 
           {/* Floating Expand Buttons (when chrome is hidden) */}
           {!chromeVisible && !(embedded && isMobile) && (

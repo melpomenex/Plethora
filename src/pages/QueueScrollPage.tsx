@@ -84,6 +84,15 @@ import {
   resolveGenericAssistantContext,
   type ResolvedAssistantContext
 } from "../utils/assistantContext";
+import {
+  hasActiveTextSelection,
+  isEligibleOverlayTapTarget,
+  isStationaryTap,
+} from "../utils/queueOverlayActivation";
+import {
+  handleVolumeRockerNavigation,
+  isVolumeRockerNavigationKey,
+} from "../utils/volumeRockerNavigation";
 
 const buildTranscriptText = (segments: Array<{ text: string }>): string =>
   segments
@@ -221,6 +230,7 @@ export function QueueScrollPage() {
   const [renderedIndex, setRenderedIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [showRatingControls, setShowRatingControls] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showRssSettings, setShowRssSettings] = useState(false);
   const [isImageExpanded, setIsImageExpanded] = useState(settings.rssQueue.showCoverImage ?? false);
@@ -244,6 +254,7 @@ export function QueueScrollPage() {
   // importPodcastEpisodeAsDocument (idempotent — returns existing doc if any).
   const [podcastDocIds, setPodcastDocIds] = useState<Record<string, string>>({});
   const [isRating, setIsRating] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(true);
   const [ratedDocumentIds, setRatedDocumentIds] = useState<Set<string>>(new Set());
   const [readRssItemIds, setReadRssItemIds] = useState<Set<string>>(new Set());
   const [itemsReviewedThisSession, setItemsReviewedThisSession] = useState(0);
@@ -315,10 +326,18 @@ export function QueueScrollPage() {
     localStorage.setItem("assistant-llm-provider", selectedProvider);
   }, [selectedProvider]);
 
-  // Reset view mode when scrolling to a new item
+  // Reset view mode and hide controls when scrolling to a new item
   useEffect(() => {
     setScrollViewMode("document");
+    setShowControls(false);
   }, [currentIndex]);
+
+  // Synchronize rating controls visibility with overlay controls on mobile
+  useEffect(() => {
+    if (isMobile) {
+      setShowRatingControls(showControls);
+    }
+  }, [showControls, isMobile]);
 
   const providers = [
     { id: "openai", name: "OpenAI", icon: Sparkle, color: "text-green-500" },
@@ -548,14 +567,14 @@ export function QueueScrollPage() {
   // Now uses smart start position for variety
   useEffect(() => {
     const loadAllData = async () => {
+      setIsLoadingData(true);
       startTimeRef.current = Date.now();
 
-      // This ensures the YouTube filter has all documents loaded before computing
-      await loadDocuments();
-
-      await loadQueue();
-
       try {
+        // This ensures the YouTube filter has all documents loaded before computing
+        await loadDocuments();
+        await loadQueue();
+
         const [dueItems, extracts] = await Promise.all([
           getDueItems(),
           getDueExtracts()
@@ -564,6 +583,8 @@ export function QueueScrollPage() {
         setDueExtracts(extracts);
       } catch (error) {
         console.error("Failed to load review items:", error);
+      } finally {
+        setIsLoadingData(false);
       }
     };
     loadAllData();
@@ -2161,6 +2182,42 @@ export function QueueScrollPage() {
       }
 
       const isReviewItem = currentItem?.type === "flashcard" || currentItem?.type === "extract";
+      const isDocItem = currentItem?.type === "document";
+
+      if (!isDocItem && handleVolumeRockerNavigation(
+        e,
+        settings.interface.volumeRockerScroll || "none",
+        {
+          pageUp: () => {
+            if (isMobile) {
+              setShowControls(false);
+              setShowRatingControls(false);
+            }
+            goToPrevious();
+          },
+          pageDown: () => {
+            if (isMobile) {
+              setShowControls(false);
+              setShowRatingControls(false);
+            }
+            goToNext();
+          },
+          scrollUp: () => {
+            if (isMobile) {
+              setShowControls(false);
+              setShowRatingControls(false);
+            }
+            scrollContentVertically("up");
+          },
+          scrollDown: () => {
+            if (isMobile) {
+              setShowControls(false);
+              setShowRatingControls(false);
+            }
+            scrollContentVertically("down");
+          },
+        },
+      )) return;
 
       if (e.key === " ") {
         if (isReviewItem) {
@@ -2209,7 +2266,7 @@ export function QueueScrollPage() {
 
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [currentItem?.type, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab]);
+  }, [currentItem?.type, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab, settings.interface.volumeRockerScroll]);
 
   // Bridge for TikTok-style vertical paging originating inside the EPUB iframe.
   // Touches inside epub.js's iframe are isolated from the parent document, so the
@@ -2226,8 +2283,22 @@ export function QueueScrollPage() {
       if (detail.direction === "next") goToNext();
       else goToPrevious();
     };
+    const handleLongPressBridge = () => {
+      setShowControls(true);
+      setShowRatingControls(true);
+    };
+    const handleHideControlsBridge = () => {
+      setShowControls(false);
+      setShowRatingControls(false);
+    };
     window.addEventListener("incrementum-queue-swipe", handleBridge as EventListener);
-    return () => window.removeEventListener("incrementum-queue-swipe", handleBridge as EventListener);
+    window.addEventListener("incrementum-queue-long-press", handleLongPressBridge);
+    window.addEventListener("incrementum-queue-hide-controls", handleHideControlsBridge);
+    return () => {
+      window.removeEventListener("incrementum-queue-swipe", handleBridge as EventListener);
+      window.removeEventListener("incrementum-queue-long-press", handleLongPressBridge);
+      window.removeEventListener("incrementum-queue-hide-controls", handleHideControlsBridge);
+    };
   }, [goToNext, goToPrevious]);
 
   // Auto-hide controls after 3 seconds of idle (both mobile/touch and desktop).
@@ -2253,26 +2324,33 @@ export function QueueScrollPage() {
       resetTimer();
     };
 
+    const handleTouchActivity = () => {
+      // Touch scrolling counts as activity for the idle timer, but only the
+      // stationary-tap classifier may change overlay visibility.
+      resetTimer();
+    };
+
     // "h"/"?" are the manual show/hide toggle handled by the keydown effect
     // below; don't let them force the controls back on through this listener.
     const handleKeyInteraction = (e: KeyboardEvent) => {
       if (e.key === "h" || e.key === "?") return;
+      if (isVolumeRockerNavigationKey(e.key, settings.interface.volumeRockerScroll || "none")) return;
       handleInteraction();
     };
 
     resetTimer();
 
     window.addEventListener("mousemove", handleInteraction);
-    window.addEventListener("touchstart", handleInteraction, { passive: true });
+    window.addEventListener("touchstart", handleTouchActivity, { passive: true });
     window.addEventListener("keydown", handleKeyInteraction);
 
     return () => {
       window.removeEventListener("mousemove", handleInteraction);
-      window.removeEventListener("touchstart", handleInteraction);
+      window.removeEventListener("touchstart", handleTouchActivity);
       window.removeEventListener("keydown", handleKeyInteraction);
       clearTimeout(hideTimeout);
     };
-  }, []);
+  }, [settings.interface.volumeRockerScroll]);
 
   // Handle rating (for documents, flashcards, or mark as read for RSS)
   const handleRating = async (rating: number) => {
@@ -2496,6 +2574,9 @@ export function QueueScrollPage() {
     let touchStartTime = 0;
     let currentX = 0;
     let currentY = 0;
+    let touchStartTarget: EventTarget | null = null;
+    let longPressTimeout: ReturnType<typeof setTimeout> | null = null;
+    let longPressTriggered = false;
     // Track the last scrollable element we found during the move so the edge
     // check at touchend stays consistent even if target changed mid-gesture.
     let trackedScrollEl: HTMLElement | null = null;
@@ -2506,15 +2587,41 @@ export function QueueScrollPage() {
       currentX = touchStartX;
       currentY = touchStartY;
       touchStartTime = Date.now();
+      touchStartTarget = e.target;
       trackedScrollEl = null;
+      longPressTriggered = false;
+      if (longPressTimeout) clearTimeout(longPressTimeout);
+      if (isMobile && isEligibleOverlayTapTarget(touchStartTarget)) {
+        longPressTimeout = setTimeout(() => {
+          if (hasActiveTextSelection(window.getSelection())) return;
+          longPressTriggered = true;
+          setShowControls(true);
+          setShowRatingControls(true);
+        }, 550);
+      }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
       currentX = e.touches[0].clientX;
       currentY = e.touches[0].clientY;
+      if (!isStationaryTap(
+        { x: touchStartX, y: touchStartY },
+        { x: currentX, y: currentY },
+      ) && longPressTimeout) {
+        clearTimeout(longPressTimeout);
+        longPressTimeout = null;
+      }
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
+      if (longPressTimeout) {
+        clearTimeout(longPressTimeout);
+        longPressTimeout = null;
+      }
+      if (longPressTriggered) {
+        longPressTriggered = false;
+        return;
+      }
       const touchEndX = currentX;
       const touchEndY = currentY;
       const deltaX = touchEndX - touchStartX;
@@ -2528,6 +2635,19 @@ export function QueueScrollPage() {
 
       const target = e.target as HTMLElement;
       if (target.closest(".assistant-panel")) return;
+
+      if (isStationaryTap(
+        { x: touchStartX, y: touchStartY },
+        { x: touchEndX, y: touchEndY },
+      )) {
+        if (
+          isEligibleOverlayTapTarget(touchStartTarget)
+          && !hasActiveTextSelection(window.getSelection())
+        ) {
+          setShowControls((visible) => !visible);
+        }
+        return;
+      }
 
       // Horizontal swipe → RSS rate/favorite (unchanged behavior).
       if (absDeltaX > absDeltaY) {
@@ -2630,15 +2750,24 @@ export function QueueScrollPage() {
     container.addEventListener("touchstart", handleTouchStart, { passive: true });
     container.addEventListener("touchmove", handleTouchMove, { passive: true });
     container.addEventListener("touchend", handleTouchEnd);
-    container.addEventListener("touchcancel", handleTouchEnd);
+    const handleTouchCancel = () => {
+      if (longPressTimeout) clearTimeout(longPressTimeout);
+      longPressTimeout = null;
+      longPressTriggered = false;
+      touchStartTarget = null;
+      trackedScrollEl = null;
+    };
+
+    container.addEventListener("touchcancel", handleTouchCancel);
 
     return () => {
       container.removeEventListener("touchstart", handleTouchStart);
       container.removeEventListener("touchmove", handleTouchMove);
       container.removeEventListener("touchend", handleTouchEnd);
-      container.removeEventListener("touchcancel", handleTouchEnd);
+      container.removeEventListener("touchcancel", handleTouchCancel);
+      if (longPressTimeout) clearTimeout(longPressTimeout);
     };
-  }, [currentItem, documents, goToNext, goToPrevious, handleRating, handleRssToggleFavorite]);
+  }, [currentItem, documents, goToNext, goToPrevious, handleRating, handleRssToggleFavorite, isMobile]);
 
   const handleCreateRssExtract = useCallback(async () => {
     if (!renderedItem || renderedItem.type !== "rss" || !renderedItem.rssItem) return;
@@ -2737,6 +2866,17 @@ export function QueueScrollPage() {
     }
   };
 
+  if (isLoadingData) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary mb-4"></div>
+          <div className="text-muted-foreground">{t("common.loading")}</div>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentItem) {
     return (
       <div className="h-full w-full flex items-center justify-center bg-background">
@@ -2765,13 +2905,6 @@ export function QueueScrollPage() {
       {/* Content Viewer - Document, Flashcard, or RSS Article */}
       <div
         className="flex h-full min-h-0 w-full overflow-hidden"
-        onClick={(e) => {
-          // Toggle controls on click/tap if not clicking interactive elements
-          const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-          if ((isMobile || isTouchDevice) && !(e.target as HTMLElement).closest('button, input, textarea, a, .interactive')) {
-            setShowControls(prev => !prev);
-          }
-        }}
       >
         {!isMobile && isAssistantVisible && renderedItem && renderedItem.type !== "flashcard" && assistantPosition === "left" && (
           <>
@@ -3322,6 +3455,7 @@ export function QueueScrollPage() {
       {/* Overlay Controls */}
       <ScrollOverlayControls
         showControls={showControls}
+        showRatingControls={!isMobile || showRatingControls}
         isMobile={isMobile}
         ratingOrbsPosition={settings.scrollQueue.ratingOrbsPosition}
         onUpdateRatingOrbsPosition={(pos) => updateSettingsCategory('scrollQueue', { ratingOrbsPosition: pos })}
@@ -3352,6 +3486,10 @@ export function QueueScrollPage() {
         onShowRssSettings={() => setShowRssSettings(true)}
         onSetScrollViewMode={setScrollViewMode}
         onOpenExtractDialog={() => setIsExtractDialogOpen(true)}
+        onOpenEpubToc={() => window.dispatchEvent(new CustomEvent("incrementum-epub-open-toc"))}
+        onOpenEpubSettings={() => window.dispatchEvent(new CustomEvent("incrementum-epub-open-settings"))}
+        onEpubPreviousPage={() => window.dispatchEvent(new CustomEvent("incrementum-epub-previous-page"))}
+        onEpubNextPage={() => window.dispatchEvent(new CustomEvent("incrementum-epub-next-page"))}
         onRate={handleRating}
         onDismiss={handleDismiss}
         prioritySlider={currentPrioritySlider}

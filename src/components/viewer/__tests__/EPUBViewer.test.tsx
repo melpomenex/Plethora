@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { EPUBViewer } from "../EPUBViewer";
 import ePub from "epubjs";
 
@@ -146,6 +146,35 @@ describe("EPUBViewer", () => {
       bottom: 100,
       right: 100,
     });
+  });
+
+  it("omits mobile bottom toolbar controls when embedded", () => {
+    render(
+      <EPUBViewer
+        embedded
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+      />
+    );
+
+    expect(screen.queryByText("TOC")).not.toBeInTheDocument();
+    expect(screen.queryByText("Aa")).not.toBeInTheDocument();
+  });
+
+  it("does not render the old mobile bottom toolbar when standalone", () => {
+    render(
+      <EPUBViewer
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+      />
+    );
+
+    expect(screen.getAllByText("TOC")).toHaveLength(1);
+    expect(screen.getAllByText("Aa")).toHaveLength(1);
   });
 
   it("renders EPUB highlights using the shared translucent palette via epub.js annotations", async () => {

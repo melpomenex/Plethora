@@ -28,6 +28,7 @@ import { cn } from "../../utils";
 
 interface ScrollOverlayControlsProps {
   showControls: boolean;
+  showRatingControls?: boolean;
   currentIndex: number;
   totalItems: number;
   sessionOffset?: number;
@@ -39,8 +40,7 @@ interface ScrollOverlayControlsProps {
   scrollViewMode: string;
   helpText?: string;
   isEpub?: boolean;
-  /** When true (mobile), render a persistent thumb-reachable bottom action bar
-   *  instead of the desktop side-orb + bottom-arrow chrome. */
+  /** When true, use compact mobile top-bar navigation. */
   isMobile?: boolean;
   ratingOrbsPosition?: "left" | "right" | "top" | "bottom";
   onUpdateRatingOrbsPosition?: (position: "left" | "right" | "top" | "bottom") => void;
@@ -49,6 +49,10 @@ interface ScrollOverlayControlsProps {
   onShowRssSettings: () => void;
   onSetScrollViewMode: (mode: "document" | "extracts" | "cards") => void;
   onOpenExtractDialog: () => void;
+  onOpenEpubToc?: () => void;
+  onOpenEpubSettings?: () => void;
+  onEpubPreviousPage?: () => void;
+  onEpubNextPage?: () => void;
   onRate: (rating: number) => void;
   onDismiss: () => void;
   onPriorityChange?: (slider: number) => void | Promise<void>;
@@ -139,6 +143,7 @@ const getTooltipClass = (pos: "left" | "right" | "top" | "bottom") => {
 
 export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   showControls,
+  showRatingControls = true,
   currentIndex,
   totalItems,
   sessionOffset = 0,
@@ -149,7 +154,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   isRating,
   scrollViewMode,
   helpText,
-  isEpub: _isEpub = false,
+  isEpub = false,
   isMobile = false,
   ratingOrbsPosition = "right",
   onUpdateRatingOrbsPosition,
@@ -158,6 +163,10 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   onShowRssSettings,
   onSetScrollViewMode,
   onOpenExtractDialog,
+  onOpenEpubToc,
+  onOpenEpubSettings,
+  onEpubPreviousPage,
+  onEpubNextPage,
   onRate,
   onDismiss,
   onPriorityChange,
@@ -300,11 +309,8 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
 
   return (
     <>
-    {/* The desktop chrome (top bar, side orbs, bottom arrows) fades with
-        showControls. On mobile we keep the overlay visible — the auto-hide is
-        mouse-move driven (a phone has no mouse-move), and hiding controls while
-        watching a video makes rating/navigation unreachable. The mobile bottom
-        action bar below is rendered independently so it's always usable. */}
+    {/* Queue chrome fades with showControls. Rating actions have their own
+        visibility gate so mobile readers can summon them with a long press. */}
     <div className={cn("fixed inset-0 pointer-events-none transition-all duration-300 z-50", showControls ? "opacity-100 visible" : "opacity-0 invisible")}>
       {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 pt-[calc(16px+env(safe-area-inset-top,0px))] px-4 pb-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none">
@@ -319,6 +325,43 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
           </div>
 
           <div className="flex items-center gap-3 pointer-events-auto">
+            {/* Disable EPUB reader buttons on mobile overlay to reduce clutter */}
+            {false && isEpub && (
+              <div className="flex items-center gap-1 rounded-lg bg-black/40 p-1 backdrop-blur-sm">
+                <button
+                  type="button"
+                  onClick={onOpenEpubToc}
+                  className="rounded-md px-2 py-1.5 text-xs font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                  title="Table of contents"
+                >
+                  TOC
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenEpubSettings}
+                  className="rounded-md px-2 py-1.5 text-xs font-semibold text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                  title="Reading settings"
+                >
+                  Aa
+                </button>
+                <button
+                  type="button"
+                  onClick={onEpubPreviousPage}
+                  className="rounded-md p-1.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                  title="Previous EPUB page"
+                >
+                  <CaretUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onEpubNextPage}
+                  className="rounded-md p-1.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                  title="Next EPUB page"
+                >
+                  <CaretDown className="h-4 w-4" />
+                </button>
+              </div>
+            )}
             {priorityControl}
             {detailsButton}
             {!isMobile && (
@@ -404,7 +447,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
       )}
 
       {/* Side/Floating Rating Controls */}
-      {(showRatingButtons || itemType === "flashcard" || itemType === "extract") && (() => {
+      {showRatingControls && (showRatingButtons || itemType === "flashcard" || itemType === "extract") && (() => {
         const isDraggingActive = dragPos !== null;
         
         let snapClasses = "";
@@ -635,10 +678,10 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
       )}
 
       {/* Mobile Bottom Action Bar */}
-      {isMobile && (
+      {/* Mobile Bottom Action Bar (disabled per user preference) */}
+      {false && isMobile && (
         <div className="absolute left-0 right-0 pointer-events-auto bottom-[calc(56px+env(safe-area-inset-bottom,0px))] px-3 pb-2">
           <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/70 px-3 py-2 shadow-2xl backdrop-blur-md">
-            {/* Previous */}
             <button
               onClick={onGoToPrevious}
               disabled={currentIndex === 0}
@@ -650,13 +693,9 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
             >
               <CaretUp className="w-6 h-6" weight="bold" />
             </button>
-
-            {/* Progress counter in the center */}
             <div className="text-white/60 text-xs font-mono select-none px-4">
               {currentIndex + 1} / {totalItems}
             </div>
-
-            {/* Next */}
             <button
               onClick={onGoToNext}
               disabled={currentIndex === totalItems - 1}

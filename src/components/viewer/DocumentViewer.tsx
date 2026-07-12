@@ -3143,10 +3143,40 @@ export function DocumentViewer({
         e,
         settings.interface.volumeRockerScroll || "none",
         {
-          pageUp: handlePrevPage,
-          pageDown: handleNextPage,
-          scrollUp: () => docType === "html" ? scrollHtmlIframe("up") : scrollDocumentContainer("up"),
-          scrollDown: () => docType === "html" ? scrollHtmlIframe("down") : scrollDocumentContainer("down"),
+          pageUp: () => {
+            if (isMobileTouch) {
+              try {
+                window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+              } catch { /* ignore */ }
+            }
+            handlePrevPage();
+          },
+          pageDown: () => {
+            if (isMobileTouch) {
+              try {
+                window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+              } catch { /* ignore */ }
+            }
+            handleNextPage();
+          },
+          scrollUp: () => {
+            if (isMobileTouch) {
+              try {
+                window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+              } catch { /* ignore */ }
+            }
+            if (docType === "html") scrollHtmlIframe("up");
+            else scrollDocumentContainer("up");
+          },
+          scrollDown: () => {
+            if (isMobileTouch) {
+              try {
+                window.dispatchEvent(new CustomEvent("incrementum-queue-hide-controls"));
+              } catch { /* ignore */ }
+            }
+            if (docType === "html") scrollHtmlIframe("down");
+            else scrollDocumentContainer("down");
+          },
         },
       )) return;
 

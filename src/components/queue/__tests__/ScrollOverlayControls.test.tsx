@@ -31,6 +31,33 @@ const defaultProps = {
 };
 
 describe("ScrollOverlayControls Rating Orbs Snap Positioning", () => {
+  it("hides rating actions until their visibility gate is opened", () => {
+    render(<ScrollOverlayControls {...defaultProps} showRatingControls={false} />);
+    expect(screen.queryByTitle("Again")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Change panel edge")).not.toBeInTheDocument();
+  });
+
+  it("does not render embedded EPUB TOC and reading settings in the top bar", () => {
+    const openToc = vi.fn();
+    const openSettings = vi.fn();
+    const previousPage = vi.fn();
+    const nextPage = vi.fn();
+    render(
+      <ScrollOverlayControls
+        {...defaultProps}
+        isEpub
+        onOpenEpubToc={openToc}
+        onOpenEpubSettings={openSettings}
+        onEpubPreviousPage={previousPage}
+        onEpubNextPage={nextPage}
+      />
+    );
+
+    expect(screen.queryByTitle("Table of contents")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Reading settings")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Previous EPUB page")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Next EPUB page")).not.toBeInTheDocument();
+  });
   it("renders with right snapping layout by default", () => {
     const { container } = render(<ScrollOverlayControls {...defaultProps} />);
     const docControl = container.querySelector(".right-6");

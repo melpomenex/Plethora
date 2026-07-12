@@ -7,6 +7,11 @@ type VolumeNavigationCallbacks = {
   scrollDown: () => void;
 };
 
+export function isVolumeRockerNavigationKey(key: string, mode: VolumeRockerMode): boolean {
+  if (key === "VolumeUp" || key === "VolumeDown") return true;
+  return mode !== "none" && (key === "PageUp" || key === "PageDown");
+}
+
 /** Handle both Android volume keys and e-ink firmware page-key remappings. */
 export function handleVolumeRockerNavigation(
   event: KeyboardEvent,
@@ -27,4 +32,3 @@ export function handleVolumeRockerNavigation(
   }
   return true;
 }
-

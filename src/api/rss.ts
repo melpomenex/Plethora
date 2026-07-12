@@ -1214,18 +1214,31 @@ async function getFeedsViaTauri(): Promise<Feed[]> {
     collectionId,
     collection_id: collectionId,
   });
-  const feedsWithItems = await mapWithConcurrency(
-    feeds,
-    6,
-    async (feed) => {
-      const articles = await invokeCommand<TauriRssArticle[]>("get_rss_articles", {
-        feedId: feed.id,
-        feed_id: feed.id,
-        limit: 50,
-      });
-      return tauriFeedToFrontend(feed, articles);
+
+  // Optimize: Fetch the top 1000 recent articles across all feeds in a single IPC call
+  // instead of executing N separate queries concurrently.
+  const allArticles = await invokeCommand<TauriRssArticle[]>("get_rss_articles", {
+    feedId: null,
+    feed_id: null,
+    limit: 1000,
+  });
+
+  // Group articles by feed_id in memory
+  const articlesByFeed = new Map<string, TauriRssArticle[]>();
+  for (let i = 0; i < allArticles.length; i++) {
+    const article = allArticles[i];
+    let list = articlesByFeed.get(article.feed_id);
+    if (!list) {
+      list = [];
+      articlesByFeed.set(article.feed_id, list);
     }
-  );
+    list.push(article);
+  }
+
+  const feedsWithItems = feeds.map((feed) => {
+    const articles = articlesByFeed.get(feed.id) || [];
+    return tauriFeedToFrontend(feed, articles);
+  });
 
   return feedsWithItems;
 }
