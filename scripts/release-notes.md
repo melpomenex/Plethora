@@ -1,8 +1,9 @@
 ### Added
 
-- **Google Gemini AI provider** — Added Gemini as a configurable provider across desktop, Android, and browser builds, with chat, streaming, model discovery, connection testing, and Gemini 3.5 Flash/Pro defaults through Google AI's OpenAI-compatible API.
+- **Deliberate-tap overlay activation in Queue Scroll Mode** — The overlay now requires a stationary tap on non-interactive content to show or hide, so ordinary touch scrolling, swipes, and minor tap jitter no longer reveal rating orbs or controls. A cancellable mobile long press temporarily surfaces the rating controls when you actually want them.
+- **Content-only volume-key scrolling** — Hardware volume-key input in Queue Scroll Mode is now limited to document movement and never toggles overlay visibility, preserving both hidden and visible overlay states at scrollable positions and content boundaries.
+- **Relocated EPUB controls in Queue Scroll Mode** — Embedded EPUBs no longer show the mobile bottom toolbar; progress, page navigation, table of contents, and reading-settings actions move into the top bar, while standalone EPUB reader chrome is preserved.
 
 ### Fixed & Improved
 
-- **Fresh-install dashboard import** — The dashboard import action now opens and mounts the library before invoking the native file picker, restoring document import on clean Windows and Android installations.
-- **Android PDF loading** — PDF.js now retains a bundled fallback worker source when Android WebViews reject the preferred module worker, preventing the `GlobalWorkerOptions.workerSrc` load failure.
+- **Faster RSS feed loading** — Feeds are now fetched with a single IPC call that retrieves the most recent articles across all feeds and groups them in memory, replacing N concurrent per-feed queries.
