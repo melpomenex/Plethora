@@ -24,56 +24,108 @@ export function TranscriptPanel({
   isTranscribing,
 }: TranscriptPanelProps) {
   const { activeSegments, loadTranscript } = useTranscriptionStore();
-  const [autoScroll, setAutoScroll] = useState(true);
+  // Shared preference with TranscriptSync so auto-follow is consistent across viewers.
+  const [autoScroll, setAutoScroll] = useState<boolean>(() => {
+    const saved = localStorage.getItem("transcript-autoscroll");
+    return saved !== "false";
+  });
   const [searchQuery, setSearchQuery] = useState("");
+  const [followPausedByUser, setFollowPausedByUser] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeSegmentRef = useRef<HTMLDivElement>(null);
-  const lastScrollTimeRef = useRef<number>(0);
+  // Debounce timer for coalescing rapid segment transitions.
+  const followDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Suppress redundant scrolls for the same active index.
+  const lastCenteredKeyRef = useRef<string>("");
+  const lastCenteredAtRef = useRef<number>(0);
+  // User-scroll detection.
+  const userScrollingRef = useRef<boolean>(false);
+  const programmaticScrollRef = useRef<boolean>(false);
+  const lastProgrammaticScrollAtRef = useRef<number>(0);
 
   useEffect(() => {
     loadTranscript(bookId, chapterId);
   }, [bookId, chapterId, loadTranscript]);
 
-  // Auto-scroll to active segment using container-relative scrolling
-  // to avoid scrolling the entire page and affecting other elements.
-  // Throttled to prevent rapid successive scrolls.
+  // Comfort-offset + debounced + user-scroll-aware auto-scroll. Mirrors the
+  // algorithm in TranscriptSync.tsx so both viewers behave the same way.
   useEffect(() => {
-    if (!autoScroll || !activeSegmentRef.current || !scrollRef.current) return;
-    
-    // Throttle scrolls to once per 2 seconds
+    if (!autoScroll || followPausedByUser) return;
+    if (!activeSegmentRef.current || !scrollRef.current) return;
+
     const now = Date.now();
-    if (now - lastScrollTimeRef.current < 2000) {
+    const activeKey = `${bookId}:${chapterId}:${currentTimeMs}`;
+    // Guard against re-centering on the same instant (currentTime wobble).
+    if (activeKey === lastCenteredKeyRef.current && now - lastCenteredAtRef.current < 400) {
       return;
     }
-    
+
+    if (followDebounceRef.current) clearTimeout(followDebounceRef.current);
     const container = scrollRef.current;
     const element = activeSegmentRef.current;
-    
-    // Calculate the element's position relative to the container
+    followDebounceRef.current = setTimeout(() => {
+      const containerRect = container.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const relativeTop = elementRect.top - containerRect.top + container.scrollTop;
+      const elementHeight = elementRect.height;
+      const containerHeight = containerRect.height;
+      // Position the active line near the top quarter of the visible region.
+      const targetScrollTop = relativeTop - containerHeight * 0.28 + elementHeight / 2;
+
+      // Skip if already within the comfort band.
+      const comfortTop = containerRect.top + containerHeight * 0.28;
+      const comfortBottom = containerRect.bottom - containerHeight * 0.15;
+      if (elementRect.top >= comfortTop && elementRect.bottom <= comfortBottom) {
+        return;
+      }
+
+      lastCenteredKeyRef.current = activeKey;
+      lastCenteredAtRef.current = Date.now();
+      programmaticScrollRef.current = true;
+      lastProgrammaticScrollAtRef.current = Date.now();
+      container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+    }, 150);
+
+    return () => {
+      if (followDebounceRef.current) {
+        clearTimeout(followDebounceRef.current);
+        followDebounceRef.current = null;
+      }
+    };
+  }, [currentTimeMs, autoScroll, followPausedByUser, bookId, chapterId]);
+
+  // Auto-resume when the active segment re-enters the visible region.
+  useEffect(() => {
+    if (!followPausedByUser) return;
+    const container = scrollRef.current;
+    const element = activeSegmentRef.current;
+    if (!container || !element) return;
     const containerRect = container.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
-    
-    // Calculate relative position (accounting for container's scroll position)
-    const relativeTop = elementRect.top - containerRect.top + container.scrollTop;
-    const elementHeight = elementRect.height;
-    const containerHeight = containerRect.height;
-    
-    // Calculate target scroll position to center the element
-    const targetScrollTop = relativeTop - (containerHeight / 2) + (elementHeight / 2);
-    
-    // Only scroll if the element is outside the visible area (with some padding)
-    const padding = 80;
-    const isAbove = elementRect.top < containerRect.top + padding;
-    const isBelow = elementRect.bottom > containerRect.bottom - padding;
-    
-    if (isAbove || isBelow) {
-      lastScrollTimeRef.current = now;
-      container.scrollTo({
-        top: targetScrollTop,
-        behavior: "smooth",
-      });
-    }
-  }, [currentTimeMs, autoScroll]);
+    const isVisible = elementRect.bottom > containerRect.top && elementRect.top < containerRect.bottom;
+    if (isVisible) setFollowPausedByUser(false);
+  }, [currentTimeMs, followPausedByUser]);
+
+  // Detect manual scrolling and pause follow.
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      if (programmaticScrollRef.current) return;
+      if (Date.now() - lastProgrammaticScrollAtRef.current < 120) return;
+      userScrollingRef.current = true;
+      if (autoScroll && !followPausedByUser) setFollowPausedByUser(true);
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [autoScroll, followPausedByUser]);
+
+  const toggleAutoScroll = (checked: boolean) => {
+    setAutoScroll(checked);
+    localStorage.setItem("transcript-autoscroll", String(checked));
+    userScrollingRef.current = false;
+    setFollowPausedByUser(false);
+  };
 
   const filteredSegments = activeSegments.filter((s) =>
     s.text.toLowerCase().includes(searchQuery.toLowerCase())
@@ -92,7 +144,7 @@ export function TranscriptPanel({
             <input
               type="checkbox"
               checked={autoScroll}
-              onChange={(e) => setAutoScroll(e.target.checked)}
+              onChange={(e) => toggleAutoScroll(e.target.checked)}
               className="rounded border-border"
             />
             Auto-scroll
@@ -141,8 +193,19 @@ export function TranscriptPanel({
               ref={isActive ? activeSegmentRef : null}
               role="button"
               tabIndex={0}
-              onClick={() => onSeek(segment.start_ms)}
-              onKeyDown={(e) => { if (e.key === 'Enter') onSeek(segment.start_ms); }}
+              onClick={() => {
+                // Seeking is explicit navigation: resume auto-follow.
+                userScrollingRef.current = false;
+                setFollowPausedByUser(false);
+                onSeek(segment.start_ms);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  userScrollingRef.current = false;
+                  setFollowPausedByUser(false);
+                  onSeek(segment.start_ms);
+                }
+              }}
               className={cn(
                 "group p-3 rounded-lg transition-all cursor-pointer border border-transparent hover:border-border",
                 isActive ? "bg-primary/10 border-primary/20 shadow-sm" : "hover:bg-muted/50"

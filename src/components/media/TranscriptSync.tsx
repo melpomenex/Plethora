@@ -6,7 +6,28 @@ import {
   KeyReturn,
   MagnifyingGlass,
   Play,
+  Lightning,
 } from "@phosphor-icons/react";
+
+/**
+ * Auto-follow tuning constants.
+ *
+ * `followOffsetRatio` positions the active segment's top at this fraction of
+ * the container height (the active line "leads" the eye, with upcoming lines
+ * visible below it). A smaller ratio is used for the compact mobile layout.
+ */
+const FOLLOW_OFFSET_RATIO_DESKTOP = 0.28;
+const FOLLOW_OFFSET_RATIO_COMPACT = 0.18;
+/** Coalesce rapid segment transitions (fast speech) into one smooth scroll. */
+const FOLLOW_DEBOUNCE_MS = 150;
+/** Prevent re-centering the *same* index when `currentTime` wobbles inside it. */
+const FOLLOW_SAME_INDEX_MIN_MS = 400;
+/**
+ * A scroll event arriving this long after our own programmatic `scrollTo` is
+ * treated as user-initiated (trackpads/inertia settle well inside this window).
+ */
+const USER_SCROLL_GRACE_MS = 120;
+const AUTOSCROLL_STORAGE_KEY = "transcript-autoscroll";
 
 /**
  * Transcript segment
@@ -31,6 +52,11 @@ interface TranscriptSyncProps {
   segments: TranscriptSegment[];
   currentTime: number;
   onSeek?: (time: number) => void;
+  /**
+   * @deprecated use the in-header auto-follow toggle instead. Only used as the
+   * initial default when no preference is stored in localStorage; a stored
+   * preference always wins.
+   */
   autoScroll?: boolean;
   showTimestamps?: boolean;
   showSpeakers?: boolean;
@@ -101,12 +127,34 @@ export function TranscriptSync({
 }: TranscriptSyncProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState<number>(-1);
+  // Persistent auto-follow preference (default on). When off, the active
+  // segment is still highlighted but the panel never auto-scrolls. A stored
+  // value always wins; otherwise the legacy `autoScroll` prop seeds the default
+  // so existing callers that pass `autoScroll={false}` keep working.
+  const [autoFollow, setAutoFollow] = useState<boolean>(() => {
+    const saved = localStorage.getItem(AUTOSCROLL_STORAGE_KEY);
+    if (saved === "true") return true;
+    if (saved === "false") return false;
+    return autoScroll;
+  });
+  // Transient "follow paused because the user scrolled away" state. Distinct
+  // from `autoFollow` (the explicit toggle) — this clears itself when playback
+  // catches up or the user seeks.
+  const [followPausedByUser, setFollowPausedByUser] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const activeSegmentRef = useRef<HTMLDivElement>(null);
   const highlightedSegmentRef = useRef<HTMLDivElement>(null);
   const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastScrolledIndexRef = useRef<number>(-1);
-  const scrollThrottleRef = useRef<number>(0);
+  // Debounce timer for coalescing rapid segment transitions.
+  const followDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track the last index/time we centered, to suppress redundant scrolls.
+  const lastCenteredIndexRef = useRef<number>(-1);
+  const lastCenteredAtRef = useRef<number>(0);
+  // User-scroll detection: set on genuine user scrolls, cleared around our own
+  // programmatic `scrollTo` calls so the listener can ignore them.
+  const userScrollingRef = useRef<boolean>(false);
+  const programmaticScrollRef = useRef<boolean>(false);
+  const lastProgrammaticScrollAtRef = useRef<number>(0);
   const lastDrivenMatchKeyRef = useRef<string | null>(null);
 
   const effectiveSearchQuery = controlledSearchQuery ?? searchQuery;
@@ -145,7 +193,7 @@ export function TranscriptSync({
     safeSegments.length,
   ]);
 
-  // Find active segment based on current time
+  // Find active segment based on current time.
   useEffect(() => {
     const index = safeSegments.findIndex(
       (seg) => currentTime >= seg.start && currentTime < seg.end
@@ -153,77 +201,128 @@ export function TranscriptSync({
     if (index !== -1 && index !== activeIndex) {
       setActiveIndex(index);
     }
-  }, [currentTime, segments, activeIndex, autoScroll]);
+  }, [currentTime, segments, activeIndex, autoFollow]);
 
-  // Auto-scroll only after the active segment element ref is updated.
-  // Uses container-relative scrolling to avoid scrolling the entire page.
-  // Throttled to prevent rapid successive scrolls.
-  useEffect(() => {
-    if (!autoScroll || activeIndex < 0) return;
-    if (!activeSegmentRef.current || !containerRef.current) return;
-    
-    // Skip if we just scrolled to this index recently (within 2 seconds)
-    const now = Date.now();
-    if (activeIndex === lastScrolledIndexRef.current && now - scrollThrottleRef.current < 2000) {
+  // Helper: scroll the active segment to the comfort reading offset.
+  // Container-relative (never moves the outer page). The caller decides whether
+  // to force (jump navigation) or respect the user-scroll pause (auto-follow).
+  const scrollToSegment = (element: HTMLElement, force: boolean) => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const relativeTop = elementRect.top - containerRect.top + container.scrollTop;
+    const elementHeight = elementRect.height;
+    const containerHeight = containerRect.height;
+
+    // Position the active line's top at the configured offset from the top of
+    // the visible region so upcoming lines fill the space below it.
+    const ratio = compact ? FOLLOW_OFFSET_RATIO_COMPACT : FOLLOW_OFFSET_RATIO_DESKTOP;
+    const targetScrollTop = relativeTop - containerHeight * ratio + elementHeight / 2;
+
+    // Skip if the element is already within the comfort band (avoid jitter).
+    const comfortTop = containerRect.top + containerHeight * ratio;
+    const comfortBottom = containerRect.bottom - containerHeight * 0.15;
+    if (!force && elementRect.top >= comfortTop && elementRect.bottom <= comfortBottom) {
       return;
     }
-    
+
+    programmaticScrollRef.current = true;
+    lastProgrammaticScrollAtRef.current = Date.now();
+    container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+  };
+
+  // Auto-follow: scroll the active segment into the reading position when it
+  // changes. Debounced to coalesce rapid transitions; guarded against
+  // re-centering the same index on `currentTime` wobble; paused while the user
+  // is manually reading elsewhere.
+  useEffect(() => {
+    if (!autoFollow || activeIndex < 0) return;
+    if (!activeSegmentRef.current || !containerRef.current) return;
+
+    // Respect the explicit toggle *and* the transient user-scroll pause.
+    if (followPausedByUser) return;
+
+    const now = Date.now();
+    // Suppress re-centering the same index within the min-interval window.
+    if (
+      activeIndex === lastCenteredIndexRef.current &&
+      now - lastCenteredAtRef.current < FOLLOW_SAME_INDEX_MIN_MS
+    ) {
+      return;
+    }
+
+    // Debounce: coalesce rapid back-to-back segment changes into one scroll.
+    if (followDebounceRef.current) clearTimeout(followDebounceRef.current);
+    const element = activeSegmentRef.current;
+    followDebounceRef.current = setTimeout(() => {
+      lastCenteredIndexRef.current = activeIndex;
+      lastCenteredAtRef.current = Date.now();
+      scrollToSegment(element, false);
+    }, FOLLOW_DEBOUNCE_MS);
+
+    return () => {
+      if (followDebounceRef.current) {
+        clearTimeout(followDebounceRef.current);
+        followDebounceRef.current = null;
+      }
+    };
+  }, [activeIndex, autoFollow, followPausedByUser, compact]);
+
+  // Auto-resume: when the user has scrolled away but playback catches up and
+  // the active segment re-enters the visible region, clear the pause so the
+  // panel starts following again.
+  useEffect(() => {
+    if (!followPausedByUser || activeIndex < 0) return;
     const container = containerRef.current;
     const element = activeSegmentRef.current;
-    
-    // Calculate the element's position relative to the container
+    if (!container || !element) return;
+
     const containerRect = container.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
-    
-    // Calculate relative position (accounting for container's scroll position)
-    const relativeTop = elementRect.top - containerRect.top + container.scrollTop;
-    const elementHeight = elementRect.height;
-    const containerHeight = containerRect.height;
-    
-    // Calculate target scroll position to center the element
-    const targetScrollTop = relativeTop - (containerHeight / 2) + (elementHeight / 2);
-    
-    // Only scroll if the element is outside the visible area (with some padding)
-    const padding = 80;
-    const isAbove = elementRect.top < containerRect.top + padding;
-    const isBelow = elementRect.bottom > containerRect.bottom - padding;
-    
-    if (isAbove || isBelow) {
-      lastScrolledIndexRef.current = activeIndex;
-      scrollThrottleRef.current = now;
-      container.scrollTo({
-        top: targetScrollTop,
-        behavior: "smooth",
-      });
+    const isVisible =
+      elementRect.bottom > containerRect.top && elementRect.top < containerRect.bottom;
+    if (isVisible) {
+      setFollowPausedByUser(false);
     }
-  }, [activeIndex, autoScroll]);
+  }, [activeIndex, followPausedByUser, currentTime]);
 
-  // Scroll to an externally highlighted segment (jump navigation)
-  // Uses container-relative scrolling to avoid scrolling the entire page.
+  // Detect manual (user-initiated) scrolling on the transcript container and
+  // pause auto-follow until playback catches up or the user seeks. We ignore
+  // scrolls that happen immediately after our own programmatic `scrollTo`.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      // Ignore scrolls we just triggered ourselves.
+      if (programmaticScrollRef.current) return;
+      const sinceProgrammatic = Date.now() - lastProgrammaticScrollAtRef.current;
+      if (sinceProgrammatic < USER_SCROLL_GRACE_MS) return;
+
+      if (!userScrollingRef.current) {
+        userScrollingRef.current = true;
+      }
+      // Only enter the paused state if auto-follow is currently active.
+      if (autoFollow && !followPausedByUser) {
+        setFollowPausedByUser(true);
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [autoFollow, followPausedByUser]);
+
+  // Scroll to an externally highlighted segment (jump navigation, e.g. command
+  // palette or share-link deep-link). Forces the scroll and bypasses the
+  // user-scroll pause — this is an explicit navigation action.
   useEffect(() => {
     if (!effectiveHighlightedSegmentId) return;
-    if (!containerRef.current) return;
     if (!highlightedSegmentRef.current) return;
-    
-    const container = containerRef.current;
-    const element = highlightedSegmentRef.current;
-    
-    // Calculate the element's position relative to the container
-    const containerRect = container.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    
-    // Calculate relative position (accounting for container's scroll position)
-    const relativeTop = elementRect.top - containerRect.top + container.scrollTop;
-    const elementHeight = elementRect.height;
-    const containerHeight = containerRect.height;
-    
-    // Calculate target scroll position to center the element
-    const targetScrollTop = relativeTop - (containerHeight / 2) + (elementHeight / 2);
-    
-    container.scrollTo({
-      top: targetScrollTop,
-      behavior: "smooth",
-    });
+    userScrollingRef.current = false;
+    setFollowPausedByUser(false);
+    scrollToSegment(highlightedSegmentRef.current, true);
   }, [effectiveHighlightedSegmentId]);
 
   useEffect(() => {
@@ -266,6 +365,10 @@ export function TranscriptSync({
     // new position buffers), so without this the tap looks like it did nothing.
     const idx = safeSegments.findIndex((s) => s.id === segment.id);
     if (idx !== -1) setActiveIndex(idx);
+    // Seeking is an explicit navigation action: resume auto-follow immediately
+    // so the panel tracks from the new position.
+    userScrollingRef.current = false;
+    setFollowPausedByUser(false);
     onSeek?.(segment.start);
   };
 
@@ -311,6 +414,23 @@ export function TranscriptSync({
     onExport?.();
   };
 
+  // Toggle persistent auto-follow and clear any transient user-scroll pause.
+  const toggleAutoFollow = () => {
+    setAutoFollow((prev) => {
+      const next = !prev;
+      localStorage.setItem(AUTOSCROLL_STORAGE_KEY, String(next));
+      return next;
+    });
+    userScrollingRef.current = false;
+    setFollowPausedByUser(false);
+  };
+
+  // "Click to resume" from the paused chip.
+  const resumeFollow = () => {
+    userScrollingRef.current = false;
+    setFollowPausedByUser(false);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && activeIndex !== -1 && onSeek) {
       e.preventDefault();
@@ -340,6 +460,19 @@ export function TranscriptSync({
             </span>
           </h3>
           <div className="flex items-center gap-1">
+            <button
+              onClick={toggleAutoFollow}
+              className={`p-2 rounded-lg transition-colors ${
+                autoFollow
+                  ? "text-primary hover:bg-primary/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+              title={autoFollow ? "Auto-follow on (click to turn off)" : "Auto-follow off (click to turn on)"}
+              aria-pressed={autoFollow}
+              aria-label="Toggle transcript auto-follow"
+            >
+              <Lightning className="w-4 h-4" weight={autoFollow ? "fill" : "regular"} />
+            </button>
             <button
               onClick={handleCopy}
               className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
@@ -390,6 +523,17 @@ export function TranscriptSync({
       )}
 
       {/* Transcript segments */}
+      <div className="relative flex-1 min-h-0">
+        {followPausedByUser && autoFollow && !compact && (
+          <button
+            onClick={resumeFollow}
+            className="absolute top-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-background/95 border border-border shadow-md text-xs font-medium text-foreground hover:bg-background hover:border-primary/40 transition-colors"
+            title="Auto-follow is paused because you scrolled. Click to resume."
+          >
+            <Lightning className="w-3.5 h-3.5 text-muted-foreground" />
+            Auto-follow paused — click to resume
+          </button>
+        )}
       <div
         ref={containerRef}
         className={`${className} overflow-y-auto overscroll-contain ${compact ? "p-2.5 pb-4" : "p-4"} space-y-1`}
@@ -488,6 +632,7 @@ export function TranscriptSync({
             );
           })
         )}
+      </div>
       </div>
 
       {/* Footer with stats */}

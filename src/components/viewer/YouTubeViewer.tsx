@@ -832,6 +832,31 @@ export function YouTubeViewer({
     activeExtractEndTime,
   ]);
 
+  // Lightweight time-only poll. The 1s interval above deliberately runs the
+  // expensive work (SponsorBlock checks, position persistence) at a low rate to
+  // limit cross-origin iframe calls — but that leaves transcript active-segment
+  // detection up to a second stale. This faster poll reads ONLY getCurrentTime
+  // (and forwards onTimeUpdate) so the transcript can follow the spoken word
+  // promptly. WebKitGTK on Linux is prone to origin-mismatch errors, so it gets
+  // a gentler cadence there.
+  useEffect(() => {
+    if (!isPlaying || !playerRef.current) return;
+    const isLinux = getPlatform() === "linux";
+    const pollMs = isLinux ? 500 : 250;
+    const intervalId = setInterval(async () => {
+      try {
+        const time = await playerRef.current.getCurrentTime();
+        if (typeof time === "number" && Number.isFinite(time)) {
+          setCurrentTime(time);
+          onTimeUpdateRef.current?.(time);
+        }
+      } catch {
+        // Ignore — player not ready or cross-origin hiccup.
+      }
+    }, pollMs);
+    return () => clearInterval(intervalId);
+  }, [isPlaying]);
+
   // Seek to time - opens video at specific timestamp
   const handleSeek = useCallback((time: number, endTime?: number) => {
     userInteractedRef.current = true;
