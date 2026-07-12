@@ -326,38 +326,39 @@ export function ExtractScrollItem({
 
     return (
         <div className="h-full w-full flex flex-col items-center justify-center p-8 bg-gradient-to-b from-background to-muted/30">
-            {/* Card Type Badge */}
-            <div className="absolute top-6 left-6 flex items-center gap-2">
-                <span className="px-3 py-1.5 bg-yellow-500/20 text-yellow-400 rounded-lg text-sm font-medium flex items-center gap-2">
-                    <TextT className="w-4 h-4" />
-                    {t("extractScrollItem.extract")}
-                </span>
-                <span className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm font-medium">
-                    {stateLabel}
-                </span>
-                {extract.review_count > 0 && (
-                    <span className="px-2 py-1 text-xs text-muted-foreground">
-                        {t("extractScrollItem.reviewedCount", { count: extract.review_count })}
-                    </span>
-                )}
-                {extract.max_disclosure_level > 0 && (
-                    <span className="px-2 py-1.5 text-xs text-muted-foreground flex items-center gap-1.5">
-                        <Eye className="w-3 h-3" />
-                        {t("extractScrollItem.level", { current: extract.progressive_disclosure_level, total: extract.max_disclosure_level })}
-                    </span>
-                )}
-            </div>
-
-            <div className="absolute top-6 right-6 text-sm text-muted-foreground max-w-md flex items-center gap-4">
-                <span className="truncate">
-                    {t("extractScrollItem.from")} <span className="font-medium text-foreground">{documentTitle}</span>
-                    {extract.page_number && <span className="ml-2 opacity-70">{t("extractScrollItem.pageShort", { count: extract.page_number })}</span>}
-                </span>
-                {renderSaveStatus()}
-            </div>
-
             {/* Extract Container */}
             <div className="w-full max-w-4xl flex flex-col gap-6">
+                {/* Header: badges + document title (in-flow, occupies its own space above the content) */}
+                <div className="w-full flex items-center justify-between gap-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                        <span className="px-3 py-1.5 bg-yellow-500/20 text-yellow-400 rounded-lg text-sm font-medium flex items-center gap-2">
+                            <TextT className="w-4 h-4" />
+                            {t("extractScrollItem.extract")}
+                        </span>
+                        <span className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm font-medium">
+                            {stateLabel}
+                        </span>
+                        {extract.review_count > 0 && (
+                            <span className="px-2 py-1 text-xs text-muted-foreground">
+                                {t("extractScrollItem.reviewedCount", { count: extract.review_count })}
+                            </span>
+                        )}
+                        {extract.max_disclosure_level > 0 && (
+                            <span className="px-2 py-1.5 text-xs text-muted-foreground flex items-center gap-1.5">
+                                <Eye className="w-3 h-3" />
+                                {t("extractScrollItem.level", { current: extract.progressive_disclosure_level, total: extract.max_disclosure_level })}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-4 max-w-md min-w-0 text-sm text-muted-foreground">
+                        <span className="truncate" title={documentTitle}>
+                            {t("extractScrollItem.from")} <span className="font-medium text-foreground">{documentTitle}</span>
+                            {extract.page_number && <span className="ml-2 opacity-70">{t("extractScrollItem.pageShort", { count: extract.page_number })}</span>}
+                        </span>
+                        {renderSaveStatus()}
+                    </div>
+                </div>
+
                 {/* Actions Bar */}
                 <div className="flex items-center justify-end gap-3">
                     {onCreateFlashcard && (
