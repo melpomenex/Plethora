@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.78.0] - 2026-07-12
+
+### Added
+
+- **Mobile PDF reading overhaul** — PDFs on native mobile now load through a native, range-capable document source instead of a fragile WebView fetch, eliminating the recurring `Failed to fetch` error before a page can render. Text PDFs convert to responsive, single-column semantic reflow that preserves headings, paragraphs, lists, tables, figures, links, and reading order, with a stable mapping back to source pages and coordinates so annotations, citations, extracts, and "view original page" stay trustworthy. Scanned or text-poor PDFs get a graceful OCR fallback with progress, cancellation, language selection, and partial-page availability instead of a blocking conversion. Mobile reader controls cover mode switching (reflow, fit-to-width, crop-to-content, fixed-layout, landscape, original page), typography, table of contents, page/progress navigation, search, selection, highlights, and extracts, and actionable recovery states replace raw fetch errors for missing, corrupt, encrypted, and unsupported files.
+- **Transcript follows playback with a comfort offset** — The YouTube, local-video, and audiobook transcript panel now keeps the active line about 28% from the top of the panel (18% on compact mobile) so upcoming lines stay visible and your eye leads the audio, instead of snapping only once the active line has drifted off-screen. Auto-follow pauses when you scroll manually and resumes when playback catches up or you seek.
+
+### Fixed & Improved
+
+- **Extract review header no longer overlaps the action buttons** — In scroll-mode review, the type/state badges and document-title header were absolutely positioned over the centered content column, so they drew on top of the Create Flashcard / Cloze / Q&A buttons whenever the extract was short enough to center near the top. The header is now in normal document flow above the actions, reserving its own vertical space while keeping the gradient background, centered column, and all existing behavior.
+
 ## [1.77.0] - 2026-07-12
 
 ### Added
