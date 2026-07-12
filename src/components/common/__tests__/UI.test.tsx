@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { ActionButton, ActionMenu } from "../UI";
+import { ActionButton, ActionMenu, NumericInput } from "../UI";
 import { EmptyState } from "../EmptyState";
 
 describe("core UI primitives", () => {
@@ -29,3 +29,65 @@ describe("core UI primitives", () => {
     expect(importDocument).toHaveBeenCalledOnce();
   });
 });
+
+describe("NumericInput component", () => {
+  it("renders with initial value", () => {
+    const handleChange = vi.fn();
+    render(<NumericInput value={18} onChange={handleChange} />);
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    expect(input.value).toBe("18");
+  });
+
+  it("calls onChange immediately on typing a valid number", () => {
+    const handleChange = vi.fn();
+    render(<NumericInput value={18} onChange={handleChange} />);
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "20" } });
+    expect(handleChange).toHaveBeenCalledWith(20);
+    expect(input.value).toBe("20");
+  });
+
+  it("does not call onChange when cleared, but updates input display", () => {
+    const handleChange = vi.fn();
+    render(<NumericInput value={18} onChange={handleChange} />);
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "" } });
+    expect(handleChange).not.toHaveBeenCalled();
+    expect(input.value).toBe("");
+  });
+
+  it("restores the previous value on blur if left empty", () => {
+    const handleChange = vi.fn();
+    render(<NumericInput value={18} onChange={handleChange} />);
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    expect(handleChange).toHaveBeenLastCalledWith(18);
+    expect(input.value).toBe("18");
+  });
+
+  it("clamps to min value on blur", () => {
+    const handleChange = vi.fn();
+    render(<NumericInput value={18} min={10} onChange={handleChange} />);
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "5" } });
+    // onChange will be called with 5 since 5 is a valid number
+    expect(handleChange).toHaveBeenCalledWith(5);
+    // On blur, it should clamp to 10 and call onChange with 10
+    fireEvent.blur(input);
+    expect(handleChange).toHaveBeenLastCalledWith(10);
+    expect(input.value).toBe("10");
+  });
+
+  it("clamps to max value on blur", () => {
+    const handleChange = vi.fn();
+    render(<NumericInput value={18} max={30} onChange={handleChange} />);
+    const input = screen.getByRole("spinbutton") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "35" } });
+    expect(handleChange).toHaveBeenCalledWith(35);
+    fireEvent.blur(input);
+    expect(handleChange).toHaveBeenLastCalledWith(30);
+    expect(input.value).toBe("30");
+  });
+});
+

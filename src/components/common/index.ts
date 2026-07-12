@@ -53,3 +53,14 @@ export {
   CommandCategory,
   useCommandPaletteShortcut,
 } from "./CommandPalette";
+
+// Core UI Primitives
+export {
+  ActionButton,
+  ActionMenu,
+  FocusPanel,
+  SummarySection,
+  NumericInput,
+  type NumericInputProps,
+} from "./UI";
+

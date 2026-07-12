@@ -20,6 +20,7 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { NumericInput } from "../common";
 import { YouTubePlaylistManager } from "../media/YouTubePlaylistManager";
 import { NotebookLMWorkspace } from "./NotebookLMWorkspace";
 import {
@@ -727,10 +728,9 @@ export function IntegrationSettings() {
                 <label className="block text-sm font-medium text-foreground mb-2">
                   {t("integrations.httpServerPort")}
                 </label>
-                <input
-                  type="number"
+                <NumericInput
                   value={extensionPort}
-                  onChange={(e) => setExtensionPort(parseInt(e.target.value) || 8766)}
+                  onChange={(value) => setExtensionPort(value)}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <p className="text-xs text-muted-foreground mt-1">

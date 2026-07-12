@@ -4,6 +4,7 @@
  */
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import { NumericInput } from "../common";
 import {
   ArrowsClockwise,
   Check,
@@ -689,12 +690,11 @@ export function LLMProviderSettings({
             <label className="block text-sm font-medium text-foreground mb-2">
               Max Tokens
             </label>
-            <input
-              type="number"
-              min="1"
-              max="128000"
+            <NumericInput
+              min={1}
+              max={128000}
               value={newProviderMaxTokens}
-              onChange={(e) => setNewProviderMaxTokens(parseInt(e.target.value) || 4096)}
+              onChange={(value) => setNewProviderMaxTokens(value)}
               className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground"
             />
           </div>

@@ -20,6 +20,7 @@ import {
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../lib/i18n";
 import { invokeCommand } from "../../lib/tauri";
+import { NumericInput } from "../common";
 
 const DEFAULT_CONFIG: AIConfig = {
   default_provider: LLMProviderType.OpenAI,
@@ -483,16 +484,15 @@ export function AISettings() {
             <label className="block text-sm font-medium text-foreground mb-2">
               {t("aiSettings.maxTokens")}
             </label>
-            <input
-              type="number"
-              min="256"
-              max="8192"
-              step="256"
+            <NumericInput
+              min={256}
+              max={8192}
+              step={256}
               value={config.models.max_tokens}
-              onChange={(e) =>
+              onChange={(value) =>
                 setConfigState({
                   ...config,
-                  models: { ...config.models, max_tokens: parseInt(e.target.value) },
+                  models: { ...config.models, max_tokens: value },
                 })
               }
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -507,13 +507,12 @@ export function AISettings() {
             <label className="block text-sm font-medium text-foreground mb-2">
               {t("aiSettings.contextWindow")}
             </label>
-            <input
-              type="number"
-              min="1000"
-              max="32000"
-              step="500"
+            <NumericInput
+              min={1000}
+              max={32000}
+              step={500}
               value={contextWindowTokens}
-              onChange={(e) => setContextWindowTokens(parseInt(e.target.value) || 4000)}
+              onChange={(value) => setContextWindowTokens(value)}
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
             <p className="text-xs text-muted-foreground mt-1">

@@ -10,6 +10,7 @@ import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
 import { useMCPServersStore } from "../../stores/mcpServersStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { invokeCommand as invoke } from "../../lib/tauri";
+import { NumericInput } from "../common";
 import { useState, useEffect } from "react";
 import { useI18n } from "../../lib/i18n";
 import { getAIConfig, setApiKey, isMaskedKey } from "../../api/ai";
@@ -278,13 +279,12 @@ export function AISettings({ onChange }: { onChange: () => void }) {
           label={t("aiSettings.contextWindow")}
           description={t("aiProvider.contextWindowDesc")}
         >
-          <input
-            type="number"
-            min="1000"
-            max="32000"
-            step="500"
+          <NumericInput
+            min={1000}
+            max={32000}
+            step={500}
             value={contextWindowTokens}
-            onChange={(e) => handleSaveContextWindow(parseInt(e.target.value) || 4000)}
+            onChange={handleSaveContextWindow}
             className="w-24 px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
           />
         </SettingsRow>
@@ -332,16 +332,15 @@ export function AISettings({ onChange }: { onChange: () => void }) {
           label="Cards per extract"
           description="Number of flashcards to generate per extract (1-20)"
         >
-          <input
-            type="number"
-            min="1"
-            max="20"
+          <NumericInput
+            min={1}
+            max={20}
             value={settings.ai.aiControls.cardsPerExtract}
-            onChange={(e) => {
+            onChange={(value) => {
               updateSettings({
                 ai: {
                   ...settings.ai,
-                  aiControls: { ...settings.ai.aiControls, cardsPerExtract: parseInt(e.target.value) || 5 },
+                  aiControls: { ...settings.ai.aiControls, cardsPerExtract: value },
                 },
               });
               onChange();
@@ -491,16 +490,15 @@ export function AISettings({ onChange }: { onChange: () => void }) {
           label="Max tokens per request"
           description="Global fallback for max tokens (256-128000); overridden by per-provider value"
         >
-          <input
-            type="number"
-            min="256"
-            max="128000"
+          <NumericInput
+            min={256}
+            max={128000}
             value={settings.ai.aiControls.maxTokensPerRequest}
-            onChange={(e) => {
+            onChange={(value) => {
               updateSettings({
                 ai: {
                   ...settings.ai,
-                  aiControls: { ...settings.ai.aiControls, maxTokensPerRequest: parseInt(e.target.value) || 4096 },
+                  aiControls: { ...settings.ai.aiControls, maxTokensPerRequest: value },
                 },
               });
               onChange();
@@ -536,16 +534,15 @@ export function AISettings({ onChange }: { onChange: () => void }) {
           label="Document snippet length"
           description="Characters per context snippet from source documents (200-10000)"
         >
-          <input
-            type="number"
-            min="200"
-            max="10000"
+          <NumericInput
+            min={200}
+            max={10000}
             value={settings.ai.aiControls.documentSnippetLength}
-            onChange={(e) => {
+            onChange={(value) => {
               updateSettings({
                 ai: {
                   ...settings.ai,
-                  aiControls: { ...settings.ai.aiControls, documentSnippetLength: parseInt(e.target.value) || 2000 },
+                  aiControls: { ...settings.ai.aiControls, documentSnippetLength: value },
                 },
               });
               onChange();

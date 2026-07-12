@@ -20,6 +20,7 @@ import {
 import { cloneVoice, generateSpeech, TTSServiceError } from "../../api/tts";
 import { checkPocketTTSAvailable } from "../../api/pocketTts";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { NumericInput } from "../common";
 import {
   FAL_LANGUAGES,
   createDefaultTTSSettings,
@@ -1135,35 +1136,32 @@ export function TTSSettings() {
           </div>
           <div className="mt-3 grid gap-3 md:grid-cols-3">
             <label className="text-xs">{t("settings.ttsTemperature")}
-              <input
-                type="number"
+              <NumericInput
                 min={0.1}
                 max={2}
                 step={0.05}
                 value={customPresetForm.temperature}
-                onChange={(e) => setCustomPresetForm((prev) => ({ ...prev, temperature: Number(e.target.value) || 0.9 }))}
+                onChange={(value) => setCustomPresetForm((prev) => ({ ...prev, temperature: value }))}
                 className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
               />
             </label>
             <label className="text-xs">{t("settings.ttsTopP")}
-              <input
-                type="number"
+              <NumericInput
                 min={0.1}
                 max={1}
                 step={0.05}
                 value={customPresetForm.topP}
-                onChange={(e) => setCustomPresetForm((prev) => ({ ...prev, topP: Number(e.target.value) || 1 }))}
+                onChange={(value) => setCustomPresetForm((prev) => ({ ...prev, topP: value }))}
                 className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
               />
             </label>
             <label className="text-xs">{t("settings.ttsMaxTokens")}
-              <input
-                type="number"
+              <NumericInput
                 min={20}
                 max={1000}
                 step={10}
                 value={customPresetForm.maxNewTokens}
-                onChange={(e) => setCustomPresetForm((prev) => ({ ...prev, maxNewTokens: Number(e.target.value) || 220 }))}
+                onChange={(value) => setCustomPresetForm((prev) => ({ ...prev, maxNewTokens: value }))}
                 className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
               />
             </label>

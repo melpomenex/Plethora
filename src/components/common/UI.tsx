@@ -148,3 +148,89 @@ export function SummarySection({ title, children, action }: { title: string; chi
     </section>
   );
 }
+
+export interface NumericInputProps {
+  id?: string;
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  className?: string;
+  placeholder?: string;
+  disabled?: boolean;
+}
+
+export function NumericInput({
+  id,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  className,
+  placeholder,
+  disabled,
+}: NumericInputProps) {
+  const [tempValue, setTempValue] = useState<string>(
+    value !== undefined && value !== null && !isNaN(value) ? String(value) : ""
+  );
+
+  useEffect(() => {
+    if (value !== undefined && value !== null && !isNaN(value)) {
+      if (Number(tempValue) !== value) {
+        setTempValue(String(value));
+      }
+    } else {
+      setTempValue("");
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawVal = e.target.value;
+    setTempValue(rawVal);
+
+    if (rawVal === "") {
+      return;
+    }
+
+    const num = step && step % 1 !== 0 ? parseFloat(rawVal) : parseInt(rawVal, 10);
+    if (!isNaN(num)) {
+      onChange(num);
+    }
+  };
+
+  const handleBlur = () => {
+    let num = step && step % 1 !== 0 ? parseFloat(tempValue) : parseInt(tempValue, 10);
+    if (isNaN(num)) {
+      num = value !== undefined && value !== null && !isNaN(value) ? value : (min ?? 0);
+    }
+
+    if (min !== undefined && num < min) {
+      num = min;
+    }
+    if (max !== undefined && num > max) {
+      num = max;
+    }
+
+    setTempValue(String(num));
+    onChange(num);
+  };
+
+  return (
+    <input
+      type="number"
+      id={id}
+      min={min}
+      max={max}
+      step={step}
+      value={tempValue}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      className={className}
+      placeholder={placeholder}
+      disabled={disabled}
+    />
+  );
+}
+

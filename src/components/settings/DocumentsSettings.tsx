@@ -2,6 +2,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { OCRSettings } from "./OCRSettings";
 import { useI18n } from "../../lib/i18n";
 import TASSettingsPanel from "../tas/TASSettingsPanel";
+import { NumericInput } from "../common";
 
 export function DocumentsSettings() {
   const { settings, updateSettings } = useSettingsStore();
@@ -190,17 +191,16 @@ export function DocumentsSettings() {
             <label htmlFor="epubFontSize" className="block text-sm font-medium text-foreground mb-2">
               {t("settingsDocs.defaultFontSize")}
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="epubFontSize"
-              min="10"
-              max="30"
+              min={10}
+              max={30}
               value={settings.documents.epubSettings.fontSize}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
                   documents: {
                     ...settings.documents,
-                    epubSettings: { ...settings.documents.epubSettings, fontSize: parseInt(e.target.value) || 16 },
+                    epubSettings: { ...settings.documents.epubSettings, fontSize: value },
                   },
                 })
               }
@@ -235,20 +235,19 @@ export function DocumentsSettings() {
             <label htmlFor="epubLineHeight" className="block text-sm font-medium text-foreground mb-2">
               {t("settingsDocs.lineHeight")}
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="epubLineHeight"
-              min="1.2"
-              max="2.2"
-              step="0.1"
+              min={1.2}
+              max={2.2}
+              step={0.1}
               value={settings.documents.epubSettings.lineHeight}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
                   documents: {
                     ...settings.documents,
                     epubSettings: {
                       ...settings.documents.epubSettings,
-                      lineHeight: parseFloat(e.target.value) || 1.6,
+                      lineHeight: value,
                     },
                   },
                 })
@@ -319,17 +318,16 @@ export function DocumentsSettings() {
             <label htmlFor="segmentLength" className="block text-sm font-medium text-foreground mb-2">
               {t("settingsDocs.targetSegmentLength")}
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="segmentLength"
-              min="50"
-              max="1000"
+              min={50}
+              max={1000}
               value={settings.documents.segmentation.targetLength}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
                   documents: {
                     ...settings.documents,
-                    segmentation: { ...settings.documents.segmentation, targetLength: parseInt(e.target.value) || 200 },
+                    segmentation: { ...settings.documents.segmentation, targetLength: value },
                   },
                 })
               }
@@ -344,17 +342,16 @@ export function DocumentsSettings() {
             <label htmlFor="overlapLength" className="block text-sm font-medium text-foreground mb-2">
               {t("settingsDocs.overlapLength")}
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="overlapLength"
-              min="0"
-              max="100"
+              min={0}
+              max={100}
               value={settings.documents.segmentation.overlap}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
                   documents: {
                     ...settings.documents,
-                    segmentation: { ...settings.documents.segmentation, overlap: parseInt(e.target.value) || 0 },
+                    segmentation: { ...settings.documents.segmentation, overlap: value },
                   },
                 })
               }

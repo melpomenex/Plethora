@@ -48,6 +48,7 @@ import { TTSSettings } from "./TTSSettings";
 import { EmbeddingSettings } from "./EmbeddingSettings";
 import { SmartQueuesSettings } from "./SmartQueuesSettings";
 import { useToast } from "../common/Toast";
+import { NumericInput } from "../common";
 import { cn } from "../../utils";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { isTauri } from "../../lib/tauri";
@@ -949,14 +950,12 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
               }}
               className="w-32"
             />
-            <input
-              type="number"
-              min="0.25"
-              max="8"
-              step="0.25"
+            <NumericInput
+              min={0.25}
+              max={8}
+              step={0.25}
               value={settings.interface.animationFrequency}
-              onChange={(e) => {
-                const value = Math.min(8, Math.max(0.25, parseFloat(e.target.value) || 0.25));
+              onChange={(value) => {
                 updateSettingsCategory("interface", { animationFrequency: value });
                 onChange();
               }}
@@ -984,14 +983,12 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
               }}
               className="w-32"
             />
-            <input
-              type="number"
-              min="1"
-              max="100"
-              step="1"
+            <NumericInput
+              min={1}
+              max={100}
+              step={1}
               value={settings.interface.animationBrightness}
-              onChange={(e) => {
-                const value = Math.min(100, Math.max(1, parseInt(e.target.value, 10) || 1));
+              onChange={(value) => {
                 updateSettingsCategory("interface", { animationBrightness: value });
                 onChange();
               }}

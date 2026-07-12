@@ -4,6 +4,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useRagStore } from "../../stores/ragStore";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../lib/i18n";
+import { NumericInput } from "../common";
 
 /**
  * Embeddings & RAG settings: choose a cloud or local embedding provider,
@@ -131,46 +132,42 @@ export function EmbeddingSettings() {
         <div className="grid grid-cols-2 gap-4">
           <label className="block text-sm">
             <span className="text-muted-foreground">{t("embeddings.chunkSize")}</span>
-            <input
-              type="number"
+            <NumericInput
               min={50}
               max={2000}
               value={settings.chunkSize}
-              onChange={(e) => update({ chunkSize: Number(e.target.value) })}
+              onChange={(value) => update({ chunkSize: value })}
               className="mt-1 w-full px-3 py-2 bg-background border border-border rounded text-sm"
             />
           </label>
           <label className="block text-sm">
             <span className="text-muted-foreground">{t("embeddings.chunkOverlap")}</span>
-            <input
-              type="number"
+            <NumericInput
               min={0}
               max={500}
               value={settings.chunkOverlap}
-              onChange={(e) => update({ chunkOverlap: Number(e.target.value) })}
+              onChange={(value) => update({ chunkOverlap: value })}
               className="mt-1 w-full px-3 py-2 bg-background border border-border rounded text-sm"
             />
           </label>
           <label className="block text-sm">
             <span className="text-muted-foreground">{t("embeddings.topK")}</span>
-            <input
-              type="number"
+            <NumericInput
               min={1}
               max={50}
               value={settings.topK}
-              onChange={(e) => update({ topK: Number(e.target.value) })}
+              onChange={(value) => update({ topK: value })}
               className="mt-1 w-full px-3 py-2 bg-background border border-border rounded text-sm"
             />
           </label>
           <label className="block text-sm">
             <span className="text-muted-foreground">{t("embeddings.minSimilarity")}</span>
-            <input
-              type="number"
-              step="0.05"
+            <NumericInput
+              step={0.05}
               min={0}
               max={1}
               value={settings.minSimilarity}
-              onChange={(e) => update({ minSimilarity: Number(e.target.value) })}
+              onChange={(value) => update({ minSimilarity: value })}
               className="mt-1 w-full px-3 py-2 bg-background border border-border rounded text-sm"
             />
           </label>

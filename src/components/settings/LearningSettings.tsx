@@ -4,6 +4,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { optimizeAlgorithmParams } from "../../api/algorithm";
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
+import { NumericInput } from "../common";
 
 export function LearningSettings() {
   const { t } = useI18n();
@@ -229,19 +230,18 @@ export function LearningSettings() {
                   <div className="grid grid-cols-2 gap-2">
                     <label className="text-xs text-muted-foreground">
                       Retention
-                      <input
-                        type="number"
-                        min="0.7"
-                        max="0.99"
-                        step="0.01"
+                      <NumericInput
+                        min={0.7}
+                        max={0.99}
+                        step={0.01}
                         value={override.desiredRetention ?? settings.learning.fsrsParams.desiredRetention}
-                        onChange={(e) =>
+                        onChange={(value) =>
                           updateSettings({
                             learning: {
                               ...settings.learning,
                               scopedFsrsOverrides: scopedOverrides.map((entry) =>
                                 entry.id === override.id
-                                  ? { ...entry, desiredRetention: Number(e.target.value) }
+                                  ? { ...entry, desiredRetention: value }
                                   : entry
                               ),
                             },
@@ -252,18 +252,17 @@ export function LearningSettings() {
                     </label>
                     <label className="text-xs text-muted-foreground">
                       Max interval
-                      <input
-                        type="number"
-                        min="1"
-                        max="36500"
+                      <NumericInput
+                        min={1}
+                        max={36500}
                         value={override.maximumInterval ?? settings.learning.fsrsParams.maximumInterval}
-                        onChange={(e) =>
+                        onChange={(value) =>
                           updateSettings({
                             learning: {
                               ...settings.learning,
                               scopedFsrsOverrides: scopedOverrides.map((entry) =>
                                 entry.id === override.id
-                                  ? { ...entry, maximumInterval: Number(e.target.value) }
+                                  ? { ...entry, maximumInterval: value }
                                   : entry
                               ),
                             },
@@ -289,15 +288,14 @@ export function LearningSettings() {
             <label htmlFor="newCardsPerDay" className="block text-sm font-medium text-foreground mb-2">
               New Cards per Day
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="newCardsPerDay"
-              min="0"
-              max="100"
+              min={0}
+              max={100}
               value={settings.learning.newCardsPerDay}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
-                  learning: { ...settings.learning, newCardsPerDay: parseInt(e.target.value) || 0 },
+                  learning: { ...settings.learning, newCardsPerDay: value },
                 })
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
@@ -308,15 +306,14 @@ export function LearningSettings() {
             <label htmlFor="initialInterval" className="block text-sm font-medium text-foreground mb-2">
               Initial Interval (days)
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="initialInterval"
-              min="0"
-              max="30"
+              min={0}
+              max={30}
               value={settings.learning.initialInterval}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
-                  learning: { ...settings.learning, initialInterval: parseInt(e.target.value) || 0 },
+                  learning: { ...settings.learning, initialInterval: value },
                 })
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
@@ -333,15 +330,14 @@ export function LearningSettings() {
             <label htmlFor="reviewsPerDay" className="block text-sm font-medium text-foreground mb-2">
               Reviews per Day Limit
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="reviewsPerDay"
-              min="0"
-              max="1000"
+              min={0}
+              max={1000}
               value={settings.learning.reviewsPerDay}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
-                  learning: { ...settings.learning, reviewsPerDay: parseInt(e.target.value) || 0 },
+                  learning: { ...settings.learning, reviewsPerDay: value },
                 })
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
@@ -355,15 +351,14 @@ export function LearningSettings() {
             <label htmlFor="maxReviewTime" className="block text-sm font-medium text-foreground mb-2">
               Max Review Time per Card (seconds)
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="maxReviewTime"
-              min="5"
-              max="300"
+              min={5}
+              max={300}
               value={settings.learning.maxReviewTime}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
-                  learning: { ...settings.learning, maxReviewTime: parseInt(e.target.value) || 60 },
+                  learning: { ...settings.learning, maxReviewTime: value },
                 })
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
@@ -404,15 +399,14 @@ export function LearningSettings() {
             <label htmlFor="lapseInterval" className="block text-sm font-medium text-foreground mb-2">
               Relearning Interval (days)
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="lapseInterval"
-              min="1"
-              max="30"
+              min={1}
+              max={30}
               value={settings.learning.lapseInterval}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
-                  learning: { ...settings.learning, lapseInterval: parseInt(e.target.value) || 1 },
+                  learning: { ...settings.learning, lapseInterval: value },
                 })
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
@@ -429,15 +423,14 @@ export function LearningSettings() {
             <label htmlFor="graduatingInterval" className="block text-sm font-medium text-foreground mb-2">
               Graduating Interval (days)
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="graduatingInterval"
-              min="1"
-              max="30"
+              min={1}
+              max={30}
               value={settings.learning.graduatingInterval}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
-                  learning: { ...settings.learning, graduatingInterval: parseInt(e.target.value) || 1 },
+                  learning: { ...settings.learning, graduatingInterval: value },
                 })
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
@@ -451,15 +444,14 @@ export function LearningSettings() {
             <label htmlFor="easyInterval" className="block text-sm font-medium text-foreground mb-2">
               Easy Interval (days)
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="easyInterval"
-              min="1"
-              max="60"
+              min={1}
+              max={60}
               value={settings.learning.easyInterval}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
-                  learning: { ...settings.learning, easyInterval: parseInt(e.target.value) || 4 },
+                  learning: { ...settings.learning, easyInterval: value },
                 })
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
@@ -479,15 +471,14 @@ export function LearningSettings() {
             <label htmlFor="leechThreshold" className="block text-sm font-medium text-foreground mb-2">
               Leech Threshold (lapses)
             </label>
-            <input
-              type="number"
+            <NumericInput
               id="leechThreshold"
-              min="3"
-              max="20"
+              min={3}
+              max={20}
               value={settings.learning.leechThreshold}
-              onChange={(e) =>
+              onChange={(value) =>
                 updateSettings({
-                  learning: { ...settings.learning, leechThreshold: parseInt(e.target.value) || 8 },
+                  learning: { ...settings.learning, leechThreshold: value },
                 })
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
@@ -821,12 +812,11 @@ function NumberSetting({
   return (
     <div>
       <label className="block text-xs font-medium text-foreground mb-1">{label}</label>
-      <input
-        type="number"
+      <NumericInput
         min={min}
         max={max}
         value={value}
-        onChange={(e) => onChange(Math.max(min, Math.min(max, Number(e.target.value) || 0)))}
+        onChange={onChange}
         className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
       />
     </div>
