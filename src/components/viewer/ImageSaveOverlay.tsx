@@ -4,6 +4,7 @@ import { ingestImageBlob } from "../../api/image-registry";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils";
+import { isTauri } from "../../lib/tauri";
 
 interface ImageHoverData {
   src: string;
@@ -78,11 +79,39 @@ export function ImageSaveOverlay() {
         const response = await fetch(hoverData.src);
         blob = await response.blob();
       } else {
-        const response = await fetch(hoverData.src);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch image: ${response.statusText}`);
+        try {
+          const response = await fetch(hoverData.src);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch image: ${response.statusText}`);
+          }
+          blob = await response.blob();
+        } catch (fetchError) {
+          // If we are in Tauri and it's a local/asset file, try reading it using plugin-fs
+          if (isTauri()) {
+            const filePath = getFilePathFromUrl(hoverData.src);
+            if (filePath) {
+              const fs = await import("@tauri-apps/plugin-fs");
+              const bytes = await fs.readFile(filePath);
+              // Guess mime type from file extension
+              const ext = filePath.split(".").pop()?.toLowerCase();
+              let mimeType = "image/png"; // default
+              if (ext === "jpg" || ext === "jpeg") {
+                mimeType = "image/jpeg";
+              } else if (ext === "gif") {
+                mimeType = "image/gif";
+              } else if (ext === "webp") {
+                mimeType = "image/webp";
+              } else if (ext === "svg") {
+                mimeType = "image/svg+xml";
+              }
+              blob = new Blob([bytes], { type: mimeType });
+            } else {
+              throw fetchError;
+            }
+          } else {
+            throw fetchError;
+          }
         }
-        blob = await response.blob();
       }
 
       // Generate a reasonable file name based on current timestamp
@@ -170,6 +199,51 @@ export function ImageSaveOverlay() {
       </button>
     </div>
   );
+}
+
+function getFilePathFromUrl(src: string): string | null {
+  try {
+    const url = new URL(src);
+    if (url.protocol === "asset:" || url.host === "asset.localhost" || url.protocol === "file:") {
+      let pathname = decodeURIComponent(url.pathname);
+      // On Windows, pathname might be like "/C:/Users/..." or "/C:\Users\..."
+      // If we have a drive letter pattern "/[a-zA-Z]:", strip the leading slash
+      if (/^\/[a-zA-Z]:/.test(pathname)) {
+        pathname = pathname.substring(1);
+      }
+      return pathname;
+    }
+  } catch {
+    // If URL parsing fails, fall back to string parsing
+  }
+
+  // Fallback string matching
+  let cleanSrc = src.split("?")[0].split("#")[0];
+  const prefixes = [
+    "asset://localhost/",
+    "https://asset.localhost/",
+    "http://asset.localhost/",
+    "asset://",
+    "file:///",
+    "file://"
+  ];
+
+  for (const prefix of prefixes) {
+    if (cleanSrc.startsWith(prefix)) {
+      let path = decodeURIComponent(cleanSrc.substring(prefix.length));
+      if (/^[a-zA-Z]:/.test(path)) {
+        // Windows path style
+        return path;
+      }
+      // Absolute path or Unix path
+      if (!path.startsWith("/")) {
+        path = "/" + path;
+      }
+      return path;
+    }
+  }
+
+  return null;
 }
 
 export default ImageSaveOverlay;
