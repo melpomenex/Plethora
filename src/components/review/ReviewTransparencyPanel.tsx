@@ -12,8 +12,8 @@ interface ReviewTransparencyPanelProps {
 
 const ALGORITHM_LABELS: Record<string, string> = {
   fsrs: "FSRS-6 Transparency",
-  sm18: "SuperMemo 18 Transparency",
-  sm20: "SuperMemo 20 Transparency",
+  sm18: "SM-18 Transparency",
+  sm20: "SM-20 Transparency",
 };
 
 function getAlgorithmLabel(algorithmType?: string): string {

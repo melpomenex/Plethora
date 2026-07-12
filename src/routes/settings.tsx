@@ -90,12 +90,12 @@ export function Settings() {
                 className="px-3 py-2 bg-background border border-border rounded-md text-foreground"
               >
                 <option value="fsrs">{t("settingsLegacy.fsrsRecommended")}</option>
-                <option value="sm18">SuperMemo 18</option>
-                <option value="sm20">SuperMemo 20</option>
-                <option value="sm15">SuperMemo 15</option>
-                <option value="sm8">SuperMemo 8</option>
-                <option value="sm5">SuperMemo 5</option>
-                <option value="sm2">SuperMemo 2</option>
+                <option value="sm18">SM-18</option>
+                <option value="sm20">SM-20</option>
+                <option value="sm15">SM-15</option>
+                <option value="sm8">SM-8</option>
+                <option value="sm5">SM-5</option>
+                <option value="sm2">SM-2</option>
               </select>
             </div>
 

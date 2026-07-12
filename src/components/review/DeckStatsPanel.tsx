@@ -56,9 +56,9 @@ function StatRow({ label, value, color, onClick }: { label: string; value: strin
 
 const ALGO_NAMES: Record<string, string> = {
   fsrs: "FSRS-6",
-  sm2: "SuperMemo 2",
-  sm18: "SuperMemo 18",
-  sm20: "SuperMemo 20",
+  sm2: "SM-2",
+  sm18: "SM-18",
+  sm20: "SM-20",
 };
 
 export function DeckStatsPanel({

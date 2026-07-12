@@ -334,9 +334,9 @@ export function ItemDetailsPopover({
               <div className="text-xs text-muted-foreground">
                 {t("itemDetails.scheduling")} / {
                   details.algorithmType === "sm18" || (details.algorithmType !== "fsrs" && settings.learning.algorithm === "sm18")
-                    ? "SuperMemo 18"
+                    ? "SM-18"
                     : details.algorithmType === "sm20" || (details.algorithmType !== "fsrs" && settings.learning.algorithm === "sm20")
-                    ? "SuperMemo 20"
+                    ? "SM-20"
                     : "FSRS-6"
                 }
               </div>

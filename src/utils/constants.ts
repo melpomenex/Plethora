@@ -21,9 +21,9 @@ export const KEYBOARD_SHORTCUTS = {
 
 export const ALGORITHM_NAMES = {
   fsrs: "FSRS-6",
-  sm2: "SuperMemo 2",
-  sm18: "SuperMemo 18",
-  sm20: "SuperMemo 20",
+  sm2: "SM-2",
+  sm18: "SM-18",
+  sm20: "SM-20",
 } as const;
 
 export const FILE_TYPE_ICONS = {
