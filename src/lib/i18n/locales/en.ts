@@ -3369,6 +3369,11 @@ export const en: Dict = {
   "settings.vimCardTypeQa": "Q&A",
   "settings.vimCardTypeCloze": "Cloze",
   "settings.vimCardTypeMultipleChoice": "Multiple choice",
+  "vimReading.firstHint": "Vim reading is on · v selects · ? shows help · Esc exits",
+  "vimReading.helpTitle": "Vim reading commands",
+  "vimReading.helpNormal": "Move with h j k l, w/b, { / }, gg/G. Press v or V to select.",
+  "vimReading.helpVisual": "Extend with motions. Extract, edit, copy, highlight, or create a card.",
+  "vimReading.helpClose": "Close help",
 
   "settings.mcpConfiguredServers": "Configured Servers",
   "settings.mcpServersCount": "{count} / {max} servers configured",

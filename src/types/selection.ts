@@ -43,6 +43,8 @@ export interface EpubSelectionContext {
   type: "epub";
   documentId: string;
   cfiRange: string;
+  /** One exact range per covered spine item for cross-section Vim selections. */
+  cfiRanges?: string[];
   selectedText: string;
 }
 

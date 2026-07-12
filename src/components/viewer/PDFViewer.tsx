@@ -49,6 +49,7 @@ import { OcrTextPreview } from "./OcrTextPreview";
 import { usePdfOcrManager } from "./PdfOcrManager";
 import { createPdfLoadSourceFactories } from "./pdfLoadSources";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
+import type { PdfVimRuntime } from "../../utils/vim/readerRuntimes";
 // Import PDF.js text layer styles
 import "pdfjs-dist/web/pdf_viewer.css";
 import "./PDFViewer.css";
@@ -356,6 +357,7 @@ interface PDFViewerProps {
   ttsQuery?: string;
   ttsHighlightEnabled?: boolean;
   onTextLayerRootsChange?: (roots: (HTMLDivElement | null)[], scrollContainer: HTMLElement | null) => void;
+  onVimRuntimeChange?: (runtime: PdfVimRuntime | null) => void;
 }
 
 type PdfSearchMatch = {
@@ -413,6 +415,7 @@ export function PDFViewer({
   ttsQuery,
   ttsHighlightEnabled,
   onTextLayerRootsChange,
+  onVimRuntimeChange,
 }: PDFViewerProps) {
   const { t } = useI18n();
 
@@ -446,6 +449,7 @@ export function PDFViewer({
   // region selection can still capture from it.
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const textLayerRootsRef = useRef<(HTMLDivElement | null)[]>([]);
+  const vimRuntimeListenersRef = useRef(new Set<(event: { kind: "content" | "geometry" | "destroyed"; pageNumber?: number }) => void>());
   const pageViewportRefs = useRef<(import("pdfjs-dist").PageViewport | null)[]>([]);
   const pageScaleRefs = useRef<(number | null)[]>([]);
   // Shared pdf.js EventBus — every PDFPageView for this document shares it.
@@ -457,9 +461,13 @@ export function PDFViewer({
   }
   const scrollRafRef = useRef<number | null>(null);
   const pageNumberRef = useRef(pageNumber);
+  const onPageChangeRef = useRef(onPageChange);
+  const onVimRuntimeChangeRef = useRef(onVimRuntimeChange);
   const isProgrammaticScrollRef = useRef(false);
   // Keep pageNumberRef in sync so async page-view callbacks can check it
   useEffect(() => { pageNumberRef.current = pageNumber; }, [pageNumber]);
+  useEffect(() => { onPageChangeRef.current = onPageChange; }, [onPageChange]);
+  useEffect(() => { onVimRuntimeChangeRef.current = onVimRuntimeChange; }, [onVimRuntimeChange]);
 
   // If the page number update came from scroll syncing, don't auto-scroll to the top of the page.
   // (pageNumberRef sync is above)
@@ -537,6 +545,7 @@ export function PDFViewer({
     pageViewportRefs.current[idx] = viewport;
     pageScaleRefs.current[idx] = viewport.scale;
     recomputePageOffsetsRef.current?.();
+    vimRuntimeListenersRef.current.forEach((listener) => listener({ kind: "geometry", pageNumber: idx + 1 }));
   }, []);
 
   const handleCanvasRef = useCallback((idx: number, canvas: HTMLCanvasElement | null) => {
@@ -548,6 +557,7 @@ export function PDFViewer({
     notifyTextLayersChange();
     // Re-apply search / TTS / jump-highlight marks now that the text layer is fresh.
     applyTextLayerHighlightsRef.current?.(idx);
+    vimRuntimeListenersRef.current.forEach((listener) => listener({ kind: "content", pageNumber: idx + 1 }));
   }, [notifyTextLayersChange]);
 
   // Update parent with text layer roots and scroll container on load/mount
@@ -1930,6 +1940,62 @@ export function PDFViewer({
       pages: Array.from(pages.values()).sort((a, b) => a.pageNumber - b.pageNumber),
     };
   }, [documentId, pdf]);
+
+  useEffect(() => {
+    if (!pdf || numPages <= 0) { onVimRuntimeChangeRef.current?.(null); return; }
+    const runtime: PdfVimRuntime = {
+      documentId,
+      pageCount: numPages,
+      currentPageNumber: () => pageNumberRef.current,
+      loadPageText: async (targetPage, signal) => {
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        const page = await pdf.getPage(targetPage);
+        const content = await page.getTextContent();
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        return content.items.filter((item) => "str" in item).map((raw) => {
+          const item = raw as any;
+          return ({
+          str: item.str,
+          transform: item.transform,
+          width: item.width,
+          height: item.height,
+          hasEOL: item.hasEOL,
+          });
+        });
+      },
+      revealPage: async (targetPage, signal) => {
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        setRenderedPageRange((range) => ({ start: Math.min(range.start, targetPage), end: Math.max(range.end, targetPage) }));
+        onPageChangeRef.current?.(targetPage);
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+          const pageElement = pageContainerRefs.current[targetPage - 1];
+          if (pageElement) { pageElement.scrollIntoView({ block: "center", behavior: "instant" }); return; }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      },
+      textLayer: (targetPage) => textLayerRootsRef.current[targetPage - 1],
+      pageSelectionContext: (targetPage, range) => {
+        const pageElement = pageContainerRefs.current[targetPage - 1];
+        const viewport = pageViewportRefs.current[targetPage - 1];
+        if (!pageElement || !viewport) return null;
+        const bounds = pageElement.getBoundingClientRect();
+        const viewportRects: ViewportRect[] = [];
+        const pdfRects: PdfRect[] = [];
+        for (const rect of Array.from(range.getClientRects())) {
+          if (rect.width <= 0 || rect.height <= 0) continue;
+          const local = { left: rect.left - bounds.left, top: rect.top - bounds.top, width: rect.width, height: rect.height };
+          const [x1, y1] = viewport.convertToPdfPoint(local.left, local.top);
+          const [x2, y2] = viewport.convertToPdfPoint(local.left + local.width, local.top + local.height);
+          viewportRects.push(local); pdfRects.push({ x1, y1, x2, y2 });
+        }
+        return { pageNumber: targetPage, viewportRects, pdfRects };
+      },
+      subscribe: (listener) => { vimRuntimeListenersRef.current.add(listener); return () => vimRuntimeListenersRef.current.delete(listener); },
+    };
+    onVimRuntimeChangeRef.current?.(runtime);
+    return () => { onVimRuntimeChangeRef.current?.(null); };
+  }, [documentId, numPages, pdf]);
 
   // Draw selection highlights based on current selection (no-op now since we rely purely on clean native browser highlights)
   const updateSelectionHighlights = useCallback(() => {}, []);

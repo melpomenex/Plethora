@@ -3,12 +3,15 @@ import { useVimModeStore, readLastExtractId } from "../stores/vimModeStore";
 import { VimCursorEngine, type VimAction } from "../utils/vim/VimCursorEngine";
 import { MarkdownAdapter } from "../utils/vim/adapters/markdownAdapter";
 import { HtmlAdapter } from "../utils/vim/adapters/htmlAdapter";
-import { EpubAdapter } from "../utils/vim/adapters/epubAdapter";
-import { PdfAdapter } from "../utils/vim/adapters/pdfAdapter";
 import type { VimActionContext } from "../utils/vim/actions";
 import { doExtract, doExtractWithDialog, doYank, doHighlight, doFlashcard, doChainFlashcard } from "../utils/vim/actions";
 import { clearSelection } from "../utils/vim/selectionManager";
 import { useTabsStore } from "../stores/tabsStore";
+import type { EpubVimRuntime, PdfVimRuntime } from "../utils/vim/readerRuntimes";
+import { EpubV2Adapter } from "../utils/vim/epubV2Adapter";
+import { PdfV2Adapter } from "../utils/vim/pdfV2Adapter";
+import { DocumentVimEngine } from "../utils/vim/DocumentVimEngine";
+import { canActivateDocumentVim } from "../utils/vim/focusEligibility";
 
 interface UseVimReadingOptions {
   docType: "epub" | "pdf" | "markdown" | "html";
@@ -21,6 +24,8 @@ interface UseVimReadingOptions {
   pdfScrollContainer?: HTMLElement | null;
   actionContext?: VimActionContext;
   isModalOpen?: boolean;
+  epubRuntime?: EpubVimRuntime | null;
+  pdfRuntime?: PdfVimRuntime | null;
 }
 
 export function useVimReading({
@@ -34,8 +39,10 @@ export function useVimReading({
   pdfScrollContainer,
   actionContext,
   isModalOpen,
+  epubRuntime,
+  pdfRuntime,
 }: UseVimReadingOptions) {
-  const engineRef = useRef<VimCursorEngine | null>(null);
+  const engineRef = useRef<VimCursorEngine | DocumentVimEngine | null>(null);
   const actionContextRef = useRef(actionContext);
   actionContextRef.current = actionContext;
 
@@ -55,6 +62,15 @@ export function useVimReading({
 
     const scrollContainer = getScrollContainer();
 
+    if (docType === "epub" && epubRuntime) {
+      engineRef.current = new DocumentVimEngine(new EpubV2Adapter(epubRuntime), () => actionContextRef.current);
+      return () => { engineRef.current?.dispose(); engineRef.current = null; };
+    }
+    if (docType === "pdf" && pdfRuntime) {
+      engineRef.current = new DocumentVimEngine(new PdfV2Adapter(pdfRuntime), () => actionContextRef.current);
+      return () => { engineRef.current?.dispose(); engineRef.current = null; };
+    }
+
     switch (docType) {
       case "markdown": {
         if (!contentRef?.current) return;
@@ -69,27 +85,21 @@ export function useVimReading({
         break;
       }
       case "epub": {
-        if (!iframeWindow) return;
-        const adapter = new EpubAdapter(iframeWindow, scrollContainer);
-        engineRef.current = new VimCursorEngine(adapter, handleAction);
-        break;
+        return;
       }
       case "pdf": {
-        if (!pdfTextLayerRoots || !pdfScrollContainer) return;
-        const adapter = new PdfAdapter(pdfTextLayerRoots, pdfScrollContainer);
-        engineRef.current = new VimCursorEngine(adapter, handleAction);
-        break;
+        return;
       }
     }
 
     // Keep the engine's operator context in sync with the latest actionContext.
-    engineRef.current?.setOperatorContext(actionContextRef.current ?? null);
+    if (engineRef.current instanceof VimCursorEngine) engineRef.current.setOperatorContext(actionContextRef.current ?? null);
 
     return () => {
       engineRef.current?.dispose();
       engineRef.current = null;
     };
-  }, [docType, iframeWindow, contentRef, iframeRef, pdfTextLayerRoots, pdfScrollContainer, getScrollContainer]);
+  }, [docType, contentRef, iframeRef, getScrollContainer, epubRuntime, pdfRuntime]);
 
   // Create a stable keydown handler function
   const makeKeyHandler = useCallback(() => {
@@ -100,8 +110,8 @@ export function useVimReading({
       const mode = useVimModeStore.getState().mode;
 
       // Activation: Escape when inactive and no modal open
-      if (e.key === "Escape" && mode === "inactive" && !isModalOpen) {
-        engine.activate(documentId);
+      if (e.key === "Escape" && mode === "inactive" && canActivateDocumentVim(e, isModalOpen)) {
+        if (engine instanceof DocumentVimEngine) void engine.activate(); else engine.activate(documentId);
         e.preventDefault();
         e.stopImmediatePropagation();
         return;
@@ -141,11 +151,36 @@ export function useVimReading({
     };
   }, [iframeWindow, docType, makeKeyHandler]);
 
+  useEffect(() => {
+    const handler = (event: PointerEvent) => {
+      const engine = engineRef.current;
+      if (engine instanceof DocumentVimEngine) void engine.handlePointerUp(event);
+    };
+    window.addEventListener("pointerup", handler, true);
+    const iframe = iframeWindow;
+    iframe?.addEventListener("pointerup", handler as EventListener, true);
+    return () => {
+      window.removeEventListener("pointerup", handler, true);
+      try { iframe?.removeEventListener("pointerup", handler as EventListener, true); } catch { /* destroyed iframe */ }
+    };
+  }, [iframeWindow, epubRuntime, pdfRuntime]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const engine = engineRef.current;
+      if (!(engine instanceof DocumentVimEngine)) return;
+      const detail = (event as CustomEvent<{ action: "extract" | "extract-dialog" | "yank" | "highlight" | "flashcard" | "extract2card"; color?: string }>).detail;
+      if (detail?.action) engine.performExternalAction(detail.action, detail.color);
+    };
+    window.addEventListener("vim-reading-action", handler);
+    return () => window.removeEventListener("vim-reading-action", handler);
+  }, [epubRuntime, pdfRuntime]);
+
   // Keep action context ref in sync
   useEffect(() => {
     vimActionContextRef = actionContext ?? null;
     vimIframeWindowRef = iframeWindow ?? null;
-    engineRef.current?.setOperatorContext(actionContext ?? null);
+    if (engineRef.current instanceof VimCursorEngine) engineRef.current.setOperatorContext(actionContext ?? null);
   }, [actionContext, iframeWindow]);
 
   // Clear transient vim state (pending operator, lastExtractId, deck tag) when
@@ -181,34 +216,12 @@ export function useVimReading({
     if (!target) return;
 
     const observer = new MutationObserver(() => {
-      engineRef.current?.rebuildModel();
+      if (engineRef.current instanceof VimCursorEngine) engineRef.current.rebuildModel();
     });
 
     observer.observe(target, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, [docType, contentRef, iframeRef]);
-
-  // Rebuild text model periodically for PDF (pages render lazily)
-  useEffect(() => {
-    if (docType !== "pdf") return;
-
-    const interval = setInterval(() => {
-      const store = useVimModeStore.getState();
-      if (store.mode !== "inactive") {
-        engineRef.current?.rebuildModel();
-      }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [docType]);
-
-  // For EPUB: rebuild text model when iframe window changes (chapter navigation)
-  useEffect(() => {
-    if (docType !== "epub" || !iframeWindow) return;
-
-    // The iframeWindow reference changes on chapter change, so rebuild
-    engineRef.current?.rebuildModel();
-  }, [docType, iframeWindow]);
 
   // Refresh cached rects on scroll so they stay accurate
   useEffect(() => {
@@ -230,7 +243,7 @@ export function useVimReading({
       if (scrollTimer) clearTimeout(scrollTimer);
       scrollTimer = setTimeout(() => {
         if (useVimModeStore.getState().mode !== "inactive") {
-          engine.refreshRects();
+          if (engine instanceof VimCursorEngine) engine.refreshRects();
         }
       }, 150);
     };

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { DocumentPosition, DocumentRange } from "../utils/vim/documentModel";
 
 export type VimMode = "inactive" | "normal" | "visual" | "visual-line";
 
@@ -32,8 +33,18 @@ function writePersistedCardType(v: VimCardType): void {
 
 interface VimModeState {
   mode: VimMode;
+  /** @deprecated Mounted-token cache for the legacy HTML/Markdown engine only. */
   cursorIndex: number;
+  /** @deprecated Mounted-token cache for the legacy HTML/Markdown engine only. */
   selectionAnchor: number;
+  /** Stable logical positions used by EPUB/PDF V2 adapters. */
+  cursorPosition: DocumentPosition | null;
+  selectionRange: DocumentRange | null;
+  countPrefix: string;
+  isResolving: boolean;
+  feedback: { kind: "success" | "error" | "unavailable"; message: string } | null;
+  locationLabel: string | null;
+  colorPickerOpen: boolean;
   activeDocId: string | null;
   desiredColumn: number;
   lastAction: string | null;
@@ -54,6 +65,14 @@ interface VimModeState {
   deactivate: () => void;
   setMode: (mode: VimMode) => void;
   moveCursor: (index: number, column?: number) => void;
+  moveToPosition: (position: DocumentPosition | null) => void;
+  setSelectionRange: (range: DocumentRange | null) => void;
+  setCountPrefix: (count: string) => void;
+  setResolving: (resolving: boolean) => void;
+  setDesiredColumn: (column: number) => void;
+  setFeedback: (feedback: VimModeState["feedback"]) => void;
+  setLocationLabel: (label: string | null) => void;
+  setColorPickerOpen: (open: boolean) => void;
   setSelectionAnchor: (index: number) => void;
   setLastAction: (action: string) => void;
   setPendingSequence: (seq: string) => void;
@@ -72,6 +91,13 @@ export const useVimModeStore = create<VimModeState>((set) => ({
   mode: "inactive",
   cursorIndex: 0,
   selectionAnchor: 0,
+  cursorPosition: null,
+  selectionRange: null,
+  countPrefix: "",
+  isResolving: false,
+  feedback: null,
+  locationLabel: null,
+  colorPickerOpen: false,
   activeDocId: null,
   desiredColumn: 0,
   lastAction: null,
@@ -88,6 +114,13 @@ export const useVimModeStore = create<VimModeState>((set) => ({
       mode: "normal",
       cursorIndex: 0,
       selectionAnchor: 0,
+      cursorPosition: null,
+      selectionRange: null,
+      countPrefix: "",
+      isResolving: false,
+      feedback: null,
+      locationLabel: null,
+      colorPickerOpen: false,
       activeDocId: docId,
       desiredColumn: 0,
       lastAction: null,
@@ -100,6 +133,13 @@ export const useVimModeStore = create<VimModeState>((set) => ({
       mode: "inactive",
       cursorIndex: 0,
       selectionAnchor: 0,
+      cursorPosition: null,
+      selectionRange: null,
+      countPrefix: "",
+      isResolving: false,
+      feedback: null,
+      locationLabel: null,
+      colorPickerOpen: false,
       activeDocId: null,
       desiredColumn: 0,
       lastAction: null,
@@ -117,6 +157,21 @@ export const useVimModeStore = create<VimModeState>((set) => ({
         ? {}
         : { selectionAnchor: index }),
     })),
+
+  moveToPosition: (position) =>
+    set((state) => ({
+      cursorPosition: position,
+      ...(state.mode === "visual" || state.mode === "visual-line"
+        ? {}
+        : { selectionRange: null }),
+    })),
+  setSelectionRange: (selectionRange) => set({ selectionRange }),
+  setCountPrefix: (countPrefix) => set({ countPrefix }),
+  setResolving: (isResolving) => set({ isResolving }),
+  setDesiredColumn: (desiredColumn) => set({ desiredColumn }),
+  setFeedback: (feedback) => set({ feedback }),
+  setLocationLabel: (locationLabel) => set({ locationLabel }),
+  setColorPickerOpen: (colorPickerOpen) => set({ colorPickerOpen }),
 
   setSelectionAnchor: (index) => set({ selectionAnchor: index }),
 
@@ -169,6 +224,13 @@ export const useVimModeStore = create<VimModeState>((set) => ({
         desiredColumn: 0,
         pendingSequence: "",
         pendingOperator: null,
+        cursorPosition: null,
+        selectionRange: null,
+        countPrefix: "",
+        isResolving: false,
+        feedback: null,
+        locationLabel: null,
+        colorPickerOpen: false,
       };
     }),
 }));

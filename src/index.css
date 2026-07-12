@@ -1850,21 +1850,58 @@
   border: 2px solid rgba(239, 68, 68, 0.85);
   border-radius: 2px;
 }
+.vim-v2-caret { position: fixed; pointer-events: none; z-index: 119; border-radius: 2px; background: rgba(59,130,246,.32); border: 1px solid rgba(59,130,246,.85); box-sizing: border-box; mix-blend-mode: multiply; }
+.vim-v2-caret--visual, .vim-v2-caret--visual-line { background: rgba(244,63,94,.2); border-color: rgba(244,63,94,.9); }
+.vim-v2-caret.is-operator { background: transparent; border-width: 2px; }
+.vim-v2-caret.is-resolving { animation: vim-v2-caret-pulse .7s ease-in-out infinite alternate; }
+@keyframes vim-v2-caret-pulse { to { opacity: .38; } }
+@media (forced-colors: active) { .vim-v2-caret, .vim-v2-range-overlay { forced-color-adjust: none; background: Highlight; border-color: HighlightText; } }
+.vim-v2-range-overlay { position: fixed; z-index: 117; pointer-events: none; border-radius: 2px; background: rgb(var(--vim-selection-rgb, 244 63 94) / .2); box-shadow: inset 0 -2px rgb(var(--vim-selection-rgb, 244 63 94) / .48); }
+.vim-v2-range-continuation { position: fixed; left: 50%; translate: -50% 0; z-index: 118; padding: 4px 9px; border-radius: 999px; color: #ffe4e6; background: rgba(159,18,57,.9); font: 700 10px ui-monospace,monospace; pointer-events: none; }
+.vim-v2-range-continuation.is-before { top: 10px; } .vim-v2-range-continuation.is-after { bottom: 64px; }
+@media (prefers-color-scheme: dark) { .vim-v2-caret { mix-blend-mode: screen; } }
 
-.vim-mode-indicator {
-  position: absolute;
-  bottom: 8px;
-  right: 12px;
-  padding: 2px 10px;
-  font-size: 12px;
-  font-family: monospace;
-  background: color-mix(in oklab, var(--color-gray-800) 85%, transparent);
-  color: var(--color-gray-200);
-  border-radius: 4px;
-  pointer-events: none;
-  z-index: 50;
+.vim-reading-rail {
+  position: fixed;
+  left: 50%;
+  bottom: max(14px, calc(env(safe-area-inset-bottom) + 8px));
+  translate: -50% 0;
+  display: grid;
+  gap: 7px;
+  width: max-content;
+  max-width: min(760px, calc(100vw - 24px));
+  padding: 7px 9px;
+  color: rgba(248, 250, 252, .96);
+  background: color-mix(in oklab, #111827 91%, transparent);
+  border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 13px;
+  box-shadow: 0 10px 35px rgba(0, 0, 0, .28);
+  backdrop-filter: blur(18px) saturate(1.2);
+  z-index: 120;
   user-select: none;
+  transition: opacity .18s ease, transform .18s ease;
 }
+.vim-reading-rail.is-dimmed:not(.is-expanded) { opacity: .62; }
+.vim-reading-rail__status { display: flex; align-items: center; gap: 9px; min-height: 24px; }
+.vim-reading-rail__mode { padding: 4px 8px; border-radius: 7px; color: #dbeafe; background: rgba(59, 130, 246, .22); font: 700 10px/1.2 ui-monospace, monospace; letter-spacing: .12em; }
+.vim-reading-rail__mode--visual, .vim-reading-rail__mode--visual-line { color: #ffe4e6; background: rgba(244, 63, 94, .22); }
+.vim-reading-rail__location, .vim-reading-rail__resolving, .vim-reading-rail__feedback { font-size: 11px; color: rgba(226, 232, 240, .75); white-space: nowrap; }
+.vim-reading-rail__pending { color: #fde68a; background: transparent; font: 700 11px ui-monospace, monospace; }
+.vim-reading-rail__feedback.is-success { color: #86efac; }
+.vim-reading-rail__feedback.is-error, .vim-reading-rail__feedback.is-unavailable { color: #fda4af; }
+.vim-reading-rail__actions { display: flex; gap: 3px; overflow-x: auto; scrollbar-width: none; }
+.vim-reading-rail__actions button, .vim-reading-rail__cancel { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; border: 0; border-radius: 7px; color: rgba(241, 245, 249, .88); background: transparent; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.vim-reading-rail__actions button:hover, .vim-reading-rail__actions button:focus-visible, .vim-reading-rail__cancel:hover { color: white; background: rgba(255, 255, 255, .1); outline: none; }
+.vim-reading-rail__actions kbd { color: #93c5fd; font: 700 10px ui-monospace, monospace; }
+.vim-reading-rail__colors { display: flex; align-items: center; justify-content: center; gap: 7px; padding-top: 3px; border-top: 1px solid rgba(255, 255, 255, .09); }
+.vim-reading-rail__colors > button:not(.vim-reading-rail__cancel) { width: 25px; height: 25px; border: 2px solid rgba(255,255,255,.35); border-radius: 50%; color: rgba(15,23,42,.7); cursor: pointer; font: 700 9px ui-monospace, monospace; }
+.vim-reading-rail__colors > button:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+.vim-reading-rail__colors .is-yellow { background: #fde68a; } .vim-reading-rail__colors .is-green { background: #86efac; } .vim-reading-rail__colors .is-blue { background: #93c5fd; } .vim-reading-rail__colors .is-pink { background: #f9a8d4; } .vim-reading-rail__colors .is-purple { background: #c4b5fd; }
+.vim-reading-rail__hint { max-width: 420px; padding: 6px 8px; border-top: 1px solid rgba(255,255,255,.09); color: #bfdbfe; font-size: 11px; text-align: center; }
+.vim-reading-help { position: absolute; left: 50%; bottom: calc(100% + 10px); translate: -50% 0; width: min(420px, calc(100vw - 24px)); padding: 14px; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; color: #f8fafc; background: rgba(15,23,42,.97); box-shadow: 0 14px 40px rgba(0,0,0,.35); }
+.vim-reading-help strong { font-size: 13px; } .vim-reading-help p { margin: 8px 0 12px; color: #cbd5e1; font-size: 12px; line-height: 1.5; } .vim-reading-help button { padding: 5px 8px; border: 0; border-radius: 6px; color: white; background: rgba(255,255,255,.1); cursor: pointer; }
+@media (max-width: 640px) { .vim-reading-rail { width: calc(100vw - 20px); } .vim-reading-rail__status { justify-content: center; } .vim-reading-rail__actions { justify-content: flex-start; } }
+@media (prefers-reduced-motion: reduce) { .vim-reading-rail { transition: none; } .vim-v2-caret.is-resolving { animation: none; opacity: .7; } }
 
 /* Vim action feedback */
 @keyframes vim-yank-flash {

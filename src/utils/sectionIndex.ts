@@ -659,6 +659,20 @@ export function buildDocumentSections(
   let finalTree: SectionNode[];
   if (outlineNodes && outlineNodes.length > 0) {
     finalTree = mergeOutlineWithHeuristics(outlineNodes, heuristicTree);
+    const flatOutline = flattenTree(finalTree);
+    for (const node of flatOutline) {
+      if ((node.source === "pdf-outline" || node.source === "epub-toc") && !node.content && content) {
+        const recovered = recoverOutlineRangeFromText(node, flatOutline, content);
+        if (recovered) {
+          node.startChar = recovered.startChar;
+          node.endChar = recovered.endChar;
+          node.directEndChar = recovered.directEndChar;
+          node.content = recovered.content;
+          node.preview = recovered.preview;
+          node.hasAuthoritativeRange = recovered.hasAuthoritativeRange;
+        }
+      }
+    }
   } else {
     finalTree = heuristicTree;
   }

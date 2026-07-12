@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { BookOpen, Hash } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { SectionNode } from "../../utils/sectionIndex";
+import { estimateTokens } from "../../utils/sectionIndex";
 
 interface SectionMentionPopupProps {
   tree: SectionNode[];
@@ -207,6 +208,21 @@ export function SectionMentionPopup({
   );
 }
 
+function formatTokenCount(count: number): string {
+  if (count < 1000) return `${count}`;
+  return `${(count / 1000).toFixed(1)}k`;
+}
+
+function getTokenBadgeClass(tokens: number): string {
+  if (tokens < 1000) {
+    return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20";
+  }
+  if (tokens <= 4000) {
+    return "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20";
+  }
+  return "bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20";
+}
+
 function Row({
   node,
   query,
@@ -227,6 +243,9 @@ function Row({
   onToggleExpand?: () => void;
 }) {
   const breadcrumbStr = node.breadcrumb.length > 0 ? node.breadcrumb.join(" > ") : "";
+  const tokens = useMemo(() => {
+    return node.content ? estimateTokens(node.content) : 0;
+  }, [node.content]);
 
   return (
     <button
@@ -259,11 +278,23 @@ function Row({
         <span className="text-[13px] font-medium text-foreground truncate flex-1 min-w-0">
           <HighlightMatch text={node.title} query={query} />
         </span>
-        {node.page && (
-          <span className="text-[10px] text-muted-foreground bg-muted px-1 py-0.5 rounded flex-shrink-0">
-            p{node.page}
-          </span>
-        )}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {node.page && (
+            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono">
+              p{node.page}
+            </span>
+          )}
+          {tokens > 0 && (
+            <span
+              className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded border transition-colors flex items-center gap-0.5 ${getTokenBadgeClass(
+                tokens
+              )}`}
+              title={`${tokens.toLocaleString()} tokens`}
+            >
+              {formatTokenCount(tokens)} tokens
+            </span>
+          )}
+        </div>
       </div>
       {(breadcrumbStr || node.preview) && (
         <div className="flex flex-col gap-0.5 ml-5 min-w-0">

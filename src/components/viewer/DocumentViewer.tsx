@@ -110,6 +110,7 @@ import { normalizePdfHighlightColor } from "../../utils/highlightColors";
 import { applyAnchoredTextHighlights, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
 import { FlashcardStudioModal } from "../review/FlashcardStudioModal";
 import { resolveLocalMediaSource, type ResolvedLocalMediaSource } from "./localMediaSource";
+import type { EpubVimRuntime, PdfVimRuntime } from "../../utils/vim/readerRuntimes";
 
 const READER_FOCUS_EVENT = "incrementum-reader-focus-mode-change";
 const READER_FOCUS_CLASS = "incrementum-reader-focus-mode";
@@ -457,6 +458,8 @@ export function DocumentViewer({
   epubIframeWindowRef.current = epubIframeWindow;
   const [pdfTextLayerRoots, setPdfTextLayerRoots] = useState<(HTMLDivElement | null)[]>([]);
   const [pdfScrollContainer, setPdfScrollContainer] = useState<HTMLElement | null>(null);
+  const [epubVimRuntime, setEpubVimRuntime] = useState<EpubVimRuntime | null>(null);
+  const [pdfVimRuntime, setPdfVimRuntime] = useState<PdfVimRuntime | null>(null);
   const highlightContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Auto-scroll TTS state
@@ -965,12 +968,13 @@ export function DocumentViewer({
       }
 
       if (isEpubSelectionContext(context)) {
-        epubHighlights.push({
-          id: String(extract.id),
-          cfiRange: context.cfiRange,
+        const ranges = context.cfiRanges?.length ? context.cfiRanges : [context.cfiRange];
+        ranges.forEach((cfiRange, rangeIndex) => epubHighlights.push({
+          id: `${String(extract.id)}:${rangeIndex}`,
+          cfiRange,
           color: highlightColor,
           text: title,
-        });
+        }));
         continue;
       }
 
@@ -1475,7 +1479,15 @@ export function DocumentViewer({
       toast.error("Select something first");
     };
 
+    const routeDocumentVim = (action: "extract" | "extract-dialog" | "highlight" | "flashcard" | "extract2card", color?: string): boolean => {
+      const vim = useVimModeStore.getState();
+      if (!vim.selectionRange || !vim.cursorPosition) return false;
+      window.dispatchEvent(new CustomEvent("vim-reading-action", { detail: { action, color } }));
+      return true;
+    };
+
     const onExtract = () => {
+      if (routeDocumentVim("extract")) return;
       const text = resolveSelectionText();
       if (!text) return notifyEmpty();
       void createInstantExtract({
@@ -1494,6 +1506,7 @@ export function DocumentViewer({
     };
 
     const onExtractDialog = () => {
+      if (routeDocumentVim("extract-dialog")) return;
       const text = resolveSelectionText();
       if (!text) return notifyEmpty();
       setSelectedText(text);
@@ -1503,6 +1516,7 @@ export function DocumentViewer({
 
     const onFlashcard = (e: Event) => {
       const detail = (e as CustomEvent).detail as { cardType?: "qa" | "cloze" | "multiple-choice" } | undefined;
+      if (routeDocumentVim("flashcard")) return;
       const text = resolveSelectionText();
       if (!text) return notifyEmpty();
       const cardType = detail?.cardType ?? useVimModeStore.getState().defaultVimCardType;
@@ -1519,6 +1533,7 @@ export function DocumentViewer({
     };
 
     const onExtract2Card = async () => {
+      if (routeDocumentVim("extract2card")) return;
       const text = resolveSelectionText();
       if (!text) return notifyEmpty();
       const extract = await createInstantExtract({
@@ -1551,6 +1566,7 @@ export function DocumentViewer({
 
     const onHighlight = (e: Event) => {
       const detail = (e as CustomEvent).detail as { color?: string } | undefined;
+      if (routeDocumentVim("highlight", detail?.color)) return;
       const text = resolveSelectionText();
       if (!text) return notifyEmpty();
       const palette = ["yellow", "green", "blue", "pink", "purple"] as const;
@@ -1601,6 +1617,8 @@ export function DocumentViewer({
     scrollContainerRef: null,
     pdfTextLayerRoots: pdfTextLayerRoots,
     pdfScrollContainer: pdfScrollContainer,
+    epubRuntime: epubVimRuntime,
+    pdfRuntime: pdfVimRuntime,
     actionContext: currentDocument ? {
       documentId: currentDocument.id,
       // Read the LIVE DOM selection (vim sets it directly via the DOM API,
@@ -5873,6 +5891,7 @@ export function DocumentViewer({
               setPdfTextLayerRoots(roots);
               setPdfScrollContainer(container);
             }}
+            onVimRuntimeChange={setPdfVimRuntime}
             pageNumber={pageNumber}
             scale={scale}
             zoomMode={zoomMode}
@@ -5980,6 +5999,7 @@ export function DocumentViewer({
               });
             }}
             onIframeWindowReady={setEpubIframeWindow}
+            onVimRuntimeChange={setEpubVimRuntime}
           />
         ) : docType === "audio" ? (
           mediaSource ? (

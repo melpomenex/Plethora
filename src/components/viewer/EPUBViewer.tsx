@@ -25,6 +25,7 @@ import { dispatchCommandPaletteOpen, isCommandPaletteOpenShortcut } from "../../
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
+import type { EpubVimRuntime } from "../../utils/vim/readerRuntimes";
 
 // Define outside component to keep a stable reference across renders
 const FONT_FAMILY_MAP: Record<string, string> = {
@@ -32,6 +33,24 @@ const FONT_FAMILY_MAP: Record<string, string> = {
   "sans-serif": "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
   monospace: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
 };
+
+function findEpubTextPoint(element: Element, requestedOffset: number): { node: Text; offset: number } {
+  const walker = element.ownerDocument.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  let remaining = Math.max(0, requestedOffset);
+  let last: Text | null = null;
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    last = node;
+    const length = node.data.length;
+    if (remaining <= length) return { node, offset: remaining };
+    remaining -= length;
+    node = walker.nextNode() as Text | null;
+  }
+  if (last) return { node: last, offset: last.data.length };
+  const fallback = element.ownerDocument.createTextNode("");
+  element.appendChild(fallback);
+  return { node: fallback, offset: 0 };
+}
 
 function escapeRegex(term: string): string {
   return term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -176,6 +195,7 @@ interface EPUBViewerProps {
   onIframeWindowReady?: (iframeWindow: Window) => void;
   onBack?: () => void;
   embedded?: boolean;
+  onVimRuntimeChange?: (runtime: EpubVimRuntime | null) => void;
 }
 
 export function EPUBViewer({
@@ -206,6 +226,7 @@ export function EPUBViewer({
   onIframeWindowReady,
   onBack,
   embedded = false,
+  onVimRuntimeChange,
 }: EPUBViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -791,6 +812,63 @@ export function EPUBViewer({
           renditionInstance = rendition;
           setRendition(rendition);
 
+          const vimRuntimeListeners = new Set<(event: { kind: "content" | "geometry" | "destroyed"; spineIndex?: number }) => void>();
+          const spineItems = Array.from((epubBook.spine as any)?.spineItems ?? []) as any[];
+          const vimRuntime: EpubVimRuntime = {
+            documentId: documentId ?? "",
+            sections: spineItems.map((section: any) => ({
+              spineIndex: section.index,
+              href: section.href,
+              load: async (signal?: AbortSignal) => {
+                if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+                await section.load(epubBook.load.bind(epubBook));
+                if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+                return section.document as globalThis.Document;
+              },
+              cfiForElement: (element: Element, edge: "start" | "end") => {
+                const range = element.ownerDocument.createRange();
+                range.selectNodeContents(element);
+                range.collapse(edge === "start");
+                return section.cfiFromRange(range);
+              },
+              cfiForTextOffset: (element: Element, offset: number, edge: "start" | "end") => {
+                const point = findEpubTextPoint(element, offset);
+                const range = element.ownerDocument.createRange();
+                range.setStart(point.node, point.offset);
+                range.setEnd(point.node, point.offset);
+                range.collapse(edge === "start");
+                return section.cfiFromRange(range);
+              },
+              cfiForRange: async (startOffset: number, endOffset: number) => {
+                await section.load(epubBook.load.bind(epubBook));
+                const root = section.document.body ?? section.document.documentElement;
+                const start = findEpubTextPoint(root, startOffset);
+                const end = findEpubTextPoint(root, endOffset);
+                const range = section.document.createRange();
+                range.setStart(start.node, start.offset);
+                range.setEnd(end.node, end.offset);
+                return section.cfiFromRange(range);
+              },
+            })),
+            currentSpineIndex: () => Number((rendition.currentLocation?.() as any)?.start?.index ?? 0),
+            currentCfi: () => String((rendition.currentLocation?.() as any)?.start?.cfi ?? "") || null,
+            currentWindow: () => (rendition.getContents?.() as any)?.[0]?.window ?? null,
+            reveal: async (cfi: string, signal?: AbortSignal) => {
+              if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+              await rendition.display(cfi);
+              if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+            },
+            rangeFromCfi: (cfi: string) => {
+              try { return rendition.getRange?.(cfi) ?? null; } catch { return null; }
+            },
+            cfiFromRange: (range: Range) => {
+              const contents = (rendition.getContents?.() as unknown as any[])?.find((item: any) => item.document === range.startContainer.ownerDocument);
+              return contents?.cfiFromRange?.(range) ?? "";
+            },
+            subscribe: (listener) => { vimRuntimeListeners.add(listener); return () => vimRuntimeListeners.delete(listener); },
+          };
+          onVimRuntimeChange?.(vimRuntime);
+
           // Register hooks BEFORE displaying content
           // Try multiple hook types to ensure styles are applied
           rendition.hooks.render.register((_contents: any) => {
@@ -799,6 +877,7 @@ export function EPUBViewer({
 
           // Inject global styles to override EPUB internal styles
           rendition.hooks.content.register((contents: any) => {
+            vimRuntimeListeners.forEach((listener) => listener({ kind: "content", spineIndex: contents.section?.index }));
 
             // Disable all EPUB stylesheets by setting them to disabled
             const links = contents.document.querySelectorAll('link[rel="stylesheet"]');
@@ -1180,6 +1259,7 @@ export function EPUBViewer({
           let uiUpdateTimer: ReturnType<typeof setTimeout> | null = null;
           rendition.on("relocated", (location: any) => {
             if (!mounted) return;
+            vimRuntimeListeners.forEach((listener) => listener({ kind: "geometry", spineIndex: location.start?.index }));
 
             // Enforce spine boundaries (must be immediate — correctness)
             const currentSpineIndex = location.start?.index;
@@ -1248,6 +1328,14 @@ export function EPUBViewer({
             }
           });
 
+          rendition.on("destroy", () => {
+            vimRuntimeListeners.forEach((listener) => listener({ kind: "destroyed" }));
+            vimRuntimeListeners.clear();
+            onVimRuntimeChange?.(null);
+          });
+          rendition.on("rendered", (section: any) => vimRuntimeListeners.forEach((listener) => listener({ kind: "geometry", spineIndex: section?.index })));
+          rendition.on("resized", () => vimRuntimeListeners.forEach((listener) => listener({ kind: "geometry" })));
+
           return true;
         };
 
@@ -1280,6 +1368,7 @@ export function EPUBViewer({
         } catch { /* ignore */ }
         try { renditionInstance.destroy(); } catch { /* ignore */ }
       }
+      onVimRuntimeChange?.(null);
       if (bookInstance) {
         try { bookInstance.destroy(); } catch { /* ignore */ }
       }
