@@ -108,6 +108,14 @@ impl OCRProcessor {
             }
         }
 
+        if self.config.mistral_ocr.is_some() {
+            if let Ok(provider) = create_provider(OCRProviderType::Mistral, &self.config) {
+                if provider.is_available() {
+                    available.push(OCRProviderType::Mistral);
+                }
+            }
+        }
+
         available
     }
 

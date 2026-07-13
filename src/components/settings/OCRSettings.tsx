@@ -29,7 +29,7 @@ import {
 
 interface OCRSettingsProps {
   settings: {
-    provider: "tesseract" | "google" | "aws" | "azure" | "marker" | "nougat" | "glm";
+    provider: "tesseract" | "google" | "aws" | "azure" | "marker" | "nougat" | "glm" | "mistral";
     language: string;
     autoOCR: boolean;
     googleProjectId?: string;
@@ -46,6 +46,7 @@ interface OCRSettingsProps {
     glmApiKey?: string;
     glmBackend?: "ollama" | "vllm";
     glmOllamaPath?: string;
+    mistralApiKey?: string;
     preferLocal: boolean;
     mathOcrEnabled: boolean;
     mathOcrCommand?: string;
@@ -93,6 +94,13 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
       id: "azure",
       name: t("ocrSettings.azureVision"),
       description: t("ocrSettings.azureVisionProviderDesc"),
+      icon: Cloud,
+      isCloud: true,
+    },
+    {
+      id: "mistral",
+      name: t("ocrSettings.mistral"),
+      description: t("ocrSettings.mistralDesc"),
       icon: Cloud,
       isCloud: true,
     },
@@ -576,6 +584,32 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
                   value={settings.azureApiKey || ""}
                   onChange={(e) => onUpdateSettings({ azureApiKey: e.target.value })}
                   placeholder="your-api-key"
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Mistral OCR Configuration */}
+        {settings.provider === "mistral" && (
+          <div className="bg-card border border-border rounded-lg p-4">
+            <div className="flex items-center gap-3 mb-4">
+              <Cloud className="w-5 h-5 text-muted-foreground" />
+              <div>
+                <div className="text-sm font-medium text-foreground">{t("ocrSettings.mistral")}</div>
+                <div className="text-xs text-muted-foreground">{t("ocrSettings.mistralDesc")}</div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.mistralApiKey")}</label>
+                <input
+                  type="password"
+                  value={settings.mistralApiKey || ""}
+                  onChange={(e) => onUpdateSettings({ mistralApiKey: e.target.value })}
+                  placeholder={t("ocrSettings.mistralApiKeyPlaceholder")}
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>

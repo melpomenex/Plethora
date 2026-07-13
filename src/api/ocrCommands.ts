@@ -17,6 +17,7 @@ export interface OCRConfig {
   marker_path?: string;
   nougat_path?: string;
   glm_ocr?: GLMOCRConfig;
+  mistral_ocr?: MistralOCRConfig;
 }
 
 export interface GoogleDocumentAIConfig {
@@ -41,6 +42,11 @@ export interface GLMOCRConfig {
   endpoint: string;
   model: string;
   api_key?: string;
+}
+
+export interface MistralOCRConfig {
+  api_key: string;
+  model?: string;
 }
 
 export interface GLMRuntimeStatus {

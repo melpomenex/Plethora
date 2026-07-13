@@ -63,6 +63,7 @@ function buildOCRConfigFromSettings(settings: ReturnType<typeof useSettingsStore
   const azureConfigured = !!settings.azureEndpoint && !!settings.azureApiKey;
   const glmEndpoint = resolveGlmEndpoint(settings);
   const glmConfigured = !!glmEndpoint && !!settings.glmModel;
+  const mistralConfigured = !!settings.mistralApiKey;
 
   return {
     default_provider: settings.provider,
@@ -97,6 +98,12 @@ function buildOCRConfigFromSettings(settings: ReturnType<typeof useSettingsStore
           api_key: settings.glmApiKey || undefined,
         }
       : undefined,
+    mistral_ocr: mistralConfigured
+      ? {
+          api_key: settings.mistralApiKey as string,
+          model: undefined,
+        }
+      : undefined,
   };
 }
 
@@ -126,6 +133,9 @@ export async function ensureOCRConfig(settings: ReturnType<typeof useSettingsSto
   const config = buildOCRConfigFromSettings(settings);
   if (settings.provider === "glm" && !config.glm_ocr) {
     throw new Error("GLM-OCR is selected but no model is configured. Set a GLM model in Settings > Documents > OCR.");
+  }
+  if (settings.provider === "mistral" && !config.mistral_ocr) {
+    throw new Error("Mistral OCR is selected but no API Key is configured. Set a Mistral API Key in Settings > Documents > OCR.");
   }
   const hash = JSON.stringify(config);
   if (hash === lastOcrConfigHash) {

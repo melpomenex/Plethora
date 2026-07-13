@@ -23,6 +23,8 @@ pub enum OCRProviderType {
     Nougat,
     #[serde(rename = "glm")]
     Glmocr,
+    #[serde(rename = "mistral")]
+    Mistral,
 }
 
 /// OCR result with text and metadata
@@ -977,6 +979,279 @@ impl OCRProvider for GLMOCRProvider {
     }
 }
 
+/// Mistral OCR provider (cloud)
+pub struct MistralProvider {
+    api_key: String,
+    model: String,
+    client: reqwest::Client,
+}
+
+impl MistralProvider {
+    pub fn new(config: super::MistralOCRConfig) -> Self {
+        let model = config.model.unwrap_or_else(|| "mistral-ocr-latest".to_string());
+        let model = if model.trim().is_empty() {
+            "mistral-ocr-latest".to_string()
+        } else {
+            model
+        };
+        Self {
+            api_key: config.api_key,
+            model,
+            client: reqwest::Client::new(),
+        }
+    }
+
+    fn guess_mime(bytes: &[u8]) -> &'static str {
+        if let Ok(format) = image::guess_format(bytes) {
+            match format {
+                ImageFormat::Png => "image/png",
+                ImageFormat::Jpeg => "image/jpeg",
+                ImageFormat::Gif => "image/gif",
+                ImageFormat::Bmp => "image/bmp",
+                ImageFormat::Tiff => "image/tiff",
+                ImageFormat::WebP => "image/webp",
+                _ => "image/png",
+            }
+        } else {
+            "image/png"
+        }
+    }
+
+    fn is_pdf(bytes: &[u8]) -> bool {
+        bytes.starts_with(b"%PDF-")
+    }
+
+    fn markdown_to_html(markdown_input: &str) -> String {
+        use pulldown_cmark::{Parser, Options, html};
+        let mut options = Options::empty();
+        options.insert(Options::ENABLE_TABLES);
+        options.insert(Options::ENABLE_FOOTNOTES);
+        options.insert(Options::ENABLE_STRIKETHROUGH);
+        options.insert(Options::ENABLE_TASKLISTS);
+        options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
+        
+        let parser = Parser::new_ext(markdown_input, options);
+        let mut html_output = String::new();
+        html::push_html(&mut html_output, parser);
+        
+        format!(
+            r#"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      color: var(--foreground, #333);
+      background-color: var(--background, #fff);
+      padding: 2rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }}
+    table {{
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 1rem;
+    }}
+    th, td {{
+      border: 1px solid var(--border, #ddd);
+      padding: 8px;
+      text-align: left;
+    }}
+    th {{
+      background-color: var(--muted, #f5f5f5);
+    }}
+    img {{
+      max-width: 100%;
+      height: auto;
+    }}
+  </style>
+</head>
+<body>
+  {}
+</body>
+</html>"#,
+            html_output
+        )
+    }
+
+    async fn process_image_bytes_internal(&self, image_data: &[u8]) -> Result<OCRResult> {
+        let start = std::time::Instant::now();
+
+        if self.api_key.trim().is_empty() {
+            return Err(IncrementumError::Internal("Mistral API key is not configured".to_string()));
+        }
+
+        let is_pdf = Self::is_pdf(image_data);
+        let (filename, mime) = if is_pdf {
+            ("document.pdf", "application/pdf")
+        } else {
+            ("document.png", Self::guess_mime(image_data))
+        };
+
+        // 1. Upload the file
+        let part = reqwest::multipart::Part::bytes(image_data.to_vec())
+            .file_name(filename)
+            .mime_str(mime)
+            .map_err(|e| IncrementumError::Internal(format!("Failed to build multipart part: {}", e)))?;
+
+        let form = reqwest::multipart::Form::new()
+            .text("purpose", "ocr")
+            .part("file", part);
+
+        let upload_res = self.client.post("https://api.mistral.ai/v1/files")
+            .bearer_auth(&self.api_key)
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| IncrementumError::Internal(format!("Failed to upload file to Mistral: {}", e)))?;
+
+        if !upload_res.status().is_success() {
+            let status = upload_res.status();
+            let body = upload_res.text().await.unwrap_or_default();
+            return Err(IncrementumError::Internal(format!(
+                "Mistral upload request failed ({}): {}",
+                status, body
+            )));
+        }
+
+        #[derive(Deserialize)]
+        struct MistralUploadResponse {
+            id: String,
+        }
+
+        let upload_data: MistralUploadResponse = upload_res.json().await
+            .map_err(|e| IncrementumError::Internal(format!("Failed to parse Mistral upload response: {}", e)))?;
+
+        let file_id = upload_data.id;
+
+        // 2. Perform OCR (with automatic cleanup)
+        let ocr_url = "https://api.mistral.ai/v1/ocr";
+        let ocr_payload = serde_json::json!({
+            "model": self.model.as_str(),
+            "document": {
+                "type": "file_id",
+                "file_id": file_id.as_str()
+            }
+        });
+
+        let ocr_future = self.client.post(ocr_url)
+            .bearer_auth(&self.api_key)
+            .json(&ocr_payload)
+            .send();
+
+        let ocr_res = ocr_future.await;
+
+        // 3. File Deletion / Cleanup
+        let delete_url = format!("https://api.mistral.ai/v1/files/{}", file_id);
+        let delete_future = self.client.delete(&delete_url)
+            .bearer_auth(&self.api_key)
+            .send();
+
+        if let Err(e) = delete_future.await {
+            log::warn!("Failed to delete temporary Mistral file {}: {}", file_id, e);
+        }
+
+        let response = ocr_res.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to call Mistral OCR endpoint: {}", e))
+        })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(IncrementumError::Internal(format!(
+                "Mistral OCR request failed ({}): {}",
+                status, body
+            )));
+        }
+
+        #[derive(Deserialize)]
+        struct MistralOCRResponse {
+            pages: Vec<MistralOCRPage>,
+        }
+
+        #[derive(Deserialize)]
+        struct MistralOCRPage {
+            markdown: String,
+        }
+
+        let parsed: MistralOCRResponse = response.json().await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to parse Mistral OCR response: {}", e))
+        })?;
+
+        if parsed.pages.is_empty() {
+            return Err(IncrementumError::Internal("Mistral OCR returned no pages".to_string()));
+        }
+
+        // Combine markdown content across pages
+        let mut combined_markdown = String::new();
+        for (idx, page) in parsed.pages.iter().enumerate() {
+            if idx > 0 {
+                // Add page break visual indicator
+                combined_markdown.push_str("\n\n<hr class=\"page-break\" style=\"page-break-after: always; margin: 2rem 0; border: 0; border-top: 1px dashed #ccc;\" />\n\n");
+            }
+            combined_markdown.push_str(&page.markdown);
+        }
+
+        // Convert the final combined markdown to HTML
+        let text = Self::markdown_to_html(&combined_markdown);
+
+        let processing_time_ms = start.elapsed().as_millis() as u64;
+        let line_count = text.lines().count();
+        let word_count = text.split_whitespace().count();
+
+        Ok(OCRResult {
+            text,
+            confidence: 95.0, // Mistral is high-quality AI-driven OCR
+            line_count,
+            word_count,
+            processing_time_ms,
+            provider: OCRProviderType::Mistral,
+            metadata: serde_json::json!({
+                "engine": "Mistral OCR",
+                "format": "html",
+                "model": self.model.clone()
+            }),
+        })
+    }
+}
+
+impl std::fmt::Debug for MistralProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MistralProvider")
+            .field("model", &self.model)
+            .finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl OCRProvider for MistralProvider {
+    fn provider_type(&self) -> OCRProviderType {
+        OCRProviderType::Mistral
+    }
+
+    async fn process_image(&self, image_path: &std::path::Path) -> Result<OCRResult> {
+        let image_data = tokio::fs::read(image_path)
+            .await
+            .map_err(|e| IncrementumError::Internal(format!("Failed to read image: {}", e)))?;
+
+        self.process_image_bytes(&image_data).await
+    }
+
+    async fn process_image_bytes(&self, image_data: &[u8]) -> Result<OCRResult> {
+        self.process_image_bytes_internal(image_data).await
+    }
+
+    fn is_available(&self) -> bool {
+        !self.api_key.trim().is_empty()
+    }
+
+    fn provider_name(&self) -> &str {
+        "Mistral OCR"
+    }
+}
+
 /// Create OCR provider from type and config
 pub fn create_provider(
     provider_type: OCRProviderType,
@@ -1014,6 +1289,13 @@ pub fn create_provider(
                 .as_ref()
                 .ok_or_else(|| IncrementumError::Internal("GLM-OCR config not set".to_string()))?;
             Ok(Box::new(GLMOCRProvider::new(glm_config.clone())))
+        }
+        OCRProviderType::Mistral => {
+            let mistral_config = config
+                .mistral_ocr
+                .as_ref()
+                .ok_or_else(|| IncrementumError::Internal("Mistral OCR config not set".to_string()))?;
+            Ok(Box::new(MistralProvider::new(mistral_config.clone())))
         }
     }
 }

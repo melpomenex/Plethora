@@ -34,6 +34,8 @@ pub struct OCRConfig {
     pub nougat_path: Option<String>,
     /// GLM-OCR configuration (local via vLLM)
     pub glm_ocr: Option<GLMOCRConfig>,
+    /// Mistral OCR configuration (cloud)
+    pub mistral_ocr: Option<MistralOCRConfig>,
 }
 
 /// Google Document AI configuration
@@ -68,6 +70,13 @@ pub struct GLMOCRConfig {
     pub api_key: Option<String>,
 }
 
+/// Mistral OCR configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MistralOCRConfig {
+    pub api_key: String,
+    pub model: Option<String>,
+}
+
 impl Default for OCRConfig {
     fn default() -> Self {
         Self {
@@ -79,6 +88,7 @@ impl Default for OCRConfig {
             marker_path: None,
             nougat_path: None,
             glm_ocr: None,
+            mistral_ocr: None,
         }
     }
 }

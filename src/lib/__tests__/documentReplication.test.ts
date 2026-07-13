@@ -33,10 +33,14 @@ vi.mock("../../stores/documentStore", () => ({
     setState: vi.fn(),
   },
 }));
-vi.mock("../../api/documents", () => ({
-  getDocument: mocks.getDocument,
-  getDocuments: mocks.getDocuments,
-}));
+vi.mock("../../api/documents", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../api/documents")>();
+  return {
+    ...original,
+    getDocument: mocks.getDocument,
+    getDocuments: mocks.getDocuments,
+  };
+});
 
 import type { Document } from "../../types";
 

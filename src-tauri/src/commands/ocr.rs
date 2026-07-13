@@ -378,7 +378,7 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
 
     let use_direct_pdf = matches!(
         provider_type,
-        OCRProviderType::Marker | OCRProviderType::Nougat | OCRProviderType::Glmocr
+        OCRProviderType::Marker | OCRProviderType::Nougat | OCRProviderType::Glmocr | OCRProviderType::Mistral
     );
 
     if use_direct_pdf {
@@ -492,6 +492,7 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
 fn format_for_provider(provider_type: OCRProviderType) -> &'static str {
     match provider_type {
         OCRProviderType::Marker | OCRProviderType::Nougat | OCRProviderType::Glmocr => "markdown",
+        OCRProviderType::Mistral => "html",
         _ => "text",
     }
 }
@@ -816,6 +817,7 @@ fn parse_provider_type(provider: &str) -> Result<OCRProviderType> {
         "marker" => Ok(OCRProviderType::Marker),
         "nougat" => Ok(OCRProviderType::Nougat),
         "glm" => Ok(OCRProviderType::Glmocr),
+        "mistral" => Ok(OCRProviderType::Mistral),
         _ => Err(IncrementumError::Internal(format!(
             "Unknown provider: {}",
             provider

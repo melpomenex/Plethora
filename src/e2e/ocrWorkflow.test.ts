@@ -11,14 +11,17 @@ import { useDocumentStore } from "../stores/documentStore";
 import type { Document } from "../types/document";
 import * as documentsApi from "../api/documents";
 
-// Mock the API
-vi.mock("../api/documents", () => ({
-  getDocuments: vi.fn(),
-  getDocument: vi.fn(),
-  createDocument: vi.fn(),
-  updateDocument: vi.fn(),
-  readDocumentFile: vi.fn(),
-}));
+vi.mock("../api/documents", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../api/documents")>();
+  return {
+    ...original,
+    getDocuments: vi.fn(),
+    getDocument: vi.fn(),
+    createDocument: vi.fn(),
+    updateDocument: vi.fn(),
+    readDocumentFile: vi.fn(),
+  };
+});
 
 // Mock the OCR commands
 vi.mock("../api/ocrCommands", () => ({

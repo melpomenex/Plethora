@@ -180,9 +180,13 @@ vi.mock("../../../lib/i18n", () => ({
   }),
 }));
 
-vi.mock("../../../api/documents", () => ({
-  resolveDocumentCover: vi.fn().mockResolvedValue(null),
-}));
+vi.mock("../../../api/documents", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../../api/documents")>();
+  return {
+    ...original,
+    resolveDocumentCover: vi.fn().mockResolvedValue(null),
+  };
+});
 
 vi.mock("../../../api/youtube", () => ({
   getYouTubeThumbnail: vi.fn(),

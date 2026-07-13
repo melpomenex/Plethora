@@ -29,7 +29,10 @@
     <title>Incrementum</title>
     <script>
       (function () {
-        const isDevHost = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+        const isDevHost =
+          location.hostname === "localhost" ||
+          location.hostname === "127.0.0.1" ||
+          /^(\d+\.){3}\d+$/.test(location.hostname);
         const isTauri = !!(
           window.__TAURI__ ||
           window.__TAURI_INTERNALS__ ||

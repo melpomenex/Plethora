@@ -106,10 +106,14 @@ vi.mock("../../../hooks/useMobileShell", () => ({
 }));
 
 // Mock APIs
-vi.mock("../../../api/documents", () => ({
-  getDocumentAuto: vi.fn().mockResolvedValue({}),
-  updateDocumentProgressAuto: vi.fn().mockResolvedValue({}),
-}));
+vi.mock("../../../api/documents", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../../api/documents")>();
+  return {
+    ...original,
+    getDocumentAuto: vi.fn().mockResolvedValue({}),
+    updateDocumentProgressAuto: vi.fn().mockResolvedValue({}),
+  };
+});
 
 vi.mock("../../../api/position", () => ({
   saveDocumentPosition: vi.fn().mockResolvedValue({}),
