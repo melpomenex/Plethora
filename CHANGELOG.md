@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.80.0] - 2026-07-13
+
+### Added
+
+- **Unified selection drawer across all text documents** — The premium floating selection drawer previously available only in EPUB now appears consistently in HTML, Markdown, RSS, and other text-based documents. Select any text to get instant extract creation, character counts, and dictionary lookup from the same glassmorphic drawer, with click-outside dismissal that works correctly through HTML/OCR-HTML viewer iframes. The basic RSS selection button in Queue Scroll Mode has been replaced with this full drawer.
+- **Progressive Sync Lanes** — Cross-device sync is now non-blocking and budgeted. The local database opens and the app shell renders immediately, without waiting for Yjs persistence, encryption setup, WebSocket connection, migration, or remote projection. A new Progressive Sync Lanes coordinator reconciles small user-visible state first (learning items, review events, reading positions, RSS state) while bulk and library state follows opportunistically within explicit CPU, memory, I/O, and network budgets. Work is sliced into interruptible batches that yield to user input and animation frames, pause under memory/thermal pressure, and resume from durable checkpoints. A new status indicator surfaces progress, and a degraded-mode circuit breaker quarantines slow or corrupt sync so the app stays fully usable offline.
+- **Sync coverage registry** — Every persisted user-facing domain now declares an explicit sync policy (conflict semantics, deletion behavior, priority lane, payload limits, and whether bytes, intent, metadata, or no state should replicate), with reconciliation and audit tooling that detects uncovered mutation paths and projection drift.
+
+### Fixed & Improved
+
+- **No more cross-origin crashes on mobile** — All iframe document and window property accesses in the document viewer are now wrapped in try-catch, eliminating the recurring crash on mobile when the embedded viewer hits a cross-origin boundary.
+
 ## [1.79.0] - 2026-07-13
 
 ### Added
