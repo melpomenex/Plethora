@@ -64,6 +64,28 @@ export interface SyncedRssArticleState {
   updatedAt: string;
 }
 
+export function toSyncedRssFeed(raw: Record<string, unknown>, collectionId = "00000000-0000-0000-0000-000000000001"): SyncedRssFeed {
+  const updated = String(raw.updated_at ?? raw.updatedAt ?? nowHLC());
+  return {
+    id: String(raw.id ?? ""),
+    url: String(raw.url ?? ""),
+    title: String(raw.title ?? ""),
+    description: raw.description == null ? null : String(raw.description),
+    category: raw.category == null ? null : String(raw.category),
+    update_interval: Number(raw.update_interval ?? raw.updateInterval ?? 3600),
+    last_fetched: raw.last_fetched == null ? null : String(raw.last_fetched),
+    is_active: raw.is_active !== false && raw.isActive !== false,
+    date_added: String(raw.date_added ?? raw.dateAdded ?? new Date().toISOString()),
+    auto_queue: Boolean(raw.auto_queue ?? raw.autoQueue ?? false),
+    auto_fetch_full_content: raw.auto_fetch_full_content == null && raw.autoFetchFullContent == null
+      ? null : String(raw.auto_fetch_full_content ?? raw.autoFetchFullContent),
+    collection_id: String(raw.collection_id ?? raw.collectionId ?? collectionId),
+    updated_at: updated,
+    deleted_at: raw.deleted_at == null ? null : String(raw.deleted_at),
+    updatedAt: updated,
+  };
+}
+
 // --- singletons -------------------------------------------------------------
 let feedsMap: ReplicatedMap<SyncedRssFeed> | null = null;
 let articleStateMap: ReplicatedMap<SyncedRssArticleState> | null = null;

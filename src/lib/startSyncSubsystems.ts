@@ -20,7 +20,14 @@
  *     room, so the subsystems come up immediately on a first-time enable.
  */
 
+import { scheduleProgressiveSyncWork } from "./sync/progressiveScheduler";
+import { measureSyncPhase, installSyncLongTaskObserver, removeSyncLongTaskObserver } from "./sync/syncTelemetry";
+import { getSyncFeatureFlags } from "./sync/featureFlags";
+import { drainSyncOutboxBatch } from "./sync/syncJournal";
+import { registerSyncAdapter } from "./sync/coverageRegistry";
+
 let startPromise: Promise<void> | null = null;
+let outboxDrainTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Run the sync subsystem boot chain exactly once per session. Subsequent calls
@@ -31,14 +38,20 @@ export function startSyncSubsystems(): Promise<void> {
   if (startPromise) return startPromise;
 
   startPromise = (async () => {
+    const removeLongTaskObserver = installSyncLongTaskObserver();
     // 1. Shared Yjs doc + websocket provider + IndexedDB persistence.
     //    Everything below depends on the doc, so this runs first.
     const { getYjsSync } = await import("./yjsSync");
-    const sync = await withTimeout(
-      getYjsSync(),
-      4000,
-      "[startSyncSubsystems] getYjsSync timed out (4s), continuing in degraded mode",
-    ).catch((err) => {
+    const sync = await scheduleProgressiveSyncWork({
+      id: "sync:provider-setup",
+      lane: "P1",
+      maxRetries: 0,
+      run: () => measureSyncPhase("provider-setup", () => withTimeout(
+        getYjsSync(),
+        4000,
+        "[startSyncSubsystems] getYjsSync timed out (4s), continuing in degraded mode",
+      )),
+    }).catch((err) => {
       console.warn("[startSyncSubsystems] getYjsSync failed, sync will be unavailable:", err);
       return null;
     });
@@ -47,6 +60,7 @@ export function startSyncSubsystems(): Promise<void> {
       // getYjsSync failed — nothing below can work. Return early so the
       // startPromise is marked resolved; the caller (main.tsx) continues
       // normally without sync. A later room-join / toggle will retry.
+      removeLongTaskObserver();
       return;
     }
 
@@ -60,6 +74,7 @@ export function startSyncSubsystems(): Promise<void> {
       { ensureFlashcardSyncReady },
       { ensureRssSyncReady },
       { ensurePodcastSyncReady },
+      { ensureFileAvailabilityIntentReady },
     ] = await Promise.all([
       import("./useFileSync").then((m) => ({ ensureFileSyncReady: m.ensureFileSyncReady })),
       import("./documentReplication").then((m) => ({
@@ -81,6 +96,9 @@ export function startSyncSubsystems(): Promise<void> {
       import("./sync/entities/podcasts").then((m) => ({
         ensurePodcastSyncReady: m.ensurePodcastSyncReady,
       })),
+      import("./sync/fileAvailabilityIntent").then((m) => ({
+        ensureFileAvailabilityIntentReady: m.ensureFileAvailabilityIntentReady,
+      })),
     ]);
 
     // 3. Run file sync AND all entity initializations concurrently.
@@ -88,48 +106,85 @@ export function startSyncSubsystems(): Promise<void> {
     //    on the Yjs doc (already ready). They are independent of each other.
     const { startAutoFileSyncDownload } = await import("./autoFileSyncDownload");
 
+    registerSyncAdapter("documents", ensureDocumentReplicationReady);
+    registerSyncAdapter("collections", ensureCollectionSyncReady);
+    registerSyncAdapter("extracts", ensureExtractSyncReady);
+    registerSyncAdapter("conversations", ensureConversationSyncReady);
+    registerSyncAdapter("learningItems", ensureFlashcardSyncReady);
+    registerSyncAdapter("rssFeeds", ensureRssSyncReady);
+    registerSyncAdapter("podcastFeeds", ensurePodcastSyncReady);
+    registerSyncAdapter("fileAvailabilityIntent", ensureFileAvailabilityIntentReady);
+
     await Promise.all([
-      ensureFileSyncReady().catch((err) =>
+      measureSyncPhase("map-ready", () => ensureFileSyncReady()).catch((err) =>
         console.warn("[startSyncSubsystems] file sync init failed:", err),
       ),
-      ensureDocumentReplicationReady().catch((err) =>
+      measureSyncPhase("map-ready", () => ensureDocumentReplicationReady()).catch((err) =>
         console.warn("[startSyncSubsystems] document replication init failed:", err),
       ),
-      ensureCollectionSyncReady().catch((err) =>
+      measureSyncPhase("map-ready", () => ensureCollectionSyncReady()).catch((err) =>
         console.warn("[startSyncSubsystems] collection sync init failed:", err),
       ),
-      ensureExtractSyncReady().catch((err) =>
+      measureSyncPhase("map-ready", () => ensureExtractSyncReady()).catch((err) =>
         console.warn("[startSyncSubsystems] extract sync init failed:", err),
       ),
-      ensureConversationSyncReady().catch((err) =>
+      measureSyncPhase("map-ready", () => ensureConversationSyncReady()).catch((err) =>
         console.warn("[startSyncSubsystems] conversation sync init failed:", err),
       ),
-      ensureFlashcardSyncReady().catch((err) =>
+      measureSyncPhase("map-ready", () => ensureFlashcardSyncReady()).catch((err) =>
         console.warn("[startSyncSubsystems] flashcard sync init failed:", err),
       ),
-      ensureRssSyncReady().catch((err) =>
+      measureSyncPhase("map-ready", () => ensureRssSyncReady()).catch((err) =>
         console.warn("[startSyncSubsystems] RSS sync init failed:", err),
       ),
-      ensurePodcastSyncReady().catch((err) =>
+      measureSyncPhase("map-ready", () => ensurePodcastSyncReady()).catch((err) =>
         console.warn("[startSyncSubsystems] podcast sync init failed:", err),
+      ),
+      measureSyncPhase("map-ready", () => ensureFileAvailabilityIntentReady()).catch((err) =>
+        console.warn("[startSyncSubsystems] file availability intent init failed:", err),
       ),
     ]);
 
     // 4. Auto-download watcher — needs file sync ready.
-    await startAutoFileSyncDownload().catch((err) =>
+    await scheduleProgressiveSyncWork({
+      id: "sync:auto-download-watch",
+      lane: "P2",
+      run: () => startAutoFileSyncDownload(),
+    }).catch((err) =>
       console.warn("[startSyncSubsystems] auto-download init failed:", err),
     );
 
     // 5. First-join backfill: publish the local library into the shared doc so
     //    other devices receive it. Background, non-fatal.
     const { runSyncMigrationIfNeeded } = await import("./sync/migrate");
-    await runSyncMigrationIfNeeded().catch((e) =>
+    await scheduleProgressiveSyncWork({
+      id: "sync:first-join-migration",
+      lane: "P2",
+      run: () => measureSyncPhase("migration", () => runSyncMigrationIfNeeded()),
+    }).catch((e) =>
       console.warn("[startSyncSubsystems] sync migration failed (non-fatal)", e),
     );
+    if (getSyncFeatureFlags().journaledProjection) {
+      const drain = () => {
+        void scheduleProgressiveSyncWork({
+          id: "sync:outbox-drain",
+          lane: "P2",
+          run: () => drainSyncOutboxBatch(50),
+        })
+          .catch((e) => console.warn("[startSyncSubsystems] outbox drain failed", e))
+          .finally(() => {
+            outboxDrainTimer = setTimeout(drain, 1500);
+          });
+      };
+      drain();
+    }
+    removeLongTaskObserver();
   })().catch((error) => {
     // Reset so a later caller can retry. The individual ensure*Ready() helpers
     // are themselves idempotent and will short-circuit whatever already came up.
     console.error("[startSyncSubsystems] sync subsystem initialization failed:", error);
+    // A failed boot must not leave a PerformanceObserver attached forever.
+    removeSyncLongTaskObserver();
     startPromise = null;
     throw error;
   });

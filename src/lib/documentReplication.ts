@@ -32,6 +32,7 @@
 import * as Y from "yjs";
 import { invokeCommand, isTauri } from "./tauri";
 import { getYjsSync } from "./yjsSync";
+import { getProgressiveSyncScheduler } from "./sync/progressiveScheduler";
 import type { Document } from "../types";
 import { useDocumentStore } from "../stores/documentStore";
 import { getDocument, getDocuments } from "../api/documents";
@@ -97,13 +98,21 @@ export async function ensureDocumentReplicationReady(): Promise<void> {
           for (const key of event.keysChanged) {
             // Don't re-process our own writes: handleRemoteDocument checks
             // dateModified against local and no-ops if we're already current.
-            void handleRemoteDocument(key);
+            getProgressiveSyncScheduler().enqueue({
+              id: `documents:remote:${key}`,
+              lane: "P0",
+              run: () => handleRemoteDocument(key),
+            });
           }
         });
         // Process anything already in the map (e.g. docs published before this
         // device joined the room).
         documentsMap.forEach((_value, key) => {
-          void handleRemoteDocument(key);
+          getProgressiveSyncScheduler().enqueue({
+            id: `documents:replay:${key}`,
+            lane: "P1",
+            run: () => handleRemoteDocument(key),
+          });
         });
         initialized = true;
       } catch (err) {

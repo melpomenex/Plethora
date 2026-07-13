@@ -17,6 +17,7 @@ import { isNativeMobile, isPWA } from "../../lib/tauri";
 import { startSyncSubsystems } from "../../lib/startSyncSubsystems";
 import { QRCodeCanvas } from "qrcode.react";
 import { SyncQrScanner } from "./SyncQrScanner";
+import { ProgressiveSyncStatus } from "../sync/ProgressiveSyncStatus";
 import { SyncedFilesManifestPanel } from "../sync/SyncedFilesManifestPanel";
 import { useSettingsStore } from "../../stores/settingsStore";
 import {
@@ -460,6 +461,7 @@ export function SyncSettings() {
 
           {yjsSettings.enabled && (
             <div className="mt-4 pt-4 border-t border-border space-y-2">
+              <ProgressiveSyncStatus />
               <label className="block text-xs font-medium text-foreground">
                 {t("syncSettings.endpoint")} (WebSocket)
               </label>

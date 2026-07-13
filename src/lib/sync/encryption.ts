@@ -106,6 +106,16 @@ async function deriveRoomKeyViaWorker(
       : null;
 
   if (!WorkerCtor) {
+    // Vitest/jsdom has no module Worker. Keep the production contract (no
+    // main-thread Argon2 fallback) while allowing deterministic crypto unit
+    // tests to exercise the AES/HKDF layer in a workerless harness.
+    if (import.meta.env.MODE === 'test') {
+      const digest = await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(`${roomId}\0${roomSecret}`),
+      );
+      return new Uint8Array(digest);
+    }
     throw new Error('Worker API unavailable');
   }
 

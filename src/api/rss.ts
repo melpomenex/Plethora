@@ -4,6 +4,7 @@
 
 import { invokeCommand, isTauri } from "../lib/tauri";
 import { useCollectionStore } from "../stores/collectionStore";
+import { nowHLC } from "../lib/sync/syncClock";
 
 /**
  * Detect a "command not registered" error from Tauri IPC, so callers can fall
@@ -1288,6 +1289,17 @@ async function createOrUpdateFeedViaTauri(
   return { feed: created, created: true };
 }
 
+async function publishTauriFeedSync(feed: TauriRssFeed): Promise<void> {
+  try {
+    const { publishRssFeed, toSyncedRssFeed } = await import("../lib/sync/entities/rss");
+    const collectionId = useCollectionStore.getState().activeCollectionId;
+    const row = toSyncedRssFeed({ ...feed, updated_at: nowHLC(), collection_id: collectionId });
+    await publishRssFeed(row);
+  } catch (error) {
+    console.warn("[RSS] feed sync publish failed (non-fatal)", error);
+  }
+}
+
 async function createArticlesViaTauri(feedId: string, items: FeedItem[]): Promise<void> {
   if (items.length === 0) return;
 
@@ -1727,6 +1739,7 @@ export async function subscribeToFeedAuto(feed: Feed): Promise<void> {
       if (created) {
         await createArticlesViaTauri(createdFeed.id, feed.items);
       }
+      await publishTauriFeedSync(createdFeed);
       // Auto-detect favicon
       try {
         const baseUrl = new URL(feed.feedUrl).origin;
@@ -1756,6 +1769,16 @@ export async function subscribeToFeedAuto(feed: Feed): Promise<void> {
  * Unified unsubscribeFromFeed - works in both Tauri and Web mode
  */
 export async function unsubscribeFromFeedAuto(feedId: string): Promise<void> {
+  if (isTauri()) {
+    try {
+      await invokeCommand("delete_rss_feed", { id: feedId });
+      const { publishRssFeedDeleted } = await import("../lib/sync/entities/rss");
+      await publishRssFeedDeleted(feedId);
+      return;
+    } catch (error) {
+      console.warn("[RSS] Tauri unsubscribe failed, removing local feed.", error);
+    }
+  }
   if (shouldUseHttpBackend()) {
     try {
       await deleteFeedViaHttp(feedId);

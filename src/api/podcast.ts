@@ -148,7 +148,9 @@ export async function subscribeToPodcast(feedUrl: string): Promise<PodcastFeed> 
   if (isWebMode()) {
     return browserInvoke<PodcastFeed>("subscribe_podcast", { feedUrl });
   }
-  return invokeCommand<PodcastFeed>("subscribe_podcast", { feedUrl });
+  const feed = await invokeCommand<PodcastFeed>("subscribe_podcast", { feedUrl });
+  void publishPodcastFeedSync(feed);
+  return feed;
 }
 
 /**
@@ -158,7 +160,8 @@ export async function renamePodcastFeed(feedId: string, newTitle: string): Promi
   if (isWebMode()) {
     return browserInvoke<void>("rename_podcast_feed", { feedId, newTitle });
   }
-  return invokeCommand<void>("rename_podcast_feed", { feedId, newTitle });
+  await invokeCommand<void>("rename_podcast_feed", { feedId, newTitle });
+  void publishPodcastFeedSyncById(feedId);
 }
 
 /**
@@ -168,7 +171,27 @@ export async function unsubscribeFromPodcast(feedId: string): Promise<void> {
   if (isWebMode()) {
     return browserInvoke<void>("unsubscribe_podcast", { feedId });
   }
-  return invokeCommand<void>("unsubscribe_podcast", { feedId });
+  await invokeCommand<void>("unsubscribe_podcast", { feedId });
+  void (async () => {
+    try {
+      const { publishPodcastFeedDeleted } = await import("../lib/sync/entities/podcasts");
+      await publishPodcastFeedDeleted(feedId);
+    } catch (error) { console.warn("[podcast] feed delete sync failed", error); }
+  })();
+}
+
+async function publishPodcastFeedSync(feed: PodcastFeed): Promise<void> {
+  try {
+    const { publishPodcastFeed, toSyncedPodcastFeed } = await import("../lib/sync/entities/podcasts");
+    await publishPodcastFeed(toSyncedPodcastFeed(feed as unknown as Record<string, unknown>));
+  } catch (error) { console.warn("[podcast] feed sync publish failed", error); }
+}
+
+async function publishPodcastFeedSyncById(feedId: string): Promise<void> {
+  try {
+    const feed = await invokeCommand<PodcastFeed | null>("get_podcast_feed", { feedId });
+    if (feed) await publishPodcastFeedSync(feed);
+  } catch (error) { console.warn("[podcast] feed rename sync failed", error); }
 }
 
 /**

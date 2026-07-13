@@ -34,6 +34,15 @@ import type * as Y from "yjs";
 import { getYjsSync, registerRoomChangeListener } from "../yjsSync";
 import { isTauri } from "../tauri";
 import { isNewer, compareClock } from "./syncClock";
+import { getProgressiveSyncScheduler, type SyncLane } from "./progressiveScheduler";
+import { measureSyncPhase, recordSyncWorkSize } from "./syncTelemetry";
+import { getSyncFeatureFlags } from "./featureFlags";
+import {
+  enqueueSyncOperation,
+  registerSyncOutboxPublisher,
+  recordIncomingSyncOperation,
+  markIncomingApplied,
+} from "./syncJournal";
 import {
   isTombstone,
   writeTombstone as writeTombstoneHelper,
@@ -89,6 +98,8 @@ export interface ReplicatedMapConfig<T extends { updatedAt: string }> {
   debounceMs?: number;
   /** Whether to log verbose activity for debugging. */
   verbose?: boolean;
+  /** Priority for replaying existing rows. Remote changes are always P0. */
+  replayLane?: SyncLane;
 }
 
 export interface ApplyContext {
@@ -99,10 +110,12 @@ interface InternalState<T> {
   map: Y.Map<Tombstoned<T>> | null;
   initialized: boolean;
   initPromise: Promise<void> | null;
-  appliedTombstones: Set<string>;
+    appliedTombstones: Set<string>;
+    appliedTombstoneClocks: Map<string, string>;
   appliedClocks: Map<string, string>;
   pendingPublish: Map<string, ReturnType<typeof setTimeout>>;
   unregisterRoomChange: (() => void) | null;
+  unregisterOutboxPublisher: (() => void) | null;
 }
 
 export interface ReplicatedMap<T extends { updatedAt: string }> {
@@ -126,6 +139,8 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
   const mode = config.mode ?? "row-lww";
   const clockField = (config.clockField ?? "updatedAt") as keyof T;
   const debounceMs = config.debounceMs ?? 0;
+  const replayLane = config.replayLane ?? "P1";
+  const scheduler = getProgressiveSyncScheduler();
   const log = config.verbose
     ? (...a: unknown[]) => console.debug(`[replicatedMap:${config.label}]`, ...a)
     : () => {};
@@ -135,10 +150,23 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
     initialized: false,
     initPromise: null,
     appliedTombstones: new Set(),
+    appliedTombstoneClocks: new Map(),
     appliedClocks: new Map(),
     pendingPublish: new Map(),
     unregisterRoomChange: null,
+    unregisterOutboxPublisher: null,
   };
+
+  if (getSyncFeatureFlags().journaledProjection) {
+    state.unregisterOutboxPublisher = registerSyncOutboxPublisher(config.name, async (row, payload) => {
+      if (!state.map) return;
+      if (row.operation === "delete") {
+        writeTombstoneHelper(state.map, row.entity_key);
+      } else if (payload && typeof payload === "object") {
+        state.map.set(row.entity_key, payload as Tombstoned<T>);
+      }
+    });
+  }
 
   async function ensureReady(): Promise<void> {
     const sync = await getYjsSync();
@@ -150,6 +178,7 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       state.initPromise = null;
       state.map = null;
       state.appliedTombstones.clear();
+      state.appliedTombstoneClocks.clear();
       state.appliedClocks.clear();
     }
 
@@ -161,12 +190,20 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
           state.map = map;
           map.observe((event) => {
             for (const key of event.keysChanged) {
-              void handleRemote(key);
+              scheduler.enqueue({
+                id: `${config.label}:remote:${key}`,
+                lane: "P0",
+                run: () => handleRemote(key),
+              });
             }
           });
           // Replay existing entries (e.g. rows published before this device joined).
           map.forEach((_value, key) => {
-            void handleRemote(key);
+            scheduler.enqueue({
+              id: `${config.label}:replay:${key}`,
+              lane: replayLane,
+              run: () => handleRemote(key),
+            });
           });
           // Opportunistic tombstone GC on init.
           try {
@@ -206,6 +243,15 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       await ensureReady();
       if (!state.map) return;
       const wire = (config.strip ? config.strip(row) : row) as Tombstoned<T>;
+      if (getSyncFeatureFlags().journaledProjection) {
+        void enqueueSyncOperation({
+          domain: config.name,
+          entityKey: key,
+          operation: mode === "append-only" ? "append" : "upsert",
+          payload: wire,
+          clock: String(row[clockField] ?? ""),
+        });
+      }
       state.map.set(key, wire);
       log("published", key);
     } catch (err) {
@@ -244,6 +290,15 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
     try {
       await ensureReady();
       if (!state.map) return;
+      if (getSyncFeatureFlags().journaledProjection) {
+        void enqueueSyncOperation({
+          domain: config.name,
+          entityKey: key,
+          operation: "delete",
+          payload: null,
+          clock: new Date().toISOString(),
+        });
+      }
       writeTombstoneHelper(state.map, key);
       log("tombstoned", key);
     } catch (err) {
@@ -260,6 +315,8 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       state.unregisterRoomChange();
       state.unregisterRoomChange = null;
     }
+    state.unregisterOutboxPublisher?.();
+    state.unregisterOutboxPublisher = null;
     for (const t of state.pendingPublish.values()) clearTimeout(t);
     state.pendingPublish.clear();
     state.map = null;
@@ -271,6 +328,18 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
     if (!isTauri() || !state.map) return;
     const remote = state.map.get(key);
     if (!remote) return; // absent — nothing to do (delete already applied or never existed)
+    const journalId = getSyncFeatureFlags().journaledProjection
+      ? `${config.name}:${key}:${String(isTombstone(remote) ? remote.deletedAt : remote[clockField] ?? "remote")}`
+      : null;
+    if (journalId) {
+      await recordIncomingSyncOperation({
+        operationId: journalId,
+        domain: config.name,
+        entityKey: key,
+        operation: isTombstone(remote) ? "delete" : mode === "append-only" ? "append" : "upsert",
+        payload: remote,
+      });
+    }
 
     if (isTombstone(remote)) {
       // Idempotent: only apply the delete once per tombstone (keyed by deletedAt).
@@ -278,8 +347,12 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       if (state.appliedTombstones.has(marker)) return;
       if (!config.applyDelete) return; // entity doesn't replicate deletes
       state.appliedTombstones.add(marker);
+      state.appliedTombstoneClocks.set(key, remote.deletedAt);
       try {
-        await config.applyDelete(key, {});
+        await measureSyncPhase("projection", () => config.applyDelete!(key, {}));
+        if (journalId) {
+          await markIncomingApplied({ operationId: journalId, domain: config.name, entityKey: key });
+        }
         log("applied delete", key);
       } catch (err) {
         state.appliedTombstones.delete(marker); // allow retry
@@ -289,10 +362,14 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
     }
 
     const remoteClock = String(remote[clockField] ?? "");
+    const tombstoneClock = state.appliedTombstoneClocks.get(key);
+    if (tombstoneClock && compareClock(remoteClock, tombstoneClock) <= 0) {
+      return; // stale offline update must not resurrect a deleted entity
+    }
 
     if (mode === "append-only") {
       // Reviews: always upsert by deterministic id; INSERT OR IGNORE dedupes.
-      await runApply(key, remote, remoteClock);
+      await runApply(key, remote, remoteClock, journalId);
       return;
     }
 
@@ -300,7 +377,7 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       // Fetch local once, then decide per-field.
       const local = config.getLocal ? await safeGetLocal(key) : null;
       const merged = local ? mergeFieldLww(local, remote, config.fieldClocks ?? []) : remote;
-      await runApply(key, merged, remoteClock);
+      await runApply(key, merged, remoteClock, journalId);
       return;
     }
 
@@ -312,18 +389,26 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
         return; // local is at least as new — don't clobber (echo guard lives here too)
       }
     }
-    await runApply(key, remote, remoteClock);
+    await runApply(key, remote, remoteClock, journalId);
   }
 
-  async function runApply(key: string, row: T, clock: string): Promise<void> {
+  async function runApply(key: string, row: T, clock: string, journalId: string | null = null): Promise<void> {
     // Idempotency for rapid re-broadcasts: skip if we already applied this clock.
     const prev = state.appliedClocks.get(key);
     if (prev && compareClock(clock, prev) <= 0) {
       return;
     }
     try {
-      await config.apply(key, row, {});
+      try {
+        recordSyncWorkSize(JSON.stringify(row).length, 1);
+      } catch {
+        // Diagnostic sizing must never make a valid sync row fail.
+      }
+      await measureSyncPhase("projection", () => config.apply(key, row, {}));
       state.appliedClocks.set(key, clock);
+      if (journalId) {
+        await markIncomingApplied({ operationId: journalId, domain: config.name, entityKey: key });
+      }
       log("applied", key);
     } catch (err) {
       console.warn(`[replicatedMap:${config.label}] apply failed`, key, err);
@@ -356,7 +441,7 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
  * newer than the local clock. Fields not listed are taken from the row whose
  * `updatedAt` is newer (so non-churn metadata still converges via row-LWW).
  */
-function mergeFieldLww<T extends { updatedAt: string }>(
+export function mergeFieldLww<T extends { updatedAt: string }>(
   local: T,
   remote: T,
   fieldClocks: Array<[keyof T, keyof T]>,

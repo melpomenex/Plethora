@@ -18,11 +18,26 @@ import { saveReceivedFileSync } from "./fileSyncRegistration";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useDocumentStore } from "../stores/documentStore";
 import { registerRoomChangeListener } from "./yjsSync";
+import {
+  ensureFileAvailabilityIntentReady,
+  listActiveFileAvailabilityIntents,
+  selectQueuePrefetchDocuments,
+  subscribeFileAvailabilityIntent,
+  syncQueueFileAvailabilityIntents,
+} from "./sync/fileAvailabilityIntent";
+import { scheduleProgressiveSyncWork } from "./sync/progressiveScheduler";
+import type { Document } from "../types";
 
 let started = false;
 let unsubscribe: (() => void) | null = null;
 let roomChangeListenerRegistered = false;
 let activeManifest: FileManifest | null = null;
+let intentListenerRegistered = false;
+const inFlightDownloads = new Set<string>();
+const pendingIntents = new Map<string, { fileId: string; requestedByDevice: string }>();
+let documentStoreListenerRegistered = false;
+let lastPrefetchSignature = "";
+let queuedPrefetchPromise: Promise<void> | null = null;
 
 /**
  * Begin watching the manifest for newly-available files and auto-download them
@@ -42,12 +57,46 @@ export async function startAutoFileSyncDownload(): Promise<void> {
 
   try {
     await ensureFileSyncReady();
+    await ensureFileAvailabilityIntentReady();
   } catch (err) {
     console.warn("[autoFileSyncDownload] sync not ready, deferring", err);
     return;
   }
 
   const manifest = getFileManifest();
+
+  if (!intentListenerRegistered) {
+    intentListenerRegistered = true;
+    if (!documentStoreListenerRegistered) {
+      documentStoreListenerRegistered = true;
+      useDocumentStore.subscribe((state) => {
+        for (const intent of pendingIntents.values()) {
+          if (state.documents.some((doc) => doc.fileId === intent.fileId)) {
+            pendingIntents.delete(intent.fileId);
+            void maybeAutoDownloadIntent(intent);
+          }
+        }
+      });
+    }
+    subscribeFileAvailabilityIntent((intent, active) => {
+      if (active) {
+        pendingIntents.set(intent.fileId, {
+          fileId: intent.fileId,
+          requestedByDevice: intent.requestedByDevice,
+        });
+        void maybeAutoDownloadIntent(intent);
+      } else {
+        void listActiveFileAvailabilityIntents(intent.fileId).then((activeIntents) => {
+          if (activeIntents.length === 0) pendingIntents.delete(intent.fileId);
+        });
+      }
+    });
+    // Replay active intents that arrived before this controller subscribed.
+    void listActiveFileAvailabilityIntents()
+      .then((intents) => Promise.all(intents.map((intent) => maybeAutoDownloadIntent(intent))))
+      .catch((err) => console.warn("[autoFileSyncDownload] intent replay failed", err));
+  }
+
   if (started && activeManifest === manifest) return;
 
   if (unsubscribe) {
@@ -102,29 +151,100 @@ async function maybeAutoDownload(availableFileIds: string[], sourceDeviceId: str
     const doc = documents.find((d) => d.fileId === fileId);
     if (!doc) continue;
 
-    try {
-      const blob = await transferManager.requestFile(fileId);
-      const storedPath = await saveReceivedFileSync(doc.id, fileId, blob, doc.fileType, doc.title);
-      if (storedPath) {
-        useDocumentStore.setState((state) => {
-          const updatedDocs = state.documents.map((d) =>
-            d.id === doc.id ? { ...d, filePath: storedPath } : d
-          );
-          const currentDoc = state.currentDocument;
-          const updatedCurrentDoc =
-            currentDoc && currentDoc.id === doc.id
-              ? { ...currentDoc, filePath: storedPath }
-              : currentDoc;
-          return {
-            documents: updatedDocs,
-            currentDocument: updatedCurrentDoc,
-          };
-        });
-      }
-    } catch (err) {
-      console.warn("[autoFileSyncDownload] auto-download failed", fileId, err);
-    }
+    await downloadDocumentFile(doc, fileId, transferManager);
   }
+}
+
+async function maybeAutoDownloadIntent(intent: {
+  fileId: string;
+  requestedByDevice: string;
+}): Promise<void> {
+  if (!useDocumentStore.getState().documents.some((doc) => doc.fileId === intent.fileId)) {
+    pendingIntents.set(intent.fileId, intent);
+    return;
+  }
+  pendingIntents.delete(intent.fileId);
+  await maybeAutoDownload([intent.fileId], intent.requestedByDevice);
+}
+
+/** Download one document file and persist it as a device-local path. */
+async function downloadDocumentFile(
+  doc: Document,
+  fileId: string,
+  transferManager = getFileTransferManager(),
+): Promise<void> {
+  if (inFlightDownloads.has(fileId) || transferManager.hasFileLocal(fileId)) return;
+  inFlightDownloads.add(fileId);
+  try {
+    const blob = await transferManager.requestFile(fileId);
+    const storedPath = await saveReceivedFileSync(doc.id, fileId, blob, doc.fileType, doc.title);
+    if (storedPath) {
+      useDocumentStore.setState((state) => {
+        const updatedDocs = state.documents.map((d) =>
+          d.id === doc.id ? { ...d, filePath: storedPath } : d
+        );
+        const currentDoc = state.currentDocument;
+        const updatedCurrentDoc =
+          currentDoc && currentDoc.id === doc.id
+            ? { ...currentDoc, filePath: storedPath }
+            : currentDoc;
+        return {
+          documents: updatedDocs,
+          currentDocument: updatedCurrentDoc,
+        };
+      });
+    }
+  } catch (err) {
+    console.warn("[autoFileSyncDownload] auto-download failed", fileId, err);
+  } finally {
+    inFlightDownloads.delete(fileId);
+  }
+}
+
+/**
+ * Publish and prefetch the current queue horizon. This is intentionally
+ * bounded and cooperative: queue navigation remains local-first, and the
+ * existing auto-download policy still decides whether bytes may transfer.
+ */
+export async function prefetchQueuedDocuments(documents: Document[]): Promise<void> {
+  const signature = documents
+    .slice(0, 3)
+    .map((doc) => `${doc.id}:${doc.fileId ?? ""}`)
+    .join("|");
+  if (signature === lastPrefetchSignature && queuedPrefetchPromise) return queuedPrefetchPromise;
+  lastPrefetchSignature = signature;
+
+  queuedPrefetchPromise = scheduleProgressiveSyncWork({
+    id: `sync:queue-prefetch:${signature || "empty"}`,
+    lane: "P2",
+    maxRetries: 0,
+    run: async () => {
+      try {
+        await ensureFileSyncReady();
+        await ensureFileAvailabilityIntentReady();
+        await syncQueueFileAvailabilityIntents(documents);
+
+        const mode = useSettingsStore.getState().settings.sync?.autoDownloadMode ?? "wifi-only";
+        if (mode === "manual") return;
+        if (mode === "wifi-only" && !(await isOnWifi())) return;
+
+        const manifest = getFileManifest();
+        const transferManager = getFileTransferManager();
+        for (const doc of selectQueuePrefetchDocuments(documents)) {
+          if (!doc.fileId || transferManager.hasFileLocal(doc.fileId)) continue;
+          if (!manifest.isFileAvailable(doc.fileId, { excludeDeviceId: manifest.getDeviceId() })) continue;
+          await downloadDocumentFile(doc, doc.fileId, transferManager);
+          // Give input/rendering a chance between queue-horizon transfers.
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        }
+      } catch (err) {
+        console.warn("[autoFileSyncDownload] queue prefetch deferred", err);
+      }
+    },
+  }).finally(() => {
+    queuedPrefetchPromise = null;
+  });
+  return queuedPrefetchPromise;
 }
 
 /**

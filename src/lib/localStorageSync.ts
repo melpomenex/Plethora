@@ -1,4 +1,5 @@
 import { getYjsSync, registerRoomChangeListener } from "./yjsSync";
+import { getProgressiveSyncScheduler } from "./sync/progressiveScheduler";
 
 type SyncEntry = {
   value: string | null;
@@ -138,6 +139,7 @@ export async function initLocalStorageSync(): Promise<void> {
     currentDoc = sync.doc;
 
     const map: any = sync.doc.getMap("localStorage");
+    const scheduler = getProgressiveSyncScheduler();
     const lastApplied = new Map<string, number>();
     const pendingWrites = new Map<string, string | null>();
     let flushTimer: number | null = null;
@@ -270,7 +272,11 @@ export async function initLocalStorageSync(): Promise<void> {
         if (isBlockedKey(key)) {
           return;
         }
-        applyRemote(key, entry);
+        scheduler.enqueue({
+          id: `localStorage:replay:${key}`,
+          lane: "P1",
+          run: () => applyRemote(key, entry),
+        });
       });
     }
 
@@ -279,12 +285,16 @@ export async function initLocalStorageSync(): Promise<void> {
         if (isBlockedKey(key)) {
           return;
         }
-        const entry = map.get(key);
-        const last = lastApplied.get(key);
-        if (entry && last === entry.updatedAt) {
-          return;
-        }
-        applyRemote(key, entry);
+        scheduler.enqueue({
+          id: `localStorage:remote:${key}`,
+          lane: "P0",
+          run: () => {
+            const entry = map.get(key);
+            const last = lastApplied.get(key);
+            if (entry && last === entry.updatedAt) return;
+            applyRemote(key, entry);
+          },
+        });
       });
     });
 

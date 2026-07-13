@@ -1895,6 +1895,93 @@ pub const MIGRATIONS: &[Migration] = &[
             ON rss_reading_lists(sort_order);
         "#,
     ),
+    // Migration 056: durable progressive-sync journal
+    //
+    // The journal is intentionally separate from entity tables. Local writes
+    // can enqueue a compact operation and incoming Yjs records can be applied
+    // idempotently in bounded batches without making the CRDT/provider a local
+    // availability dependency.
+    Migration::new(
+        "056_add_progressive_sync_journal",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_outbox (
+            operation_id TEXT PRIMARY KEY,
+            domain TEXT NOT NULL,
+            entity_key TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            payload TEXT,
+            clock TEXT NOT NULL,
+            payload_hash TEXT,
+            created_at TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            last_error TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_status_created
+            ON sync_outbox(status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_entity
+            ON sync_outbox(domain, entity_key, status);
+
+        CREATE TABLE IF NOT EXISTS sync_inbox (
+            operation_id TEXT PRIMARY KEY,
+            domain TEXT NOT NULL,
+            entity_key TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            payload TEXT,
+            received_at TEXT NOT NULL,
+            applied_at TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            last_error TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_inbox_status_received
+            ON sync_inbox(status, received_at);
+
+        CREATE TABLE IF NOT EXISTS sync_applied_operations (
+            operation_id TEXT PRIMARY KEY,
+            domain TEXT NOT NULL,
+            entity_key TEXT NOT NULL,
+            projection_hash TEXT,
+            applied_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_applied_domain_key
+            ON sync_applied_operations(domain, entity_key, applied_at);
+
+        CREATE TABLE IF NOT EXISTS sync_checkpoints (
+            domain TEXT PRIMARY KEY,
+            cursor TEXT,
+            shard TEXT,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_dead_letters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_id TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            payload TEXT,
+            error TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            retry_at TEXT,
+            resolved_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_dead_letters_retry
+            ON sync_dead_letters(resolved_at, retry_at);
+
+        CREATE TABLE IF NOT EXISTS sync_projection_hashes (
+            domain TEXT NOT NULL,
+            bucket TEXT NOT NULL,
+            projection_hash TEXT NOT NULL,
+            record_count INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(domain, bucket)
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_migration_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

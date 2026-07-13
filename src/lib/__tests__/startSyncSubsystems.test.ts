@@ -23,7 +23,10 @@ function record(name: string) {
 
 const mocks = vi.hoisted(() => {
   return {
-    getYjsSync: record("getYjsSync"),
+    getYjsSync: vi.fn(() => {
+      calls.push("getYjsSync");
+      return Promise.resolve({});
+    }),
     ensureFileSyncReady: record("ensureFileSyncReady"),
     startAutoFileSyncDownload: record("startAutoFileSyncDownload"),
     ensureDocumentReplicationReady: record("ensureDocumentReplicationReady"),
@@ -33,6 +36,7 @@ const mocks = vi.hoisted(() => {
     ensureFlashcardSyncReady: record("ensureFlashcardSyncReady"),
     ensureRssSyncReady: record("ensureRssSyncReady"),
     ensurePodcastSyncReady: record("ensurePodcastSyncReady"),
+    ensureFileAvailabilityIntentReady: record("ensureFileAvailabilityIntentReady"),
     runSyncMigrationIfNeeded: record("runSyncMigrationIfNeeded"),
   };
 });
@@ -66,6 +70,9 @@ vi.mock("../sync/entities/rss", () => ({ ensureRssSyncReady: mocks.ensureRssSync
 vi.mock("../sync/entities/podcasts", () => ({
   ensurePodcastSyncReady: mocks.ensurePodcastSyncReady,
 }));
+vi.mock("../sync/fileAvailabilityIntent", () => ({
+  ensureFileAvailabilityIntentReady: mocks.ensureFileAvailabilityIntentReady,
+}));
 vi.mock("../sync/migrate", () => ({
   // runSyncMigrationIfNeeded is wrapped in .catch() by the chain, so even when
   // it rejects it must not abort the rest. Default resolves; one test overrides.
@@ -95,12 +102,12 @@ describe("startSyncSubsystems", () => {
   it("invokes every entity initializer exactly once, in dependency order", async () => {
     await startSyncSubsystems();
 
-    // Ordering: provider → file sync → auto-download → documents → flashcards
-    // → RSS → podcasts → first-join backfill.
+    // Ordering: provider → all entity maps → auto-download → first-join
+    // backfill. The map initializers run together before the watcher so its
+    // manifest and intent subscriptions cannot miss a replayed row.
     expect(calls).toEqual([
       "getYjsSync",
       "ensureFileSyncReady",
-      "startAutoFileSyncDownload",
       "ensureDocumentReplicationReady",
       "ensureCollectionSyncReady",
       "ensureExtractSyncReady",
@@ -108,6 +115,8 @@ describe("startSyncSubsystems", () => {
       "ensureFlashcardSyncReady",
       "ensureRssSyncReady",
       "ensurePodcastSyncReady",
+      "ensureFileAvailabilityIntentReady",
+      "startAutoFileSyncDownload",
       "runSyncMigrationIfNeeded",
     ]);
 

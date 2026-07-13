@@ -4,6 +4,7 @@ import { IndexeddbPersistence } from "y-indexeddb";
 import { EncryptedWebsocketProvider } from "./sync/encryptedProvider";
 import { getCachedSubKeys, ensureEncryptionEnabled } from "./sync/roomCrypto";
 import { useSettingsStore } from "../stores/settingsStore";
+import { markSyncPhaseStart } from "./sync/syncTelemetry";
 
 type YjsSyncState = {
   doc: Y.Doc;
@@ -115,49 +116,13 @@ export async function clearYjsIndexedDB(): Promise<boolean> {
  * Check if IndexedDB data is corrupted by trying to read it
  */
 async function checkAndRepairCorruption(): Promise<void> {
-  if (typeof indexedDB === "undefined") return;
-
-  const wasCorrupted = localStorage.getItem(CORRUPTION_FLAG_KEY);
-
-  // If we detected corruption in a previous session, clear data now
-  if (wasCorrupted === "true") {
-    await clearYjsIndexedDB();
-    return;
+  // Corruption is reported by the scoped persistence/provider handlers. Do
+  // not install a global error hook or clear a shared database during boot.
+  // Explicit recovery actions may call clearYjsIndexedDB() after the user has
+  // chosen the affected room/provider.
+  if (typeof indexedDB !== "undefined" && localStorage.getItem(CORRUPTION_FLAG_KEY)) {
+    console.warn("[YjsSync] Previous corruption was recorded; awaiting scoped recovery");
   }
-
-  const originalErrorHandler = window.onerror;
-  let detectedCorruption = false;
-
-  window.onerror = (message, source, lineno, colno, error) => {
-    const msg = String(message);
-    if (
-      msg.includes("Cannot read properties of null") ||
-      msg.includes("reading 'length'") ||
-      (source?.includes("chunk") && msg.includes("readVarUint"))
-    ) {
-      detectedCorruption = true;
-      console.warn("[YjsSync] Detected corrupted Yjs data, will clear on next load");
-      localStorage.setItem(CORRUPTION_FLAG_KEY, "true");
-
-      setTimeout(() => {
-        clearYjsIndexedDB();
-      }, 100);
-
-      return true; // Prevent the error from propagating
-    }
-
-    if (originalErrorHandler) {
-      return originalErrorHandler(message, source, lineno, colno, error);
-    }
-    return false;
-  };
-
-  // Restore original handler after a delay
-  setTimeout(() => {
-    if (!detectedCorruption) {
-      window.onerror = originalErrorHandler;
-    }
-  }, 5000);
 }
 
 export async function getYjsSync(): Promise<YjsSyncState> {
@@ -188,10 +153,12 @@ export async function getYjsSync(): Promise<YjsSyncState> {
           console.warn("[YjsSync] IndexedDB unavailable; running without persistence");
           throw new Error("IndexedDB unavailable");
         }
+        const endReplay = markSyncPhaseStart("indexeddb-replay");
         persistence = new IndexeddbPersistence(DB_NAME, doc);
 
         persistence.on("sync", (isSynced: boolean) => {
           if (isSynced) {
+            endReplay();
             // Clear corruption flag on successful sync
             localStorage.removeItem(CORRUPTION_FLAG_KEY);
           }
@@ -343,11 +310,8 @@ export async function getYjsSync(): Promise<YjsSyncState> {
   } catch (error) {
     console.error("[YjsSync] Critical error in getYjsSync:", error);
 
-    // If all else fails, try to clear corrupted data and throw
-    await clearYjsIndexedDB().catch(e => {
-      console.warn("[YjsSync] Failed to clear IndexedDB after error:", e);
-    });
-
+    // Do not destructively clear the shared database here. The local app must
+    // remain usable and recovery is an explicit, scoped user action.
     throw error;
   }
 }

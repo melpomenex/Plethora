@@ -88,15 +88,12 @@ if (typeof window !== 'undefined') {
 
     if (message.includes("TextDecoder") && message.includes("encoded data was not valid")) {
       event.preventDefault();
-      console.error('[Yjs] Decode failure detected. Clearing persistence and reloading.', reason);
-      const resetKey = "incrementum_yjs_reset_at";
-      if (!sessionStorage.getItem(resetKey)) {
-        sessionStorage.setItem(resetKey, new Date().toISOString());
-        import("./lib/yjsSync")
-          .then(({ getYjsSync }) => getYjsSync().then(sync => sync.persistence.clearData()))
-          .catch((error) => console.error('[Yjs] Failed to clear persistence:', error))
-          .finally(() => window.location.reload());
-      }
+      // A decode failure is isolated to the sync subsystem. Never wipe the
+      // entire local Yjs database or reload the app from a global rejection:
+      // local SQLite remains usable and the scoped recovery UI can retry the
+      // affected provider/domain when the user chooses.
+      console.error('[Yjs] Decode failure detected; sync is paused for recovery.', reason);
+      window.dispatchEvent(new CustomEvent("incrementum:sync-corruption", { detail: { message } }));
     }
   });
 }
@@ -113,6 +110,7 @@ import { initializePWA } from "./lib/pwa";
 import { isNativeMobile, isPWA, isTauri } from "./lib/tauri";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 import { installConsoleLogcatBridge } from "./lib/consoleLogcatBridge";
+import { markSyncPhaseStart } from "./lib/sync/syncTelemetry";
 
 import { MainLayout } from "./components/layout/MainLayout";
 import { DevPerformanceMonitor } from "./components/common/PerformanceMonitor";
@@ -255,8 +253,10 @@ function initLocalStorageSyncLazy(): Promise<void> {
 // module lazy on native/Tauri boot so the Yjs/hash-wasm dependency chain stays
 // out of the first render path.
 if (isPWA()) {
-  initLocalStorageSyncLazy().catch((error) => {
-    console.error("[main.tsx] Failed to initialize local storage sync:", error);
+  runAfterFirstPaint(() => {
+    initLocalStorageSyncLazy().catch((error) => {
+      console.error("[main.tsx] Failed to initialize local storage sync:", error);
+    });
   });
 }
 
@@ -290,12 +290,10 @@ if (isTauri()) {
       });
   };
 
-  // Sync auto-start is DISABLED on desktop to prevent the Yjs/IndexedDB/crypto
-  // subsystem chain from saturating the main thread and freezing the UI during
-  // PDF loading. The chain can allocate hundreds of MB and stall the event loop
-  // for seconds — enough to make the window unresponsive. Users can start sync
-  // manually via Settings → Sync → "Real-time sync" toggle at any time.
-  // runAfterFirstPaint(bootSync);
+  // Start after first paint. The progressive scheduler keeps replay/projection
+  // work in short idle slices, so sync remains automatic without making the
+  // local shell wait for the room or network.
+  runAfterFirstPaint(bootSync);
 }
 
 // Dev/Tauri: ensure no service worker or cache is present to avoid stale assets.
@@ -330,6 +328,8 @@ if (!isTauri()) {
 
 const rootEl = document.getElementById("root") as HTMLElement;
 const reactRoot = ReactDOM.createRoot(rootEl);
+const endFirstPaint = markSyncPhaseStart("first-paint");
+const endLocalUsable = markSyncPhaseStart("local-usable");
 reactRoot.render(
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
@@ -361,4 +361,6 @@ reactRoot.render(
 // runtime errors (it should only do that for bootstrap failures).
 requestAnimationFrame(() => {
   rootEl?.setAttribute("data-incrementum-mounted", "true");
+  endFirstPaint();
+  endLocalUsable();
 });

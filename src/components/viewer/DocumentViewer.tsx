@@ -861,7 +861,13 @@ export function DocumentViewer({
   // browser/PWA) — not just PWA. The old `isPWA()` gate made it unreachable in
   // the native Android/iOS build.
   const isMobileTouch = useMobileShell();
-  const activeExtractSelection = docType === "epub" || (docType === "pdf" && pdfViewMode === "ocr-html")
+  const isEpubOrTextDoc =
+    docType === "epub" ||
+    docType === "markdown" ||
+    docType === "html" ||
+    docType === "other" ||
+    (docType === "pdf" && pdfViewMode === "ocr-html");
+  const activeExtractSelection = isEpubOrTextDoc
     ? (selectedText || lastSelectionRef.current)
     : selectedText;
 
@@ -4147,14 +4153,29 @@ export function DocumentViewer({
         });
       };
 
+      const handleIframeMouseDown = (e: MouseEvent) => {
+        const parentEvent = new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          screenX: e.screenX,
+          screenY: e.screenY,
+        });
+        window.dispatchEvent(parentEvent);
+      };
+
       doc.addEventListener("selectionchange", publishSelection);
       doc.addEventListener("mouseup", publishSelection);
       doc.addEventListener("keyup", publishSelection);
+      doc.addEventListener("mousedown", handleIframeMouseDown);
 
       teardown = () => {
         doc.removeEventListener("selectionchange", publishSelection);
         doc.removeEventListener("mouseup", publishSelection);
         doc.removeEventListener("keyup", publishSelection);
+        doc.removeEventListener("mousedown", handleIframeMouseDown);
       };
     };
 

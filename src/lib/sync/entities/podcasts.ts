@@ -83,6 +83,27 @@ export interface SyncedPodcastEpisode {
   segments: SyncedTranscriptSegment[] | null;
 }
 
+export function toSyncedPodcastFeed(raw: Record<string, unknown>): SyncedPodcastFeed {
+  const updatedAt = String(raw.updatedAt ?? raw.updated_at ?? nowHLC());
+  return {
+    id: String(raw.id ?? ""),
+    title: String(raw.title ?? ""),
+    description: raw.description == null ? null : String(raw.description),
+    imageUrl: raw.imageUrl == null ? null : String(raw.imageUrl),
+    author: raw.author == null ? null : String(raw.author),
+    language: raw.language == null ? null : String(raw.language),
+    link: raw.link == null ? null : String(raw.link),
+    feedUrl: String(raw.feedUrl ?? raw.feed_url ?? ""),
+    lastFetched: raw.lastFetched == null ? null : String(raw.lastFetched),
+    subscribedAt: String(raw.subscribedAt ?? raw.subscribed_at ?? new Date().toISOString()),
+    sortOrder: Number(raw.sortOrder ?? raw.sort_order ?? 0),
+    autoTranscribe: Boolean(raw.autoTranscribe ?? raw.auto_transcribe ?? false),
+    transcribeLanguage: raw.transcribeLanguage == null ? null : String(raw.transcribeLanguage),
+    updatedAt,
+    deletedAt: raw.deletedAt == null ? null : String(raw.deletedAt),
+  };
+}
+
 // --- singletons -------------------------------------------------------------
 let feedsMap: ReplicatedMap<SyncedPodcastFeed> | null = null;
 let episodesMap: ReplicatedMap<SyncedPodcastEpisode> | null = null;

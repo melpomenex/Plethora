@@ -15,8 +15,10 @@ import {
   Sliders,
   Sparkle,
   TextT,
+  Translate,
   WarningCircle,
 } from "@phosphor-icons/react";
+import { lookupDictionary, type DictionaryResult } from "../utils/dictionaryLookup";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useQueueStore } from "../stores/queueStore";
 import { useDocumentStore } from "../stores/documentStore";
@@ -320,6 +322,8 @@ export function QueueScrollPage() {
   }, []);
   const isMobile = useMobileShell();
   const [rssSelectedText, setRssSelectedText] = useState("");
+  const lastRssSelectionRef = useRef("");
+  const activeRssSelection = rssSelectedText || lastRssSelectionRef.current;
   const MAX_SELECTION_CHARS = 10000;
   // Persist provider selection
   useEffect(() => {
@@ -366,6 +370,10 @@ export function QueueScrollPage() {
     showButton: boolean;
   }>({ text: "", position: { x: 0, y: 0 }, showButton: false });
   const mobileRssSelectionTimeoutRef = useRef<number | null>(null);
+
+  // Dictionary lookup state for RSS selections
+  const [dictionaryResult, setDictionaryResult] = useState<DictionaryResult | null>(null);
+  const [isDictionaryLoading, setIsDictionaryLoading] = useState(false);
   // `isMobile` (declared above via useMobileShell()) drives the touch selection
   // UI. The old `isPWA()` gate made it unreachable in the native Android/iOS
   // build; useMobileShell() covers native phones/tablets and narrow browsers.
@@ -511,7 +519,15 @@ export function QueueScrollPage() {
     }
 
     setRssSelectedText(text);
+    lastRssSelectionRef.current = text;
   }, [MAX_SELECTION_CHARS]);
+
+  const clearRssTextSelection = useCallback(() => {
+    setRssSelectedText("");
+    lastRssSelectionRef.current = "";
+    setDictionaryResult(null);
+    window.getSelection()?.removeAllRanges();
+  }, []);
 
   const documentsMap = useMemo(() => {
     const map = new Map<string, typeof documents[number]>();
@@ -1157,6 +1173,30 @@ export function QueueScrollPage() {
     if (!currentItem || currentItem.type !== "document" || !currentItem.documentId) return null;
     return documentsMap.get(currentItem.documentId) ?? null;
   }, [currentItem, documentsMap]);
+
+  // Keep a small cross-device download horizon ahead of the reader. This is
+  // fire-and-forget and bounded to the current item plus the next two
+  // documents; queue rendering and navigation never wait for file sync.
+  useEffect(() => {
+    const horizonDocuments: Array<(typeof documents)[number]> = [];
+    for (let index = currentIndex; index < scrollItems.length && horizonDocuments.length < 3; index += 1) {
+      const item = scrollItems[index];
+      if (item?.type !== "document") continue;
+      const doc = documentsMap.get(item.documentId);
+      if (doc) horizonDocuments.push(doc);
+    }
+    let cancelled = false;
+    void import("../lib/autoFileSyncDownload")
+      .then(({ prefetchQueuedDocuments }) => {
+        if (!cancelled) return prefetchQueuedDocuments(horizonDocuments);
+        return undefined;
+      })
+      .catch((error) => console.warn("[QueueScroll] queue file prefetch unavailable", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [scrollItems, currentIndex, documentsMap]);
+
   const isNewDocument =
     currentDocument
       ? (currentDocument.reps ?? currentDocument.readingCount ?? 0) <= 0
@@ -2772,7 +2812,7 @@ export function QueueScrollPage() {
   const handleCreateRssExtract = useCallback(async () => {
     if (!renderedItem || renderedItem.type !== "rss" || !renderedItem.rssItem) return;
 
-    const selectionText = rssSelectedText.trim();
+    const selectionText = activeRssSelection.trim();
     if (!selectionText) return;
 
     const rssItem = renderedItem.rssItem;
@@ -2832,8 +2872,7 @@ export function QueueScrollPage() {
             }
           : undefined
       );
-      setRssSelectedText("");
-      window.getSelection()?.removeAllRanges();
+      clearRssTextSelection();
     } catch (error) {
       console.error("Failed to create extract from RSS item:", error);
       toast.error(
@@ -2841,14 +2880,15 @@ export function QueueScrollPage() {
         error instanceof Error ? error.message : t("queueScroll.anErrorOccurred")
       );
     }
-  }, [renderedItem, rssSelectedText, documents, addDocument, updateDocument, toast, buildQueueExtractSourceContext, openExtractInDocumentTab]);
+  }, [renderedItem, activeRssSelection, documents, addDocument, updateDocument, toast, buildQueueExtractSourceContext, openExtractInDocumentTab, clearRssTextSelection]);
 
   // Mobile PWA: Handle extract creation from mobile RSS selection
   const handleMobileRssExtract = useCallback(async () => {
     if (!mobileRssSelection.text) return;
 
-    // Set the RSS selected text state temporarily
+    // Set the RSS selected text and last selection ref
     setRssSelectedText(mobileRssSelection.text);
+    lastRssSelectionRef.current = mobileRssSelection.text;
 
     // Hide the mobile button
     setMobileRssSelection(prev => ({ ...prev, showButton: false }));
@@ -2859,6 +2899,53 @@ export function QueueScrollPage() {
     // Call the regular handler
     await handleCreateRssExtract();
   }, [mobileRssSelection.text, handleCreateRssExtract]);
+
+  // Dictionary Lookup for selected RSS text
+  const handleRssDictionaryLookup = useCallback(async () => {
+    const word = activeRssSelection.trim().split(/\s+/)[0] || "";
+    if (!word) return;
+    setIsDictionaryLoading(true);
+    try {
+      const result = await lookupDictionary(word);
+      setDictionaryResult(result);
+    } catch (error) {
+      toast.error(t("viewer.lookupFailed"), error instanceof Error ? error.message : t("viewer.failedToLookupWord"));
+    } finally {
+      setIsDictionaryLoading(false);
+    }
+  }, [activeRssSelection, toast]);
+
+  // Dismiss the floating RSS selection drawer on click away or Escape
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Don't dismiss when interacting with the floating button, dictionary display, dialogs, or context menus
+      if (
+        target.closest('[data-extract-button="true"]') ||
+        target.closest('[role="dialog"]') ||
+        target.closest('.context-menu') ||
+        target.closest('[data-dictionary-popup="true"]')
+      ) {
+        return;
+      }
+      if (activeRssSelection) {
+        clearRssTextSelection();
+      }
+    };
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && activeRssSelection) {
+        clearRssTextSelection();
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [activeRssSelection, clearRssTextSelection]);
 
   const handleExit = () => {
     if (activeTabId) {
@@ -3402,18 +3489,70 @@ export function QueueScrollPage() {
         />
       )}
 
-      {/* RSS Extract Action */}
-      {renderedItem?.type === "rss" && rssSelectedText && (
-        <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[70] pointer-events-auto">
-          <button
-            onClick={handleCreateRssExtract}
-            className="flex items-center gap-2 px-3 md:px-4 py-2 md:py-3 bg-primary text-primary-foreground rounded-lg shadow-lg hover:opacity-90 transition-opacity min-h-[44px] text-sm md:text-base"
-            title={t("queueScroll.createExtractFromSelection")}
-          >
-            <Lightbulb className="w-5 h-5" />
-            <span className="font-medium hidden sm:inline">{t("queueScroll.createExtract")}</span>
-            <span className="font-medium sm:hidden">{t("queueScroll.createExtractShort")}</span>
-          </button>
+      {/* Premium Floating Selection Drawer for RSS Items */}
+      {renderedItem?.type === "rss" && activeRssSelection && (
+        <div
+          className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[70] pointer-events-auto animate-in slide-in-from-bottom-4 duration-200"
+          data-extract-button="true"
+        >
+          <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/92 p-2 shadow-2xl backdrop-blur-md">
+            <button
+              onClick={handleCreateRssExtract}
+              className="group flex items-center gap-3 rounded-xl bg-primary px-4 py-3 text-primary-foreground shadow-lg ring-1 ring-primary/20 transition-all min-h-[52px] text-sm font-semibold hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 active:translate-y-0"
+              title={t("viewer.createExtractFromSelection")}
+              aria-label={`Create extract from selected text (${activeRssSelection.length} characters)`}
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-foreground/14 transition-colors group-hover:bg-primary-foreground/20">
+                <Lightbulb className="w-5 h-5" aria-hidden="true" />
+              </span>
+              <span className="flex flex-col items-start leading-tight">
+                <span>{t("viewer.createExtract")}</span>
+                <span className="text-[11px] font-medium text-primary-foreground/80">
+                  {t("extracts.selectedText")}
+                </span>
+              </span>
+              <span className="rounded-full bg-primary-foreground/14 px-2.5 py-1 text-xs font-semibold text-primary-foreground">
+                {activeRssSelection.length}
+              </span>
+            </button>
+            <button
+              onClick={handleRssDictionaryLookup}
+              disabled={isDictionaryLoading}
+              className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-3 text-foreground shadow-sm transition-colors min-h-[52px] hover:bg-muted disabled:opacity-60"
+              title={t("viewer.lookupDictionaryThesaurus")}
+            >
+              <Translate className="w-4 h-4" />
+              <span className="text-xs">{isDictionaryLoading ? t("viewer.lookingUp") : t("viewer.lookup")}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Dictionary result popup for RSS items */}
+      {renderedItem?.type === "rss" && dictionaryResult && (
+        <div 
+          className="fixed bottom-[7.5rem] md:bottom-24 right-4 md:right-6 z-[72] w-[min(420px,calc(100vw-2rem))] rounded-lg border border-border bg-card p-3 shadow-2xl"
+          data-dictionary-popup="true"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{dictionaryResult.word}</p>
+              {dictionaryResult.definitions[0] && (
+                <p className="mt-1 text-xs text-muted-foreground">{dictionaryResult.definitions[0]}</p>
+              )}
+              {dictionaryResult.synonyms.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {t("viewer.synonyms", { synonyms: dictionaryResult.synonyms.slice(0, 5).join(", ") })}
+                </p>
+              )}
+            </div>
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setDictionaryResult(null)}
+            >
+              {t("viewer.close")}
+            </button>
+          </div>
         </div>
       )}
 

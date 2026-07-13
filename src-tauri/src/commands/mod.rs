@@ -44,6 +44,7 @@ pub mod semantic_graph;
 pub mod semantic_search;
 pub mod substack;
 pub mod sync;
+pub mod sync_journal;
 pub mod tas;
 pub mod video;
 pub mod youtube_playlist;
@@ -96,6 +97,7 @@ pub use podcast::*;
 pub use pdf_mobile::*;
 pub use pdf_reflow_cache::*;
 pub use sync::*;
+pub use sync_journal::*;
 pub use tas::*;
 
 pub use scheduler::*;
