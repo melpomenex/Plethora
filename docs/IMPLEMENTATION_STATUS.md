@@ -286,9 +286,6 @@ Honest assessment of remaining work:
 |------|--------|-------|
 | **iOS** | 🚧 In progress | Simulator build/dev works on Apple Silicon; not yet shipped as a signed production build. |
 | **AnkiConnect live sync** | 🚧 Planned | Static `.apkg` import/export ships; real-time Anki sync is not yet implemented. |
-| **Three.js** | ⚠️ Unused dependency | `three` is declared in `package.json` but not imported in `src/`. The "Knowledge Sphere" is rendered with HTML5 Canvas 2D, not WebGL. Candidate for removal or a real Three.js rewrite. |
-| **Documentation freshness** | ⚠️ Partial | This file and `FEATURES_IMPLEMENTED.md` are kept current; some older docs under `docs/` predate the v1.7x mobile and sync work. |
-
 Feature work is tracked through the [OpenSpec](../openspec/) proposal workflow — see `openspec/changes/` for in-progress proposals and `openspec/AGENTS.md` for the contribution process.
 
 ---
