@@ -1874,6 +1874,27 @@ pub const MIGRATIONS: &[Migration] = &[
         DROP TABLE _ep_dedupe_url;
         "#,
     ),
+    // Migration 055: Add RSS Reading Lists
+    // Reading Lists are named, ordered selections of feed ids used to launch
+    // a scoped reading session (Scroll Mode or combined article list). Unlike
+    // folders (where a feed lives), a feed may belong to many Reading Lists —
+    // they are queries/selections, not containers.
+    Migration::new(
+        "055_add_rss_reading_lists",
+        r#"
+        CREATE TABLE IF NOT EXISTS rss_reading_lists (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            feed_ids TEXT NOT NULL DEFAULT '[]',
+            icon TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_rss_reading_lists_sort
+            ON rss_reading_lists(sort_order);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

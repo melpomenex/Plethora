@@ -7,7 +7,6 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   CaretDown,
-  CaretRight,
   FloppyDisk,
   MagnifyingGlass,
   ThumbsDown,
@@ -17,12 +16,16 @@ import {
 } from "@phosphor-icons/react";
 import { useClassifiersStore } from "../../stores/classifiersStore";
 import type { RssClassifier, ClassifierUpdate } from "../../api/rss-classifiers";
+import { useI18n } from "../../lib/i18n";
+import { useToast } from "../common/Toast";
 
 interface ManageTrainingViewProps {
   onClose: () => void;
 }
 
 export function ManageTrainingView({ onClose }: ManageTrainingViewProps) {
+  const { t } = useI18n();
+  const toast = useToast();
   const { classifiers, isLoading, loadClassifiers, removeClassifier, updateClassifiersBatch } =
     useClassifiersStore();
   const [searchQuery, setSearchQuery] = useState("");
@@ -72,8 +75,10 @@ export function ManageTrainingView({ onClose }: ManageTrainingViewProps) {
       await updateClassifiersBatch(updates);
       setEditingIds(new Set());
       setPendingUpdates(new Map());
+      toast.success(t("manageTraining.saveSuccess"));
     } catch (err) {
       console.error("[ManageTraining] Failed to save:", err);
+      toast.error(t("manageTraining.save"), err instanceof Error ? err.message : String(err));
     }
     setIsSaving(false);
   };
@@ -101,7 +106,7 @@ export function ManageTrainingView({ onClose }: ManageTrainingViewProps) {
         <button
           onClick={() => toggleSentiment(c.id, c.sentiment)}
           className={`p-1 rounded transition-colors ${isEditing ? "ring-1 ring-primary" : ""}`}
-          title={c.sentiment === "like" ? "Switch to dislike" : "Switch to like"}
+          title={c.sentiment === "like" ? t("manageTraining.switchToDislike") : t("manageTraining.switchToLike")}
         >
           {c.sentiment === "like" ? (
             <ThumbsUp className="w-3.5 h-3.5 text-emerald-500" />
@@ -123,10 +128,10 @@ export function ManageTrainingView({ onClose }: ManageTrainingViewProps) {
     <div className="h-full flex flex-col bg-card">
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-foreground">Manage Training</h2>
+        <h2 className="text-lg font-semibold text-foreground">{t("manageTraining.title")}</h2>
         <div className="flex items-center gap-2">
           {pendingUpdates.size > 0 && (
-            <span className="text-xs text-amber-600">{pendingUpdates.size} pending</span>
+            <span className="text-xs text-amber-600">{t("manageTraining.pendingCount", { count: pendingUpdates.size })}</span>
           )}
           <button
             onClick={() => void handleBulkSave()}
@@ -134,7 +139,7 @@ export function ManageTrainingView({ onClose }: ManageTrainingViewProps) {
             className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
           >
             <FloppyDisk className="w-3.5 h-3.5 inline mr-1" />
-            FloppyDisk
+            {t("manageTraining.save")}
           </button>
           <button onClick={onClose} className="p-1.5 text-muted-foreground hover:text-foreground rounded">
             <X className="w-4 h-4" />
@@ -150,7 +155,7 @@ export function ManageTrainingView({ onClose }: ManageTrainingViewProps) {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search classifiers..."
+            placeholder={t("manageTraining.searchPlaceholder")}
             className="w-full pl-7 pr-2 py-1 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
@@ -174,12 +179,23 @@ export function ManageTrainingView({ onClose }: ManageTrainingViewProps) {
       {/* Classifier list */}
       <div className="flex-1 overflow-auto px-4 py-2">
         {isLoading ? (
-          <div className="text-center py-8 text-sm text-muted-foreground">Loading...</div>
+          <div className="text-center py-8 text-sm text-muted-foreground">Loading…</div>
+        ) : classifiers.length === 0 && !searchQuery && !filterType ? (
+          // Genuine empty state — user has never trained anything
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="flex items-center gap-2 mb-3">
+              <ThumbsUp className="w-6 h-6 text-muted-foreground/40" />
+              <ThumbsDown className="w-6 h-6 text-muted-foreground/40" />
+            </div>
+            <p className="text-sm text-muted-foreground max-w-xs">
+              {t("manageTraining.emptyState")}
+            </p>
+          </div>
         ) : (
           <>
             {/* Liked */}
             <ClassifierGroup
-              label="Liked"
+              label={t("manageTraining.liked")}
               count={liked.length}
               isExpanded={expandedGroups.has("liked")}
               onToggle={() => toggleGroup("liked")}
@@ -191,7 +207,7 @@ export function ManageTrainingView({ onClose }: ManageTrainingViewProps) {
 
             {/* Disliked */}
             <ClassifierGroup
-              label="Disliked"
+              label={t("manageTraining.disliked")}
               count={disliked.length}
               isExpanded={expandedGroups.has("disliked")}
               onToggle={() => toggleGroup("disliked")}
@@ -203,7 +219,7 @@ export function ManageTrainingView({ onClose }: ManageTrainingViewProps) {
 
             {filtered.length === 0 && (
               <div className="text-center py-8 text-sm text-muted-foreground">
-                No classifiers found
+                {t("manageTraining.noResults")}
               </div>
             )}
           </>
@@ -234,14 +250,23 @@ function ClassifierGroup({
     <div className="mb-2">
       <button
         onClick={onToggle}
-        className={`flex items-center gap-2 px-2 py-1.5 text-sm font-medium ${color} hover:bg-muted/40 rounded w-full text-left`}
+        className={`flex items-center gap-2 px-2 py-1.5 text-sm font-medium ${color} hover:bg-muted/40 rounded w-full text-left transition-colors`}
+        aria-expanded={isExpanded}
       >
-        {isExpanded ? <CaretDown className="w-3.5 h-3.5" /> : <CaretRight className="w-3.5 h-3.5" />}
+        <CaretDown
+          className={`w-3.5 h-3.5 transition-transform duration-200 ${isExpanded ? "" : "-rotate-90"}`}
+        />
         {icon}
         <span>{label}</span>
         <span className="text-xs text-muted-foreground">{count}</span>
       </button>
-      {isExpanded && <div className="ml-4 mt-1">{children}</div>}
+      <div
+        className={`grid transition-all duration-200 ease-out ml-4 mt-1 ${
+          isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="overflow-hidden">{children}</div>
+      </div>
     </div>
   );
 }

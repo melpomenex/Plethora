@@ -8,10 +8,19 @@ import {
   ArrowLeft,
   ArrowsClockwise,
   CircleNotch,
+  Coins,
+  Cpu,
+  Folder,
   Globe,
+  List,
   MagnifyingGlass,
+  Newspaper,
+  Plus,
+  SquaresFour,
   Sparkle,
   Star,
+  Tag,
+  Trash,
   TrendUp,
   X,
 } from "@phosphor-icons/react";
@@ -74,11 +83,32 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY);
   const [feedOnly, setFeedOnly] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [hideSubscribed, setHideSubscribed] = useState(false);
+  const [selectedSiteIds, setSelectedSiteIds] = useState<Set<string>>(new Set());
+  const [isBulkSubscribing, setIsBulkSubscribing] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [subscribingId, setSubscribingId] = useState<string | null>(null);
   const [subscribedKeys, setSubscribedKeys] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setSelectedSiteIds(new Set());
+  }, [activeCategory, searchQuery]);
+
+  const handleToggleSelect = useCallback((id: string) => {
+    setSelectedSiteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
 
   const loadSites = useCallback(async () => {
     setIsLoading(true);
@@ -154,6 +184,12 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
       if (feedOnly && !site.feed_url) {
         return false;
       }
+      if (hideSubscribed) {
+        const isSubscribed =
+          subscribedKeys.has(normalizeUrl(site.feed_url)) ||
+          subscribedKeys.has(normalizeUrl(site.url));
+        if (isSubscribed) return false;
+      }
       if (!query) {
         return true;
       }
@@ -172,7 +208,7 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
     });
 
     return filtered;
-  }, [activeCategory, feedOnly, searchQuery, sites]);
+  }, [activeCategory, feedOnly, hideSubscribed, searchQuery, sites, subscribedKeys]);
 
   useEffect(() => {
     if (activeCategory === ALL_CATEGORY) return;
@@ -378,6 +414,113 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
     }
   };
 
+  const unsubscribedVisibleSites = useMemo(() => {
+    return visibleSites.filter((site) => {
+      const isSubscribed =
+        subscribedKeys.has(normalizeUrl(site.feed_url)) ||
+        subscribedKeys.has(normalizeUrl(site.url));
+      return site.feed_url && !isSubscribed;
+    });
+  }, [visibleSites, subscribedKeys]);
+
+  const allSelected = useMemo(() => {
+    if (unsubscribedVisibleSites.length === 0) return false;
+    return unsubscribedVisibleSites.every((site) => selectedSiteIds.has(site.id));
+  }, [unsubscribedVisibleSites, selectedSiteIds]);
+
+  const handleToggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedSiteIds((prev) => {
+        const next = new Set(prev);
+        unsubscribedVisibleSites.forEach((site) => next.delete(site.id));
+        return next;
+      });
+    } else {
+      setSelectedSiteIds((prev) => {
+        const next = new Set(prev);
+        unsubscribedVisibleSites.forEach((site) => next.add(site.id));
+        return next;
+      });
+    }
+  };
+
+  const handleBulkSubscribe = async () => {
+    const ids = Array.from(selectedSiteIds);
+    if (ids.length === 0) return;
+
+    setIsBulkSubscribing(true);
+    setBulkProgress(0);
+
+    try {
+      const now = new Date().toISOString();
+      for (const id of ids) {
+        const site = sites.find((s) => s.id === id);
+        if (site && site.feed_url) {
+          const isAlreadySubscribed =
+            subscribedKeys.has(normalizeUrl(site.feed_url)) ||
+            subscribedKeys.has(normalizeUrl(site.url));
+          if (!isAlreadySubscribed) {
+            const feed: Feed = {
+              id: `feed-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              title: site.title,
+              feedUrl: site.feed_url,
+              link: site.url,
+              description: site.description || "",
+              items: [],
+              unreadCount: 0,
+              lastUpdated: now,
+              lastFetched: now,
+              updateInterval: 60,
+              subscribeDate: now,
+            };
+            await subscribeToFeedAuto(feed);
+            setSubscribedFeeds((prev) => [...prev, feed]);
+            setSubscribedKeys((prev) => {
+              const next = new Set(prev);
+              next.add(normalizeUrl(site.feed_url));
+              next.add(normalizeUrl(site.url));
+              return next;
+            });
+            onSubscribe?.(feed);
+          }
+        }
+        setBulkProgress((prev) => prev + 1);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      setSelectedSiteIds(new Set());
+    } catch (err) {
+      console.error("[Discover] Failed to bulk subscribe:", err);
+    } finally {
+      setIsBulkSubscribing(false);
+      setBulkProgress(0);
+    }
+  };
+
+  const handleSubscribeAll = () => {
+    setSelectedSiteIds(new Set(unsubscribedVisibleSites.map((site) => site.id)));
+    setTimeout(() => {
+      void handleBulkSubscribe();
+    }, 0);
+  };
+
+  const handleBulkDismiss = async () => {
+    const ids = Array.from(selectedSiteIds);
+    if (ids.length === 0) return;
+
+    setIsBulkSubscribing(true);
+    try {
+      for (const id of ids) {
+        await deleteDiscoveredSiteAuto(id);
+      }
+      setSites((prev) => prev.filter((site) => !selectedSiteIds.has(site.id)));
+      setSelectedSiteIds(new Set());
+    } catch (err) {
+      console.error("[Discover] Failed to bulk dismiss:", err);
+    } finally {
+      setIsBulkSubscribing(false);
+    }
+  };
+
   const selectedCategoryLabel = activeCategory === ALL_CATEGORY ? t("discoverSites.everything") : activeCategory;
 
   return (
@@ -386,7 +529,7 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
       style={{ backgroundColor: "var(--color-background)" }}
     >
       <div className="border-b border-border/70 bg-background/90 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-5 py-5 lg:px-8">
+        <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-5 py-4 lg:px-8">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-3">
               <button
@@ -401,8 +544,18 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
                   <Globe className="h-5 w-5 text-orange-400" />
                   <h2 className="text-2xl font-semibold tracking-tight">{t("discoverSites.title")}</h2>
                 </div>
-                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-                  {t("discoverSites.subtitle")}
+                <p className="mt-1 max-w-2xl text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>{t("discoverSites.subtitle")}</span>
+                  <span className="hidden sm:inline text-border/80">•</span>
+                  <span className="inline-flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full font-medium">
+                    {sites.length} sites
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-muted px-2 py-0.5 rounded-full font-medium">
+                    {categoryCount} categories
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full font-medium">
+                    {feedReadyCount} feed ready
+                  </span>
                 </p>
               </div>
             </div>
@@ -443,34 +596,71 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,1fr))]">
-            <div className="rounded-2xl border border-border/70 bg-gradient-to-br from-orange-500/10 via-amber-500/5 to-card px-4 py-4">
-              <div className="relative">
-                <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder={t("discoverSites.searchPlaceholder")}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full rounded-xl border border-border/70 bg-background/80 py-3 pl-10 pr-4 text-sm outline-none transition-colors focus:border-primary/40"
-                />
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span className="rounded-full bg-background/70 px-2.5 py-1">{selectedCategoryLabel}</span>
-                <span className="rounded-full bg-background/70 px-2.5 py-1">{t("discoverSites.visibleCount", { count: visibleSites.length })}</span>
-                {searchQuery.trim() && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="rounded-full border border-border/70 px-2.5 py-1 text-foreground transition-colors hover:bg-background/80"
-                  >
-                    {t("discoverSites.clearSearch")}
-                  </button>
-                )}
-              </div>
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-2xl border border-border/70 bg-card/40 p-3">
+            <div className="relative flex-1 max-w-xl">
+              <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder={t("discoverSites.searchPlaceholder")}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-xl border border-border/70 bg-background/80 py-2 pl-9 pr-4 text-sm outline-none transition-colors focus:border-primary/40"
+              />
             </div>
-            <StatCard label={t("discoverSites.sites")} value={String(sites.length)} />
-            <StatCard label={t("discoverSites.categories")} value={String(categoryCount)} />
-            <StatCard label={t("discoverSites.feedReady")} value={String(feedReadyCount)} />
+            
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs text-muted-foreground bg-muted/65 px-2.5 py-1 rounded-lg">
+                {selectedCategoryLabel} • {visibleSites.length} visible
+              </span>
+
+              {searchQuery.trim() && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="rounded-lg border border-border/80 px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-muted/70"
+                >
+                  {t("discoverSites.clearSearch")}
+                </button>
+              )}
+
+              <div className="h-4 w-px bg-border/70 hidden sm:block" />
+
+              <div className="inline-flex rounded-xl border border-border/85 bg-muted/50 p-0.5">
+                <button
+                  onClick={() => setViewMode("grid")}
+                  className={`p-1 rounded-lg transition-colors ${
+                    viewMode === "grid"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Grid View"
+                >
+                  <SquaresFour className="h-4.5 w-4.5" />
+                </button>
+                <button
+                  onClick={() => setViewMode("list")}
+                  className={`p-1 rounded-lg transition-colors ${
+                    viewMode === "list"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="List View"
+                >
+                  <List className="h-4.5 w-4.5" />
+                </button>
+              </div>
+
+              <div className="h-4 w-px bg-border/70 hidden sm:block" />
+
+              <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground">
+                <input
+                  type="checkbox"
+                  checked={hideSubscribed}
+                  onChange={(e) => setHideSubscribed(e.target.checked)}
+                  className="h-4 w-4 rounded border-border bg-background text-primary focus:ring-primary/20 accent-primary cursor-pointer"
+                />
+                <span>Hide Subscribed</span>
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -536,7 +726,7 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
               </p>
             </div>
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-8 pb-24">
               {activeCategory === ALL_CATEGORY && !searchQuery.trim() && (
                 <>
                   {recommendedSites.length > 0 && (
@@ -552,7 +742,7 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
                           </p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+                      <div className={viewMode === "list" ? "flex flex-col gap-2.5" : "grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3"}>
                         {recommendedSites.map((site) => {
                           const isSubscribed =
                             subscribedKeys.has(normalizeUrl(site.feed_url)) ||
@@ -566,6 +756,10 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
                               isSubscribing={subscribingId === site.id}
                               onSubscribe={(next) => void handleSubscribe(next)}
                               onDismiss={(id) => void handleDismiss(id)}
+                              viewMode={viewMode}
+                              selectable={true}
+                              checked={selectedSiteIds.has(site.id)}
+                              onToggleSelect={handleToggleSelect}
                             />
                           );
                         })}
@@ -614,7 +808,7 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
                           </p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
+                      <div className={viewMode === "list" ? "flex flex-col gap-2.5" : "grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4"}>
                         {recentSites.map((site) => {
                           const isSubscribed =
                             subscribedKeys.has(normalizeUrl(site.feed_url)) ||
@@ -628,6 +822,10 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
                               isSubscribing={subscribingId === site.id}
                               onSubscribe={(next) => void handleSubscribe(next)}
                               onDismiss={(id) => void handleDismiss(id)}
+                              viewMode={viewMode}
+                              selectable={true}
+                              checked={selectedSiteIds.has(site.id)}
+                              onToggleSelect={handleToggleSelect}
                             />
                           );
                         })}
@@ -638,9 +836,14 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
               )}
 
               <section>
-                <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-border/50 pb-3">
                   <div>
-                    <h3 className="text-lg font-semibold">{selectedCategoryLabel}</h3>
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      {selectedCategoryLabel}
+                      <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                        {visibleSites.length} {t("discoverSites.sites")}
+                      </span>
+                    </h3>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {searchQuery.trim()
                         ? t("discoverSites.resultsFor", { query: searchQuery.trim() })
@@ -649,8 +852,29 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
                           : t("discoverSites.categoryDesc", { category: activeCategory })}
                     </p>
                   </div>
+                  {unsubscribedVisibleSites.length > 0 && (
+                    <div className="flex items-center gap-2.5">
+                      <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/40 border border-border/60 rounded-xl px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={handleToggleSelectAll}
+                          className="h-4.5 w-4.5 rounded-lg border-border bg-background text-primary focus:ring-primary/20 accent-primary cursor-pointer"
+                        />
+                        <span>Select All ({unsubscribedVisibleSites.length})</span>
+                      </label>
+                      <button
+                        onClick={handleSubscribeAll}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-orange-500/10 border border-orange-500/20 px-3.5 py-2 text-xs font-semibold text-orange-400 hover:bg-orange-500/15 transition-all shadow-sm"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Subscribe All
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                
+                <div className={viewMode === "list" ? "flex flex-col gap-2.5" : "grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3"}>
                   {catalogSites.map((site) => {
                     const isSubscribed =
                       subscribedKeys.has(normalizeUrl(site.feed_url)) ||
@@ -664,6 +888,10 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
                         isSubscribing={subscribingId === site.id}
                         onSubscribe={(next) => void handleSubscribe(next)}
                         onDismiss={(id) => void handleDismiss(id)}
+                        viewMode={viewMode}
+                        selectable={true}
+                        checked={selectedSiteIds.has(site.id)}
+                        onToggleSelect={handleToggleSelect}
                       />
                     );
                   })}
@@ -685,17 +913,77 @@ export function DiscoverSitesPanel({ onClose, onSubscribe }: DiscoverSitesPanelP
           )}
         </main>
       </div>
+
+      {selectedSiteIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 animate-in fade-in slide-in-from-bottom-5 duration-200">
+          <div className="flex items-center gap-4 rounded-2xl border border-primary/20 bg-card/90 px-6 py-4 shadow-2xl backdrop-blur-md">
+            <span className="text-sm font-medium text-foreground select-none">
+              <strong>{selectedSiteIds.size}</strong> selected
+            </span>
+            <div className="h-4 w-px bg-border" />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void handleBulkSubscribe()}
+                disabled={isBulkSubscribing}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-md transition-colors hover:bg-primary/95 disabled:opacity-60"
+              >
+                {isBulkSubscribing ? (
+                  <>
+                    <CircleNotch className="h-4 w-4 animate-spin" />
+                    Subscribing ({bulkProgress}/{selectedSiteIds.size})...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4" />
+                    Subscribe Selected
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => void handleBulkDismiss()}
+                disabled={isBulkSubscribing}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-muted/50 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 disabled:opacity-60"
+              >
+                <Trash className="h-4 w-4" />
+                Dismiss
+              </button>
+              <button
+                onClick={() => setSelectedSiteIds(new Set())}
+                disabled={isBulkSubscribing}
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                title="Clear Selection"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-border/70 bg-card/70 px-4 py-4">
-      <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
-    </div>
-  );
+function getCategoryIcon(category: string) {
+  const normalized = category.toLowerCase().trim();
+  if (normalized === "all sites" || normalized === "everything") {
+    return <Globe className="h-4 w-4 shrink-0" />;
+  }
+  if (normalized.includes("tech") || normalized.includes("software") || normalized.includes("developer")) {
+    return <Cpu className="h-4 w-4 shrink-0" />;
+  }
+  if (normalized.includes("finance") || normalized.includes("business") || normalized.includes("money") || normalized.includes("investing")) {
+    return <Coins className="h-4 w-4 shrink-0" />;
+  }
+  if (normalized.includes("news") || normalized.includes("politics") || normalized.includes("world")) {
+    return <Newspaper className="h-4 w-4 shrink-0" />;
+  }
+  if (normalized.includes("star") || normalized.includes("featured") || normalized.includes("recommended")) {
+    return <Star className="h-4 w-4 shrink-0" />;
+  }
+  if (normalized.includes("trend") || normalized.includes("popular")) {
+    return <TrendUp className="h-4 w-4 shrink-0" />;
+  }
+  return <Tag className="h-4 w-4 shrink-0" />;
 }
 
 function CategoryButton({
@@ -713,8 +1001,10 @@ function CategoryButton({
 }) {
   const { t } = useI18n();
   const baseClass = compact
-    ? "inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-sm"
+    ? "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium"
     : "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm";
+
+  const icon = getCategoryIcon(label);
 
   return (
     <button
@@ -725,7 +1015,12 @@ function CategoryButton({
           : "border border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground"
       }`}
     >
-      <span className="truncate">{label === ALL_CATEGORY ? t("discoverSites.everything") : label}</span>
+      <span className="flex items-center gap-2 min-w-0">
+        <span className={isActive ? "text-primary" : "text-muted-foreground"}>
+          {icon}
+        </span>
+        <span className="truncate">{label === ALL_CATEGORY ? t("discoverSites.everything") : label}</span>
+      </span>
       <span className={`rounded-full px-2 py-0.5 text-[11px] ${isActive ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>
         {count}
       </span>

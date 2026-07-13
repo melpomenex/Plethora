@@ -1755,6 +1755,209 @@ pub async fn get_rss_folders(repo: State<'_, Repository>) -> Result<Vec<RssFolde
     Ok(folders)
 }
 
+/// RSS Reading List — a named, ordered selection of feed ids used to launch a
+/// scoped reading session (Scroll Mode or combined article list). Unlike a
+/// folder, a feed may belong to many reading lists; feed_ids is a JSON array
+/// stored inline (no junction table needed).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RssReadingList {
+    pub id: String,
+    pub name: String,
+    pub feed_ids: Vec<String>,
+    pub icon: Option<String>,
+    pub sort_order: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl RssReadingList {
+    fn from_row(row: SqliteRow) -> Self {
+        let feed_ids_json: String = row.get("feed_ids");
+        let feed_ids: Vec<String> = serde_json::from_str(&feed_ids_json).unwrap_or_default();
+        Self {
+            id: row.get("id"),
+            name: row.get("name"),
+            feed_ids,
+            icon: row.get("icon"),
+            sort_order: row.get("sort_order"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn create_rss_reading_list(
+    name: String,
+    feed_ids: Option<Vec<String>>,
+    icon: Option<String>,
+    sort_order: Option<i32>,
+    repo: State<'_, Repository>,
+) -> Result<RssReadingList> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    let feed_ids = feed_ids.unwrap_or_default();
+    let feed_ids_json = serde_json::to_string(&feed_ids).unwrap_or_else(|_| "[]".to_string());
+    let order = sort_order.unwrap_or(0);
+
+    sqlx::query(
+        "INSERT INTO rss_reading_lists (id, name, feed_ids, icon, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+    )
+    .bind(&id)
+    .bind(&name)
+    .bind(&feed_ids_json)
+    .bind(&icon)
+    .bind(order)
+    .bind(&now)
+    .execute(repo.pool())
+    .await
+    .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create reading list: {}", e)))?;
+
+    Ok(RssReadingList {
+        id,
+        name,
+        feed_ids,
+        icon,
+        sort_order: order,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+#[tauri::command]
+pub async fn update_rss_reading_list(
+    id: String,
+    name: Option<String>,
+    feed_ids: Option<Vec<String>>,
+    icon: Option<Option<String>>,
+    sort_order: Option<i32>,
+    repo: State<'_, Repository>,
+) -> Result<RssReadingList> {
+    let mut sets = Vec::new();
+    if name.is_some() {
+        sets.push("name = ?".to_string());
+    }
+    if feed_ids.is_some() {
+        sets.push("feed_ids = ?".to_string());
+    }
+    if icon.is_some() {
+        sets.push("icon = ?".to_string());
+    }
+    if sort_order.is_some() {
+        sets.push("sort_order = ?".to_string());
+    }
+
+    if sets.is_empty() {
+        return get_rss_reading_list_by_id(id, repo.clone()).await;
+    }
+
+    // Always bump updated_at on any edit.
+    sets.push("updated_at = ?".to_string());
+    let now = Utc::now().to_rfc3339();
+
+    let query_str = format!("UPDATE rss_reading_lists SET {} WHERE id = ?", sets.join(", "));
+    let mut query = sqlx::query(&query_str);
+
+    if let Some(ref n) = name {
+        query = query.bind(n);
+    }
+    if let Some(ref f) = feed_ids {
+        let json = serde_json::to_string(f).unwrap_or_else(|_| "[]".to_string());
+        query = query.bind(json);
+    }
+    if let Some(ref i) = icon {
+        query = query.bind(i);
+    }
+    if let Some(s) = sort_order {
+        query = query.bind(s);
+    }
+    query = query.bind(&now);
+    query = query.bind(&id);
+
+    query.execute(repo.pool()).await.map_err(|e| {
+        crate::error::IncrementumError::Internal(format!("Failed to update reading list: {}", e))
+    })?;
+
+    get_rss_reading_list_by_id(id, repo.clone()).await
+}
+
+async fn get_rss_reading_list_by_id(id: String, repo: State<'_, Repository>) -> Result<RssReadingList> {
+    let row = sqlx::query("SELECT * FROM rss_reading_lists WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(repo.pool())
+        .await
+        .map_err(|e| {
+            crate::error::IncrementumError::Internal(format!("Failed to get reading list: {}", e))
+        })?;
+
+    match row {
+        Some(row) => Ok(RssReadingList::from_row(row)),
+        None => Err(crate::error::IncrementumError::NotFound(
+            "Reading list not found".to_string(),
+        )),
+    }
+}
+
+#[tauri::command]
+pub async fn delete_rss_reading_list(id: String, repo: State<'_, Repository>) -> Result<()> {
+    sqlx::query("DELETE FROM rss_reading_lists WHERE id = ?")
+        .bind(&id)
+        .execute(repo.pool())
+        .await
+        .map_err(|e| {
+            crate::error::IncrementumError::Internal(format!("Failed to delete reading list: {}", e))
+        })?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_rss_reading_lists(repo: State<'_, Repository>) -> Result<Vec<RssReadingList>> {
+    let rows = sqlx::query("SELECT * FROM rss_reading_lists ORDER BY sort_order, name")
+        .fetch_all(repo.pool())
+        .await
+        .map_err(|e| {
+            crate::error::IncrementumError::Internal(format!("Failed to get reading lists: {}", e))
+        })?;
+
+    Ok(rows.into_iter().map(RssReadingList::from_row).collect())
+}
+
+#[tauri::command]
+pub async fn duplicate_rss_reading_list(
+    id: String,
+    repo: State<'_, Repository>,
+) -> Result<RssReadingList> {
+    let source = get_rss_reading_list_by_id(id, repo.clone()).await?;
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    let new_name = format!("{} (copy)", source.name);
+    let feed_ids_json = serde_json::to_string(&source.feed_ids).unwrap_or_else(|_| "[]".to_string());
+    let icon = source.icon.clone();
+
+    sqlx::query(
+        "INSERT INTO rss_reading_lists (id, name, feed_ids, icon, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+    )
+    .bind(&new_id)
+    .bind(&new_name)
+    .bind(&feed_ids_json)
+    .bind(&icon)
+    .bind(source.sort_order)
+    .bind(&now)
+    .execute(repo.pool())
+    .await
+    .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to duplicate reading list: {}", e)))?;
+
+    Ok(RssReadingList {
+        id: new_id,
+        name: new_name,
+        feed_ids: source.feed_ids,
+        icon,
+        sort_order: source.sort_order,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
 #[tauri::command]
 pub async fn move_feed_to_folder(
     feed_id: String,
@@ -2249,6 +2452,119 @@ pub async fn delete_rss_folder_http(
             crate::error::IncrementumError::Internal(format!("Failed to delete folder: {}", e))
         })?;
     Ok(())
+}
+
+// ---- RSS Reading Lists (HTTP-facing helpers) ----
+// These mirror the Tauri commands but take a borrowed `&Repository` so the
+// axum handlers in browser_sync_server.rs can call them without a Tauri
+// `State`. Struct fields stay snake_case (no serde rename) to match the TS
+// `ReadingList` interface exactly.
+
+pub async fn get_rss_reading_lists_http(repo: &Repository) -> Result<Vec<RssReadingList>> {
+    let rows = sqlx::query("SELECT * FROM rss_reading_lists ORDER BY sort_order, name")
+        .fetch_all(repo.pool())
+        .await
+        .map_err(|e| {
+            crate::error::IncrementumError::Internal(format!("Failed to get reading lists: {}", e))
+        })?;
+    Ok(rows.into_iter().map(RssReadingList::from_row).collect())
+}
+
+pub async fn create_rss_reading_list_http(
+    name: &str,
+    feed_ids: Vec<String>,
+    icon: Option<&str>,
+    sort_order: Option<i32>,
+    repo: &Repository,
+) -> Result<RssReadingList> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    let feed_ids_json = serde_json::to_string(&feed_ids).unwrap_or_else(|_| "[]".to_string());
+    let order = sort_order.unwrap_or(0);
+    sqlx::query(
+        "INSERT INTO rss_reading_lists (id, name, feed_ids, icon, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+    )
+    .bind(&id)
+    .bind(name)
+    .bind(&feed_ids_json)
+    .bind(icon)
+    .bind(order)
+    .bind(&now)
+    .execute(repo.pool())
+    .await
+    .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to create reading list: {}", e)))?;
+    Ok(RssReadingList {
+        id,
+        name: name.to_string(),
+        feed_ids,
+        icon: icon.map(|s| s.to_string()),
+        sort_order: order,
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+pub async fn get_rss_reading_list_by_id_http(
+    id: &str,
+    repo: &Repository,
+) -> Result<RssReadingList> {
+    let row = sqlx::query("SELECT * FROM rss_reading_lists WHERE id = ?")
+        .bind(id)
+        .fetch_optional(repo.pool())
+        .await
+        .map_err(|e| {
+            crate::error::IncrementumError::Internal(format!("Failed to get reading list: {}", e))
+        })?;
+    match row {
+        Some(row) => Ok(RssReadingList::from_row(row)),
+        None => Err(crate::error::IncrementumError::NotFound(
+            "Reading list not found".to_string(),
+        )),
+    }
+}
+
+pub async fn delete_rss_reading_list_http(id: &str, repo: &Repository) -> Result<()> {
+    sqlx::query("DELETE FROM rss_reading_lists WHERE id = ?")
+        .bind(id)
+        .execute(repo.pool())
+        .await
+        .map_err(|e| {
+            crate::error::IncrementumError::Internal(format!("Failed to delete reading list: {}", e))
+        })?;
+    Ok(())
+}
+
+pub async fn duplicate_rss_reading_list_http(
+    id: &str,
+    repo: &Repository,
+) -> Result<RssReadingList> {
+    let source = get_rss_reading_list_by_id_http(id, repo).await?;
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    let new_name = format!("{} (copy)", source.name);
+    let feed_ids_json = serde_json::to_string(&source.feed_ids).unwrap_or_else(|_| "[]".to_string());
+    let icon = source.icon.clone();
+    sqlx::query(
+        "INSERT INTO rss_reading_lists (id, name, feed_ids, icon, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+    )
+    .bind(&new_id)
+    .bind(&new_name)
+    .bind(&feed_ids_json)
+    .bind(&icon)
+    .bind(source.sort_order)
+    .bind(&now)
+    .execute(repo.pool())
+    .await
+    .map_err(|e| crate::error::IncrementumError::Internal(format!("Failed to duplicate reading list: {}", e)))?;
+    Ok(RssReadingList {
+        id: new_id,
+        name: new_name,
+        feed_ids: source.feed_ids,
+        icon,
+        sort_order: source.sort_order,
+        created_at: now.clone(),
+        updated_at: now,
+    })
 }
 
 pub async fn move_feed_to_folder_http(

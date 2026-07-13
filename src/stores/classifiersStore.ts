@@ -36,7 +36,7 @@ interface ClassifiersState {
     value: string,
     sentiment: string,
     scope?: string
-  ) => Promise<void>;
+  ) => Promise<RssClassifier | undefined>;
   removeClassifier: (id: string) => Promise<void>;
   updateClassifiersBatch: (updates: ClassifierUpdate[]) => Promise<void>;
   recomputeScores: () => Promise<void>;
@@ -67,8 +67,10 @@ export const useClassifiersStore = create<ClassifiersState>((set, get) => ({
       set((s) => ({ classifiers: [...s.classifiers, classifier] }));
       // Recompute intelligence scores so the filter reflects the new classifier
       void get().recomputeScores();
+      return classifier;
     } catch (err) {
       set({ error: (err as Error).message });
+      return undefined;
     }
   },
 
@@ -107,3 +109,25 @@ export const useClassifiersStore = create<ClassifiersState>((set, get) => ({
   setIntelligenceFilter: (filter) => set({ intelligenceFilter: filter }),
   toggleShowDisliked: () => set((s) => ({ showDisliked: !s.showDisliked })),
 }));
+
+/**
+ * Selector: look up whether a value is already trained as a classifier.
+ * Returns the existing sentiment ("like" | "dislike") or null if untrained.
+ * Feed-scoped classifiers (scope "feed") are matched by feed_id; feed-level
+ * scope ("all"/"global") classifiers apply regardless of feed.
+ */
+export function getTrainedSentiment(
+  classifiers: RssClassifier[],
+  feedId: string,
+  type: string,
+  value: string
+): "like" | "dislike" | null {
+  const v = value.toLowerCase();
+  const match = classifiers.find(
+    (c) =>
+      c.classifier_type === type &&
+      c.value.toLowerCase() === v &&
+      (c.scope === "global" || c.feed_id === feedId)
+  );
+  return match ? (match.sentiment as "like" | "dislike") : null;
+}

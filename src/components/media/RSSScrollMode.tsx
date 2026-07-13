@@ -37,7 +37,7 @@ import {
   ThumbsUp,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { supportsHaptics, playTrainLikeSound, playTrainDislikeSound } from "../../utils/soundService";
+import { supportsHaptics } from "../../utils/soundService";
 import {
   Feed,
   FeedItem,
@@ -49,6 +49,9 @@ import {
   getArticleFullContent,
   fetchArticleFullContent,
 } from "../../api/rss";
+import { getFoldersAuto } from "../../api/rss-folders";
+import { getReadingListsAuto } from "../../api/rss-reading-lists";
+import { type ScrollFeedScope, ALL_FEEDS_SCOPE } from "../../api/rss-scroll-scope";
 import { cleanArticleHtml } from "./RSSFullContentView";
 import { cn } from "../../utils";
 import { sanitizeHtml } from "../common/RichContentRenderer";
@@ -60,6 +63,7 @@ import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
 import { EditExtractDialog } from "../extracts/EditExtractDialog";
 import type { Extract } from "../../api/extracts";
 import { useToastExtract } from "../../hooks/useToastExtract";
+import { useTrainFeedback } from "../../hooks/useTrainFeedback";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { chatWithLLM, type LLMMessage } from "../../api/llm";
 import { getAIConfig, type AIConfig } from "../../api/ai";
@@ -75,7 +79,7 @@ import { ModernSummaryPanel, SummaryBadge, SummaryActions } from "./summary";
 import { useSummaryCache } from "../../utils/rssSummary";
 import { SUMMARY_LENGTH_CONFIG, SUMMARY_LOADING_STAGES, type SummaryLength, type SummaryFocus } from "../../types/rssSummary";
 import { TrainingMenu } from "./TrainingMenu";
-import { useClassifiersStore } from "../../stores/classifiersStore";
+import { useClassifiersStore, getTrainedSentiment } from "../../stores/classifiersStore";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
 
 interface RSSScrollItem {
@@ -87,6 +91,13 @@ interface RSSScrollItem {
 interface RSSScrollModeProps {
   onExit?: () => void;
   initialFeedId?: string | null;
+  /**
+   * Which feeds this scroll session covers. Defaults to all subscribed feeds.
+   * When set, loadFeeds filters to the scope's feeds before interleaving;
+   * every other behavior (engagement sort, mark-as-read, favorites, etc.) is
+   * unchanged. See src/api/rss-scroll-scope.ts.
+   */
+  scope?: ScrollFeedScope;
 }
 
 type LegacySummaryMode = "terminal" | "assistant";
@@ -164,11 +175,58 @@ function calculateEngagementScore(item: RSSScrollItem): number {
   return recencyScore + unreadBonus + favoriteBonus + varietyBonus;
 }
 
-export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
+/**
+ * Resolve a ScrollFeedScope to the concrete set of feed ids it covers.
+ * - `all`: every subscribed feed id.
+ * - `folder`: feeds assigned to that folder (via the backend folder table).
+ * - `category`: subscribed feeds whose `category` matches.
+ * - `feeds`: the explicit ids (de-duplicated).
+ * - `readingList`: feed_ids stored on that reading list.
+ *
+ * Stale ids (a feed since unsubscribed) are NOT filtered here — the caller
+ * filters against the subscribed set, which drops them naturally.
+ */
+async function resolveScopeFeedIds(scope: ScrollFeedScope, allSubscribed: Feed[]): Promise<string[]> {
+  switch (scope.kind) {
+    case "all":
+      return allSubscribed.map((f) => f.id);
+    case "folder": {
+      try {
+        const folders = await getFoldersAuto();
+        const folder = folders.find((f) => f.id === scope.folderId);
+        return folder?.feed_ids ?? [];
+      } catch {
+        return [];
+      }
+    }
+    case "category":
+      return allSubscribed.filter((f) => f.category === scope.category).map((f) => f.id);
+    case "feeds":
+      return Array.from(new Set(scope.feedIds));
+    case "readingList": {
+      try {
+        const lists = await getReadingListsAuto();
+        const list = lists.find((l) => l.id === scope.readingListId);
+        return list?.feed_ids ?? [];
+      } catch {
+        return [];
+      }
+    }
+  }
+}
+
+export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }: RSSScrollModeProps) {
   const { t } = useI18n();
   const { documents, addDocument, updateDocument } = useDocumentStore();
   const { settings } = useSettingsStore();
-  const { addClassifier } = useClassifiersStore();
+  const { classifiers } = useClassifiersStore();
+  const { trainClassifier } = useTrainFeedback({
+    onPulse: (sentiment) => {
+      setTrainPulse(sentiment);
+      if (trainPulseTimer.current) clearTimeout(trainPulseTimer.current);
+      trainPulseTimer.current = setTimeout(() => setTrainPulse(null), 600);
+    },
+  });
   const toast = useToast();
   const { createInstantExtract } = useToastExtract({
     onEditExtract: (extract) => {
@@ -338,10 +396,20 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
 
   useEffect(() => {
     const loadFeeds = async () => {
-      const loadedFeeds = await getSubscribedFeedsAuto();
+      const allSubscribed = await getSubscribedFeedsAuto();
+
+      // Resolve the scope to the set of feeds this session should cover.
+      // Stale ids (a feed that was unsubscribed) are dropped silently here,
+      // since we only keep feeds that exist in the subscribed set.
+      let scopedFeeds: Feed[] = allSubscribed;
+      if (scope.kind !== "all") {
+        const allowedIds = await resolveScopeFeedIds(scope, allSubscribed);
+        const allowed = new Set(allowedIds);
+        scopedFeeds = allSubscribed.filter((f) => allowed.has(f.id));
+      }
 
       let allItems: RSSScrollItem[] = [];
-      loadedFeeds.forEach((feed) => {
+      scopedFeeds.forEach((feed) => {
         feed.items.forEach((item, idx) => {
           allItems.push({
             feed,
@@ -378,7 +446,8 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
     };
 
     loadFeeds();
-  }, [initialFeedId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialFeedId, scope]);
 
   useEffect(() => {
     sessionStorage.setItem(RSS_SCROLL_POSITION_KEY, String(currentIndex));
@@ -791,43 +860,22 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
     setEntryPersisted(articleId, willBeFavorite);
   }, [scrollItems, setEntryPersisted]);
 
-  // Quick train: thumbs up/down on current article
+  // Quick train: thumbs up/down on current article.
+  // Delegates to useTrainFeedback for sound + haptic + pulse + toast-with-undo.
   const handleQuickTrain = useCallback(async (sentiment: "like" | "dislike") => {
     const current = visibleScrollItems[currentIndex];
     if (!current) return;
     const { feed, item } = current;
     const value = item.author || item.categories?.[0] || "";
-
-    // Tactile feedback: distinct sound + haptic the moment the button is pressed,
-    // so the user knows the action registered before the async write resolves.
-    if (value) {
-      if (sentiment === "like") playTrainLikeSound();
-      else playTrainDislikeSound();
-      triggerHaptic();
-    }
-
-    // Flash the pressed thumbs button for an immediate visual "it went through".
-    setTrainPulse(sentiment);
-    if (trainPulseTimer.current) clearTimeout(trainPulseTimer.current);
-    trainPulseTimer.current = setTimeout(() => setTrainPulse(null), 600);
-
-    if (!value) {
-      toast.error("Cannot train", "Article has no author or tags");
-      return;
-    }
     const classifierType = item.author ? "author" : "tag";
-    try {
-      await addClassifier(feed.id, classifierType, value, sentiment, "feed");
-      // Use toast.info (no sound) so it doesn't double up with the dedicated
-      // train sound already played above; this toast carries the detail text.
-      toast.info(
-        sentiment === "like" ? "Liked" : "Disliked",
-        `Training on ${classifierType}: ${value}`
-      );
-    } catch (err) {
-      toast.error("Training failed", err instanceof Error ? err.message : "Unknown error");
-    }
-  }, [visibleScrollItems, currentIndex, addClassifier, toast]);
+    await trainClassifier({
+      feedId: feed.id,
+      classifierType,
+      value,
+      sentiment,
+      scope: "feed",
+    });
+  }, [visibleScrollItems, currentIndex, trainClassifier]);
 
   // Handle mark as read - removes item from scroll list (except favorites)
   const handleMarkRead = useCallback(
@@ -1794,29 +1842,37 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
       {/* Header controls */}
       <div
         className={cn(
-          "absolute top-0 left-0 right-0 z-40 bg-gradient-to-b from-background/90 to-transparent pb-8 pt-4 px-4 transition-opacity duration-300",
+          "absolute top-0 left-0 right-0 z-40 bg-gradient-to-b from-background/90 to-transparent pb-8 pt-4 px-3 md:px-4 transition-opacity duration-300",
           showControls ? "opacity-100" : "opacity-0 pointer-events-none"
         )}
       >
         <div className="flex items-center justify-between max-w-4xl mx-auto">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 md:gap-3 min-w-0">
             <button
               onClick={onExit}
-              className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+              className="p-1.5 md:p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors flex-shrink-0"
               title="Back to RSS Reader (Esc)"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <div className="flex items-center gap-2">
-              <Rss className="w-5 h-5 text-orange-500" />
-              <span className="font-medium text-foreground">
+            <div className="flex items-center gap-1 md:gap-2 min-w-0">
+              <Rss className="w-5 h-5 text-orange-500 flex-shrink-0" />
+              <span className="font-medium text-foreground whitespace-nowrap">
                 {visibleScrollItems.length === 0 ? 0 : currentIndex + 1} /{" "}
                 {visibleScrollItems.length}
               </span>
-              {/* Jump to index button */}
+              {scope.kind !== "all" && (
+                <span
+                  className="ml-1 px-2 py-0.5 rounded-full text-xs bg-orange-500/15 text-orange-600 dark:text-orange-400 max-w-[8rem] md:max-w-[12rem] truncate"
+                  title={scope.label}
+                >
+                  {scope.label}
+                </span>
+              )}
+              {/* Jump to index button — hidden on mobile (keyboard power-user feature) */}
               <button
                 onClick={() => setShowJumpInput(true)}
-                className="ml-1 p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+                className="hidden md:inline-flex ml-1 p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
                 title="Jump to article number (press 'j')"
               >
                 <span className="text-xs font-mono">#</span>
@@ -1825,7 +1881,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
             <button
               onClick={() => setFavoritesOnly((prev) => !prev)}
               className={cn(
-                "ml-2 px-2.5 py-1 rounded-md text-xs transition-colors",
+                "ml-1 md:ml-2 px-2 md:px-2.5 py-1 rounded-md text-xs transition-colors flex-shrink-0",
                 favoritesOnly
                   ? "bg-yellow-500/15 text-yellow-600"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -1834,12 +1890,12 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
             >
               {favoritesOnly ? t("queueScroll.favorites") : t("queueScroll.allArticles")}
             </button>
-            {/* Mark All Read button */}
+            {/* Mark All Read button — hidden on mobile to save horizontal space */}
             {!favoritesOnly && (
               <button
                 onClick={() => setShowMarkAllConfirm(true)}
                 disabled={isMarkingAllRead}
-                className="ml-1 p-1.5 text-muted-foreground hover:text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 rounded transition-colors"
+                className="hidden md:inline-flex ml-1 p-1.5 text-muted-foreground hover:text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30 rounded transition-colors"
                 title="Mark all as read"
               >
                 <CheckCircle className="w-4 h-4" />
@@ -1848,13 +1904,13 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
           </div>
 
           {currentItem && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5 md:gap-2 flex-shrink-0">
               {/* Summarize button */}
               <button
                 onClick={() => { void handleSummarize(); }}
                 disabled={isSummarizing}
                 className={cn(
-                  "p-2 rounded-lg transition-colors",
+                  "p-1.5 md:p-2 rounded-lg transition-colors",
                   isSummarizing
                     ? "text-primary animate-pulse"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -1867,7 +1923,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
               <button
                 onClick={() => handleMarkRead(currentItem.feed.id, currentItem.item.id, true)}
                 className={cn(
-                  "p-2 rounded-lg transition-all duration-200 relative",
+                  "p-1.5 md:p-2 rounded-lg transition-all duration-200 relative",
                   autoReadMode
                     ? "bg-green-500/20 text-green-500 ring-2 ring-green-500/50"
                     : currentItem.item.read ||
@@ -1887,7 +1943,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
                   handleToggleFavoriteAnimated(currentItem.feed.id, currentItem.item.id)
                 }
                 className={cn(
-                  "p-2 rounded-lg transition-all duration-200 relative",
+                  "p-1.5 md:p-2 rounded-lg transition-all duration-200 relative",
                   currentItem.item.favorite
                     ? "text-yellow-500"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -1910,7 +1966,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
               <button
                 onClick={() => setShowContextOverlay(true)}
                 className={cn(
-                  "p-2 rounded-lg transition-colors",
+                  "p-1.5 md:p-2 rounded-lg transition-colors",
                   showContextOverlay
                     ? "text-blue-500 bg-blue-100 dark:bg-blue-900/30"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted"
@@ -1925,7 +1981,7 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
                   e.preventDefault();
                   void handleOpenOriginal(currentItem.item.link);
                 }}
-                className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+                className="p-1.5 md:p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
                 title="Open original"
               >
                 <ArrowSquareOut className="w-5 h-5" />
@@ -2220,42 +2276,60 @@ export function RSSScrollMode({ onExit, initialFeedId }: RSSScrollModeProps) {
 
                   {/* Training controls */}
                   <div className="flex items-center gap-0.5 ml-auto pl-1 border-l border-border/70">
-                    <button
-                      onClick={() => void handleQuickTrain("like")}
-                      className={cn(
-                        "p-2 rounded-lg transition-all active:scale-95",
-                        trainPulse === "like"
-                          ? "text-emerald-500 bg-emerald-500/20 train-pulse-like"
-                          : "text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10"
-                      )}
-                      title="Show more like this"
-                    >
-                      <ThumbsUp className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => void handleQuickTrain("dislike")}
-                      className={cn(
-                        "p-2 rounded-lg transition-all active:scale-95",
-                        trainPulse === "dislike"
-                          ? "text-red-500 bg-red-500/20 train-pulse-dislike"
-                          : "text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
-                      )}
-                      title="Show less like this"
-                    >
-                      <ThumbsDown className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setShowTrainingMenu(true)}
-                      className={cn(
-                        "p-2 rounded-lg transition-all active:scale-95",
-                        showTrainingMenu
-                          ? "text-emerald-500 bg-emerald-500/10"
-                          : "text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10"
-                      )}
-                      title="Train intelligence"
-                    >
-                      <GraduationCap className="w-4 h-4" />
-                    </button>
+                    {(() => {
+                      const ci = renderedItem;
+                      const cval = ci.item.author || ci.item.categories?.[0] || "";
+                      const ctype = ci.item.author ? "author" : "tag";
+                      const trained = cval
+                        ? getTrainedSentiment(classifiers, ci.feed.id, ctype, cval)
+                        : null;
+                      return (
+                        <>
+                          <button
+                            onClick={() => void handleQuickTrain("like")}
+                            className={cn(
+                              "p-2 rounded-lg transition-all active:scale-95",
+                              trainPulse === "like"
+                                ? "text-emerald-500 bg-emerald-500/20 train-pulse-like"
+                                : trained === "like"
+                                  ? "text-emerald-500 bg-emerald-500/10"
+                                  : "text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10"
+                            )}
+                            title={t("training.showMoreLikeThis")}
+                            aria-pressed={trained === "like"}
+                          >
+                            <ThumbsUp className="w-4 h-4" weight={trained === "like" ? "fill" : "regular"} />
+                          </button>
+                          <button
+                            onClick={() => void handleQuickTrain("dislike")}
+                            className={cn(
+                              "p-2 rounded-lg transition-all active:scale-95",
+                              trainPulse === "dislike"
+                                ? "text-red-500 bg-red-500/20 train-pulse-dislike"
+                                : trained === "dislike"
+                                  ? "text-red-500 bg-red-500/10"
+                                  : "text-muted-foreground hover:text-red-500 hover:bg-red-500/10"
+                            )}
+                            title={t("training.showLessLikeThis")}
+                            aria-pressed={trained === "dislike"}
+                          >
+                            <ThumbsDown className="w-4 h-4" weight={trained === "dislike" ? "fill" : "regular"} />
+                          </button>
+                          <button
+                            onClick={() => setShowTrainingMenu(true)}
+                            className={cn(
+                              "p-2 rounded-lg transition-all active:scale-95",
+                              showTrainingMenu
+                                ? "text-emerald-500 bg-emerald-500/10"
+                                : "text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10"
+                            )}
+                            title={t("training.trainIntelligenceTitle")}
+                          >
+                            <GraduationCap className="w-4 h-4" />
+                          </button>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 

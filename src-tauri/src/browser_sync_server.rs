@@ -22,6 +22,8 @@ use crate::commands::rss_features::{
     get_articles_by_tag_http, get_discovered_sites_http, get_feed_statistics_http,
     get_read_rss_articles_http, get_river_of_news_http, get_rss_article_clusters_http,
     get_rss_articles_with_intelligence_http, get_rss_classifiers_http, get_rss_folders_http,
+    create_rss_reading_list_http, delete_rss_reading_list_http, duplicate_rss_reading_list_http,
+    get_rss_reading_list_by_id_http, get_rss_reading_lists_http, RssReadingList,
     invalidate_clusters_for_feed_http, mark_rss_article_unread_http,
     mark_rss_articles_after_date_read_http, mark_rss_articles_before_date_read_http,
     merge_tags_http, migrate_folders_from_localstorage_http, move_feed_to_folder_http,
@@ -523,6 +525,18 @@ pub async fn start_server(
             put(handle_set_feed_view_prefs),
         )
         .route("/api/rss/folders/migrate", post(handle_migrate_folders))
+        .route(
+            "/api/rss/reading-lists",
+            post(handle_create_reading_list).get(handle_list_reading_lists),
+        )
+        .route(
+            "/api/rss/reading-lists/:id",
+            put(handle_update_reading_list).delete(handle_delete_reading_list),
+        )
+        .route(
+            "/api/rss/reading-lists/:id/duplicate",
+            post(handle_duplicate_reading_list),
+        )
         .route("/api/documents/:id", get(handle_get_document))
         .route("/api/documents/:id/progress", post(handle_update_progress))
         .route("/api/podcast/search", get(handle_podcast_search))
@@ -3150,6 +3164,167 @@ async fn handle_delete_folder(
     let move_to = params.get("move_feeds_to").cloned();
     match delete_rss_folder_http(&id, move_to.as_deref(), &state.repo).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+/// Handle create reading list
+async fn handle_create_reading_list(
+    State(state): State<ServerState>,
+    Json(payload): Json<serde_json::Value>,
+) -> Response {
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let icon = payload.get("icon").and_then(|v| v.as_str());
+    let sort_order = payload
+        .get("sort_order")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+    let feed_ids: Vec<String> = payload
+        .get("feed_ids")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    match create_rss_reading_list_http(&name, feed_ids, icon, sort_order, &state.repo).await {
+        Ok(list) => (StatusCode::OK, Json(list)).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+/// Handle list reading lists
+async fn handle_list_reading_lists(State(state): State<ServerState>) -> Response {
+    match get_rss_reading_lists_http(&state.repo).await {
+        Ok(lists) => (StatusCode::OK, Json(lists)).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+/// Handle update reading list
+async fn handle_update_reading_list(
+    State(state): State<ServerState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(payload): Json<serde_json::Value>,
+) -> Response {
+    let name = payload
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let feed_ids = payload.get("feed_ids").and_then(|v| v.as_array()).map(|arr| {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect::<Vec<String>>()
+    });
+    let icon_val = payload
+        .get("icon")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let icon_null = payload.get("icon").and_then(|v| v.as_null()).map(|_| ());
+    let sort_order = payload
+        .get("sort_order")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+
+    if name.is_none()
+        && feed_ids.is_none()
+        && icon_val.is_none()
+        && icon_null.is_none()
+        && sort_order.is_none()
+    {
+        return match get_rss_reading_list_by_id_http(&id, &state.repo).await {
+            Ok(list) => (StatusCode::OK, Json(list)).into_response(),
+            Err(e) => error_response(StatusCode::NOT_FOUND, &e.to_string()),
+        };
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    if let Some(ref n) = name {
+        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET name = ?, updated_at = ? WHERE id = ?")
+            .bind(n)
+            .bind(&now)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+        }
+    }
+    if let Some(ref f) = feed_ids {
+        let json = serde_json::to_string(f).unwrap_or_else(|_| "[]".to_string());
+        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET feed_ids = ?, updated_at = ? WHERE id = ?")
+            .bind(&json)
+            .bind(&now)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+        }
+    }
+    if let Some(ref ic) = icon_val {
+        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET icon = ?, updated_at = ? WHERE id = ?")
+            .bind(ic)
+            .bind(&now)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+        }
+    }
+    if icon_null.is_some() {
+        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET icon = NULL, updated_at = ? WHERE id = ?")
+            .bind(&now)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+        }
+    }
+    if let Some(so) = sort_order {
+        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET sort_order = ?, updated_at = ? WHERE id = ?")
+            .bind(so)
+            .bind(&now)
+            .bind(&id)
+            .execute(state.repo.pool())
+            .await
+        {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+        }
+    }
+
+    match get_rss_reading_list_by_id_http(&id, &state.repo).await {
+        Ok(list) => (StatusCode::OK, Json(list)).into_response(),
+        Err(e) => error_response(StatusCode::NOT_FOUND, &e.to_string()),
+    }
+}
+
+/// Handle delete reading list
+async fn handle_delete_reading_list(
+    State(state): State<ServerState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    match delete_rss_reading_list_http(&id, &state.repo).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+/// Handle duplicate reading list
+async fn handle_duplicate_reading_list(
+    State(state): State<ServerState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    match duplicate_rss_reading_list_http(&id, &state.repo).await {
+        Ok(list) => (StatusCode::OK, Json(list)).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }

@@ -1,6 +1,8 @@
 /**
  * TrainingMenu
- * Context menu on articles for like/dislike author, tag, title keyword
+ * Context menu on articles for like/dislike author, tag, title keyword.
+ *
+ * Uses useTrainFeedback for consistent sound + haptic + toast-with-undo.
  */
 
 import { useState, useEffect, useRef } from "react";
@@ -13,7 +15,8 @@ import {
   User,
   X,
 } from "@phosphor-icons/react";
-import { useClassifiersStore } from "../../stores/classifiersStore";
+import { useTrainFeedback } from "../../hooks/useTrainFeedback";
+import { useI18n } from "../../lib/i18n";
 import type { FeedItem } from "../../api/rss";
 
 interface TrainingMenuProps {
@@ -24,7 +27,8 @@ interface TrainingMenuProps {
 }
 
 export function TrainingMenu({ article, feedId, onClose, position }: TrainingMenuProps) {
-  const { addClassifier } = useClassifiersStore();
+  const { t } = useI18n();
+  const { trainClassifier } = useTrainFeedback({ onSuccess: onClose });
   const [showSubmenu, setShowSubmenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [flipSubmenu, setFlipSubmenu] = useState(false);
@@ -35,40 +39,35 @@ export function TrainingMenu({ article, feedId, onClose, position }: TrainingMen
     setFlipSubmenu(rect.right + 180 > window.innerWidth);
   }, []);
 
-  const handleTrain = async (classifierType: string, value: string, sentiment: string) => {
-    try {
-      await addClassifier(feedId, classifierType, value, sentiment, "feed");
-      onClose();
-    } catch (err) {
-      console.error("[TrainingMenu] Failed to train:", err);
-    }
+  const handleTrain = (classifierType: string, value: string, sentiment: "like" | "dislike") => {
+    void trainClassifier({ feedId, classifierType, value, sentiment });
   };
 
   const items = [
     {
-      label: "Like author",
+      label: t("training.likeAuthor"),
       icon: <ThumbsUp className="w-3.5 h-3.5 text-emerald-500" />,
       action: () => article.author && handleTrain("author", article.author, "like"),
       disabled: !article.author,
     },
     {
-      label: "Dislike author",
+      label: t("training.dislikeAuthor"),
       icon: <ThumbsDown className="w-3.5 h-3.5 text-red-500" />,
       action: () => article.author && handleTrain("author", article.author, "dislike"),
       disabled: !article.author,
     },
     {
-      label: "Like keyword",
+      label: t("training.likeKeyword"),
       icon: <TextAa className="w-3.5 h-3.5 text-emerald-500" />,
       submenu: "like-keyword",
     },
     {
-      label: "Dislike keyword",
+      label: t("training.dislikeKeyword"),
       icon: <Hash className="w-3.5 h-3.5 text-red-500" />,
       submenu: "dislike-keyword",
     },
     {
-      label: "Like tag",
+      label: t("training.likeTag"),
       icon: <User className="w-3.5 h-3.5 text-emerald-500" />,
       action: () => {
         const tag = article.categories?.[0];
@@ -78,7 +77,7 @@ export function TrainingMenu({ article, feedId, onClose, position }: TrainingMen
     },
   ];
 
-  const handleKeywordSubmit = (keyword: string, sentiment: string) => {
+  const handleKeywordSubmit = (keyword: string, sentiment: "like" | "dislike") => {
     if (keyword.trim()) {
       handleTrain("title", keyword.trim(), sentiment);
       setShowSubmenu(null);
@@ -99,7 +98,7 @@ export function TrainingMenu({ article, feedId, onClose, position }: TrainingMen
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground border-b border-border">
-          Train Intelligence
+          {t("training.trainIntelligence")}
         </div>
         {items.map((item) => (
           <div key={item.label} className="relative">
@@ -127,6 +126,7 @@ export function TrainingMenu({ article, feedId, onClose, position }: TrainingMen
                   sentiment={item.submenu.includes("like") ? "like" : "dislike"}
                   onSubmit={handleKeywordSubmit}
                   onCancel={() => setShowSubmenu(null)}
+                  placeholder={t("training.keywordInputPlaceholder")}
                 />
               </div>
             )}
@@ -141,10 +141,12 @@ function KeywordInput({
   sentiment,
   onSubmit,
   onCancel,
+  placeholder,
 }: {
-  sentiment: string;
-  onSubmit: (keyword: string, sentiment: string) => void;
+  sentiment: "like" | "dislike";
+  onSubmit: (keyword: string, sentiment: "like" | "dislike") => void;
   onCancel: () => void;
+  placeholder: string;
 }) {
   const [value, setValue] = useState("");
 
@@ -161,7 +163,7 @@ function KeywordInput({
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Enter keyword..."
+        placeholder={placeholder}
         className="flex-1 px-2 py-1 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-primary"
       />
       <button type="submit" className="p-1 text-emerald-500 hover:bg-emerald-500/10 rounded">

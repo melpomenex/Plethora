@@ -80,6 +80,7 @@ export function RatingButtons({
               key={rating.value}
               onClick={() => onSelectRating(rating.value)}
               disabled={disabled}
+              aria-keyshortcuts={String(rating.value)}
               className={`
                 ${rating.color}
                 text-white rounded-lg transition-all
@@ -104,7 +105,12 @@ export function RatingButtons({
               <Icon className="w-4 h-4 md:w-6 md:h-6 flex-shrink-0" aria-hidden="true" />
               <span className="font-semibold text-xs md:text-base leading-tight">{rating.label}</span>
               {interval && (
-                <span className="text-[10px] md:text-xs opacity-90 hidden md:block" aria-label={t("ratingButtons.nextReviewIn", { interval })}>{interval}</span>
+                <span
+                  className="text-[9px] md:text-xs opacity-90 md:mt-0 leading-tight"
+                  aria-label={t("ratingButtons.nextReviewIn", { interval })}
+                >
+                  {interval}
+                </span>
               )}
             </button>
           );

@@ -5,8 +5,10 @@ import {
   ArrowsClockwise,
   ArrowSquareIn,
   ArrowSquareOut,
+  BookmarkSimple,
   Brain,
   CheckCircle,
+  CheckSquare,
   DotsSixVertical,
   DotsThreeVertical,
   Download,
@@ -18,6 +20,7 @@ import {
   Graph,
   Keyboard,
   Link,
+  ListChecks,
   MagnifyingGlass,
   Newspaper,
   Plus,
@@ -55,6 +58,17 @@ import {
   cleanupOldRssArticlesAuto,
   getFeedIcon,
 } from "../../api/rss";
+import { type ScrollFeedScope, ALL_FEEDS_SCOPE, feedsScope } from "../../api/rss-scroll-scope";
+import {
+  type ReadingList,
+  getReadingListsAuto,
+  createReadingListAuto,
+  updateReadingListAuto,
+  deleteReadingListAuto,
+  duplicateReadingListAuto,
+} from "../../api/rss-reading-lists";
+import { CreateEditReadingListDialog } from "./readingLists/CreateEditReadingListDialog";
+import { ReadingListPanel } from "./readingLists/ReadingListPanel";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { RSSCustomizationPanel, RSSUserPreferenceUpdate } from "./RSSCustomizationPanel";
 import { NewsletterDirectory } from "../newsletter/NewsletterDirectory";
@@ -132,6 +146,152 @@ export function RSSReader() {
     "idle"
   );
   const [scrollMode, setScrollMode] = useState(false);
+  // The feed scope for the current/next scroll session. Defaults to "all".
+  // Set by section scroll entry, ad-hoc select, and Reading List launch.
+  const [scrollScope, setScrollScope] = useState<ScrollFeedScope>(ALL_FEEDS_SCOPE);
+  // Ad-hoc select mode: lets the user pick any combination of feeds/folders
+  // and either scroll them immediately or save them as a Reading List.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedFeedIds, setSelectedFeedIds] = useState<Set<string>>(new Set());
+  // Reading Lists: persisted saved selections, surfaced in a sidebar panel.
+  const [readingLists, setReadingLists] = useState<ReadingList[]>([]);
+  const [readingListDialogOpen, setReadingListDialogOpen] = useState(false);
+  const [editingReadingList, setEditingReadingList] = useState<ReadingList | null>(null);
+  // Pre-fill for "save current selection / section as a Reading List".
+  const [dialogPrefill, setDialogPrefill] = useState<{ name: string; feedIds: string[] } | null>(null);
+  // When non-null, the items list shows articles from this Reading List's
+  // feeds (launch-into-list). Cleared on any sidebar navigation.
+  const [activeReadingListFeeds, setActiveReadingListFeeds] = useState<{
+    id: string;
+    name: string;
+    feedIds: Set<string>;
+  } | null>(null);
+
+  // Load reading lists on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const lists = await getReadingListsAuto();
+        if (!cancelled) setReadingLists(lists);
+      } catch (err) {
+        console.warn("Failed to load reading lists:", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const reloadReadingLists = useCallback(async () => {
+    try {
+      const lists = await getReadingListsAuto();
+      setReadingLists(lists);
+    } catch (err) {
+      console.warn("Failed to reload reading lists:", err);
+    }
+  }, []);
+
+  // ---- Select-mode helpers ----
+  const toggleFeedSelected = useCallback((feedId: string) => {
+    setSelectedFeedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(feedId)) next.delete(feedId);
+      else next.add(feedId);
+      return next;
+    });
+  }, []);
+
+  const toggleFolderSelected = useCallback((folderFeedIds: string[]) => {
+    setSelectedFeedIds((prev) => {
+      const next = new Set(prev);
+      const allSelected = folderFeedIds.every((id) => next.has(id));
+      if (allSelected) {
+        folderFeedIds.forEach((id) => next.delete(id));
+      } else {
+        folderFeedIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }, []);
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedFeedIds(new Set());
+  }, []);
+
+  const handleScrollSelected = useCallback(() => {
+    const ids = Array.from(selectedFeedIds);
+    if (ids.length === 0) return;
+    const scope = feedsScope(ids, (n) => t("rssReader.feedsCount", { count: n }));
+    setScrollScope(scope);
+    setScrollMode(true);
+    exitSelectMode();
+  }, [selectedFeedIds, exitSelectMode, t]);
+
+  const openSaveAsDialog = useCallback((prefill: { name: string; feedIds: string[] }) => {
+    setEditingReadingList(null);
+    setDialogPrefill(prefill);
+    setReadingListDialogOpen(true);
+  }, []);
+
+  const openEditDialog = useCallback((list: ReadingList) => {
+    setEditingReadingList(list);
+    setDialogPrefill({ name: list.name, feedIds: list.feed_ids });
+    setReadingListDialogOpen(true);
+  }, []);
+
+  const handleSaveReadingList = useCallback(async (name: string, feedIds: string[]) => {
+    try {
+      if (editingReadingList) {
+        await updateReadingListAuto(editingReadingList.id, { name, feedIds });
+      } else {
+        await createReadingListAuto({ name, feedIds });
+      }
+      await reloadReadingLists();
+      setReadingListDialogOpen(false);
+      setEditingReadingList(null);
+      setDialogPrefill(null);
+      // If we just saved an ad-hoc selection, exit select mode.
+      if (selectMode) exitSelectMode();
+    } catch (err) {
+      console.error("Failed to save reading list:", err);
+    }
+  }, [editingReadingList, reloadReadingLists, selectMode, exitSelectMode]);
+
+  const handleDeleteReadingList = useCallback(async (list: ReadingList) => {
+    try {
+      await deleteReadingListAuto(list.id);
+      await reloadReadingLists();
+    } catch (err) {
+      console.error("Failed to delete reading list:", err);
+    }
+  }, [reloadReadingLists]);
+
+  const handleDuplicateReadingList = useCallback(async (list: ReadingList) => {
+    try {
+      await duplicateReadingListAuto(list.id);
+      await reloadReadingLists();
+    } catch (err) {
+      console.error("Failed to duplicate reading list:", err);
+    }
+  }, [reloadReadingLists]);
+
+  const handleLaunchReadingListScroll = useCallback((list: ReadingList) => {
+    setScrollScope({ kind: "readingList", readingListId: list.id, label: list.name });
+    setScrollMode(true);
+  }, []);
+
+  const handleLaunchReadingListList = useCallback((list: ReadingList) => {
+    // Show the combined article list for the list's feeds. We store the list's
+    // feed ids in `activeReadingListFeeds` and the items memo filters to them
+    // when viewMode is "all" (see the items memo branch below).
+    const ids = new Set(list.feed_ids);
+    const listFeeds = feeds.filter((f) => ids.has(f.id));
+    if (listFeeds.length === 0) return;
+    setSelectedFeed(null);
+    setSelectedFolderId(null);
+    setActiveReadingListFeeds({ id: list.id, name: list.name, feedIds: ids });
+    handleViewModeChange("all");
+  }, [feeds]);
   const [mobileView, setMobileView] = useState<"feeds" | "items" | "reader">("items");
   const [showFeedSettings, setShowFeedSettings] = useState(false);
   const [feedSettingsFeed, setFeedSettingsFeed] = useState<Feed | null>(null);
@@ -435,6 +595,8 @@ export function RSSReader() {
         if (targetSection) {
           items = targetSection.feeds.flatMap((f) => f.items.map((item) => ({ feed: f, item })));
         }
+      } else if (activeReadingListFeeds) {
+        items = allFeedItems.filter(({ feed }) => activeReadingListFeeds.feedIds.has(feed.id));
       } else {
         items = allFeedItems;
       }
@@ -476,7 +638,7 @@ export function RSSReader() {
     const sortedList = applySortingPreferences(filteredList);
 
     setItems(sortedList);
-  }, [viewMode, selectedFeed, selectedFolderId, groupedFeeds, feeds, searchQuery, selectedTagFilter, selectedTagIds, articleTags, intelligenceFilter, showDisliked, preferences, applyFilterPreferences, applySortingPreferences]);
+  }, [viewMode, selectedFeed, selectedFolderId, groupedFeeds, feeds, searchQuery, selectedTagFilter, selectedTagIds, articleTags, intelligenceFilter, showDisliked, preferences, applyFilterPreferences, applySortingPreferences, activeReadingListFeeds]);
 
   useEffect(() => {
     void loadTags();
@@ -1048,7 +1210,7 @@ export function RSSReader() {
         return;
       }
 
-      if (importedFeeds.length === 0) {
+      if (count === 0) {
         // The file was read but no feeds could be parsed out of it — most often
         // a malformed/non-OPML file. Tell the user rather than reporting a
         // misleading "Imported 0 feeds successfully".
@@ -1085,7 +1247,13 @@ export function RSSReader() {
         }
         count = synced;
       } else {
-        importedFeeds.forEach((feed) => subscribeToFeed(feed));
+        for (const feed of importedFeeds) {
+          try {
+            await subscribeToFeedAuto(feed);
+          } catch (error) {
+            console.warn("Failed to subscribe feed during OPML import:", feed.feedUrl, error);
+          }
+        }
       }
 
       try {
@@ -1104,7 +1272,9 @@ export function RSSReader() {
         ? selectedFeed.title
         : selectedFolderId
           ? (groupedFeeds.sections.find((s) => s.id === selectedFolderId)?.name || "Folder")
-          : t("rssReader.all")
+          : activeReadingListFeeds
+            ? activeReadingListFeeds.name
+            : t("rssReader.all")
       : viewMode === "unread"
         ? t("common.unread")
         : viewMode === "favorites"
@@ -1430,7 +1600,16 @@ export function RSSReader() {
 
   // Scroll mode view - render before main layout
   if (scrollMode) {
-    return <RSSScrollMode onExit={() => setScrollMode(false)} initialFeedId={selectedFeed?.id} />;
+    return (
+      <RSSScrollMode
+        onExit={() => {
+          setScrollMode(false);
+          setScrollScope(ALL_FEEDS_SCOPE);
+        }}
+        initialFeedId={selectedFeed?.id}
+        scope={scrollScope}
+      />
+    );
   }
 
   const showSidebar = !isMobile || mobileView === "feeds";
@@ -1600,11 +1779,30 @@ export function RSSReader() {
                     <Newspaper className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => setScrollMode(true)}
+                    onClick={() => {
+                      setScrollScope(ALL_FEEDS_SCOPE);
+                      setScrollMode(true);
+                    }}
                     className="p-2 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 rounded transition-colors"
                     title={t("rssReader.scrollMode")}
                   >
                     <Scroll className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectMode) exitSelectMode();
+                      else setSelectMode(true);
+                    }}
+                    className={`p-2 rounded transition-colors ${
+                      selectMode
+                        ? "bg-primary/15 text-primary"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    }`}
+                    title={t("rssReader.selectMode")}
+                    aria-label={t("rssReader.selectMode")}
+                    aria-pressed={selectMode}
+                  >
+                    <CheckSquare className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => refreshAllFeeds("manual")}
@@ -1634,6 +1832,17 @@ export function RSSReader() {
                       <ArrowsClockwise className="w-4 h-4" />
                     )}
                   </button>
+                  {rssStudy.selectedRssItems.length > 0 && (
+                    <button
+                      onClick={() => rssStudy.clearBatch()}
+                      title={`${rssStudy.selectedRssItems.length} article(s) batched for semantic graph — click to clear`}
+                      className="flex items-center gap-1 px-1.5 h-8 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/20 hover:bg-orange-500/25 transition-colors text-[10px] font-semibold leading-none"
+                    >
+                      <Brain className="w-3 h-3" />
+                      <span>{rssStudy.selectedRssItems.length}</span>
+                      <span className="text-orange-600 dark:text-orange-400 hover:text-red-500 font-bold">×</span>
+                    </button>
+                  )}
                   <div className="relative group" ref={optionsMenuRef}>
                     <button
                       onClick={() => setShowOptionsMenu((v) => !v)}
@@ -1696,6 +1905,16 @@ export function RSSReader() {
                       >
                         <Globe className="w-4 h-4" />
                         Discover Sites
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSemanticGraphOpen(true);
+                          setShowOptionsMenu(false);
+                        }}
+                        className="w-full px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground hover:bg-muted/60 flex items-center gap-2"
+                      >
+                        <Graph className="w-4 h-4" />
+                        {t("rssReader.semanticGraph")}
                       </button>
                       <button
                         onClick={() => {
@@ -1818,32 +2037,6 @@ export function RSSReader() {
               </div>
             </div>
 
-            {/* Semantic Graph Action Card */}
-            <div className="mx-2 mt-2.5 p-3.5 bg-gradient-to-r from-orange-500/10 to-amber-500/10 border border-orange-500/20 rounded-2xl shadow-sm space-y-2.5 flex flex-col hover:from-orange-500/15 hover:to-amber-500/15 transition-all duration-200">
-              <div className="flex items-center gap-2">
-                <Graph className="w-5 h-5 text-orange-500 dark:text-orange-400" />
-                <div className="flex flex-col min-w-0">
-                  <span className="text-xs font-bold text-foreground">Semantic Graph Analysis</span>
-                  <span className="text-[10px] text-muted-foreground truncate">Analyze feeds with embeddings</span>
-                </div>
-              </div>
-              
-              {rssStudy.selectedRssItems.length > 0 && (
-                <div className="px-2 py-1 bg-card/60 backdrop-blur-md rounded-lg text-[9px] font-semibold text-orange-600 dark:text-orange-400 border border-orange-500/10 flex items-center justify-between">
-                  <span>{rssStudy.selectedRssItems.length} article(s) in batch</span>
-                  <button onClick={() => rssStudy.clearBatch()} className="text-[10px] font-bold text-red-500 hover:text-red-600 font-sans leading-none">×</button>
-                </div>
-              )}
-
-              <button
-                onClick={() => setSemanticGraphOpen(true)}
-                className="w-full py-1.5 px-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl shadow-md flex items-center justify-center gap-1.5 font-semibold text-xs transition-all duration-200"
-              >
-                <Brain className="w-3.5 h-3.5" />
-                <span>Open Graph Visualization</span>
-              </button>
-            </div>
-
             {/* Feed list */}
             <div className="flex-1 overflow-y-auto">
               {feeds.length === 0 ? (
@@ -1865,6 +2058,55 @@ export function RSSReader() {
                       <p className="text-[11px] opacity-80">Release over a folder section to move it there. Press Esc to cancel.</p>
                     </div>
                   )}
+                  {selectMode && (
+                    <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-primary/20 bg-primary/5 px-3 py-2 backdrop-blur">
+                      <span className="text-xs font-medium text-primary">
+                        {t("rssReader.selectedCount", { count: selectedFeedIds.size })}
+                      </span>
+                      <div className="ml-auto flex items-center gap-1">
+                        <button
+                          onClick={handleScrollSelected}
+                          disabled={selectedFeedIds.size === 0}
+                          className="flex items-center gap-1 rounded-md bg-orange-500/15 px-2 py-1 text-xs font-medium text-orange-600 dark:text-orange-400 transition-colors hover:bg-orange-500/25 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={t("rssReader.scrollSelected")}
+                        >
+                          <Scroll className="w-3.5 h-3.5" />
+                          {t("rssReader.scrollSelected")}
+                        </button>
+                        <button
+                          onClick={() =>
+                            openSaveAsDialog({
+                              name: "",
+                              feedIds: Array.from(selectedFeedIds),
+                            })
+                          }
+                          disabled={selectedFeedIds.size === 0}
+                          className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={t("rssReader.saveAsReadingList")}
+                        >
+                          <BookmarkSimple className="w-3.5 h-3.5" />
+                          {t("rssReader.saveAsReadingList")}
+                        </button>
+                        <button
+                          onClick={exitSelectMode}
+                          className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          title={t("common.cancel")}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <ReadingListPanel
+                    lists={readingLists}
+                    feeds={feeds}
+                    activeListId={activeReadingListFeeds?.id}
+                    onLaunchScroll={handleLaunchReadingListScroll}
+                    onLaunchList={handleLaunchReadingListList}
+                    onEdit={openEditDialog}
+                    onDuplicate={handleDuplicateReadingList}
+                    onDelete={handleDeleteReadingList}
+                  />
                   {groupedFeeds.sections.map((section) => (
                     <div
                       key={section.id}
@@ -1895,6 +2137,7 @@ export function RSSReader() {
                         onClick={() => {
                           setSelectedFeed(null);
                           setSelectedFolderId((prev) => (prev === section.id ? null : section.id));
+                          setActiveReadingListFeeds(null);
                           handleViewModeChange("all");
                         }}
                         className={`w-full px-3 py-2 flex items-center justify-between gap-2 text-xs uppercase tracking-[0.18em] cursor-pointer transition-colors ${
@@ -1908,14 +2151,69 @@ export function RSSReader() {
                         }`}
                       >
                         <div className="flex items-center gap-2">
+                          {selectMode && (
+                            <input
+                              type="checkbox"
+                              checked={section.feeds.every((f) => selectedFeedIds.has(f.id))}
+                              ref={(el) => {
+                                if (el) el.indeterminate =
+                                  section.feeds.some((f) => selectedFeedIds.has(f.id)) &&
+                                  !section.feeds.every((f) => selectedFeedIds.has(f.id));
+                              }}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleFolderSelected(section.feeds.map((f) => f.id));
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-3.5 w-3.5 accent-primary cursor-pointer"
+                              aria-label={t("rssReader.selectSection", { name: section.name })}
+                            />
+                          )}
                           <Folder className="w-3.5 h-3.5" />
                           {section.name}
                         </div>
-                        {dragModeActive && canDropIntoSection(section) && (
-                          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal">
-                            Drop here
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {/* Save this section as a Reading List. */}
+                          {selectMode && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openSaveAsDialog({
+                                  name: section.name,
+                                  feedIds: section.feeds.map((f) => f.id),
+                                });
+                              }}
+                              className="p-1 text-primary hover:bg-primary/10 rounded transition-colors normal-case tracking-normal"
+                              title={t("rssReader.saveSectionAsList", { name: section.name })}
+                              aria-label={t("rssReader.saveSectionAsList", { name: section.name })}
+                            >
+                              <BookmarkSimple className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {/* Scroll this section — opens Scroll Mode scoped to just
+                              this folder/category. stopPropagation keeps the parent
+                              header onClick (show combined article list) from firing. */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const scope: ScrollFeedScope = section.isFolder
+                                ? { kind: "folder", folderId: section.folderId!, label: section.name }
+                                : { kind: "category", category: section.name, label: section.name };
+                              setScrollScope(scope);
+                              setScrollMode(true);
+                            }}
+                            className="p-1 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 rounded transition-colors normal-case tracking-normal"
+                            title={t("rssReader.scrollSection", { name: section.name })}
+                            aria-label={t("rssReader.scrollSection", { name: section.name })}
+                          >
+                            <Scroll className="w-3.5 h-3.5" />
+                          </button>
+                          {dragModeActive && canDropIntoSection(section) && (
+                            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal">
+                              Drop here
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {dragOverSectionId === section.id && canDropIntoSection(section) && (
                         <div className="mx-3 mb-2 rounded-md border border-dashed border-primary/40 bg-primary/10 px-3 py-2 text-xs font-medium text-primary">
@@ -1925,15 +2223,26 @@ export function RSSReader() {
                       {section.feeds.map((feed) => (
                         <div
                           key={feed.id}
-                          className={`group w-full cursor-grab px-4 py-2 text-left hover:bg-muted/70 transition-all flex items-start gap-2 border-l-2 ${
-                            selectedFeed?.id === feed.id 
-                              ? "bg-primary/10 border-primary font-medium text-foreground" 
+                          className={`group w-full ${selectMode ? "" : "cursor-grab"} px-4 py-2 text-left hover:bg-muted/70 transition-all flex items-start gap-2 border-l-2 ${
+                            selectedFeed?.id === feed.id
+                              ? "bg-primary/10 border-primary font-medium text-foreground"
                               : "border-transparent text-muted-foreground"
                           } ${draggedFeedId === feed.id ? "opacity-50 cursor-grabbing" : ""}`}
                         >
+                          {selectMode && (
+                            <input
+                              type="checkbox"
+                              checked={selectedFeedIds.has(feed.id)}
+                              onChange={() => toggleFeedSelected(feed.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1 h-3.5 w-3.5 accent-primary cursor-pointer flex-shrink-0"
+                              aria-label={t("rssReader.selectFeed", { name: feed.title })}
+                            />
+                          )}
                           <button
                             type="button"
                             onPointerDown={(e) => {
+                              if (selectMode) return;
                               e.preventDefault();
                               e.stopPropagation();
                               beginSidebarDrag(feed);
@@ -1951,6 +2260,7 @@ export function RSSReader() {
                             onClick={() => {
                               setSelectedFeed(feed);
                               setSelectedFolderId(null);
+                              setActiveReadingListFeeds(null);
                               handleViewModeChange("all");
                               if (isMobile) {
                                 setMobileView("items");
@@ -2053,6 +2363,7 @@ export function RSSReader() {
                             onClick={() => {
                               setSelectedFeed(feed);
                               setSelectedFolderId(null);
+                              setActiveReadingListFeeds(null);
                               handleViewModeChange("all");
                               if (isMobile) {
                                 setMobileView("items");
@@ -2380,7 +2691,7 @@ export function RSSReader() {
                                 <button onClick={(e) => { e.stopPropagation(); handleToggleFavorite(feed, item); }} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors" title={item.favorite ? t("rssReader.removeFavorite") : t("rssReader.addFavorite")}>{item.favorite ? <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" /> : <Star className="w-4 h-4" />}</button>
                                 <a href={item.link} onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleOpenOriginal(item.link); }} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors" title={t("rssReader.openOriginal")}><ArrowSquareOut className="w-4 h-4" /></a>
                                 {item.read && (<button onClick={(e) => { e.stopPropagation(); void handleMarkUnread(feed, item); }} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors" title="Mark as unread"><EyeSlash className="w-4 h-4" /></button>)}
-                                <button onClick={(e) => { e.stopPropagation(); setShowTrainingMenu(true); setTrainingMenuPosition({ x: e.clientX, y: e.clientY }); }} className="p-1.5 text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 rounded transition-colors" title="Train intelligence"><GraduationCap className="w-4 h-4" /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setShowTrainingMenu(true); setTrainingMenuPosition({ x: e.clientX, y: e.clientY }); }} className="p-1.5 text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 rounded transition-colors" title={t("training.trainIntelligenceTitle")}><GraduationCap className="w-4 h-4" /></button>
                                 <button onClick={(e) => { e.stopPropagation(); setSelectedItem(item); setSelectedItemFeed(feed); setShowTagInput(true); }} className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-colors" title="Tag article"><Tag className="w-4 h-4" /></button>
                               </div>
                             </div>
@@ -2738,6 +3049,21 @@ export function RSSReader() {
           onUpdate={(updatedFeed) => {
             setFeeds(feeds.map((f) => (f.id === updatedFeed.id ? updatedFeed : f)));
           }}
+        />
+
+        {/* Create / Edit Reading List Dialog */}
+        <CreateEditReadingListDialog
+          isOpen={readingListDialogOpen}
+          editing={editingReadingList}
+          prefill={dialogPrefill}
+          feeds={feeds}
+          sections={groupedFeeds.sections}
+          onClose={() => {
+            setReadingListDialogOpen(false);
+            setEditingReadingList(null);
+            setDialogPrefill(null);
+          }}
+          onSave={handleSaveReadingList}
         />
       </div>
 
