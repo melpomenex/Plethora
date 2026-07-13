@@ -4106,81 +4106,95 @@ export function DocumentViewer({
     const attach = () => {
       teardown?.();
 
-      const doc = frame.contentDocument;
-      const win = frame.contentWindow;
-      const body = doc?.body;
-      if (!doc || !win || !body) return;
+      try {
+        const doc = frame.contentDocument;
+        const win = frame.contentWindow;
+        const body = doc?.body;
+        if (!doc || !win || !body) return;
 
-      applyAnchoredTextHighlights({
-        root: body,
-        highlights: persistedDocumentHighlights.htmlHighlights,
-        signature: `${currentDocument.id}:${htmlForDisplay}`,
-      });
-
-      const publishSelection = () => {
-        const selection = win.getSelection();
-        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-          updateSelection("", null);
-          return;
-        }
-
-        const range = selection.getRangeAt(0);
-        const selectedText = range.toString().trim();
-        if (!selectedText) {
-          updateSelection("", null);
-          return;
-        }
-
-        let context: TextSelectionContext | null = null;
-        try {
-          context = buildTextSelectionContext({
-            root: body,
-            range,
-            documentId: currentDocument.id,
-            surface: "html",
-          });
-        } catch {
-          // buildTextSelectionContext may fail with cross-document range issues
-        }
-
-        updateSelection(context?.selectedText ?? selectedText, context ?? {
-          type: "text",
-          surface: "html",
-          documentId: currentDocument.id,
-          startOffset: 0,
-          endOffset: selectedText.length,
-          selectedText,
+        applyAnchoredTextHighlights({
+          root: body,
+          highlights: persistedDocumentHighlights.htmlHighlights,
+          signature: `${currentDocument.id}:${htmlForDisplay}`,
         });
-      };
 
-      const handleIframeMouseDown = (e: MouseEvent) => {
-        const parentEvent = new MouseEvent("mousedown", {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: e.clientX,
-          clientY: e.clientY,
-          screenX: e.screenX,
-          screenY: e.screenY,
-        });
-        window.dispatchEvent(parentEvent);
-      };
+        const publishSelection = () => {
+          try {
+            const selection = win.getSelection();
+            if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+              updateSelection("", null);
+              return;
+            }
 
-      doc.addEventListener("selectionchange", publishSelection);
-      doc.addEventListener("mouseup", publishSelection);
-      doc.addEventListener("keyup", publishSelection);
-      doc.addEventListener("mousedown", handleIframeMouseDown);
+            const range = selection.getRangeAt(0);
+            const selectedText = range.toString().trim();
+            if (!selectedText) {
+              updateSelection("", null);
+              return;
+            }
 
-      teardown = () => {
-        doc.removeEventListener("selectionchange", publishSelection);
-        doc.removeEventListener("mouseup", publishSelection);
-        doc.removeEventListener("keyup", publishSelection);
-        doc.removeEventListener("mousedown", handleIframeMouseDown);
-      };
+            let context: TextSelectionContext | null = null;
+            try {
+              context = buildTextSelectionContext({
+                root: body,
+                range,
+                documentId: currentDocument.id,
+                surface: "html",
+              });
+            } catch {
+              // buildTextSelectionContext may fail with cross-document range issues
+            }
+
+            updateSelection(context?.selectedText ?? selectedText, context ?? {
+              type: "text",
+              surface: "html",
+              documentId: currentDocument.id,
+              startOffset: 0,
+              endOffset: selectedText.length,
+              selectedText,
+            });
+          } catch { /* cross-origin selection fetch fails */ }
+        };
+
+        const handleIframeMouseDown = (e: MouseEvent) => {
+          try {
+            const parentEvent = new MouseEvent("mousedown", {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX: e.clientX,
+              clientY: e.clientY,
+              screenX: e.screenX,
+              screenY: e.screenY,
+            });
+            window.dispatchEvent(parentEvent);
+          } catch { /* ignore */ }
+        };
+
+        doc.addEventListener("selectionchange", publishSelection);
+        doc.addEventListener("mouseup", publishSelection);
+        doc.addEventListener("keyup", publishSelection);
+        doc.addEventListener("mousedown", handleIframeMouseDown);
+
+        teardown = () => {
+          try {
+            doc.removeEventListener("selectionchange", publishSelection);
+            doc.removeEventListener("mouseup", publishSelection);
+            doc.removeEventListener("keyup", publishSelection);
+            doc.removeEventListener("mousedown", handleIframeMouseDown);
+          } catch { /* ignore */ }
+        };
+      } catch (err) {
+        console.warn("DocumentViewer: Failed to attach selection listeners to iframe", err);
+      }
     };
 
     frame.addEventListener("load", attach);
-    if (frame.contentDocument?.readyState === "complete") {
+    let readyComplete = false;
+    try {
+      readyComplete = frame.contentDocument?.readyState === "complete";
+    } catch { /* ignore */ }
+    if (readyComplete) {
       attach();
     }
 
@@ -4206,43 +4220,55 @@ export function DocumentViewer({
 
     const attach = () => {
       teardown?.();
-      const doc = frame.contentDocument;
-      const win = frame.contentWindow;
-      if (!doc || !win) return;
+      try {
+        const doc = frame.contentDocument;
+        const win = frame.contentWindow;
+        if (!doc || !win) return;
 
-      const updatePage = () => {
-        const pages = doc.querySelectorAll<HTMLDivElement>(".page[id^='page-']");
-        if (pages.length === 0) return;
+        const updatePage = () => {
+          try {
+            const pages = doc.querySelectorAll<HTMLDivElement>(".page[id^='page-']");
+            if (pages.length === 0) return;
 
-        const scrollTop = win.scrollY || doc.documentElement?.scrollTop || 0;
-        const viewportMid = scrollTop + (win.innerHeight / 2);
-        let currentPage = 1;
+            const scrollTop = win.scrollY || doc.documentElement?.scrollTop || 0;
+            const viewportMid = scrollTop + (win.innerHeight / 2);
+            let currentPage = 1;
 
-        for (const page of pages) {
-          const rect = page.getBoundingClientRect();
-          const absoluteTop = rect.top + scrollTop;
-          if (absoluteTop <= viewportMid) {
-            const match = page.id.match(/^page-(\d+)$/);
-            if (match) currentPage = parseInt(match[1], 10);
-          }
-        }
+            for (const page of pages) {
+              const rect = page.getBoundingClientRect();
+              const absoluteTop = rect.top + scrollTop;
+              if (absoluteTop <= viewportMid) {
+                const match = page.id.match(/^page-(\d+)$/);
+                if (match) currentPage = parseInt(match[1], 10);
+              }
+            }
 
-        setPageNumber(currentPage);
-        setTotalPages(pages.length);
-      };
+            setPageNumber(currentPage);
+            setTotalPages(pages.length);
+          } catch { /* ignore */ }
+        };
 
-      win.addEventListener("scroll", updatePage, { passive: true });
-      doc.addEventListener("scroll", updatePage, { passive: true });
-      updatePage();
+        win.addEventListener("scroll", updatePage, { passive: true });
+        doc.addEventListener("scroll", updatePage, { passive: true });
+        updatePage();
 
-      teardown = () => {
-        win.removeEventListener("scroll", updatePage);
-        doc.removeEventListener("scroll", updatePage);
-      };
+        teardown = () => {
+          try {
+            win.removeEventListener("scroll", updatePage);
+            doc.removeEventListener("scroll", updatePage);
+          } catch { /* ignore */ }
+        };
+      } catch (err) {
+        console.warn("DocumentViewer: Failed to attach OCR scroll listeners", err);
+      }
     };
 
     frame.addEventListener("load", attach);
-    if (frame.contentDocument?.readyState === "complete") {
+    let readyComplete = false;
+    try {
+      readyComplete = frame.contentDocument?.readyState === "complete";
+    } catch { /* ignore */ }
+    if (readyComplete) {
       attach();
     }
 
@@ -4259,163 +4285,184 @@ export function DocumentViewer({
     if (!frame) return;
 
     const scrollToPage = () => {
-      const doc = frame.contentDocument;
-      const win = frame.contentWindow;
-      if (!doc || !win) return;
+      try {
+        const doc = frame.contentDocument;
+        const win = frame.contentWindow;
+        if (!doc || !win) return;
 
-      const pageEl = doc.querySelector<HTMLElement>(`#page-${pageNumber}`);
-      if (pageEl) {
-        win.scrollTo({ top: pageEl.offsetTop, behavior: "instant" });
+        const pageEl = doc.querySelector<HTMLElement>(`#page-${pageNumber}`);
+        if (pageEl) {
+          win.scrollTo({ top: pageEl.offsetTop, behavior: "instant" });
+        }
+      } catch (err) {
+        console.warn("DocumentViewer: Failed to scroll OCR iframe to page", err);
       }
     };
 
     frame.addEventListener("load", scrollToPage);
-    if (frame.contentDocument?.readyState === "complete") {
-      scrollToPage();
+    let readyComplete = false;
+    try {
+      readyComplete = frame.contentDocument?.readyState === "complete";
+    } catch { /* ignore */ }
+    if (readyComplete) {
+        scrollToPage();
     }
-    return () => frame.removeEventListener("load", scrollToPage);
+    return () => {
+      try {
+        frame.removeEventListener("load", scrollToPage);
+      } catch { /* ignore */ }
+    };
   }, [isOcrHtml, pageNumber]);
 
   useEffect(() => {
     if (!isHtmlViewer) return;
     const frame = iframeRef.current;
-    const doc = frame?.contentDocument;
-    const win = frame?.contentWindow;
-    const body = doc?.body;
-    if (!doc || !win || !body) return;
+    if (!frame) return;
 
-    const unwrapPreviousSearchMarks = () => {
-      const marks = Array.from(doc.querySelectorAll("mark[data-viewer-search='true']")) as HTMLElement[];
-      for (const mark of marks) {
-        const parent = mark.parentNode;
-        if (!parent) continue;
-        const textNode = doc.createTextNode(mark.textContent ?? "");
-        parent.replaceChild(textNode, mark);
-        parent.normalize();
+    try {
+      const doc = frame.contentDocument;
+      const win = frame.contentWindow;
+      const body = doc?.body;
+      if (!doc || !win || !body) return;
+
+      const unwrapPreviousSearchMarks = () => {
+        const marks = Array.from(doc.querySelectorAll("mark[data-viewer-search='true']")) as HTMLElement[];
+        for (const mark of marks) {
+          const parent = mark.parentNode;
+          if (!parent) continue;
+          const textNode = doc.createTextNode(mark.textContent ?? "");
+          parent.replaceChild(textNode, mark);
+          parent.normalize();
+        }
+      };
+
+      const query = normalizedViewerSearchQuery;
+      unwrapPreviousSearchMarks();
+      htmlSearchMatchesRef.current = [];
+
+      if (!viewerSearchSupported) {
+        reportViewerSearchState({
+          supported: false,
+          available: false,
+          totalMatches: 0,
+          activeMatchIndex: 0,
+          unavailableReason: "Search is not available for this document type.",
+        });
+        return;
       }
-    };
 
-    const query = normalizedViewerSearchQuery;
-    unwrapPreviousSearchMarks();
-    htmlSearchMatchesRef.current = [];
+      if (!query) {
+        reportViewerSearchState({
+          supported: true,
+          available: true,
+          totalMatches: 0,
+          activeMatchIndex: 0,
+          unavailableReason: undefined,
+        });
+        return;
+      }
 
-    if (!viewerSearchSupported) {
-      reportViewerSearchState({
-        supported: false,
-        available: false,
-        totalMatches: 0,
-        activeMatchIndex: 0,
-        unavailableReason: "Search is not available for this document type.",
+      const bodyText = (body.innerText || body.textContent || "").trim();
+      if (!bodyText) {
+        reportViewerSearchState({
+          supported: true,
+          available: false,
+          totalMatches: 0,
+          activeMatchIndex: 0,
+          unavailableReason: "This document has no searchable text.",
+        });
+        return;
+      }
+
+      const terms = Array.from(new Set(query.split(/\s+/).map((term) => term.trim()).filter(Boolean))).slice(0, 8);
+      if (terms.length === 0) {
+        reportViewerSearchState({
+          supported: true,
+          available: true,
+          totalMatches: 0,
+          activeMatchIndex: 0,
+          unavailableReason: undefined,
+        });
+        return;
+      }
+
+      const regex = new RegExp(`(${terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+      const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      const textNodes: Text[] = [];
+
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        if (node.parentNode?.nodeName !== "MARK" && node.parentNode?.nodeName !== "SCRIPT" && node.parentNode?.nodeName !== "STYLE") {
+          textNodes.push(node);
+        }
+      }
+
+      for (const node of textNodes) {
+        const value = node.nodeValue ?? "";
+        if (!regex.test(value)) continue;
+
+        regex.lastIndex = 0;
+        const fragment = doc.createDocumentFragment();
+        let match: RegExpExecArray | null;
+        let lastIndex = 0;
+
+        while ((match = regex.exec(value)) !== null) {
+          const start = match.index;
+          const end = regex.lastIndex;
+
+          if (start > lastIndex) fragment.append(value.slice(lastIndex, start));
+
+          const mark = doc.createElement("mark");
+          mark.setAttribute("data-viewer-search", "true");
+          mark.style.background = "rgba(245, 158, 11, 0.28)";
+          mark.style.borderRadius = "2px";
+          mark.style.padding = "0 1px";
+          mark.textContent = value.slice(start, end);
+          fragment.append(mark);
+          htmlSearchMatchesRef.current.push(mark);
+          lastIndex = end;
+        }
+
+        if (lastIndex < value.length) fragment.append(value.slice(lastIndex));
+        node.parentNode?.replaceChild(fragment, node);
+      }
+
+      const totalMatches = htmlSearchMatchesRef.current.length;
+      if (totalMatches === 0) {
+        reportViewerSearchState({
+          supported: true,
+          available: true,
+          totalMatches: 0,
+          activeMatchIndex: 0,
+          unavailableReason: undefined,
+        });
+        return;
+      }
+
+      const normalizedIndex = ((viewerSearchState.activeMatchIndex % totalMatches) + totalMatches) % totalMatches;
+      htmlSearchMatchesRef.current.forEach((mark, index) => {
+        if (index === normalizedIndex) {
+          mark.style.background = "rgba(245, 158, 11, 0.52)";
+          mark.style.outline = "2px solid rgba(217, 119, 6, 0.85)";
+        } else {
+          mark.style.background = "rgba(245, 158, 11, 0.28)";
+          mark.style.outline = "none";
+        }
       });
-      return;
-    }
 
-    if (!query) {
+      const activeMark = htmlSearchMatchesRef.current[normalizedIndex];
+      activeMark?.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+
       reportViewerSearchState({
         supported: true,
         available: true,
-        totalMatches: 0,
-        activeMatchIndex: 0,
+        totalMatches,
+        activeMatchIndex: normalizedIndex,
         unavailableReason: undefined,
       });
-      return;
+    } catch (err) {
+      console.warn("DocumentViewer: Failed to run search highlighting (cross-origin)", err);
     }
-
-    const bodyText = (body.innerText || body.textContent || "").trim();
-    if (!bodyText) {
-      reportViewerSearchState({
-        supported: true,
-        available: false,
-        totalMatches: 0,
-        activeMatchIndex: 0,
-        unavailableReason: "This document has no searchable text.",
-      });
-      return;
-    }
-
-    const terms = Array.from(new Set(query.split(/\s+/).map((term) => term.trim()).filter(Boolean))).slice(0, 8);
-    if (terms.length === 0) {
-      reportViewerSearchState({
-        supported: true,
-        available: true,
-        totalMatches: 0,
-        activeMatchIndex: 0,
-        unavailableReason: undefined,
-      });
-      return;
-    }
-
-    const regex = new RegExp(`(${terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
-    const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT);
-    const textNodes: Text[] = [];
-
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text;
-      if (!node.nodeValue || !node.nodeValue.trim()) continue;
-      if (node.parentElement?.closest("script, style, mark[data-viewer-search='true']")) continue;
-      textNodes.push(node);
-    }
-
-    for (const node of textNodes) {
-      const value = node.nodeValue ?? "";
-      if (!regex.test(value)) continue;
-      regex.lastIndex = 0;
-      const fragment = doc.createDocumentFragment();
-      let lastIndex = 0;
-      let match: RegExpExecArray | null;
-
-      while ((match = regex.exec(value)) !== null) {
-        const start = match.index;
-        const end = start + match[0].length;
-        if (start > lastIndex) fragment.append(value.slice(lastIndex, start));
-        const mark = doc.createElement("mark");
-        mark.setAttribute("data-viewer-search", "true");
-        mark.style.background = "rgba(245, 158, 11, 0.28)";
-        mark.style.borderRadius = "2px";
-        mark.style.padding = "0 1px";
-        mark.textContent = value.slice(start, end);
-        fragment.append(mark);
-        htmlSearchMatchesRef.current.push(mark);
-        lastIndex = end;
-      }
-
-      if (lastIndex < value.length) fragment.append(value.slice(lastIndex));
-      node.parentNode?.replaceChild(fragment, node);
-    }
-
-    const totalMatches = htmlSearchMatchesRef.current.length;
-    if (totalMatches === 0) {
-      reportViewerSearchState({
-        supported: true,
-        available: true,
-        totalMatches: 0,
-        activeMatchIndex: 0,
-        unavailableReason: undefined,
-      });
-      return;
-    }
-
-    const normalizedIndex = ((viewerSearchState.activeMatchIndex % totalMatches) + totalMatches) % totalMatches;
-    htmlSearchMatchesRef.current.forEach((mark, index) => {
-      if (index === normalizedIndex) {
-        mark.style.background = "rgba(245, 158, 11, 0.52)";
-        mark.style.outline = "2px solid rgba(217, 119, 6, 0.85)";
-      } else {
-        mark.style.background = "rgba(245, 158, 11, 0.28)";
-        mark.style.outline = "none";
-      }
-    });
-
-    const activeMark = htmlSearchMatchesRef.current[normalizedIndex];
-    activeMark?.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
-
-    reportViewerSearchState({
-      supported: true,
-      available: true,
-      totalMatches,
-      activeMatchIndex: normalizedIndex,
-      unavailableReason: undefined,
-    });
   }, [
     currentDocument?.id,
     isHtmlViewer,
@@ -4428,11 +4475,11 @@ export function DocumentViewer({
 
   const htmlSettings = settings.documents.htmlSettings;
   const { theme: appTheme } = useTheme();
-
   const injectHtmlViewerStyles = useCallback(() => {
-    const frame = iframeRef.current;
-    const doc = frame?.contentDocument;
-    if (!doc) return;
+    try {
+      const frame = iframeRef.current;
+      const doc = frame?.contentDocument;
+      if (!doc) return;
 
     let style = doc.getElementById("html-viewer-styles") as HTMLStyleElement | null;
     if (!style) {
@@ -4682,6 +4729,9 @@ export function DocumentViewer({
       /* Smooth scrolling inside the converted document */
       html { scroll-behavior: smooth !important; }
     `;
+    } catch (err) {
+      console.warn("DocumentViewer: Failed to inject HTML viewer styles", err);
+    }
   }, [settings.documents.htmlSettings, appTheme]);
 
   useEffect(() => {
@@ -4689,12 +4739,28 @@ export function DocumentViewer({
     const frame = iframeRef.current;
     if (!frame) return;
 
-    const onLoad = () => injectHtmlViewerStyles();
-    frame.addEventListener("load", onLoad);
-    if (frame.contentDocument?.readyState === "complete") {
-      injectHtmlViewerStyles();
+    const onLoad = () => {
+      try {
+        injectHtmlViewerStyles();
+      } catch { /* ignore */ }
+    };
+    try {
+      frame.addEventListener("load", onLoad);
+    } catch { /* ignore */ }
+    
+    let readyComplete = false;
+    try {
+      readyComplete = frame.contentDocument?.readyState === "complete";
+    } catch { /* ignore */ }
+
+    if (readyComplete) {
+      onLoad();
     }
-    return () => frame.removeEventListener("load", onLoad);
+    return () => {
+      try {
+        frame.removeEventListener("load", onLoad);
+      } catch { /* ignore */ }
+    };
   }, [isHtmlViewer, injectHtmlViewerStyles]);
 
   const updateHtmlSettings = useCallback(
@@ -4871,40 +4937,70 @@ export function DocumentViewer({
     if (!currentDocument) return;
     if (!isHtmlViewer) return;
     const frame = iframeRef.current;
-    const win = frame?.contentWindow;
-    if (!win) return;
+    if (!frame) return;
 
+    let attached = false;
     const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === "INPUT" ||
-        (e.target as HTMLElement).tagName === "TEXTAREA" ||
-        (e.target as HTMLElement).isContentEditable) {
-        return;
-      }
+      try {
+        if ((e.target as HTMLElement).tagName === "INPUT" ||
+          (e.target as HTMLElement).tagName === "TEXTAREA" ||
+          (e.target as HTMLElement).isContentEditable) {
+          return;
+        }
 
-      const lowerKey = e.key.toLowerCase();
-      if (isCommandPaletteOpenShortcut(e)) {
-        e.preventDefault();
-        dispatchCommandPaletteOpen();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        if (dictionaryResult) {
-          setDictionaryResult(null);
+        const lowerKey = e.key.toLowerCase();
+        if (isCommandPaletteOpenShortcut(e)) {
+          e.preventDefault();
+          dispatchCommandPaletteOpen();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (dictionaryResult) {
+            setDictionaryResult(null);
+          }
+          if (activeExtractSelection) {
+            clearTextSelection();
+          }
+        } else if (lowerKey === "j") {
+          e.preventDefault();
+          scrollHtmlIframe("down");
+        } else if (lowerKey === "k") {
+          e.preventDefault();
+          scrollHtmlIframe("up");
         }
-        if (activeExtractSelection) {
-          clearTextSelection();
+      } catch { /* ignore target access errors */ }
+    };
+
+    const attach = () => {
+      try {
+        const win = frame.contentWindow;
+        if (win) {
+          win.addEventListener("keydown", handler, true);
+          attached = true;
         }
-      } else if (lowerKey === "j") {
-        e.preventDefault();
-        scrollHtmlIframe("down");
-      } else if (lowerKey === "k") {
-        e.preventDefault();
-        scrollHtmlIframe("up");
+      } catch (err) {
+        console.warn("DocumentViewer: Failed to attach keydown listener to iframe window (cross-origin)", err);
       }
     };
 
-    win.addEventListener("keydown", handler, true);
-    return () => win.removeEventListener("keydown", handler, true);
+    let readyComplete = false;
+    try {
+      readyComplete = frame.contentDocument?.readyState === "complete";
+    } catch { /* ignore */ }
+
+    frame.addEventListener("load", attach);
+    if (readyComplete) {
+      attach();
+    }
+
+    return () => {
+      frame.removeEventListener("load", attach);
+      if (attached) {
+        try {
+          frame.contentWindow?.removeEventListener("keydown", handler, true);
+        } catch { /* ignore */ }
+      }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- iframe keydown handler with stable callbacks
   }, [currentDocument, currentDocument?.id, isHtmlViewer, scrollHtmlIframe, dictionaryResult, activeExtractSelection, clearTextSelection]);
 
@@ -4919,32 +5015,40 @@ export function DocumentViewer({
 
     const attach = () => {
       teardown?.();
-      const win = frame.contentWindow;
-      if (!win) return;
+      try {
+        const win = frame.contentWindow;
+        if (!win) return;
 
-      const onScroll = () => {
-        if (restorationInProgressRef.current) return;
-        if (htmlScrollTimeoutRef.current !== null) return;
-        htmlScrollTimeoutRef.current = window.setTimeout(() => {
-          htmlScrollTimeoutRef.current = null;
-          const state = captureHtmlScrollState();
-          if (state) {
-            lastScrollStateRef.current = state;
-            handleScrollPositionChange(state);
-          }
-        }, 500);
-      };
+        const onScroll = () => {
+          if (restorationInProgressRef.current) return;
+          if (htmlScrollTimeoutRef.current !== null) return;
+          htmlScrollTimeoutRef.current = window.setTimeout(() => {
+            htmlScrollTimeoutRef.current = null;
+            const state = captureHtmlScrollState();
+            if (state) {
+              lastScrollStateRef.current = state;
+              handleScrollPositionChange(state);
+            }
+          }, 500);
+        };
 
-      win.addEventListener("scroll", onScroll, true);
-      teardown = () => {
-        try {
-          win.removeEventListener("scroll", onScroll, true);
-        } catch { /* ignore if window was already destroyed */ }
-      };
+        win.addEventListener("scroll", onScroll, true);
+        teardown = () => {
+          try {
+            win.removeEventListener("scroll", onScroll, true);
+          } catch { /* ignore if window was already destroyed */ }
+        };
+      } catch (err) {
+        console.warn("DocumentViewer: Failed to attach scroll capturing listener to iframe window (cross-origin)", err);
+      }
     };
 
     frame.addEventListener("load", attach);
-    if (frame.contentDocument?.readyState === "complete") {
+    let readyComplete = false;
+    try {
+      readyComplete = frame.contentDocument?.readyState === "complete";
+    } catch { /* ignore */ }
+    if (readyComplete) {
       attach();
     }
 
