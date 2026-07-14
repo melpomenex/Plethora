@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.81.0] - 2026-07-14
+
+### Fixed & Improved
+
+- **SM-20 now actually runs SM-20** — Selecting the `sm20` algorithm previously scheduled every review with the SM-19 (V2) formula, because the per-item `version` field defaulted to 2 and nothing in the app ever set it to 4. The algorithm now hardcodes the V4 (SM-20 proper) formula and the `version` field is no longer consulted. **Existing `sm20` items will see their intervals shift from SM-19 values to SM-20 values on their next review** — this is the intended correction. SM-19 scheduling remains available via the separate `sm2` algorithm.
+- **SM-20 Bayesian matrices now persist and learn across sessions** — The 9,261-element interval and count matrices (SM-20's learning mechanism) were never instantiated or passed into the scheduler, so the Bayesian smoothing core was unreachable dead code. They are now stored in a new `sm20_matrices` table, loaded on each review, fed into the interval computation for smoothing, and updated via `record_review` after every successful recall — so SM-20 finally learns from your review history over time, as designed.
+- **Dead FSRS-family branch removed from the SM-20 module** — The embedded 3-expert FSRS mixture model was gated behind a flag (`algorithm_branch == 1`) that only test code ever set, so it was unreachable. It has been removed. FSRS scheduling itself is unaffected — it's the separate `fsrs` algorithm (the default), which was never entangled with SM-20.
+
 ## [1.80.0] - 2026-07-13
 
 ### Added
