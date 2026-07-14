@@ -830,6 +830,53 @@ pub async fn optimize_algorithm_params(
     Ok(result)
 }
 
+/// SM-20 ensemble optimization status. The true SM-20 algorithm uses a 5-model
+/// weighted ensemble (M1-M5). M2 and M3 learn automatically on every review —
+/// there is no separate optimization step to run.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SM20OptimizationStatus {
+    pub model_version: i32,
+    pub activation_state: String,
+    pub m2_optimizer_initialized: bool,
+    pub m3_matrix_cells_populated: u32,
+    pub m3_matrix_total_cells: u32,
+    pub message: String,
+}
+
+/// Get the SM-20 ensemble status. Reports how many M3 matrix cells have been
+/// populated by the learning pipeline. The ensemble is always active — there
+/// is no separate "optimize" step.
+#[tauri::command]
+pub async fn get_sm20_optimization_status(
+    repo: State<'_, Repository>,
+) -> Result<SM20OptimizationStatus> {
+    let m2_initialized = repo.get_sm20_m2_optimizer().await?.is_some();
+    let m3_matrices = repo.get_sm20_m3_matrices().await?;
+    let (m3_cells, m3_total) = if let Some(ref m) = m3_matrices {
+        let populated = m.outcome_count.iter().filter(|&&c| c > 0).count() as u32;
+        (populated, m.outcome_count.len() as u32)
+    } else {
+        (0, 9261)
+    };
+
+    Ok(SM20OptimizationStatus {
+        model_version: 4,
+        activation_state: "active".to_string(),
+        m2_optimizer_initialized: m2_initialized,
+        m3_matrix_cells_populated: m3_cells,
+        m3_matrix_total_cells: m3_total,
+        message: "SM-20 ensemble is active. M2 and M3 learn automatically on every review.".to_string(),
+    })
+}
+
+/// The SM-20 ensemble does not require a separate optimization step — M2's
+/// optimizer and M3's matrices learn continuously as reviews occur. This
+/// command is kept for API compatibility but is a no-op.
+#[tauri::command]
+pub async fn optimize_sm20_locally(repo: State<'_, Repository>) -> Result<SM20OptimizationStatus> {
+    get_sm20_optimization_status(repo).await
+}
+
 /// Engagement preferences for scroll mode
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EngagementPreferencesInput {

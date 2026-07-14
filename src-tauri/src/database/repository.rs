@@ -19,6 +19,17 @@ pub struct DocumentQueueInfo {
     pub is_dismissed: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct SM20OptimizerProfileRow {
+    pub coefficients: crate::algorithms::sm20::SM20RecallCoefficients,
+    pub objective_score: Option<f64>,
+    pub sample_count: u32,
+    pub optimizer_version: i32,
+    pub model_version: i32,
+    pub activation_state: String,
+    pub last_optimized_at: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct Repository {
     pool: Pool<Sqlite>,
@@ -3094,7 +3105,123 @@ impl Repository {
     }
 
     // -----------------------------------------------------------------------
-    // SM-20 Bayesian smoothing matrices (global, single learner)
+    // SM-20 local recall optimizer
+    // -----------------------------------------------------------------------
+
+    pub async fn record_sm20_recall_observation(
+        &self,
+        retrievability_bucket: u8,
+        difficulty_bucket: u8,
+        passed: bool,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"INSERT INTO sm20_recall_cells
+               (retrievability_bucket, difficulty_bucket, total_count, pass_count, date_modified)
+               VALUES (?1, ?2, 1, ?3, ?4)
+               ON CONFLICT(retrievability_bucket, difficulty_bucket) DO UPDATE SET
+                   total_count = total_count + 1,
+                   pass_count = pass_count + excluded.pass_count,
+                   date_modified = excluded.date_modified"#,
+        )
+        .bind(i64::from(retrievability_bucket.clamp(1, 20)))
+        .bind(i64::from(difficulty_bucket.clamp(1, 20)))
+        .bind(if passed { 1_i64 } else { 0_i64 })
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_sm20_recall_cells(
+        &self,
+    ) -> Result<Vec<crate::algorithms::sm20::SM20RecallCell>> {
+        let rows = sqlx::query(
+            r#"SELECT retrievability_bucket, difficulty_bucket, total_count, pass_count
+               FROM sm20_recall_cells ORDER BY retrievability_bucket, difficulty_bucket"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(crate::algorithms::sm20::SM20RecallCell {
+                    retrievability_bucket: row.try_get::<i64, _>("retrievability_bucket")? as u8,
+                    difficulty_bucket: row.try_get::<i64, _>("difficulty_bucket")? as u8,
+                    total_count: row.try_get::<i64, _>("total_count")? as u32,
+                    pass_count: row.try_get::<i64, _>("pass_count")? as u32,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn get_sm20_optimizer_profile(&self) -> Result<Option<SM20OptimizerProfileRow>> {
+        let row = sqlx::query(
+            r#"SELECT model_version, optimizer_version, coefficient_1, coefficient_2,
+                      coefficient_3, coefficient_4, objective_score, sample_count,
+                      activation_state, last_optimized_at
+               FROM sm20_optimizer_profiles WHERE id = 'global'"#,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else { return Ok(None) };
+        Ok(Some(SM20OptimizerProfileRow {
+            coefficients: crate::algorithms::sm20::SM20RecallCoefficients {
+                coefficient_1: row.try_get("coefficient_1")?,
+                coefficient_2: row.try_get("coefficient_2")?,
+                coefficient_3: row.try_get("coefficient_3")?,
+                coefficient_4: row.try_get("coefficient_4")?,
+            },
+            objective_score: row.try_get("objective_score")?,
+            sample_count: row.try_get::<i64, _>("sample_count")? as u32,
+            optimizer_version: row.try_get("optimizer_version")?,
+            model_version: row.try_get("model_version")?,
+            activation_state: row.try_get("activation_state")?,
+            last_optimized_at: row.try_get("last_optimized_at")?,
+        }))
+    }
+
+    pub async fn save_sm20_optimizer_profile(
+        &self,
+        coefficients: crate::algorithms::sm20::SM20RecallCoefficients,
+        objective_score: f64,
+        sample_count: u32,
+        optimized_at: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"INSERT INTO sm20_optimizer_profiles
+               (id, model_version, optimizer_version, coefficient_1, coefficient_2,
+                coefficient_3, coefficient_4, objective_score, sample_count,
+                activation_state, last_optimized_at, date_modified)
+               VALUES ('global', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'diagnostic', ?9, ?9)
+               ON CONFLICT(id) DO UPDATE SET
+                   model_version = excluded.model_version,
+                   optimizer_version = excluded.optimizer_version,
+                   coefficient_1 = excluded.coefficient_1,
+                   coefficient_2 = excluded.coefficient_2,
+                   coefficient_3 = excluded.coefficient_3,
+                   coefficient_4 = excluded.coefficient_4,
+                   objective_score = excluded.objective_score,
+                   sample_count = excluded.sample_count,
+                   activation_state = 'diagnostic',
+                   last_optimized_at = excluded.last_optimized_at,
+                   date_modified = excluded.date_modified"#,
+        )
+        .bind(crate::algorithms::sm20::SM20_MODEL_VERSION)
+        .bind(crate::algorithms::sm20::SM20_OPTIMIZER_VERSION)
+        .bind(coefficients.coefficient_1)
+        .bind(coefficients.coefficient_2)
+        .bind(coefficients.coefficient_3)
+        .bind(coefficients.coefficient_4)
+        .bind(objective_score)
+        .bind(i64::from(sample_count))
+        .bind(optimized_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Legacy SM-20 Bayesian matrices (retained for rollback; no active callers)
     // -----------------------------------------------------------------------
 
     /// Size of each SM-20 matrix dimension (21³ = 9,261 cells).
@@ -3189,12 +3316,8 @@ impl Repository {
         let mut out = [0u32; 9261];
         for (i, cell) in out.iter_mut().enumerate() {
             let off = i * 4;
-            *cell = u32::from_le_bytes([
-                bytes[off],
-                bytes[off + 1],
-                bytes[off + 2],
-                bytes[off + 3],
-            ]);
+            *cell =
+                u32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]]);
         }
         Ok(out)
     }
@@ -3212,6 +3335,150 @@ impl Repository {
     fn sm20_count_matrix_to_bytes(count: &[u32; 9261]) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(9261 * 4);
         for &val in count {
+            bytes.extend_from_slice(&val.to_le_bytes());
+        }
+        bytes
+    }
+
+    // -----------------------------------------------------------------------
+    // SM-20 Ensemble collection-wide state (M2 optimizer + M3 matrices)
+    // -----------------------------------------------------------------------
+
+    /// Load the M2 optimizer state (JSON blob). Returns None if not yet initialized.
+    pub async fn get_sm20_m2_optimizer(&self) -> Result<Option<Vec<u8>>> {
+        let row: Option<(Vec<u8>,)> = sqlx::query_as(
+            "SELECT optimizer_state FROM sm20_m2_optimizer WHERE id = 'global'",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(state,)| state))
+    }
+
+    /// Save the M2 optimizer state (JSON blob).
+    pub async fn save_sm20_m2_optimizer(&self, state: &[u8]) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO sm20_m2_optimizer (id, optimizer_state, date_modified)
+             VALUES ('global', ?, ?)
+             ON CONFLICT(id) DO UPDATE SET optimizer_state = excluded.optimizer_state, date_modified = excluded.date_modified",
+        )
+        .bind(state)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Load the M3 matrix state. Returns None if not yet initialized.
+    pub async fn get_sm20_m3_matrices(&self) -> Result<Option<crate::algorithms::sm20::model3::M3MatrixState>> {
+        use crate::algorithms::sm20::model3::{M3MatrixState, OUTCOME_CELLS, LAPSE_CELLS};
+        const FIRST_STAGE_DIM: usize = 36;
+
+        let row: Option<(
+            Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>,
+        )> = sqlx::query_as(
+            "SELECT outcome_count, outcome_success, smoothing_count, smoothing_value,
+                    lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered
+             FROM sm20_m3_matrices WHERE id = 'global'",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some((
+            oc, os_, sc, sv, lo, lr, fso, fsr,
+        )) = row
+        {
+            let outcome_count = Self::bytes_to_u32_vec(&oc, OUTCOME_CELLS);
+            let outcome_success = Self::bytes_to_u32_vec(&os_, OUTCOME_CELLS);
+            let smoothing_count = Self::bytes_to_u32_vec(&sc, OUTCOME_CELLS);
+            let smoothing_value = Self::bytes_to_f64_vec(&sv, OUTCOME_CELLS);
+            let lapse_observed = Self::bytes_to_u32_vec(&lo, LAPSE_CELLS);
+            let lapse_remembered = Self::bytes_to_u32_vec(&lr, LAPSE_CELLS);
+            let first_stage_observed = Self::bytes_to_u32_vec(&fso, FIRST_STAGE_DIM);
+            let first_stage_remembered = Self::bytes_to_u32_vec(&fsr, FIRST_STAGE_DIM);
+
+            Ok(Some(M3MatrixState {
+                outcome_count,
+                outcome_success,
+                smoothing_count,
+                smoothing_value,
+                lapse_observed,
+                lapse_remembered,
+                first_stage_observed,
+                first_stage_remembered,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Save the M3 matrix state.
+    pub async fn save_sm20_m3_matrices(
+        &self,
+        state: &crate::algorithms::sm20::model3::M3MatrixState,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO sm20_m3_matrices
+             (id, outcome_count, outcome_success, smoothing_count, smoothing_value,
+              lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered, date_modified)
+             VALUES ('global', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                outcome_count = excluded.outcome_count,
+                outcome_success = excluded.outcome_success,
+                smoothing_count = excluded.smoothing_count,
+                smoothing_value = excluded.smoothing_value,
+                lapse_observed = excluded.lapse_observed,
+                lapse_remembered = excluded.lapse_remembered,
+                first_stage_observed = excluded.first_stage_observed,
+                first_stage_remembered = excluded.first_stage_remembered,
+                date_modified = excluded.date_modified",
+        )
+        .bind(Self::u32_slice_to_bytes(&state.outcome_count))
+        .bind(Self::u32_slice_to_bytes(&state.outcome_success))
+        .bind(Self::u32_slice_to_bytes(&state.smoothing_count))
+        .bind(Self::f64_slice_to_bytes(&state.smoothing_value))
+        .bind(Self::u32_slice_to_bytes(&state.lapse_observed))
+        .bind(Self::u32_slice_to_bytes(&state.lapse_remembered))
+        .bind(Self::u32_slice_to_bytes(&state.first_stage_observed))
+        .bind(Self::u32_slice_to_bytes(&state.first_stage_remembered))
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    fn bytes_to_u32_vec(bytes: &[u8], expected_len: usize) -> Vec<u32> {
+        bytes
+            .chunks_exact(4)
+            .take(expected_len)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
+    }
+
+    fn bytes_to_f64_vec(bytes: &[u8], expected_len: usize) -> Vec<f64> {
+        bytes
+            .chunks_exact(8)
+            .take(expected_len)
+            .map(|c| {
+                f64::from_le_bytes([
+                    c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
+                ])
+            })
+            .collect()
+    }
+
+    fn u32_slice_to_bytes(slice: &[u32]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(slice.len() * 4);
+        for &val in slice {
+            bytes.extend_from_slice(&val.to_le_bytes());
+        }
+        bytes
+    }
+
+    fn f64_slice_to_bytes(slice: &[f64]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(slice.len() * 8);
+        for &val in slice {
             bytes.extend_from_slice(&val.to_le_bytes());
         }
         bytes
@@ -6626,6 +6893,46 @@ mod tests {
             .await
             .expect("integrity check");
         assert_eq!(row.0, "ok", "Fresh migrated DB should pass integrity check");
+    }
+
+    #[tokio::test]
+    async fn sm20_recall_observations_aggregate_pass_and_total() {
+        let repo = setup_repo().await;
+        repo.record_sm20_recall_observation(8, 4, true)
+            .await
+            .expect("record pass");
+        repo.record_sm20_recall_observation(8, 4, false)
+            .await
+            .expect("record failure");
+        let cells = repo.get_sm20_recall_cells().await.expect("load cells");
+        assert_eq!(cells.len(), 1);
+        assert_eq!(cells[0].retrievability_bucket, 8);
+        assert_eq!(cells[0].difficulty_bucket, 4);
+        assert_eq!(cells[0].total_count, 2);
+        assert_eq!(cells[0].pass_count, 1);
+    }
+
+    #[tokio::test]
+    async fn sm20_optimizer_profile_round_trip_stays_diagnostic() {
+        let repo = setup_repo().await;
+        let coefficients = crate::algorithms::sm20::SM20RecallCoefficients {
+            coefficient_1: 0.1,
+            coefficient_2: 0.2,
+            coefficient_3: 0.3,
+            coefficient_4: 0.4,
+        };
+        repo.save_sm20_optimizer_profile(coefficients, 7.5, 250, "2026-07-14T00:00:00Z")
+            .await
+            .expect("save profile");
+        let profile = repo
+            .get_sm20_optimizer_profile()
+            .await
+            .expect("load profile")
+            .expect("profile");
+        assert_eq!(profile.coefficients, coefficients);
+        assert_eq!(profile.objective_score, Some(7.5));
+        assert_eq!(profile.sample_count, 250);
+        assert_eq!(profile.activation_state, "diagnostic");
     }
 
     #[tokio::test]

@@ -1155,6 +1155,8 @@ pub fn run() {
             commands::get_review_statistics,
             commands::get_due_workload_forecast,
             commands::optimize_algorithm_params,
+            commands::get_sm20_optimization_status,
+            commands::optimize_sm20_locally,
             commands::get_default_engagement_preferences,
             commands::get_smart_start_position,
             commands::get_ai_config,

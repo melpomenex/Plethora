@@ -264,23 +264,23 @@ SM-18:
 
 ### Understanding SM-20
 
-**SM-20** (SuperMemo 20) is the most advanced algorithm available, reverse-engineered from `sm20`. It builds on SM-18's foundations with the V4 interval formula and Bayesian smoothing that learns from your reviews.
+Incrementum's **SM-20** option is an experimental compatibility scheduler informed by reverse engineering of `sm20.exe`. The executable identifies V4 as an approximation of recall, not an interval formula, so Incrementum keeps the learned V4 model separate from scheduling.
 
 SM-20:
 
-1. **Uses the V4 Interval Formula**: Computes every interval with the SM-20 proper seven-parameter polynomial (the `V4` formula from the reverse-engineered reference). The legacy V2 (SM-19 compatible) scheduling remains available as the separate `sm2` algorithm choice.
-2. **Applies Bayesian Smoothing**: When enough review data accumulates, it smooths interval calculations using a 3×3×3 neighbor search across the interval/count matrices, blended with a Bayesian prior
-3. **Tracks Stability with Power-Law Indexing**: Converts stability to matrix indices using a power-law transform (`S^2.9`), providing finer resolution at low stabilities and coarser at high values
-4. **Records and Learns from Reviews**: Every successful review updates 21×21×21 interval and count matrices via incremental averaging, persisted to storage so SM-20 learns optimal intervals from your actual performance across sessions
+1. **Schedules locally**: Review calculations run on the device with no cloud dependency.
+2. **Collects empirical recall outcomes**: Again is recorded as a failed recall; Hard, Good, and Easy are recorded as passes in compact retrievability/difficulty cells.
+3. **Fits the V4 recall surface locally**: An explicit settings action runs a bounded four-coefficient optimizer over those pass/total observations.
+4. **Keeps fitting diagnostic-only**: The fitted recall coefficients and error are shown for inspection but cannot alter intervals until the full recall-to-scheduling integration is verified against reference behavior.
 
 **Key Metrics:**
-- **Stability (S)**: Memory persistence in days, with a power-law index transform for matrix lookup (clamped to 44,530 days max)
-- **Difficulty (D)**: Binned into 10 levels via `floor(D × 19) + 1`, used as one axis of the interval matrix
-- **Interval/Count Matrices**: Two 9,261-entry matrices, persisted per learner, that accumulate your review history and enable Bayesian-smoothed interval optimization
+- **Stability (S)**: The app's current estimate of memory persistence in days
+- **Difficulty (D)**: The app's current item-difficulty estimate
+- **Recall RMSE**: The diagnostic model's count-weighted error against observed pass rates
 
 **How SM-20 Differs from FSRS-6:**
-- FSRS-6 uses a fixed set of parameters trained on aggregate data; SM-20 learns from *your* reviews over time via its persisted matrices
-- SM-20's Bayesian smoothing provides a principled way to balance prior knowledge with observed data
+- FSRS-6 is a complete, production scheduler and remains the recommended option.
+- Incrementum's SM-20 V4 fitting is local and personal, but remains diagnostic while the complete scheduling kernel is being verified.
 
 ### Rating System
 

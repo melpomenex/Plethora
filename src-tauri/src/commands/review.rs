@@ -6,6 +6,7 @@ use crate::database::Repository;
 use crate::error::Result;
 use crate::models::{ItemState, LearningItem, MemoryState, ReviewRating};
 use chrono::{Duration, Utc};
+use rand::SeedableRng;
 use sqlx::Row;
 use tauri::State;
 
@@ -744,6 +745,8 @@ async fn apply_sm20_review(
     now: chrono::DateTime<Utc>,
     repo: &Repository,
 ) -> Result<()> {
+    use crate::algorithms::sm20::{SM20CollectionState, DEFAULT_FI};
+
     let state = parse_sm20_state(item);
     let elapsed_days = item
         .last_review_date
@@ -751,24 +754,40 @@ async fn apply_sm20_review(
         .unwrap_or(0.0)
         .max(0.0);
 
-    // Load the learner-global Bayesian matrices. First run yields zeroed arrays
-    // (bayesian_smooth falls back to the interval_initial prior when counts are 0).
-    let (mut interval_matrix, mut count_matrix) = repo
-        .get_sm20_matrices()
-        .await?
-        .unwrap_or(([0.0f64; 9261], [0u32; 9261]));
+    // Load collection-wide state (M2 optimizer + M3 matrices).
+    // On first run, these default to fresh/empty — matching a new SuperMemo collection.
+    let mut collection = SM20CollectionState {
+        m2_optimizer: match repo.get_sm20_m2_optimizer().await? {
+            Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| {
+                crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh()
+            }),
+            None => crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh(),
+        },
+        m3_matrices: repo.get_sm20_m3_matrices().await?
+            .unwrap_or_default(),
+    };
 
-    let response = sm20::review_with_matrices(
+    let today = now.timestamp() as i32 / 86400;
+    let mut rng = rand::rngs::StdRng::from_entropy();
+    let fi = DEFAULT_FI; // 10% forgetting index → 90% retention
+
+    let response = sm20::review(
         &state,
         review_rating as i32,
         elapsed_days,
-        &mut interval_matrix,
-        &mut count_matrix,
+        fi,
+        &mut collection,
+        today,
+        true,    // commit — mutate M2/M3 state
+        true,    // disperse — stochastic day-spread (production behavior)
+        &mut rng,
     );
 
-    // Persist the updated matrices so subsequent reviews (and other items) learn.
-    repo.upsert_sm20_matrices(&interval_matrix, &count_matrix)
-        .await?;
+    // Persist collection-wide state (M2 optimizer + M3 matrices).
+    if let Ok(m2_bytes) = serde_json::to_vec(&collection.m2_optimizer) {
+        let _ = repo.save_sm20_m2_optimizer(&m2_bytes).await;
+    }
+    let _ = repo.save_sm20_m3_matrices(&collection.m3_matrices).await;
 
     let interval_seconds = (response.interval_days * 86400.0).round().max(60.0) as i64;
     item.due_date = now + Duration::seconds(interval_seconds);
@@ -909,7 +928,23 @@ pub async fn preview_review_intervals(
             .unwrap_or(0.0)
             .max(0.0);
         let state = parse_sm20_state(&item);
-        let preview = sm20::preview(&state, elapsed_days);
+
+        // Load collection state for preview (scratch mode — no mutation)
+        let collection = crate::algorithms::sm20::SM20CollectionState {
+            m2_optimizer: match repo.get_sm20_m2_optimizer().await? {
+                Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| {
+                    crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh()
+                }),
+                None => crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh(),
+            },
+            m3_matrices: repo.get_sm20_m3_matrices().await?.unwrap_or_default(),
+        };
+        let today = now.timestamp() as i32 / 86400;
+        let mut rng = rand::rngs::StdRng::from_entropy();
+        let preview = sm20::preview(
+            &state, elapsed_days, crate::algorithms::sm20::DEFAULT_FI,
+            &collection, today, &mut rng,
+        );
 
         return Ok(PreviewIntervals {
             again: preview.again,

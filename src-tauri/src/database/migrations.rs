@@ -1982,10 +1982,8 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
-    // SM-20 Bayesian smoothing matrices. One global row (id = 'global') holds the
-    // learner-wide 21³ interval_matrix (f64 × 9261 = 74,088 bytes) and count_matrix
-    // (u32 × 9261 = 37,044 bytes) as little-endian-packed BLOBs. See design.md for
-    // the storage rationale and the sm20-re reference for matrix semantics.
+    // Legacy experimental SM-20 Bayesian matrices. Retained for rollback and
+    // backward compatibility; the ensemble uses sm20_m3_matrices instead.
     Migration::new(
         "057_add_sm20_matrices",
         r#"
@@ -1994,6 +1992,65 @@ pub const MIGRATIONS: &[Migration] = &[
             collection_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
             interval_matrix BLOB NOT NULL,
             count_matrix BLOB NOT NULL,
+            date_modified TEXT NOT NULL
+        );
+        "#,
+    ),
+    // SM-20 V4 diagnostic recall fitting — retained for rollback. The ensemble
+    // does not use these tables; M2's optimizer runs automatically per-review.
+    Migration::new(
+        "058_add_sm20_recall_optimizer",
+        r#"
+        CREATE TABLE IF NOT EXISTS sm20_recall_cells (
+            retrievability_bucket INTEGER NOT NULL,
+            difficulty_bucket INTEGER NOT NULL,
+            total_count INTEGER NOT NULL DEFAULT 0 CHECK(total_count >= 0),
+            pass_count INTEGER NOT NULL DEFAULT 0 CHECK(pass_count >= 0 AND pass_count <= total_count),
+            date_modified TEXT NOT NULL,
+            PRIMARY KEY(retrievability_bucket, difficulty_bucket)
+        );
+
+        CREATE TABLE IF NOT EXISTS sm20_optimizer_profiles (
+            id TEXT PRIMARY KEY,
+            model_version INTEGER NOT NULL,
+            optimizer_version INTEGER NOT NULL,
+            coefficient_1 REAL NOT NULL,
+            coefficient_2 REAL NOT NULL,
+            coefficient_3 REAL NOT NULL,
+            coefficient_4 REAL NOT NULL,
+            objective_score REAL,
+            sample_count INTEGER NOT NULL DEFAULT 0,
+            activation_state TEXT NOT NULL DEFAULT 'diagnostic',
+            last_optimized_at TEXT,
+            date_modified TEXT NOT NULL
+        );
+        "#,
+    ),
+    // SM-20 ensemble collection-wide state. The true SM-20 algorithm is a
+    // 5-model weighted ensemble. M2 (14%) has a stateful optimizer and
+    // M3 (45%) has runtime-learned 21³ Bayesian matrices. Both are
+    // collection-wide and persisted here as JSON blobs.
+    Migration::new(
+        "059_add_sm20_ensemble_state",
+        r#"
+        CREATE TABLE IF NOT EXISTS sm20_m2_optimizer (
+            id TEXT PRIMARY KEY DEFAULT 'global',
+            collection_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+            optimizer_state BLOB NOT NULL,
+            date_modified TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS sm20_m3_matrices (
+            id TEXT PRIMARY KEY DEFAULT 'global',
+            collection_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+            outcome_count BLOB NOT NULL,
+            outcome_success BLOB NOT NULL,
+            smoothing_count BLOB NOT NULL,
+            smoothing_value BLOB NOT NULL,
+            lapse_observed BLOB NOT NULL,
+            lapse_remembered BLOB NOT NULL,
+            first_stage_observed BLOB NOT NULL,
+            first_stage_remembered BLOB NOT NULL,
             date_modified TEXT NOT NULL
         );
         "#,

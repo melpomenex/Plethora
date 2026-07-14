@@ -294,6 +294,27 @@ export async function optimizeAlgorithmParams(
 }
 
 /**
+ * SM-20 ensemble optimization status. The true SM-20 algorithm uses a 5-model
+ * weighted ensemble (M1-M5). M2 and M3 learn automatically on every review.
+ */
+export interface SM20OptimizationStatus {
+  model_version: number;
+  activation_state: 'active';
+  m2_optimizer_initialized: boolean;
+  m3_matrix_cells_populated: number;
+  m3_matrix_total_cells: number;
+  message: string;
+}
+
+export async function getSM20OptimizationStatus(): Promise<SM20OptimizationStatus> {
+  return await invokeCommand<SM20OptimizationStatus>("get_sm20_optimization_status");
+}
+
+export async function optimizeSM20Locally(): Promise<SM20OptimizationStatus> {
+  return await invokeCommand<SM20OptimizationStatus>("optimize_sm20_locally");
+}
+
+/**
  * Get default engagement preferences for scroll mode
  */
 export async function getDefaultEngagementPreferences(): Promise<EngagementPreferences> {

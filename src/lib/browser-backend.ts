@@ -2047,6 +2047,53 @@ const commandHandlers: Record<string, CommandHandler> = {
         };
     },
 
+    get_sm20_optimization_status: async () => {
+        const items = await db.getLearningItems();
+        const sampleCount = items.reduce((sum, item) => sum + (item.review_count || 0), 0);
+        const stored = await db.getSyncState("sm20_optimizer_profile") as Record<string, unknown> | null;
+        return stored ?? {
+            coefficients: {
+                coefficient_1: 1,
+                coefficient_2: 0,
+                coefficient_3: 0.5,
+                coefficient_4: -0.5,
+            },
+            objective_score: null,
+            sample_count: sampleCount,
+            minimum_samples_required: 200,
+            optimizer_version: 1,
+            model_version: 4,
+            activation_state: "diagnostic",
+            last_optimized_at: null,
+            optimized: false,
+            message: "The V4 recall model is diagnostic-only and does not change intervals.",
+        };
+    },
+
+    optimize_sm20_locally: async () => {
+        const items = await db.getLearningItems();
+        const sampleCount = items.reduce((sum, item) => sum + (item.review_count || 0), 0);
+        const status = {
+            coefficients: {
+                coefficient_1: 1,
+                coefficient_2: 0,
+                coefficient_3: 0.5,
+                coefficient_4: -0.5,
+            },
+            objective_score: null,
+            sample_count: sampleCount,
+            minimum_samples_required: 200,
+            optimizer_version: 1,
+            model_version: 4,
+            activation_state: "diagnostic",
+            last_optimized_at: null,
+            optimized: false,
+            message: "Native local fitting is available in the desktop app; browser data stays on this device.",
+        };
+        await db.setSyncState("sm20_optimizer_profile", status);
+        return status;
+    },
+
     get_workload_data: async (args: { start_date: string; end_date: string }) => {
         const items = await db.getLearningItems();
         const start = new Date(args.start_date + "T00:00:00Z");

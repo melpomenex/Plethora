@@ -1,8 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
-import { optimizeAlgorithmParams } from "../../api/algorithm";
+import {
+  getSM20OptimizationStatus,
+  optimizeAlgorithmParams,
+  type SM20OptimizationStatus,
+} from "../../api/algorithm";
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
 import { NumericInput } from "../common";
 
@@ -14,6 +18,14 @@ export function LearningSettings() {
   const [newScopeId, setNewScopeId] = useState("");
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizerMessage, setOptimizerMessage] = useState<string | null>(null);
+  const [sm20Status, setSm20Status] = useState<SM20OptimizationStatus | null>(null);
+
+  useEffect(() => {
+    if (settings.learning.algorithm !== "sm20") return;
+    void getSM20OptimizationStatus()
+      .then(setSm20Status)
+      .catch(() => setSm20Status(null));
+  }, [settings.learning.algorithm]);
 
   const scopedOverrides = settings.learning.scopedFsrsOverrides ?? [];
 
@@ -48,10 +60,50 @@ export function LearningSettings() {
                 : settings.learning.algorithm === "sm18"
                 ? "SM-18 — uses stability increase matrix for interval calculation"
                 : settings.learning.algorithm === "sm20"
-                ? "SM-20 — Rust and TypeScript DSR scheduler based on the reverse-engineered SM-20 core"
+                ? "SM-20 compatibility scheduler with a fully local, diagnostic recall optimizer"
                 : `SM-${settings.learning.algorithm.toUpperCase().replace("SM", "")}`}
             </p>
           </div>
+
+          {settings.learning.algorithm === "sm20" && (
+            <div className="border border-border rounded-lg p-4 space-y-3">
+              <div>
+                <h4 className="font-medium text-foreground">SM-20 Ensemble Status</h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  The true SM-20 algorithm uses a 5-model weighted ensemble (M1–M5).
+                  M2 (classic scheduler) and M3 (Bayesian matrix) learn automatically
+                  on every review — no manual optimization needed.
+                </p>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                M2 optimizer: {sm20Status?.m2_optimizer_initialized ? "initialized" : "fresh (will initialize on first review)"}
+                {sm20Status?.m3_matrix_cells_populated != null
+                  ? ` · M3 matrix cells: ${sm20Status.m3_matrix_cells_populated}/${sm20Status.m3_matrix_total_cells ?? 9261}`
+                  : ""}
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    setIsOptimizing(true);
+                    const { getSM20OptimizationStatus } = await import("../api/algorithm");
+                    const status = await getSM20OptimizationStatus();
+                    setSm20Status(status);
+                  } catch {
+                    // ignore refresh errors
+                  } finally {
+                    setIsOptimizing(false);
+                  }
+                }}
+                disabled={isOptimizing}
+                className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
+              >
+                {isOptimizing ? "Refreshing..." : "Refresh Status"}
+              </button>
+              {optimizerMessage && (
+                <p className="text-xs text-muted-foreground">{optimizerMessage}</p>
+              )}
+            </div>
+          )}
 
           {(settings.learning.algorithm === "fsrs" || settings.learning.algorithm === "sm18") && (
           <div>
