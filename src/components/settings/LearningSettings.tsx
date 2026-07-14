@@ -85,7 +85,6 @@ export function LearningSettings() {
                 onClick={async () => {
                   try {
                     setIsOptimizing(true);
-                    const { getSM20OptimizationStatus } = await import("../api/algorithm");
                     const status = await getSM20OptimizationStatus();
                     setSm20Status(status);
                   } catch {
