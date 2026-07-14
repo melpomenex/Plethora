@@ -5,8 +5,6 @@ import {
   sm20Retrievability,
   sm20Review,
   sm20RecordReview,
-  fsrsReviewKernel,
-  fsrsInitItem,
 } from "../sm20";
 
 describe("SM-20 scheduler", () => {
@@ -71,55 +69,41 @@ describe("SM-20 scheduler", () => {
     }
     expect(foundCell).toBe(true);
   });
-});
 
-describe("SM-20 FSRS-family branch", () => {
-  test("review kernel lapse path", () => {
-    const [sNew, dNew, interval, easiness] = fsrsReviewKernel(5.0, 0.3, 5.0, 1);
-    expect(sNew).toBeCloseTo(2.998193602166308, 8);
-    expect(dNew).toBeCloseTo(1.0, 8);
-    expect(interval).toBeCloseTo(2.998193602166308, 8);
-    expect(easiness).toBeCloseTo(0.5996387204332616, 8);
-  });
-
-  test("review kernel recall path", () => {
-    const [sNew, dNew, interval, easiness] = fsrsReviewKernel(5.0, 0.3, 3.0, 4);
-    expect(sNew).toBeCloseTo(25.75273052883768, 8);
-    expect(dNew).toBeCloseTo(0.22397038804082325, 8);
-    expect(interval).toBeCloseTo(25.75273052883768, 8);
-    expect(easiness).toBeCloseTo(5.150546105767536, 8);
-  });
-
-  test("init item grade 3 no flag", () => {
-    const state = fsrsInitItem(3, 1.0, false);
-    expect(state.algorithm_branch).toBe(1);
-    expect(state.multiplier).toBeCloseTo(3.0);
-    expect(state.retrov).toBe(state.difficulty);
-  });
-
-  test("init item grade 5 with flag", () => {
-    const state = fsrsInitItem(5, 2.0, true);
-    expect(state.algorithm_branch).toBe(1);
-    expect(state.multiplier).toBeCloseTo(0.5);
-  });
-
-  test("FSRS review dispatch via sm20Review", () => {
-    const fsrsState = {
-      version: 2,
+  test("matrix recording via sm20Review populates shared matrices", () => {
+    const intervalMatrix = new Float64Array(9261);
+    const countMatrix = new Uint32Array(9261);
+    const state = parseSm20State(JSON.stringify({
       stability: 5.0,
       difficulty: 0.3,
-      repetition: 3,
+      repetition: 2, // becomes 3 after +1
       lapses: 0,
       interval: 5.0,
-      last_quality: 0.78,
-      algorithm_branch: 1,
-      retrov: 0.3,
-      s_factor: 1.0,
-      multiplier: 1.0,
-    };
-    const result = sm20Review(fsrsState, 4, 3.0);
-    expect(result.state.algorithm_branch).toBe(1);
-    expect(result.state.stability).toBeCloseTo(25.75273052883768, 8);
+    }));
+    const result = sm20Review(state, 3, 2.0, intervalMatrix, countMatrix);
+
+    let populated = 0;
+    for (let i = 0; i < 9261; i++) {
+      if (countMatrix[i] > 0) {
+        populated++;
+        expect(intervalMatrix[i]).toBeCloseTo(result.interval_days, 10);
+      }
+    }
+    expect(populated).toBe(1);
+  });
+
+  test("V4 reference value (no matrices): S=5,D=0.3,R=3 → 33.54", () => {
+    // V4 sinc = 1.72*(0.3*3 + 3.0) = 6.708; 5.0 * 6.708 = 33.54
+    // review path increments repetition 2→3, rating=good → multiplier 1.0.
+    const state = parseSm20State(JSON.stringify({
+      stability: 5.0,
+      difficulty: 0.3,
+      repetition: 2,
+      lapses: 0,
+      interval: 5.0,
+    }));
+    const result = sm20Review(state, 3, 2.0);
+    expect(result.interval_days).toBeCloseTo(33.54, 1);
   });
 
   test("backward compat: parse old state without FSRS fields", () => {
@@ -132,9 +116,29 @@ describe("SM-20 FSRS-family branch", () => {
       interval: 5.0,
       last_quality: 0.78,
     }));
+    // algorithm_branch and version are retained for serde compat but ignored.
     expect(state.algorithm_branch).toBe(0);
     expect(state.s_factor).toBe(1.0);
     expect(state.multiplier).toBe(1.0);
     expect(state.retrov).toBe(0.3);
+  });
+
+  test("FSRS-family branch removed: persisted algorithm_branch=1 is ignored", () => {
+    const oldState = JSON.stringify({
+      version: 2,
+      stability: 5.0,
+      difficulty: 0.3,
+      repetition: 2,
+      lapses: 0,
+      interval: 5.0,
+      last_quality: 0.78,
+      algorithm_branch: 1,
+    });
+    const state = parseSm20State(oldState);
+    expect(state.algorithm_branch).toBe(1); // deserialized...
+    const result = sm20Review(state, 3, 2.0);
+    // ...but ignored: the V4 path produces 33.54, not an FSRS value.
+    expect(result.interval_days).toBeCloseTo(33.54, 1);
+    expect(result.state.algorithm_branch).toBe(1); // passed through, no dispatch
   });
 });

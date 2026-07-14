@@ -1982,6 +1982,22 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    // SM-20 Bayesian smoothing matrices. One global row (id = 'global') holds the
+    // learner-wide 21³ interval_matrix (f64 × 9261 = 74,088 bytes) and count_matrix
+    // (u32 × 9261 = 37,044 bytes) as little-endian-packed BLOBs. See design.md for
+    // the storage rationale and the sm20-re reference for matrix semantics.
+    Migration::new(
+        "057_add_sm20_matrices",
+        r#"
+        CREATE TABLE IF NOT EXISTS sm20_matrices (
+            id TEXT PRIMARY KEY,
+            collection_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+            interval_matrix BLOB NOT NULL,
+            count_matrix BLOB NOT NULL,
+            date_modified TEXT NOT NULL
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

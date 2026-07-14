@@ -3093,6 +3093,130 @@ impl Repository {
         Ok(row.0)
     }
 
+    // -----------------------------------------------------------------------
+    // SM-20 Bayesian smoothing matrices (global, single learner)
+    // -----------------------------------------------------------------------
+
+    /// Size of each SM-20 matrix dimension (21³ = 9,261 cells).
+    pub const SM20_MATRIX_SIZE: usize = 9261;
+
+    /// Load the global SM-20 Bayesian matrices. Returns `None` on first run
+    /// (no row yet). The returned arrays are little-endian-deserialized BLOBs.
+    pub async fn get_sm20_matrices(&self) -> Result<Option<([f64; 9261], [u32; 9261])>> {
+        let row = sqlx::query(
+            r#"SELECT interval_matrix, count_matrix FROM sm20_matrices WHERE id = 'global'"#,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(row) = row else { return Ok(None) };
+
+        let interval_blob: Vec<u8> = row.try_get("interval_matrix")?;
+        let count_blob: Vec<u8> = row.try_get("count_matrix")?;
+
+        Ok(Some((
+            Self::bytes_to_sm20_interval_matrix(&interval_blob)?,
+            Self::bytes_to_sm20_count_matrix(&count_blob)?,
+        )))
+    }
+
+    /// Persist the global SM-20 Bayesian matrices, creating or replacing the
+    /// single `global` row.
+    pub async fn upsert_sm20_matrices(
+        &self,
+        interval: &[f64; 9261],
+        count: &[u32; 9261],
+    ) -> Result<()> {
+        let interval_bytes = Self::sm20_interval_matrix_to_bytes(interval);
+        let count_bytes = Self::sm20_count_matrix_to_bytes(count);
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r#"INSERT INTO sm20_matrices (id, collection_id, interval_matrix, count_matrix, date_modified)
+               VALUES ('global', ?1, ?2, ?3, ?4)
+               ON CONFLICT(id) DO UPDATE SET
+                   interval_matrix = excluded.interval_matrix,
+                   count_matrix = excluded.count_matrix,
+                   date_modified = excluded.date_modified"#,
+        )
+        .bind(DEFAULT_COLLECTION_ID)
+        .bind(&interval_bytes)
+        .bind(&count_bytes)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Deserialize the interval_matrix BLOB (9,261 × f64 little-endian) into a
+    /// fixed-size array. Errors if the blob is not exactly 74,088 bytes.
+    fn bytes_to_sm20_interval_matrix(bytes: &[u8]) -> Result<[f64; 9261]> {
+        const EXPECTED: usize = 9261 * 8;
+        if bytes.len() != EXPECTED {
+            return Err(IncrementumError::Internal(format!(
+                "sm20 interval_matrix blob is {} bytes, expected {EXPECTED}",
+                bytes.len()
+            )));
+        }
+        let mut out = [0.0f64; 9261];
+        for (i, cell) in out.iter_mut().enumerate() {
+            let off = i * 8;
+            *cell = f64::from_le_bytes([
+                bytes[off],
+                bytes[off + 1],
+                bytes[off + 2],
+                bytes[off + 3],
+                bytes[off + 4],
+                bytes[off + 5],
+                bytes[off + 6],
+                bytes[off + 7],
+            ]);
+        }
+        Ok(out)
+    }
+
+    /// Deserialize the count_matrix BLOB (9,261 × u32 little-endian) into a
+    /// fixed-size array. Errors if the blob is not exactly 37,044 bytes.
+    fn bytes_to_sm20_count_matrix(bytes: &[u8]) -> Result<[u32; 9261]> {
+        const EXPECTED: usize = 9261 * 4;
+        if bytes.len() != EXPECTED {
+            return Err(IncrementumError::Internal(format!(
+                "sm20 count_matrix blob is {} bytes, expected {EXPECTED}",
+                bytes.len()
+            )));
+        }
+        let mut out = [0u32; 9261];
+        for (i, cell) in out.iter_mut().enumerate() {
+            let off = i * 4;
+            *cell = u32::from_le_bytes([
+                bytes[off],
+                bytes[off + 1],
+                bytes[off + 2],
+                bytes[off + 3],
+            ]);
+        }
+        Ok(out)
+    }
+
+    /// Serialize the interval_matrix into a little-endian f64 byte blob.
+    fn sm20_interval_matrix_to_bytes(interval: &[f64; 9261]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(9261 * 8);
+        for &val in interval {
+            bytes.extend_from_slice(&val.to_le_bytes());
+        }
+        bytes
+    }
+
+    /// Serialize the count_matrix into a little-endian u32 byte blob.
+    fn sm20_count_matrix_to_bytes(count: &[u32; 9261]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(9261 * 4);
+        for &val in count {
+            bytes.extend_from_slice(&val.to_le_bytes());
+        }
+        bytes
+    }
+
     fn bytes_to_embedding(bytes: &[u8], dimension: usize) -> Vec<f32> {
         let mut result = Vec::with_capacity(dimension);
         for chunk in bytes.chunks_exact(4).take(dimension) {
@@ -6607,5 +6731,84 @@ mod tests {
             .await
             .expect("get after re-save");
         assert_eq!(got2.len(), 1, "re-save replaced prior segments");
+    }
+
+    #[tokio::test]
+    async fn sm20_matrices_round_trip_preserves_every_cell() {
+        // The round-trip holds four 9,261-element arrays live across an await
+        // (two inputs + two returned), which the #[tokio::test] async state
+        // machine captures into its Future struct and overflows the default
+        // 2 MB test stack. Run the body on a thread with a larger stack.
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    let repo = setup_repo().await;
+
+                    // First read on a fresh DB: no row yet.
+                    assert!(repo.get_sm20_matrices().await.expect("get none").is_none());
+
+                    // Build deterministic non-zero matrices so any encoding bug shows up.
+                    let mut interval = Box::new([0.0f64; 9261]);
+                    let mut count = Box::new([0u32; 9261]);
+                    for i in 0..9261 {
+                        interval[i] = (i as f64) * 1.5 + 0.25;
+                        count[i] = (i as u32) % 1000;
+                    }
+                    // Pin a few cells with awkward IEEE-754 values.
+                    interval[0] = f64::INFINITY.recip();
+                    interval[1] = -3.5;
+                    count[0] = u32::MAX;
+
+                    repo.upsert_sm20_matrices(&interval, &count)
+                        .await
+                        .expect("upsert");
+
+                    let (got_interval, got_count) = repo
+                        .get_sm20_matrices()
+                        .await
+                        .expect("get")
+                        .expect("row present after upsert");
+
+                    assert_eq!(
+                        &got_count[..],
+                        &count[..],
+                        "count_matrix must round-trip exactly"
+                    );
+                    for i in 0..9261 {
+                        assert!(
+                            got_interval[i].to_bits() == interval[i].to_bits(),
+                            "interval[{i}]: got {} expected {} (bit-exact)",
+                            got_interval[i],
+                            interval[i]
+                        );
+                    }
+                });
+            })
+            .expect("spawn test thread")
+            .join()
+            .expect("test thread panicked");
+    }
+
+    #[tokio::test]
+    async fn sm20_matrices_upsert_replaces_existing() {
+        let repo = setup_repo().await;
+
+        let mut interval = Box::new([0.0f64; 9261]);
+        let count = Box::new([0u32; 9261]);
+        interval[42] = 7.0;
+        repo.upsert_sm20_matrices(&interval, &count)
+            .await
+            .expect("first upsert");
+
+        // Second upsert should replace, not duplicate.
+        interval[42] = 99.0;
+        repo.upsert_sm20_matrices(&interval, &count)
+            .await
+            .expect("second upsert");
+
+        let (got_interval, _) = repo.get_sm20_matrices().await.expect("get").expect("row");
+        assert_eq!(got_interval[42], 99.0, "ON CONFLICT must update in place");
     }
 }

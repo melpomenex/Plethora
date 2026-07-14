@@ -314,7 +314,7 @@ pub async fn apply_review(
             apply_sm18_review(&mut item, review_rating, now)?;
         }
         AlgorithmType::Sm20 => {
-            apply_sm20_review(&mut item, review_rating, now)?;
+            apply_sm20_review(&mut item, review_rating, now, repo).await?;
         }
     }
 
@@ -705,40 +705,44 @@ fn parse_sm20_state(item: &LearningItem) -> SM20State {
     item.algorithm_state
         .as_deref()
         .and_then(|state| serde_json::from_str::<SM20State>(state).ok())
-        .unwrap_or_else(|| SM20State {
-            version: 2,
-            stability: item
-                .memory_state
-                .as_ref()
-                .map(|ms| ms.stability)
-                .unwrap_or(1.0)
-                .max(1.0),
-            difficulty: item
-                .memory_state
-                .as_ref()
-                .map(|ms| ms.difficulty)
-                .unwrap_or(0.3)
-                .clamp(0.0, 1.0),
-            repetition: item.review_count.max(0) as u32,
-            lapses: item.lapses.max(0) as u32,
-            interval: item.interval.max(1.0),
-            last_quality: 0.75,
-            algorithm_branch: 0,
-            retrov: item
-                .memory_state
-                .as_ref()
-                .map(|ms| ms.difficulty)
-                .unwrap_or(0.3)
-                .clamp(0.0, 1.0),
-            s_factor: 1.0,
-            multiplier: 1.0,
+        .unwrap_or_else(|| {
+            #[allow(deprecated)]
+            let default = SM20State {
+                // version and algorithm_branch are deprecated/ignored by the
+                // scheduler; use SM20State::default values (which set version=4).
+                // They remain in the struct only for backward-compatible serde.
+                stability: item
+                    .memory_state
+                    .as_ref()
+                    .map(|ms| ms.stability)
+                    .unwrap_or(1.0)
+                    .max(1.0),
+                difficulty: item
+                    .memory_state
+                    .as_ref()
+                    .map(|ms| ms.difficulty)
+                    .unwrap_or(0.3)
+                    .clamp(0.0, 1.0),
+                repetition: item.review_count.max(0) as u32,
+                lapses: item.lapses.max(0) as u32,
+                interval: item.interval.max(1.0),
+                retrov: item
+                    .memory_state
+                    .as_ref()
+                    .map(|ms| ms.difficulty)
+                    .unwrap_or(0.3)
+                    .clamp(0.0, 1.0),
+                ..Default::default()
+            };
+            default
         })
 }
 
-fn apply_sm20_review(
+async fn apply_sm20_review(
     item: &mut LearningItem,
     review_rating: ReviewRating,
     now: chrono::DateTime<Utc>,
+    repo: &Repository,
 ) -> Result<()> {
     let state = parse_sm20_state(item);
     let elapsed_days = item
@@ -747,7 +751,24 @@ fn apply_sm20_review(
         .unwrap_or(0.0)
         .max(0.0);
 
-    let response = sm20::review(&state, review_rating as i32, elapsed_days);
+    // Load the learner-global Bayesian matrices. First run yields zeroed arrays
+    // (bayesian_smooth falls back to the interval_initial prior when counts are 0).
+    let (mut interval_matrix, mut count_matrix) = repo
+        .get_sm20_matrices()
+        .await?
+        .unwrap_or(([0.0f64; 9261], [0u32; 9261]));
+
+    let response = sm20::review_with_matrices(
+        &state,
+        review_rating as i32,
+        elapsed_days,
+        &mut interval_matrix,
+        &mut count_matrix,
+    );
+
+    // Persist the updated matrices so subsequent reviews (and other items) learn.
+    repo.upsert_sm20_matrices(&interval_matrix, &count_matrix)
+        .await?;
 
     let interval_seconds = (response.interval_days * 86400.0).round().max(60.0) as i64;
     item.due_date = now + Duration::seconds(interval_seconds);

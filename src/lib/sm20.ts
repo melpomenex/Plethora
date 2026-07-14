@@ -2,14 +2,24 @@
  * SM-20 Scheduler Core
  *
  * Line-by-line translation of `sm20_reference.py`, itself reverse-engineered from
- * sm20.exe via Ghidra (75 functions, 44K fully decompiled). All three algorithm
- * versions (V2/V4/V6) and the Bayesian smoothing core are included.
+ * sm20.exe via Ghidra (75 functions, 44K fully decompiled). The V4 (SM-20 proper)
+ * seven-parameter polynomial is the active formula; the Bayesian smoothing core
+ * learns from review matrices when supplied by the caller.
  *
  * Native TypeScript implementation for the browser/PWA backend.
  * The Tauri backend uses a matching native Rust implementation under `src-tauri/src/algorithms/sm20.rs`.
+ *
+ * NOTE: The browser/PWA backend does not persist the Bayesian matrices in v1, so
+ * learning accumulates only within a session when matrices are supplied. The
+ * Tauri desktop path is the complete implementation (persists matrices to SQLite).
  */
 
 export interface SM20State {
+  /**
+   * Deprecated: previously selected the interval formula (2/4/6). Now ignored —
+   * V4 is always used. Retained for backward-compatible deserialization.
+   * @deprecated
+   */
   version: number;
   stability: number;
   difficulty: number;
@@ -17,6 +27,11 @@ export interface SM20State {
   lapses: number;
   interval: number;
   last_quality: number;
+  /**
+   * Deprecated: previously gated the FSRS-family branch. Now ignored — the
+   * FSRS-family code has been removed.
+   * @deprecated
+   */
   algorithm_branch?: number;
   retrov?: number;
   s_factor?: number;
@@ -34,19 +49,7 @@ const STABILITY_LOWER = -1.0;
 const STABILITY_CAP = 0.7;
 const STABILITY_MAX = 44530.0;
 
-/** --- V2 Formula constants (FUN_00ccf070) --- */
-const V2_STABILITY_SCALE_MAX = 9.29;
-const V2_STABILITY_SCALE_MIN = 1.3;
-const V2_ANCHOR = 1.0;
-const V2_REP_POWER_OFFSET = -0.08;
-const V2_REP_POWER_COEFF = -0.31;
-const V2_BASE_OFFSET = 1.04;
-const V2_BASE_BIAS = 0.07;
-const V2_PENALTY_SLOPE = -1.88;
-const V2_PENALTY_INTERCEPT = 1.58;
-const V2_PENALTY_CLAMP = 600.0;
-
-/** --- Initial Interval constants (FUN_00ce1900) --- */
+/** --- Initial Interval constants (FUN_00ce1900) — Bayesian prior --- */
 const INIT_STABILITY_SCALE_MAX = 15.0;
 const INIT_STABILITY_SCALE_MIN = 3.0;
 const INIT_ANCHOR = 1.0;
@@ -71,63 +74,10 @@ const ROUND_WIDE_LOWER = 0.8;
 const ROUND_NARROW_UPPER = 2.0;
 const ROUND_NARROW_LOWER = 0.5;
 
-/** --- U-Factor Table (20 values) --- */
-const _UFACTOR: readonly number[] = [
-  13.822076, 8.212571, 6.056511, 4.879609, 4.126662, 3.598557, 3.205138, 2.899285, 2.653822,
-  2.451912, 2.282528, 2.138131, 2.013379, 1.904376, 1.808207, 1.722649, 1.645970, 1.576804,
-  1.514055, 1.456836,
-];
-
 /** Matrix dimensions */
 const MATRIX_DIM = 21;
 const MATRIX_STRIDE_R = MATRIX_DIM * MATRIX_DIM; // 441
 const MATRIX_STRIDE_S = MATRIX_DIM; // 21
-const _MATRIX_SIZE = 9261;
-
-/** 35 FSRS-family parameters extracted from runtime memory (PTR_DAT_01125c00). */
-const FSRS_PARAMS: readonly number[] = [
-  // Expert 1 (power-law) parameters
-  0.9286298950420208,        // [0]  power-law base
-  347.85204578386566,        // [1]  time denominator for weight
-  0.30270230764837086,       // [2]  stability denominator for weight
-  // Expert 2/3 weight params
-  0.4078726801204931,        // [3]  expert 2 weight param
-  767.8438603670941,         // [4]  expert 3 weight param
-  // Initial difficulty per grade (0-5)
-  7.894742385544259,         // [5]
-  4.08242569493503,          // [6]
-  1.996431220980246,         // [7]
-  9.170585471775675,         // [8]
-  1.1425608073008684,        // [9]
-  17.65771045770738,         // [10]
-  // Initial stability per grade (0-5, plus 2 extra)
-  77.77877780253718,         // [11]
-  0.5921926894783989,        // [12]
-  0.6895479373487655,        // [13]
-  0.6472785530963361,        // [14]
-  0.4208423230793679,        // [15]
-  0.5186353666458963,        // [16]
-  0.27244747048223983,       // [17]
-  0.3261492383691367,        // [18]
-  // Lapse stability (grade < 3)
-  1.680034668443124,         // [19] lapse decay rate
-  5.928185533585771,         // [20] lapse weight param
-  2.0150955428514656,        // [21] lapse multiplier
-  0.2555216135743039,        // [22] lapse retrov correction
-  1.9926553104343092,        // [23] lapse retrov weight
-  95.04137758278812,         // [24] d decay param
-  42.21989471200275,         // [25] d stability factor
-  // Recall stability (grade >= 3)
-  3.1089639864486682,        // [26] recall base factor
-  1.3558071518966488,        // [27] recall stability param
-  0.9250460852489478,        // [28] hard bonus base
-  0.8538692150895362,        // [29] hard bonus weight
-  0.9559110660552212,        // [30] hard bonus ratio
-  -0.6915519353695037,       // [31] recall time exponent
-  1.0037797256248404,        // [32] recall grade factor
-  1.393910494789472,         // [33] recall base offset
-  0.12374729387559685,       // [34] recall grade mult
-];
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -140,113 +90,6 @@ function exp2Clamped(x: number): number {
 function sigmoidWeight(x: number, y: number): number {
   const s = x + y;
   return s === 0 ? 0 : x / s;
-}
-
-/** FUN_00af8ac0: Expert 1 — power-law forgetting. */
-function fsrsExpert1(t: number, s: number): number {
-  const param1 = FSRS_PARAMS[0];
-  if (!(0 < param1 && 0 < s)) return 0.0;
-  const expPower = Math.log2(param1 / 0.9);
-  const ratio = s / (s + t);
-  return param1 * Math.pow(ratio, expPower);
-}
-
-/** FUN_00af8bb0: Expert 2 — FSRS-style power-law forgetting.
- *  result = pow(t/S + 1, log2(0.9)) = (1 + t/S)^(-0.152)
- *  Bounded to [0,1] and decreasing — a proper forgetting curve.
- */
-function fsrsExpert2(t: number, s: number): number {
-  const tOverS = s > 0 ? t / s : 0;
-  const shifted = tOverS + 1.0;
-  if (!(0 < t && 0 < shifted)) return 0.0;
-  // FUN_0040c140(0.9) / FUN_0040c140(2) = log2(0.9) / log2(2) = log2(0.9)
-  return Math.pow(shifted, Math.log2(0.9)); // ≈ -0.152
-}
-
-/** FUN_00af8c90: Expert 3 — exponential forgetting. */
-function fsrsExpert3(t: number, s: number): number {
-  if (!(0 < t)) return 0.0;
-  const ratio = s > 0 ? t / s : 0;
-  return Math.pow(2, -Math.abs(ratio) * 0.1053605);
-}
-
-/** FUN_00af8d00: 3-expert weighted average → retrievability-like proxy A. */
-function fsrsExpertMixture(t: number, s: number, d: number): number {
-  const e1 = fsrsExpert1(t, s);
-  const e2 = fsrsExpert2(t, s);
-  const e3 = fsrsExpert3(t, s);
-
-  const w1 = ((1.0 - sigmoidWeight(s, FSRS_PARAMS[1])) + sigmoidWeight(d, FSRS_PARAMS[2])) / 2.0;
-  const w2 = ((1.0 - sigmoidWeight(s, FSRS_PARAMS[1])) + sigmoidWeight(d, FSRS_PARAMS[3])) / 2.0;
-  const w3 = sigmoidWeight(s, FSRS_PARAMS[4]);
-
-  const wSum = w1 + w2 + w3;
-  if (wSum === 0) return 0.0;
-  return (w1 * e1 + w2 * e2 + w3 * e3) / wSum;
-}
-
-/** FUN_00af90f0: Update difficulty based on review outcome. */
-function fsrsDifficultyUpdate(d: number, s: number, a: number, grade: number): number {
-  const ratio = sigmoidWeight(s, FSRS_PARAMS[24]);
-  const dTarget = grade > 2 ? 1.0 : 0.0;
-  const dNew = ratio * d + (1.0 - ratio) * (d - (dTarget - a));
-  return clamp(dNew, 0.0, 1.0);
-}
-
-/** FUN_00af9010: Stability update for lapse (grade < 3). */
-function fsrsLapseStability(d: number, s: number, a: number): number {
-  let sNew = (1.0 - d) * FSRS_PARAMS[19] + 1.0;
-  const w = sigmoidWeight(s, FSRS_PARAMS[20]);
-  sNew *= w * FSRS_PARAMS[21] + 1.0;
-  const retrovSignal = 1.0 - a;
-  const r = sigmoidWeight(retrovSignal, FSRS_PARAMS[22]);
-  sNew *= r * FSRS_PARAMS[23] + 1.0;
-  return sNew;
-}
-
-/** FUN_00af91f0: Stability update for successful recall (grade >= 3). */
-function fsrsRecallStability(d: number, s: number, a: number, t: number, grade: number): number {
-  const sMin = Math.max(s, t);
-
-  const hardBonus = t < s
-    ? FSRS_PARAMS[28] + FSRS_PARAMS[29] * sigmoidWeight(s > 0 ? t / s : 0, FSRS_PARAMS[30])
-    : FSRS_PARAMS[28];
-
-  const timeFactor = s > 0 ? Math.pow(s, FSRS_PARAMS[31]) : 1.0;
-  const recallSignal = exp2Clamped(-(FSRS_PARAMS[32] * (1.0 - d) + FSRS_PARAMS[33]) * a);
-  const gradeFactor = (grade - 4) * FSRS_PARAMS[34] + 1.0;
-  const blend = FSRS_PARAMS[26] + (1.0 - d) * (FSRS_PARAMS[25] - FSRS_PARAMS[26]);
-
-  return sMin * hardBonus * (FSRS_PARAMS[27] + blend * timeFactor * recallSignal * gradeFactor);
-}
-
-/** FUN_00af9420: Main FSRS review kernel. Returns [new_S, new_D, interval, easiness]. */
-export function fsrsReviewKernel(s: number, d: number, t: number, grade: number): [number, number, number, number] {
-  const a = fsrsExpertMixture(t, s, d);
-  const dNew = fsrsDifficultyUpdate(d, s, a, grade);
-  const sNew = grade < 3 ? fsrsLapseStability(dNew, s, a) : fsrsRecallStability(dNew, s, a, t, grade);
-  const interval = sNew > 1.0 ? sNew : 1.0;
-  const easiness = s > 1.0 ? sNew / s : 0.0;
-  return [sNew, dNew, interval, easiness];
-}
-
-/** FUN_00ceb590: Initialize a new FSRS item. */
-export function fsrsInitItem(grade: number, stability: number, flag: boolean): SM20State {
-  const d = (grade < 0 || grade > 5) ? FSRS_PARAMS[5] : FSRS_PARAMS[6 + grade];
-  const sFactor = (grade < 0 || grade > 5) ? FSRS_PARAMS[12] : FSRS_PARAMS[13 + grade];
-  return {
-    version: 2,
-    stability,
-    difficulty: d,
-    repetition: 0,
-    lapses: 0,
-    interval: Math.max(1.0, stability),
-    last_quality: 0.75,
-    algorithm_branch: 1,
-    retrov: d,
-    s_factor: sFactor,
-    multiplier: flag ? 0.5 : 3.0,
-  };
 }
 
 export function sm20Retrievability(stability: number, elapsedDays: number): number {
@@ -310,25 +153,10 @@ function applyRounding(interval: number, flags: number): number {
   return interval;
 }
 
-/** FUN_00ccf070: Version 2 interval (SM-19 compatible). */
-function intervalV2(repFraction: number, stabilityTransformed: number, difficultyFraction: number): number {
-  const scale = V2_STABILITY_SCALE_MIN
-    + (V2_STABILITY_SCALE_MAX - V2_STABILITY_SCALE_MIN) * (V2_ANCHOR - repFraction);
-  const power = V2_REP_POWER_OFFSET + repFraction * (V2_REP_POWER_COEFF - V2_REP_POWER_OFFSET);
-  const base = (scale - V2_BASE_OFFSET) * Math.pow(stabilityTransformed, power) + V2_BASE_BIAS;
-  const penalty = Math.min(V2_PENALTY_CLAMP, repFraction * V2_PENALTY_SLOPE + V2_PENALTY_INTERCEPT);
-  const exponent = -penalty * difficultyFraction;
-  return base * exp2Clamped(exponent);
-}
-
-/** FUN_00ccd8e0: Version 4 interval (SM-20 proper). */
+/** FUN_00ccd8e0: Version 4 interval (SM-20 proper).
+ *  Its output is a stability-increase multiplier (SInc), not an absolute interval. */
 function intervalV4(p1: number, p2: number, p3: number, p4: number, p5: number, _p6: number, p7: number): number {
   return (p3 * p5 + 1.0) * (p1 * p7 + p2) + p4;
-}
-
-/** FUN_00ccfde0: Version 6 interval (FSRS-style). */
-function intervalV6(p1: number, _p2: number, p3: number, p4: number, p5: number, p6: number): number {
-  return p4 + p1 * exp2Clamped(p6) * exp2Clamped(-p3 * p5);
 }
 
 /** FUN_00ce1900: Bayesian prior — initial interval per matrix cell. */
@@ -425,7 +253,6 @@ function computeNextInterval(
   stability: number,
   difficulty: number,
   repetition: number,
-  version: number,
   intervalMatrix?: Float64Array,
   countMatrix?: Uint32Array,
 ): number {
@@ -435,21 +262,12 @@ function computeNextInterval(
   const sIdx = clamp(stabilityToIndex(st) - 1, 0, 19);
   const rIdx = clamp(repetition > 0 ? repetition - 1 : 0, 0, 19);
 
-  const repFrac = repetitionToFraction(clamp(repetition, 1, 20));
   const stabXform = stabilityToTransformed(stabilityToIndex(st));
   const diffFrac = difficultyToFraction(difficultyToIndex(difficulty));
 
-  let sinc: number;
-  switch (version) {
-    case 4:
-      sinc = intervalV4(diffFrac, stabXform, 0.8, 0.0, 0.9, stabXform, repetition);
-      break;
-    case 6:
-      sinc = intervalV6(stabXform, 0.8, stabXform, repetition, diffFrac, 0.9);
-      break;
-    default:
-      sinc = intervalV2(repFrac, stabXform, diffFrac);
-  }
+  // V4 (SM-20 proper) — the only active formula.
+  // Parameter mapping verified against sm20_reference.py.
+  let sinc: number = intervalV4(diffFrac, stabXform, 0.8, 0.0, 0.9, stabXform, repetition);
 
   if (intervalMatrix && countMatrix) {
     const targetCount = countMatrix[matrixFlatIndex(rIdx, sIdx, dIdx)];
@@ -458,11 +276,13 @@ function computeNextInterval(
     }
   }
 
+  // New stability = old × SInc. Correct for V4 per sm20_reference.py:463-465
+  // (V4 output is a multiplier, not an absolute interval).
   return clamp(st * sinc, 1.0, STABILITY_MAX);
 }
 
 const DEFAULT_STATE: SM20State = {
-  version: 2,
+  version: 4,
   stability: 1.0,
   difficulty: 0.3,
   repetition: 0,
@@ -481,7 +301,7 @@ export function parseSm20State(algorithmState?: string): SM20State {
       const parsed = JSON.parse(algorithmState) as Partial<SM20State>;
       if (parsed && typeof parsed.stability === "number" && typeof parsed.difficulty === "number") {
         return {
-          version: parsed.version ?? 2,
+          version: parsed.version ?? 4,
           stability: parsed.stability,
           difficulty: parsed.difficulty,
           repetition: parsed.repetition ?? 0,
@@ -528,21 +348,26 @@ function lapseInterval(stability: number, lapses: number): number {
   return clamp(decayed / (1.0 + lapses * 0.15), 0.5, 3.0);
 }
 
+/**
+ * Review an SM-20 item.
+ *
+ * @param intervalMatrix Optional Bayesian matrix for smoothing. When omitted
+ *   (the default for the browser/PWA backend in v1), no smoothing is applied.
+ * @param countMatrix    Optional count matrix. Must be supplied alongside
+ *   `intervalMatrix` for smoothing/recording to take effect.
+ *
+ * When matrices are supplied, the successful-recall path records the observation
+ * into them (mutating them in place); the caller is responsible for persistence.
+ */
 export function sm20Review(
   currentState: SM20State,
   rating: number,
-  elapsedDays: number
+  elapsedDays: number,
+  intervalMatrix?: Float64Array,
+  countMatrix?: Uint32Array,
 ): SM20ReviewResult {
   const state = parseSm20State(JSON.stringify(currentState));
 
-  if (state.algorithm_branch === 1) {
-    return reviewFsrs(state, rating, elapsedDays);
-  }
-  return reviewClassic(state, rating, elapsedDays);
-}
-
-/** Classic SM-20 review path (V2/V4/V6 + Bayesian). */
-function reviewClassic(state: SM20State, rating: number, elapsedDays: number): SM20ReviewResult {
   const quality = ratingToQuality(rating);
   const ret = sm20Retrievability(state.stability, elapsedDays);
 
@@ -570,9 +395,14 @@ function reviewClassic(state: SM20State, rating: number, elapsedDays: number): S
 
   const repetition = clamp(state.repetition + 1, 1, 20);
   const newStability = computeNextInterval(
-    state.stability, state.difficulty, repetition, state.version,
+    state.stability, state.difficulty, repetition, intervalMatrix, countMatrix,
   );
   const intervalDays = clamp(newStability * successMultiplier(rating), 1.0, STABILITY_MAX);
+
+  // Record the observation into the matrices (successful-recall path).
+  if (intervalMatrix && countMatrix) {
+    sm20RecordReview(state.stability, state.difficulty, repetition, intervalDays, intervalMatrix, countMatrix);
+  }
 
   return {
     state: {
@@ -589,35 +419,6 @@ function reviewClassic(state: SM20State, rating: number, elapsedDays: number): S
       multiplier: state.multiplier,
     },
     interval_days: intervalDays,
-    retrievability: ret,
-  };
-}
-
-/** FSRS-family review path (3-expert mixture model). */
-function reviewFsrs(state: SM20State, rating: number, elapsedDays: number): SM20ReviewResult {
-  const ret = sm20Retrievability(state.stability, elapsedDays);
-  const [newS, newD, interval, _easiness] = fsrsReviewKernel(
-    state.stability, state.difficulty, elapsedDays, rating
-  );
-
-  const repetition = rating <= 1 ? 0 : clamp(state.repetition + 1, 1, 20);
-  const lapses = rating <= 1 ? state.lapses + 1 : state.lapses;
-
-  return {
-    state: {
-      version: state.version,
-      stability: newS,
-      difficulty: newD,
-      repetition,
-      lapses,
-      interval,
-      last_quality: state.last_quality,
-      algorithm_branch: 1,
-      retrov: state.retrov,
-      s_factor: state.s_factor,
-      multiplier: state.multiplier,
-    },
-    interval_days: interval,
     retrievability: ret,
   };
 }

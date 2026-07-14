@@ -264,28 +264,23 @@ SM-18:
 
 ### Understanding SM-20
 
-**SM-20** (SuperMemo 20) is the most advanced algorithm available, reverse-engineered from `sm20`. It builds on SM-18's foundations while introducing Bayesian smoothing, multiple algorithm versions, and an optional FSRS-family branch.
+**SM-20** (SuperMemo 20) is the most advanced algorithm available, reverse-engineered from `sm20`. It builds on SM-18's foundations with the V4 interval formula and Bayesian smoothing that learns from your reviews.
 
 SM-20:
 
-1. **Supports Multiple Interval Formulas**: Ships with three algorithm versions — V2 (SM-19 compatible), V4 (SM-20 proper), and V6 (FSRS-style) — each computing intervals differently from the same state variables
+1. **Uses the V4 Interval Formula**: Computes every interval with the SM-20 proper seven-parameter polynomial (the `V4` formula from the reverse-engineered reference). The legacy V2 (SM-19 compatible) scheduling remains available as the separate `sm2` algorithm choice.
 2. **Applies Bayesian Smoothing**: When enough review data accumulates, it smooths interval calculations using a 3×3×3 neighbor search across the interval/count matrices, blended with a Bayesian prior
 3. **Tracks Stability with Power-Law Indexing**: Converts stability to matrix indices using a power-law transform (`S^2.9`), providing finer resolution at low stabilities and coarser at high values
-4. **Includes an FSRS-Family Branch**: Items can optionally use a 3-expert mixture model (power-law, FSRS power-law, and exponential forgetting) with 35 dedicated parameters for difficulty and stability updates
-5. **Records and Learns from Reviews**: Every review updates 21×21×21 interval and count matrices via incremental averaging, allowing the algorithm to learn optimal intervals from your actual performance over time
+4. **Records and Learns from Reviews**: Every successful review updates 21×21×21 interval and count matrices via incremental averaging, persisted to storage so SM-20 learns optimal intervals from your actual performance across sessions
 
 **Key Metrics:**
 - **Stability (S)**: Memory persistence in days, with a power-law index transform for matrix lookup (clamped to 44,530 days max)
 - **Difficulty (D)**: Binned into 10 levels via `floor(D × 19) + 1`, used as one axis of the interval matrix
-- **Version**: Selects which interval formula to use (V2, V4, or V6)
-- **Algorithm Branch**: 0 for classic SM-20, 1 for the FSRS-family expert mixture model
-- **Retrov (Retrov):** Retrievability estimate used by the FSRS branch for stability adjustments
-- **Interval/Count Matrices**: Two 9,261-entry matrices that accumulate your review history and enable Bayesian-smoothed interval optimization
+- **Interval/Count Matrices**: Two 9,261-entry matrices, persisted per learner, that accumulate your review history and enable Bayesian-smoothed interval optimization
 
 **How SM-20 Differs from FSRS-6:**
-- FSRS-6 uses a fixed set of parameters trained on aggregate data; SM-20 learns from *your* reviews over time via its matrices
+- FSRS-6 uses a fixed set of parameters trained on aggregate data; SM-20 learns from *your* reviews over time via its persisted matrices
 - SM-20's Bayesian smoothing provides a principled way to balance prior knowledge with observed data
-- SM-20 supports switching between interval formulas (V2/V4/V6) and even has an FSRS-family branch built in
 
 ### Rating System
 
@@ -849,10 +844,9 @@ Incrementum supports four scheduling algorithms. Choose the one that best fits y
 
 **SM-20 (SuperMemo 20):**
 - Most advanced algorithm, reverse-engineered from sm20.exe via Ghidra
-- Supports three interval formula versions (V2/V4/V6)
+- Uses the V4 (SM-20 proper) interval formula; SM-19 scheduling is available via the separate `sm2` algorithm
 - Bayesian smoothing learns optimal intervals from your actual review data
-- Optional FSRS-family branch with 3-expert forgetting model
-- Builds knowledge over time via 21×21×21 interval/count matrices
+- Builds knowledge over time via persisted 21×21×21 interval/count matrices
 
 **SM-18 (SuperMemo 18):**
 - Latest SuperMemo algorithm, reverse-engineered from the original application

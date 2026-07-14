@@ -224,28 +224,23 @@ SM-18 :
 
 ### Comprendre SM-20
 
-**SM-20** (SuperMemo 20) est l'algorithme le plus avancé disponible, obtenu par rétro-ingénierie à partir de `sm20`. Il s'appuie sur les fondations de SM-18 tout en introduisant le lissage bayésien, plusieurs versions d'algorithme et une branche optionnelle de la famille FSRS.
+**SM-20** (SuperMemo 20) est l'algorithme le plus avancé disponible, obtenu par rétro-ingénierie à partir de `sm20`. Il s'appuie sur les fondations de SM-18 avec la formule d'intervalle V4 et un lissage bayésien qui apprend de vos révisions.
 
 SM-20 :
 
-1. **Prend en Charge Plusieurs Formules d'Intervalle** : Fournit trois versions d'algorithme — V2 (compatible SM-19), V4 (SM-20 proprement dit) et V6 (style FSRS) — chacune calculant les intervalles différemment à partir des mêmes variables d'état
+1. **Utilise la Formule d'Intervalle V4** : Calcule chaque intervalle avec le polynôme à sept paramètres SM-20 proprement dit (la formule `V4` de la référence rétro-ingénieriée). La planification V2 (compatible SM-19) reste disponible comme choix d'algorithme `sm2` distinct.
 2. **Applique le Lissage Bayésien** : Lorsque suffisamment de données de révision s'accumulent, il lisse les calculs d'intervalle grâce à une recherche de voisins 3×3×3 dans les matrices d'intervalle/compteur, combinée à un prior bayésien
 3. **Suit la Stabilité avec un Indexage en Loi de Puissance** : Convertit la stabilité en indices de matrice via une transformation en loi de puissance (`S^2,9`), offrant une résolution plus fine aux stabilités faibles et plus grossière aux valeurs élevées
-4. **Inclut une Branche de la Famille FSRS** : Les éléments peuvent optionnellement utiliser un modèle de mélange à 3 experts (loi de puissance, loi de puissance FSRS et oubli exponentiel) avec 35 paramètres dédiés pour les mises à jour de difficulté et stabilité
-5. **Enregistre et Apprend des Révisions** : Chaque révision met à jour des matrices d'intervalle et de compteur de 21×21×21 par moyennage incrémental, permettant à l'algorithme d'apprendre les intervalles optimaux à partir de vos performances réelles au fil du temps
+4. **Enregistre et Apprend des Révisions** : Chaque révision réussie met à jour des matrices d'intervalle et de compteur de 21×21×21 par moyennage incrémental, persistées dans le stockage afin que SM-20 apprenne les intervalles optimaux à partir de vos performances réelles d'une session à l'autre
 
 **Mesures clés :**
 - **Stabilité (S)** : Persistance de la mémoire en jours, avec une transformation d'index en loi de puissance pour la recherche matricielle (plafonnée à 44 530 jours maximum)
 - **Difficulté (D)** : Regroupée en 10 niveaux via `floor(D × 19) + 1`, utilisée comme un axe de la matrice d'intervalle
-- **Version** : Sélectionne la formule d'intervalle à utiliser (V2, V4 ou V6)
-- **Branche d'Algorithme** : 0 pour SM-20 classique, 1 pour le modèle de mélange d'experts de la famille FSRS
-- **Retrov (Retrov) :** Estimation de récupérabilité utilisée par la branche FSRS pour les ajustements de stabilité
-- **Matrices d'Intervalle/Compteur** : Deux matrices de 9 261 entrées qui accumulent votre historique de révisions et permettent l'optimisation d'intervalles avec lissage bayésien
+- **Matrices d'Intervalle/Compteur** : Deux matrices de 9 261 entrées, persistées par apprenant, qui accumulent votre historique de révisions et permettent l'optimisation d'intervalles avec lissage bayésien
 
 **Comment SM-20 diffère de FSRS-6 :**
-- FSRS-6 utilise un ensemble fixe de paramètres entraînés sur des données agrégées ; SM-20 apprend de *vos* révisions au fil du temps via ses matrices
+- FSRS-6 utilise un ensemble fixe de paramètres entraînés sur des données agrégées ; SM-20 apprend de *vos* révisions au fil du temps via ses matrices persistées
 - Le lissage bayésien de SM-20 fournit un moyen fondé d'équilibrer les connaissances préalables avec les données observées
-- SM-20 permet de basculer entre les formules d'intervalle (V2/V4/V6) et possède même une branche de la famille FSRS intégrée
 
 ### Système de notation
 
@@ -811,10 +806,9 @@ Incrementum prend en charge quatre algorithmes de planification. Choisissez celu
 
 **SM-20 (SuperMemo 20) :**
 - Algorithme le plus avancé, obtenu par rétro-ingénierie de sm20.exe via Ghidra
-- Prend en charge trois versions de formules d'intervalle (V2/V4/V6)
+- Utilise la formule d'intervalle V4 (SM-20 proprement dit) ; la planification SM-19 est disponible via l'algorithme `sm2` distinct
 - Le lissage bayésien apprend les intervalles optimaux à partir de vos données de révision réelles
-- Branche optionnelle de la famille FSRS avec modèle d'oubli à 3 experts
-- Construit des connaissances au fil du temps via des matrices d'intervalle/compteur de 21×21×21
+- Construit des connaissances au fil du temps via des matrices d'intervalle/compteur de 21×21×21 persistées
 
 **SM-18 (SuperMémo 18) :**
 - Dernier algorithme SuperMemo, rétro-ingénierie à partir de l'application d'origine
