@@ -87,6 +87,8 @@ export function Review() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
   const settings = useSettingsStore((state) => state.settings);
+  // SM-20 grades natively on a 0-5 scale — surface it instead of 4 buttons.
+  const useNativeGrades = settings.learning.algorithm === "sm20";
   const { t } = useI18n();
   const [conversationInput, setConversationInput] = useState("");
   const [conversationResult, setConversationResult] = useState<{ question: string; score: number; feedback: string } | null>(null);
@@ -198,7 +200,7 @@ export function Review() {
     return tags.includes("input:handwriting");
   }, [currentCard]);
 
-  const handleRating = async (rating: ReviewRating) => {
+  const handleRating = async (rating: ReviewRating, grade?: number) => {
     setPendingReviewMetadata({
       hintsUsed: revealedHintCount,
       typedMode: typedMode ?? undefined,
@@ -210,7 +212,7 @@ export function Review() {
       interactionCorrect: orderingFeedback?.correct ?? matchingFeedback?.correct,
     });
     const beforeId = currentCard?.id;
-    await submitRating(rating);
+    await submitRating(rating, grade);
     if (!beforeId) return;
 
     const afterId = useReviewStore.getState().currentCard?.id;
@@ -314,16 +316,25 @@ export function Review() {
 
       // Number keys for rating (only when answer is shown)
       if (isAnswerShown && currentCard && !isSubmitting) {
-        if (e.key === "1") handleRating(1 as ReviewRating);
-        if (e.key === "2") handleRating(2 as ReviewRating);
-        if (e.key === "3") handleRating(3 as ReviewRating);
-        if (e.key === "4") handleRating(4 as ReviewRating);
+        if (useNativeGrades) {
+          // Native SM-20 grade scale: keys 0-5 (0-2 fail, 3-5 pass).
+          if (/^[0-5]$/.test(e.key)) {
+            const grade = Number(e.key);
+            const rating = (grade < 3 ? 1 : grade - 1) as ReviewRating;
+            handleRating(rating, grade);
+          }
+        } else {
+          if (e.key === "1") handleRating(1 as ReviewRating);
+          if (e.key === "2") handleRating(2 as ReviewRating);
+          if (e.key === "3") handleRating(3 as ReviewRating);
+          if (e.key === "4") handleRating(4 as ReviewRating);
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [isAnswerShown, currentCard, isSubmitting, showAnswer, submitRating, nextCard]);
+  }, [isAnswerShown, currentCard, isSubmitting, showAnswer, submitRating, nextCard, useNativeGrades]);
 
   if (isLoading) {
     return (
@@ -496,6 +507,7 @@ export function Review() {
                 onSelectRating={handleRating}
                 disabled={isSubmitting}
                 previewIntervals={null} // TODO: Add preview intervals
+                gradeScale={useNativeGrades}
               />
             </div>
           </>

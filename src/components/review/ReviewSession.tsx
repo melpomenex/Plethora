@@ -20,9 +20,12 @@ import { ReviewFeedback } from "./ReviewFeedback";
 import { ReviewCardSkeleton } from "../common/Skeleton";
 import { FSRSExplanationModal, useFSRSExplanation } from "../onboarding/FSRSExplanationModal";
 import { useSwipeGesture, getSwipeIndicatorStyle, SWIPE_RATINGS } from "../../hooks/useSwipeGesture";
+import { useRatingJoystick } from "../../hooks/useRatingJoystick";
+import { RatingJoystick } from "./RatingJoystick";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { useAudioReviewMode } from "../../hooks/useAudioReviewMode";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useFormFactor } from "../../hooks/useFormFactor";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
 import { BreakReminderModal, useBreakReminder } from "./BreakReminderModal";
 import { ZenReviewMode } from "./ZenReviewMode";
@@ -104,24 +107,62 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   const volumeRockerMode = useSettingsStore(
     (state) => state.settings.interface.volumeRockerScroll ?? "none",
   );
+  // SM-18 and SM-20 grade natively on a 0-5 scale (0-2 fail, 3-5 pass) —
+  // surface the native scale instead of squeezing it into the 4 Anki-style
+  // buttons. Both algorithms branch on `grade >= 3`, so the same 6-grade UI
+  // applies.
+  const useNativeGrades = useSettingsStore(
+    (state) =>
+      state.settings.learning.algorithm === "sm20" ||
+      state.settings.learning.algorithm === "sm18",
+  );
+  // The H-pattern joystick is a touch-only affordance; desktop uses the
+  // tappable grid + keyboard 0-5.
+  const formFactor = useFormFactor();
+  const isTouch = formFactor === "phone" || formFactor === "tablet";
 
   // FSRS explanation modal for first-time reviewers
   const { shouldShow: showFSRSExplanation, markShown: markFSRSShown } = useFSRSExplanation();
 
-  // Swipe gestures for mobile/tablet (only when answer is shown and not submitting)
+  // Swipe gestures for mobile/tablet (only when answer is shown and not submitting).
+  // On touch devices with a native 0-5 grade algorithm (SM-18/SM-20), the
+  // 4-axis swipe is replaced by the 6-zone H-pattern joystick so all grades
+  // are reachable. FSRS/SM-2 and desktop keep the classic 4-direction swipe.
+  const useJoystick = useNativeGrades && isTouch;
+
+  // Keep latest state in refs so the gesture callbacks (registered once)
+  // always see current values without re-binding listeners every render.
+  const answerShownRef = useRef(isAnswerShown);
+  const submittingRef = useRef(isSubmitting);
+  // `handleRating` is declared below; initialize to a no-op and patch the ref
+  // every render once it exists. The gesture hooks read `.current` at call time.
+  const ratingCbRef = useRef<(rating: ReviewRating, grade?: number) => Promise<void>>(
+    async () => {},
+  );
+  answerShownRef.current = isAnswerShown;
+  submittingRef.current = isSubmitting;
+
   const {
     ref: swipeRef,
     direction: swipeDirection,
     deltaX,
     deltaY,
   } = useSwipeGesture({
-    onSwipeLeft: () => isAnswerShown && !isSubmitting && handleRating(1 as ReviewRating),
-    onSwipeRight: () => isAnswerShown && !isSubmitting && handleRating(4 as ReviewRating),
-    onSwipeUp: () => isAnswerShown && !isSubmitting && handleRating(3 as ReviewRating),
-    onSwipeDown: () => isAnswerShown && !isSubmitting && handleRating(2 as ReviewRating),
+    onSwipeLeft: () => answerShownRef.current && !submittingRef.current && ratingCbRef.current(1 as ReviewRating),
+    onSwipeRight: () => answerShownRef.current && !submittingRef.current && ratingCbRef.current(4 as ReviewRating),
+    onSwipeUp: () => answerShownRef.current && !submittingRef.current && ratingCbRef.current(3 as ReviewRating),
+    onSwipeDown: () => answerShownRef.current && !submittingRef.current && ratingCbRef.current(2 as ReviewRating),
     threshold: 80,
     preventDefaultTouch: true,
   });
+
+  const joystick = useRatingJoystick({
+    onSelect: (rating, grade) => ratingCbRef.current(rating as ReviewRating, grade),
+    enabled: () => answerShownRef.current && !submittingRef.current,
+  });
+  // The joystick and swipe hooks both attach to the same card container; only
+  // one is active depending on the algorithm + form factor.
+  const gestureRef = useJoystick ? joystick.ref : swipeRef;
 
   // Break reminder for long review sessions (30 minutes)
   const {
@@ -161,7 +202,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     },
   });
 
-  const handleRating = async (rating: ReviewRating) => {
+  const handleRating = async (rating: ReviewRating, grade?: number) => {
     haptic.click();
     const beforeId = currentCard?.id;
     if (interactionResult) {
@@ -171,11 +212,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         interactionCorrect: interactionResult.correct,
       });
     }
-    
+
     const currentStreak = streak;
     const willComplete = currentIndex >= queue.length - 1;
-    
-    await submitRating(rating);
+
+    await submitRating(rating, grade);
     if (!beforeId) return;
 
     // Show feedback for milestones
@@ -192,6 +233,8 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       nextCard();
     }
   };
+  // Keep the gesture-hook ref pointed at the latest rating handler.
+  ratingCbRef.current = handleRating;
 
   const handleDeleteCurrent = async () => {
     if (!currentCard || isDocumentItem(currentCard)) {
@@ -410,10 +453,19 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
 
       // Number keys for rating (only when answer is shown)
       if (isAnswerShown && currentCard && !isSubmitting) {
-        if (e.key === "1") handleRating(1 as ReviewRating);
-        if (e.key === "2") handleRating(2 as ReviewRating);
-        if (e.key === "3") handleRating(3 as ReviewRating);
-        if (e.key === "4") handleRating(4 as ReviewRating);
+        if (useNativeGrades && !isDocumentItem(currentCard)) {
+          // Native SM-20 grade scale: keys 0-5 (0-2 fail, 3-5 pass).
+          if (/^[0-5]$/.test(e.key)) {
+            const grade = Number(e.key);
+            const rating = (grade < 3 ? 1 : grade - 1) as ReviewRating;
+            handleRating(rating, grade);
+          }
+        } else {
+          if (e.key === "1") handleRating(1 as ReviewRating);
+          if (e.key === "2") handleRating(2 as ReviewRating);
+          if (e.key === "3") handleRating(3 as ReviewRating);
+          if (e.key === "4") handleRating(4 as ReviewRating);
+        }
       }
     };
 
@@ -433,6 +485,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     volumeRockerMode,
     goToIndex,
     currentIndex,
+    useNativeGrades,
   ]);
 
   if (isLoading) {
@@ -683,9 +736,9 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           />
 
           {/* Card and Ratings */}
-          <div ref={swipeRef} className="md:flex-1 flex flex-col md:min-h-0 relative touch-pan-y">
-            {/* Swipe Indicator Overlay */}
-            {swipeDirection && isAnswerShown && (
+          <div ref={gestureRef} className="md:flex-1 flex flex-col md:min-h-0 relative touch-pan-y">
+            {/* Swipe Indicator Overlay (legacy 4-axis; hidden when the joystick owns the gesture) */}
+            {!useJoystick && swipeDirection && isAnswerShown && (
               <div
                 className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 rounded-lg"
                 style={getSwipeIndicatorStyle(swipeDirection, deltaX, deltaY)}
@@ -699,6 +752,17 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* H-pattern rating joystick overlay (touch + native-grade only) */}
+            {useJoystick && (
+              <RatingJoystick
+                activeGrade={joystick.activeGrade}
+                knob={joystick.knob}
+                base={joystick.base}
+                isActive={joystick.isActive}
+                previewIntervals={previewIntervals}
+              />
             )}
 
             {isCurrentDocument ? (
@@ -736,11 +800,12 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                     onSelectRating={handleRating}
                     disabled={isSubmitting}
                     previewIntervals={previewIntervals}
+                    gradeScale={useNativeGrades}
                   />
-                  {/* Swipe hint for mobile */}
+                  {/* Hint for mobile */}
                   <div className="mt-3 text-center text-xs text-muted-foreground md:hidden">
                     <span className="inline-flex items-center gap-1">
-                      {t("review.swipeHint")}
+                      {useJoystick ? t("review.joystickHint") : t("review.swipeHint")}
                     </span>
                   </div>
                 </div>

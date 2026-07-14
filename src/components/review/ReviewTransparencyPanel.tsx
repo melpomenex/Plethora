@@ -93,7 +93,20 @@ export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransp
           <Info className="w-3 h-3" />
           Simulated next intervals
         </div>
-        {previewIntervals ? (
+        {previewIntervals?.grade_intervals ? (
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            {previewIntervals.grade_intervals.map((interval, grade) => (
+              <div key={grade} className="bg-muted/50 rounded-md p-1.5 md:p-2">
+                <div className="text-muted-foreground">
+                  {grade} · {["Blackout", "Wrong", "Almost", "Hard", "Good", "Easy"][grade] ?? ""}
+                </div>
+                <div className="text-foreground font-semibold">
+                  {formatInterval(interval)}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : previewIntervals ? (
           <div className="grid grid-cols-2 gap-2 text-xs">
             {([
               ["again", "Again"],

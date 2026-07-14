@@ -6,6 +6,9 @@ export interface PreviewIntervals {
   hard: number;
   good: number;
   easy: number;
+  /** Native per-grade intervals (index = grade 0-5). Present only for
+   * algorithms with a native grade scale (currently SM-20). */
+  grade_intervals?: number[];
 }
 
 export interface ReviewStreak {
@@ -29,6 +32,9 @@ export async function submitReview(
     fsrsWeights?: number[];
     algorithm?: "fsrs" | "sm2" | "sm18" | "sm20";
     noScheduleUpdate?: boolean;
+    /** Native SM-20 grade (0-5). When set, the backend schedules with this
+     * grade directly instead of mapping the 4-button rating. */
+    grade?: number;
   }
 ): Promise<LearningItem> {
   const normalizedSessionId = sessionId?.trim() ? sessionId : undefined;
@@ -47,6 +53,7 @@ export async function submitReview(
     algorithm: options?.algorithm,
     no_schedule_update: options?.noScheduleUpdate,
     noScheduleUpdate: options?.noScheduleUpdate,
+    grade: options?.grade,
   });
 
   // Replicate the review to other devices. Fire-and-forget — never blocks the

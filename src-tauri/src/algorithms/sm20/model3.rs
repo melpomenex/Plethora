@@ -626,7 +626,7 @@ fn lapse_neighbor_lookup(
 // ITEM STATE
 // =============================================================================
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct M3ItemState {
     pub last_review_day: i32,
     pub previous_interval: i32,
@@ -637,6 +637,22 @@ pub struct M3ItemState {
     pub previous_stability: f64,
     pub previous_stability_index: i32,
     pub previous_r_index: i32,
+}
+
+impl Default for M3ItemState {
+    fn default() -> Self {
+        Self {
+            last_review_day: -1,
+            previous_interval: 0,
+            repetitions: 0,
+            lapses: 0,
+            stability: 1.0,
+            difficulty: 0.5,
+            previous_stability: -1.0,
+            previous_stability_index: 0,
+            previous_r_index: 0,
+        }
+    }
 }
 
 impl M3ItemState {
@@ -766,7 +782,13 @@ pub fn model_3_stateful(
     let retrievability = if let Some(r) = retrievability {
         clamp_r(r)
     } else {
-        let base = (item.previous_interval as f64).max(1.0).max(item.stability);
+        // Reference: base = max(1.0, previous_interval or stability) — stability
+        // is only the fallback when no previous interval exists, never a max.
+        let base = if item.previous_interval != 0 {
+            (item.previous_interval as f64).max(1.0)
+        } else {
+            item.stability.max(1.0)
+        };
         clamp_r((0.9f64.ln() * elapsed as f64 / base).exp())
     };
 
@@ -836,7 +858,8 @@ pub fn model_3_stateful(
 
 fn interval_category(interval: i32) -> i32 {
     let interval = interval.max(1);
-    let mut category = round_half_up((interval as f64).ln() / (20.0f64).ln()) as i32 + 12;
+    let mut category =
+        round_half_up((interval as f64).ln() / INTERVAL_AXIS_BASE.ln()) as i32 + 12;
     category = interval.min(category);
     category.clamp(1, 35)
 }

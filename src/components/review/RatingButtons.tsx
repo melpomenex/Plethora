@@ -2,23 +2,165 @@ import { ReviewRating, PreviewIntervals, formatInterval } from "../../api/review
 import {
   ArrowCounterClockwise,
   Lightning,
+  Prohibit,
   ThumbsDown,
   ThumbsUp,
+  X,
 } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
 
 interface RatingButtonsProps {
-  onSelectRating: (rating: ReviewRating) => void;
+  /** `grade` is set (0-5) when the native SM-20 grade scale is active. */
+  onSelectRating: (rating: ReviewRating, grade?: number) => void;
   disabled?: boolean;
   previewIntervals?: PreviewIntervals | null;
+  /** Render the algorithm's native 0-5 grade scale (SM-20) instead of the
+   * 4-button Anki-style scale. */
+  gradeScale?: boolean;
 }
+
+/** SM-20 native grades: 0-2 are fail variants, 3-5 are pass variants. Each
+ * carries the equivalent 4-button rating used for stats/history. */
+const GRADE_BUTTONS: {
+  grade: number;
+  rating: ReviewRating;
+  labelKey: string;
+  descriptionKey: string;
+  icon: typeof ArrowCounterClockwise;
+  color: string;
+}[] = [
+  {
+    grade: 0,
+    rating: 1,
+    labelKey: "review.grade0",
+    descriptionKey: "ratingButtons.grade0Description",
+    icon: Prohibit,
+    color: "bg-red-700 hover:bg-red-800",
+  },
+  {
+    grade: 1,
+    rating: 1,
+    labelKey: "review.grade1",
+    descriptionKey: "ratingButtons.grade1Description",
+    icon: X,
+    color: "bg-red-500 hover:bg-red-600",
+  },
+  {
+    grade: 2,
+    rating: 1,
+    labelKey: "review.grade2",
+    descriptionKey: "ratingButtons.grade2Description",
+    icon: ArrowCounterClockwise,
+    color: "bg-orange-500 hover:bg-orange-600",
+  },
+  {
+    grade: 3,
+    rating: 2,
+    labelKey: "review.grade3",
+    descriptionKey: "ratingButtons.grade3Description",
+    icon: ThumbsDown,
+    color: "bg-amber-500 hover:bg-amber-600",
+  },
+  {
+    grade: 4,
+    rating: 3,
+    labelKey: "review.grade4",
+    descriptionKey: "ratingButtons.grade4Description",
+    icon: ThumbsUp,
+    color: "bg-blue-500 hover:bg-blue-600",
+  },
+  {
+    grade: 5,
+    rating: 4,
+    labelKey: "review.grade5",
+    descriptionKey: "ratingButtons.grade5Description",
+    icon: Lightning,
+    color: "bg-green-500 hover:bg-green-600",
+  },
+];
+
+const BUTTON_CLASS = `
+  text-white rounded-lg transition-all
+  hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+  flex items-center justify-center gap-1 md:flex-col md:gap-2
+  px-1 py-2 md:px-2 md:py-3 md:min-h-[100px]
+  touch-manipulation
+  focus-visible:ring-4 focus-visible:ring-white/50 focus-visible:outline-none
+  focus-visible:scale-[1.02]
+`;
 
 export function RatingButtons({
   onSelectRating,
   disabled = false,
   previewIntervals,
+  gradeScale = false,
 }: RatingButtonsProps) {
   const { t } = useI18n();
+
+  if (gradeScale) {
+    return (
+      <div className="w-full max-w-2xl mx-auto">
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-1.5 md:gap-2">
+          {GRADE_BUTTONS.map((entry) => {
+            const Icon = entry.icon;
+            const label = t(entry.labelKey);
+            const description = t(entry.descriptionKey);
+            const interval = previewIntervals?.grade_intervals?.[entry.grade] != null
+              ? formatInterval(previewIntervals.grade_intervals[entry.grade])
+              : null;
+
+            return (
+              <button
+                key={entry.grade}
+                onClick={() => onSelectRating(entry.rating, entry.grade)}
+                disabled={disabled}
+                aria-keyshortcuts={String(entry.grade)}
+                className={`${entry.color} ${BUTTON_CLASS}`}
+                title={t("ratingButtons.rateAsTitle", { label: `${entry.grade} — ${label}`, description })}
+                aria-label={
+                  interval
+                    ? t("ratingButtons.rateAsWithInterval", {
+                        label: `${entry.grade} — ${label}`,
+                        description,
+                        interval,
+                      })
+                    : t("ratingButtons.rateAs", { label: `${entry.grade} — ${label}`, description })
+                }
+              >
+                <Icon className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0" aria-hidden="true" />
+                <span className="font-semibold text-xs md:text-sm leading-tight">
+                  {entry.grade} {label}
+                </span>
+                {interval && (
+                  <span
+                    className="text-[9px] md:text-xs opacity-90 md:mt-0 leading-tight"
+                    aria-label={t("ratingButtons.nextReviewIn", { interval })}
+                  >
+                    {interval}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Keyboard shortcuts hint - hide on mobile */}
+        <div className="mt-3 md:mt-4 text-center text-sm text-muted-foreground hidden md:block">
+          {t("ratingButtons.press")}{" "}
+          {GRADE_BUTTONS.map((entry) => (
+            <kbd
+              key={entry.grade}
+              className="px-1.5 py-0.5 bg-muted rounded text-xs ml-1 first:ml-0"
+            >
+              {entry.grade}
+            </kbd>
+          ))}
+          {" "}{t("ratingButtons.toRate")}
+        </div>
+      </div>
+    );
+  }
+
   const ratings: {
     value: ReviewRating;
     label: string;
@@ -81,16 +223,7 @@ export function RatingButtons({
               onClick={() => onSelectRating(rating.value)}
               disabled={disabled}
               aria-keyshortcuts={String(rating.value)}
-              className={`
-                ${rating.color}
-                text-white rounded-lg transition-all
-                hover:shadow-lg hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
-                flex items-center justify-center gap-1 md:flex-col md:gap-2
-                px-1 py-2 md:px-4 md:py-3 md:min-h-[100px]
-                touch-manipulation
-                focus-visible:ring-4 focus-visible:ring-white/50 focus-visible:outline-none
-                focus-visible:scale-[1.02]
-              `}
+              className={`${rating.color} ${BUTTON_CLASS} md:px-4`}
               title={t("ratingButtons.rateAsTitle", { label: rating.label, description: rating.description })}
               aria-label={
                 interval

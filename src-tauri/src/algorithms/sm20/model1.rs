@@ -10,19 +10,31 @@ use serde::{Deserialize, Serialize};
 const TARGET_R: f64 = 0.9;
 
 /// The two fields read from the most recent replay record.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct M1HistoryPoint {
     pub factor: f64,
     pub stability: f64,
 }
 
+impl Default for M1HistoryPoint {
+    fn default() -> Self {
+        Self { factor: 2.5, stability: 1.0 }
+    }
+}
+
 /// Per-item state for M1.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct M1ItemState {
     pub last_review_day: i32,
     pub previous_interval: i32,
     pub repetitions: u32,
     pub lapses: u32,
+}
+
+impl Default for M1ItemState {
+    fn default() -> Self {
+        Self { last_review_day: -1, previous_interval: 0, repetitions: 0, lapses: 0 }
+    }
 }
 
 /// Result of an M1 review.

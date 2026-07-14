@@ -127,7 +127,9 @@ interface ReviewState {
   loadStreak: () => Promise<void>;
   showAnswer: () => void;
   hideAnswer: () => void;
-  submitRating: (rating: ReviewRating) => Promise<void>;
+  /** Submit a review. `grade` is the native SM-20 grade (0-5) when the native
+   * grading scale is active; the rating is still passed for stats/history. */
+  submitRating: (rating: ReviewRating, grade?: number) => Promise<void>;
   loadPreviewIntervals: () => Promise<void>;
   nextCard: () => void;
   goToIndex: (index: number) => void;
@@ -346,7 +348,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     set({ isAnswerShown: false });
   },
 
-  submitRating: async (rating: ReviewRating) => {
+  submitRating: async (rating: ReviewRating, grade?: number) => {
     const {
       currentCard,
       reviewsCompleted,
@@ -362,7 +364,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     set({ isSubmitting: true, error: null });
 
     // Optimistically advance to keep the review flow moving.
-    const newCorrectCount = rating >= 3 ? correctCount + 1 : correctCount;
+    // With a native grade, pass = grade >= 3 (SM 0-5 scale).
+    const wasCorrect = grade != null ? grade >= 3 : rating >= 3;
+    const newCorrectCount = wasCorrect ? correctCount + 1 : correctCount;
     const newReviewsCompleted = reviewsCompleted + 1;
     const newAverageTime = (reviewsCompleted * (get().averageTimePerCard || 0) + timeTaken) / (reviewsCompleted + 1);
       const { queue, currentIndex } = get();
@@ -488,6 +492,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
           fsrsWeights: fsrsParams.personalizedWeights,
           algorithm: settings.learning.algorithm,
           noScheduleUpdate: false,
+          grade,
         });
       }
       lastUndoSnapshot = snapshot;

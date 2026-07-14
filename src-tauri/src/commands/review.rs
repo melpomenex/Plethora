@@ -232,11 +232,13 @@ pub async fn submit_review(
     fsrs_weights: Option<Vec<f32>>,
     algorithm: Option<String>,
     no_schedule_update: Option<bool>,
+    grade: Option<i32>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
     tracing::info!(
         item_id = %item_id,
         rating,
+        grade = grade.map(|g| g.to_string()).unwrap_or_default(),
         time_taken,
         session_id = session_id.as_deref().unwrap_or(""),
         algorithm = algorithm.as_deref().unwrap_or("fsrs"),
@@ -252,12 +254,17 @@ pub async fn submit_review(
         fsrs_weights.as_deref(),
         no_schedule_update.unwrap_or(false),
         algorithm.as_deref(),
+        grade,
     )
     .await
 }
 
 /// Main review dispatcher — routes to the correct algorithm based on the caller's algorithm parameter,
 /// falling back to the item's stored algorithm_type.
+///
+/// `native_grade` is an optional SM-20 grade (0-5, SuperMemo scale) used only
+/// by the SM-20 path; when present it bypasses the 4-button rating→grade
+/// mapping so the UI can offer the algorithm's native grading scale.
 #[allow(clippy::too_many_arguments)]
 pub async fn apply_review(
     repo: &Repository,
@@ -269,6 +276,7 @@ pub async fn apply_review(
     fsrs_weights: Option<&[f32]>,
     no_schedule_update: bool,
     algorithm: Option<&str>,
+    native_grade: Option<i32>,
 ) -> Result<LearningItem> {
     let mut item = repo.get_learning_item(item_id).await?.ok_or_else(|| {
         crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
@@ -315,14 +323,18 @@ pub async fn apply_review(
             apply_sm18_review(&mut item, review_rating, now)?;
         }
         AlgorithmType::Sm20 => {
-            apply_sm20_review(&mut item, review_rating, now, repo).await?;
+            apply_sm20_review(&mut item, review_rating, native_grade, now, repo).await?;
         }
     }
 
     repo.update_learning_item(&item).await?;
 
-    // Track review statistics
-    let was_correct = rating >= 3; // Good/Easy are correct
+    // Track review statistics. With a native SM-20 grade, pass = grade >= 3;
+    // otherwise keep the 4-button convention (Good/Easy are correct).
+    let was_correct = match native_grade {
+        Some(g) => g >= 3,
+        None => rating >= 3,
+    };
 
     let review_result_id = uuid::Uuid::new_v4().to_string();
     repo.create_review_result(
@@ -648,12 +660,14 @@ fn apply_sm18_review(
 ) -> Result<()> {
     use crate::algorithms::sm18::{SM18Algorithm, SM18State};
 
-    // SM-18 grades: 0-2 = failure, 3 = good, 4 = easy, 5 = perfect
+    // SM-18 grades: 0-2 = failure, 3-5 = pass (SUCCESS_GRADE = 3). Hard must
+    // map to 3 — the old Hard→2 made every Hard press a lapse (identical to
+    // Again: lapses += 1, item into Relearning).
     let grade = match review_rating {
         ReviewRating::Again => 0,
-        ReviewRating::Hard => 2, // Treat as "pass with difficulty" (closest SM-18 mapping)
-        ReviewRating::Good => 3,
-        ReviewRating::Easy => 5,
+        ReviewRating::Hard => 3,  // pass with serious difficulty (grade-R 0.90)
+        ReviewRating::Good => 4,  // pass after hesitation (grade-R 0.95)
+        ReviewRating::Easy => 5,  // perfect recall (grade-R 0.99)
     };
 
     let mut state: SM18State = item
@@ -707,32 +721,66 @@ fn parse_sm20_state(item: &LearningItem) -> SM20State {
         .as_deref()
         .and_then(|state| serde_json::from_str::<SM20State>(state).ok())
         .unwrap_or_else(|| {
+            let stability = item
+                .memory_state
+                .as_ref()
+                .map(|ms| ms.stability)
+                .unwrap_or(1.0)
+                .max(1.0);
+            // Coerce the stale/foreign memory_state difficulty into SM-20's [0,1]
+            // range. D=0.0 is out-of-distribution for the M3 matrix: the d_index=1
+            // bucket collapses the pass-branch interval below the fail-branch,
+            // producing an inverted preview (fail>pass) for imported .apkg cards
+            // whose FSRS memory_state.difficulty is zeroed on import. Fall back to
+            // the SM-20 default (0.3) whenever the stored value is not a sane,
+            // interior difficulty.
+            let difficulty = item
+                .memory_state
+                .as_ref()
+                .map(|ms| ms.difficulty)
+                .unwrap_or(0.3)
+                .clamp(0.0, 1.0);
+            let difficulty = if (0.05..=0.95).contains(&difficulty) {
+                difficulty
+            } else {
+                SM20State::default().difficulty
+            };
             #[allow(deprecated)]
             let default = SM20State {
-                // version and algorithm_branch are deprecated/ignored by the
-                // scheduler; use SM20State::default values (which set version=4).
-                // They remain in the struct only for backward-compatible serde.
-                stability: item
-                    .memory_state
-                    .as_ref()
-                    .map(|ms| ms.stability)
-                    .unwrap_or(1.0)
-                    .max(1.0),
-                difficulty: item
-                    .memory_state
-                    .as_ref()
-                    .map(|ms| ms.difficulty)
-                    .unwrap_or(0.3)
-                    .clamp(0.0, 1.0),
+                stability,
+                difficulty,
                 repetition: item.review_count.max(0) as u32,
                 lapses: item.lapses.max(0) as u32,
                 interval: item.interval.max(1.0),
-                retrov: item
-                    .memory_state
-                    .as_ref()
-                    .map(|ms| ms.difficulty)
-                    .unwrap_or(0.3)
-                    .clamp(0.0, 1.0),
+                retrov: difficulty,
+                // Initialize M1/M2/M3 sub-states from the item's actual DSR data
+                // so the ensemble produces correct intervals for imported items
+                // that don't have persisted SM-20 state yet.
+                m1_state: crate::algorithms::sm20::model1::M1ItemState {
+                    last_review_day: -1,
+                    previous_interval: item.interval.max(1.0) as i32,
+                    repetitions: item.review_count.max(0) as u32,
+                    lapses: item.lapses.max(0) as u32,
+                },
+                m2_state: crate::algorithms::sm20::model2::M2ItemState {
+                    last_review_day: -1,
+                    previous_interval: item.interval.max(1.0) as i32,
+                    repetitions: item.review_count.max(0) as u32,
+                    lapses: item.lapses.max(0) as u32,
+                    a_factor: 3.0,
+                    u_factor: 1.0,
+                },
+                m3_state: crate::algorithms::sm20::model3::M3ItemState {
+                    last_review_day: -1,
+                    previous_interval: item.interval.max(1.0) as i32,
+                    repetitions: item.review_count.max(0) as u32,
+                    lapses: item.lapses.max(0) as u32,
+                    stability,
+                    difficulty,
+                    previous_stability: -1.0,
+                    previous_stability_index: 0,
+                    previous_r_index: 0,
+                },
                 ..Default::default()
             };
             default
@@ -742,10 +790,17 @@ fn parse_sm20_state(item: &LearningItem) -> SM20State {
 async fn apply_sm20_review(
     item: &mut LearningItem,
     review_rating: ReviewRating,
+    native_grade: Option<i32>,
     now: chrono::DateTime<Utc>,
     repo: &Repository,
 ) -> Result<()> {
     use crate::algorithms::sm20::{SM20CollectionState, DEFAULT_FI};
+
+    // Native SM-20 grade (0-5) when the UI offers the native scale; otherwise
+    // map the 4-button rating (Again→0, Hard→3, Good→4, Easy→5).
+    let grade = native_grade
+        .map(|g| g.clamp(0, 5))
+        .unwrap_or_else(|| sm20::rating_to_grade(review_rating as i32));
 
     let state = parse_sm20_state(item);
     let elapsed_days = item
@@ -773,7 +828,7 @@ async fn apply_sm20_review(
 
     let response = sm20::review(
         &state,
-        review_rating as i32,
+        grade,
         elapsed_days,
         fi,
         &mut collection,
@@ -803,7 +858,8 @@ async fn apply_sm20_review(
     });
     item.difficulty = (response.state.difficulty * 10.0).round() as i32;
 
-    if review_rating == ReviewRating::Again {
+    // Grades 0-2 are fails on the SM-20 scale → the item lapses into relearning.
+    if grade < 3 {
         item.state = ItemState::Relearning;
     } else if response.interval_days >= GRADUATION_INTERVAL_DAYS {
         item.state = ItemState::Review;
@@ -940,17 +996,23 @@ pub async fn preview_review_intervals(
             m3_matrices: repo.get_sm20_m3_matrices().await?.unwrap_or_default(),
         };
         let today = now.timestamp() as i32 / 86400;
-        let mut rng = rand::rngs::StdRng::from_entropy();
-        let preview = sm20::preview(
+        // Fixed seed: previews must be reproducible across fetches. The rng is
+        // only consumed by M2's probabilistic tail-fix during scratch replay
+        // (finalization is deterministic in preview) — mirrors the reference
+        // implementation's seeded default.
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let grades = sm20::preview_grades(
             &state, elapsed_days, crate::algorithms::sm20::DEFAULT_FI,
             &collection, today, &mut rng,
         );
 
         return Ok(PreviewIntervals {
-            again: preview.again,
-            hard: preview.hard,
-            good: preview.good,
-            easy: preview.easy,
+            again: grades[sm20::rating_to_grade(1) as usize],
+            hard: grades[sm20::rating_to_grade(2) as usize],
+            good: grades[sm20::rating_to_grade(3) as usize],
+            easy: grades[sm20::rating_to_grade(4) as usize],
+            // Native 0-5 grade previews — lets the UI render SM-20's own scale.
+            grade_intervals: Some(grades.to_vec()),
         });
     }
 
@@ -959,8 +1021,9 @@ pub async fn preview_review_intervals(
             crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
         })?;
 
-        use crate::algorithms::supermemo::{SM18Algorithm, SM18State};
-        let sm18 = SM18Algorithm::new();
+        // Use the SAME engine and state source as apply_sm18_review so the
+        // transparency panel shows what a review would actually do.
+        use crate::algorithms::sm18::{SM18Algorithm, SM18State};
         let now = Utc::now();
         let elapsed_days = item
             .last_review_date
@@ -968,26 +1031,11 @@ pub async fn preview_review_intervals(
             .unwrap_or(0.0)
             .max(0.0);
 
-        let sm18_state = SM18State {
-            stability: item
-                .memory_state
-                .as_ref()
-                .map(|ms| ms.stability)
-                .unwrap_or(0.0),
-            difficulty: item
-                .memory_state
-                .as_ref()
-                .map(|ms| ms.difficulty)
-                .unwrap_or(0.5),
-            interval: item.interval,
-            repetition: item.review_count as u32,
-            lapses: item.lapses as u32,
-        };
-
-        let again = sm18.review(&sm18_state, ReviewRating::Again, elapsed_days);
-        let hard = sm18.review(&sm18_state, ReviewRating::Hard, elapsed_days);
-        let good = sm18.review(&sm18_state, ReviewRating::Good, elapsed_days);
-        let easy = sm18.review(&sm18_state, ReviewRating::Easy, elapsed_days);
+        let base_state: SM18State = item
+            .algorithm_state
+            .as_ref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
 
         let normalize = |interval: f64| {
             if !interval.is_finite() || interval <= 0.0 {
@@ -997,11 +1045,24 @@ pub async fn preview_review_intervals(
             }
         };
 
+        // Simulate every native SM-18 grade (0-2 fail, 3-5 pass) on a scratch
+        // copy of the state.
+        let grade_intervals: Vec<f64> = (0..=5)
+            .map(|grade| {
+                let mut scratch = base_state.clone();
+                let result = SM18Algorithm::review_default(&mut scratch, grade, elapsed_days);
+                normalize(result.new_interval)
+            })
+            .collect();
+
+        // 4-button fields use the same rating→grade mapping as apply_sm18_review
+        // (Again→0, Hard→3, Good→4, Easy→5).
         return Ok(PreviewIntervals {
-            again: normalize(again.interval_days),
-            hard: normalize(hard.interval_days),
-            good: normalize(good.interval_days),
-            easy: normalize(easy.interval_days),
+            again: grade_intervals[0],
+            hard: grade_intervals[3],
+            good: grade_intervals[4],
+            easy: grade_intervals[5],
+            grade_intervals: Some(grade_intervals),
         });
     }
 
@@ -1057,6 +1118,7 @@ pub async fn preview_review_intervals(
         hard: normalize(next_states.hard.interval as f64, ReviewRating::Hard),
         good: normalize(next_states.good.interval as f64, ReviewRating::Good),
         easy: normalize(next_states.easy.interval as f64, ReviewRating::Easy),
+        grade_intervals: None,
     })
 }
 
@@ -1067,6 +1129,10 @@ pub struct PreviewIntervals {
     pub hard: f64,
     pub good: f64,
     pub easy: f64,
+    /// Native per-grade intervals (index = grade 0-5). Only present for
+    /// algorithms with a native grade scale (currently SM-20).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grade_intervals: Option<Vec<f64>>,
 }
 
 /// Get all review sessions for a specific collection
@@ -1262,5 +1328,74 @@ mod tests {
     fn test_algorithm_type_unknown_defaults_to_fsrs() {
         let algo = AlgorithmType::from_str_lossy("unknown_algo");
         assert_eq!(algo.as_str(), "fsrs");
+    }
+
+    /// An imported .apkg card lands with a zeroed FSRS memory_state
+    /// (`stability=0, difficulty=0`). When the user's active algorithm is
+    /// SM-20, `parse_sm20_state` must NOT pass that degenerate difficulty
+    /// through to the ensemble: D=0.0 maps to the M3 matrix's edge bucket,
+    /// whose trained data collapses the pass-branch interval below the
+    /// fail-branch (inverted preview: fail > pass). The fallback must coerce
+    /// out-of-range difficulties to the SM-20 default.
+    #[test]
+    fn parse_sm20_state_coerces_degenerate_difficulty() {
+        use crate::models::ItemType;
+        let mut item = LearningItem {
+            id: "test".into(),
+            collection_id: crate::models::collection::DEFAULT_COLLECTION_ID.into(),
+            extract_id: None,
+            document_id: None,
+            item_type: ItemType::Flashcard,
+            question: "q".into(),
+            answer: Some("a".into()),
+            cloze_text: None,
+            cloze_ranges: None,
+            difficulty: 3,
+            interval: 0.0,
+            ease_factor: 2.5,
+            due_date: Utc::now(),
+            date_created: Utc::now(),
+            date_modified: Utc::now(),
+            last_review_date: None,
+            review_count: 0,
+            lapses: 0,
+            state: ItemState::New,
+            is_suspended: false,
+            tags: vec![],
+            image_asset_ids: vec![],
+            interaction_metadata: None,
+            memory_state: Some(MemoryState { stability: 0.0, difficulty: 0.0 }),
+            algorithm_type: "fsrs".into(),
+            algorithm_state: None, // no persisted SM-20 state → fallback branch
+            updated_at: None,
+        };
+
+        // D=0.0 must be coerced away from the degenerate edge bucket.
+        let state = parse_sm20_state(&item);
+        assert!(
+            (0.05..=0.95).contains(&state.difficulty),
+            "degenerate D=0.0 should be coerced, got {}",
+            state.difficulty
+        );
+        assert!(
+            state.stability >= 1.0,
+            "stability should be floored to 1.0, got {}",
+            state.stability
+        );
+
+        // A sane interior difficulty passes through unchanged.
+        item.memory_state = Some(MemoryState { stability: 5.0, difficulty: 0.4 });
+        let state = parse_sm20_state(&item);
+        assert!((state.difficulty - 0.4).abs() < 1e-9);
+        assert!((state.stability - 5.0).abs() < 1e-9);
+
+        // D=1.0 (the other edge) is also coerced.
+        item.memory_state = Some(MemoryState { stability: 3.0, difficulty: 1.0 });
+        let state = parse_sm20_state(&item);
+        assert!(
+            (0.05..=0.95).contains(&state.difficulty),
+            "degenerate D=1.0 should be coerced, got {}",
+            state.difficulty
+        );
     }
 }

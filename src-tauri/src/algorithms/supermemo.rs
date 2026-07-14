@@ -455,15 +455,20 @@ impl SM18Algorithm {
 
     /// Map app `ReviewRating` to SM-18 grade (0–5).
     ///
+    /// On the SuperMemo 0-5 scale, grades 0-2 are fails and 3-5 are passes
+    /// (`SUCCESS_GRADE = 3`), so Hard must map to 3 to be a pass:
     /// - Again → 0 (failure / lapse)
-    /// - Hard  → 2 (success, low grade)
-    /// - Good  → 3 (success, normal)
-    /// - Easy  → 5 (success, high grade)
+    /// - Hard  → 3 (success, serious difficulty; grade-R 0.90)
+    /// - Good  → 4 (success, normal; grade-R 0.95)
+    /// - Easy  → 5 (success, high grade; grade-R 0.99)
+    ///
+    /// (The old mapping sent Hard to grade 2, which took the lapse path —
+    /// identical to Again.)
     pub fn rating_to_grade(rating: ReviewRating) -> i32 {
         match rating {
             ReviewRating::Again => 0,
-            ReviewRating::Hard => 2,
-            ReviewRating::Good => 3,
+            ReviewRating::Hard => 3,
+            ReviewRating::Good => 4,
             ReviewRating::Easy => 5,
         }
     }
@@ -726,9 +731,10 @@ mod tests {
 
     #[test]
     fn test_sm18_rating_mapping() {
+        // Grades 0-2 are fails, 3-5 passes (SUCCESS_GRADE = 3): Hard is a pass.
         assert_eq!(SM18Algorithm::rating_to_grade(ReviewRating::Again), 0);
-        assert_eq!(SM18Algorithm::rating_to_grade(ReviewRating::Hard), 2);
-        assert_eq!(SM18Algorithm::rating_to_grade(ReviewRating::Good), 3);
+        assert_eq!(SM18Algorithm::rating_to_grade(ReviewRating::Hard), 3);
+        assert_eq!(SM18Algorithm::rating_to_grade(ReviewRating::Good), 4);
         assert_eq!(SM18Algorithm::rating_to_grade(ReviewRating::Easy), 5);
     }
 

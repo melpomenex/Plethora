@@ -207,16 +207,21 @@ pub fn recall_retrievability_to_bucket(value: f64) -> u8 {
 
 /// Map the app's 4-button rating to the SM-20 0-5 grade scale.
 ///
-/// Follows the same pattern as SM-18:
+/// In SuperMemo's scale, grades 0-2 are FAIL variants and 3-5 are PASS
+/// variants — every model in this module branches on `grade >= 3`. The
+/// canonical Anki-buttons ↔ SM-grades mapping is therefore:
 /// - Again → 0 (complete lapse)
-/// - Hard → 2 (pass with difficulty)
-/// - Good → 3 (standard pass)
+/// - Hard → 3 (pass with serious difficulty)
+/// - Good → 4 (pass after hesitation)
 /// - Easy → 5 (perfect recall)
+///
+/// (The old mapping sent Hard to grade 2, which made Hard a *lapse* —
+/// indistinguishable from Again in all five models.)
 pub fn rating_to_grade(rating: i32) -> i32 {
     match rating {
         1 => 0, // Again
-        2 => 2, // Hard
-        3 => 3, // Good
+        2 => 3, // Hard
+        3 => 4, // Good
         4 => 5, // Easy
         _ => rating.clamp(0, 5),
     }
@@ -227,6 +232,9 @@ pub fn rating_to_grade(rating: i32) -> i32 {
 // =============================================================================
 
 /// Run one review through the full SM-20 5-model ensemble pipeline.
+///
+/// Takes a native SM-20 `grade` (0-5; 0-2 fail, 3-5 pass). Callers holding a
+/// 4-button rating map it first via [`rating_to_grade`].
 ///
 /// This is the production review path. It:
 /// 1. Computes M4 (FSRS kernel) and M5 (analytic) — both stateless, always fresh
@@ -239,10 +247,12 @@ pub fn rating_to_grade(rating: i32) -> i32 {
 ///
 /// For `preview()` (showing the user what each button will give), use
 /// `commit=false` — this runs all models in scratch mode without mutating
-/// collection state.
+/// collection state. When `disperse` is false the result is fully
+/// deterministic: the rng is withheld from finalization so neither dispersal
+/// nor the post-lapse jitter fires (previews must not re-roll on every fetch).
 pub fn review(
     state: &SM20State,
-    rating: i32,
+    grade: i32,
     elapsed_days: f64,
     fi: u8,
     collection: &mut SM20CollectionState,
@@ -251,7 +261,7 @@ pub fn review(
     disperse: bool,
     rng: &mut impl rand::Rng,
 ) -> SM20ReviewResult {
-    let grade = rating_to_grade(rating);
+    let grade = grade.clamp(0, 5);
     let t = elapsed_days;
     let s = state.stability;
     let d = state.difficulty;
@@ -294,12 +304,26 @@ pub fn review(
     let ensemble_val = ensemble_stability(m1, m2, m3, m4, m5);
 
     // --- Determine post-lapse mode ---
-    // Post-lapse path: item[+0xb9] != 0 && item[+0xb7] == 1
-    // In our state model: grade < 3 means lapse → post-lapse path
-    let post_lapse_mode = grade < 3;
+    // In the binary: item[+0xb9] != 0 && item[+0xb7] == 1
+    // This means: the item is in relearning (b9 = lapse count from last review)
+    // AND this is the first repetition after the lapse (b7 == 1).
+    // We approximate this: post-lapse only when the item has 0 repetitions
+    // (i.e., it was just lapsed and is being re-reviewed for the first time).
+    // A fail grade (0-2) on an established item does NOT trigger post-lapse.
+    let post_lapse_mode = grade < 3 && state.repetition == 0;
 
     // --- Finalize ---
-    let fin = finalize(ensemble_val, fi, post_lapse_mode, 0.0, disperse, Some(rng));
+    // Only hand the rng to finalization on the stochastic (committed) path.
+    // Previews call with disperse=false and must stay deterministic — the
+    // post-lapse jitter would otherwise re-roll the shown interval every fetch.
+    let fin = finalize(
+        ensemble_val,
+        fi,
+        post_lapse_mode,
+        0.0,
+        disperse,
+        if disperse { Some(rng) } else { None },
+    );
 
     // --- Write back previous_interval for stateful models ---
     let final_interval = fin.interval;
@@ -367,23 +391,40 @@ pub fn preview(
     today: i32,
     rng: &mut impl rand::Rng,
 ) -> SM20PreviewIntervals {
+    let grades = preview_grades(state, elapsed_days, fi, collection, today, rng);
+    SM20PreviewIntervals {
+        again: grades[rating_to_grade(1) as usize],
+        hard: grades[rating_to_grade(2) as usize],
+        good: grades[rating_to_grade(3) as usize],
+        easy: grades[rating_to_grade(4) as usize],
+    }
+}
+
+/// Preview intervals for every native SM-20 grade 0-5 (deterministic).
+///
+/// Returns `[interval_for_grade_0, ..., interval_for_grade_5]` in days. Runs
+/// the full ensemble in scratch mode (`commit=false`) for each grade.
+pub fn preview_grades(
+    state: &SM20State,
+    elapsed_days: f64,
+    fi: u8,
+    collection: &SM20CollectionState,
+    today: i32,
+    rng: &mut impl rand::Rng,
+) -> [f64; 6] {
     // Clone collection state so we don't mutate it during preview
     let mut coll = SM20CollectionState {
         m2_optimizer: collection.m2_optimizer.clone(),
         m3_matrices: collection.m3_matrices.clone(),
     };
 
-    let again = review(state, 1, elapsed_days, fi, &mut coll, today, false, false, rng).interval_days;
-    let hard = review(state, 2, elapsed_days, fi, &mut coll, today, false, false, rng).interval_days;
-    let good = review(state, 3, elapsed_days, fi, &mut coll, today, false, false, rng).interval_days;
-    let easy = review(state, 4, elapsed_days, fi, &mut coll, today, false, false, rng).interval_days;
-
-    SM20PreviewIntervals {
-        again,
-        hard,
-        good,
-        easy,
+    let mut out = [0.0f64; 6];
+    for grade in 0..6 {
+        out[grade as usize] =
+            review(state, grade, elapsed_days, fi, &mut coll, today, false, false, rng)
+                .interval_days;
     }
+    out
 }
 
 /// Initialize a new SM-20 item for the given grade. `[C][BIN]`
