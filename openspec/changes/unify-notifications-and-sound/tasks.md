@@ -130,7 +130,7 @@ tests) already exists — build on it, do not regenerate it.
   plus the existing review/queue suites
   (`src/components/review/__tests__/queueActions.test.ts`,
   `src/utils/__tests__/reviewUx.test.ts`, `src/utils/__tests__/soundService.test.ts`).
-- [ ] 6.2 Manual matrix (record results in the PR/commit description):
+- [x] 6.2 Manual matrix (record results in the PR/commit description):
   - Tauri desktop: foreground toast-only; minimized → native notification
     (reminder + focus timer); permission prompt via Settings only.
   - Desktop browser: granted/denied/unsupported paths; hidden-tab notification;
