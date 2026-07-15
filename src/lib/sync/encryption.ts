@@ -100,15 +100,10 @@ async function deriveRoomKeyViaWorker(
   roomSecret: string,
   roomId: string,
 ): Promise<Uint8Array> {
-  const WorkerCtor =
-    typeof Worker !== 'undefined'
-      ? Worker
-      : null;
-
-  if (!WorkerCtor) {
-    // Vitest/jsdom has no module Worker. Keep the production contract (no
-    // main-thread Argon2 fallback) while allowing deterministic crypto unit
-    // tests to exercise the AES/HKDF layer in a workerless harness.
+  // Vitest/jsdom has no module Worker. Keep the production contract (no
+  // main-thread Argon2 fallback) while allowing deterministic crypto unit
+  // tests to exercise the AES/HKDF layer in a workerless harness.
+  if (typeof Worker === 'undefined') {
     if (import.meta.env.MODE === 'test') {
       const digest = await crypto.subtle.digest(
         'SHA-256',
@@ -119,7 +114,15 @@ async function deriveRoomKeyViaWorker(
     throw new Error('Worker API unavailable');
   }
 
-  const worker = new WorkerCtor(
+  // IMPORTANT: use the literal `new Worker(new URL(...), { type: 'module' })`
+  // form. Vite detects module workers via static AST analysis keyed on this
+  // exact pattern; routing through a variable (`new WorkerCtor(...)`) defeats
+  // that detection, so Vite never emits the worker as a compiled asset and
+  // instead inlines the raw `.ts` source as a base64 data URL. The browser
+  // then receives uncompiled TypeScript (bare `import "hash-wasm"` specifier,
+  // type annotations) as the worker script, which fails to parse and crashes
+  // the worker. See the other workers in src/workers/ for the working form.
+  const worker = new Worker(
     new URL('./argon2id.worker.ts', import.meta.url),
     { type: 'module' },
   );
