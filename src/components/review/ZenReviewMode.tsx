@@ -30,6 +30,7 @@ import { useRatingJoystick } from "../../hooks/useRatingJoystick";
 import { useSwipeGesture } from "../../hooks/useSwipeGesture";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { RatingJoystick } from "./RatingJoystick";
+import { X } from "@phosphor-icons/react";
 
 interface ZenReviewModeProps {
   onExit: () => void;
@@ -283,10 +284,8 @@ function ContextPeek({
 }
 
 // Session timer - subtle fade when inactive
-function SessionTimer({ startTime }: { startTime: number }) {
+function SessionTimer({ startTime, isVisible }: { startTime: number; isVisible: boolean }) {
   const [elapsed, setElapsed] = useState(0);
-  const [isVisible, setIsVisible] = useState(true);
-  const fadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   useEffect(() => {
     const interval = setInterval(() => {
@@ -295,33 +294,14 @@ function SessionTimer({ startTime }: { startTime: number }) {
     return () => clearInterval(interval);
   }, [startTime]);
   
-  // Fade out after inactivity
-  useEffect(() => {
-    const handleActivity = () => {
-      setIsVisible(true);
-      if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
-      fadeTimeoutRef.current = setTimeout(() => setIsVisible(false), 3000);
-    };
-    
-    window.addEventListener("mousemove", handleActivity);
-    window.addEventListener("keydown", handleActivity);
-    fadeTimeoutRef.current = setTimeout(() => setIsVisible(false), 3000);
-    
-    return () => {
-      window.removeEventListener("mousemove", handleActivity);
-      window.removeEventListener("keydown", handleActivity);
-      if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
-    };
-  }, []);
-  
   const minutes = Math.floor(elapsed / 60);
   const seconds = elapsed % 60;
   
   return (
     <div 
       className={cn(
-        "fixed top-4 left-1/2 -translate-x-1/2 text-xs font-mono text-muted-foreground/30 transition-opacity duration-500",
-        !isVisible && "opacity-0"
+        "fixed top-4 left-1/2 -translate-x-1/2 text-xs font-mono text-muted-foreground/30 transition-all duration-300 pointer-events-none",
+        isVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"
       )}
     >
       {minutes.toString().padStart(2, "0")}:{seconds.toString().padStart(2, "0")}
@@ -359,6 +339,40 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
   const isTouch = formFactor === "phone" || formFactor === "tablet";
   const useJoystick = useNativeGrades && isTouch;
   const haptic = useHapticFeedback();
+
+  // Controls visibility state
+  const [areControlsVisible, setAreControlsVisible] = useState(true);
+  const fadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const resetControlsTimeout = useCallback(() => {
+    setAreControlsVisible(true);
+    if (fadeTimeoutRef.current) {
+      clearTimeout(fadeTimeoutRef.current);
+    }
+    fadeTimeoutRef.current = setTimeout(() => {
+      setAreControlsVisible(false);
+    }, 3000);
+  }, []);
+
+  useEffect(() => {
+    const handleActivity = () => {
+      resetControlsTimeout();
+    };
+    window.addEventListener("mousemove", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    window.addEventListener("touchstart", handleActivity, { passive: true });
+    
+    resetControlsTimeout();
+    
+    return () => {
+      window.removeEventListener("mousemove", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+      window.removeEventListener("touchstart", handleActivity);
+      if (fadeTimeoutRef.current) {
+        clearTimeout(fadeTimeoutRef.current);
+      }
+    };
+  }, [resetControlsTimeout]);
 
   // Keep latest state in refs so the gesture callbacks (registered once)
   // always see current values without re-binding listeners every render.
@@ -553,8 +567,20 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
 
   return (
     <div ref={containerRef} className="h-full flex flex-col items-center justify-center p-8 md:p-16 relative">
+      {/* Exit Button */}
+      <button
+        onClick={onExit}
+        className={cn(
+          "fixed top-4 left-4 z-50 p-2 rounded-full border border-border/30 bg-background/60 hover:bg-muted/80 backdrop-blur-sm text-muted-foreground/60 hover:text-foreground transition-all duration-300 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer",
+          areControlsVisible ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
+        )}
+        title={t("zenReview.exit")}
+      >
+        <X className="w-5 h-5" />
+      </button>
+
       {/* Session Timer */}
-      {sessionStartTime && <SessionTimer startTime={sessionStartTime} />}
+      {sessionStartTime && <SessionTimer startTime={sessionStartTime} isVisible={areControlsVisible} />}
 
       {/* Card Content */}
       <div
@@ -599,7 +625,12 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
       />
       
       {/* Progress indicator - ultra subtle dots */}
-      <div className="fixed top-4 right-4 flex gap-1">
+      <div 
+        className={cn(
+          "fixed top-4 right-4 flex gap-1 transition-all duration-300",
+          areControlsVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2 pointer-events-none"
+        )}
+      >
         {queue.slice(0, 20).map((_, i) => (
           <div
             key={i}
