@@ -8,10 +8,10 @@
 
 ### Premier lancement
 
-Lorsque vous lancez Incrementum pour la première fois, vous verrez le **Tableau de bord** composé de quatre sections principales :
+Lorsque vous lancez Incrementum pour la première fois, vous verrez le **Tableau de bord** composé de quatre sections principales :
 
 1. **File d'attente** - Votre file d'attente de révision (vide au début)
-2. **Révision** - Séance de révision active
+2. **Révision** – Séance de révision active
 3. **Documents** - Votre bibliothèque de documents
 4. **Analytics** - Statistiques de progression
 
@@ -22,9 +22,9 @@ Lorsque vous lancez Incrementum pour la première fois, vous verrez le **Tableau
    - Essayez « Modern Dark » ou « Material You » pour un look moderne
 
 2. **Configurer les paramètres de révision** - Paramètres → Apprentissage → Algorithme
-   - **Algorithme** : FSRS-6 (recommandé), SM-20, SM-18 ou SM-2
-   - **Rétention souhaitée** : 90 % (par défaut) - cible la qualité dont vous souhaitez vous souvenir
-   - **Apprendre par jour** : 20 à 50 éléments recommandés pour les débutants
+   - **Algorithme** : FSRS-6 (recommandé), SM-18 ou SM-2
+   - **Rétention souhaitée** : 90 % (par défaut) - cible la qualité dont vous souhaitez vous souvenir
+   - **Apprendre par jour** : 20 à 50 éléments recommandés pour les débutants
 
 3. **Configurer les catégories** - Paramètres → Catégories
    - Créer des catégories pour différents sujets (par exemple, "Programmation", "Science", "Langues")
@@ -32,14 +32,14 @@ Lorsque vous lancez Incrementum pour la première fois, vous verrez le **Tableau
 
 ### Votre premier document
 
-Importons votre premier document :
+Importons votre premier document :
 
 1. Cliquez sur **Documents** dans la barre latérale
 2. Cliquez sur le bouton **Importer** (en haut à droite)
-3. Choisissez votre méthode d'importation :
-   - **Fichier local** : sélectionnez un fichier PDF, EPUB ou texte
-   - **URL** : collez n'importe quelle URL Web
-   - **Arxiv** : collez un identifiant ou une URL de document de recherche
+3. Choisissez votre méthode d'importation :
+   - **Fichier local** : sélectionnez un fichier PDF, EPUB ou texte
+   - **URL** : collez n'importe quelle URL Web
+   - **Arxiv** : collez un identifiant ou une URL de document de recherche
 4. Attendez le traitement
    - Si la segmentation automatique est activée dans Paramètres, le document sera automatiquement divisé en extraits après l'importation
 
@@ -64,18 +64,18 @@ Importons votre premier document :
 
 ### Importation de documents
 
-#### Méthode 1 : fichiers locaux
+#### Méthode 1 : fichiers locaux
 
 1. Cliquez sur **Documents** → **Importer**
 2. Sélectionnez **Fichier local**
 3. Accédez à votre fichier et sélectionnez-le
-4. Incrementum :
+4. Incrementum :
    - Extraire le contenu du texte
    - Calculer le temps de lecture et le nombre de mots
    - Extraire les métadonnées (titre, auteur, etc.)
    - Si l'auto-segmentation est activée (Paramètres → Documents → Traitement automatique à l'importation), divisez automatiquement le document en extraits
 
-#### Méthode 2 : importation d'URL
+#### Méthode 2 : importation d'URL
 
 1. Copiez n'importe quelle URL Web
 2. Cliquez sur **Documents** → **Importer** → **URL**.
@@ -83,49 +83,49 @@ Importons votre premier document :
 4. Cliquez sur **Importer**
 5. Incrementum récupère et traite le contenu
 
-**Sites pris en charge :**
+**Sites pris en charge :**
 - Articles de presse (la plupart des sites majeurs)
 - Articles de blog
 - Pages de documentation
 - Moyen, Sous-pile, etc.
 
-#### Méthode 3 : Documents Arxiv
+#### Méthode 3 : Documents Arxiv
 
 1. Recherchez un article Arxiv (par exemple, « https://arxiv.org/abs/2301.07041 »)
 2. Copiez l'URL ou l'ID papier (`2301.07041`)
 3. Cliquez sur **Documents** → **Importer** → **Arxiv**
 4. Collez l'URL ou l'ID
-5. Téléchargements incrémentaux :
+5. Téléchargements incrémentaux :
    - PDF complet
    - Résumé
    - Auteurs
    -Date de parution
    - Références
 
-#### Méthode 4 : importation de deck JSON
+#### Méthode 4 : importation de deck JSON
 
 Importez des jeux de cartes mémoire à partir de fichiers JSON qui incluent des données de planification (intervalles, facteurs de facilité, historique des révisions).
 
-**Importation via le sélecteur de fichiers :**
+**Importation via le sélecteur de fichiers :**
 
 1. Cliquez sur **Documents** → **Importer** → **JSON**.
 2. Sélectionnez votre fichier de deck `.json`
-3. Incrementum crée un document de jeu et importe toutes les cartes, en préservant :
+3. Incrementum crée un document de jeu et importe toutes les cartes, en préservant :
    - Planification (intervalles, facteurs de facilité, dates d'échéance)
    - Revoir l'historique (répétitions, échecs, taux de rétention)
    - États de la carte (nouveau, en cours de révision ou suspendu)
 
-**Importation par glisser-déposer :**
+**Importation par glisser-déposer :**
 
 Faites glisser un fichier « .json » directement sur la fenêtre de l'application. Si le fichier correspond au format de deck attendu, il est importé automatiquement.
 
-**Format de plate-forme JSON :**
+**Format de plate-forme JSON :**
 
-Le fichier doit être un objet plat mappant le texte de la question aux données de la carte :
+Le fichier doit être un objet plat mappant le texte de la question aux données de la carte :
 
 ```json
 {
-  "Quelle est la puissance de la cellule ?" : {
+  "Quelle est la puissance de la cellule ?" : {
     "answer": "Les mitochondries.",
     "subject": "Biologie",
     "deck_name": "Biologie cellulaire",
@@ -137,50 +137,50 @@ Le fichier doit être un objet plat mappant le texte de la question aux données
 }
 ```
 
-**Remarques :**
+**Remarques :**
 - Chaque fichier `.json` crée un deck. Le nom du deck vient du champ `deck_name`.
 - Les cartes importées utilisent l'algorithme SM-2 par défaut. Vous pouvez changer d'algorithme après l'importation.
-- Supprimer deux fois le même fichier ne créera pas de doublons : les cartes existantes sont ignorées.
+- Supprimer deux fois le même fichier ne créera pas de doublons : les cartes existantes sont ignorées.
 - Les cartes marquées «known_pile: true» sont importées comme suspendues.
 
 ### Visionneuse de documents
 
-Une fois importé, ouvrez n'importe quel document pour accéder :
+Une fois importé, ouvrez n'importe quel document pour accéder :
 
-**Fonctionnalités de la visionneuse :**
-- **Navigation dans les pages** : faites défiler les pages/sections
-- **Zoom** : Ajustez la taille du texte
-- **Plein écran** : lecture sans distraction
-- **Recherche** : rechercher du texte dans le document
-- **Table des matières** : accéder aux sections (si disponible)**Outils d'annotation :**
-1. **Surligner le texte** : Sélectionnez le texte → Choisissez la couleur de surbrillance
-   - Yellow: Important concepts
+**Fonctionnalités de la visionneuse :**
+- **Navigation dans les pages** : faites défiler les pages/sections
+- **Zoom** : Ajustez la taille du texte
+- **Plein écran** : lecture sans distraction
+- **Recherche** : rechercher du texte dans le document
+- **Table des matières** : accéder aux sections (si disponible)**Outils d'annotation :**
+1. **Surligner le texte** : Sélectionnez le texte → Choisissez la couleur de surbrillance
+   - Jaune : Concepts importants
    - Vert : Exemples
    - Bleu : Définitions
    - Rouge : Points critiques
-   - Violet : Thèmes connexes
+   - Violet : Thèmes connexes
 
-2. **Créer un extrait** : Sélectionnez le texte → Cliquez sur le bouton "Extraire"
+2. **Créer un extrait** : Sélectionnez le texte → Cliquez sur le bouton "Extraire"
    - L'extrait apparaît dans l'onglet Extraits
    - Peut être converti en flashcard plus tard
 
-3. **Ajouter une note** : Sélectionnez le texte → Cliquez sur le bouton « Note »
+3. **Ajouter une note** : Sélectionnez le texte → Cliquez sur le bouton « Note »
    - Joignez vos pensées/notes
-   - Notes appear with extracts
+   - Des notes apparaissent avec des extraits
 
 ### Organisation des documents
 
-**Catégories :**
-- Assign each document to a category
+**Catégories :**
+- Attribuer chaque document à une catégorie
 - Filtrer les documents par catégorie
 - Les catégories héritent des extraits et des fiches
 
-**Mots clés :**
+**Mots clés :**
 - Ajouter des balises personnalisées aux documents
 - Utiliser des balises pour l'organisation inter-catégories
-- Exemples : `#urgent`, `#research`, `#tutorial`
+- Exemples : `#urgent`, `#research`, `#tutorial`
 
-**Recherche :**
+**Recherche :**
 - Recherche en texte intégral dans tous les documents
 - Filtrer par catégorie, tags, plage de dates
 - Trier par titre, date, nombre de mots
@@ -191,60 +191,91 @@ Une fois importé, ouvrez n'importe quel document pour accéder :
 
 ### Comprendre FSRS-6
 
-**FSRS-6** (Free Spaced Repetition Scheduler) est un algorithme moderne qui :
+**FSRS-6** (Free Spaced Repetition Scheduler) est un algorithme moderne qui :
 
-1. **Suive l'état de la mémoire** : modélise la force de votre mémoire pour chaque carte
-2. **Prédit l'oubli** : estime le moment où vous oublierez chaque élément
-3. **Optimise la planification** : planifie les révisions à des moments optimaux
-4. **S'adapte à vous** : apprend de vos modèles de performance
+1. **Suive l'état de la mémoire** : modélise la force de votre mémoire pour chaque carte
+2. **Prédit l'oubli** : estime le moment où vous oublierez chaque élément
+3. **Optimise la planification** : planifie les révisions à des moments optimaux
+4. **S'adapte à vous** : apprend de vos modèles de performance
 
-**Mesures clés :**
-- **Stabilité** : combien de temps dure une mémoire (plus élevée = plus stable)
-- **Difficulté** : la difficulté de l'objet pour vous (échelle de 1 à 10)
-- **Récupérabilité** : probabilité actuelle de rappel (0-100 %)
+**Mesures clés :**
+- **Stabilité** : combien de temps dure une mémoire (plus élevée = plus stable)
+- **Difficulté** : la difficulté de l'objet pour vous (échelle de 1 à 10)
+- **Récupérabilité** : probabilité actuelle de rappel (0-100 %)
 
-### Comprendre SM-18
+### Comprendre le SM-18
 
-**SM-18** (SuperMemo 18) est l'algorithme précédent de la famille SuperMemo. Il représente une évolution significative par rapport à SM-2, introduisant la modélisation de la stabilité de la mémoire et une approche basée sur les données pour le calcul des intervalles.
+**SM-18** (SuperMemo 18) est l'algorithme précédent de la famille SuperMemo. Il représente une évolution significative par rapport à SM-2, introduisant une modélisation de la stabilité de la mémoire et une approche basée sur les données pour le calcul des intervalles.
 
-SM-18 :
+SM-18 :
 
-1. **Modélise l'Oubli de Façon Exponentielle** : Utilise la formule `R = 0,9^(t/S)` pour calculer la récupérabilité — la probabilité que vous vous souveniez d'un élément au temps `t` compte tenu de sa stabilité `S`
-2. **Suit la Difficulté de Manière Indépendante** : Maintient une valeur de difficulté `D ∈ [0, 1]` pour chaque élément, mise à jour via une formule de moyenne glissante qui devient plus réactive à chaque répétition
-3. **Utilise une Matrice SInc 3D** : Recherche le facteur d'augmentation de stabilité dans une matrice 21×21×21 indexée par difficulté, stabilité et récupérabilité regroupées — c'est le cœur de l'intelligence de SM-18
-4. **Gère les Échecs avec Grâce** : En cas d'échec, réduit la stabilité d'un facteur de 0,87 (divisé en plus par les échecs accumulés) et réinitialise le compteur de répétitions, mais préserve l'estimation de difficulté
-5. **Calcule les Intervalles à partir de la Stabilité** : Déduit le prochain intervalle de révision à partir de l'objectif de rétention souhaité : `intervalle = S × ln(1-FI) / ln(0,9)`
+1. **Modèles à oubli exponentiel** : utilise la formule « R = 0,9^(t/S) » pour calculer la récupérabilité — la probabilité que vous vous souveniez d'un élément au temps « t » compte tenu de sa stabilité « S »
+2. **Suit la difficulté indépendamment** : maintient une valeur de difficulté « D ∈ [0, 1] » pour chaque élément, mise à jour à l'aide d'une formule de moyenne finale qui devient plus réactive à chaque répétition.
+3. **Utilise une matrice SInc 3D** : recherche le facteur d'augmentation de la stabilité à partir d'une matrice 21×21×21 indexée par difficulté, stabilité et récupérabilité — c'est le cœur de l'intelligence du SM-18.
+4. **Gère les erreurs avec élégance** : en cas d'échec, réduit la stabilité d'un facteur de 0,87 (divisé en outre par les erreurs accumulées) et réinitialise le compteur de répétitions, mais préserve l'estimation de la difficulté.
+5. **Calcule les intervalles à partir de la stabilité** : dérive l'intervalle d'examen suivant à partir de l'objectif de rétention souhaité : `intervalle = S × ln(1-FI) / ln(0.9)`
 
-**Mesures clés :**
-- **Stabilité (S)** : Combien de temps une mémoire persiste avant de s'effacer (mesurée en jours)
-- **Difficulté (D)** : Une valeur de 0 (la plus facile) à 1 (la plus difficile), mise à jour par fusion de moyenne glissante après chaque révision
-- **Récupérabilité (R)** : Probabilité de rappel actuelle, calculée comme `0,9^(écoulé/S)`
-- **SInc** : Le facteur d'augmentation de stabilité issu de la matrice de 9 261 entrées — de combien la stabilité augmente après chaque révision réussie
-- **Échecs** : Nombre d'échecs, qui pénalisent la stabilité future lors des échecs ultérieurs
+**Mesures clés :**
+- **Stabilité (S)** : combien de temps un souvenir persiste avant de se décomposer (mesuré en jours)
+- **Difficulté (D)** : une valeur de 0 (le plus facile) à 1 (le plus difficile), mise à jour via un mélange de moyenne finale après chaque révision
+- **Récupérabilité (R)** : probabilité de rappel actuelle, calculée comme `0,9^(écoulé/S)`
+- **SInc** : le facteur d'augmentation de la stabilité a été recherché à partir de la matrice de 9 261 entrées : le degré d'augmentation de la stabilité après chaque examen réussi
+- **Lapses** : Nombre d'échecs, qui pénalisent la stabilité future sur les laps de temps ultérieurs
 
-### Comprendre SM-20
+### Comprendre le SM-20
 
-**SM-20** (SuperMemo 20) est l'algorithme le plus avancé disponible, obtenu par rétro-ingénierie à partir de `sm20`. Il s'appuie sur les fondations de SM-18 avec la formule d'intervalle V4 et un lissage bayésien qui apprend de vos révisions.
+L'option **SM-20** d'Incrementum est **Algorithm Arena** — un portage par ingénierie inverse du « sm20.exe » de SuperMemo qui exécute **cinq** algorithmes à répétition espacée en parallèle sur chaque flashcard et mélange leurs prédictions en un seul calendrier. Les cinq concurrents, avec les poids de mélange par défaut auxquels ils commencent :
 
-SM-20 :
+| Fente | Modèle | Poids par défaut | Apprend comment? |
+|------|-------|---------------:|-------------|
+| 1 | **SM-2** | 6% | Fixe |
+| 2 | **SM-15** | 14% | En continu, à chaque révision |
+| 3 | **SM-19** | 45% | En continu, à chaque révision |
+| 4 | **SM-20** (le noyau à courbe d'oubli "M4" à 35 paramètres) | 25% | À la demande, via le bouton Optimiser |
+| 5 | **FSRS** | 10% | À la demande, via le bouton Optimiser |**Comment fonctionne le mélange.** Chaque modèle produit indépendamment une estimation de stabilité pour la carte ; l'arène prend une moyenne pondérée et en dérive l'intervalle suivant. Les poids ne sont pas fixes — ils **s'adaptent à vous**. Chaque fois que vous examinez une carte dont la précédente évaluation remonte à au moins un jour, l'Arène évalue la prédiction *précédente* de chaque modèle par rapport à ce qui s'est réellement passé (dont vous vous êtes souvenu ou oublié) et oriente les pondérations vers les modèles qui vous ont le mieux prédit. Aucun modèle n'est jamais complètement éliminé, donc un démarreur lent peut récupérer.
 
-1. **Utilise la Formule d'Intervalle V4** : Calcule chaque intervalle avec le polynôme à sept paramètres SM-20 proprement dit (la formule `V4` de la référence rétro-ingénieriée). La planification V2 (compatible SM-19) reste disponible comme choix d'algorithme `sm2` distinct.
-2. **Applique le Lissage Bayésien** : Lorsque suffisamment de données de révision s'accumulent, il lisse les calculs d'intervalle grâce à une recherche de voisins 3×3×3 dans les matrices d'intervalle/compteur, combinée à un prior bayésien
-3. **Suit la Stabilité avec un Indexage en Loi de Puissance** : Convertit la stabilité en indices de matrice via une transformation en loi de puissance (`S^2,9`), offrant une résolution plus fine aux stabilités faibles et plus grossière aux valeurs élevées
-4. **Enregistre et Apprend des Révisions** : Chaque révision réussie met à jour des matrices d'intervalle et de compteur de 21×21×21 par moyennage incrémental, persistées dans le stockage afin que SM-20 apprenne les intervalles optimaux à partir de vos performances réelles d'une session à l'autre
+**Deux manières d'apprendre :**
 
-**Mesures clés :**
-- **Stabilité (S)** : Persistance de la mémoire en jours, avec une transformation d'index en loi de puissance pour la recherche matricielle (plafonnée à 44 530 jours maximum)
-- **Difficulté (D)** : Regroupée en 10 niveaux via `floor(D × 19) + 1`, utilisée comme un axe de la matrice d'intervalle
-- **Matrices d'Intervalle/Compteur** : Deux matrices de 9 261 entrées, persistées par apprenant, qui accumulent votre historique de révisions et permettent l'optimisation d'intervalles avec lissage bayésien
+1. **Automatiquement, à chaque révision** — l'optimiseur SM-15 et les matrices SM-19 se mettent à jour immédiatement et les poids de mélange changent. Cela commence dès votre tout premier avis. Vous pouvez le regarder dans Paramètres → Apprentissage : le panneau **Poids d'arène** affiche le pourcentage actuel de chaque modèle et, une fois que vous avez suffisamment d'avis notés, une **R-Metric** (à quel point la prédiction combinée est meilleure que celle du SM-19 seul).
+2. **À la demande, lorsque vous cliquez sur Optimiser** — deux des cinq concurrents (le noyau SM-20 et FSRS) peuvent être intégrés à votre historique d'évaluation personnel. Ces ajustements sont sécurisés par une quantité minimale de données (environ plusieurs centaines d'avis espacés de plusieurs jours) et un contrôle de validation retenu : un ajustement n'est accepté que s'il bat véritablement les valeurs par défaut expédiées sur les avis que l'ajustement n'a pas vu. Jusque-là, les boutons Optimiser signalent « Pas encore assez d'historique de révision » et ces deux modèles continuent d'utiliser leurs paramètres par défaut.
 
-**Comment SM-20 diffère de FSRS-6 :**
-- FSRS-6 utilise un ensemble fixe de paramètres entraînés sur des données agrégées ; SM-20 apprend de *vos* révisions au fil du temps via ses matrices persistées
-- Le lissage bayésien de SM-20 fournit un moyen fondé d'équilibrer les connaissances préalables avec les données observées
+**Pourquoi il peut dire qu'il n'a pas commencé l'entraînement.** Seules les évaluations espacées d'au moins **un jour** portent le signal — les premières évaluations et les réévaluations le jour même ne disent rien à l'arène (chaque modèle prédit correctement que vous vous en souviendrez), ils ne comptent donc pas dans le total des points. Si vous n'avez qu'une poignée de cartes, attendez-vous à ce que les poids d'arène restent proches de leurs valeurs par défaut et que la R-Metric reste cachée jusqu'à ce que ces cartes commencent à revenir à des intervalles d'un jour. C'est attendu, pas un bug.
+
+**Mesures clés :**
+- **Stabilité (S)** : estimation de chaque modèle de la durée de persistance de la mémoire (jours) ; l'Arène les mélange.
+- **Difficulté (D)** : estimation de la difficulté de l'objet de chaque modèle.
+- **Poids d'arène** : les pourcentages de mélange en direct par modèle, affichés dans les paramètres d'apprentissage.
+- **R-Metric** : Amélioration relative du mélange par rapport au SM-19 seul, calculée sur une fenêtre décroissante de vos avis.
+
+**En quoi le SM-20 diffère du FSRS-6 :**
+- FSRS-6 est un planificateur de production unique et mature et reste la valeur par défaut recommandée.
+- SM-20 est un ensemble expérimental qui oppose cinq algorithmes et laisse vos propres données choisir le mélange. Il est plus complexe et nécessite davantage d’examens à personnaliser, mais peut surpasser n’importe quel modèle unique une fois qu’il dispose de suffisamment de votre historique pour en tirer des leçons.
+
+### Calendrier de lecture des documents (lecture incrémentielle)
+
+Les algorithmes ci-dessus (FSRS-6, SM-18, SM-20) sont des planificateurs de **flashcard** : ils s'entraînent sur les questions-réponses, les cloze et les cartes de base, dont l'objectif est le rappel à long terme. Les **Documents** (les articles, articles et passages que vous lisez via la lecture incrémentielle) sont programmés par un planificateur **séparé** avec un objectif différent : maintenir le contenu en rotation régulière plutôt que maximiser la conservation à long terme d'un seul fait.
+
+**Deux planificateurs, pas un.** C'est la plus grande source de confusion :- **Flashcards** → FSRS-6 / SM-18 / SM-20 (votre choix dans les paramètres d'apprentissage) → écrit dans l'historique des révisions qui entraîne ces algorithmes.
+- **Documents** → le **Planificateur de lecture incrémentielle** (ou sa variante **Engaging**) → suivi séparément, et **n'alimente pas du tout les algorithmes des cartes mémoire.**
+
+L'évaluation d'un document avec Encore / Difficile / Bon / Facile semble identique à l'évaluation d'une carte mémoire - les quatre mêmes boutons apparaissent - mais la note va à un endroit différent et produit des intervalles courts et prévisibles :
+
+| Évaluation | Intervalle de document | Intervalle de carte mémoire (varie selon l'algorithme) |
+|--------|---------|--------------------------------------------------------|
+| **Encore** | ~4 heures | minutes |
+| **Dur** | ~1 jour | 1 à 2 jours |
+| **Bien** | ~3 jours | jours-semaines |
+| **Facile** | ~7 jours | semaines |
+
+Les intervalles entre les documents sont limités à environ **30 jours** afin que le matériel reste en rotation, et les notes consécutives Bon/Facile ajoutent un petit bonus tandis que les notes consécutives Encore/Difficile ajoutent une petite pénalité.
+
+**Le planificateur engageant.** Lorsque vous lisez des documents à partir de la file d'attente, Incrementum utilise la variante *Engaging*, qui superpose l'injection de nouveauté, l'équilibrage des variétés et le hasard au-dessus des intervalles de base afin que vos sessions de lecture restent variées et intéressantes. Ces fonctionnalités d'engagement affectent *quel* document apparaîtra ensuite, et non les calculs d'intervalle sous-jacents.
+
+**Point pratique.** Faire beaucoup de lectures incrémentielles ne comptera **pas** pour la « formation » SM-20 ou FSRS – ces algorithmes ne voient que les critiques de cartes mémoire. Si vous souhaitez qu'ils soient personnalisés, vous avez besoin de cartes mémoire examinées à intervalles journaliers. (C'est pourquoi le panneau SM-20 dans les paramètres d'apprentissage peut afficher « 0 score » même si vous avez lu des documents toute la semaine.) Voir [Comprendre SM-20](#understanding-sm-20) pour savoir ce qui compte et ce qui ne compte pas.
 
 ### Système de notation
 
-Lors des examens, évaluez chaque article en fonction de votre rappel :
+Lors des examens, évaluez chaque article en fonction de votre rappel :
 
 | Évaluation | Étiquette | Descriptif | Intervalle typique |
 |--------|-------|-------------|------------------|
@@ -253,40 +284,40 @@ Lors des examens, évaluez chaque article en fonction de votre rappel :
 | **3** | Bon | Souvenir avec réflexion | 5-7 jours |
 | **4** | Facile | Le rappel s'est fait sans effort | 10-14 jours |
 
-**Intervalles d'aperçu :**
-Avant la notation, Incrementum vous indique exactement quand chaque carte apparaîtra ensuite pour les quatre options de notation. Profitez-en pour optimiser votre emploi du temps !
+**Intervalles d'aperçu :**
+Avant la notation, Incrementum vous indique exactement quand chaque carte apparaîtra ensuite pour les quatre options de notation. Profitez-en pour optimiser votre emploi du temps !
 
 ### Types de cartes
 
 #### 1. Flashcards de base
 Cartes simples recto/verso
 
-**Recto :** Quelle est la capitale de la France ?
-**Retour :** Paris
+**Recto :** Quelle est la capitale de la France ?
+**Retour :** Paris
 
-**Idéal pour :** Faits, définitions, vocabulaire
+**Idéal pour :** Faits, définitions, vocabulaire
 
 #### 2. Supprimer la suppression
 Style de remplissage
 
-**Texte :** La capitale de la {{France}} est Paris.
+**Texte :** La capitale de la {{France}} est Paris.
 
-**S'affiche comme :** La capitale de _____ est Paris.
+**S'affiche comme :** La capitale de _____ est Paris.
 
-**Idéal pour :** Apprentissage contextuel, relations
+**Idéal pour :** Apprentissage contextuel, relations
 
 #### 3. Cartes questions-réponses
 Paires de questions et réponses
 
-**Q :** Expliquez la différence entre TCP et UDP.
-**R :** TCP est orienté connexion avec une livraison garantie ; UDP est sans connexion sans garantie.
+**Q :** Expliquez la différence entre TCP et UDP.
+**R :** TCP est orienté connexion avec une livraison garantie ; UDP est sans connexion sans garantie.
 
-**Idéal pour :** Concepts, explications
+**Idéal pour :** Concepts, explications
 
 #### 4. Occlusion de l'image
 Masquer des parties d'une image (schémas, graphiques)
 
-**Idéal pour :** Anatomie, cartes, diagrammes
+**Idéal pour :** Anatomie, cartes, diagrammes
 
 ### Création de cartes
 
@@ -300,11 +331,9 @@ Masquer des parties d'une image (schémas, graphiques)
 6. Modifier le contenu de la carte
 7. Cliquez sur **Enregistrer**
 
-La carte est maintenant programmée pour examen !
+La carte est maintenant programmée pour examen !
 
-#### Création manuelle
-
-1. Cliquez sur **File d'attente** → **Ajouter un élément**
+#### Création manuelle1. Cliquez sur **File d'attente** → **Ajouter un élément**
 2. Choisissez le type de carte
 3. Saisissez le contenu recto/verso
 4. Sélectionnez la catégorie
@@ -312,7 +341,7 @@ La carte est maintenant programmée pour examen !
 
 #### Génération basée sur l'IA
 
-Si vous avez configuré l'IA :
+Si vous avez configuré l'IA :
 
 1. Sélectionnez un extrait ou une section de document
 2. Cliquez sur **Générer des cartes**
@@ -334,55 +363,55 @@ Le **Deck Manager** est une vue plein écran permettant de parcourir, d'inspecte
 
 ### Liste des cartes
 
-Lorsqu'un jeu est développé, ses cartes apparaissent dans une liste virtualisée et déroulante. Chaque rangée de cartes montre :
+Lorsqu'un jeu est développé, ses cartes apparaissent dans une liste virtualisée et déroulante. Chaque rangée de cartes montre :
 
-- **Badge d'État** - code couleur : bleu (Nouveau), orange (Apprentissage), vert (Révision), rouge (Réapprentissage)
-- **Aperçu de la question** - jusqu'à 80 caractères
-- **Date d'échéance** - étiquette relative (Aujourd'hui, Demain, 5j, en retard)
-- **Difficulté** - 1 à 10 mini-barres de progression
-- **Intervalle** - intervalle d'examen actuel en jours
-- **Nombre de révisions** - combien de fois la carte a été révisée
-- **Indicateur de sangsue** - icône d'avertissement jaune pour les cartes avec plus de 5 échecs
+- **Badge d'État** — code couleur : bleu (Nouveau), orange (Apprentissage), vert (Révision), rouge (Réapprentissage)
+- **Aperçu de la question** — jusqu'à 80 caractères
+- **Date d'échéance** — étiquette relative (Aujourd'hui, Demain, 5j, en retard)
+- **Difficulté** — 1 à 10 mini-barres de progression
+- **Intervalle** — intervalle d'examen actuel en jours
+- **Nombre de révisions** — combien de fois la carte a été révisée
+- **Indicateur de sangsue** — icône d'avertissement jaune pour les cartes avec plus de 5 échecs
 
 ### Tri et filtrage
 
 **Triez** les cartes par date d'échéance, état, difficulté, intervalle, nombre de révisions ou échecs. Cliquez à nouveau sur un bouton de tri pour basculer entre ordre croissant/décroissant.
 
-**Filtrer** par :
-- **État** - Nouveau, apprentissage, révision, réapprentissage
-- **Statut dû** - Dû aujourd'hui, En retard, Non dû
+**Filtrer** par :
+- **État** – Nouveau, apprentissage, révision, réapprentissage
+- **Statut dû** – Dû aujourd'hui, En retard, Non dû
 
 **Recherchez** par texte de question ou par nom de balise à l'aide de la barre de recherche en haut.
 
 ### Éditeur de cartes en ligne
 
-Cliquez sur n'importe quelle ligne de carte pour développer un éditeur en ligne en dessous :
+Cliquez sur n’importe quelle ligne de carte pour développer un éditeur en ligne en dessous :
 
-- Modifiez directement **question**, **réponse** et **tags** - aucun modal n'est nécessaire.
+- Modifiez directement **question**, **réponse** et **tags** — aucun modal n'est nécessaire.
 - Les **Cartes Cloze** affichent le texte Cloze avec les plages de suppression en surbrillance.
-- **Les types de cartes complexes** (à choix multiples, occlusion d'image) affichent un aperçu en lecture seule avec un lien "Modifier dans Studio".
+- **Les types de cartes complexes** (à choix multiples, occlusion d'image) affichent un aperçu en lecture seule avec un lien "Modifier dans Studio".
 - **Suspendre/Annuler la suspension** basculer en un seul clic.
-- Les modifications sont enregistrées avec des **mises à jour optimistes** : l'interface utilisateur se met à jour instantanément et est annulée si la sauvegarde échoue.
+- Les modifications sont enregistrées avec des **mises à jour optimistes** : l'interface utilisateur se met à jour instantanément et est annulée si la sauvegarde échoue.
 
 ### Panneau de statistiques de deck
 
-La barre latérale droite affiche les statistiques du deck étendu :
+La barre latérale droite affiche les statistiques du deck étendu :
 
-- **Dû aujourd'hui** - nombre de cartes dues maintenant
-- **Taux de rétention** - estimé sur la base du taux de déchéance
-- **Difficulté moyenne** - sur toutes les cartes du jeu
-- **Nombre de sangsues** - cartes avec plus de 5 erreurs (cliquez pour filtrer uniquement les sangsues)
-- **Répartition de la maturité** - barre empilée affichant la répartition des cartes Nouveau/Apprentissage/Jeune/Mature
-- **Prévisions sur 7 jours** : sparkline affichant le nombre d'échéances projetées pour la semaine prochaine
-- **Santé de la mémoire FSRS** - stabilité et difficulté moyennes avec un indicateur de santé à code couleur
+- **Dû aujourd'hui** — nombre de cartes dues maintenant
+- **Taux de rétention** — estimé sur la base du taux de déchéance
+- **Difficulté moyenne** — sur toutes les cartes du jeu
+- **Nombre de sangsues** — cartes avec plus de 5 erreurs (cliquez pour filtrer uniquement les sangsues)
+- **Répartition de la maturité** — barre empilée affichant la répartition des cartes Nouveau/Apprentissage/Jeune/Mature
+- **Prévisions sur 7 jours** : sparkline affichant le nombre d'échéances projetées pour la semaine prochaine
+- **Santé de la mémoire FSRS** — stabilité et difficulté moyennes avec un indicateur de santé à code couleur
 
 ### Opérations groupées
 
-Sélectionnez plusieurs cartes à l'aide des cases à cocher, puis utilisez la barre d'outils d'actions groupées :
+Sélectionnez plusieurs cartes à l'aide des cases à cocher, puis utilisez la barre d'outils d'actions groupées :
 
-- **Suspendre / Annuler la suspension** - suspension par lots
-- **Supprimer** - supprime les cartes sélectionnées (avec confirmation)
-- **Retag** : ajoutez ou supprimez des balises sur toutes les cartes sélectionnées à la fois
+- **Suspendre / Annuler la suspension** – suspension par lots
+- **Supprimer** — supprime les cartes sélectionnées (avec confirmation)
+- **Retag** : ajoutez ou supprimez des balises sur toutes les cartes sélectionnées à la fois
 
 ### Raccourcis clavier
 
@@ -402,32 +431,32 @@ Sélectionnez plusieurs cartes à l'aide des cases à cocher, puis utilisez la b
 
 ### Interface de révision
 
-**Affichage de la carte :**
+**Affichage de la carte :**
 - Recto de la carte affiché (question ou invite)
 - Appuyez sur **Espace** ou cliquez pour afficher la réponse
 - La réponse apparaît ci-dessous
 
-**Séances de révision mixtes (fiches + documents) :**
+**Séances de révision mixtes (fiches + documents) :**
 - Les sessions de révision peuvent inclure des **éléments d'apprentissage** et des **documents** qui doivent être lus.
 - Lorsqu'un document apparaît, vous pouvez l'ouvrir directement depuis la fiche de session.
-- Noter un document programme sa prochaine date de lecture, tout comme une carte programme sa prochaine révision.
+- L'évaluation d'un document planifie sa prochaine date de lecture via le **Planificateur de lecture incrémentielle** (intervalles courts et plafonnés) — distinct des algorithmes de la carte mémoire. Voir [Programmation de lecture de documents](#document-reading-schedule-incremental-reading).
 
-**Interface d'évaluation :**
-Après avoir révélé la réponse, quatre boutons d'évaluation apparaissent :
+**Interface d'évaluation :**
+Après avoir révélé la réponse, quatre boutons d'évaluation apparaissent :
 
 ```
 [Encore] [Difficile] [Bon] [Facile]
   ~10 min ~2j ~7j ~14j
 ```
 
-Chaque bouton affiche la **prochaine date de révision** : il s'agit de la fonctionnalité **Intervalle de prévisualisation** !
+Chaque bouton affiche la **prochaine date de révision** : il s'agit de la fonctionnalité **Intervalle de prévisualisation** !
 
-**Actions de récupération (inspecteur de file d'attente de révision) :**
-Utilisez-les lorsque le calendrier d'un élément d'apprentissage nécessite un coup de pouce rapide :
+**Actions de récupération (inspecteur de file d'attente de révision) :**
+Utilisez-les lorsque le calendrier d’un élément d’apprentissage nécessite un coup de pouce rapide :
 
-- **Intervalles de compression** : rapprochez la prochaine révision (intervalle plus court).
-- **Reprogrammer intelligemment** : déplacez l'élément vers « à rendre maintenant ».
-- **Fréquence de rétrogradation** : repoussez la révision suivante (intervalle plus long).
+- **Intervalles de compression** : rapprochez la prochaine révision (intervalle plus court).
+- **Reprogrammer intelligemment** : déplacez l'élément vers « à rendre maintenant ».
+- **Fréquence de rétrogradation** : repoussez la révision suivante (intervalle plus long).
 
 Ces actions s'appliquent aux **éléments d'apprentissage uniquement** et mettent à jour le calendrier immédiatement.
 
@@ -448,18 +477,18 @@ Ces actions s'appliquent aux **éléments d'apprentissage uniquement** et metten
 
 ### Gestion des sessions
 
-**Caractéristiques de la session de révision :**
-- **Barre de progression** : affiche les cartes restantes
-- **Suivi du temps** : affiche la durée de la session
-- **Break Timer** : pauses facultatives toutes les N cartes
-- **Limites de session** : définissez le nombre maximum de cartes ou la durée par session
+**Caractéristiques de la session de révision :**
+- **Barre de progression** : affiche les cartes restantes
+- **Suivi du temps** : affiche la durée de la session
+- **Break Timer** : pauses facultatives toutes les N cartes
+- **Limites de session** : définissez le nombre maximum de cartes ou la durée par session
 
-**Fin d'une session :**
+**Fin d'une session :**
 - Cliquez sur **Terminer** lorsque vous avez terminé
 - Ou définir une limite (Paramètres → Révision → Limites de session)
 - Les cartes inachevées restent dues pour la prochaine session
 
-### Stratégies d'examen
+### Stratégies d'examen
 
 #### Routine de révision quotidienne
 
@@ -473,20 +502,20 @@ Ces actions s'appliquent aux **éléments d'apprentissage uniquement** et metten
 
 #### Gestion du backlog
 
-Si vous avez plusieurs cartes à rendre (>100) :
+Si vous avez plusieurs cartes à rendre (>100) :
 
-1. **Focus sur les nouvelles cartes** : limiter les révisions à 20-30/jour
-2. **Utilisez des filtres** : examinez par catégorie (ne vous submergez pas)
-3. **Cram Sessions** : séances de rattrapage du week-end
-4. **Ajuster la rétention** : temporairement inférieur à 85 % (moins d'avis)
+1. **Focus sur les nouvelles cartes** : limiter les révisions à 20-30/jour
+2. **Utilisez des filtres** : examinez par catégorie (ne vous submergez pas)
+3. **Cram Sessions** : séances de rattrapage du week-end
+4. **Ajuster la rétention** : temporairement inférieur à 85 % (moins d'avis)
 
 #### Gérer les cartes "Encore"
 
-Les cartes notées « Encore » réapparaissent rapidement (10 min). Stratégies :
+Les cartes notées « Encore » réapparaissent rapidement (10 min). Stratégies :
 
-- **Réapprentissage immédiat** : révisez à nouveau les cartes au cours de la même session
-- **Session séparée** : révisez à nouveau les cartes plus tard dans la journée
-- **Comprendre les problèmes** : Si de nombreuses réponses sont négatives, la carte peut être mal rédigée
+- **Réapprentissage immédiat** : révisez à nouveau les cartes au cours de la même session
+- **Session séparée** : révisez à nouveau les cartes plus tard dans la journée
+- **Comprendre les problèmes** : Si de nombreuses réponses sont négatives, la carte peut être mal rédigée
 
 ---
 
@@ -494,12 +523,12 @@ Les cartes notées « Encore » réapparaissent rapidement (10 min). Stratégies
 
 ### Comprendre la file d'attente
 
-La **file d'attente** contient tous les éléments dont la révision est programmée, organisés par :
+La **file d'attente** contient tous les éléments dont la révision est programmée, organisés par :
 
-- **Date d'échéance** : les éléments dus plus tôt apparaissent en premier
-- **Priorité** : priorité définie par l'utilisateur (0-100)
-- **Catégorie** : Domaine
-- **Type de carte** : Flashcard, cloze, etc.
+- **Date d'échéance** : les éléments dus plus tôt apparaissent en premier
+- **Priorité** : priorité définie par l'utilisateur (0-100)
+- **Catégorie** : Domaine
+- **Type de carte** : Flashcard, cloze, etc.
 
 ### Vues de la file d'attente
 
@@ -514,162 +543,158 @@ Affiche les cartes nouvellement créées qui n'ont pas encore été examinées
 
 ### Opérations de file d'attente
 
-**Filtrage :**
+**Filtrage :**
 - Par catégorie (par exemple, "Afficher uniquement la programmation")
 - Par type de carte (par exemple, "Afficher uniquement les cartes Cloze")
 - Par plage de priorités (par exemple, "Afficher la priorité 80+")
 
-**Tri :**
+**Tri :**
 - Date d'échéance (par défaut)
 - Priorité
 - Difficulté
 - Aléatoire (pour la variété)
 
-**Actions groupées :**
+**Actions groupées :**
 1. Sélectionnez plusieurs éléments (cases à cocher)
-2. Choisissez l'action :
-   - **Changer de catégorie** : passer à une autre catégorie
-   - **Définir la priorité** : priorité de mise à jour groupée
-   - **Suspendre** : masquer temporairement les avis
-   - **Supprimer** : Supprimer définitivement
+2. Choisissez l'action :
+   - **Changer de catégorie** : passer à une autre catégorie
+   - **Définir la priorité** : priorité de mise à jour groupée
+   - **Suspendre** : masquer temporairement les avis
+   - **Supprimer** : Supprimer définitivement
 
 ### Système de priorité
 
-Définissez la priorité de 0 à 100 sur n'importe quel élément :
+Définissez la priorité de 0 à 100 sur n'importe quel élément :
 
-- **100** : Critique (à apprendre)
-- **80-90** : important
+- **100** : Critique (à apprendre)
+- **80-90** : important
 - **60-70** : Priorité normale
-- **40-50** : Faible priorité
-- **0-20** : Archive/référence
+- **40-50** : Faible priorité
+- **0-20** : Archive/référence
 
-**Planification prioritaire :**
+**Planification prioritaire :**
 Les éléments plus prioritaires sont affichés plus fréquemment dans les avis mitigés.
 
 ### Files d'attente intelligentes
 
-Créez des files d'attente personnalisées avec des filtres :
+Créez des files d'attente personnalisées avec des filtres :
 
-**Exemples de files d'attente :**
+**Exemples de files d'attente :**
 - "Aujourd'hui": cartes dues de la catégorie principale
 - "Quick Review" : Cartes faciles, priorité < 50
 - "Deep Dive" : Cartes rigides de la catégorie recherche
 - "Exam Prep" : Toutes les cartes de la catégorie "Biologie"
 
-**Création d'une file d'attente intelligente :**
+**Création d'une file d'attente intelligente :**
 1. Cliquez sur **File d'attente** → **Files d'attente enregistrées**.
 2. Cliquez sur **Nouvelle file d'attente**
 3. Définir les filtres et l'ordre de tri
 4. Nommez et enregistrez
 
-### Tag-Aware Scheduling (TAS)
+### Planification basée sur les balises (TAS)
 
-<!-- English original below — please translate to French -->
+Tag-Aware Scheduling ajoute une intelligence sémantique à la file d'attente de révision.
+Lorsqu'il est activé dans Paramètres, TAS applique deux passes de post-traitement
+vos éléments dus sans modifier les intervalles SM-20/FSRS sous-jacents :
 
-Tag-Aware Scheduling adds semantic intelligence to the review queue.
-When enabled in Settings, TAS applies two post-processing passes over
-your due items without changing underlying SM-20/FSRS intervals:
+- **Prerequisite Gating** : bloque les éléments dont les prérequis de balise ne sont pas remplis.
+  atteint le seuil d'échéance configuré.  Le matériel de base est
+  stabilisé avant l'apparition des sujets avancés.
+- **Interference Jitter** : sépare les éléments partageant des balises à haute cohérence
+  par une fenêtre de temps minimale, réduisant ainsi les interférences sémantiques lors de la révision.
 
-- **Prerequisite Gating**: Blocks items whose tag prerequisites haven't
-  reached the configured maturity threshold.  Foundational material is
-  stabilized before advanced topics appear.
-- **Interference Jitter**: Separates items sharing high-coherence tags
-  by a minimum time window, reducing semantic interference during review.
+TAS est **opt-in** et **non destructif** : désactivez-le à tout moment
+pour revenir à l'ordre de file d'attente par défaut.  Les articles bloqués ou retardés sont conservés
+leurs dates d'échéance et intervalles d'origine.
 
-TAS is **opt-in** and **non-destructive** — toggle it off at any time
-to return to the default queue order.  Blocked or delayed items keep
-their original due dates and intervals.
+#### Activation de TAS
 
-#### Enabling TAS
+1. Ouvrez **Paramètres → Planification basée sur les balises**.
+2. Activez **Activer TAS**.
+3. Activez/désactivez éventuellement les **Interférences** et les **Prérequis**.
+   sous-systèmes indépendamment.
+4. Ajustez chaque curseur selon vos préférences.
 
-1. Open **Settings → Tag-Aware Scheduling**.
-2. Toggle **Enable TAS** on.
-3. Optionally enable/disable the **Interference** and **Prerequisites**
-   subsystems independently.
-4. Adjust each slider to your preference.
-
-| Setting | Range | Default | Description |
+| Paramètre | Gamme | Par défaut | Descriptif |
 |---|---|---|---|
-| Minimum Separation | 0–24 h | 4 h | Hours between items sharing a high-coherence tag |
-| Coherence Threshold | 0.50–1.00 | 0.75 | Only tags with coherence ≥ this are separated |
-| Maturity Ratio | 0.50–1.00 | 0.70 | Fraction of items in a prerequisite tag that must be mature |
+| Séparation minimale | 0–24 heures | 4 heures | Heures entre les éléments partageant une balise à haute cohérence |
+| Seuil de cohérence | 0,50-1,00 | 0,75 | Seules les balises avec une cohérence ≥ ceci sont séparées |
+| Taux de maturité | 0,50-1,00 | 0,70 | Fraction d'éléments dans une balise préalable qui doit être mature |
 
-#### Setting Up Prerequisites
+#### Configuration des prérequis
 
-Tag prerequisites let you control the order in which topics surface:
+Les prérequis des balises vous permettent de contrôler l’ordre dans lequel les sujets apparaissent :
 
-1. Open **Tag Management** (from the media panel or library toolbar).
-2. Click the **Prerequisites** button at the top.
-3. Click a tag name to select it for editing.
-4. In the editor panel, check the tags that must be learned **before**
-   this tag's items can appear in the queue.
-5. Click **Save Prerequisites**.
+1. Ouvrez **Tag Management** (à partir du panneau multimédia ou de la barre d'outils de la bibliothèque).
+2. Cliquez sur le bouton **Prérequis** en haut.
+3. Cliquez sur un nom de balise pour le sélectionner à modifier.
+4. Dans le panneau de l'éditeur, vérifiez les balises qui doivent être apprises **avant**
+   les éléments de cette balise peuvent apparaître dans la file d'attente.
+5. Cliquez sur **Enregistrer les conditions préalables**.Le **graphique de dépendance** à droite visualise les relations — flèches
+pointer de la condition préalable à la balise dépendante.  Les dépendances circulaires sont
+détecté et rejeté au moment de la sauvegarde.
 
-The **dependency graph** on the right visualizes relationships — arrows
-point from prerequisite to dependent tag.  Circular dependencies are
-detected and rejected at save time.
+> **Remarque** : Les balises sont automatiquement synchronisées à partir de vos éléments existants.
+> Si une balise n'apparaît pas, marquez d'abord certains éléments, puis rouvrez la balise.
+> Gestion — TAS les détectera et les enregistrera.
 
-> **Note**: Tags are synced from your existing items automatically.
-> If a tag doesn't appear, tag some items first, then reopen Tag
-> Management — TAS will detect and register them.
+#### Lecture de la file d'attente
 
-#### Reading the Queue
+Lorsque TAS est actif, l'en-tête de file d'attente affiche un badge **TAS Active**
+avec le nombre d'éléments prêts et bloqués.
 
-When TAS is active, the queue header shows a **TAS Active** badge
-with counts of ready and blocked items.
-
-| Badge | Means |
+| Insigne | Moyens |
 |---|---|
-| 🟡 "Waiting on `tag` maturity (45%)" | Blocked — a prerequisite tag is only 45% mature |
-| 🔵 "Delayed to avoid interference with `tag`" | Delayed — an item sharing a high-coherence tag was recently scheduled |
+| 🟡 "En attente de maturité `tag` (45%)" | Bloqué : une balise préalable n'est mature qu'à 45 % |
+| 🔵 "Retardé pour éviter les interférences avec `tag`" | Retardé : un élément partageant une balise à haute cohérence a été récemment planifié |
 
-#### Forcing Items
+#### Forcer les éléments
 
-You can override TAS for individual items:
+Vous pouvez remplacer TAS pour des éléments individuels :
 
-- Click the **Force show** link next to any blocked or delayed item
-  to add it to the current review session immediately.
-- The override is session-only — the item is re-evaluated against TAS
-  rules in the next session.
+- Cliquez sur le lien **Forcer l'affichage** à côté de tout élément bloqué ou retardé.
+  pour l'ajouter immédiatement à la session de révision en cours.
+- Le remplacement s'applique uniquement à la session : l'élément est réévalué par rapport au TAS.
+  règles lors de la prochaine session.
 
-#### How Coherence Is Computed
+#### Comment la cohérence est calculée
 
-Coherence measures how semantically tight a tag's items are:
+La cohérence mesure à quel point les éléments d'une balise sont sémantiquement serrés :
 
-1. Use **Compute Semantic Graph** from the queue view.  This requires
-   a configured embedding provider (OpenAI, Ollama, Cohere, OpenRouter).
-2. Each item's title, content, and tags are sent to your chosen LLM
-   provider and an embedding vector is stored.
-3. After embedding, TAS automatically computes each tag's **centroid**
-   (mean vector of all items with that tag) and **coherence** (average
-   pairwise cosine similarity of those items).
-4. Coherence values appear in Tag Management next to each tag.
+1. Utilisez **Compute Semantic Graph** à partir de la vue de file d'attente.  Cela nécessite
+   un fournisseur d'intégration configuré (OpenAI, Ollama, Cohere, OpenRouter).
+2. Le titre, le contenu et les balises de chaque élément sont envoyés au LLM de votre choix
+   fournisseur et un vecteur d'intégration est stocké.
+3. Après l'intégration, TAS calcule automatiquement le **centroïde** de chaque balise.
+   (vecteur moyen de tous les éléments avec cette balise) et **cohérence** (moyenne
+   similarité cosinus par paire de ces éléments).
+4. Les valeurs de cohérence apparaissent dans Tag Management à côté de chaque balise.
 
-Tags with no embeddings yet are treated as coherence = 0 — no
-interference jitter is applied for those tags.
+Les balises sans intégration pour le moment sont traitées comme cohérence = 0 — non
+une gigue d’interférence est appliquée à ces balises.
 
-#### Tag Maturity
+#### Maturité des balises
 
-A tag is **mature** for an item when that item's SM-20/FSRS stability
-meets or exceeds the tag's `maturityThreshold` (default 0.8).  The
-overall maturity ratio is `matureCount / itemCount`.
+Une balise est **mature** pour un élément lorsque la stabilité SM-20/FSRS de cet élément
+atteint ou dépasse le « maturityThreshold » de la balise (par défaut 0,8).  Le
+le ratio de maturité global est « matureCount / itemCount ».
 
-- Progress bars in the Prerequisite Editor show each tag's current
-  maturity ratio.
-- Prerequisite gating uses the configured `maturityRatio` to decide
-  whether a prerequisite tag is "satisfied" enough to unlock dependent
-  tags for review.
+- Les barres de progression dans l'éditeur de prérequis affichent le niveau actuel de chaque balise.
+  taux de maturité.
+- Le contrôle des prérequis utilise le « maturityRatio » configuré pour décider
+  si une balise de prérequis est suffisamment « satisfaite » pour déverrouiller la dépendance
+  balises pour examen.
 
-#### Tips
+#### Conseils
 
-- **Start with prerequisites only**. Keep interference jitter off until
-  you've run the embedding pipeline and have coherence values.
-- **Use granular tags**. `calculus.limits` → `calculus.derivatives` is
-  more effective than one broad `calculus` tag.
-- **Watch the block rate**. If many items sit blocked, lower the maturity
-  ratio or simplify the prerequisite graph.
-- **Force-show is your safety valve**. If TAS is too aggressive for a
-  particular item, force-show it — no underlying scheduling data is harmed.
+- **Commencez avec les prérequis uniquement**. Maintenez la gigue d'interférence désactivée jusqu'à ce que
+  vous avez exécuté le pipeline d'intégration et avez des valeurs de cohérence.
+- **Utilisez des balises granulaires**. `calculus.limits` → `calculus.derivatives` est
+  plus efficace qu'une large balise « calcul ».
+- **Regardez le taux de blocage**. Si de nombreux articles restent bloqués, réduisez l’échéance
+  ratio ou simplifier le graphique des prérequis.
+- **Force-show est votre soupape de sécurité**. Si le TAS est trop agressif pour un
+  élément particulier, forcez-le à l’afficher – aucune donnée de planification sous-jacente n’est endommagée.
 
 ---
 
@@ -677,39 +702,39 @@ overall maturity ratio is `matureCount / itemCount`.
 
 ### Présentation du tableau de bord
 
-Le tableau de bord Analytics fournit des informations complètes :
+Le tableau de bord Analytics fournit des informations complètes :
 
-**Mesures clés :**
-- **Cartes dues aujourd'hui** : numéro en attente d'examen
-- **Total des cartes** : Toutes les cartes du système
-- **Taux de rétention** : pourcentage mémorisé
-- **Study Streak** : Jours d'activité consécutifs
-- **Cartes apprises** : nombre total de cartes créées
+**Mesures clés :**
+- **Cartes dues aujourd'hui** : numéro en attente d'examen
+- **Total des cartes** : Toutes les cartes du système
+- **Taux de rétention** : pourcentage mémorisé
+- **Study Streak** : Jours d'activité consécutifs
+- **Cartes apprises** : nombre total de cartes créées
 
 ### Graphiques d'activité
 
-**Activité de 30 jours :**
+**Activité de 30 jours :**
 - Graphique à barres affichant les avis par jour
 - Code couleur par note (Encore/Difficile/Bon/Facile)
 - Identifiez les modèles dans vos habitudes d'étude
 
-**Courbe d'apprentissage :**
+**Courbe d'apprentissage :**
 - Graphique linéaire montrant le nombre total de cartes au fil du temps
 - Suivez la croissance de votre base de connaissances
 
 ### Statistiques
 
-**Statistiques de révision :**
+**Statistiques de révision :**
 - Total des examens terminés
 - Répartition moyenne des notes
 - Avis par jour/semaine/mois
 
-**Statistiques de la carte :**
+**Statistiques de la carte :**
 - Total des cartes par catégorie
 - Cartes par type (Flashcard, Cloze, etc.)
 - Cartes nouvelles ou matures
 
-**Mesures d'algorithme (FSRS/SM-18) :**
+**Mesures d'algorithme (FSRS/SM-18) :**
 - Stabilité moyenne
 - Difficulté moyenne
 - Rétention prévue
@@ -717,7 +742,7 @@ Le tableau de bord Analytics fournit des informations complètes :
 
 ### Répartition des catégories
 
-Afficher les performances par domaine :
+Afficher les performances par domaine :
 
 - Cartes par catégorie
 - Taux de rétention par catégorie
@@ -726,28 +751,28 @@ Afficher les performances par domaine :
 
 ### Buts et séquences
 
-**Fixation d'objectifs :**
+**Fixation d'objectifs :**
 1. Cliquez sur **Analytics** → **Objectifs**.
-2. Fixez des objectifs quotidiens/hebdomadaires :
+2. Fixez des objectifs quotidiens/hebdomadaires :
    - Cartes à revoir
    - Cartes à créer
    - Temps d'étude
 3. Suivez les indicateurs visuels de progrès
 
-**Séries d'études :**
+**Séries d'études :**
 - Journées consécutives avec activité
 - Série actuelle affichée sur le tableau de bord
 - Entretenir des séquences de motivation
 
 ### Statistiques d'exportation
 
-Exportez vos données pour analyse :
+Exportez vos données pour analyse :
 
 1. Cliquez sur **Analytics** → **Exporter**.
-2. Choisissez le format :
-   - **CSV** : compatible avec les feuilles de calcul
-   - **JSON** : pour une analyse personnalisée
-   - **PDF** : Rapport imprimable
+2. Choisissez le format :
+   - **CSV** : compatible avec les feuilles de calcul
+   - **JSON** : pour une analyse personnalisée
+   - **PDF** : Rapport imprimable
 3. Sélectionnez une plage de dates
 4. Incluez des métriques (avis, cartes, rétention)
 
@@ -758,11 +783,11 @@ Exportez vos données pour analyse :
 ### Paramètres d'apparence
 
 #### Thèmes
-- **147 thèmes intégrés** : 26 thèmes modernes et 121 thèmes hérités (sombre et clair)
-- **Aperçu en direct** : consultez instantanément les changements de thème
-- **Thèmes personnalisés** : créez vos propres combinaisons de couleurs
+- **147 thèmes intégrés** : 26 thèmes modernes et 121 thèmes hérités (sombre et clair)
+- **Aperçu en direct** : consultez instantanément les changements de thème
+- **Thèmes personnalisés** : créez vos propres combinaisons de couleurs
 
-**Options de thème :**
+**Options de thème :**
 - Modern Dark (sombre par défaut)
 - Matériel vous (Conception matérielle 3)
 - Lumière aurore
@@ -772,7 +797,7 @@ Exportez vos données pour analyse :
 #### Création de thèmes personnalisés
 
 1. Paramètres → Apparence → Personnaliser le thème
-2. Ajustez les couleurs :
+2. Ajustez les couleurs :
    - Couleur primaire
    - Couleur de fond
    - Couleur du texte
@@ -781,103 +806,103 @@ Exportez vos données pour analyse :
 4. Exporter/importer des thèmes à partager
 
 #### Options d'affichage
-- **Mode dense** : affichez plus de contenu par écran
-- **Famille de polices** : choisissez parmi 65 polices intégrées réparties en 5 catégories :
+- **Mode dense** : affichez plus de contenu par écran
+- **Famille de polices** : choisissez parmi 65 polices intégrées réparties en 5 catégories :
   - Sans empattement (25) : Inter, Poppins, Montserrat, Space Grotesk, et plus
   - Serif (5) : Merriweather, Playfair Display, Lora, Crimson Text, Bitter
   - Monospace (31) : JetBrains Mono, Fira Code, Source Code Pro, et plus
   Affichage (2) : Comic Neue, Major Mono Display
-  - Système (4) : interface utilisateur système, système Serif, système Sans, système Mono
-- **Taille de police** : Ajustez la taille du texte
-- **Animation de carte** : activer/désactiver les animations
-- **Afficher les intervalles d'aperçu** : afficher les prochaines dates de révision
+  - Système (4) : interface utilisateur système, système Serif, système Sans, système Mono
+- **Taille de police** : Ajustez la taille du texte
+- **Animation de carte** : activer/désactiver les animations
+- **Afficher les intervalles d'aperçu** : afficher les prochaines dates de révision
 
 ### Paramètres d'apprentissage
 
 #### Sélection d'algorithme
 
-Incrementum prend en charge quatre algorithmes de planification. Choisissez celui qui correspond le mieux à votre style d'apprentissage :
+Incrementum prend en charge quatre algorithmes de planification. Choisissez celui qui correspond le mieux à votre style d'apprentissage :
 
-**FSRS-6 (recommandé) :**
+**FSRS-6 (recommandé) :**
 - Moderne, soutenu par la recherche
 - S'adapte à la mémoire individuelle
 - Prédit les temps d'oubli
 - Meilleure rétention avec moins d'avis
 
-**SM-20 (SuperMemo 20) :**
-- Algorithme le plus avancé, obtenu par rétro-ingénierie de sm20.exe via Ghidra
-- Utilise la formule d'intervalle V4 (SM-20 proprement dit) ; la planification SM-19 est disponible via l'algorithme `sm2` distinct
-- Le lissage bayésien apprend les intervalles optimaux à partir de vos données de révision réelles
-- Construit des connaissances au fil du temps via des matrices d'intervalle/compteur de 21×21×21 persistées
+**SM-20 (SuperMémo 20) :**
+- Algorithme le plus avancé, rétro-ingénierie à partir de sm20.exe via Ghidra
+- Utilise la formule d'intervalle V4 (SM-20 proprement dite); La planification SM-19 est disponible via l'algorithme `sm2` séparé
+- Le lissage bayésien apprend les intervalles optimaux à partir de vos données d'examen réelles
+- Développe des connaissances au fil du temps via des matrices d'intervalle/compte persistantes de 21 × 21 × 21
 
-**SM-18 (SuperMémo 18) :**
+**SM-18 (SuperMémo 18) :**
 - Dernier algorithme SuperMemo, rétro-ingénierie à partir de l'application d'origine
 - Utilise une matrice de recherche 3D SInc (Stability Increase) en fonction de la difficulté, de la stabilité et de la récupérabilité
 - Suivi explicite des difficultés avec mises à jour de la moyenne finale
-- Modèle de courbe d'oubli exponentielle : `R = 0,9^(t/S)`
+- Modèle de courbe d'oubli exponentielle : `R = 0,9^(t/S)`
 - Gestion sophistiquée des pannes avec réduction de la stabilité en fonction des déchéances
 
-**SM-2 (Classique) :**
+**SM-2 (Classique) :**
 - Algorithme traditionnel SuperMemo 2 (documenté publiquement)
 - Plus simple, prévisible
 - Plus d'avis requis
 
 #### Paramètres
 
-**Rétention souhaitée :** 0,70 - 0,95
-- **90 %** (par défaut) : équilibre la rétention et la charge de révision
-- **85 %** : moins d'avis, un peu moins de rétention
-- **95 %** : Rétention maximale, plus d'avis
+**Rétention souhaitée :** 0,70 - 0,95
+- **90 %** (par défaut) : équilibre la rétention et la charge de révision
+- **85 %** : moins d'avis, un peu moins de rétention
+- **95 %** : Rétention maximale, plus d'avis
 
-**Apprendre par jour :** 10 à 100
-- **20** (par défaut) : Gérable pour la plupart des utilisateurs
+**Apprendre par jour :** 10 à 100
+- **20** (par défaut) : Gérable pour la plupart des utilisateurs
 - **50** : Pour les périodes d'études intensives
-- **10** : charge de révision légère
+- **10** : charge de révision légère
 
-**Révision par jour :** 50 - 500
+**Révision par jour :** 50 - 500
 - **200** (par défaut) : limite quotidienne raisonnable
-- **500** : pour éliminer le retard
-- **50** : Jours de révision légers
+- **500** : pour éliminer le retard
+- **50** : Jours de révision légers
 
 #### Paramètres d'intervalle
 
-**Nouveaux intervalles de carte :**
+**Nouveaux intervalles de carte :**
 - Intervalle d'obtention du diplôme (bonne note) : 1 à 10 jours
 - Intervalle facile : 3-21 jours
 - Intervalle minimum : 1 jour
 
-**Intervalle maximum :**
+**Intervalle maximum :**
 - Limiter les intervalles les plus longs (365 jours par défaut)
-- Empêche les cartes d'être programmées trop loin
-
-**Capuchon de sécurité long (Vidéos/Articles) :**
+- Empêche les cartes d'être programmées trop loin**Capuchon de sécurité long (Vidéos/Articles) :**
 - Pour les vidéos/articles longs, les notes positives (« Bon »/« Facile ») tiennent compte de la couverture.
-- Si vous passez moins de **25 %** de la durée estimée du contenu, l'intervalle suivant est limité à **1 jour**.
-- Si vous dépensez moins de **50 %**, l'intervalle suivant est limité à **2 jours**.
-- Si vous dépensez moins de **75 %**, l'intervalle suivant est limité à **4 jours**.
+- Si vous passez moins de **25 %** de la durée estimée du contenu, l'intervalle suivant est limité à **1 jour**.
+- Si vous dépensez moins de **50 %**, l'intervalle suivant est limité à **2 jours**.
+- Si vous dépensez moins de **75 %**, l'intervalle suivant est limité à **4 jours**.
 - Cela évite que le contenu long soit programmé trop loin après une progression partielle.
-- Une fois appliqué, le motif du planificateur inclut une note **Plafond tenant compte de la durée** pour plus de transparence.
+- Une fois appliqué, le motif du planificateur inclut une note **Plafond tenant compte de la durée** pour plus de transparence.
 
 ### Paramètres de révision
 
-#### Limites de session**Délai :**
+#### Limites de session
+
+**Délai :**
 - Durée maximale de la session (minutes)
 - Intervalles de pause
 - Fin automatique après la limite
 
-**Limites des cartes :**
+**Limites des cartes :**
 - Nombre maximum de cartes par session
 - Limite séparée pour les nouvelles cartes
 - Encore une fois la limite de carte
 
 #### Options de notation
 
-**Raccourcis d'évaluation :**
+**Raccourcis d'évaluation :**
 - Personnaliser les raccourcis clavier
 - Définir la note par défaut (touche Espace)
 - Activer/désactiver les raccourcis de notation
 
-**Avance automatique :**
+**Avance automatique :**
 - Passage automatique à la carte suivante après la notation
 - Délai avant avance automatique (secondes)
 
@@ -903,53 +928,51 @@ Incrementum prend en charge quatre algorithmes de planification. Choisissez celu
 
 ### Paramètres de synchronisation
 
-Incrementum synchronise vos données de lecture entre vos appareils via une **salle de synchronisation partagée** (sync room). Il n'y a pas de compte, pas de connexion au serveur ni de clé API — chaque appareil qui connaît le même code de synchronisation rejoint la même salle et partage les mêmes données. Il s'agit du seul système de synchronisation de l'application.
+Incrementum synchronise vos données de lecture sur vos appareils via une **salle de synchronisation partagée**. Il n'y a pas de compte, pas de connexion au serveur et pas de clé API : chaque appareil connaissant le même code de synchronisation rejoint la même pièce et partage les mêmes données. C'est le seul système de synchronisation de l'application.
 
 #### Comment ça marche
 
-- Chaque appareil génère un **code de synchronisation** (une chaîne aléatoire) la première fois que vous ouvrez les réglages de Sync.
-- Partagez ce code avec vos autres appareils — soit en le copiant, soit en scannant le code QR affiché dans les réglages de Sync.
-- Lorsque deux appareils partagent un code, leurs données de lecture (documents, extraits, éléments d'apprentissage, historique de révision, réglages) se synchronisent automatiquement dès qu'ils sont en ligne en même temps. Les fichiers joints à vos documents sont synchronisés via la même salle.
-- Le code de synchronisation est la seule chose qui donne accès à une salle. Gardez-le privé — quiconque le possède peut lire vos données synchronisées.
+- Chaque appareil génère un **code de synchronisation** (une chaîne aléatoire) la première fois que vous ouvrez les paramètres de synchronisation.
+- Partagez ce code avec vos autres appareils : copiez-le ou scannez le code QR affiché dans les paramètres de synchronisation.
+- Lorsque deux appareils partagent un code, leurs données de lecture (documents, extraits, éléments d'apprentissage, historique des révisions, paramètres) se synchronisent automatiquement lorsqu'ils sont en ligne en même temps. Les fichiers joints à vos documents sont synchronisés dans la même pièce.
+- Le code de synchronisation est la seule chose qui donne accès à une pièce. Gardez-le privé : toute personne disposant de celui-ci peut lire vos données synchronisées.
 
 #### Connecter vos appareils
 
-1. Ouvrez **Réglages → Sync** sur votre premier appareil (par ex. le bureau). Notez le code de synchronisation affiché, ou affichez son code QR.
-2. Ouvrez **Réglages → Sync** sur votre second appareil (par ex. votre téléphone).
+1. Ouvrez **Paramètres → Sync** sur votre premier appareil (par exemple un ordinateur de bureau). Notez le code de synchronisation qui y est affiché ou affichez son code QR.
+2. Ouvrez **Paramètres → Sync** sur votre deuxième appareil (par exemple votre téléphone).
 3. Soit :
    - Appuyez sur **Scan** et pointez l'appareil photo vers le code QR du premier appareil, ou
-   - Collez le code de synchronisation dans le champ « Join another code » et appuyez sur « Join ».
-4. Le second appareil rejoint la salle et commence à se synchroniser immédiatement — aucun rechargement ni redémarrage nécessaire.
-5. Répétez l'opération pour chaque appareil que vous souhaitez garder synchronisé.
+   - Collez le code de synchronisation dans le champ "Rejoindre un autre code" et appuyez sur **Rejoindre**.
+4. Le deuxième appareil rejoint la salle et commence la synchronisation immédiatement – ​​aucun rechargement ni redémarrage n'est nécessaire.
+5. Répétez l'opération pour chaque appareil que vous souhaitez synchroniser.
 
-> **Astuce :** Le bouton « New » génère un nouveau code de synchronisation. Ne l'utilisez que si vous voulez repartir de zéro — les appareils sur l'ancien code cesseront de se synchroniser avec ceux sur le nouveau code.
+> **Conseil :** Le bouton "Nouveau" génère un nouveau code de synchronisation. Utilisez-le uniquement si vous souhaitez recommencer : les appareils sur l'ancien code cesseront de se synchroniser avec les appareils sur le nouveau.
 
-#### Ce qui se synchronise
+#### Qu'est-ce qui synchronise
 
-- Documents et leurs métadonnées
-- Extraits (surlignages et notes)
-- Éléments d'apprentissage (cartes mémo, textes à trous, questions/réponses)
-- Historique de révision et état de planification
-- Réglages de l'application
+- Les documents et leurs métadonnées
+- Extraits (faits saillants et notes)
+- Éléments d'apprentissage (flashcards, suppressions de cloze, questions et réponses)
+- Examiner l'historique et l'état de planification
+- Paramètres de l'application
 - Fichiers joints aux documents (PDF, EPUB, etc.)
 
-#### Téléchargement automatique des fichiers
+#### Téléchargement automatique du fichier
 
-Sous **File Sync**, choisissez avec quelle agressivité les nouveaux fichiers sont récupérés sur chaque appareil :
-
-- **Always** — télécharger automatiquement chaque fichier dès qu'il apparaît dans la salle.
-- **WiFi only** — téléchargement automatique uniquement en WiFi (utile sur les forfaits mobiles).
-- **Manual** — jamais de téléchargement automatique ; chaque fichier affiche un bouton de téléchargement sur lequel vous appuyez quand vous le souhaitez.
+Sous **File Sync**, choisissez le degré d'agressivité avec lequel les nouveaux fichiers sont extraits sur chaque appareil :- **Toujours** : téléchargez automatiquement chaque fichier dès qu'il apparaît dans la pièce.
+- **WiFi uniquement** — téléchargement automatique uniquement sur WiFi (utile sur les forfaits de données mobiles).
+- **Manuel** — jamais de téléchargement automatique ; chaque fichier affiche un bouton de téléchargement sur lequel vous appuyez quand vous le souhaitez.
 
 #### Chiffrement de bout en bout (facultatif)
 
-La synchronisation fonctionne par défaut en mode « TLS uniquement » : vos données voyagent chiffrées sur le réseau, et le code de synchronisation agit comme un secret partagé. Si vous souhaitez une protection renforcée, vous pouvez activer le **chiffrement de bout en bout**, qui chiffre vos données sur votre appareil avant qu'elles ne le quittent, afin que le serveur de synchronisation ne voie que du texte chiffré.
+La synchronisation s'exécute par défaut en mode « TLS uniquement » : vos données voyagent cryptées sur le réseau et le code de synchronisation agit comme un secret partagé. Si vous souhaitez une protection plus renforcée, vous pouvez activer le **chiffrement de bout en bout**, qui crypte vos données sur votre appareil avant qu'elles ne disparaissent, afin que le serveur de synchronisation ne voie que le texte chiffré.
 
-Lorsque le chiffrement est actif, le code QR intègre votre secret de salle — ne le partagez qu'avec des appareils de confiance.
+Lorsque le cryptage est activé, le code QR intègre le secret de votre chambre : partagez-le uniquement avec des appareils de confiance.
 
 #### Confidentialité
 
-Toutes vos données de lecture sont d'abord stockées localement sur vos appareils. La synchronisation est une commodité facultative qui reflète ces données sur vos appareils via votre salle partagée. Rien n'est envoyé vers un serveur, à l'exception des fournisseurs d'IA que vous avez personnellement configurés.
+Toutes vos données de lecture sont d'abord stockées localement sur vos appareils. La synchronisation est une commodité facultative qui reflète ces données sur vos appareils dans votre salle partagée. Rien n'est envoyé à aucun serveur, à l'exception des fournisseurs d'IA que vous avez personnellement configurés.
 
 #### Sauvegarde et restauration
 
@@ -957,57 +980,57 @@ Incrementum fournit un système complet de sauvegarde et de restauration pour pr
 
 #### Sauvegarde complète de l'application
 
-**Ce qui est sauvegardé :**
+**Ce qui est sauvegardé :**
 - **Paramètres** : Toutes les préférences, thèmes, paramètres d'apprentissage
-- **Documents** : tous les documents importés avec métadonnées
-- **Extraits** : tous les faits saillants et le contenu extrait
-- **Éléments d'apprentissage** : toutes les flashcards, suppressions de cloze, cartes questions-réponses
-- **Données de planification** : états de la mémoire de l'algorithme (stabilité, difficulté, intervalles), dates d'échéance
-- **Collections** : toutes les collections et affectations de documents
-- **État de l'interface utilisateur** : état de la barre latérale, préférences de thème
-- **Facultatif** : fichiers de documents réels (PDF, EPUB, etc.)
+- **Documents** : tous les documents importés avec métadonnées
+- **Extraits** : tous les faits saillants et le contenu extrait
+- **Éléments d'apprentissage** : toutes les flashcards, suppressions de cloze, cartes questions-réponses
+- **Données de planification** : états de la mémoire de l'algorithme (stabilité, difficulté, intervalles), dates d'échéance
+- **Collections** : toutes les collections et affectations de documents
+- **État de l'interface utilisateur** : état de la barre latérale, préférences de thème
+- **Facultatif** : fichiers de documents réels (PDF, EPUB, etc.)
 
-**Création d'une sauvegarde :**
+**Création d'une sauvegarde :**
 
 1. Accédez à **Paramètres → Importer/Exporter → Sauvegarde complète de l'application**
 2. Cliquez sur **Ouvrir la sauvegarde et la restauration**
 3. Sélectionnez **Exporter la sauvegarde**
 4. Ajoutez une étiquette facultative (par exemple, "Avant de reformater le PC")
-5. Choisissez si vous souhaitez inclure les fichiers de documents :
-   - **Métadonnées uniquement** : fichier plus petit (~ Ko-Mo), réimportez les fichiers séparément
-   - **Inclure les fichiers** : fichier plus volumineux (~ Mo-Go), sauvegarde autonome complète
+5. Choisissez si vous souhaitez inclure les fichiers de documents :
+   - **Métadonnées uniquement** : fichier plus petit (~ Ko-Mo), réimportez les fichiers séparément
+   - **Inclure les fichiers** : fichier plus volumineux (~ Mo-Go), sauvegarde autonome complète
 6. Cliquez sur **Exporter la sauvegarde** et enregistrez le fichier `.incrementum`
 
-**Format de fichier :**
-- Extension : `.incrementum`
+**Format de fichier :**
+- Extension : `.incrementum`
 - Format : JSON avec commentaire d'en-tête
-- Dénomination : `incrementum-backup-[label]-[date]-[time].incrementum`
+- Dénomination : `incrementum-backup-[label]-[date]-[time].incrementum`
 
-**Restauration à partir d'une sauvegarde :**
+**Restauration à partir d'une sauvegarde :**
 
 1. Accédez à **Paramètres → Importer/Exporter → Sauvegarde complète de l'application**
 2. Cliquez sur **Ouvrir la sauvegarde et la restauration**
 3. Sélectionnez **Importer la sauvegarde**
 4. Choisissez votre fichier `.incrementum`
-5. Prévisualisez le contenu de la sauvegarde :
+5. Prévisualisez le contenu de la sauvegarde :
    - Nombre de documents
    - Compte d'extraits
    - Nombre d'éléments d'apprentissage
    - Nombre de collectes
    - Si les fichiers sont inclus
-6. Configurez les options d'importation (facultatif) :
-   - **Ce qu'il faut importer** : choisissez des types de données spécifiques
-   - **Gestion des doublons** : ignorer, remplacer ou fusionner
-   - **Importer des fichiers** : s'il faut restaurer les fichiers de documents
+6. Configurez les options d'importation (facultatif) :
+   - **Ce qu'il faut importer** : choisissez des types de données spécifiques
+   - **Gestion des doublons** : ignorer, remplacer ou fusionner
+   - **Importer des fichiers** : s'il faut restaurer les fichiers de documents
 7. Cliquez sur **Importer la sauvegarde**
 8. Attendez la fin de l'importation (progression affichée)
 
-**Stratégies de gestion des doublons :**
-- **Ignorer** : ignorer les éléments qui existent déjà (recommandé dans la plupart des cas)
-- **Remplacer** : écraser les éléments existants avec des versions de sauvegarde
-- **Fusion** : créez de nouvelles copies de tous les éléments (peut créer des doublons)
+**Stratégies de gestion des doublons :**
+- **Ignorer** : ignorer les éléments qui existent déjà (recommandé dans la plupart des cas)
+- **Remplacer** : écraser les éléments existants avec des versions de sauvegarde
+- **Fusion** : créez de nouvelles copies de tous les éléments (peut créer des doublons)
 
-**Cas d'utilisation :**| Scénario | Approche recommandée |
+**Cas d'utilisation :**| Scénario | Approche recommandée |
 |----------|-----------|
 | **Migrer vers un nouvel ordinateur** | Exporter avec des fichiers, importer sur une nouvelle machine |
 | **Sauvegarde avant les changements majeurs** | Sauvegarde rapide des métadonnées uniquement |
@@ -1016,25 +1039,25 @@ Incrementum fournit un système complet de sauvegarde et de restauration pour pr
 | **Archiver les anciennes données** | Exporter et stocker à long terme |
 | **Restaurer après reformatage** | Importer une sauvegarde complète avec des fichiers |
 
-**Remarques importantes :**
-- **Préservation de la planification** : toutes les données de planification (stabilité, difficulté, dates d'échéance) pour tous les types d'algorithmes sont conservées exactement
-- **Chemins de fichiers** : lors de l'importation sans fichiers, vous devrez réimporter les documents originaux. Incrementum les fera correspondre par hachage de contenu et restaurera les métadonnées
-- **Compatibilité des versions** : les sauvegardes sont rétrocompatibles mais peuvent ne pas fonctionner avec les anciennes versions de l'application
-- **Stockage** : protégez les sauvegardes : elles contiennent vos données d'apprentissage personnelles
+**Remarques importantes :**
+- **Préservation de la planification** : toutes les données de planification (stabilité, difficulté, dates d'échéance) pour tous les types d'algorithmes sont conservées exactement
+- **Chemins de fichiers** : lors de l'importation sans fichiers, vous devrez réimporter les documents originaux. Incrementum les fera correspondre par hachage de contenu et restaurera les métadonnées
+- **Compatibilité des versions** : les sauvegardes sont rétrocompatibles mais peuvent ne pas fonctionner avec les anciennes versions de l'application
+- **Stockage** : protégez les sauvegardes : elles contiennent vos données d'apprentissage personnelles
 
 #### Options de sauvegarde héritées
 
-**Sauvegardes automatiques :**
+**Sauvegardes automatiques :**
 - Fréquence de sauvegarde (quotidienne, hebdomadaire)
 - Sauvegardes maximales à conserver (5-50)
 - Emplacement de sauvegarde
 
-**Sauvegarde manuelle :**
+**Sauvegarde manuelle :**
 - Paramètres → Sauvegarde → Créer une sauvegarde
 - Choisissez l'emplacement
 - Comprend toutes les données et paramètres
 
-**Restaurer :**
+**Restaurer :**
 - Paramètres → Sauvegarde → Restaurer
 - Sélectionnez le fichier de sauvegarde
 - Confirmer la restauration (remplace les données actuelles)
@@ -1061,19 +1084,19 @@ Incrementum fournit un système complet de sauvegarde et de restauration pour pr
 3. Appuyez sur une nouvelle combinaison de touches
 4. Enregistrez les modifications
 
-**Réinitialiser les paramètres par défaut :** Cliquez sur le bouton « Réinitialiser tout »
+**Réinitialiser les paramètres par défaut :** Cliquez sur le bouton « Réinitialiser tout »
 
 ### Paramètres d'intégration
 
 #### Intégration Anki
 
-**Configuration :**
+**Configuration :**
 1. Paramètres → Intégrations → Anki
-2. Configurez l'URL AnkiConnect (par défaut : `http://localhost:8765`)
+2. Configurez l'URL AnkiConnect (par défaut : `http://localhost:8765`)
 3. Tester la connexion
 4. Activer la synchronisation bidirectionnelle
 
-**Options de synchronisation :**
+**Options de synchronisation :**
 - Synchronisation avec Anki lors de la création de cartes
 - Intervalles de synchronisation d'Anki
 - Cartographie du deck (catégorie Incrementum → deck Anki)
@@ -1081,13 +1104,13 @@ Incrementum fournit un système complet de sauvegarde et de restauration pour pr
 
 #### Intégration d'obsidienne
 
-**Configuration :**
+**Configuration :**
 1. Paramètres → Intégrations → Obsidienne
 2. Définir le chemin du coffre-fort
 3. Configurer le modèle
 4. Activer la synchronisation
 
-**Fonctionnalités de synchronisation :**
+**Fonctionnalités de synchronisation :**
 - Exporter des cartes vers des notes Obsidian
 - Importer des notes sous forme de cartes
 - Intégration des notes quotidiennes
@@ -1097,16 +1120,16 @@ Incrementum fournit un système complet de sauvegarde et de restauration pour pr
 
 Utilisez NotebookLM dans Incrementum pour rechercher, générer des artefacts d'étude et enregistrer des extraits révisables.
 
-**Configuration :**
+**Configuration :**
 1. Paramètres → Fonctionnalités → activer **NotebookLM**
 2. Paramètres → Intégrations → **NotebookLM**
 3. Cliquez sur **Connect** et choisissez le fournisseur (`mock` pour les tests, `cli` pour Live NotebookLM)
 4. Sélectionnez ou créez un bloc-notes actif
 
-**Ce que vous pouvez faire :**
+**Ce que vous pouvez faire :**
 - Posez des questions dans le chat NotebookLM directement depuis Incrementum
 - Exécuter des invites de recherche (recherche de cahiers assistée par Web)
-- Générer des artefacts :
+- Générer des artefacts :
   - Cartes mémoire
   - Quiz
   - Rapport / Guide d'étude
@@ -1115,35 +1138,35 @@ Utilisez NotebookLM dans Incrementum pour rechercher, générer des artefacts d'
   - Aperçu audio
   - Aperçu vidéo
 - Prévisualisez les artefacts dans l'application (y compris les lecteurs audio/vidéo lorsque le média est disponible)
-- Synchronisez les flashcards/éléments de quiz générés dans la file d'attente de révision Incrementum**Enregistrer les réponses au chat sous forme d'extraits :**
+- Synchronisez les flashcards/éléments de quiz générés dans la file d'attente de révision Incrementum**Enregistrer les réponses au chat sous forme d'extraits :**
 1. Ouvrez le chat de l'espace de travail NotebookLM
 2. Sur n'importe quelle réponse de l'assistant, cliquez sur **Enregistrer en tant qu'extrait**.
-3. Facultatif : mettez d'abord en surbrillance une partie de la réponse pour enregistrer uniquement le texte sélectionné.
+3. Facultatif : mettez d'abord en surbrillance une partie de la réponse pour enregistrer uniquement le texte sélectionné.
 4. Incrementum crée un extrait lié à NotebookLM avec des métadonnées thread/source
 5. Les réponses enregistrées affichent un indicateur **déjà enregistré** pour éviter les doublons
 
-**Questions et réponses sur les documents + flux de travail NotebookLM :**
+**Questions et réponses sur les documents + flux de travail NotebookLM :**
 1. Ouvrez un document dans Incrementum
 2. Utilisez **Document Q&A** avec le mode de recherche NotebookLM
 3. Modifier/affiner le texte de réponse généré en ligne
 4. Créez des extraits de la réponse affinée
 5. Générez des flashcards/cloze/éléments de questions-réponses à partir de ces extraits
 
-**Dépannage :**
+**Dépannage :**
 - Si l'aperçu de l'artefact indique que le média n'est pas disponible, attendez la fin de la génération NotebookLM et rouvrez l'artefact.
 - Si vous utilisez le fournisseur `cli`, assurez-vous que le side-car/CLI NotebookLM est disponible dans votre build.
 - Si vous avez changé de fournisseur ou si l'authentification a expiré, reconnectez-vous dans Intégrations → NotebookLM.
 
 #### Serveurs MCP
 
-**Serveurs MCP (Model Context Protocol) :**
+**Serveurs MCP (Model Context Protocol) :**
 
-Connectez jusqu'à 3 serveurs MCP pour des fonctionnalités basées sur l'IA :
+Connectez jusqu'à 3 serveurs MCP pour des fonctionnalités basées sur l'IA :
 
 1. Paramètres → AI → Serveurs MCP
 2. Ajouter l'URL du serveur
 3. Configurer l'authentification
-4. Activez les fonctionnalités :
+4. Activez les fonctionnalités :
    - Génération de carte à puce
    - Résumé du contenu
    - Aide aux questions et réponses
@@ -1153,9 +1176,9 @@ Connectez jusqu'à 3 serveurs MCP pour des fonctionnalités basées sur l'IA :
 
 #### Fournisseurs d'assurance qualité
 
-Configurez les fournisseurs d'IA pour la génération de cartes :
+Configurez les fournisseurs d'IA pour la génération de cartes :
 
-**Fournisseurs pris en charge :**
+**Fournisseurs pris en charge :**
 -OpenAI (GPT-4, GPT-3.5)
 - Anthropique (Claude)
 - Ollama (modèles locaux comme Llama, Mistral, Qwen)
@@ -1163,7 +1186,7 @@ Configurez les fournisseurs d'IA pour la génération de cartes :
 - llama.cpp / vLLM (n'importe quel modèle GGUF via API compatible OpenAI)
 - Points de terminaison d'API personnalisés
 
-**Paramètres par fournisseur :**
+**Paramètres par fournisseur :**
 - Clé API
 - Nom du modèle
 - Température (créativité)
@@ -1172,20 +1195,20 @@ Configurez les fournisseurs d'IA pour la génération de cartes :
 
 #### Génération automatique
 
-**Génération de carte :**
+**Génération de carte :**
 - Activer la génération automatique à partir d'extraits
 - Nombre de cartes par extrait
 - Seuil de qualité
 - Exiger une approbation manuelle
 
-**Résumé :**
+**Résumé :**
 - Résumer automatiquement de longs extraits
 - Longueur du résumé (court, moyen, long)
 - Inclure dans le contenu de la carte
 
 #### Fenêtre contextuelle
 
-**Limites des jetons :**
+**Limites des jetons :**
 - Max jetons par demande
 - Contexte des cartes associées
 - Longueur de l'extrait de document
@@ -1196,21 +1219,21 @@ Configurez les fournisseurs d'IA pour la génération de cartes :
 
 ### Graphique de connaissances
 
-Visualisez les liens entre vos connaissances :
+Visualisez les liens entre vos connaissances :
 
-**Vue graphique 2D :**
+**Vue graphique 2D :**
 - Nœuds : Documents, extraits, fiches
 - Bords : Relations (même catégorie, tags, références)
 - Disposition dirigée par la force
 - Navigation interactive
 
-**Sphère de connaissances 3D :**
+**Sphère de connaissances 3D :**
 - Visualisation 3D immersive
 - Rotation, zoom, panoramique
 - Code couleur par catégorie
 - Cliquez sur les nœuds pour afficher le contenu
 
-**Caractéristiques :**
+**Caractéristiques :**
 - Rechercher et filtrer
 - Mettre en surbrillance les éléments associés
 - Exporter sous forme d'image
@@ -1218,54 +1241,54 @@ Visualisez les liens entre vos connaissances :
 
 ### Lecteur RSS
 
-Apprenez de vos flux préférés :
+Apprenez de vos flux préférés :
 
 #### Répertoire des newsletters
 
 Découvrez et abonnez-vous aux newsletters populaires directement dans Incrementum :
 
-**Accédez au répertoire des newsletters :**
+**Accédez au répertoire des newsletters :**
 1. Cliquez sur l'onglet **RSS**
 2. Cliquez sur l'**icône Newsletter** (📬) dans l'en-tête.
 3. Parcourez les newsletters organisées par catégorie
 
-**Catégories de newsletter :**
-- **Technologie** : Actualités technologiques, programmation, IA
-- **Science** : Recherche, découvertes, connaissances scientifiques
-- **Finance** : Investissements, marchés, finances personnelles
-- **Business** : Entrepreneuriat, stratégie, création d'entreprise
-- **Santé** : Bien-être, médecine, mode de vie sain
+**Catégories de newsletter :**
+- **Technologie** : Actualités technologiques, programmation, IA
+- **Science** : Recherche, découvertes, connaissances scientifiques
+- **Finance** : Investissements, marchés, finances personnelles
+- **Business** : Entrepreneuriat, stratégie, création d'entreprise
+- **Santé** : Bien-être, médecine, mode de vie sain
 - **Lifestyle** : Culture, voyages, gastronomie, développement personnel
-- **Politique** : Politique, gouvernance, actualité
-- **Arts et littérature** : livres, art, musique, écriture créative
-- **Éducation** : apprentissage, enseignement, connaissances académiques
+- **Politique** : Politique, gouvernance, actualité
+- **Arts et littérature** : livres, art, musique, écriture créative
+- **Éducation** : apprentissage, enseignement, connaissances académiques
 - **Crypto & Web3** : Blockchain, DeFi, actualités cryptomonnaies
 
-**Abonnement aux newsletters :**
+**Abonnement aux newsletters :**
 1. Parcourez l'annuaire ou recherchez une newsletter
 2. Cliquez sur **S'abonner** sur n'importe quelle newsletter
 3. Le flux est automatiquement ajouté à vos abonnements RSS
 4. De nouveaux numéros apparaîtront dans votre lecteur RSS
 
-**Découverte du flux de newsletter :**
+**Découverte du flux de newsletter :**
 
-Incrementum peut découvrir automatiquement les flux RSS des plateformes de newsletter populaires :
+Incrementum peut découvrir automatiquement les flux RSS des plateformes de newsletter populaires :
 
-- **Substack** : ajoutez `/feed` à n'importe quelle URL de sous-pile
-  - Exemple : `https://author.substack.com` → `https://author.substack.com/feed`
-- **Beehiiv** : découvre automatiquement le point de terminaison `/feed`
-- **Blogs fantômes** : découverte automatique du point de terminaison `/rss/`
-- **Buttondown** : Ajoutez `/feed` à l'URL de la newsletter
-- **Générique** : découvre automatiquement les flux RSS à partir des balises HTML `<link>`
+- **Substack** : ajoutez `/feed` à n'importe quelle URL de sous-pile
+  - Exemple : `https://author.substack.com` → `https://author.substack.com/feed`
+- **Beehiiv** : découvre automatiquement le point de terminaison `/feed`
+- **Blogs fantômes** : découverte automatique du point de terminaison `/rss/`
+- **Buttondown** : Ajoutez `/feed` à l'URL de la newsletter
+- **Générique** : découvre automatiquement les flux RSS à partir des balises HTML `<link>`
 
-**Abonnez-vous rapidement à partir de l'URL :**
+**Abonnez-vous rapidement à partir de l'URL :**
 1. Copiez n'importe quelle URL de newsletter
 2. Cliquez sur **Ajouter un flux** dans l'onglet RSS
 3. Collez l'URL
 4. Incrementum découvre automatiquement le flux RSS
 5. Cliquez sur **Ajouter un flux** pour vous abonner
 
-**Recherche des flux RSS de la newsletter :**
+**Recherche des flux RSS de la newsletter :**
 
 La plupart des plateformes de newsletter publient des flux RSS :
 
@@ -1276,7 +1299,7 @@ La plupart des plateformes de newsletter publient des flux RSS :
 | Fantôme | `https://[blog].ghost.io/rss/` | `https://blog.ghost.io/rss/` |
 | Boutonnée | `https://buttondown.email/[nom]/feed` | `https://buttondown.email/newsletter/feed` |
 
-**Plateformes prises en charge :**
+**Plateformes prises en charge :**
 - Sous-pile (la plupart des newsletters)
 - Beehiiv
 - Blogs fantômes
@@ -1286,9 +1309,9 @@ La plupart des plateformes de newsletter publient des flux RSS :
 - Publications moyennes
 - Sites WordPress (génériques)
 
-**Abonnements à la newsletter d'importation/exportation :**
-- **OPML Import** : Importer depuis d'autres lecteurs RSS
-- **Export OPML** : sauvegardez vos abonnements à la newsletter
+**Abonnements à la newsletter d'importation/exportation :**
+- **OPML Import** : Importer depuis d'autres lecteurs RSS
+- **Export OPML** : sauvegardez vos abonnements à la newsletter
 - Partager des abonnements entre appareils
 
 #### Gestion des flux
@@ -1299,11 +1322,11 @@ La plupart des plateformes de newsletter publient des flux RSS :
 4. Définir l'intervalle de mise à jour
 5. Activer l'importation automatique dans la file d'attente
 
-**Fonctionnalités du flux :**
+**Fonctionnalités du flux :**
 - Sondage automatique pour les nouveaux articles
 - Importer des articles sous forme de documents
 - Extraire automatiquement les points clés
-- Créer des cartes à partir de flux**Flux recommandés :**
+- Créer des cartes à partir de flux**Flux recommandés :**
 - Sites d'information (BBC, CNN, etc.)
 - Blogs dans votre domaine
 - Revues de recherche
@@ -1311,39 +1334,39 @@ La plupart des plateformes de newsletter publient des flux RSS :
 
 ### Intégration YouTube
 
-**Importation vidéo :**
+**Importation vidéo :**
 1. Copiez l'URL de YouTube
 2. Importer en tant que document
-3. Incrementum récupère :
+3. Incrementum récupère :
    - Métadonnées vidéo
    - Transcription (si disponible)
    - Informations sur le chapitre
    - Commentaires (facultatif)
 
-**Caractéristiques de la transcription :**
+**Caractéristiques de la transcription :**
 - Transcription complète consultable
 - Créer des extraits de transcription
 - Synchroniser la transcription avec la vidéo
 - Créer des cartes avec des horodatages
 
-**Panneau de fonctionnalités vidéo :**
+**Panneau de fonctionnalités vidéo :**
 - Ouvrez le bouton **Panneaux** dans la visionneuse vidéo
 - Onglets pour les signets, les chapitres, la transcription
 - Les signets enregistrent les horodatages pour des sauts rapides
 - Les chapitres peuvent être récupérés sur YouTube
 
-**Extraits vidéo :**
+**Extraits vidéo :**
 1. Ouvrez les **Panneaux** → **Extraits vidéo**.
 2. Cliquez sur **Nouveau**
 3. Définir le début/la fin et le texte de transcription facultatif
 4. Enregistrez pour créer un clip réutilisable
 
-**Intégration SponsorBlock :**
+**Intégration SponsorBlock :**
 - Sauter automatiquement les segments sponsorisés
 - Filtrage par catégorie
 - Contribuer à SponsorBlock
 
-**Suivi des progrès :**
+**Suivi des progrès :**
 - Reprendre de la dernière position
 - Marquer les sections regardées
 - Regarder l'historique
@@ -1357,7 +1380,7 @@ Générez des transcriptions pour les fichiers vidéo locaux dans l'application 
 3. Choisissez un modèle et une langue
 4. Cliquez sur **Générer une transcription**
 
-Remarques :
+Remarques :
 - La transcription s'exécute localement sur votre machine
 - Nécessite un chemin de fichier local (non disponible pour les vidéos Web uniquement)
 
@@ -1370,41 +1393,41 @@ Créez des transcriptions pour les livres audio afin de permettre la sélection 
 3. Cliquez sur **Démarrer la transcription locale**
 4. Surveillez les progrès et ouvrez le panneau de transcription
 
-Remarques :
+Remarques :
 - La transcription s'exécute localement sur votre machine
 - Les modèles sont gérés dans **Paramètres → Transcription audio**
 
 ### OCR (reconnaissance optique de caractères)
 
-Extraire le texte des images :
+Extraire le texte des images :
 
-**Fournisseurs pris en charge :**
-- GLM-OCR (Local) - OCR multimodal via llama.cpp ou vLLM
+**Fournisseurs pris en charge :**
+- GLM-OCR (Local) — OCR multimodal via llama.cpp ou vLLM
 - Tesseract (local)
-- Google Cloud Vision
+- Google Cloud Vision
 - Texte AWS
 - Vision par ordinateur Azure
-- Marqueur (local) - PDF vers Markdown
-- Nougat (Local) - documents scientifiques avec mathématiques
+- Marqueur (local) — PDF vers Markdown
+- Nougat (Local) — documents scientifiques avec mathématiques
 
-**Cas d'utilisation :**
+**Cas d'utilisation :**
 - Capture d'écran
 - Documents numérisés
 - Images avec texte
 - Notes manuscrites
 
-**Configuration (fournisseurs cloud) :**
+**Configuration (fournisseurs cloud) :**
 1. Paramètres → ROC
 2. Choisissez le fournisseur (Google, AWS ou Azure)
 3. Configurez la clé API et les informations d'identification
 4. Sélectionnez la ou les langues
-5. Testez avec un exemple d'image
+5. Testez avec un exemple d’image
 
-**Configuration (GLM-OCR avec lama.cpp) :**
+**Configuration (GLM-OCR avec lama.cpp) :**
 
 llama.cpp fournit un serveur LLM local léger pour GLM-OCR sans nécessiter de GPU. Il utilise l'API compatible OpenAI sur le port 8080.
 
-1. **Construisez llama.cpp** (s'il n'est pas déjà construit) :
+1. **Construisez llama.cpp** (s'il n'est pas déjà construit) :
    ```bash
    clone git https://github.com/ggml-org/llama.cpp.git
    cd lama.cpp
@@ -1419,24 +1442,24 @@ llama.cpp fournit un serveur LLM local léger pour GLM-OCR sans nécessiter de G
      Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf --local-dir models/
    ```
 
-3. **Démarrez le serveur** :
+3. **Démarrez le serveur** :
    ```bash
    ./build/bin/llama-server \
      -m modèles/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf \
      --port 8080 --host 0.0.0.0 -c 16384 -t $(nproc)
    ```
 
-4. **Configurer dans Incrementum** :
-   - Paramètres → OCR → Fournisseur : **GLM-OCR (Local)**
-   - Backend : **vLLM (GPU)** (c'est le mode llama.cpp/vLLM - fonctionne pour les deux)
-   - Point de terminaison : `http://localhost:8080/v1`
-   - Modèle : votre nom de fichier de modèle (par exemple, `Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf`)**Conseils de performances :**
+4. **Configurer dans Incrementum** :
+   - Paramètres → OCR → Fournisseur : **GLM-OCR (Local)**
+   - Backend : **vLLM (GPU)** (c'est le mode llama.cpp/vLLM — fonctionne pour les deux)
+   - Point de terminaison : `http://localhost:8080/v1`
+   - Modèle : votre nom de fichier de modèle (par exemple, `Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf`)**Conseils de performances :**
 - Utilisez `-c 16384` ou supérieur pour les documents longs (4096 par défaut est trop petit pour la plupart des tâches OCR)
 - Utilisez `-t $(nproc)` pour utiliser tous les threads du CPU
 - La quantification Q4_K_M offre le meilleur compromis qualité/vitesse pour l'inférence CPU
 - Pour l'accélération GPU, créez llama.cpp avec le support CUDA, Metal ou Vulkan
 
-**Configuration (GLM-OCR avec vLLM) :**
+**Configuration (GLM-OCR avec vLLM) :**
 
 vLLM fournit une inférence accélérée par GPU pour les modèles plus grands. Nécessite un GPU NVIDIA avec suffisamment de VRAM.
 
@@ -1447,30 +1470,30 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080
 
 Configurez ensuite Incrementum de la même manière (point de terminaison `http://localhost:8080/v1`).
 
-**Configuration (GLM-OCR avec Ollama) :**
+**Configuration (GLM-OCR avec Ollama) :**
 
 L'option la plus simple pour démarrer : Ollama gère automatiquement les téléchargements et l'exécution des modèles.
 
-1. Paramètres → OCR → Fournisseur : **GLM-OCR (Local)**
-2. Backend : **Ollama (CPU)**
+1. Paramètres → OCR → Fournisseur : **GLM-OCR (Local)**
+2. Backend : **Ollama (CPU)**
 3. Cliquez sur **Télécharger Ollama** (s'il n'est pas installé)
 4. Cliquez sur **Démarrer l'exécution**
 5. Définir le modèle (par exemple, `llava:7b` ou `qwen2-vl:7b`)
 6. Cliquez sur **Tirer le modèle**
 
-**OCR mathématique :**
+**OCR mathématique :**
 - Gestion spécialisée des équations
 - Sortie LaTeX
 - Reconnaissance des symboles
-- Idéal pour : articles scientifiques, manuels scolaires
+- Idéal pour : articles scientifiques, manuels scolaires
 
 ### Palette de commandes
 
 Accès rapide à toutes les commandes :
 
-**Ouvrir :** `Ctrl+K` (ou `Cmd+K` sur Mac)
+**Ouvrir :** `Ctrl+K` (ou `Cmd+K` sur Mac)
 
-**Caractéristiques :**
+**Caractéristiques :**
 - Recherche floue
 - Navigation au clavier
 - Commandes récemment utilisées
@@ -1479,7 +1502,7 @@ Accès rapide à toutes les commandes :
 - Les correspondances de transcription YouTube recherchent l'horodatage et démarrent la lecture
 - Survolez le résultat d'un document pour voir des correspondances supplémentaires du même document
 
-**Commandes communes :**
+**Commandes communes :**
 - "Importer un document"
 - "Démarrer la révision"
 - "Créer une carte"
@@ -1488,69 +1511,69 @@ Accès rapide à toutes les commandes :
 
 ### Mode Vimium
 
-Navigation au clavier de style Vim pour les utilisateurs expérimentés :
+Navigation au clavier de style Vim pour les utilisateurs expérimentés :
 
-**Activer :** Paramètres → Raccourcis clavier → Activer Vimium
+**Activer :** Paramètres → Raccourcis clavier → Activer Vimium
 
-**Navigation :**
+**Navigation :**
 - `j` / `k` : Défiler vers le bas/vers le haut
-- `h` / `l` : Défilement vers la gauche/droite
-- `gg` : Aller en haut
-- `G` : Aller en bas
+- `h` / `l` : Défilement vers la gauche/droite
+- `gg` : Aller en haut
+- `G` : Aller en bas
 - `/` : Recherche
-- `n` / `N` : résultat de recherche suivant/précédent
+- `n` / `N` : résultat de recherche suivant/précédent
 
-**Actions :**
-- `f` : astuces de lien (éléments cliquables)
-- `i` : entrez en mode de saisie
-- `Escape` : Quitter le mode de saisie
+**Actions :**
+- `f` : astuces de lien (éléments cliquables)
+- `i` : entrez en mode de saisie
+- `Escape` : Quitter le mode de saisie
 
-**Personnalisation :**
+**Personnalisation :**
 - Remapper les clés
 - Créer des commandes personnalisées
 - Partager les configurations de raccourcis clavier
 
 ### Recherche et filtrage
 
-Recherche avancée sur tout le contenu :
+Recherche avancée sur tout le contenu :
 
-**Recherche en texte intégral :**
+**Recherche en texte intégral :**
 - Rechercher le contenu de la carte, les extraits, les documents
 - Opérateurs booléens (ET, OU, NON)
 - Recherche d'expression ("expression exacte")
 - Caractères génériques (carte*)
 
-**Filtres de recherche :**
+**Filtres de recherche :**
 - `category:programming` : Recherche dans la catégorie
-- `tag:urgent` : Recherche par tag
-- `type:cloze` : Recherche par type de carte
-- `due:today` : recherche des cartes dues
-- `rating:again` : recherche par note
+- `tag:urgent` : Recherche par tag
+- `type:cloze` : Recherche par type de carte
+- `due:today` : recherche des cartes dues
+- `rating:again` : recherche par note
 
-**Recherches enregistrées :**
+**Recherches enregistrées :**
 1. Effectuer une recherche
-2. Cliquez sur « Enregistrer la recherche »
+2. Cliquez sur « Enregistrer la recherche »
 3. Nommez et enregistrez
 4. Accès depuis le menu déroulant de recherche
 
 ### Extension du navigateur
 
-Connectez Incrementum à la navigation Web :
+Connectez Incrementum à la navigation Web :
 
-**Caractéristiques :**
+**Caractéristiques :**
 - Mettre en surbrillance des pages Web
 - Créer des extraits d'articles
 - Synchronisation avec l'application de bureau
 - Ajout rapide à la file d'attente
 - Avis basés sur un navigateur
 
-**Configuration :**
+**Configuration :**
 1. Installer l'extension (Chrome/Firefox)
 2. Associez-le à l'application de bureau
 3. Accorder des autorisations
-4. Commencez à utiliser !
+4. Commencez à utiliser !
 
-**Utilisation :**
+**Utilisation :**
 - Sélectionnez le texte sur la page Web
 - Cliquez sur l'icône d'extension
 - Choisissez "Ajouter à l'incrémentum"
@@ -1562,7 +1585,7 @@ Connectez Incrementum à la navigation Web :
 
 ### Création de cartes
 
-**FAIRE :**
+**FAIRE :**
 - Rendre les cartes spécifiques (un fait par carte)
 - Utiliser un langage simple et clair
 - Inclure le contexte dans les réponses
@@ -1570,48 +1593,48 @@ Connectez Incrementum à la navigation Web :
 - Utilisez Cloze pour les relations
 - Gardez les questions concises
 
-**À NE PAS FAIRE :**
+**À NE PAS FAIRE :**
 - Mettez plusieurs faits sur une seule carte
 - Utiliser des termes vagues
 - Posez des questions trop faciles ou trop difficiles
 - Copier de gros blocs de texte
 - Utiliser des abréviations sans définition
 
-**Exemple - Mauvaise carte :**
+**Exemple – Mauvaise carte :**
 ```
-Q : Quelle est la fonction des mitochondries et comment
+Q : Quelle est la fonction des mitochondries et comment
 est-ce lié à la production d'ATP dans la respiration cellulaire ?
-R : [Explication du paragraphe]
+R : [Explication du paragraphe]
 ```
 
-**Exemple - Bonnes cartes :**
+**Exemple – Bonnes cartes :**
 ```
-Carte 1 :
+Carte 1 :
 Q : Quelle est la fonction principale des mitochondries ?
 A : Produire de l'ATP par la respiration cellulaire
 
-Carte 2 :
-Q : Quel processus les mitochondries utilisent-elles pour produire de l'ATP ?
-A : Respiration cellulaire (aérobie)
+Carte 2 :
+Q : Quel processus les mitochondries utilisent-elles pour produire de l’ATP ?
+A : Respiration cellulaire (aérobie)
 
-Carte 3 :
+Carte 3 :
 Q : Quelle est la monnaie énergétique produite par les mitochondries ?
-A : ATP (adénosine triphosphate)
+A : ATP (adénosine triphosphate)
 ```
 
 ### Programme d'étude
 
-**Horaire quotidien (20-30 min) :**
-1. **Matin** : Révision des cartes dues (15 min)
-2. **Tout au long de la journée** : créez des extraits de lecture
-3. **Soirée** : Créez des cartes à partir d'extraits (10-15 min)
+**Horaire quotidien (20-30 min) :**
+1. **Matin** : Révision des cartes dues (15 min)
+2. **Tout au long de la journée** : créez des extraits de lecture
+3. **Soirée** : Créez des cartes à partir d'extraits (10-15 min)
 
-**Horaire hebdomadaire :**
-- **Lun-Ven** : révisions régulières et création de cartes
-- **Samedi** : séances d'étude plus longues (1-2 heures)
-- **Dimanche** : examinez les analyses, ajustez les objectifs, organisez
+**Horaire hebdomadaire :**
+- **Lun-Ven** : révisions régulières et création de cartes
+- **Samedi** : séances d'étude plus longues (1-2 heures)
+- **Dimanche** : examinez les analyses, ajustez les objectifs, organisez
 
-**Gestion de gros volumes :**
+**Gestion de gros volumes :**
 - Définir une limite de révision quotidienne (par exemple, 50 cartes)
 - Prioriser par catégorie (se concentrer sur un sujet)
 - Utilisez des files d'attente intelligentes pour répartir les tâches
@@ -1619,17 +1642,17 @@ A : ATP (adénosine triphosphate)
 
 ### Optimisation de la rétention
 
-**Améliorer le taux de rétention :**
+**Améliorer le taux de rétention :**
 - Évaluez honnêtement (ne gonflez pas les notes)
 - Révisez de manière cohérente (quotidiennement, c'est mieux)
 - Dormez suffisamment (la mémoire se consolide pendant le sommeil)
 - Rappel actif (ne regardez pas, réfléchissez d'abord)
 - Revues espacées (ne pas bourrer)
 
-**Faire face à l'oubli :**
-- Normal d'oublier 10-20 % (en fonction de la rétention cible)
+**Faire face à l'oubli :**
+- Normal d'oublier 10-20 % (en fonction de la rétention cible)
 - Les cartes "Encore" sont des opportunités d'apprentissage
-- En cas d'oubli fréquent (>30 %), pensez à :
+- En cas d'oubli fréquent (>30 %), pensez à :
   - Diminution de la rétention souhaitée (85-90%)
   - Créer des cartes plus simples
   - Ajout de plus de contexte
@@ -1637,14 +1660,14 @@ A : ATP (adénosine triphosphate)
 
 ### Organisation de la catégorie
 
-**Meilleures pratiques :**
+**Meilleures pratiques :**
 - Commencez large, puis subdivisez
-- Exemple : `Programmation` → `Programmation/Python` → `Programmation/Python/Async`
+- Exemple : `Programmation` → `Programmation/Python` → `Programmation/Python/Async`
 - Utiliser une dénomination cohérente
 - N'en créez pas trop (5-10 est gérable)
 - Fusionner les catégories inutilisées
 
-**Exemple de structure de catégorie :**
+**Exemple de structure de catégorie :**
 ```
 ├── Programmation
 │ ├── Python
@@ -1663,14 +1686,14 @@ Espagnol
 
 ### Gestion des priorités
 
-**Directives prioritaires :**
-- **100 (Critique)** : Préparation aux examens, projets de travail urgents
-- **80-90 (Élevé)** : Cours actuels, apprentissage actif
-- **60-70 (Moyen)** : Intérêts continus, connaissances générales
-- **40-50 (Bas)** : Agréable à savoir, supplémentaire
-- **0-20 (Archive)** : référence uniquement, rarement examiné
+**Directives prioritaires :**
+- **100 (Critique)** : Préparation aux examens, projets de travail urgents
+- **80-90 (Élevé)** : Cours actuels, apprentissage actif
+- **60-70 (Moyen)** : Intérêts continus, connaissances générales
+- **40-50 (Bas)** : Agréable à savoir, supplémentaire
+- **0-20 (Archive)** : référence uniquement, rarement examiné
 
-**Planification prioritaire :**
+**Planification prioritaire :**
 - Concentrez-vous sur la priorité 80+ pour les examens quotidiens
 - Révisez 60-70 tous les quelques jours
 - Révision 40-50 par semaine
@@ -1680,33 +1703,33 @@ Espagnol
 
 La fonction **Intervalle de prévisualisation** vous indique exactement quand chaque carte apparaîtra ensuite pour les quatre évaluations.
 
-**Comment utiliser :**
+**Comment utiliser :**
 1. Lisez la carte
 2. Vérifiez les intervalles d'aperçu sous les boutons d'évaluation
-3. Choisissez la note en fonction de :
+3. Choisissez la note en fonction de :
    - Votre rappel actuel
    - Dans combien de temps tu veux le revoir
-   - Votre emploi du temps (par exemple, examen à venir)**Exemple de stratégie :**
+   - Votre emploi du temps (par exemple, examen à venir)**Exemple de stratégie :**
 - Examen dans 2 semaines : Notez « Facile » sur les cartes importantes pour les revoir bientôt
-- Journée chargée : notez "Bon" ou "Facile" pour espacer les avis
-- Vous voulez maîtriser : notez "Difficile" pour réviser plus fréquemment
+- Journée chargée : notez "Bon" ou "Facile" pour espacer les avis
+- Vous voulez maîtriser : notez "Difficile" pour réviser plus fréquemment
 
 ### Gérer le dépassement de soi
 
-**Trop de cartes dues ?**
+**Trop de cartes dues ?**
 1. Définir la limite de révision (Paramètres → Révision → Max par jour)
 2. Concentrez-vous sur les éléments hautement prioritaires
 3. Suspendre temporairement les catégories peu prioritaires
 4. Envisagez de réduire légèrement la rétention souhaitée
 
-**Trop de contenu à traiter ?**
+**Trop de contenu à traiter ?**
 1. Importez les documents progressivement
 2. Extrayez uniquement les points clés (pas tout)
 3. Créez des cartes de manière sélective
 4. Utilisez des catégories pour organiser
 
-**Burn-out ?**
-1. Faites une pause (c'est bon !)
+**Burn-out ?**
+1. Faites une pause (c'est bon !)
 2. Réduisez les limites quotidiennes
 3. Suspendre les catégories non critiques
 4. Concentrez-vous sur une catégorie à la fois
@@ -1719,118 +1742,118 @@ La fonction **Intervalle de prévisualisation** vous indique exactement quand ch
 
 #### Les cartes n'apparaissent pas dans la révision
 
-**Causes possibles :**
+**Causes possibles :**
 - Toutes les cartes examinées pour aujourd'hui
 - Cartes suspendues
 - Filtrer les cartes masquées actives
 
-**Solutions :**
-1. Vérifiez le nombre de « échéances » dans l'onglet Révision.
+**Solutions :**
+1. Vérifiez le nombre de « échéances » dans l'onglet Révision.
 2. Vérifier la file d'attente → Assurez-vous que les cartes ne sont pas suspendues
 3. Effacer les filtres
 4. Vérifiez la date de révision (peut-être les cartes prévues pour le futur)
 
 #### Mauvais taux de rétention
 
-**Symptômes :** Oubli de nombreuses cartes, évaluations fréquentes « Encore »
+**Symptômes :** Oubli de nombreuses cartes, évaluations fréquentes « Encore »
 
-**Solutions :**
-1. **Évaluer la qualité des cartes** : Les cartes sont-elles claires ? Un fait par carte ?
-2. **Rétention souhaitée inférieure** : essayez 85 % au lieu de 90 %
-3. **Révisez plus fréquemment** : critiques quotidiennes, pas de bourrage
-4. **Ajouter un contexte** : plus d'informations dans les réponses
-5. **Simplifier les cartes** : divisez les cartes complexes en cartes plus simples
+**Solutions :**
+1. **Évaluer la qualité des cartes** : Les cartes sont-elles claires ? Un fait par carte ?
+2. **Rétention souhaitée inférieure** : essayez 85 % au lieu de 90 %
+3. **Révisez plus fréquemment** : critiques quotidiennes, pas de bourrage
+4. **Ajouter un contexte** : plus d'informations dans les réponses
+5. **Simplifier les cartes** : divisez les cartes complexes en cartes plus simples
 
 #### Conflits de synchronisation
 
-**Symptômes :** Cartes en double, incohérences de données après la synchronisation
+**Symptômes :** Cartes en double, incohérences de données après la synchronisation
 
-**Solutions :**
+**Solutions :**
 1. Choisissez la stratégie de résolution des conflits (Paramètres → Sync)
-   - **Gains locaux** : conservez vos modifications
-   - **Gagnements à distance** : Acceptez les modifications du serveur
-   - **Demander** : résoudre manuellement chaque conflit
+   - **Gains locaux** : conservez vos modifications
+   - **Gagnements à distance** : Acceptez les modifications du serveur
+   - **Demander** : résoudre manuellement chaque conflit
 2. Synchronisez régulièrement pour minimiser les conflits
 3. Utilisez un appareil principal
 
 #### Échecs de l'importation
 
-**Symptômes :** L'importation de documents échoue ou contient des erreurs
+**Symptômes :** L'importation de documents échoue ou contient des erreurs
 
-**Solutions :**
-1. **Vérifiez le format du fichier** : assurez-vous que le format est pris en charge (PDF, EPUB, etc.)
-2. **Vérifier la taille du fichier** : les fichiers très volumineux peuvent expirer
-3. **Vérifiez l'URL** : certains sites bloquent l'accès automatisé
-4. **Vérifiez Internet** : l'importation d'URL nécessite une connexion
-5. **Essayez une alternative** : utilisez le copier-coller pour le contenu Web
+**Solutions :**
+1. **Vérifiez le format du fichier** : assurez-vous que le format est pris en charge (PDF, EPUB, etc.)
+2. **Vérifier la taille du fichier** : les fichiers très volumineux peuvent expirer
+3. **Vérifiez l'URL** : certains sites bloquent l'accès automatisé
+4. **Vérifiez Internet** : l'importation d'URL nécessite une connexion
+5. **Essayez une alternative** : utilisez le copier-coller pour le contenu Web
 
 #### Problèmes de performances
 
-**Symptômes :** Chargement lent, décalage, blocage
+**Symptômes :** Chargement lent, décalage, blocage
 
-**Solutions :**
-1. **Grande base de données** : Archivez les anciennes cartes (Paramètres → Données → Archiver)
-2. **Beaucoup d'images** : les images ralentissent le chargement
-3. **Ressources système** : fermez les autres applications
-4. **Reconstruire la base de données** : Paramètres → Données → Reconstruire (dernier recours)
+**Solutions :**
+1. **Grande base de données** : Archivez les anciennes cartes (Paramètres → Données → Archiver)
+2. **Beaucoup d'images** : les images ralentissent le chargement
+3. **Ressources système** : fermez les autres applications
+4. **Reconstruire la base de données** : Paramètres → Données → Reconstruire (dernier recours)
 
 #### L'OCR ne fonctionne pas
 
-**Symptômes :** L'OCR échoue ou produit des résultats médiocres
+**Symptômes :** L'OCR échoue ou produit des résultats médiocres
 
-**Solutions :**
-1. **Vérifiez la clé API** : valide et dispose de crédits (fournisseurs de cloud)
-2. **Vérifiez la qualité de l'image** : les images claires et haute résolution fonctionnent mieux
-3. **Vérifier la langue** : Corriger la langue sélectionnée
-4. **Essayez un fournisseur alternatif** : certains fonctionnent mieux pour certains contenus
-5. **OCR local** : utilisez Tesseract en cas de problèmes Internet
+**Solutions :**
+1. **Vérifiez la clé API** : valide et dispose de crédits (fournisseurs de cloud)
+2. **Vérifiez la qualité de l'image** : les images claires et haute résolution fonctionnent mieux
+3. **Vérifier la langue** : Corriger la langue sélectionnée
+4. **Essayez un fournisseur alternatif** : certains fonctionnent mieux pour certains contenus
+5. **OCR local** : utilisez Tesseract en cas de problèmes Internet
 
 #### lama.cpp ne répond pas
 
-**Symptômes :** "Erreur d'appel de LLM" ou connexion refusée à localhost :8080
+**Symptômes :** "Erreur d'appel de LLM" ou connexion refusée à localhost :8080
 
-**Solutions :**
-1. **Vérifiez si le serveur est en cours d'exécution** : `curl http://localhost:8080/v1/models`
-2. **Démarrez le serveur** : voir [Configuration OCR](#ocr-optical-character-recognition) ci-dessus
-3. **Taille du contexte trop petite** : redémarrez avec `-c 16384` ou supérieur
-4. **Port utilisé** : un autre processus utilise peut-être le port 8080 ; vérifiez avec `lsof -i :8080`
-5. **Mémoire insuffisante** : utilisez une quantification plus petite (Q3_K_M au lieu de Q4_K_M) ou un modèle plus petit
+**Solutions :**
+1. **Vérifiez si le serveur est en cours d'exécution** : `curl http://localhost:8080/v1/models`
+2. **Démarrez le serveur** : voir [Configuration OCR](#ocr-optical-character-recognition) ci-dessus
+3. **Taille du contexte trop petite** : redémarrez avec `-c 16384` ou supérieur
+4. **Port utilisé** : un autre processus utilise peut-être le port 8080 ; vérifiez avec `lsof -i :8080`
+5. **Mémoire insuffisante** : utilisez une quantification plus petite (Q3_K_M au lieu de Q4_K_M) ou un modèle plus petit
 
 #### Ollama ne démarre pas
 
-**Symptômes :** L'exécution de GLM-OCR Ollama ne démarre pas
+**Symptômes :** L'exécution de GLM-OCR Ollama ne démarre pas
 
-**Solutions :**
-1. **Installez Ollama** : utilisez le bouton Télécharger dans Paramètres → OCR, ou installez depuis ollama.com
-2. **Vérifiez le chemin binaire** : définissez le chemin binaire Ollama s'il n'est pas à l'emplacement par défaut
+**Solutions :**
+1. **Installez Ollama** : utilisez le bouton Télécharger dans Paramètres → OCR, ou installez depuis ollama.com
+2. **Vérifiez le chemin binaire** : définissez le chemin binaire Ollama s'il n'est pas à l'emplacement par défaut
 3. **Autorisations Linux** : vous aurez peut-être besoin de « sudo » pour installer ou exécuter le service Ollama
 
 ### Obtenir de l'aide
 
-**Ressources :**
-- **Documentation** : consultez le dossier `docs/` pour des guides détaillés
-- **Problèmes GitHub** : signaler les bugs et les demandes de fonctionnalités
-- **Communauté** : rejoignez les discussions, posez des questions
-- **Raccourcis clavier** : appuyez sur « ? » dans l'application pour une référence rapide
+**Ressources :**
+- **Documentation** : consultez le dossier `docs/` pour des guides détaillés
+- **Problèmes GitHub** : signaler les bugs et les demandes de fonctionnalités
+- **Communauté** : rejoignez les discussions, posez des questions
+- **Raccourcis clavier** : appuyez sur « ? » dans l'application pour une référence rapide
 
-**Mode débogage :**
+**Mode débogage :**
 Activez la journalisation du débogage (Paramètres → Avancé → Mode débogage) pour résoudre les problèmes.
 
-**Exportation de données :**
+**Exportation de données :**
 Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde → Exporter)
 
-### Récupération**Suppression accidentelle :**
+### Récupération**Suppression accidentelle :**
 1. Vérifiez les sauvegardes (Paramètres → Sauvegarde)
 2. Restaurer à partir d'une sauvegarde récente
 3. Contactez le support si aucune sauvegarde n'est disponible
 
-**Base de données corrompue :**
+**Base de données corrompue :**
 1. Exportez les données immédiatement
 2. Reconstruire la base de données (Paramètres → Données → Reconstruire)
 3. Importer les données exportées
 4. Vérifiez toutes les données présentes
 
-**Progrès perdu :**
+**Progrès perdu :**
 1. Vérifiez Analytics → Exporter pour les données historiques
 2. Restaurer à partir d'une sauvegarde si nécessaire
 3. Synchronisez avec le fournisseur de cloud si activé
@@ -1839,37 +1862,37 @@ Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde 
 
 ## Glossaire
 
-**Extrait** : élément de contenu extrait d'un document, matériel de carte potentiel
+**Extrait** : élément de contenu extrait d'un document, matériel de carte potentiel
 
-**Élément d'apprentissage** : tout élément à apprendre (flashcard, cloze, questions-réponses, etc.)
+**Élément d'apprentissage** : tout élément à apprendre (flashcard, cloze, questions-réponses, etc.)
 
-**File d'attente** : tous les éléments dont l'examen est programmé, organisés par priorité
+**File d'attente** : tous les éléments dont l'examen est programmé, organisés par priorité
 
-**Séance de révision** : une période de rappel actif et de cartes d'évaluation
+**Séance de révision** : une période de rappel actif et de cartes d'évaluation
 
-**FSRS** : Free Spaced Repetition Scheduler, algorithme moderne optimisant le timing de révision (FSRS-6 est la version actuelle)
+**FSRS** : Free Spaced Repetition Scheduler, algorithme moderne optimisant le timing de révision (FSRS-6 est la version actuelle)
 
-**Intervalle** : délai entre les examens (par exemple, 7 jours)
+**Intervalle** : délai entre les examens (par exemple, 7 jours)
 
-**Stabilité** : durée d'une mémoire (métrique FSRS)
+**Stabilité** : durée d'une mémoire (métrique FSRS)
 
-**Difficulté** : la difficulté d'un élément pour vous, sur une échelle de 1 à 10 (métrique FSRS)
+**Difficulté** : la difficulté d'un élément pour vous, sur une échelle de 1 à 10 (métrique FSRS)
 
-**Récupérabilité** : probabilité actuelle de rappel, 0 à 100 % (métrique FSRS)
+**Récupérabilité** : probabilité actuelle de rappel, 0 à 100 % (métrique FSRS)
 
-**Rétention souhaitée** : taux de rétention cible (généralement 90 %)
+**Rétention souhaitée** : taux de rétention cible (généralement 90 %)
 
-**Intervalle de prévisualisation** : fonctionnalité affichant la prochaine date de révision pour chaque option de notation
+**Intervalle de prévisualisation** : fonctionnalité affichant la prochaine date de révision pour chaque option de notation
 
-**Cloze** : type de carte à remplir
+**Cloze** : type de carte à remplir
 
-**Suspendre** : masquer temporairement l'article des avis
+**Suspendre** : masquer temporairement l'article des avis
 
-**Catégorie** : Domaine de l'organisation
+**Catégorie** : Domaine de l'organisation
 
-**Tag** : étiquette personnalisée pour une organisation intercatégorielle
+**Tag** : étiquette personnalisée pour une organisation intercatégorielle
 
-**Priorité** : importance définie par l'utilisateur (0 - 100)
+**Priorité** : importance définie par l'utilisateur (0 - 100)
 
 ---
 
@@ -1897,7 +1920,7 @@ Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde 
 | `Espace` | Afficher la réponse |
 | '1' | Notez "Encore" |
 | '2' | Noter "Difficile" |
-| '3' | Noter « Bon » |
+| '3' | Noter « Bon » |
 | '4' | Noter "Facile" |
 | `Ctrl/Cmd + Entrée` | Afficher la réponse (alternative) |
 | `Ctrl/Cmd + 1/2/3/4` | Évaluer sans afficher la réponse |
@@ -1934,45 +1957,45 @@ Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde 
 
 ##FAQ
 
-**Q : Comment ajouter des newsletters à Incrementum ?**
-R : Vous pouvez ajouter des newsletters de deux manières :
-1. **Répertoire des newsletters** : cliquez sur RSS → Icône de newsletter (📬) → Parcourez et abonnez-vous aux newsletters organisées
-2. **URL directe** : copiez n'importe quelle URL de newsletter (Substack, Beehiiv, etc.) → RSS → Ajouter un flux → Coller l'URL. Incrementum découvrira automatiquement le flux RSS.
+**Q : Comment ajouter des newsletters à Incrementum ?**
+R : Vous pouvez ajouter des newsletters de deux manières :
+1. **Répertoire des newsletters** : cliquez sur RSS → Icône de newsletter (📬) → Parcourez et abonnez-vous aux newsletters organisées
+2. **URL directe** : copiez n'importe quelle URL de newsletter (Substack, Beehiiv, etc.) → RSS → Ajouter un flux → Coller l'URL. Incrementum découvrira automatiquement le flux RSS.
 
-**Q : Quelles plateformes de newsletter sont prises en charge ?**
-R : Incrementum prend en charge les flux RSS des sites Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium et WordPress. La plupart des newsletters publient des flux RSS - consultez le site Web de la newsletter pour un lien RSS ou essayez d'ajouter « /feed » à l'URL.
+**Q : Quelles plateformes de newsletter sont prises en charge ?**
+R : Incrementum prend en charge les flux RSS des sites Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium et WordPress. La plupart des newsletters publient des flux RSS – consultez le site Web de la newsletter pour un lien RSS ou essayez d'ajouter « /feed » à l'URL.
 
-**Q : Combien de cartes dois-je examiner par jour ?**
-R : Commencez avec 20 à 50 par jour. Ajustez en fonction de votre emploi du temps et de vos objectifs. La cohérence est plus importante que le volume.
+**Q : Combien de cartes dois-je examiner par jour ?**
+R : Commencez avec 20 à 50 par jour. Ajustez en fonction de votre emploi du temps et de vos objectifs. La cohérence est plus importante que le volume.
 
-**Q : Combien de cartes puis-je créer par jour ?**
-R : Autant que vous le souhaitez, mais concentrez-vous sur la qualité plutôt que sur la quantité. 10 à 20 cartes bien faites valent mieux que 50 mauvaises.
+**Q : Combien de cartes puis-je créer par jour ?**
+R : Autant que vous le souhaitez, mais concentrez-vous sur la qualité plutôt que sur la quantité. 10 à 20 cartes bien faites valent mieux que 50 mauvaises.
 
-**Q : Quel taux de rétention dois-je cibler ?**
-R : 90 % est la valeur par défaut recommandée. Ajustez à 85 % si vous avez trop d'avis, ou à 95 % pour le matériel critique.
+**Q : Quel taux de rétention dois-je cibler ?**
+R : 90 % est la valeur par défaut recommandée. Ajustez à 85 % si vous avez trop d'avis, ou à 95 % pour le matériel critique.
 
-**Q : Puis-je utiliser Incrementum pour les langues ?**
+**Q : Puis-je utiliser Incrementum pour les langues ?**
 R : Absolument ! C'est excellent pour les cartes de vocabulaire, de grammaire et de phrases. Utilisez des cartes Cloze pour les modèles de grammaire.
 
-**Q : Comment gérer les équations mathématiques ?**
+**Q : Comment gérer les équations mathématiques ?**
 R : Utilisez la syntaxe LaTeX dans les cartes. Pour l'OCR, utilisez le fournisseur Mathpix pour obtenir de meilleurs résultats avec le contenu mathématique.
 
-**Q : Puis-je synchroniser avec Anki ?**
+**Q : Puis-je synchroniser avec Anki ?**
 R : Oui ! Configurez AnkiConnect dans Paramètres → Intégrations → Anki pour la synchronisation bidirectionnelle.
 
-**Q : Quelle est la différence entre la suspension et la suppression ?**
-R : La suspension masque temporairement les cartes (peut être rétablie). La suppression supprime définitivement (peut être restaurée à partir d'une sauvegarde).
+**Q : Quelle est la différence entre la suspension et la suppression ?**
+R : La suspension masque temporairement les cartes (peut être rétablie). La suppression supprime définitivement (peut être restaurée à partir d'une sauvegarde).
 
-**Q : À quelle fréquence dois-je réviser ?**
-R : L'idéal est de le faire quotidiennement. Si vous manquez des jours, les cartes s'accumuleront mais ne seront pas « perdues » - rattrapez-les quand vous le pouvez.
+**Q : À quelle fréquence dois-je réviser ?**
+R : L’idéal est de le faire quotidiennement. Si vous manquez des jours, les cartes s'accumuleront mais ne seront pas « perdues » - rattrapez-les quand vous le pouvez.
 
-**Q : Puis-je utiliser Incrementum sur plusieurs appareils ?**
-R : Pas encore directement, mais vous pouvez synchroniser les données via Dropbox/Google Drive ou utiliser l'extension du navigateur.
+**Q : Puis-je utiliser Incrementum sur plusieurs appareils ?**
+R : Pas encore directement, mais vous pouvez synchroniser les données via Dropbox/Google Drive ou utiliser l'extension du navigateur.
 
-**Q : Mes données sont-elles privées ?**
+**Q : Mes données sont-elles privées ?**
 R : Oui ! Toutes les données stockées localement. La synchronisation cloud est cryptée. Aucune donnée envoyée aux serveurs, à l'exception des fournisseurs d'IA configurés.
 
-**Q : Comment exporter mes cartes ?**
+**Q : Comment exporter mes cartes ?**
 R : Paramètres → Sauvegarde → Exporter, ou utilisez la synchronisation Anki pour exporter au format .apkg.
 
 ---
@@ -1985,13 +2008,13 @@ Voir [CHANGELOG.md](https://github.com/melpomenex/incrementum-tauri/blob/main/CH
 
 ## Assistance et communauté
 
-- **Documentation** : [docs/](./)
-- **GitHub** : [incrementum-tauri](https://github.com/melpomenex/incrementum-tauri)
-- **Problèmes** : [Signaler des bugs](https://github.com/melpomenex/incrementum-tauri/issues)
-- **Discussions** : [Poser des questions](https://github.com/melpomenex/incrementum-tauri/discussions)
+- **Documentation** : [docs/](./)
+- **GitHub** : [incrementum-tauri](https://github.com/melpomenex/incrementum-tauri)
+- **Problèmes** : [Signaler des bugs](https://github.com/melpomenex/incrementum-tauri/issues)
+- **Discussions** : [Poser des questions](https://github.com/melpomenex/incrementum-tauri/discussions)
 
 ---
 
-**Bon apprentissage ! 🚀**
+**Bon apprentissage ! 🚀**
 
 Construit avec ❤️ en utilisant Tauri + React + Rust

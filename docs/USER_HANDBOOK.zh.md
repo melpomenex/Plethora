@@ -12,7 +12,7 @@ Incrementum 是一款功能强大的学习应用程序，结合了两种经过�
 
 **增量阅读** - 随着时间的推移，以可管理的小块的形式处理大量信息。您不必从头到尾阅读文章，而是提取要点并逐渐建立理解。
 
-**间隔重复** - 以科学优化的时间间隔复习材料，以最大程度地保留内容。 FSRS-6 和 SM-20、SM-18 等算法可以预测您何时会忘记并及时安排复习。
+**间隔重复** - 以科学优化的时间间隔复习材料，以最大程度地保留内容。 FSRS-6 和 SM-18 等算法可以预测您何时会忘记并及时安排复习。
 
 ### 关键概念
 
@@ -42,7 +42,7 @@ Incrementum 是一款功能强大的学习应用程序，结合了两种经过�
    - 尝试“Modern Dark”或“Material You”以获得现代外观
 
 2. **配置复习设置** - 设置→学习→算法
-   - **算法**：FSRS-6（推荐）、SM-20、SM-18 或 SM-2
+   - **算法**：FSRS-6（推荐）、SM-18 或 SM-2
    - **所需保留**：90%（默认）- 目标是您想要记住的程度
    - **每天学习**：建议初学者学习 20-50 项
 
@@ -160,7 +160,7 @@ Incrementum 是一款功能强大的学习应用程序，结合了两种经过�
 **注释：**
 - 每个“.json”文件都会创建一副牌。卡组名称来自“deck_name”字段。
 - 进口卡默认使用SM-2算法。您可以在导入后切换算法。
-- 两次删除同一文件不会创建重复项 - 现有的卡将被跳过。
+- 两次删除相同的文件不会创建重复项 - 现有的卡将被跳过。
 - 标记为“known_pile: true”的卡将作为暂停导入。
 
 ### 文档查看器
@@ -225,55 +225,81 @@ Incrementum 是一款功能强大的学习应用程序，结合了两种经过�
 
 ### 了解 SM-18
 
-**SM-18**（SuperMemo 18）是 SuperMemo 系列中上一个算法，它代表了相对于 SM-2 的重大进步，引入了记忆稳定性建模和基于数据的间隔计算方法。
+**SM-18** (SuperMemo 18) 是 SuperMemo 系列的早期算法，它代表了 SM-2 的重大演变，引入了内存稳定性建模和数据驱动的区间计算方法。
 
 SM-18：
 
-1. **指数化建模遗忘**：使用公式 `R = 0.9^(t/S)` 计算可检索性——在给定稳定性 `S` 的情况下，时间 `t` 处能够回忆起某项内容的概率
-2. **独立追踪难度**：为每个项目维护一个难度值 `D ∈ [0, 1]`，通过移动平均公式更新，随每次重复变得更加灵敏
-3. **使用 3D SInc 矩阵**：从 21×21×21 的矩阵中查找稳定性增长因子，按分箱的难度、稳定性和可检索性进行索引——这是 SM-18 智能的核心
-4. **优雅处理失败**：失败时，稳定性降低 0.87 倍（再除以累积的失败次数），并重置重复计数器，但保留难度估计
-5. **从稳定性计算间隔**：根据所需保留率推导下次复习间隔：`间隔 = S × ln(1-FI) / ln(0.9)`
+1. **模型呈指数遗忘**：使用公式“R = 0.9^(t/S)”来计算可提取性——考虑到稳定性“S”，您在时间“t”记住一个项目的概率
+2. **独立跟踪难度**：为每个项目维护一个难度值“D ∈ [0, 1]”，使用跟踪平均公式进行更新，该公式随着每次重复而变得更加敏感
+3. **使用 3D SInc 矩阵**：从按分档难度、稳定性和可检索性索引的 21×21×21 矩阵中查找稳定性增加因子 - 这是 SM-18 智能的核心
+4. **优雅地处理失误**：失败时，将稳定性降低 0.87 倍（进一步除以累计失误）并重置重复计数器，但保留难度估计
+5. **根据稳定性计算间隔**：从所需的保留目标导出下一个审核间隔：`间隔 = S × ln(1-FI) / ln(0.9)`
 
 **关键指标：**
-- **稳定性 (S)**：记忆在衰退前能持续多久（以天为单位）
-- **难度 (D)**：从 0（最简单）到 1（最困难）的值，通过每次复习后的移动平均混合更新
-- **可检索性 (R)**：当前召回概率，计算为 `0.9^(已过时间/S)`
-- **SInc**：从 9,261 条目矩阵中查找的稳定性增长因子——每次成功复习后稳定性增长多少
-- **失败次数**：失败计数，在后续失败中惩罚未来稳定性
+- **稳定性 (S)**：记忆在衰退之前持续的时间（以天为单位）
+- **难度 (D)**：从 0（最简单）到 1（最难）的值，在每次审核后通过跟踪平均混合进行更新
+- **可检索性 (R)**：当前召回概率，计算方式为 `0.9^(elapsed/S)`
+- **SInc**：从 9,261 个条目矩阵中查找的稳定性增加因子 - 每次成功审核后稳定性增加多少
+- **失误**：失败次数，这会影响后续失误的未来稳定性
 
 ### 了解 SM-20
 
-**SM-20**（SuperMemo 20）是最先进的可用算法，通过逆向工程从 `sm20` 重建。它在 SM-18 的基础上引入了贝叶斯平滑、多种算法版本和可选的 FSRS 家族分支。
+Incrementum 的 **SM-20** 选项是 **Algorithm Arena** - SuperMemo 的 `sm20.exe` 的逆向工程端口，它在每个抽认卡上并行运行 **五个** 间隔重复算法，并将它们的预测混合到一个时间表中。五名竞争对手的默认混合权重为：
 
-SM-20：
+|插槽|型号|默认重量 |怎样学？ |
+|------|---------|----------------:|------------|
+| 1 | **SM-2** | 6% |固定|
+| 2 | **SM-15** | 14% |持续不断地，在每次审查中|
+| 3 | **SM-19** | 45% |持续不断地，在每次审查中|
+| 4 | **SM-20**（35 参数“M4”遗忘曲线内核）| 25% |按需，通过“优化”按钮 |
+| 5 | **FSRS** | 10% |按需，通过“优化”按钮 |**混合如何工作。** 每个模型独立地生成卡的稳定性估计；竞技场采用加权平均值并从中得出下一个间隔。权重不是固定的——它们**适应你**。每次你回顾一张之前回顾至少一天前的卡片时，Arena 都会根据实际发生的事情（你记得或忘记）对每个模型的“先前”预测进行评分，并将权重推向最能预测你的模型。没有任何模型会被完全淘汰，因此启动缓慢的模型可以恢复。
 
-1. **支持多种间隔公式**：内置三种算法版本——V2（SM-19 兼容）、V4（SM-20 本体）和 V6（FSRS 风格）——每种从相同的状态变量以不同方式计算间隔
-2. **应用贝叶斯平滑**：当积累足够的复习数据时，通过在间隔/计数矩阵上进行 3×3×3 邻域搜索来平滑间隔计算，与贝叶斯先验混合
-3. **使用幂律索引追踪稳定性**：通过幂律变换（`S^2.9`）将稳定性转换为矩阵索引，在低稳定性时提供更精细的分辨率，在高值时更粗糙
-4. **包含 FSRS 家族分支**：项目可选择使用 3 专家混合模型（幂律、FSRS 幂律和指数遗忘），配有 35 个专用参数用于难度和稳定性更新
-5. **记录并从复习中学习**：每次复习通过增量平均更新 21×21×21 间隔和计数矩阵，使算法能够从您的实际表现中学习最优间隔
+**学习的两种方式：**
+
+1. **每次审核时自动** - SM-15 优化器和 SM-19 矩阵立即更新，并且混合权重发生变化。这从您的第一次评论开始。您可以在“设置”→“学习”中观看：**竞技场权重**面板显示每个模型的当前百分比，一旦您有足够的评分评论，就会显示**R-Metric**（混合预测比单独的 SM-19 好多少）。
+2. **按需，当您单击“优化”时** — 五个竞争对手中的两个（SM-20 内核和 FSRS）可以适合您的个人评论历史记录。这些拟合受到最少量的数据（大约数百天间隔的评论）和保留的验证检查的限制：只有当它真正击败了拟合尚未见过的评论的默认值时，拟合才会被接受。在此之前，“优化”按钮会报告“尚未足够的审核历史记录”，并且这两个模型将继续使用其默认参数。
+
+**为什么它可能会说它还没有开始训练。** 只有间隔至少**一天**的评论才带有信号——首次评论和当天的重新评论不会告诉竞技场任何信息（每个模型都会正确预测你会记得），因此它们不计入总得分。如果您只有少量卡牌，则预计竞技场权重将保持在默认值附近，并且 R 度量将保持隐藏状态，直到这些卡牌开始按天间隔返回。这是预期的，不是错误。
 
 **关键指标：**
-- **稳定性 (S)**：以天为单位的记忆持久性，通过幂律指数变换进行矩阵查找（最大限制为 44,530 天）
-- **难度 (D)**：通过 `floor(D × 19) + 1` 分为 10 个级别，用作间隔矩阵的一个轴
-- **版本**：选择使用哪种间隔公式（V2、V4 或 V6）
-- **算法分支**：0 为经典 SM-20，1 为 FSRS 家族专家混合模型
-- **Retrov（Retrov）：** FSRS 分支用于稳定性调整的可检索性估计
-- **间隔/计数矩阵**：两个 9,261 条目的矩阵，累积您的复习历史并支持贝叶斯平滑的间隔优化
+- **稳定性（S）**：每个模型对记忆持续时间（天）的估计；竞技场融合了这些。
+- **难度 (D)**：每个模型的项目难度估计。
+- **竞技场权重**：每个模型的实时混合百分比，显示在学习设置中。
+- **R-Metric**：混合相对于单独的 SM-19 的相对改进，根据您的评论的衰减窗口计算。
 
-**SM-20 与 FSRS-6 的区别：**
-- FSRS-6 使用在聚合数据上训练的固定参数集；SM-20 通过其矩阵从*您的*复习中随时间学习
-- SM-20 的贝叶斯平滑提供了一种原则性的方法来平衡先验知识与观测数据
-- SM-20 支持在间隔公式（V2/V4/V6）之间切换，甚至内置了 FSRS 家族分支
+**SM-20 与 FSRS-6 有何不同：**
+- FSRS-6 是一个单一的、成熟的生产调度程序，并且仍然是建议的默认值。
+- SM-20 是一个实验性集成，它将五种算法相互竞争，并让您自己的数据选择混合。它更复杂，需要更多的评论来个性化，但一旦它有足够的历史可供学习，它就可以超越任何单一模型。
+
+### 文档阅读时间表（渐进阅读）
+
+上面的算法（FSRS-6、SM-18、SM-20）是**抽认卡**调度程序——它们在问答、完形填空和基本卡片上进行训练，目标是长期回忆。 **文档**（您通过增量阅读阅读的文章、论文和段落）由**单独的**调度程序调度，其目标不同：保持内容定期轮换，而不是最大限度地长期保留单个事实。
+
+**两个调度程序，而不是一个。** 这是最大的混乱来源：- **抽认卡** → FSRS-6 / SM-18 / SM-20（您在学习设置中的选择）→ 写入训练这些算法的复习历史记录。
+- **文档** → **增量阅读调度程序**（或其 **Engaging** 变体）→ 单独跟踪，并且 **根本不提供抽认卡算法。**
+
+使用“再次/困难/良好/简单”对文档进行评级看起来与对抽认卡进行评级相同 - 出现相同的四个按钮 - 但等级会转到不同的位置并产生较短的、可预测的间隔：
+
+|评级 |文档间隔|抽认卡间隔（因算法而异）|
+|--------------------|--------------------|------------------------------------------|
+| **再次** |约 4 小时 |分钟|
+| **硬** | ~1 天 | 1–2 天 |
+| **好** | ~3 天 |几天-几周 |
+| **简单** | ~7 天 |周 |
+
+文档间隔的上限约为**30天**，因此材料会保持轮换，连续的良好/简单评级会增加一个小的奖励，而连续的再次/困难评级会增加一个小的惩罚。
+
+**Engaging Scheduler。** 当您从队列中阅读文档时，Incrementum 使用 *Engaging* 变体，它将新颖性注入、多样性平衡和意外发现置于基本间隔之上，以便您的阅读会话保持多样化和有趣。这些参与功能会影响接下来出现的*哪个*文档，而不是基础的间隔数学。
+
+**实用要点。**进行大量渐进阅读**不会**计入“训练”SM-20 或 FSRS - 这些算法只会看到抽认卡评论。如果您希望它们个性化，您需要按日间隔查看抽认卡。 （这就是为什么即使您整周都在阅读文档，学习设置中的 SM-20 面板也会显示“0 分”。）请参阅[了解 SM-20](#understanding-sm-20) 了解哪些内容重要，哪些内容不重要。
 
 ### 评级系统
 
 在审核期间，根据您的回忆对每个项目进行评分：
 
-|评级 |标签|描述 |典型间隔 |
+|评级 |标签|描述 |典型间隔|
 |--------|--------|-------------|--------------------|
-| **1** |再次 |完全停电|约 10 分钟 |
+| **1** |再次|完全停电|约 10 分钟 |
 | **2** |硬|付出巨大努力才记住| 1-2 天 |
 | **3** |好 |想起来了| 5-7 天 |
 | **4** |简单|回忆起来毫不费力| 10-14 天 |
@@ -327,9 +353,7 @@ SM-20：
 
 该卡现已安排审核！
 
-#### 手动创建
-
-1. 点击 **队列** → **添加项目**
+#### 手动创建1. 点击 **队列** → **添加项目**
 2. 选择卡类型
 3. 输入正面/背面内容
 4. 选择类别
@@ -435,7 +459,7 @@ SM-20：
 **混合审查会议（卡片+文档）：**
 - 复习课程可以包括需要阅读的**学习项目**和**文档**。
 - 当文档出现时，您可以直接从会话卡打开它。
-- 对文档进行评级会安排其下一次阅读日期，就像卡片安排其下一次审阅一样。
+- 对文档进行评级通过**增量阅读计划程序**（短的、有上限的间隔）安排其下一个阅读日期 - 与抽认卡算法分开。请参阅[文档阅读时间表](#document-reading-schedule-incremental-reading)。
 
 **评分界面：**
 显示答案后，会出现四个评分按钮：
@@ -587,114 +611,110 @@ SM-20：
 3. 设置过滤器和排序顺序
 4.命名并保存
 
-### Tag-Aware Scheduling (TAS)
+### 标签感知调度 (TAS)
 
-<!-- English original below — please translate to Chinese -->
+标签感知调度将语义智能添加到审阅队列中。
+在“设置”中启用后，TAS 会应用两次后处理过程
+您的到期项目无需更改基本 SM-20/FSRS 间隔：
 
-Tag-Aware Scheduling adds semantic intelligence to the review queue.
-When enabled in Settings, TAS applies two post-processing passes over
-your due items without changing underlying SM-20/FSRS intervals:
+- **先决条件门控**：阻止标签先决条件尚未满足的项目
+  达到配置的成熟度阈值。  基础材料是
+  在高级主题出现之前稳定下来。
+- **干扰抖动**：分离共享高相干标签的项目
+  通过最小时间窗口，减少审阅期间的语义干扰。
 
-- **Prerequisite Gating**: Blocks items whose tag prerequisites haven't
-  reached the configured maturity threshold.  Foundational material is
-  stabilized before advanced topics appear.
-- **Interference Jitter**: Separates items sharing high-coherence tags
-  by a minimum time window, reducing semantic interference during review.
+TAS 是**选择加入**且**非破坏性** - 可以随时将其关闭
+返回默认队列顺序。  被阻止或延迟的项目将保留
+他们原来的预产期和间隔。
 
-TAS is **opt-in** and **non-destructive** — toggle it off at any time
-to return to the default queue order.  Blocked or delayed items keep
-their original due dates and intervals.
+#### 启用 TAS
 
-#### Enabling TAS
+1. 打开 **设置 → 标签感知调度**。
+2. 打开**启用 TAS**。
+3. 可选择启用/禁用 **干扰** 和 **先决条件**
+   子系统独立。
+4. 根据您的喜好调整每个滑块。
 
-1. Open **Settings → Tag-Aware Scheduling**.
-2. Toggle **Enable TAS** on.
-3. Optionally enable/disable the **Interference** and **Prerequisites**
-   subsystems independently.
-4. Adjust each slider to your preference.
-
-| Setting | Range | Default | Description |
+|设置|范围 |默认 |描述 |
 |---|---|---|---|
-| Minimum Separation | 0–24 h | 4 h | Hours between items sharing a high-coherence tag |
-| Coherence Threshold | 0.50–1.00 | 0.75 | Only tags with coherence ≥ this are separated |
-| Maturity Ratio | 0.50–1.00 | 0.70 | Fraction of items in a prerequisite tag that must be mature |
+|最小间隔| 0–24 小时 | 4 小时 |共享高一致性标签的项目之间的小时数 |
+|一致性阈值| 0.50–1.00 | 0.75 | 0.75只有具有一致性 ≥ this 的标签才会被分隔 |
+|成熟度比率| 0.50–1.00 | 0.70 | 0.70先决条件标签中必须成熟的项目比例 |
 
-#### Setting Up Prerequisites
+#### 设置先决条件
 
-Tag prerequisites let you control the order in which topics surface:
+标记先决条件可让您控制主题出现的顺序：
 
-1. Open **Tag Management** (from the media panel or library toolbar).
-2. Click the **Prerequisites** button at the top.
-3. Click a tag name to select it for editing.
-4. In the editor panel, check the tags that must be learned **before**
-   this tag's items can appear in the queue.
-5. Click **Save Prerequisites**.
+1. 打开**标签管理**（从媒体面板或库工具栏）。
+2. 单击顶部的**先决条件**按钮。
+3. 单击标签名称以选择它进行编辑。
+4.在编辑器面板中，勾选**之前**必须学习的标签
+   该标签的项目可以出现在队列中。
+5. 单击“**保存先决条件**”。右侧的**依赖关系图**可视化关系 - 箭头
+从先决条件指向依赖标记。  循环依赖是
+在保存时检测并拒绝。
 
-The **dependency graph** on the right visualizes relationships — arrows
-point from prerequisite to dependent tag.  Circular dependencies are
-detected and rejected at save time.
+> **注意**：标签会自动从您现有的项目同步。
+> 如果没有出现标签，请先标记一些项目，然后重新打开标签
+> 管理 — TAS 将检测并注册它们。
 
-> **Note**: Tags are synced from your existing items automatically.
-> If a tag doesn't appear, tag some items first, then reopen Tag
-> Management — TAS will detect and register them.
+#### 读取队列
 
-#### Reading the Queue
+当 TAS 处于活动状态时，队列标题会显示 **TAS 活动** 徽章
+包含已准备和已阻止项目的计数。
 
-When TAS is active, the queue header shows a **TAS Active** badge
-with counts of ready and blocked items.
-
-| Badge | Means |
+|徽章|意味着|
 |---|---|
-| 🟡 "Waiting on `tag` maturity (45%)" | Blocked — a prerequisite tag is only 45% mature |
-| 🔵 "Delayed to avoid interference with `tag`" | Delayed — an item sharing a high-coherence tag was recently scheduled |
+| 🟡“等待‘标签’成熟度（45%）”|被阻止——先决条件标签仅成熟 45% |
+| 🔵“延迟以避免干扰‘标签’” |延迟 — 最近安排了一个共享高一致性标签的项目 |
 
-#### Forcing Items
+#### 强制物品
 
-You can override TAS for individual items:
+您可以覆盖单个项目的 TAS：
 
-- Click the **Force show** link next to any blocked or delayed item
-  to add it to the current review session immediately.
-- The override is session-only — the item is re-evaluated against TAS
-  rules in the next session.
+- 单击任何被阻止或延迟的项目旁边的 **强制显示** 链接
+  立即将其添加到当前审阅会话中。
+- 覆盖仅适用于会话 - 该项目将根据 TAS 重新评估
+  下届会议的规则。
 
-#### How Coherence Is Computed
+#### 相干性是如何计算的
 
-Coherence measures how semantically tight a tag's items are:
+一致性衡量标签项目的语义紧密程度：
 
-1. Use **Compute Semantic Graph** from the queue view.  This requires
-   a configured embedding provider (OpenAI, Ollama, Cohere, OpenRouter).
-2. Each item's title, content, and tags are sent to your chosen LLM
-   provider and an embedding vector is stored.
-3. After embedding, TAS automatically computes each tag's **centroid**
-   (mean vector of all items with that tag) and **coherence** (average
-   pairwise cosine similarity of those items).
-4. Coherence values appear in Tag Management next to each tag.
+1. 从队列视图使用**计算语义图**。  这需要
+   配置的嵌入提供程序（OpenAI、Ollama、Cohere、OpenRouter）。
+2. 每个项目的标题、内容和标签将发送至您选择的法学硕士
+   提供者和嵌入向量被存储。
+3.嵌入后，TAS自动计算每个标签的**质心**
+   （带有该标签的所有项目的平均向量）和**连贯性**（平均
+   这些项目的成对余弦相似度）。
+4. 一致性值显示在标签管理中每个标签旁边。
 
-Tags with no embeddings yet are treated as coherence = 0 — no
-interference jitter is applied for those tags.
+尚未嵌入的标签被视为一致性 = 0 — 否
+干扰抖动适用于这些标签。
 
-#### Tag Maturity
+#### 标签成熟度
 
-A tag is **mature** for an item when that item's SM-20/FSRS stability
-meets or exceeds the tag's `maturityThreshold` (default 0.8).  The
-overall maturity ratio is `matureCount / itemCount`.
+当某个项目的 SM-20/FSRS 稳定性达到该项目的标签时，该标签就**成熟**
+满足或超过标签的“maturityThreshold”（默认 0.8）。  的
+总体成熟度比率为“matureCount / itemCount”。
 
-- Progress bars in the Prerequisite Editor show each tag's current
-  maturity ratio.
-- Prerequisite gating uses the configured `maturityRatio` to decide
-  whether a prerequisite tag is "satisfied" enough to unlock dependent
-  tags for review.
+- 先决条件编辑器中的进度条显示每个标签的当前状态
+  成熟度比率。
+- 先决条件门控使用配置的“maturityRatio”来决定
+  先决条件标签是否“满足”足以解锁依赖项
+  标签以供审查。
 
-#### Tips
+#### 提示
 
-- **Start with prerequisites only**. Keep interference jitter off until
-  you've run the embedding pipeline and have coherence values.
-- **Use granular tags**. `calculus.limits` → `calculus.derivatives` is
-  more effective than one broad `calculus` tag.
-- **Watch the block rate**. If many items sit blocked, lower the maturity
-  ratio or simplify the prerequisite graph.
-- **Force-show is your safety valve**. If TAS is too aggressive for a
-  particular item, force-show it — no underlying scheduling data is harmed.
+- **仅从先决条件开始**。保持干扰抖动关闭，直到
+  您已经运行了嵌入管道并具有一致性值。
+- **使用粒度标签**。 `calculus.limits` → `calculus.derivatives` 是
+  比一个广泛的“微积分”标签更有效。
+- **观察区块率**。如果许多项目被阻塞，则降低成熟度
+  比率或简化先决条件图。
+- **力秀是你的安全阀**。如果 TAS 过于激进
+  特定项目，强制显示它 - 不会损害底层调度数据。
 
 ---
 
@@ -830,11 +850,10 @@ Incrementum支持四种调度算法。选择最适合您的学习风格的一种
 - 更少的评论，更好的保留
 
 **SM-20（SuperMemo 20）：**
-- 最先进的算法，通过 Ghidra 从 sm20.exe 逆向工程获得
-- 支持三种间隔公式版本（V2/V4/V6）
-- 贝叶斯平滑从您的实际复习数据中学习最优间隔
-- 可选的 FSRS 家族分支，配备 3 专家遗忘模型
-- 通过 21×21×21 间隔/计数矩阵随时间积累知识
+- 最先进的算法，通过 Ghidra 从 sm20.exe 进行逆向工程
+- 使用V4（SM-20适当）间隔公式； SM-19 调度可通过单独的“sm2”算法实现
+- 贝叶斯平滑从您的实际评论数据中学习最佳间隔
+- 通过持续的 21×21×21 间隔/计数矩阵随着时间的推移构建知识
 
 **SM-18（SuperMemo 18）：**
 - 最新的 SuperMemo 算法，对原始应用程序进行逆向工程
@@ -874,9 +893,7 @@ Incrementum支持四种调度算法。选择最适合您的学习风格的一种
 
 **最大间隔：**
 - 最长间隔上限（默认 365 天）
-- 防止卡片安排得太远
-
-**长型安全帽（视频/文章）：**
+- 防止卡片安排得太远**长型安全帽（视频/文章）：**
 - 对于长视频/文章，正面评级（“好”/“简单”）是覆盖范围感知的。
 - 如果您花费的时间少于预计内容时间的 **25%**，则下一个时间间隔的上限为 **1 天**。
 - 如果您的支出低于 **50%**，则下一个间隔的上限为 **2 天**。
@@ -886,7 +903,9 @@ Incrementum支持四种调度算法。选择最适合您的学习风格的一种
 
 ### 查看设置
 
-#### 会话限制**时间限制：**
+#### 会话限制
+
+**时间限制：**
 - 最大会话持续时间（分钟）
 - 休息间隔
 - 限制后自动结束
@@ -929,53 +948,51 @@ Incrementum支持四种调度算法。选择最适合您的学习风格的一种
 
 ### 同步设置
 
-Incrementum 通过**共享同步房间**（sync room）在你的设备之间同步阅读数据。无需账号、无需服务器登录，也没有 API 密钥 —— 任何知道同一个同步代码的设备都会加入同一个房间并共享相同的数据。这是应用中唯一的同步系统。
+Incrementum 通过**共享同步室**在您的设备上同步您的阅读数据。没有帐户，没有服务器登录，也没有 API 密钥 - 每个知道相同同步代码的设备都会加入同一个房间并共享相同的数据。这是应用程序中唯一的同步系统。
 
-#### 工作原理
+#### 它是如何工作的
 
-- 每台设备在你第一次打开同步设置时会生成一个**同步代码**（一串随机字符）。
-- 将该代码分享给你的其他设备 —— 既可以直接复制，也可以扫描同步设置中显示的二维码。
-- 当两台设备共享同一个代码时，只要它们同时在线，阅读数据（文档、摘录、学习条目、复习记录、设置）就会自动同步。附加在文档上的文件也会通过同一个房间同步。
-- 同步代码是进入房间的唯一凭证。请妥善保管 —— 任何拥有它的人都能读取你同步的数据。
+- 第一次打开同步设置时，每个设备都会生成一个**同步代码**（随机字符串）。
+- 与您的其他设备共享该代码 - 复制它或扫描同步设置中显示的二维码。
+- 当两个设备共享代码时，只要它们同时在线，它们的阅读数据（文档、摘录、学习项目、复习历史记录、设置）就会自动同步。附加到文档的文件通过同一房间同步。
+- 同步代码是唯一授予房间访问权限的东西。保持其私密性 - 任何拥有它的人都可以读取您的同步数据。
 
-#### 连接你的设备
+#### 连接您的设备
 
-1. 在第一台设备（例如桌面端）上打开**设置 → Sync**。记下那里显示的同步代码，或显示它的二维码。
-2. 在第二台设备（例如你的手机）上打开**设置 → Sync**。
-3. 可以：
-   - 点击 **Scan** 并将摄像头对准第一台设备的二维码，或
-   - 将同步代码粘贴到 "Join another code" 字段并点击 "Join"。
-4. 第二台设备加入房间并立即开始同步 —— 无需重新加载或重启。
-5. 对你想要保持同步的每台设备重复此操作。
+1. 在您的第一台设备（例如台式机）上打开 **设置 → 同步**。请注意此处显示的同步代码，或显示其二维码。
+2. 在您的第二台设备（例如您的手机）上打开 **设置 → 同步**。
+3. 要么：
+   - 点击**扫描**并将相机对准第一台设备上的二维码，或者
+   - 将同步代码粘贴到“加入另一个代码”字段中，然后点击“**加入**”。
+4. 第二台设备加入房间并立即开始同步 - 无需重新加载或重新启动。
+5. 对您想要保持同步的每个设备重复此操作。
 
-> **提示：** "New" 按钮会生成一个新的同步代码。仅在你想要重新开始时使用 —— 旧代码上的设备将不再与使用新代码的设备同步。
+> **提示：** “新建”按钮会生成新的同步代码。仅当您想重新开始时才使用它 - 使用旧代码的设备将停止与使用新代码的设备同步。
 
-#### 同步内容
+#### 同步什么
 
 - 文档及其元数据
-- 摘录（高亮和笔记）
-- 学习条目（抽认卡、填空、问答）
-- 复习记录和调度状态
-- 应用设置
-- 附加在文档上的文件（PDF、EPUB 等）
+- 摘录（重点和注释）
+- 学习项目（抽认卡、完形填空、问答）
+- 查看历史记录和调度状态
+- 应用程序设置
+- 文档附加文件（PDF、EPUB 等）
 
 #### 文件自动下载
 
-在 **File Sync** 下，选择新文件下载到每台设备的激进程度：
-
-- **Always** — 每个文件一出现在房间中就自动下载。
-- **WiFi only** — 仅在 WiFi 下自动下载（在移动数据套餐下很有用）。
-- **Manual** — 从不自动下载；每个文件显示一个下载按钮，你想要时点击即可。
+在 **文件同步** 下，选择将新文件拉到每个设备上的积极程度：- **始终** — 自动下载房间中出现的每个文件。
+- **仅限 WiFi** — 仅在 WiFi 上自动下载（对移动数据套餐有用）。
+- **手动** — 从不自动下载；每个文件都会显示一个下载按钮，您可以在需要时点击该按钮。
 
 #### 端到端加密（可选）
 
-同步默认以"仅 TLS"模式运行：你的数据在网络中加密传输，同步代码充当共享密钥。如果你想要更强的保护，可以启用**端到端加密**，它会在数据离开你的设备之前就在本机加密，因此同步服务器只能看到密文。
+默认情况下，同步在“仅 TLS”模式下运行：您的数据通过网络加密传输，同步代码充当共享密钥。如果您想要更强的保护，可以启用**端到端加密**，这会在设备上的数据离开之前对其进行加密，因此同步服务器只能看到密文。
 
-当加密开启时，二维码会嵌入你的房间密钥 —— 仅与你信任的设备分享。
+启用加密后，二维码会嵌入您的房间秘密 - 仅与您信任的设备共享。
 
 #### 隐私
 
-所有阅读数据都首先存储在本地设备上。同步是一项可选的便利功能，通过你共享的房间将这些数据镜像到你的各台设备上。除了你亲自配置的 AI 提供程序外，不会向任何服务器发送任何数据。
+您的所有阅读数据首先存储在您的本地设备上。同步是一种可选的便利功能，可以在共享房间中跨设备镜像数据。除了您个人配置的 AI 提供商之外，不会将任何内容发送到任何服务器。
 
 #### 备份与恢复
 
@@ -1033,7 +1050,7 @@ Incrementum 提供完整的备份和恢复系统来保护您的学习数据并�
 - **替换**：用备份版本覆盖现有项目
 - **合并**：创建所有项目的新副本（可能会创建重复项）
 
-**使用案例：**|场景|推荐方法 |
+**使用案例：**|场景 |推荐方法 |
 |----------|---------------------|
 | **迁移到新计算机** |使用文件导出，在新机器上导入 |
 | **重大更改前的备份** |快速仅元数据备份 |
@@ -1167,7 +1184,7 @@ Incrementum 提供完整的备份和恢复系统来保护您的学习数据并�
 连接最多 3 个 MCP 服务器以实现 AI 驱动的功能：
 
 1. 设置 → AI → MCP 服务器
-2. 添加服务器地址
+2.添加服务器地址
 3.配置认证
 4. 启用功能：
    - 智能卡生成
@@ -1297,7 +1314,7 @@ Incrementum 可以自动发现来自流行新闻通讯平台的 RSS 源：
 
 |平台| RSS 提要模式 |示例|
 |----------|------------------|---------|
-|子栈 | `https://[author].substack.com/feed` | `https://stratechery.substack.com/feed` |
+|子栈| `https://[author].substack.com/feed` | `https://stratechery.substack.com/feed` |
 |蜂巢| `https://[newsletter].beehiiv.com/feed` | `https://banklesshq.beehiiv.com/feed` |
 |幽灵| `https://[blog].ghost.io/rss/` | `https://blog.ghost.io/rss/` |
 |扣下 | `https://buttondown.email/[名称]/feed` | `https://buttondown.email/newsletter/feed` |
@@ -1597,7 +1614,7 @@ vllm 服务 zai-org/GLM-OCR --allowed-local-media-path / --port 8080
 - 保持问题简洁
 
 **不要：**
-- 将多个事实放入一张卡中
+- 将多个事实放入一张卡片中
 - 使用含糊的措辞
 - 让问题太简单或太难
 - 复制大文本块
@@ -1941,7 +1958,7 @@ A：ATP（三磷酸腺苷）
 | `Ctrl/Cmd + A` |全选|
 | `删除` |删除所选 |
 | `Ctrl/Cmd + 单击` |多选 |
-| `Shift + 单击` |范围选择 |
+| `Shift + 单击` |范围选择|
 
 ### 文档查看器快捷方式
 
@@ -1950,10 +1967,10 @@ A：ATP（三磷酸腺苷）
 | `Ctrl/Cmd + F` |在文档中搜索 |
 | `Ctrl/Cmd + C` |复制选定的文本 |
 | `Ctrl/Cmd + E` |从选择中创建摘录 |
-| `Ctrl/Cmd + H` |突出选择|
+| `Ctrl/Cmd + H` |突出选择 |
 | `Ctrl/Cmd + +` |放大|
 | `Ctrl/Cmd + -` |缩小|
-| `Ctrl/Cmd + 0` |重置缩放 |
+| `Ctrl/Cmd + 0` |重置缩放|
 | `F11` |全屏|
 
 ---

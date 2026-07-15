@@ -264,23 +264,58 @@ SM-18:
 
 ### Understanding SM-20
 
-Incrementum's **SM-20** option is an experimental compatibility scheduler informed by reverse engineering of `sm20.exe`. The executable identifies V4 as an approximation of recall, not an interval formula, so Incrementum keeps the learned V4 model separate from scheduling.
+Incrementum's **SM-20** option is the **Algorithm Arena** — a reverse-engineered port of SuperMemo's `sm20.exe` that runs **five** spaced-repetition algorithms in parallel on every flashcard and blends their predictions into one schedule. The five competitors, with the default blend weights they start at:
 
-SM-20:
+| Slot | Model | Default weight | Learns how? |
+|------|-------|---------------:|-------------|
+| 1 | **SM-2** | 6% | Fixed |
+| 2 | **SM-15** | 14% | Continuously, on every review |
+| 3 | **SM-19** | 45% | Continuously, on every review |
+| 4 | **SM-20** (the 35-parameter "M4" forgetting-curve kernel) | 25% | On-demand, via the Optimize button |
+| 5 | **FSRS** | 10% | On-demand, via the Optimize button |
 
-1. **Schedules locally**: Review calculations run on the device with no cloud dependency.
-2. **Collects empirical recall outcomes**: Again is recorded as a failed recall; Hard, Good, and Easy are recorded as passes in compact retrievability/difficulty cells.
-3. **Fits the V4 recall surface locally**: An explicit settings action runs a bounded four-coefficient optimizer over those pass/total observations.
-4. **Keeps fitting diagnostic-only**: The fitted recall coefficients and error are shown for inspection but cannot alter intervals until the full recall-to-scheduling integration is verified against reference behavior.
+**How the blend works.** Each model independently produces a stability estimate for the card; the Arena takes a weighted average and derives the next interval from that. The weights are not fixed — they **adapt to you**. Every time you review a card whose previous review was at least a day ago, the Arena scores each model's *previous* prediction against what actually happened (you remembered or forgot) and nudges the weights toward whichever models have been predicting you best. No model is ever fully eliminated, so a slow starter can recover.
+
+**Two ways it learns:**
+
+1. **Automatically, on every review** — the SM-15 optimizer and SM-19 matrices update immediately, and the blend weights shift. This starts with your very first review. You can watch it in Settings → Learning: the **Arena weights** panel shows each model's current percentage and, once you have enough scored reviews, an **R-Metric** (how much better the blended prediction does than SM-19 alone).
+2. **On-demand, when you click Optimize** — two of the five competitors (the SM-20 kernel and FSRS) can be fitted to your personal review history. These fits are gated behind a minimum amount of data (roughly several hundred day-spaced reviews) and a held-out validation check: a fit is only accepted if it genuinely beats the shipped defaults on reviews the fit hasn't seen. Until then the Optimize buttons report "Not enough review history yet" and those two models keep using their default parameters.
+
+**Why it may say it hasn't started training.** Only reviews spaced at least **a day apart** carry signal — first reviews and same-day re-reviews tell the Arena nothing (every model correctly predicts you'll remember), so they don't count toward the scored total. If you have only a handful of cards, expect the Arena weights to stay near their defaults and the R-Metric to stay hidden until those cards start coming back at day-scale intervals. This is expected, not a bug.
 
 **Key Metrics:**
-- **Stability (S)**: The app's current estimate of memory persistence in days
-- **Difficulty (D)**: The app's current item-difficulty estimate
-- **Recall RMSE**: The diagnostic model's count-weighted error against observed pass rates
+- **Stability (S)**: Each model's estimate of how long the memory persists (days); the Arena blends these.
+- **Difficulty (D)**: Each model's item-difficulty estimate.
+- **Arena weights**: The live blend percentages per model, shown in Learning settings.
+- **R-Metric**: Relative improvement of the blend over SM-19 alone, computed over a decaying window of your reviews.
 
-**How SM-20 Differs from FSRS-6:**
-- FSRS-6 is a complete, production scheduler and remains the recommended option.
-- Incrementum's SM-20 V4 fitting is local and personal, but remains diagnostic while the complete scheduling kernel is being verified.
+**How SM-20 differs from FSRS-6:**
+- FSRS-6 is a single, mature, production scheduler and remains the recommended default.
+- SM-20 is an experimental ensemble that pits five algorithms against each other and lets your own data pick the blend. It is more complex and needs more reviews to personalize, but can outperform any single model once it has enough of your history to learn from.
+
+### Document Reading Schedule (Incremental Reading)
+
+The algorithms above (FSRS-6, SM-18, SM-20) are **flashcard** schedulers — they train on Q&A, cloze, and basic cards, where the goal is long-term recall. **Documents** (the articles, papers, and passages you read via Incremental Reading) are scheduled by a **separate** scheduler with a different goal: keeping content in regular rotation rather than maximizing long-term retention of a single fact.
+
+**Two schedulers, not one.** This is the single biggest source of confusion:
+
+- **Flashcards** → FSRS-6 / SM-18 / SM-20 (your choice in Learning settings) → writes to the review history that trains those algorithms.
+- **Documents** → the **Incremental Reading Scheduler** (or its **Engaging** variant) → tracked separately, and **does not feed the flashcard algorithms at all.**
+
+Rating a document with Again / Hard / Good / Easy looks identical to rating a flashcard — the same four buttons appear — but the grade goes to a different place and produces short, predictable intervals:
+
+| Rating | Document interval | Flashcard interval (varies by algorithm) |
+|--------|-------------------|------------------------------------------|
+| **Again** | ~4 hours | minutes |
+| **Hard** | ~1 day | 1–2 days |
+| **Good** | ~3 days | days–weeks |
+| **Easy** | ~7 days | weeks |
+
+Document intervals are capped at roughly **30 days** so material stays in rotation, and consecutive Good/Easy ratings add a small bonus while consecutive Again/Hard ratings add a small penalty.
+
+**The Engaging Scheduler.** When you read documents from the Queue, Incrementum uses the *Engaging* variant, which layers novelty injection, variety balancing, and serendipity on top of the base intervals so your reading sessions stay varied and interesting. These engagement features affect *which* document comes up next, not the underlying interval math.
+
+**Practical takeaway.** Doing lots of Incremental Reading will **not** count toward "training" SM-20 or FSRS — those algorithms only see flashcard reviews. If you want them to personalize, you need flashcards reviewed at day-scale spacing. (This is why the SM-20 panel in Learning settings can read "0 scored" even if you've been reading documents all week.) See [Understanding SM-20](#understanding-sm-20) for what does and doesn't count.
 
 ### Rating System
 
@@ -450,7 +485,7 @@ Select multiple cards using the checkboxes, then use the bulk action toolbar:
 **Mixed Review Sessions (Cards + Documents):**
 - Review sessions can include **learning items** and **documents** that are due for reading.
 - When a document appears, you can open it directly from the session card.
-- Rating a document schedules its next reading date, just like a card schedules its next review.
+- Rating a document schedules its next reading date via the **Incremental Reading Scheduler** (short, capped intervals) — separate from the flashcard algorithms. See [Document Reading Schedule](#document-reading-schedule-incremental-reading).
 
 **Rating Interface:**
 After revealing answer, four rating buttons appear:

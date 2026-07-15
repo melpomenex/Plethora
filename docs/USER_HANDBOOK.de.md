@@ -12,7 +12,7 @@ Incrementum ist eine leistungsstarke Lernanwendung, die zwei bewährte Techniken
 
 **Inkrementelles Lesen** – Verarbeiten Sie große Informationsmengen im Laufe der Zeit in kleinen, überschaubaren Blöcken. Anstatt Artikel von Anfang bis Ende zu lesen, extrahieren Sie wichtige Punkte und bauen nach und nach Verständnis auf.
 
-**Abgeteilte Wiederholungen** – Überprüfen Sie das Material in wissenschaftlich optimierten Abständen, um die Erinnerung zu maximieren. Algorithmen wie FSRS-6, SM-20 und SM-18 sagen voraus, wann Sie etwas vergessen werden und planen Überprüfungen rechtzeitig ein.
+**Abgeteilte Wiederholungen** – Überprüfen Sie das Material in wissenschaftlich optimierten Abständen, um die Erinnerung zu maximieren. Algorithmen wie FSRS-6 und SM-18 sagen voraus, wann Sie etwas vergessen werden und planen Überprüfungen rechtzeitig ein.
 
 ### Schlüsselkonzepte
 
@@ -42,7 +42,7 @@ Wenn Sie Incrementum zum ersten Mal starten, sehen Sie das **Dashboard** mit vie
    - Probieren Sie „Modern Dark“ oder „Material You“ für einen modernen Look
 
 2. **Überprüfungseinstellungen konfigurieren** – Einstellungen → Lernen → Algorithmus
-   - **Algorithmus**: FSRS-6 (empfohlen), SM-20, SM-18 oder SM-2
+   - **Algorithmus**: FSRS-6 (empfohlen), SM-18 oder SM-2
    - **Gewünschte Erinnerung**: 90 % (Standard) – legt fest, wie gut Sie sich erinnern möchten
    - **Lernen pro Tag**: 20–50 Elemente empfohlen für Anfänger
 
@@ -225,47 +225,73 @@ Die Datei sollte ein flaches Objekt sein, das den Fragetext den Kartendaten zuor
 
 ### SM-18 verstehen
 
-**SM-18** (SuperMemo 18) ist der vorherige Algorithmus der SuperMemo-Familie. Er stellt eine bedeutende Weiterentwicklung gegenüber SM-2 dar und führt Speicherstabilitätsmodellierung und einen datengesteuerten Ansatz zur Intervallberechnung ein.
+**SM-18** (SuperMemo 18) ist der vorherige Algorithmus aus der SuperMemo-Familie. Er stellt eine bedeutende Weiterentwicklung gegenüber SM-2 dar und führt eine Speicherstabilitätsmodellierung und einen datengesteuerten Ansatz zur Intervallberechnung ein.
 
 SM-18:
 
-1. **Modelliert Vergessen Exponentiell**: Verwendet die Formel `R = 0,9^(t/S)` zur Berechnung der Wiederauffindbarkeit — die Wahrscheinlichkeit, dass Sie sich an ein Element zum Zeitpunkt `t` angesichts seiner Stabilität `S` erinnern
-2. **Verfolgt Schwierigkeit Unabhängig**: Pflegt einen Schwierigkeitswert `D ∈ [0, 1]` für jedes Element, der über eine nachlaufende Durchschnittsformel aktualisiert wird, die mit jeder Wiederholung reaktionsfähiger wird
-3. **Verwendet eine 3D-SInc-Matrix**: Ermittelt den Stabilitätssteigerungsfaktor aus einer 21×21×21-Matrix, die nach gebinster Schwierigkeit, Stabilität und Wiederauffindbarkeit indiziert ist — dies ist der Kern von SM-18s Intelligenz
-4. **Geht mit Ausfällen Souverän Um**: Bei Fehlschlägen wird die Stabilität um einen Faktor von 0,87 reduziert (weiter unterteilt durch angesammelte Ausfälle) und der Wiederholungszähler zurückgesetzt, aber die Schätzgröße der Schwierigkeit bleibt erhalten
-5. **Berechnet Intervalle aus Stabilität**: Leitet das nächste Überprüfungsintervall aus dem gewünschten Retentionsziel ab: `Intervall = S × ln(1-FI) / ln(0,9)`
+1. **Modelle, die exponentiell vergessen: Verwendet die Formel „R = 0,9^(t/S)“, um die Wiederauffindbarkeit zu berechnen – die Wahrscheinlichkeit, dass Sie sich an einen Gegenstand zum Zeitpunkt „t“ angesichts seiner Stabilität „S“ erinnern
+2. **Verfolgt den Schwierigkeitsgrad unabhängig**: Behält einen Schwierigkeitswert „D ∈ [0, 1]“ für jedes Element bei, der mithilfe einer Formel für den nachlaufenden Durchschnitt aktualisiert wird, die mit jeder Wiederholung reaktionsfähiger wird
+3. **Verwendet eine 3D-SInc-Matrix**: Sucht den Stabilitätssteigerungsfaktor aus einer 21×21×21-Matrix nach, indiziert nach gruppierter Schwierigkeit, Stabilität und Wiederauffindbarkeit – das ist der Kern der Intelligenz von SM-18
+4. **Geht mit Fehlern elegant um**: Reduziert bei einem Fehler die Stabilität um den Faktor 0,87 (weiter dividiert durch die akkumulierten Fehler) und setzt den Wiederholungszähler zurück, behält aber die Schwierigkeitsschätzung bei
+5. **Berechnet Intervalle aus der Stabilität**: Leitet das nächste Überprüfungsintervall aus dem gewünschten Aufbewahrungsziel ab: „Intervall = S × ln(1-FI) / ln(0,9)“.
 
 **Wichtige Kennzahlen:**
-- **Stabilität (S)**: Wie lange eine Erinnerung anhält, bevor sie verblasst (gemessen in Tagen)
-- **Schwierigkeit (D)**: Ein Wert von 0 (am einfachsten) bis 1 (am schwersten), aktualisiert über nachlaufende Durchschnittsverschmelzung nach jeder Überprüfung
-- **Wiederauffindbarkeit (R)**: Aktuelle Rückrufwahrscheinlichkeit, berechnet als `0,9^(vergangen/S)`
-- **SInc**: Der Stabilitätssteigerungsfaktor aus der 9.261-Einträge-Matrix — wie viel Stabilität nach jeder erfolgreichen Überprüfung wächst
-- **Ausfälle**: Anzahl der Fehlschläge, die zukünftige Stabilität bei nachfolgenden Ausfällen bestrafen
+- **Stabilität (S)**: Wie lange eine Erinnerung bestehen bleibt, bevor sie verfällt (gemessen in Tagen)
+- **Schwierigkeitsgrad (D)**: Ein Wert von 0 (am einfachsten) bis 1 (am schwierigsten), aktualisiert durch Trailing-Average-Blending nach jeder Überprüfung
+- **Wiederauffindbarkeit (R)**: Aktuelle Rückrufwahrscheinlichkeit, berechnet als „0,9^(verstrichen/S)“.
+- **SInc**: Der aus der Matrix mit 9.261 Einträgen ermittelte Stabilitätssteigerungsfaktor – wie stark die Stabilität nach jeder erfolgreichen Überprüfung zunimmt
+- **Fehler**: Anzahl der Fehler, die die zukünftige Stabilität bei nachfolgenden Fehlern beeinträchtigen
 
 ### SM-20 verstehen
 
-**SM-20** (SuperMemo 20) ist der fortschrittlichste verfügbare Algorithmus, per Reverse-Engineering aus `sm20` rekonstruiert. Er baut auf den Grundlagen von SM-18 auf und führt Bayes'sche Glättung, mehrere Algorithmusversionen und einen optionalen FSRS-Familienzweig ein.
+Die **SM-20**-Option von Incrementum ist die **Algorithm Arena** – eine rückentwickelte Portierung von „sm20.exe“ von SuperMemo, die auf jeder Karteikarte **fünf** Algorithmen mit räumlicher Wiederholung parallel ausführt und ihre Vorhersagen in einem Zeitplan zusammenfasst. Die fünf Konkurrenten mit den Standardmischungsgewichten, bei denen sie beginnen:
 
-SM-20:
+| Steckplatz | Modell | Standardgewicht | Wie lernt man? |
+|------|-------|---------------:|-------------|
+| 1 | **SM-2** | 6% | Behoben |
+| 2 | **SM-15** | 14 % | Kontinuierlich, bei jeder Bewertung |
+| 3 | **SM-19** | 45 % | Kontinuierlich, bei jeder Bewertung |
+| 4 | **SM-20** (der 35-Parameter-„M4“-Vergessenskurven-Kernel) | 25 % | Bei Bedarf über die Schaltfläche „Optimieren“ |
+| 5 | **FSRS** | 10 % | Bei Bedarf über die Schaltfläche „Optimieren“ |**So funktioniert die Mischung.** Jedes Modell erstellt unabhängig eine Stabilitätsschätzung für die Karte; Die Arena nimmt einen gewichteten Durchschnitt und leitet daraus das nächste Intervall ab. Die Gewichte sind nicht festgelegt – sie passen sich Ihnen an. Jedes Mal, wenn Sie eine Karte überprüfen, deren vorherige Überprüfung mindestens einen Tag zurückliegt, vergleicht die Arena die *vorherige* Vorhersage jedes Modells mit dem, was tatsächlich passiert ist (Sie haben sich daran erinnert oder vergessen) und verschiebt die Gewichtungen in Richtung derjenigen Modelle, die Sie am besten vorhergesagt haben. Kein Modell wird jemals vollständig eliminiert, sodass sich ein langsamer Starter erholen kann.
 
-1. **Unterstützt Mehrere Intervallformeln**: Bietet drei Algorithmusversionen — V2 (SM-19-kompatibel), V4 (SM-20 eigentlich) und V6 (FSRS-Stil) — die jeweils Intervalle unterschiedlich aus denselben Zustandsvariablen berechnen
-2. **Wendet Bayes'sche Glättung an**: Wenn genügend Überprüfungsdaten vorhanden sind, werden Intervallberechnungen über eine 3×3×3-Nachbarschaftssuche in den Intervall-/Zählermatrizen geglättet, gemischt mit einem Bayes'schen Prior
-3. **Verfolgt Stabilität mit Potenzgesetz-Indizierung**: Konvertiert Stabilität in Matrixindizes mittels einer Potenzgesetztransformation (`S^2,9`), die feinere Auflösung bei niedrigen Stabilitäten und gröbere bei hohen Werten bietet
-4. **Beinhaltet einen FSRS-Familienzweig**: Elemente können optional ein 3-Experten-Mischmodell (Potenzgesetz, FSRS-Potenzgesetz und exponentielles Vergessen) mit 35 dedizierten Parametern für Schwierigkeits- und Stabilitätsaktualisierungen verwenden
-5. **Zeichnet auf und Lernt aus Überprüfungen**: Jede Überprüfung aktualisiert 21×21×21-Intervall- und Zählermatrizen mittels inkrementeller Mittelung, sodass der Algorithmus aus Ihrer tatsächlichen Leistung optimale Intervalle lernt
+**Zwei Möglichkeiten, wie es lernt:**
+
+1. **Automatisch bei jeder Überprüfung** – der SM-15-Optimierer und die SM-19-Matrizen werden sofort aktualisiert und die Mischungsgewichte verschieben sich. Dies beginnt mit Ihrer allerersten Bewertung. Sie können es sich unter „Einstellungen“ → „Lernen“ ansehen: Das Feld „Arena-Gewichtungen“ zeigt den aktuellen Prozentsatz jedes Modells und, sobald Sie genügend Bewertungen erhalten haben, eine **R-Metrik** (wie viel besser die gemischte Vorhersage abschneidet als SM-19 allein).
+2. **Bei Bedarf, wenn Sie auf „Optimieren“ klicken – zwei der fünf Konkurrenten (der SM-20-Kernel und FSRS) können an Ihren persönlichen Bewertungsverlauf angepasst werden. Diese Anpassungen werden durch eine Mindestdatenmenge (ungefähr mehrere Hundert Bewertungen im Abstand von einem Tag) und eine aufgeschobene Validierungsprüfung gesteuert: Eine Anpassung wird nur dann akzeptiert, wenn sie die gelieferten Standardwerte für Bewertungen, die die Anpassung nicht gesehen hat, tatsächlich übertrifft. Bis dahin melden die Schaltflächen „Optimieren“ „Noch nicht genügend Überprüfungsverlauf“ und diese beiden Modelle verwenden weiterhin ihre Standardparameter.
+
+**Warum es möglicherweise heißt, dass das Training noch nicht begonnen hat.** Nur Bewertungen, die mindestens **einen Tag auseinander liegen**, tragen ein Signal – erste Bewertungen und erneute Bewertungen am selben Tag sagen der Arena nichts (jedes Modell sagt richtig voraus, dass Sie sich daran erinnern werden), daher zählen sie nicht zur Gesamtpunktzahl. Wenn Sie nur eine Handvoll Karten haben, müssen Sie damit rechnen, dass die Arena-Gewichtungen in der Nähe ihrer Standardwerte bleiben und die R-Metrik verborgen bleibt, bis diese Karten in tagesskalierten Intervallen zurückkommen. Dies ist zu erwarten und kein Fehler.
 
 **Wichtige Kennzahlen:**
-- **Stabilität (S)**: Speicherbeständigkeit in Tagen, mit einer Potenzgesetz-Indizestransformation für die Matrixabfrage (auf max. 44.530 Tage begrenzt)
-- **Schwierigkeit (D)**: In 10 Stufen über `floor(D × 19) + 1` gebinnt, als eine Achse der Intervallmatrix verwendet
-- **Version**: Wählt welche Intervallformel verwendet wird (V2, V4 oder V6)
-- **Algorithmuszweig**: 0 für klassisches SM-20, 1 für das FSRS-Familien-Expertenmischmodell
-- **Retrov (Retrov):** Wiederauffindbarkeitsschätzung, die vom FSRS-Zweig für Stabilitätsanpassungen verwendet wird
-- **Intervall-/Zählermatrizen**: Zwei 9.261-Einträge-Matrizen, die Ihre Überprüfungsverlauf akkumulieren und bayes'sch geglättete Intervalloptimierung ermöglichen
+- **Stabilität (S)**: Die Schätzung jedes Modells, wie lange der Speicher bestehen bleibt (Tage); Die Arena vereint diese.
+- **Schwierigkeit (D)**: Die Item-Schwierigkeitsschätzung jedes Modells.
+- **Arena-Gewichte**: Die Live-Mischungsprozentsätze pro Modell, angezeigt in den Lerneinstellungen.
+- **R-Metrik**: Relative Verbesserung der Mischung gegenüber SM-19 allein, berechnet über einen abnehmenden Zeitraum Ihrer Bewertungen.
 
 **Wie sich SM-20 von FSRS-6 unterscheidet:**
-- FSRS-6 verwendet einen festen Parametersatz, der auf aggregierten Daten trainiert wurde; SM-20 lernt aus *Ihren* Überprüfungen im Laufe der Zeit über seine Matrizen
-- SM-20s Bayes'sche Glättung bietet einen fundierten Ansatz, um Vorwissen mit beobachteten Daten in Einklang zu bringen
-- SM-20 unterstützt das Umschalten zwischen Intervallformeln (V2/V4/V6) und verfügt sogar über einen integrierten FSRS-Familienzweig
+- FSRS-6 ist ein einzelner, ausgereifter Produktionsplaner und bleibt der empfohlene Standard.
+- SM-20 ist ein experimentelles Ensemble, das fünf Algorithmen gegeneinander antreten lässt und Ihre eigenen Daten die Mischung bestimmen lässt. Es ist komplexer und erfordert mehr Rezensionen zur Personalisierung, kann jedoch jedes einzelne Modell übertreffen, wenn es genug von Ihrer Geschichte hat, aus der es lernen kann.
+
+### Dokumentleseplan (inkrementelles Lesen)
+
+Die oben genannten Algorithmen (FSRS-6, SM-18, SM-20) sind **Lernkarten**-Planer – sie trainieren auf Fragen und Antworten, Lückentexten und einfachen Karten, wobei das Ziel eine langfristige Erinnerung ist. **Dokumente** (die Artikel, Aufsätze und Passagen, die Sie über Inkrementelles Lesen lesen) werden von einem **separaten** Planer mit einem anderen Ziel geplant: Inhalte in regelmäßiger Rotation zu halten, anstatt die langfristige Aufbewahrung einer einzelnen Tatsache zu maximieren.
+
+**Zwei Planer, nicht einer.** Dies ist die größte Quelle der Verwirrung:- **Lernkarten** → FSRS-6 / SM-18 / SM-20 (Ihre Wahl in den Lerneinstellungen) → schreibt in den Überprüfungsverlauf, der diese Algorithmen trainiert.
+- **Dokumente** → der **Inkrementelle Leseplaner** (oder seine **Engaging**-Variante) → wird separat verfolgt und **füttert die Lernkartenalgorithmen überhaupt nicht.**
+
+Die Bewertung eines Dokuments mit „Erneut“ / „Schwer“ / „Gut“ / „Einfach“ sieht genauso aus wie die Bewertung einer Karteikarte – es werden dieselben vier Schaltflächen angezeigt – aber die Bewertung erfolgt an einer anderen Stelle und erzeugt kurze, vorhersehbare Intervalle:
+
+| Bewertung | Dokumentintervall | Flashcard-Intervall (variiert je nach Algorithmus) |
+|--------|-----|-------------|
+| **Schon wieder** | ~4 Stunden | Minuten |
+| **Schwer** | ~1 Tag | 1–2 Tage |
+| **Gut** | ~3 Tage | Tage–Wochen |
+| **Einfach** | ~7 Tage | Wochen |
+
+Die Dokumentintervalle sind auf ungefähr **30 Tage** begrenzt, sodass das Material im Wechsel bleibt, und aufeinanderfolgende Gut/Einfach-Bewertungen fügen einen kleinen Bonus hinzu, während aufeinanderfolgende Wieder/Schwierig-Bewertungen einen kleinen Nachteil bedeuten.
+
+**Der Engaging Scheduler.** Wenn Sie Dokumente aus der Warteschlange lesen, verwendet Incrementum die Variante *Engaging*, die Neuheiten, Sortenausgleich und Serendipity über die Basisintervalle legt, damit Ihre Lesesitzungen abwechslungsreich und interessant bleiben. Diese Engagement-Funktionen wirken sich darauf aus, *welches* Dokument als nächstes erscheint, nicht auf die zugrunde liegende Intervallberechnung.
+
+**Praktische Erkenntnis.** Viel inkrementelles Lesen zählt **nicht** für das „Training“ von SM-20 oder FSRS – diese Algorithmen sehen nur Lernkartenbewertungen. Wenn Sie möchten, dass sie personalisiert werden, benötigen Sie Lernkarten, die im Tagesabstand überprüft werden. (Aus diesem Grund kann im SM-20-Bereich in den Lerneinstellungen „0 bewertet“ angezeigt werden, auch wenn Sie die ganze Woche über Dokumente gelesen haben.) Unter [SM-20 verstehen](#understanding-sm-20) erfahren Sie, was zählt und was nicht.
 
 ### Bewertungssystem
 
@@ -327,9 +353,7 @@ Teile eines Bildes ausblenden (Diagramme, Diagramme)
 
 Die Karte ist jetzt zur Überprüfung vorgesehen!
 
-#### Manuelle Erstellung
-
-1. Klicken Sie auf **Warteschlange** → **Element hinzufügen**
+#### Manuelle Erstellung1. Klicken Sie auf **Warteschlange** → **Element hinzufügen**
 2. Wählen Sie den Kartentyp
 3. Geben Sie den Inhalt für die Vorder-/Rückseite ein
 4. Kategorie auswählen
@@ -435,7 +459,7 @@ Wählen Sie mithilfe der Kontrollkästchen mehrere Karten aus und verwenden Sie 
 **Gemischte Überprüfungssitzungen (Karten + Dokumente):**
 - Überprüfungssitzungen können **Lernelemente** und **Dokumente** umfassen, die zum Lesen anstehen.
 - Wenn ein Dokument erscheint, können Sie es direkt von der Sitzungskarte aus öffnen.
-- Durch die Bewertung eines Dokuments wird der nächste Lesetermin festgelegt, genau wie bei einer Karte die nächste Überprüfung.
+- Die Bewertung eines Dokuments plant seinen nächsten Lesetermin über den **Inkrementellen Leseplaner** (kurze, begrenzte Intervalle) – getrennt von den Lernkartenalgorithmen. Siehe [Dokumentleseplan](#document-reading-schedule-incremental-reading).
 
 **Bewertungsschnittstelle:**
 Nachdem Sie die Antwort angezeigt haben, erscheinen vier Bewertungsschaltflächen:
@@ -589,112 +613,108 @@ Erstellen Sie benutzerdefinierte Warteschlangen mit Filtern:
 
 ### Tag-Aware Scheduling (TAS)
 
-<!-- English original below — please translate to German -->
+Tag-Aware Scheduling fügt der Überprüfungswarteschlange semantische Intelligenz hinzu.
+Wenn in den Einstellungen aktiviert, führt TAS zwei Nachbearbeitungsdurchgänge durch
+Ihre fälligen Posten, ohne die zugrunde liegenden SM-20/FSRS-Intervalle zu ändern:
 
-Tag-Aware Scheduling adds semantic intelligence to the review queue.
-When enabled in Settings, TAS applies two post-processing passes over
-your due items without changing underlying SM-20/FSRS intervals:
+- **Voraussetzungs-Gating**: Blockiert Elemente, deren Tag-Voraussetzungen nicht erfüllt sind
+  hat den konfigurierten Reifeschwellenwert erreicht.  Grundlegendes Material ist
+  stabilisiert, bevor fortgeschrittene Themen angezeigt werden.
+- **Interferenz-Jitter**: Trennt Elemente, die Tags mit hoher Kohärenz teilen
+  durch ein minimales Zeitfenster, wodurch semantische Interferenzen während der Überprüfung reduziert werden.
 
-- **Prerequisite Gating**: Blocks items whose tag prerequisites haven't
-  reached the configured maturity threshold.  Foundational material is
-  stabilized before advanced topics appear.
-- **Interference Jitter**: Separates items sharing high-coherence tags
-  by a minimum time window, reducing semantic interference during review.
+TAS ist **Opt-in** und **nicht-destruktiv** – Sie können es jederzeit deaktivieren
+, um zur Standard-Warteschlangenreihenfolge zurückzukehren.  Blockierte oder verspätete Artikel bleiben erhalten
+ihre ursprünglichen Fälligkeitstermine und -intervalle.
 
-TAS is **opt-in** and **non-destructive** — toggle it off at any time
-to return to the default queue order.  Blocked or delayed items keep
-their original due dates and intervals.
+#### TAS aktivieren
 
-#### Enabling TAS
+1. Öffnen Sie **Einstellungen → Tag-basierte Planung**.
+2. Schalten Sie **TAS aktivieren** ein.
+3. Aktivieren/deaktivieren Sie optional die Funktionen **Interferenz** und **Voraussetzungen**.
+   Subsysteme unabhängig voneinander.
+4. Passen Sie jeden Schieberegler nach Ihren Wünschen an.
 
-1. Open **Settings → Tag-Aware Scheduling**.
-2. Toggle **Enable TAS** on.
-3. Optionally enable/disable the **Interference** and **Prerequisites**
-   subsystems independently.
-4. Adjust each slider to your preference.
-
-| Setting | Range | Default | Description |
+| Einstellung | Reichweite | Standard | Beschreibung |
 |---|---|---|---|
-| Minimum Separation | 0–24 h | 4 h | Hours between items sharing a high-coherence tag |
-| Coherence Threshold | 0.50–1.00 | 0.75 | Only tags with coherence ≥ this are separated |
-| Maturity Ratio | 0.50–1.00 | 0.70 | Fraction of items in a prerequisite tag that must be mature |
+| Mindestabstand | 0–24 Std. | 4 Std. | Stunden zwischen Elementen, die ein Tag mit hoher Kohärenz teilen |
+| Kohärenzschwelle | 0,50–1,00 | 0,75 | Nur Tags mit Kohärenz ≥ this werden getrennt |
+| Fälligkeitsverhältnis | 0,50–1,00 | 0,70 | Anteil der Elemente in einem Voraussetzungs-Tag, die ausgereift sein müssen |
 
-#### Setting Up Prerequisites
+#### Voraussetzungen einrichten
 
-Tag prerequisites let you control the order in which topics surface:
+Mit den Tag-Voraussetzungen können Sie die Reihenfolge steuern, in der Themen angezeigt werden:
 
-1. Open **Tag Management** (from the media panel or library toolbar).
-2. Click the **Prerequisites** button at the top.
-3. Click a tag name to select it for editing.
-4. In the editor panel, check the tags that must be learned **before**
-   this tag's items can appear in the queue.
-5. Click **Save Prerequisites**.
+1. Öffnen Sie **Tag Management** (über das Medienfenster oder die Bibliothekssymbolleiste).
+2. Klicken Sie oben auf die Schaltfläche **Voraussetzungen**.
+3. Klicken Sie auf einen Tag-Namen, um ihn zur Bearbeitung auszuwählen.
+4. Überprüfen Sie im Editorbereich die Tags, die **vorher** gelernt werden müssen.
+   Die Elemente dieses Tags können in der Warteschlange angezeigt werden.
+5. Klicken Sie auf **Voraussetzungen speichern**.Das **Abhängigkeitsdiagramm** auf der rechten Seite visualisiert Beziehungen – Pfeile
+Punkt vom Voraussetzungs- zum abhängigen Tag.  Zirkuläre Abhängigkeiten sind
+erkannt und zum Zeitpunkt der Speicherung abgelehnt.
 
-The **dependency graph** on the right visualizes relationships — arrows
-point from prerequisite to dependent tag.  Circular dependencies are
-detected and rejected at save time.
+> **Hinweis**: Tags werden automatisch von Ihren vorhandenen Artikeln synchronisiert.
+> Wenn ein Tag nicht angezeigt wird, markieren Sie zunächst einige Elemente und öffnen Sie dann Tag erneut
+> Verwaltung – TAS erkennt und registriert sie.
 
-> **Note**: Tags are synced from your existing items automatically.
-> If a tag doesn't appear, tag some items first, then reopen Tag
-> Management — TAS will detect and register them.
+#### Die Warteschlange lesen
 
-#### Reading the Queue
+Wenn TAS aktiv ist, wird im Warteschlangenkopf das Abzeichen „TAS aktiv“ angezeigt
+mit Anzahl der bereitstehenden und gesperrten Artikel.
 
-When TAS is active, the queue header shows a **TAS Active** badge
-with counts of ready and blocked items.
-
-| Badge | Means |
+| Abzeichen | Mittel |
 |---|---|
-| 🟡 "Waiting on `tag` maturity (45%)" | Blocked — a prerequisite tag is only 45% mature |
-| 🔵 "Delayed to avoid interference with `tag`" | Delayed — an item sharing a high-coherence tag was recently scheduled |
+| 🟡 „Warten auf „Tag“-Reife (45 %)“ | Blockiert – ein vorausgesetztes Tag ist nur zu 45 % ausgereift |
+| 🔵 „Verzögert, um Störungen mit „tag“ zu vermeiden“ | Verzögert – ein Element mit einem Tag mit hoher Kohärenz wurde kürzlich geplant |
 
-#### Forcing Items
+#### Elemente erzwingen
 
-You can override TAS for individual items:
+Sie können TAS für einzelne Artikel überschreiben:
 
-- Click the **Force show** link next to any blocked or delayed item
-  to add it to the current review session immediately.
-- The override is session-only — the item is re-evaluated against TAS
-  rules in the next session.
+- Klicken Sie neben einem blockierten oder verzögerten Element auf den Link **Anzeige erzwingen**
+  um es sofort zur aktuellen Überprüfungssitzung hinzuzufügen.
+- Die Überschreibung ist nur sitzungsbezogen – das Element wird anhand von TAS erneut bewertet
+  Regeln in der nächsten Sitzung.
 
-#### How Coherence Is Computed
+#### Wie Kohärenz berechnet wird
 
-Coherence measures how semantically tight a tag's items are:
+Kohärenz misst, wie semantisch die Elemente eines Tags sind:
 
-1. Use **Compute Semantic Graph** from the queue view.  This requires
-   a configured embedding provider (OpenAI, Ollama, Cohere, OpenRouter).
-2. Each item's title, content, and tags are sent to your chosen LLM
-   provider and an embedding vector is stored.
-3. After embedding, TAS automatically computes each tag's **centroid**
-   (mean vector of all items with that tag) and **coherence** (average
-   pairwise cosine similarity of those items).
-4. Coherence values appear in Tag Management next to each tag.
+1. Verwenden Sie **Compute Semantic Graph** aus der Warteschlangenansicht.  Dies erfordert
+   ein konfigurierter Einbettungsanbieter (OpenAI, Ollama, Cohere, OpenRouter).
+2. Titel, Inhalt und Tags jedes Elements werden an den von Ihnen gewählten LLM gesendet
+   Anbieter und ein Einbettungsvektor wird gespeichert.
+3. Nach der Einbettung berechnet TAS automatisch den **Schwerpunkt** jedes Tags.
+   (mittlerer Vektor aller Elemente mit diesem Tag) und **Kohärenz** (Durchschnitt
+   paarweise Kosinusähnlichkeit dieser Elemente).
+4. Kohärenzwerte werden im Tag-Management neben jedem Tag angezeigt.
 
-Tags with no embeddings yet are treated as coherence = 0 — no
-interference jitter is applied for those tags.
+Tags ohne Einbettungen werden als Kohärenz = 0 – Nein behandelt
+Für diese Tags wird Interferenz-Jitter angewendet.
 
-#### Tag Maturity
+#### Tag-Reife
 
-A tag is **mature** for an item when that item's SM-20/FSRS stability
-meets or exceeds the tag's `maturityThreshold` (default 0.8).  The
-overall maturity ratio is `matureCount / itemCount`.
+Ein Tag ist für einen Artikel **ausgereift**, wenn die SM-20/FSRS-Stabilität dieses Artikels vorliegt
+erfüllt oder überschreitet den „maturityThreshold“ des Tags (Standard 0,8).  Die
+Das Gesamtreifeverhältnis beträgt „matureCount / itemCount“.
 
-- Progress bars in the Prerequisite Editor show each tag's current
-  maturity ratio.
-- Prerequisite gating uses the configured `maturityRatio` to decide
-  whether a prerequisite tag is "satisfied" enough to unlock dependent
-  tags for review.
+- Fortschrittsbalken im Voraussetzungseditor zeigen den aktuellen Status jedes Tags an
+  Fälligkeitsverhältnis.
+- Voraussetzungs-Gating verwendet zur Entscheidung das konfigurierte „maturityRatio“.
+  ob ein Voraussetzungs-Tag „erfüllt“ genug ist, um abhängig zu sein
+  Tags zur Überprüfung.
 
-#### Tips
+#### Tipps
 
-- **Start with prerequisites only**. Keep interference jitter off until
-  you've run the embedding pipeline and have coherence values.
-- **Use granular tags**. `calculus.limits` → `calculus.derivatives` is
-  more effective than one broad `calculus` tag.
-- **Watch the block rate**. If many items sit blocked, lower the maturity
-  ratio or simplify the prerequisite graph.
-- **Force-show is your safety valve**. If TAS is too aggressive for a
-  particular item, force-show it — no underlying scheduling data is harmed.
+- **Beginnen Sie nur mit den Voraussetzungen**. Halten Sie Interferenz-Jitter ausgeschaltet, bis
+  Sie haben die Einbettungspipeline ausgeführt und verfügen über Kohärenzwerte.
+- **Granulare Tags verwenden**. `calculus.limits` → `calculus.derivatives` ist
+  effektiver als ein breites „Infinitesimalrechnung“-Tag.
+- **Beobachten Sie die Blockrate**. Wenn viele Artikel blockiert sind, verringern Sie die Laufzeit
+  Verhältnis oder vereinfachen Sie das Voraussetzungsdiagramm.
+- **Force-Show ist Ihr Sicherheitsventil**. Wenn TAS zu aggressiv ist für a
+  Wenn Sie ein bestimmtes Element verwenden, erzwingen Sie die Anzeige – es werden keine zugrunde liegenden Planungsdaten beschädigt.
 
 ---
 
@@ -830,11 +850,10 @@ Incrementum unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am
 - Bessere Bindung mit weniger Bewertungen
 
 **SM-20 (SuperMemo 20):**
-- Fortschrittlichster Algorithmus, per Reverse-Engineering aus sm20.exe über Ghidra rekonstruiert
-- Unterstützt drei Intervallformel-Versionen (V2/V4/V6)
-- Bayes'sche Glättung lernt optimale Intervalle aus Ihren tatsächlichen Überprüfungsdaten
-- Optionaler FSRS-Familienzweig mit 3-Experten-Vergessensmodell
-- Baut Wissen über Zeit durch 21×21×21-Intervall-/Zählermatrizen auf
+- Fortschrittlichster Algorithmus, rückentwickelt von sm20.exe über Ghidra
+- Verwendet die V4-Intervallformel (SM-20 richtig); Die SM-19-Planung ist über den separaten „sm2“-Algorithmus verfügbar
+- Durch die Bayes'sche Glättung werden optimale Intervalle aus Ihren tatsächlichen Überprüfungsdaten ermittelt
+- Baut im Laufe der Zeit Wissen über persistente 21×21×21-Intervall-/Zählmatrizen auf
 
 **SM-18 (SuperMemo 18):**
 - Neuester SuperMemo-Algorithmus, rückentwickelt von der Originalanwendung
@@ -874,9 +893,7 @@ Incrementum unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am
 
 **Maximales Intervall:**
 - Begrenzen Sie die längsten Intervalle (Standardeinstellung: 365 Tage).
-- Verhindert, dass Karten zu weit im Voraus geplant werden
-
-**Lange Sicherheitskappe (Videos/Artikel):**
+- Verhindert, dass Karten zu weit im Voraus geplant werden**Lange Sicherheitskappe (Videos/Artikel):**
 - Bei langen Videos/Artikeln sind positive Bewertungen („Gut“/„Einfach“) berichterstattungsabhängig.
 - Wenn Sie weniger als **25 %** der geschätzten Inhaltszeit verbringen, ist das nächste Intervall auf **1 Tag** begrenzt.
 - Wenn Sie weniger als **50 %** ausgeben, ist das nächste Intervall auf **2 Tage** begrenzt.
@@ -886,7 +903,9 @@ Incrementum unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am
 
 ### Überprüfen Sie die Einstellungen
 
-#### Sitzungslimits**Zeitlimits:**
+#### Sitzungslimits
+
+**Zeitlimits:**
 - Maximale Sitzungsdauer (Minuten)
 - Pausenintervalle
 - Automatisches Ende nach Limit
@@ -929,53 +948,51 @@ Incrementum unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am
 
 ### Synchronisierungseinstellungen
 
-Incrementum synchronisiert Ihre Lesedaten über einen **gemeinsamen Sync-Raum** (Sync Room) zwischen Ihren Geräten. Es gibt kein Konto, keine Server-Anmeldung und keinen API-Schlüssel — jedes Gerät, das denselben Sync-Code kennt, tritt demselben Raum bei und teilt dieselben Daten. Dies ist das einzige Synchronisierungssystem in der App.
+Incrementum synchronisiert Ihre Lesedaten auf Ihren Geräten über einen **gemeinsamen Synchronisierungsraum**. Es gibt kein Konto, keine Serveranmeldung und keinen API-Schlüssel – jedes Gerät, das denselben Synchronisierungscode kennt, tritt demselben Raum bei und teilt dieselben Daten. Dies ist das einzige Synchronisierungssystem in der App.
 
-#### So funktioniert es
+#### Wie es funktioniert
 
-- Jedes Gerät erzeugt beim ersten Öffnen der Sync-Einstellungen einen **Sync-Code** (eine zufällige Zeichenfolge).
-- Teilen Sie diesen Code mit Ihren anderen Geräten — kopieren Sie ihn oder scannen Sie den in den Sync-Einstellungen angezeigten QR-Code.
-- Wenn zwei Geräte denselben Code teilen, synchronisieren sich ihre Lesedaten (Dokumente, Exzerpte, Lernelemente, Wiederholungsverlauf, Einstellungen) automatisch, sobald sie gleichzeitig online sind. Dateien, die Ihren Dokumenten zugeordnet sind, werden über denselben Raum synchronisiert.
-- Der Sync-Code ist das Einzige, das den Zugang zu einem Raum gewährt. Halten Sie ihn privat — jeder, der ihn hat, kann Ihre synchronisierten Daten lesen.
+- Jedes Gerät generiert einen **Synchronisierungscode** (eine zufällige Zeichenfolge), wenn Sie die Synchronisierungseinstellungen zum ersten Mal öffnen.
+- Teilen Sie diesen Code mit Ihren anderen Geräten – entweder kopieren Sie ihn oder scannen Sie den in den Synchronisierungseinstellungen angezeigten QR-Code.
+- Wenn zwei Geräte einen Code teilen, werden ihre Lesedaten (Dokumente, Auszüge, Lernelemente, Überprüfungsverlauf, Einstellungen) automatisch synchronisiert, wenn sie gleichzeitig online sind. An Ihre Dokumente angehängte Dateien werden im selben Raum synchronisiert.
+- Der Synchronisierungscode ist das Einzige, was den Zugang zu einem Raum gewährt. Halten Sie es privat – jeder, der es nutzt, kann Ihre synchronisierten Daten lesen.
 
-#### Ihre Geräte verbinden
+#### Verbinden Sie Ihre Geräte
 
-1. Öffnen Sie **Einstellungen → Sync** auf Ihrem ersten Gerät (z. B. Desktop). Notieren Sie den dort angezeigten Sync-Code oder zeigen Sie dessen QR-Code an.
-2. Öffnen Sie **Einstellungen → Sync** auf Ihrem zweiten Gerät (z. B. Ihrem Telefon).
+1. Öffnen Sie **Einstellungen → Synchronisieren** auf Ihrem ersten Gerät (z. B. Desktop). Notieren Sie sich den dort angezeigten Synchronisierungscode oder zeigen Sie dessen QR-Code an.
+2. Öffnen Sie **Einstellungen → Synchronisieren** auf Ihrem zweiten Gerät (z. B. Ihrem Telefon).
 3. Entweder:
-   - Tippen Sie auf **Scan** und richten Sie die Kamera auf den QR-Code des ersten Geräts, oder
-   - Fügen Sie den Sync-Code in das Feld „Anderem Code beitreten" ein und tippen Sie auf „Beitreten".
-4. Das zweite Gerät tritt dem Raum bei und beginnt sofort zu synchronisieren — kein Neuladen oder Neustart nötig.
-5. Wiederholen Sie dies für jedes Gerät, das Sie synchron halten möchten.
+   - Tippen Sie auf **Scannen** und richten Sie die Kamera auf den QR-Code auf dem ersten Gerät, oder
+   - Fügen Sie den Synchronisierungscode in das Feld „Anderem Code beitreten“ ein und tippen Sie auf **Beitreten**.
+4. Das zweite Gerät tritt dem Raum bei und beginnt sofort mit der Synchronisierung – kein Neuladen oder Neustart erforderlich.
+5. Wiederholen Sie den Vorgang für jedes Gerät, das Sie synchronisieren möchten.
 
-> **Tipp:** Die Schaltfläche „Neu" erzeugt einen neuen Sync-Code. Verwenden Sie sie nur, wenn Sie von vorne beginnen möchten — Geräte mit dem alten Code synchronisieren sich dann nicht mehr mit Geräten mit dem neuen Code.
+> **Tipp:** Die Schaltfläche „Neu“ generiert einen neuen Synchronisierungscode. Verwenden Sie es nur, wenn Sie von vorne beginnen möchten – Geräte mit dem alten Code werden nicht mehr mit Geräten mit dem neuen synchronisiert.
 
 #### Was synchronisiert wird
 
-- Dokumente und deren Metadaten
-- Exzerpte (Hervorhebungen und Notizen)
-- Lernelemente (Karteikarten, Lückentexte, Q&A)
-- Wiederholungsverlauf und Scheduling-Zustand
+- Dokumente und ihre Metadaten
+- Auszüge (Highlights und Notizen)
+- Lernelemente (Lernkarten, Lückentexte, Fragen und Antworten)
+- Überprüfen Sie den Verlauf und den Planungsstatus
 - App-Einstellungen
-- Dokumenten zugeordnete Dateien (PDFs, EPUBs usw.)
+- An Dokumente angehängte Dateien (PDFs, EPUBs usw.)
 
-#### Automatischer Datei-Download
+#### Datei automatisch herunterladen
 
-Wählen Sie unter **Datei-Sync**, wie aggressiv neue Dateien auf jedes Gerät geladen werden:
-
-- **Immer** — jede Datei automatisch herunterladen, sobald sie im Raum erscheint.
-- **Nur WLAN** — automatischer Download nur im WLAN (nützlich bei mobilen Datenverbindungen).
-- **Manuell** — niemals automatisch herunterladen; jede Datei zeigt eine Download-Schaltfläche, die Sie antippen, wenn Sie sie möchten.
+Wählen Sie unter **Dateisynchronisierung** aus, wie aggressiv neue Dateien auf jedes Gerät gezogen werden:- **Immer** – Laden Sie jede Datei automatisch herunter, sobald sie im Raum erscheint.
+- **Nur WLAN** – automatischer Download nur über WLAN (nützlich bei mobilen Datentarifen).
+- **Manuell** – niemals automatisch herunterladen; Jede Datei zeigt eine Download-Schaltfläche, auf die Sie bei Bedarf tippen können.
 
 #### Ende-zu-Ende-Verschlüsselung (optional)
 
-Die Synchronisierung läuft standardmäßig im Modus „Nur TLS": Ihre Daten reisen verschlüsselt über das Netzwerk, und der Sync-Code fungiert als gemeinsames Geheimnis. Wenn Sie stärkeren Schutz wünschen, können Sie die **Ende-zu-Ende-Verschlüsselung** aktivieren, die Ihre Daten auf Ihrem Gerät verschlüsselt, bevor sie dieses verlassen, sodass der Sync-Server nur Chiffretext sieht.
+Die Synchronisierung läuft standardmäßig im Modus „Nur TLS“: Ihre Daten werden verschlüsselt über das Netzwerk übertragen und der Synchronisierungscode fungiert als gemeinsames Geheimnis. Wenn Sie einen stärkeren Schutz wünschen, können Sie die **End-to-End-Verschlüsselung** aktivieren, die Ihre Daten auf Ihrem Gerät verschlüsselt, bevor sie es überhaupt verlassen, sodass der Synchronisierungsserver immer nur Chiffretext sieht.
 
-Wenn die Verschlüsselung aktiv ist, bettet der QR-Code Ihr Raum-Geheimnis ein — teilen Sie es nur mit Geräten, denen Sie vertrauen.
+Wenn die Verschlüsselung aktiviert ist, bettet der QR-Code Ihr Zimmergeheimnis ein – teilen Sie es nur mit Geräten, denen Sie vertrauen.
 
 #### Datenschutz
 
-Alle Ihre Lesedaten werden zuerst lokal auf Ihren Geräten gespeichert. Die Synchronisierung ist eine optionale Erleichterung, die diese Daten über Ihren gemeinsamen Raum auf Ihre Geräte spiegelt. Es wird nichts an einen Server gesendet, außer an die KI-Anbieter, die Sie persönlich konfiguriert haben.
+Alle Ihre Lesedaten werden zunächst lokal auf Ihren Geräten gespeichert. Die Synchronisierung ist eine optionale Funktion, die die Daten auf Ihren Geräten in Ihrem gemeinsamen Raum spiegelt. Es wird nichts an einen Server gesendet, außer an die von Ihnen persönlich konfigurierten KI-Anbieter.
 
 #### Sichern und Wiederherstellen
 

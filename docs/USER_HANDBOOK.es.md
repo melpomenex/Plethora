@@ -12,7 +12,7 @@ Incrementum es una poderosa aplicación de aprendizaje que combina dos técnicas
 
 **Lectura incremental**: procese grandes cantidades de información en fragmentos pequeños y manejables a lo largo del tiempo. En lugar de leer artículos de principio a fin, extrae puntos clave y desarrolla gradualmente la comprensión.
 
-**Repetición espaciada**: revise el material a intervalos científicamente optimizados para maximizar la retención. Algoritmos como FSRS-6, SM-20 y SM-18 predicen cuándo está a punto de olvidar y programan revisiones justo a tiempo.
+**Repetición espaciada**: revise el material a intervalos científicamente optimizados para maximizar la retención. Algoritmos como FSRS-6 y SM-18 predicen cuándo está a punto de olvidar y programan revisiones justo a tiempo.
 
 ### Conceptos clave
 
@@ -42,7 +42,7 @@ Cuando inicie Incrementum por primera vez, verá el **Panel** con cuatro seccion
    - Pruebe "Modern Dark" o "Material You" para una apariencia moderna
 
 2. **Configurar ajustes de revisión** - Ajustes → Aprendizaje → Algoritmo
-   - **Algoritmo**: FSRS-6 (recomendado), SM-20, SM-18 o SM-2
+   - **Algoritmo**: FSRS-6 (recomendado), SM-18 o SM-2
    - **Retención deseada**: 90% (predeterminado): apunta a qué tan bien quieres recordar
    - **Aprender por día**: 20-50 elementos recomendados para principiantes
 
@@ -225,47 +225,73 @@ Una vez importado, abra cualquier documento para acceder:
 
 ### Entendiendo SM-18
 
-**SM-18** (SuperMemo 18) es el algoritmo anterior de la familia SuperMemo. Representa una evolución significativa sobre SM-2, introduciendo el modelado de la estabilidad de la memoria y un enfoque basado en datos para el cálculo de intervalos.
+**SM-18** (SuperMemo 18) es el algoritmo anterior de la familia SuperMemo. Representa una evolución significativa con respecto a SM-2, al introducir el modelado de estabilidad de la memoria y un enfoque basado en datos para el cálculo de intervalos.
 
 SM-18:
 
-1. **Modela el Olvido de Forma Exponencial**: Utiliza la fórmula `R = 0,9^(t/S)` para calcular la recuperabilidad — la probabilidad de que recuerdes un elemento en el tiempo `t` dada su estabilidad `S`
-2. **Rastrea la Dificultad de Forma Independiente**: Mantiene un valor de dificultad `D ∈ [0, 1]` para cada elemento, actualizado mediante una fórmula de promedio móvil que se vuelve más receptiva con cada repetición
-3. **Utiliza una Matriz SInc 3D**: Busca el factor de aumento de estabilidad en una matriz de 21×21×21 indexada por dificultad, estabilidad y recuperabilidad agrupadas — esta es la inteligencia central de SM-18
-4. **Maneja los Fallos con Gracia**: En caso de fallo, reduce la estabilidad en un factor de 0,87 (dividido además por los fallos acumulados) y reinicia el contador de repeticiones, pero conserva la estimación de dificultad
-5. **Calcula los Intervalos a partir de la Estabilidad**: Deriva el siguiente intervalo de revisión a partir del objetivo de retención deseado: `intervalo = S × ln(1-FI) / ln(0,9)`
+1. **Modelos que olvidan exponencialmente**: utiliza la fórmula `R = 0,9^(t/S)` para calcular la recuperabilidad: la probabilidad de que recuerdes un elemento en el momento `t` dada su estabilidad `S`
+2. **Seguimiento de la dificultad de forma independiente**: mantiene un valor de dificultad `D ∈ [0, 1]` para cada elemento, actualizado mediante una fórmula de promedio final que se vuelve más receptivo con cada repetición.
+3. **Utiliza una matriz SInc 3D**: busca el factor de aumento de estabilidad en una matriz de 21 × 21 × 21 indexada por dificultad, estabilidad y recuperabilidad agrupadas; este es el núcleo de la inteligencia del SM-18.
+4. **Maneja los lapsos con gracia**: en caso de falla, reduce la estabilidad en un factor de 0,87 (dividido por los lapsos acumulados) y reinicia el contador de repeticiones, pero conserva la estimación de dificultad.
+5. **Calcula intervalos a partir de la estabilidad**: deriva el siguiente intervalo de revisión a partir del objetivo de retención deseado: `intervalo = S × ln(1-FI) / ln(0,9)`
 
 **Métricas clave:**
-- **Estabilidad (S)**: Cuánto tiempo persiste un recuerdo antes de deteriorarse (medido en días)
-- **Dificultad (D)**: Un valor de 0 (más fácil) a 1 (más difícil), actualizado mediante combinación de promedio móvil después de cada revisión
-- **Recuperabilidad (R)**: Probabilidad actual de recuperación, calculada como `0,9^(transcurrido/S)`
-- **SInc**: El factor de aumento de estabilidad obtenido de la matriz de 9.261 entradas — cuánto crece la estabilidad después de cada revisión exitosa
-- **Fallos**: Conteo de fracasos, que penalizan la estabilidad futura en fallos posteriores
+- **Estabilidad (S)**: cuánto tiempo persiste un recuerdo antes de descomponerse (medido en días)
+- **Dificultad (D)**: un valor de 0 (más fácil) a 1 (más difícil), actualizado mediante una combinación de promedio final después de cada revisión.
+- **Recuperabilidad (R)**: probabilidad de recuperación actual, calculada como `0,9^(transcurrido/S)`
+- **SInc**: El factor de aumento de estabilidad se obtuvo de la matriz de 9261 entradas: cuánto crece la estabilidad después de cada revisión exitosa.
+- **Lapsos**: Recuento de fallos, que penalizan la estabilidad futura en lapsos posteriores
 
 ### Entendiendo SM-20
 
-**SM-20** (SuperMemo 20) es el algoritmo más avanzado disponible, obtenido mediante ingeniería inversa de `sm20`. Se basa en los fundamentos de SM-18 mientras introduce el suavizado bayesiano, múltiples versiones de algoritmo y una rama opcional de la familia FSRS.
+La opción **SM-20** de Incrementum es **Algorithm Arena**: una adaptación de ingeniería inversa del `sm20.exe` de SuperMemo que ejecuta **cinco** algoritmos de repetición espaciada en paralelo en cada tarjeta y combina sus predicciones en un solo programa. Los cinco competidores, con los pesos de mezcla predeterminados con los que comienzan:
 
-SM-20:
+| Ranura | Modelo | Peso predeterminado | ¿Aprende cómo? |
+|------|-------|---------------:|-------------|
+| 1 | **SM-2** | 6% | Fijo |
+| 2 | **SM-15** | 14% | Continuamente, en cada revisión |
+| 3 | **SM-19** | 45% | Continuamente, en cada revisión |
+| 4 | **SM-20** (el kernel de curva de olvido "M4" de 35 parámetros) | 25% | Bajo demanda, a través del botón Optimizar |
+| 5 | **FSRS** | 10% | Bajo demanda, a través del botón Optimizar |**Cómo funciona la combinación.** Cada modelo produce de forma independiente una estimación de estabilidad para la tarjeta; la Arena toma un promedio ponderado y deriva el siguiente intervalo a partir de ahí. Los pesos no son fijos: se **adaptan a ti**. Cada vez que revisas una tarjeta cuya revisión anterior fue hace al menos un día, la Arena califica la predicción *anterior* de cada modelo contra lo que realmente sucedió (lo recordaste u olvidaste) y empuja los pesos hacia los modelos que te han estado prediciendo mejor. Ningún modelo se elimina por completo, por lo que un modelo que arranca lentamente puede recuperarse.
 
-1. **Soporta Múltiples Fórmulas de Intervalo**: Incluye tres versiones de algoritmo — V2 (compatible con SM-19), V4 (SM-20 propiamente dicho) y V6 (estilo FSRS) — cada una calculando intervalos de manera diferente a partir de las mismas variables de estado
-2. **Aplica Suavizado Bayesiano**: Cuando se acumulan suficientes datos de revisión, suaviza los cálculos de intervalo mediante una búsqueda de vecinos 3×3×3 en las matrices de intervalo/cantidad, combinada con un prior bayesiano
-3. **Rastrea la Estabilidad con Indexación de Ley de Potencias**: Convierte la estabilidad en índices de matriz usando una transformación de ley de potencias (`S^2,9`), proporcionando mayor resolución a estabilidades bajas y menor a valores altos
-4. **Incluye una Rama de la Familia FSRS**: Los elementos pueden usar opcionalmente un modelo de mezcla de 3 expertos (ley de potencias, ley de potencias FSRS y olvido exponencial) con 35 parámetros dedicados para actualizaciones de dificultad y estabilidad
-5. **Registra y Aprende de las Revisiones**: Cada revisión actualiza matrices de intervalo y cantidad de 21×21×21 mediante promediado incremental, permitiendo que el algoritmo aprenda intervalos óptimos a partir de tu rendimiento real a lo largo del tiempo
+**Dos formas de aprender:**
+
+1. **Automáticamente, en cada revisión**: el optimizador SM-15 y las matrices SM-19 se actualizan inmediatamente y los pesos de combinación cambian. Esto comienza con su primera revisión. Puedes verlo en Configuración → Aprendizaje: el panel **Pesos de Arena** muestra el porcentaje actual de cada modelo y, una vez que tengas suficientes reseñas puntuadas, una **Métrica R** (cuánto mejor es la predicción combinada que SM-19 solo).
+2. **Bajo demanda, al hacer clic en Optimizar**: dos de los cinco competidores (el kernel SM-20 y FSRS) se pueden incluir en su historial de reseñas personal. Estos ajustes están respaldados por una cantidad mínima de datos (aproximadamente varios cientos de revisiones espaciadas por días) y una verificación de validación retenida: un ajuste solo se acepta si realmente supera los valores predeterminados enviados en las revisiones que el ajuste no ha visto. Hasta entonces, los botones Optimizar informan "Aún no hay suficiente historial de revisión" y esos dos modelos siguen usando sus parámetros predeterminados.
+
+**Por qué puede decir que no ha comenzado a entrenar.** Solo las revisiones espaciadas con al menos **un día de diferencia** transmiten la señal: las primeras revisiones y las nuevas revisiones el mismo día no le dicen nada a la Arena (cada modelo predice correctamente lo que recordarás), por lo que no cuentan para el total de puntos. Si solo tienes un puñado de cartas, espera que los pesos de la Arena se mantengan cerca de sus valores predeterminados y que la Métrica R permanezca oculta hasta que esas cartas comiencen a aparecer en intervalos de escala de días. Esto es lo esperado, no un error.
 
 **Métricas clave:**
-- **Estabilidad (S)**: Persistencia de la memoria en días, con una transformación de índice de ley de potencias para la búsqueda en matriz (limitada a un máximo de 44.530 días)
-- **Dificultad (D)**: Agrupada en 10 niveles mediante `floor(D × 19) + 1`, usada como un eje de la matriz de intervalo
-- **Versión**: Selecciona qué fórmula de intervalo usar (V2, V4 o V6)
-- **Rama de Algoritmo**: 0 para SM-20 clásico, 1 para el modelo de mezcla de expertos de la familia FSRS
-- **Retrov (Retrov):** Estimación de recuperabilidad utilizada por la rama FSRS para ajustes de estabilidad
-- **Matrices de Intervalo/Cantidad**: Dos matrices de 9.261 entradas que acumulan tu historial de revisiones y permiten la optimización de intervalos con suavizado bayesiano
+- **Estabilidad (S)**: la estimación de cada modelo de cuánto tiempo persiste la memoria (días); la Arena combina estos.
+- **Dificultad (D)**: estimación de la dificultad del ítem de cada modelo.
+- **Pesos de arena**: los porcentajes de combinación en vivo por modelo, que se muestran en la configuración de aprendizaje.
+- **R-Metric**: mejora relativa de la mezcla con respecto a SM-19 solo, calculada sobre una ventana decreciente de sus revisiones.
 
-**Cómo difiere SM-20 de FSRS-6:**
-- FSRS-6 utiliza un conjunto fijo de parámetros entrenados con datos agregados; SM-20 aprende de *tus* revisiones a lo largo del tiempo mediante sus matrices
-- El suavizado bayesiano de SM-20 proporciona una forma fundamentada de equilibrar el conocimiento previo con los datos observados
-- SM-20 permite cambiar entre fórmulas de intervalo (V2/V4/V6) e incluso tiene una rama de la familia FSRS integrada
+**En qué se diferencia SM-20 de FSRS-6:**
+- FSRS-6 es un programador de producción único y maduro y sigue siendo el valor predeterminado recomendado.
+- SM-20 es un conjunto experimental que enfrenta cinco algoritmos entre sí y permite que tus propios datos elijan la combinación. Es más complejo y necesita más revisiones para personalizarlo, pero puede superar a cualquier modelo una vez que tenga suficiente historial para aprender.
+
+### Programa de lectura de documentos (lectura incremental)
+
+Los algoritmos anteriores (FSRS-6, SM-18, SM-20) son programadores de **tarjetas didácticas**: se entrenan en preguntas y respuestas, cloze y tarjetas básicas, donde el objetivo es el recuerdo a largo plazo. Los **documentos** (los artículos, artículos y pasajes que lees mediante lectura incremental) se programan mediante un programador **independiente** con un objetivo diferente: mantener el contenido en rotación regular en lugar de maximizar la retención a largo plazo de un solo hecho.
+
+**Dos programadores, no uno.** Esta es la mayor fuente de confusión:- **Tarjetas didácticas** → FSRS-6 / SM-18 / SM-20 (su elección en la configuración de aprendizaje) → escribe en el historial de revisión que entrena esos algoritmos.
+- **Documentos** → el **Programador de lectura incremental** (o su variante **Engaging**) → rastreado por separado y **no alimenta los algoritmos de las tarjetas didácticas en absoluto.**
+
+Calificar un documento con Nuevamente / Difícil / Bueno / Fácil parece idéntico a calificar una tarjeta didáctica (aparecen los mismos cuatro botones), pero la calificación va a un lugar diferente y produce intervalos cortos y predecibles:
+
+| Calificación | Intervalo de documentos | Intervalo de tarjetas (varía según el algoritmo) |
+|--------|-------------------|------------------------------------------|
+| **Otra vez** | ~4 horas | minutos |
+| **Duro** | ~1 día | 1–2 días |
+| **Bueno** | ~3 días | días–semanas |
+| **Fácil** | ~7 días | semanas |
+
+Los intervalos entre documentos tienen un límite de aproximadamente **30 días** para que el material permanezca en rotación, y las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación, mientras que las calificaciones consecutivas Nuevamente/Difícil agregan una pequeña penalización.
+
+**El Programador Engaging.** Cuando lees documentos de la cola, Incrementum utiliza la variante *Engaging*, que aplica capas de inyección de novedad, equilibrio de variedad y serendipia además de los intervalos base para que tus sesiones de lectura sigan siendo variadas e interesantes. Estas características de participación afectan *qué* documento aparece a continuación, no las matemáticas de intervalo subyacentes.
+
+**Conclusión práctica.** Hacer mucha lectura incremental **no** contará para el "entrenamiento" SM-20 o FSRS; esos algoritmos solo ven revisiones de tarjetas didácticas. Si desea que se personalicen, necesita tarjetas didácticas revisadas con un espaciado a escala de días. (Es por eso que el panel SM-20 en la configuración de Aprendizaje puede leer "0 puntaje" incluso si ha estado leyendo documentos toda la semana). Consulte [Comprensión de SM-20](#understanding-sm-20) para saber qué cuenta y qué no.
 
 ### Sistema de calificación
 
@@ -327,9 +353,7 @@ Ocultar partes de una imagen (diagramas, tablas)
 
 ¡La tarjeta ya está programada para revisión!
 
-#### Creación manual
-
-1. Haga clic en **Cola** → **Agregar elemento**
+#### Creación manual1. Haga clic en **Cola** → **Agregar elemento**
 2. Elige el tipo de tarjeta
 3. Ingrese el contenido del anverso/reverso
 4. Seleccione categoría
@@ -435,7 +459,7 @@ Seleccione varias tarjetas usando las casillas de verificación, luego use la ba
 **Sesiones de Repaso Mixtas (Tarjetas + Documentos):**
 - Las sesiones de revisión pueden incluir **elementos de aprendizaje** y **documentos** que deben leerse.
 - Cuando aparece un documento, puedes abrirlo directamente desde la tarjeta de sesión.
-- Calificar un documento programa su próxima fecha de lectura, al igual que una tarjeta programa su próxima revisión.
+- Calificar un documento programa su próxima fecha de lectura a través del **Programador de lectura incremental** (intervalos cortos y limitados), independiente de los algoritmos de las tarjetas didácticas. Consulte [Programa de lectura de documentos] (#programa-de-lectura-de-documentos-lectura-incremental).
 
 **Interfaz de calificación:**
 Después de revelar la respuesta, aparecen cuatro botones de calificación:
@@ -587,114 +611,110 @@ Crea colas personalizadas con filtros:
 3. Establecer filtros y orden de clasificación
 4. Nombra y guarda
 
-### Tag-Aware Scheduling (TAS)
+### Programación basada en etiquetas (TAS)
 
-<!-- English original below — please translate to Spanish -->
+La programación basada en etiquetas agrega inteligencia semántica a la cola de revisión.
+Cuando está habilitado en Configuración, TAS aplica dos pases de posprocesamiento
+sus artículos vencidos sin cambiar los intervalos subyacentes SM-20/FSRS:
 
-Tag-Aware Scheduling adds semantic intelligence to the review queue.
-When enabled in Settings, TAS applies two post-processing passes over
-your due items without changing underlying SM-20/FSRS intervals:
+- **Requisito previo de acceso**: bloquea elementos cuyos requisitos previos de etiqueta no tienen.
+  alcanzado el umbral de madurez configurado.  El material fundamental es
+  estabilizado antes de que aparezcan temas avanzados.
+- **Interferencia Jitter**: separa elementos que comparten etiquetas de alta coherencia
+  por una ventana de tiempo mínima, reduciendo la interferencia semántica durante la revisión.
 
-- **Prerequisite Gating**: Blocks items whose tag prerequisites haven't
-  reached the configured maturity threshold.  Foundational material is
-  stabilized before advanced topics appear.
-- **Interference Jitter**: Separates items sharing high-coherence tags
-  by a minimum time window, reducing semantic interference during review.
+TAS es **opt-in** y **no destructivo**; desactívelo en cualquier momento
+para volver al orden de cola predeterminado.  Los elementos bloqueados o retrasados se mantienen
+sus fechas e intervalos de vencimiento originales.
 
-TAS is **opt-in** and **non-destructive** — toggle it off at any time
-to return to the default queue order.  Blocked or delayed items keep
-their original due dates and intervals.
+#### Habilitación de TAS
 
-#### Enabling TAS
+1. Abra **Configuración → Programación basada en etiquetas**.
+2. Active **Habilitar TAS**.
+3. Opcionalmente, habilite/deshabilite **Interferencia** y **Requisitos previos**
+   subsistemas de forma independiente.
+4. Ajuste cada control deslizante según sus preferencias.
 
-1. Open **Settings → Tag-Aware Scheduling**.
-2. Toggle **Enable TAS** on.
-3. Optionally enable/disable the **Interference** and **Prerequisites**
-   subsystems independently.
-4. Adjust each slider to your preference.
-
-| Setting | Range | Default | Description |
+| Configuración | Gama | Predeterminado | Descripción |
 |---|---|---|---|
-| Minimum Separation | 0–24 h | 4 h | Hours between items sharing a high-coherence tag |
-| Coherence Threshold | 0.50–1.00 | 0.75 | Only tags with coherence ≥ this are separated |
-| Maturity Ratio | 0.50–1.00 | 0.70 | Fraction of items in a prerequisite tag that must be mature |
+| Separación mínima | 0–24 h | 4 horas | Horas entre elementos que comparten una etiqueta de alta coherencia |
+| Umbral de coherencia | 0,50–1,00 | 0,75 | Sólo se separan las etiquetas con coherencia ≥ esto |
+| Ratio de madurez | 0,50–1,00 | 0,70 | Fracción de elementos en una etiqueta de requisito previo que deben estar maduros |
 
-#### Setting Up Prerequisites
+#### Configuración de requisitos previos
 
-Tag prerequisites let you control the order in which topics surface:
+Los requisitos previos de las etiquetas le permiten controlar el orden en que aparecen los temas:
 
-1. Open **Tag Management** (from the media panel or library toolbar).
-2. Click the **Prerequisites** button at the top.
-3. Click a tag name to select it for editing.
-4. In the editor panel, check the tags that must be learned **before**
-   this tag's items can appear in the queue.
-5. Click **Save Prerequisites**.
+1. Abra **Administración de etiquetas** (desde el panel multimedia o la barra de herramientas de la biblioteca).
+2. Haga clic en el botón **Requisitos previos** en la parte superior.
+3. Haga clic en el nombre de una etiqueta para seleccionarla y editarla.
+4. En el panel del editor, marque las etiquetas que se deben aprender **antes**
+   Los elementos de esta etiqueta pueden aparecer en la cola.
+5. Haga clic en **Guardar requisitos previos**.El **gráfico de dependencia** de la derecha visualiza las relaciones: flechas
+punto desde el requisito previo hasta la etiqueta dependiente.  Las dependencias circulares son
+detectado y rechazado en el momento de guardar.
 
-The **dependency graph** on the right visualizes relationships — arrows
-point from prerequisite to dependent tag.  Circular dependencies are
-detected and rejected at save time.
+> **Nota**: Las etiquetas se sincronizan automáticamente desde tus elementos existentes.
+> Si no aparece una etiqueta, etiquete algunos elementos primero y luego vuelva a abrir Etiqueta
+> Gestión: TAS los detectará y registrará.
 
-> **Note**: Tags are synced from your existing items automatically.
-> If a tag doesn't appear, tag some items first, then reopen Tag
-> Management — TAS will detect and register them.
+#### Leyendo la cola
 
-#### Reading the Queue
+Cuando TAS está activo, el encabezado de la cola muestra una insignia **TAS activo**
+con recuentos de elementos listos y bloqueados.
 
-When TAS is active, the queue header shows a **TAS Active** badge
-with counts of ready and blocked items.
-
-| Badge | Means |
+| Insignia | Medios |
 |---|---|
-| 🟡 "Waiting on `tag` maturity (45%)" | Blocked — a prerequisite tag is only 45% mature |
-| 🔵 "Delayed to avoid interference with `tag`" | Delayed — an item sharing a high-coherence tag was recently scheduled |
+| 🟡 "Esperando el vencimiento de la `etiqueta` (45%)" | Bloqueado: una etiqueta de requisito previo tiene solo un 45 % de madurez |
+| 🔵 "Retrasado para evitar interferencias con la `etiqueta`" | Retrasado: recientemente se programó un elemento que compartía una etiqueta de alta coherencia |
 
-#### Forcing Items
+#### Forzar elementos
 
-You can override TAS for individual items:
+Puede anular TAS para artículos individuales:
 
-- Click the **Force show** link next to any blocked or delayed item
-  to add it to the current review session immediately.
-- The override is session-only — the item is re-evaluated against TAS
-  rules in the next session.
+- Haga clic en el enlace **Forzar presentación** junto a cualquier elemento bloqueado o retrasado.
+  para agregarlo inmediatamente a la sesión de revisión actual.
+- La anulación es solo de sesión: el elemento se vuelve a evaluar con respecto al TAS
+  reglas en la próxima sesión.
 
-#### How Coherence Is Computed
+#### Cómo se calcula la coherencia
 
-Coherence measures how semantically tight a tag's items are:
+La coherencia mide qué tan semánticamente estrictos son los elementos de una etiqueta:
 
-1. Use **Compute Semantic Graph** from the queue view.  This requires
-   a configured embedding provider (OpenAI, Ollama, Cohere, OpenRouter).
-2. Each item's title, content, and tags are sent to your chosen LLM
-   provider and an embedding vector is stored.
-3. After embedding, TAS automatically computes each tag's **centroid**
-   (mean vector of all items with that tag) and **coherence** (average
-   pairwise cosine similarity of those items).
-4. Coherence values appear in Tag Management next to each tag.
+1. Utilice **Calcular gráfico semántico** desde la vista de cola.  Esto requiere
+   un proveedor de incrustación configurado (OpenAI, Ollama, Cohere, OpenRouter).
+2. El título, el contenido y las etiquetas de cada elemento se envían al LLM elegido.
+   proveedor y se almacena un vector de incrustación.
+3. Después de incrustar, TAS calcula automáticamente el **centroide** de cada etiqueta.
+   (vector medio de todos los elementos con esa etiqueta) y **coherencia** (promedio
+   similitud de coseno por pares de esos elementos).
+4. Los valores de coherencia aparecen en Administración de etiquetas junto a cada etiqueta.
 
-Tags with no embeddings yet are treated as coherence = 0 — no
-interference jitter is applied for those tags.
+Las etiquetas que aún no están incrustadas se tratan como coherencia = 0 - no
+Se aplica fluctuación de interferencia para esas etiquetas.
 
-#### Tag Maturity
+#### Madurez de la etiqueta
 
-A tag is **mature** for an item when that item's SM-20/FSRS stability
-meets or exceeds the tag's `maturityThreshold` (default 0.8).  The
-overall maturity ratio is `matureCount / itemCount`.
+Una etiqueta es **madura** para un artículo cuando la estabilidad SM-20/FSRS de ese artículo
+cumple o excede el `maturityThreshold` de la etiqueta (predeterminado 0.8).  el
+El índice de madurez general es `matureCount / itemCount`.
 
-- Progress bars in the Prerequisite Editor show each tag's current
-  maturity ratio.
-- Prerequisite gating uses the configured `maturityRatio` to decide
-  whether a prerequisite tag is "satisfied" enough to unlock dependent
-  tags for review.
+- Las barras de progreso en el Editor de requisitos previos muestran la situación actual de cada etiqueta.
+  relación de madurez.
+- La activación de requisitos previos utiliza el `maturityRatio` configurado para decidir
+  si una etiqueta de requisito previo está lo suficientemente "satisfecha" para desbloquear dependientes
+  etiquetas para revisión.
 
-#### Tips
+#### Consejos
 
-- **Start with prerequisites only**. Keep interference jitter off until
-  you've run the embedding pipeline and have coherence values.
-- **Use granular tags**. `calculus.limits` → `calculus.derivatives` is
-  more effective than one broad `calculus` tag.
-- **Watch the block rate**. If many items sit blocked, lower the maturity
-  ratio or simplify the prerequisite graph.
-- **Force-show is your safety valve**. If TAS is too aggressive for a
-  particular item, force-show it — no underlying scheduling data is harmed.
+- **Comience solo con requisitos previos**. Mantenga la fluctuación de interferencia apagada hasta que
+  Ha ejecutado el proceso de incrustación y tiene valores de coherencia.
+- **Utilice etiquetas granulares**. `calculus.limits` → `calculus.derivatives` es
+  más eficaz que una etiqueta amplia de "cálculo".
+- **Mira la tasa de bloqueo**. Si muchos elementos permanecen bloqueados, reduzca el vencimiento.
+  relación o simplificar el gráfico de requisitos previos.
+- **Force-show es tu válvula de seguridad**. Si TAS es demasiado agresivo para un
+  elemento en particular, muéstrelo a la fuerza: no se dañan los datos de programación subyacentes.
 
 ---
 
@@ -830,11 +850,10 @@ Incrementum admite cuatro algoritmos de programación. Elige el que mejor se ada
 - Mejor retención con menos reseñas
 
 **SM-20 (SuperMemo 20):**
-- Algoritmo más avanzado, obtenido mediante ingeniería inversa de sm20.exe vía Ghidra
-- Admite tres versiones de fórmulas de intervalo (V2/V4/V6)
-- El suavizado bayesiano aprende intervalos óptimos de tus datos de revisión reales
-- Rama opcional de la familia FSRS con modelo de olvido de 3 expertos
-- Construye conocimiento a lo largo del tiempo mediante matrices de intervalo/cantidad de 21×21×21
+- Algoritmo más avanzado, diseñado a partir de sm20.exe mediante Ghidra
+- Utiliza la fórmula de intervalo V4 (SM-20 propiamente dicha); La programación SM-19 está disponible a través del algoritmo `sm2` separado
+- El suavizado bayesiano aprende intervalos óptimos a partir de los datos de revisión reales
+- Desarrolla conocimiento a lo largo del tiempo a través de matrices persistentes de intervalo/recuento de 21×21×21
 
 **SM-18 (Súper Memo 18):**
 - El último algoritmo SuperMemo, realizado mediante ingeniería inversa a partir de la aplicación original.
@@ -874,9 +893,7 @@ Incrementum admite cuatro algoritmos de programación. Elige el que mejor se ada
 
 **Intervalo máximo:**
 - Limitar los intervalos más largos (365 días por defecto)
-- Evita que las tarjetas se programen con demasiada antelación
-
-**Gorra de seguridad de forma larga (vídeos/artículos):**
+- Evita que las tarjetas se programen con demasiada antelación**Gorra de seguridad de forma larga (vídeos/artículos):**
 - Para vídeos/artículos largos, las calificaciones positivas ("Bueno"/"Fácil") tienen en cuenta la cobertura.
 - Si dedicas menos del **25%** del tiempo estimado al contenido, el siguiente intervalo tendrá un límite de **1 día**.
 - Si gastas menos del **50 %**, el siguiente intervalo tendrá un límite de **2 días**.
@@ -886,7 +903,9 @@ Incrementum admite cuatro algoritmos de programación. Elige el que mejor se ada
 
 ### Revisar configuración
 
-#### Límites de sesión**Límites de tiempo:**
+#### Límites de sesión
+
+**Límites de tiempo:**
 - Duración máxima de la sesión (minutos)
 - Intervalos de descanso
 - Finalización automática después del límite
@@ -929,53 +948,51 @@ Incrementum admite cuatro algoritmos de programación. Elige el que mejor se ada
 
 ### Configuración de sincronización
 
-Incrementum sincroniza tus datos de lectura entre tus dispositivos a través de una **sala de sincronización compartida** (sync room). No hay cuenta, no hay inicio de sesión en el servidor ni clave de API: cada dispositivo que conoce el mismo código de sincronización se une a la misma sala y comparte los mismos datos. Este es el único sistema de sincronización de la aplicación.
+Incrementum sincroniza sus datos de lectura en sus dispositivos a través de una **sala de sincronización compartida**. No hay cuenta, ni inicio de sesión en el servidor ni clave API: todos los dispositivos que conocen el mismo código de sincronización se unen a la misma sala y comparten los mismos datos. Este es el único sistema de sincronización de la aplicación.
 
 #### Cómo funciona
 
-- Cada dispositivo genera un **código de sincronización** (una cadena aleatoria) la primera vez que abres los ajustes de Sync.
-- Comparte ese código con tus otros dispositivos — ya sea copiándolo o escaneando el código QR que se muestra en los ajustes de Sync.
-- Cuando dos dispositivos comparten un código, sus datos de lectura (documentos, extractos, elementos de aprendizaje, historial de repaso, ajustes) se sincronizan automáticamente siempre que estén en línea al mismo tiempo. Los archivos adjuntos a tus documentos se sincronizan a través de la misma sala.
-- El código de sincronización es lo único que concede acceso a una sala. Mantenlo privado — cualquiera que lo tenga podrá leer tus datos sincronizados.
+- Cada dispositivo genera un **código de sincronización** (una cadena aleatoria) la primera vez que abres la configuración de sincronización.
+- Comparte ese código con tus otros dispositivos: cópialo o escanea el código QR que se muestra en la configuración de sincronización.
+- Cuando dos dispositivos comparten un código, sus datos de lectura (documentos, extractos, elementos de aprendizaje, historial de revisiones, configuraciones) se sincronizan automáticamente cada vez que están en línea al mismo tiempo. Los archivos adjuntos a sus documentos se sincronizan a través de la misma sala.
+- El código de sincronización es lo único que otorga acceso a una habitación. Manténgalo privado: cualquiera que lo tenga puede leer sus datos sincronizados.
 
 #### Conectando tus dispositivos
 
-1. Abre **Ajustes → Sync** en tu primer dispositivo (p. ej. el de escritorio). Anota el código de sincronización que se muestra ahí o muestra su código QR.
-2. Abre **Ajustes → Sync** en tu segundo dispositivo (p. ej. tu teléfono).
-3. Puedes:
-   - Tocar **Scan** y apuntar la cámara al código QR del primer dispositivo, o
-   - Pegar el código de sincronización en el campo "Join another code" y tocar "Join".
-4. El segundo dispositivo se une a la sala y comienza a sincronizarse inmediatamente — no es necesario recargar ni reiniciar.
-5. Repite esto para cada dispositivo que quieras mantener sincronizado.
+1. Abra **Configuración → Sincronización** en su primer dispositivo (por ejemplo, computadora de escritorio). Anote el código de sincronización que se muestra allí o muestre su código QR.
+2. Abra **Configuración → Sincronización** en su segundo dispositivo (por ejemplo, su teléfono).
+3. Ya sea:
+   - Toque **Escanear** y apunte la cámara al código QR en el primer dispositivo, o
+   - Pegue el código de sincronización en el campo "Unirse a otro código" y toque **Unirse**.
+4. El segundo dispositivo se une a la sala y comienza a sincronizarse inmediatamente; no es necesario recargarlo ni reiniciarlo.
+5. Repita para cada dispositivo que desee mantener sincronizado.
 
-> **Consejo:** El botón "New" genera un código de sincronización nuevo. Úsalo solo si quieres empezar de cero — los dispositivos con el código antiguo dejarán de sincronizarse con los del código nuevo.
+> **Consejo:** El botón "Nuevo" genera un código de sincronización nuevo. Úselo solo si desea comenzar de nuevo: los dispositivos con el código anterior dejarán de sincronizarse con los dispositivos con el nuevo.
 
-#### Qué se sincroniza
+#### ¿Qué sincroniza?
 
-- Documentos y sus metadatos
-- Extractos (resaltados y notas)
-- Elementos de aprendizaje (tarjetas, huecos, preguntas y respuestas)
-- Historial de repaso y estado de programación
-- Ajustes de la aplicación
-- Archivos adjuntos a los documentos (PDFs, EPUBs, etc.)
+- Documentos y sus metadatos.
+- Extractos (aspectos destacados y notas)
+- Elementos de aprendizaje (tarjetas didácticas, eliminaciones de cierres, preguntas y respuestas)
+- Revisar el historial y el estado de la programación.
+- Configuración de la aplicación
+- Archivos adjuntos a documentos (PDF, EPUB, etc.)
 
 #### Descarga automática de archivos
 
-En **File Sync**, elige la frecuencia con la que los archivos nuevos se descargan en cada dispositivo:
-
-- **Always** — descargar automáticamente cada archivo en cuanto aparezca en la sala.
-- **WiFi only** — descarga automática solo por WiFi (útil en planes de datos móviles).
-- **Manual** — nunca descargar automáticamente; cada archivo muestra un botón de descarga que tocas cuando lo quieres.
+En **Sincronización de archivos**, elija la agresividad con la que se cargan los archivos nuevos en cada dispositivo:- **Siempre**: descarga cada archivo automáticamente tal como aparece en la sala.
+- **Solo WiFi**: descarga automática solo en WiFi (útil en planes de datos móviles).
+- **Manual** — nunca descarga automática; Cada archivo muestra un botón de descarga que puedes tocar cuando lo desees.
 
 #### Cifrado de extremo a extremo (opcional)
 
-La sincronización funciona por defecto en modo "solo TLS": tus datos viajan cifrados por la red y el código de sincronización actúa como secreto compartido. Si deseas mayor protección, puedes activar el **cifrado de extremo a extremo**, que cifra tus datos en tu dispositivo antes de que salgan, de modo que el servidor de sincronización solo ve texto cifrado.
+La sincronización se ejecuta en modo "solo TLS" de forma predeterminada: sus datos viajan cifrados a través de la red y el código de sincronización actúa como un secreto compartido. Si desea una protección más sólida, puede habilitar el **cifrado de extremo a extremo**, que cifra sus datos en su dispositivo antes de que salga, de modo que el servidor de sincronización solo vea texto cifrado.
 
-Cuando el cifrado está activo, el código QR incorpora tu secreto de sala — compártelo solo con dispositivos de confianza.
+Cuando el cifrado está activado, el código QR incorpora el secreto de tu habitación; compártelo solo con dispositivos en los que confíes.
 
 #### Privacidad
 
-Todos tus datos de lectura se almacenan primero localmente en tus dispositivos. La sincronización es una comodidad opcional que refleja esos datos en tus dispositivos a través de tu sala compartida. No se envía nada a ningún servidor excepto a los proveedores de IA que hayas configurado personalmente.
+Todos sus datos de lectura se almacenan localmente primero en sus dispositivos. La sincronización es una comodidad opcional que refleja esos datos en todos sus dispositivos en su habitación compartida. No se envía nada a ningún servidor excepto a los proveedores de IA que haya configurado personalmente.
 
 #### Copia de seguridad y restauración
 
@@ -1787,7 +1804,7 @@ La función **Intervalo de vista previa** le muestra exactamente cuándo aparece
 1. **Verifique el formato del archivo**: asegúrese de que el formato sea compatible (PDF, EPUB, etc.)
 2. **Verifique el tamaño del archivo**: los archivos muy grandes pueden agotar el tiempo de espera
 3. **Verifique la URL**: algunos sitios bloquean el acceso automatizado
-4. **Consultar Internet**: la importación de URL requiere conexión
+4. **Compruebe Internet**: la importación de URL requiere conexión
 5. **Pruebe una alternativa**: use copiar y pegar para contenido web
 
 #### Problemas de rendimiento
