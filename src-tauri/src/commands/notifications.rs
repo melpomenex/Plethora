@@ -60,6 +60,7 @@ pub async fn send_notification(app: AppHandle, notification: Notification) -> Re
     send_via_plugin(&app, &notification).await
 }
 
+/// Deprecated compatibility command. Frontend feedback routes through the unified orchestrator.
 /// Create and send a study reminder notification
 #[tauri::command]
 pub async fn send_study_reminder(app: AppHandle, due_count: usize, new_count: usize) -> Result<()> {
@@ -67,6 +68,7 @@ pub async fn send_study_reminder(app: AppHandle, due_count: usize, new_count: us
     send_via_plugin(&app, &notification).await
 }
 
+/// Deprecated compatibility command. Frontend feedback routes through the unified orchestrator.
 /// Create and send a cards due notification
 #[tauri::command]
 pub async fn send_cards_due_notification(
@@ -78,6 +80,7 @@ pub async fn send_cards_due_notification(
     send_via_plugin(&app, &notification).await
 }
 
+/// Deprecated compatibility command. Frontend feedback routes through the unified orchestrator.
 /// Create and send a review completed notification
 #[tauri::command]
 pub async fn send_review_completed_notification(
@@ -91,6 +94,7 @@ pub async fn send_review_completed_notification(
     send_via_plugin(&app, &notification).await
 }
 
+/// Deprecated compatibility command. Frontend feedback routes through the unified orchestrator.
 /// Create and send a document imported notification
 #[tauri::command]
 pub async fn send_document_imported_notification(
@@ -102,6 +106,7 @@ pub async fn send_document_imported_notification(
     send_via_plugin(&app, &notification).await
 }
 
+/// Deprecated compatibility command. Frontend feedback owns reminder timing in v1.
 /// Schedule study reminders at a specific time
 #[tauri::command]
 pub async fn schedule_study_reminders(hour: u8, minute: u8) -> Result<()> {
@@ -109,6 +114,7 @@ pub async fn schedule_study_reminders(hour: u8, minute: u8) -> Result<()> {
     manager.schedule_study_reminders(hour, minute).await
 }
 
+/// Deprecated compatibility command. Notification settings are local-first in v1.
 /// Get notification settings from database
 #[tauri::command]
 pub async fn get_notification_settings(
@@ -148,6 +154,7 @@ pub async fn get_notification_settings(
     }
 }
 
+/// Deprecated compatibility command. Notification settings are local-first in v1.
 /// Update notification settings
 #[tauri::command]
 pub async fn update_notification_settings(
@@ -216,6 +223,7 @@ impl Default for NotificationSettings {
     }
 }
 
+/// Deprecated compatibility command. Frontend feedback routes through the unified orchestrator.
 /// Create a custom notification
 #[tauri::command]
 pub async fn create_custom_notification(

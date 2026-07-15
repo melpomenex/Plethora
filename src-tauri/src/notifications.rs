@@ -1,6 +1,9 @@
 //! Desktop notification system
 //!
 //! Provides cross-platform desktop notifications using Tauri
+//!
+//! The command surface remains as deprecated compatibility for existing desktop
+//! integrations. New frontend feedback routes through the local-first orchestrator.
 
 use crate::error::Result;
 use serde::{Deserialize, Serialize};
@@ -241,7 +244,8 @@ impl NotificationManager {
         }
     }
 
-    /// Schedule periodic notifications
+    /// Deprecated compatibility path; v1 reminder timing is owned by the frontend
+    /// feedback orchestrator.
     pub async fn schedule_study_reminders(&self, hour: u8, minute: u8) -> Result<()> {
         // In production, this would set up system scheduler/alarms
         eprintln!("Scheduled study reminders for {:02}:{:02}", hour, minute);

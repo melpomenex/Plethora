@@ -145,7 +145,7 @@ tests) already exists — build on it, do not regenerate it.
   - Review speed: grading with sounds on shows no measurable input latency
     (sounds are fire-and-forget; verify no `await` in grade path).
   - Restart: settings + daily-reminder cooldown persist.
-- [ ] 6.3 Cleanup: remove now-dead code paths superseded by the orchestrator
+- [x] 6.3 Cleanup: remove now-dead code paths superseded by the orchestrator
   (`sendDueCardsNotification`, `sendStudyCompletionNotification` if unused after
   4.x), add deprecation comments to unused Rust notification commands and the
   `notification_settings` table (do NOT delete Rust code in this change).

@@ -241,43 +241,6 @@ export async function scheduleNotification(
 }
 
 /**
- * Schedule a daily recurring notification
- */
-export function scheduleDailyNotification(
-  options: NotificationOptions,
-  hour: number,
-  minute: number = 0
-): string {
-  const now = new Date();
-  const scheduledTime = new Date();
-  scheduledTime.setHours(hour, minute, 0, 0);
-
-  // If time has passed today, schedule for tomorrow
-  if (scheduledTime <= now) {
-    scheduledTime.setDate(scheduledTime.getDate() + 1);
-  }
-
-  const delayMs = scheduledTime.getTime() - now.getTime();
-
-  const scheduled: ScheduledNotification = {
-    id: generateId(),
-    options,
-    timestamp: scheduledTime.getTime(),
-    repeat: "daily",
-  };
-
-  scheduledNotifications.push(scheduled);
-
-  setTimeout(() => {
-    sendNotification(options);
-    // Reschedule for next day
-    scheduleDailyNotification(options, hour, minute);
-  }, delayMs);
-
-  return scheduled.id;
-}
-
-/**
  * Cancel a scheduled notification
  */
 export function cancelScheduledNotification(id: string): boolean {
@@ -398,66 +361,4 @@ function generateId(): string {
  */
 export function initializeNotifications(): void {
   // Kept as a no-op compatibility export for integrations that still import it.
-}
-
-/**
- * Check if notifications are enabled and permitted
- */
-export async function areNotificationsActive(): Promise<boolean> {
-  const permission = await checkNotificationPermission();
-  if (permission !== "granted") return false;
-
-  const settings = localStorage.getItem("incrementum-settings");
-  if (!settings) return false;
-
-  try {
-    const parsed = JSON.parse(settings);
-    return parsed.state?.settings?.notifications?.enabled ?? false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Send study completion notification
- */
-export async function sendStudyCompletionNotification(
-  cardsReviewed: number
-): Promise<void> {
-  const isActive = await areNotificationsActive();
-  if (!isActive) return;
-
-  await sendNotification({
-    title: "Study Session Complete! 🎉",
-    body: `You reviewed ${cardsReviewed} cards. Great job keeping up with your schedule!`,
-    icon: "/icon.png",
-    tag: "study-complete",
-  });
-}
-
-/**
- * Send due cards notification
- */
-export async function sendDueCardsNotification(count: number): Promise<void> {
-  const isActive = await areNotificationsActive();
-  if (!isActive) return;
-
-  const settings = localStorage.getItem("incrementum-settings");
-  if (!settings) return;
-
-  try {
-    const parsed = JSON.parse(settings);
-    if (!parsed.state?.settings?.notifications?.dueDateReminders) {
-      return;
-    }
-  } catch {
-    return;
-  }
-
-  await sendNotification({
-    title: "Cards Due for Review 📖",
-    body: `You have ${count} card${count !== 1 ? "s" : ""} ready for review.`,
-    icon: "/icon.png",
-    tag: "due-cards",
-  });
 }

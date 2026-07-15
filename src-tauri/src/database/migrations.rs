@@ -366,6 +366,7 @@ pub const MIGRATIONS: &[Migration] = &[
     Migration::new(
         "008_add_notification_settings",
         r#"
+        -- Deprecated compatibility storage; v1 notification settings are local-first.
         CREATE TABLE IF NOT EXISTS notification_settings (
             id TEXT PRIMARY KEY,
             study_reminders INTEGER NOT NULL DEFAULT 1,
