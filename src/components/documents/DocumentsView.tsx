@@ -44,6 +44,7 @@ import { DragDropUpload } from "../common/DragDropUpload";
 import type { MarkdownBundle } from "../../utils/markdownBundleImport";
 import { useMarkdownBundleImport } from "../../hooks/useMarkdownBundleImport";
 import type { Document } from "../../types/document";
+import type { Collection } from "../../types/collection";
 import {
   DocumentSortDirection,
   DocumentSortKey,
@@ -83,6 +84,8 @@ import { AdaptiveContentHeader, AdaptiveInspector } from "../adaptive";
 const MODE_STORAGE_KEY = "documentsViewMode";
 const SAVED_VIEWS_KEY = "documentsSavedViews";
 const MAX_VISIBLE_TAGS = 3;
+
+type CompactDocumentFilter = "all" | "priority" | "recent" | "active" | "parked" | "highlights" | "cards";
 
 function extractYouTubeId(urlOrId: string): string {
   if (!urlOrId) return "";
@@ -163,6 +166,8 @@ interface DocumentsViewProps {
 
 export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport = true }: DocumentsViewProps) {
   const { t } = useI18n();
+  const { settings, updateSettingsCategory } = useSettingsStore();
+  const compactDocumentsView = settings.interface?.compactDocumentsView ?? false;
   const {
     documents,
     isLoading,
@@ -181,6 +186,8 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   } = useDocumentStore();
   const collections = useCollectionStore((state) => state.collections);
   const createCollection = useCollectionStore((state) => state.createCollection);
+  const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
+  const switchCollection = useCollectionStore((state) => state.switchCollection);
 
   const [mode, setMode] = useState<DocumentViewMode>(() => {
     if (typeof window === "undefined") return "grid";
@@ -193,6 +200,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   const [sortDirection, setSortDirection] = useState<DocumentSortDirection>("desc");
   const [showNextAction, setShowNextAction] = useState(true);
   const [selectedFileType, setSelectedFileType] = useState<string>("all");
+  const [compactFilter, setCompactFilter] = useState<CompactDocumentFilter>("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listCtxDoc, setListCtxDoc] = useState<{ doc: Document; pos: { x: number; y: number } } | null>(null);
@@ -327,8 +335,28 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     if (selectedFileType !== "all") {
       base = base.filter((doc) => doc.fileType === selectedFileType);
     }
+    if (compactDocumentsView && compactFilter !== "all") {
+      base = base.filter((doc) => {
+        switch (compactFilter) {
+          case "priority":
+            return !doc.isArchived && getPriorityTier(doc) === "high";
+          case "recent":
+            return Date.now() - new Date(doc.dateAdded).getTime() < 7 * 24 * 60 * 60 * 1000;
+          case "active":
+            return (doc.progressPercent ?? 0) > 0 || doc.extractCount > 0 || doc.learningItemCount > 0;
+          case "parked":
+            return doc.isArchived || getPriorityTier(doc) === "low";
+          case "highlights":
+            return doc.extractCount > 0;
+          case "cards":
+            return doc.learningItemCount > 0;
+          default:
+            return true;
+        }
+      });
+    }
     return base;
-  }, [documents, searchTokens, selectedFileType]);
+  }, [compactDocumentsView, compactFilter, documents, searchTokens, selectedFileType]);
 
   const sortedDocuments = useMemo(() => {
     return sortDocuments(filteredDocuments, sortKey, sortDirection);
@@ -339,7 +367,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   const processedDocIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!isTauri() || mode !== "grid") return;
+    if (!isTauri() || (mode !== "grid" && !compactDocumentsView)) return;
 
     const pendingDocs = sortedDocuments.filter((doc) => {
       if (doc.coverImageUrl || doc.coverImageSource === "fallback") return false;
@@ -366,7 +394,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
           console.warn(`Failed to resolve cover for document ${doc.id}:`, error);
         });
     });
-  }, [mode, sortedDocuments, updateDocument]);
+  }, [compactDocumentsView, mode, sortedDocuments, updateDocument]);
 
   const _sectionedDocuments = useMemo(() => {
     const sections: Record<string, Document[]> = {};
@@ -837,6 +865,10 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     setActiveViewId(view.id);
   };
 
+  const handleUseStandardView = () => {
+    updateSettingsCategory("interface", { compactDocumentsView: false });
+  };
+
   const _toggleSection = (section: string) => {
     setCollapsedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
@@ -906,7 +938,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
             {/* Mobile Controls Row - View Toggle + Views + Funnel */}
             <div className="flex sm:hidden items-center gap-2 order-2">
               {/* View Mode Toggle */}
-              <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-1">
+              {!compactDocumentsView && <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-1">
                 <button
                   onClick={() => setMode("grid")}
                   className={`p-2 rounded-md transition-all ${
@@ -929,7 +961,22 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                 >
                   <List className="w-4 h-4" />
                 </button>
-              </div>
+              </div>}
+
+              {compactDocumentsView && (
+                <>
+                  <span className="rounded-md border border-primary/20 bg-primary/10 px-2.5 py-2 text-xs font-medium text-primary">
+                    {t("documentsView.compactLibrary")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleUseStandardView}
+                    className="rounded-md border border-border bg-background px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    {t("documentsView.standardView")}
+                  </button>
+                </>
+              )}
 
               {/* Type Funnel */}
               <div className="relative">
@@ -962,7 +1009,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
             {/* Desktop Controls */}
             <div className="hidden sm:flex items-center gap-2">
               {/* View Mode Toggle */}
-              <div className="flex items-center gap-2 bg-muted/40 rounded-lg p-1">
+              {!compactDocumentsView && <div className="flex items-center gap-2 bg-muted/40 rounded-lg p-1">
                 <button
                   onClick={() => setMode("grid")}
                   className={`px-2.5 py-1.5 rounded-md text-sm flex items-center gap-1.5 transition-all ${
@@ -985,7 +1032,22 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                   <List className="w-4 h-4" />
                   {t("documentsView.list")}
                 </button>
-              </div>
+              </div>}
+
+              {compactDocumentsView && (
+                <>
+                  <span className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
+                    {t("documentsView.compactLibrary")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleUseStandardView}
+                    className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    {t("documentsView.standardView")}
+                  </button>
+                </>
+              )}
 
               <button
                 onClick={() => setInspectorOpen((prev) => !prev)}
@@ -1157,7 +1219,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
         <div className="flex-1 flex overflow-hidden documents-layout">
           <div className="flex-1 overflow-auto p-4 documents-content">
             {isLoading ? (
-              mode === "list" ? (
+              mode === "list" || compactDocumentsView ? (
                 <div className="space-y-2">
                   {Array.from({ length: 5 }).map((_, i) => (
                     <DocumentCardSkeleton key={i} />
@@ -1166,6 +1228,30 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
               ) : (
                 <DocumentGridSkeleton count={8} />
               )
+            ) : compactDocumentsView ? (
+              <CompactLibraryView
+                documents={documents}
+                sortedDocuments={sortedDocuments}
+                collections={collections}
+                activeCollectionId={activeCollectionId}
+                switchCollection={switchCollection}
+                compactFilter={compactFilter}
+                setCompactFilter={setCompactFilter}
+                selectedIds={selectedIds}
+                activeId={activeId}
+                sortKey={sortKey}
+                sortDirection={sortDirection}
+                onSort={handleSort}
+                showNextAction={showNextAction}
+                setShowNextAction={setShowNextAction}
+                onOpenDocument={onOpenDocument}
+                onSelectRow={handleSelectRow}
+                searchQuery={debouncedSearch}
+                onClearSearch={() => setSearchInput("")}
+                onImport={handleImport}
+                onImportFolder={handleImportFolder}
+                onClearFilter={() => setCompactFilter("all")}
+              />
             ) : sortedDocuments.length === 0 ? (
               debouncedSearch ? (
                 <EmptySearch query={debouncedSearch} onClear={() => setSearchInput("")} />
@@ -1931,6 +2017,515 @@ function DocumentProgressIndicator({ doc }: { doc: Document }) {
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+interface CompactLibraryViewProps {
+  documents: Document[];
+  sortedDocuments: Document[];
+  collections: Collection[];
+  activeCollectionId?: string | null;
+  switchCollection?: (id: string) => Promise<void> | void;
+  compactFilter: CompactDocumentFilter;
+  setCompactFilter: (filter: CompactDocumentFilter) => void;
+  selectedIds: Set<string>;
+  activeId: string | null;
+  sortKey: DocumentSortKey;
+  sortDirection: DocumentSortDirection;
+  onSort: (key: DocumentSortKey) => void;
+  showNextAction: boolean;
+  setShowNextAction: (show: boolean) => void;
+  onOpenDocument?: (doc: Document) => void;
+  onSelectRow: (doc: Document, multi: boolean) => void;
+  searchQuery: string;
+  onClearSearch: () => void;
+  onImport: () => void;
+  onImportFolder: () => void;
+  onClearFilter: () => void;
+}
+
+function CompactLibraryView({
+  documents,
+  sortedDocuments,
+  collections,
+  activeCollectionId,
+  switchCollection,
+  compactFilter,
+  setCompactFilter,
+  selectedIds,
+  activeId,
+  sortKey,
+  sortDirection,
+  onSort,
+  showNextAction,
+  setShowNextAction,
+  onOpenDocument,
+  onSelectRow,
+  searchQuery,
+  onClearSearch,
+  onImport,
+  onImportFolder,
+  onClearFilter,
+}: CompactLibraryViewProps) {
+  const { t } = useI18n();
+  const now = Date.now();
+  const recentCutoff = now - 7 * 24 * 60 * 60 * 1000;
+  const filterCounts: Record<CompactDocumentFilter, number> = {
+    all: documents.length,
+    priority: documents.filter((doc) => !doc.isArchived && getPriorityTier(doc) === "high").length,
+    recent: documents.filter((doc) => new Date(doc.dateAdded).getTime() >= recentCutoff).length,
+    active: documents.filter(
+      (doc) => (doc.progressPercent ?? 0) > 0 || doc.extractCount > 0 || doc.learningItemCount > 0
+    ).length,
+    parked: documents.filter((doc) => doc.isArchived || getPriorityTier(doc) === "low").length,
+    highlights: documents.filter((doc) => doc.extractCount > 0).length,
+    cards: documents.filter((doc) => doc.learningItemCount > 0).length,
+  };
+
+  const filters: Array<{
+    id: CompactDocumentFilter;
+    label: string;
+    icon: React.ElementType;
+  }> = [
+    { id: "all", label: t("documentsView.allDocuments"), icon: Stack },
+    { id: "priority", label: t("documentsView.inPriorityQueue"), icon: Sparkle },
+    { id: "recent", label: t("documentsView.recentlyImported"), icon: Clock },
+    { id: "active", label: t("documentsView.activeReading"), icon: BookOpen },
+    { id: "parked", label: t("documentsView.parked"), icon: FolderOpen },
+  ];
+
+  const secondaryFilters: Array<{
+    id: CompactDocumentFilter;
+    label: string;
+    icon: React.ElementType;
+  }> = [
+    { id: "highlights", label: t("documentsView.hasHighlights"), icon: Sparkle },
+    { id: "cards", label: t("documentsView.hasCards"), icon: TextT },
+  ];
+  const activeFilterLabel = filters.concat(secondaryFilters).find((filter) => filter.id === compactFilter)?.label ?? filters[0].label;
+
+  return (
+    <div className="flex min-h-full gap-4 pb-4">
+      <aside className="hidden w-[188px] shrink-0 flex-col border-r border-border/70 pr-4 lg:flex">
+        <div className="mb-3 flex items-center justify-between px-1">
+          <span className="text-sm font-semibold tracking-tight text-foreground">
+            {t("documentsView.library")}
+          </span>
+          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+            {documents.length}
+          </span>
+        </div>
+
+        <nav className="space-y-1" aria-label={t("documentsView.libraryFilters")}>
+          {filters.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setCompactFilter(id)}
+              aria-current={compactFilter === id ? "page" : undefined}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                compactFilter === id
+                  ? "bg-primary/10 font-medium text-primary"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              }`}
+            >
+              <Icon className="h-4 w-4 shrink-0" weight={compactFilter === id ? "fill" : "regular"} />
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <span className="font-mono text-[10px] tabular-nums opacity-70">{filterCounts[id]}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="my-4 h-px bg-border/70" />
+
+        <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {t("documentsView.collections")}
+        </div>
+        <div className="space-y-1">
+          {collections.slice(0, 6).map((collection) => {
+            const collectionCount = documents.filter((doc) => doc.collectionId === collection.id).length;
+            const isActive = activeCollectionId === collection.id;
+            return (
+              <button
+                key={collection.id}
+                type="button"
+                disabled={!switchCollection}
+                onClick={() => void switchCollection?.(collection.id)}
+                aria-current={isActive ? "page" : undefined}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors disabled:cursor-default focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                  isActive
+                    ? "bg-muted font-medium text-foreground"
+                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                }`}
+              >
+                <FolderOpen className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{collection.name}</span>
+                <span className="font-mono text-[10px] tabular-nums opacity-70">{collectionCount}</span>
+              </button>
+            );
+          })}
+          {collections.length === 0 && (
+            <span className="block px-2 text-xs text-muted-foreground">{t("documentsView.noCollections")}</span>
+          )}
+        </div>
+
+        <div className="my-4 h-px bg-border/70" />
+
+        <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {t("documentsView.signals")}
+        </div>
+        <div className="space-y-1">
+          {secondaryFilters.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setCompactFilter(id)}
+              aria-current={compactFilter === id ? "page" : undefined}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                compactFilter === id
+                  ? "bg-primary/10 font-medium text-primary"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              }`}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <span className="font-mono text-[10px] tabular-nums opacity-70">{filterCounts[id]}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <section className="min-w-0 flex-1">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{activeFilterLabel}</span>
+            <span className="mx-1.5 text-border">·</span>
+            {t("documentsView.showingDocuments", { shown: sortedDocuments.length, total: documents.length })}
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={showNextAction}
+                onChange={(event) => setShowNextAction(event.target.checked)}
+                className="rounded border-border text-primary focus:ring-primary"
+              />
+              {t("documentsView.nextAction")}
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span>{t("documentsView.sortBy")}</span>
+              <select
+                value={sortKey}
+                onChange={(event) => onSort(event.target.value as DocumentSortKey)}
+                className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                <option value="priority">{t("documentsView.sortPriority")}</option>
+                <option value="lastTouched">{t("documentsView.sortLastTouched")}</option>
+                <option value="added">{t("documentsView.sortAdded")}</option>
+                <option value="title">{t("documentsView.sortTitle")}</option>
+                <option value="extracts">{t("documentsView.sortExtracts")}</option>
+                <option value="cards">{t("documentsView.sortCards")}</option>
+              </select>
+              <span className="font-mono text-[10px]" aria-hidden="true">{sortDirection === "asc" ? "↑" : "↓"}</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="mb-3 flex gap-2 overflow-x-auto pb-1 scrollbar-none lg:hidden">
+          {filters.concat(secondaryFilters).map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setCompactFilter(id)}
+              aria-current={compactFilter === id ? "page" : undefined}
+              className={`shrink-0 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${
+                compactFilter === id
+                  ? "border-primary/30 bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              {label} <span className="ml-1 font-mono text-[10px] opacity-70">{filterCounts[id]}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="overflow-hidden rounded-lg border border-border bg-card/70">
+          {sortedDocuments.length > 0 ? (
+            <>
+              <div className="hidden grid-cols-[minmax(220px,2.2fr)_minmax(130px,1fr)_64px_64px_92px_54px_78px] items-center gap-3 border-b border-border bg-muted/30 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground lg:grid">
+                <span className="text-left">{t("documentsView.sortTitle")}</span>
+                <span className="text-left">{t("documentsView.readingProgress")}</span>
+                <span>{t("documentsView.sortExtracts")}</span>
+                <span>{t("documentsView.sortCards")}</span>
+                <span>{t("documentsView.sortLastTouched")}</span>
+                <span>{t("documentsView.sortPriority")}</span>
+                <span className="text-right">{t("documentsView.actions")}</span>
+              </div>
+
+              <div className="divide-y divide-border/70">
+                {sortedDocuments.map((doc) => (
+                  <CompactDocumentRow
+                    key={doc.id}
+                    doc={doc}
+                    selected={selectedIds.has(doc.id)}
+                    active={activeId === doc.id}
+                    showNextAction={showNextAction}
+                    onSelect={(multi) => onSelectRow(doc, multi)}
+                    onOpen={() => onOpenDocument?.(doc)}
+                  />
+                ))}
+              </div>
+            </>
+          ) : (
+            <CompactLibraryEmptyState
+              hasDocuments={documents.length > 0}
+              searchQuery={searchQuery}
+              onClearSearch={onClearSearch}
+              onImport={onImport}
+              onImportFolder={onImportFolder}
+              onClearFilter={onClearFilter}
+            />
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function CompactLibraryEmptyState({
+  hasDocuments,
+  searchQuery,
+  onClearSearch,
+  onImport,
+  onImportFolder,
+  onClearFilter,
+}: {
+  hasDocuments: boolean;
+  searchQuery: string;
+  onClearSearch: () => void;
+  onImport: () => void;
+  onImportFolder: () => void;
+  onClearFilter: () => void;
+}) {
+  const { t } = useI18n();
+
+  if (searchQuery) {
+    return <EmptySearch query={searchQuery} onClear={onClearSearch} />;
+  }
+
+  if (!hasDocuments) {
+    return <EmptyDocuments onImport={onImport} onImportFolder={onImportFolder} />;
+  }
+
+  return (
+    <div className="flex min-h-[260px] flex-col items-center justify-center px-6 py-12 text-center">
+      <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+        <Funnel className="h-5 w-5" />
+      </div>
+      <h3 className="text-sm font-semibold text-foreground">{t("documentsView.noDocumentsInView")}</h3>
+      <p className="mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">
+        {t("documentsView.noDocumentsInViewDesc")}
+      </p>
+      <button
+        type="button"
+        onClick={onClearFilter}
+        className="mt-4 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50"
+      >
+        {t("documentsView.showAllDocuments")}
+      </button>
+    </div>
+  );
+}
+
+function CompactDocumentRow({
+  doc,
+  selected,
+  active,
+  showNextAction,
+  onSelect,
+  onOpen,
+}: {
+  doc: Document;
+  selected: boolean;
+  active: boolean;
+  showNextAction: boolean;
+  onSelect: (multi: boolean) => void;
+  onOpen: () => void;
+}) {
+  const { t } = useI18n();
+  const coverUrl = getDocumentCoverUrl(doc);
+  const CoverIcon = getCoverFallbackIcon(doc.fileType);
+  const progress = Math.max(
+    0,
+    Math.min(100, doc.progressPercent ?? doc.currentScrollPercent ?? (doc.totalPages ? ((doc.currentPage ?? 1) / doc.totalPages) * 100 : 0))
+  );
+  const positionLabel = doc.totalPages
+    ? `${doc.currentPage ?? 1} / ${doc.totalPages}`
+    : progress > 0
+      ? `${Math.round(progress)}%`
+      : t("documentsView.notStarted");
+  const sourceLabel = doc.metadata?.author || doc.metadata?.siteName || doc.metadata?.source || doc.category || doc.fileType;
+  const typeStyles: Record<string, string> = {
+    pdf: "bg-red-500/15 text-red-500",
+    epub: "bg-blue-500/15 text-blue-500",
+    youtube: "bg-red-600/15 text-red-500",
+    audio: "bg-amber-500/15 text-amber-500",
+    video: "bg-violet-500/15 text-violet-500",
+    markdown: "bg-emerald-500/15 text-emerald-500",
+    html: "bg-cyan-500/15 text-cyan-500",
+    other: "bg-muted text-muted-foreground",
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Enter") onOpen();
+    if (event.key === " ") {
+      event.preventDefault();
+      onSelect(event.metaKey || event.ctrlKey);
+    }
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={(event) => {
+        onSelect(event.metaKey || event.ctrlKey);
+        if (event.detail > 1) onOpen();
+      }}
+      onKeyDown={handleKeyDown}
+      className={`group cursor-pointer px-3 py-3 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/60 ${
+        selected || active ? "bg-primary/5" : "hover:bg-muted/40"
+      }`}
+    >
+      <div className="flex items-start gap-2.5 lg:hidden">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={(event) => {
+            event.stopPropagation();
+            onSelect(true);
+          }}
+          onClick={(event) => event.stopPropagation()}
+          aria-label={`Select ${doc.title}`}
+          className="mt-1 rounded border-border text-primary focus:ring-primary"
+        />
+        <CompactDocumentTile doc={doc} coverUrl={coverUrl} CoverIcon={CoverIcon} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="line-clamp-2 text-sm font-semibold leading-tight text-foreground">{doc.title}</div>
+              <div className="mt-1 truncate text-xs text-muted-foreground">{sourceLabel}</div>
+            </div>
+            <PriorityBadge doc={doc} />
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary/80 transition-all" style={{ width: `${progress}%` }} />
+            </div>
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{Math.round(progress)}%</span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            <span>{positionLabel}</span>
+            <span>{doc.extractCount} {t("documentsView.extractsShort")}</span>
+            <span>{doc.learningItemCount} {t("documentsView.cardsShort")}</span>
+            <span>{formatRelativeTime(getLastTouched(doc))}</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <TagsInline tags={doc.tags} />
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpen();
+              }}
+              className="shrink-0 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground opacity-100 transition-opacity hover:opacity-90 focus:opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+            >
+              {t("documentsView.openRead")}
+            </button>
+          </div>
+          {showNextAction && (
+            <div className="mt-2 text-[11px] font-medium text-primary">{getNextAction(doc)}</div>
+          )}
+        </div>
+      </div>
+
+      <div className="hidden grid-cols-[minmax(220px,2.2fr)_minmax(130px,1fr)_64px_64px_92px_54px_78px] items-center gap-3 lg:grid">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(event) => {
+              event.stopPropagation();
+              onSelect(true);
+            }}
+            onClick={(event) => event.stopPropagation()}
+            aria-label={`Select ${doc.title}`}
+            className="rounded border-border text-primary focus:ring-primary"
+          />
+          <CompactDocumentTile doc={doc} coverUrl={coverUrl} CoverIcon={CoverIcon} />
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-semibold text-foreground">{doc.title}</span>
+              {doc.isFavorite && <Sparkle className="h-3.5 w-3.5 shrink-0 text-amber-500" weight="fill" />}
+            </div>
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="truncate">{sourceLabel}</span>
+              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${typeStyles[doc.fileType] ?? typeStyles.other}`}>
+                {doc.fileType}
+              </span>
+            </div>
+            <div className="mt-1 truncate text-[10px] text-muted-foreground">{doc.tags.slice(0, 3).join(" · ") || t("documentsView.noTags")}</div>
+          </div>
+        </div>
+
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-primary/80" style={{ width: `${progress}%` }} />
+            </div>
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{Math.round(progress)}%</span>
+          </div>
+          <div className="mt-1 truncate text-[10px] text-muted-foreground">{positionLabel}</div>
+        </div>
+
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">{doc.extractCount}</span>
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">{doc.learningItemCount}</span>
+        <span className="truncate text-[11px] text-muted-foreground">{formatRelativeTime(getLastTouched(doc))}</span>
+        <PriorityBadge doc={doc} />
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen();
+          }}
+          className="justify-self-end rounded-md border border-border bg-background px-2 py-1.5 text-[11px] font-medium text-foreground opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100"
+        >
+          {t("documentsView.open")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CompactDocumentTile({
+  doc,
+  coverUrl,
+  CoverIcon,
+}: {
+  doc: Document;
+  coverUrl: string | null;
+  CoverIcon: React.ElementType;
+}) {
+  return (
+    <div className="relative h-11 w-8 shrink-0 overflow-hidden rounded border border-border bg-muted/60">
+      {coverUrl ? (
+        <img src={coverUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+      ) : (
+        <div className={`flex h-full w-full items-center justify-center ${coverFallbackGradient(doc.fileType)}`}>
+          <CoverIcon className="h-4 w-4 text-foreground/70" />
+        </div>
+      )}
     </div>
   );
 }

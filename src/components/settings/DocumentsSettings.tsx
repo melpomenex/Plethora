@@ -11,6 +11,40 @@ export function DocumentsSettings() {
 
   return (
     <div className="space-y-6">
+      {/* Library View */}
+      <div>
+        <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.libraryView")}</h3>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-medium text-foreground">{t("settingsDocs.compactDocumentsView")}</p>
+              <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
+                {t("settingsDocs.compactDocumentsViewDesc")}
+              </p>
+            </div>
+            <label className="relative inline-flex shrink-0 cursor-pointer items-center">
+              <input
+                type="checkbox"
+                aria-label={t("settingsDocs.compactDocumentsView")}
+                checked={settings.interface.compactDocumentsView}
+                onChange={(e) =>
+                  updateSettingsCategory("interface", {
+                    compactDocumentsView: e.target.checked,
+                  })
+                }
+                className="peer sr-only"
+              />
+              <div className="h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none dark:bg-gray-700 dark:border-gray-600" />
+            </label>
+          </div>
+          <div className="mt-4 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-3">
+            <span className="rounded-md bg-muted/60 px-2.5 py-2">{t("settingsDocs.compactDocumentsViewSignal1")}</span>
+            <span className="rounded-md bg-muted/60 px-2.5 py-2">{t("settingsDocs.compactDocumentsViewSignal2")}</span>
+            <span className="rounded-md bg-muted/60 px-2.5 py-2">{t("settingsDocs.compactDocumentsViewSignal3")}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Import Settings */}
       <div>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.documentImport")}</h3>

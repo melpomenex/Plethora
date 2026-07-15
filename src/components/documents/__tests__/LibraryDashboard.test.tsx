@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DocumentsView } from "../DocumentsView";
 
 // ---- Mock data ----
@@ -83,6 +83,16 @@ const documentStoreValues = {
   updateDocument: vi.fn(),
 };
 
+const settingsStoreValues = vi.hoisted(() => ({
+  settings: {
+    general: { language: "en" },
+    interface: { compactDocumentsView: false },
+    audioTranscription: { enabled: false, defaultProvider: "local" },
+  },
+  updateSettings: vi.fn(),
+  updateSettingsCategory: vi.fn(),
+}));
+
 // ---- Store mocks ----
 
 vi.mock("../../../stores/documentStore", () => ({
@@ -126,20 +136,9 @@ vi.mock("../../../stores/settingsStore", () => ({
   // `DocumentsView` uses `useSettingsStore.getState().settings.audioTranscription`
   // while `WebArticleImportDialog` calls `useSettingsStore()` as a hook.
   useSettingsStore: Object.assign(
-    () => ({
-      settings: {
-        general: { language: "en" },
-        audioTranscription: { enabled: false, defaultProvider: "local" },
-      },
-      updateSettings: vi.fn(),
-    }),
+    () => settingsStoreValues,
     {
-      getState: () => ({
-        settings: {
-          general: { language: "en" },
-          audioTranscription: { enabled: false, defaultProvider: "local" },
-        },
-      }),
+      getState: () => settingsStoreValues,
     }
   ),
 }));
@@ -249,6 +248,9 @@ vi.mock("../common/DragDropUpload", () => ({
 describe("DocumentsView grid mode", () => {
   beforeEach(() => {
     window.localStorage.setItem("documentsViewMode", "grid");
+    documentStoreValues.documents = mockDocuments;
+    settingsStoreValues.settings.interface.compactDocumentsView = false;
+    settingsStoreValues.updateSettingsCategory.mockClear();
   });
 
   it("renders all document titles in grid", () => {
@@ -320,5 +322,52 @@ describe("DocumentsView grid mode", () => {
   it("calls loadDocuments on mount", () => {
     render(<DocumentsView enableYouTubeImport={false} />);
     expect(documentStoreValues.loadDocuments).toHaveBeenCalled();
+  });
+
+  it("renders the compact library when enabled in settings", () => {
+    settingsStoreValues.settings.interface.compactDocumentsView = true;
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    expect(screen.getByText("documentsView.library")).toBeInTheDocument();
+    expect(screen.getByText("documentsView.showingDocuments")).toBeInTheDocument();
+    expect(screen.getAllByText("Linear Algebra Textbook").length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("skeleton-grid")).toBeNull();
+  });
+
+  it("keeps compact filters visible for empty results and switches signal views", async () => {
+    settingsStoreValues.settings.interface.compactDocumentsView = true;
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    expect(screen.getByText("documentsView.signals")).toBeInTheDocument();
+    expect(screen.getAllByText("documentsView.hasHighlights").length).toBeGreaterThan(0);
+
+    const highlightsButton = screen.getAllByRole("button", { name: /documentsView\.hasHighlights/ })[0];
+    fireEvent.click(highlightsButton);
+
+    await waitFor(() => {
+      expect(screen.queryAllByText("Physics Notes")).toHaveLength(0);
+    });
+    expect(screen.getByText("documentsView.showingDocuments")).toBeInTheDocument();
+  });
+
+  it("keeps the compact navigation available when the library is empty", () => {
+    documentStoreValues.documents = [];
+    settingsStoreValues.settings.interface.compactDocumentsView = true;
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    expect(screen.getByText("documentsView.signals")).toBeInTheDocument();
+    expect(screen.getByText("emptyState.importFirst")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "documentsView.standardView" }).length).toBeGreaterThan(0);
+  });
+
+  it("provides a standard view escape hatch", () => {
+    settingsStoreValues.settings.interface.compactDocumentsView = true;
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    screen.getAllByRole("button", { name: "documentsView.standardView" })[0].click();
+
+    expect(settingsStoreValues.updateSettingsCategory).toHaveBeenCalledWith("interface", {
+      compactDocumentsView: false,
+    });
   });
 });

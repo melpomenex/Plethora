@@ -347,8 +347,15 @@ export function DragDropUpload({
         const items = Array.from(dt.items);
         
         for (const item of items) {
-          const entry = item.webkitGetAsEntry();
-          if (!entry) continue;
+          const entry = item.webkitGetAsEntry?.();
+          // Some browsers expose DataTransferItemList but not a filesystem
+          // entry for ordinary file drags. Fall back to getAsFile so the
+          // first-document drop target still works outside Chromium.
+          if (!entry) {
+            const file = item.getAsFile();
+            if (file) allFiles.push(file);
+            continue;
+          }
           
           if (entry.isFile) {
             const file = item.getAsFile();
@@ -477,8 +484,12 @@ export function DragDropUpload({
         const items = Array.from(dt.items);
         
         for (const item of items) {
-          const entry = item.webkitGetAsEntry();
-          if (!entry) continue;
+          const entry = item.webkitGetAsEntry?.();
+          if (!entry) {
+            const file = item.getAsFile();
+            if (file) allFiles.push(file);
+            continue;
+          }
           
           if (entry.isFile) {
             const file = item.getAsFile();

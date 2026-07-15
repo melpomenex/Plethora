@@ -16,6 +16,8 @@ export interface GeneralSettings {
 export interface InterfaceSettings {
   theme: string;
   denseMode: boolean;
+  /** Use the dense library cockpit layout in Documents. */
+  compactDocumentsView: boolean;
   toolbarIconSize: number;
   showStatistics: boolean;
   hintMode: boolean;

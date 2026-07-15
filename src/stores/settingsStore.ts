@@ -243,6 +243,8 @@ interface InterfaceSettings {
   showSidebar: boolean;
   showStats: boolean;
   compactMode: boolean;
+  /** Use the dense library cockpit layout in Documents. */
+  compactDocumentsView: boolean;
   animationsEnabled: boolean;
   /** Particle density / count multiplier for animated theme backdrops (0.25–8). */
   animationFrequency: number;
@@ -524,6 +526,7 @@ export const defaultSettings: Settings = {
     showSidebar: true,
     showStats: true,
     compactMode: false,
+    compactDocumentsView: false,
     animationsEnabled: true,
     animationFrequency: 1,
     animationBrightness: 12,

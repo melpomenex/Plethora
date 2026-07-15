@@ -18,6 +18,7 @@ export const defaultSettings: Settings = {
   interface: {
     theme: 'super-game-bro',
     denseMode: false,
+    compactDocumentsView: false,
     toolbarIconSize: 24,
     showStatistics: true,
     hintMode: false,
