@@ -11,7 +11,7 @@ import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, Analy
 import type { Document } from "../../types/document";
 import { CommandCenter } from "../search/CommandCenter";
 import { captureAndSaveScreenshot } from "../../utils/screenshotCaptureFlow";
-import { useToast } from "../common/Toast";
+import { ToastType, useToast } from "../common/Toast";
 import { MobileLayoutWrapper } from "../mobile/MobileLayoutWrapper";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { ThemeBackdrop } from "../common/ThemeBackdrop";
@@ -21,6 +21,7 @@ import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { isTauri, invokeCommand, listen } from "../../lib/tauri";
 import type { StartupNotice } from "../../types";
 import { checkForUpdates } from "../../utils/updateChecker";
+import { emitFeedback } from "../../lib/feedback";
 import { PasteExtractDialog } from "../extracts/PasteExtractDialog";
 import { TwitterImportDialog } from "../documents/TwitterImportDialog";
 import { Desktop, ListChecks, SquaresFour, BookOpen, TextT, YoutubeLogo } from "@phosphor-icons/react";
@@ -235,17 +236,18 @@ export function MainLayout() {
       checkForUpdates(false)
         .then((update) => {
           if (!update) return;
-          toast.info(
-            t("mainLayout.updateAvailable"),
-            t("mainLayout.updateReady", { version: update.latestVersion.replace(/^v/, "") }),
-            {
+          void emitFeedback("update.available", { latestVersion: update.latestVersion }, {
+            toast: {
+              type: ToastType.Info,
+              title: t("mainLayout.updateAvailable"),
+              message: t("mainLayout.updateReady", { version: update.latestVersion.replace(/^v/, "") }),
               duration: 15000,
               action: {
                 label: t("mainLayout.view"),
                 onClick: () => openTabByType("settings"),
               },
-            }
-          );
+            },
+          });
         })
         .catch((err) => {
           console.warn("[MainLayout] startup update check failed:", err);
@@ -264,24 +266,26 @@ export function MainLayout() {
     if (!isTauri()) return;
 
     const showDatabaseRecoveredToast = () => {
-      toast.error(
-        t("mainLayout.databaseReset"),
-        t("mainLayout.databaseResetDesc"),
-        {
+      void emitFeedback("db.recovered-after-quarantine", {}, {
+        toast: {
+          type: ToastType.Error,
+          title: t("mainLayout.databaseReset"),
+          message: t("mainLayout.databaseResetDesc"),
           duration: 0, // persistent until dismissed
           action: {
             label: t("mainLayout.openSettings"),
             onClick: () => openTabByType("settings"),
           },
-        }
-      );
+        },
+      });
     };
 
     const showAutoBackupToast = (backupPath: string) => {
-      toast.success(
-        t("mainLayout.autoBackupFound"),
-        t("mainLayout.autoBackupFoundDesc"),
-        {
+      void emitFeedback("backup.auto-backup-found", { backupPath }, {
+        toast: {
+          type: ToastType.Success,
+          title: t("mainLayout.autoBackupFound"),
+          message: t("mainLayout.autoBackupFoundDesc"),
           duration: 0,
           action: {
             label: t("mainLayout.restore"),
@@ -298,8 +302,8 @@ export function MainLayout() {
               }
             },
           },
-        }
-      );
+        },
+      });
     };
 
     // 1) Pull any pending notice that was generated before the webview booted.
@@ -340,6 +344,31 @@ export function MainLayout() {
         /* ignore */
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync corruption is reported by the global Yjs rejection handler. Keep the
+  // recovery message visible until the user chooses to dismiss it.
+  useEffect(() => {
+    const handleSyncCorruption = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      const message = detail?.message || "Sync is paused. Your local data is safe; review recovery options in Settings.";
+      void emitFeedback("sync.corruption", { message }, {
+        toast: {
+          type: ToastType.Error,
+          title: "Sync needs attention",
+          message,
+          duration: 0,
+          action: {
+            label: t("mainLayout.openSettings"),
+            onClick: () => openTabByType("settings"),
+          },
+        },
+      });
+    };
+
+    window.addEventListener("incrementum:sync-corruption", handleSyncCorruption);
+    return () => window.removeEventListener("incrementum:sync-corruption", handleSyncCorruption);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -75,7 +75,7 @@ tests) already exists — build on it, do not regenerate it.
   with `emitFeedback("focus.phase-completed", …)`; keep `playTimerComplete` as the
   sound delivery for this event's `complete` role; respect
   `config.notifications_enabled`.
-- [ ] 3.5 `src/components/layout/MainLayout.tsx`: update-available, database
+- [x] 3.5 `src/components/layout/MainLayout.tsx`: update-available, database
   recovery, auto-backup → orchestrator events (`update.available`,
   `db.recovered-after-quarantine`, `backup.auto-backup-found`); add the missing
   `incrementum:sync-corruption` window listener → `sync.corruption` persistent

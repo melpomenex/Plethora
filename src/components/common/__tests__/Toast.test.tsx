@@ -39,6 +39,15 @@ describe("Toast Store", () => {
 
       expect(id1).not.toBe(id2);
     });
+
+    it("keeps a zero-duration toast until it is dismissed", () => {
+      const { addToast } = useToastStore.getState();
+
+      addToast({ type: ToastType.Error, title: "Recovery needed", duration: 0 });
+      vi.advanceTimersByTime(60_000);
+
+      expect(useToastStore.getState().toasts).toHaveLength(1);
+    });
   });
 
   describe("removeToast", () => {

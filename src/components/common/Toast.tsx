@@ -80,11 +80,13 @@ export const useToastStore = create<ToastStore>((set, _get) => ({
 
     // Auto-remove after duration
     const duration = toast.duration ?? 5000;
-    setTimeout(() => {
-      set((state) => ({
-        toasts: state.toasts.filter((t) => t.id !== id),
-      }));
-    }, duration);
+    if (duration > 0) {
+      setTimeout(() => {
+        set((state) => ({
+          toasts: state.toasts.filter((t) => t.id !== id),
+        }));
+      }, duration);
+    }
 
     return id;
   },
