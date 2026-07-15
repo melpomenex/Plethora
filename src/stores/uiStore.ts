@@ -1,6 +1,5 @@
 import { create } from "zustand";
-import { generateId } from "../utils/id";
-import { ViewName, Toast } from "../types";
+import { ViewName } from "../types";
 
 interface UIState {
   // Navigation
@@ -11,9 +10,6 @@ interface UIState {
   // Modals
   activeModal: string | null;
   modalData: Record<string, unknown>;
-
-  // Toasts
-  toasts: Toast[];
 
   // Command Palette
   commandPaletteOpen: boolean;
@@ -34,8 +30,6 @@ interface UIState {
   setDockPanelCollapsed: (collapsed: boolean) => void;
   openModal: (modal: string, data?: Record<string, unknown>) => void;
   closeModal: () => void;
-  addToast: (toast: Omit<Toast, "id">) => void;
-  removeToast: (id: string) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setCommandPaletteQuery: (query: string) => void;
   setPasteExtractDialogOpen: (open: boolean) => void;
@@ -50,7 +44,6 @@ export const useUIStore = create<UIState>((set) => ({
   dockPanelCollapsed: false,
   activeModal: null,
   modalData: {},
-  toasts: [],
   commandPaletteOpen: false,
   commandPaletteQuery: "",
   pasteExtractDialogOpen: false,
@@ -75,22 +68,6 @@ export const useUIStore = create<UIState>((set) => ({
       activeModal: null,
       modalData: {},
     }),
-
-  addToast: (toast) =>
-    set((state) => ({
-      toasts: [
-        ...state.toasts,
-        {
-          ...toast,
-          id: generateId(),
-        },
-      ],
-    })),
-
-  removeToast: (id) =>
-    set((state) => ({
-      toasts: state.toasts.filter((t) => t.id !== id),
-    })),
 
   setCommandPaletteOpen: (commandPaletteOpen) =>
     set({

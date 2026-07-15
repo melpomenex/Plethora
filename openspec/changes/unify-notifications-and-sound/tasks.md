@@ -19,7 +19,7 @@ tests) already exists — build on it, do not regenerate it.
   - Acceptance: dispatched toasts visible on all surfaces; exactly one
     `.toast-container` in DOM; no console errors.
   - Non-goals: restyling; migrating `uiStore.toasts` (see 6.3).
-- [ ] 1.2 Delete or deprecate the legacy `uiStore` toast state so implementers have
+- [x] 1.2 Delete or deprecate the legacy `uiStore` toast state so implementers have
   one toast store.
   - Files: `src/stores/uiStore.ts` (`toasts`, `addToast`, `removeToast`),
     `src/types/index.ts` (`Toast` type) — grep first; if any consumer exists,
