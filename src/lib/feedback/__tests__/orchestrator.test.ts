@@ -176,4 +176,16 @@ describe("emitFeedback", () => {
     expect(mocks.sendNotification).toHaveBeenCalledWith(expect.objectContaining({ silent: true }));
     expect(mocks.playFile).not.toHaveBeenCalled();
   });
+
+  it("logs resolutions only when feedback debug mode is enabled", async () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    localStorage.setItem("incrementum-feedback:debug", "1");
+
+    await emitFeedback("update.available", { latestVersion: "2.0.0" });
+
+    expect(debug).toHaveBeenCalledWith(
+      expect.stringContaining("update.available → toast | suppressed-by=none"),
+    );
+    debug.mockRestore();
+  });
 });

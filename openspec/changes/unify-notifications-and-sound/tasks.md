@@ -55,7 +55,7 @@ tests) already exists — build on it, do not regenerate it.
   - Acceptance: all policy contract tests + orchestrator tests green; no delivery
     module imported at call sites anymore for migrated events.
   - Non-goals: migrating call sites (task 3), scheduling (task 4).
-- [ ] 2.2 Add debug instrumentation.
+- [x] 2.2 Add debug instrumentation.
   - `localStorage["incrementum-feedback:debug"] = "1"` ⇒ console lines
     `event → channels | suppressed-by`. No analytics, no network.
 

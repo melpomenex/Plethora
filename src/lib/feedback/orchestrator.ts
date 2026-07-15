@@ -82,6 +82,7 @@ type PresentablePayload = {
 };
 
 const LAST_REMINDER_KEY = "incrementum-feedback:last-reminder";
+const DEBUG_KEY = "incrementum-feedback:debug";
 
 const ROLE_LOUDNESS: Record<SoundRole, number> = {
   acknowledge: 0.5,
@@ -117,6 +118,18 @@ const cooldowns = new Map<string, number>();
 let activeReviewSession = false;
 let windowFocused = true;
 let activeSound: { role: SoundRole; priority: number; until: number } | null = null;
+
+function withDebug(eventId: FeedbackEventId, resolution: FeedbackResolution): FeedbackResolution {
+  try {
+    if (localStorage.getItem(DEBUG_KEY) !== "1") return resolution;
+    const channels = resolution.channels.length > 0 ? resolution.channels.join(",") : "none";
+    const suppressedBy = resolution.suppressedBy ?? "none";
+    console.debug(`[feedback] ${eventId} → ${channels} | suppressed-by=${suppressedBy}`);
+  } catch {
+    // Debug output must never affect feedback delivery.
+  }
+  return resolution;
+}
 
 if (typeof document !== "undefined") {
   windowFocused = typeof document.hasFocus === "function" ? document.hasFocus() : true;
@@ -406,24 +419,24 @@ export async function emitFeedback<Event extends FeedbackEventId>(
   options?: FeedbackEmitOptions,
 ): Promise<FeedbackResolution> {
   const policy = FEEDBACK_POLICY_REGISTRY[eventId];
-  if (!policy) return { channels: [], suppressedBy: "policy" };
+  if (!policy) return withDebug(eventId, { channels: [], suppressedBy: "policy" });
 
   const settings = useSettingsStore.getState().settings.notifications;
   const typedPayload = payload as FeedbackEventPayloads[FeedbackEventId];
 
   if (policy.suppressDuringReview && activeReviewSession) {
-    return { channels: [], suppressedBy: "active-review" };
+    return withDebug(eventId, { channels: [], suppressedBy: "active-review" });
   }
 
   const eventKey = options?.dedupeKey ?? payloadDedupeKey(typedPayload) ?? eventId;
   const now = Date.now();
   const lastDelivery = cooldowns.get(eventKey);
   if (lastDelivery !== undefined && policy.cooldownMs > 0 && now - lastDelivery < policy.cooldownMs) {
-    return { channels: [], suppressedBy: "cooldown" };
+    return withDebug(eventId, { channels: [], suppressedBy: "cooldown" });
   }
 
   if (eventId === "reminder.reviews-due" && hasReminderFiredToday()) {
-    return { channels: [], suppressedBy: "daily-cooldown" };
+    return withDebug(eventId, { channels: [], suppressedBy: "daily-cooldown" });
   }
 
   let capabilities: AsyncFeedbackCapabilities;
@@ -461,10 +474,10 @@ export async function emitFeedback<Event extends FeedbackEventId>(
   if (os) channels.push("os");
 
   if (channels.length === 0) {
-    return {
+    return withDebug(eventId, {
       channels,
       suppressedBy: quietHours && role === "attention" ? "quiet-hours" : "settings",
-    };
+    });
   }
 
   cooldowns.set(eventKey, now);
@@ -508,7 +521,7 @@ export async function emitFeedback<Event extends FeedbackEventId>(
     });
   }
 
-  return { channels };
+  return withDebug(eventId, { channels });
 }
 
 /** Test/support hook for clearing only in-memory cooldowns on a reload boundary. */
