@@ -25,7 +25,7 @@ tests) already exists — build on it, do not regenerate it.
     `src/types/index.ts` (`Toast` type) — grep first; if any consumer exists,
     migrate it to `useToastStore`, else remove the state and type.
   - Acceptance: typecheck passes; no references remain.
-- [ ] 1.3 Implement async capability checks behind the scaffolded interface.
+- [x] 1.3 Implement async capability checks behind the scaffolded interface.
   - Files: `src/lib/feedback/capabilities.ts` (fill `queryAsyncCapabilities` TODO)
     using `checkNotificationPermission` (`src/utils/notificationService.ts`),
     `isPeriodicSyncSupported` (`src/utils/pushSubscription.ts`),
