@@ -65,7 +65,10 @@ export interface PostponeSettings {
  * Learning Settings
  */
 export interface LearningSettings {
-  algorithm: "fsrs" | "sm2" | "sm18" | "sm20";
+  // Must mirror the variants of `AlgorithmType` in
+  // src-tauri/src/algorithms/mod.rs (which `from_str_lossy` falls back to Fsrs
+  // for anything unrecognized). Keep these in sync.
+  algorithm: "fsrs" | "sm2" | "sm5" | "sm8" | "sm15" | "sm18" | "sm20";
   newCardsPerDay: number;
   reviewsPerDay: number;
   initialInterval: number;

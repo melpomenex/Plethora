@@ -244,7 +244,7 @@ function GeneralSettings() {
               </div>
               <select
                 value={settings.learning.algorithm}
-                onChange={(e) => updateSettings({ learning: { ...settings.learning, algorithm: e.target.value as any } })}
+                onChange={(e) => updateSettings({ learning: { ...settings.learning, algorithm: e.target.value as typeof settings.learning.algorithm } })}
                 className="px-3 py-1.5 bg-background border border-border rounded text-sm"
               >
                 <option value="fsrs">{t("settings.fsrs6Recommended")}</option>

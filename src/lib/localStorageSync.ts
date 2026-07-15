@@ -15,6 +15,14 @@ const BLOCKED_KEYS = new Set([
   "llm-providers-storage",
   "mcp-servers-storage",
   "integration_settings",
+  // The settings blob (zustand-persisted) is mirrored as one opaque string
+  // with last-writer-wins semantics. That silently clobbers freshly-chosen
+  // scalar fields on the NEXT cold restart — e.g. a user switching the
+  // scheduling algorithm to SM-20 and reopening the app would wake up back on
+  // FSRS-6 — because zustand persist rehydrates once and the replay path
+  // overwrites localStorage with a stale snapshot cached in the Yjs doc.
+  // Settings are intentionally device-local (like theme keys below).
+  "incrementum-settings",
   // Theme preferences should be device-specific and not synced
   "incrementum-last-theme",
   "incrementum-custom-themes",
@@ -240,6 +248,21 @@ export async function initLocalStorageSync(): Promise<void> {
         });
       }
     };
+
+    // Purge any now-blocked entries that a previous app version wrote into the
+    // shared doc. Without this, a stale `incrementum-settings` snapshot cached
+    // in the local IndexedDB Yjs doc (or pushed by a not-yet-updated peer in a
+    // multi-device setup) could still land and clobber localStorage. The
+    // replay/observe paths below already skip blocked keys, but deleting the
+    // source is the robust fix and the Yjs delete propagates to other peers as
+    // a tombstone. Collect first to avoid mutating while iterating.
+    const staleBlockedKeys: string[] = [];
+    map.forEach((_entry: SyncEntry, key: string) => {
+      if (isBlockedKey(key)) staleBlockedKeys.push(key);
+    });
+    for (const key of staleBlockedKeys) {
+      map.delete(key);
+    }
 
     // Initial merge: if the map is empty, seed from localStorage.
     if (map.size === 0) {

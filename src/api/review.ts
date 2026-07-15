@@ -1,5 +1,6 @@
 import { invokeCommand } from "../lib/tauri";
 import type { LearningItemInteractionMetadata } from "../types/learningItemInteractions";
+import type { LearningSettings } from "../stores/settingsStore";
 
 export interface PreviewIntervals {
   again: number;
@@ -30,7 +31,7 @@ export async function submitReview(
   options?: {
     desiredRetention?: number;
     fsrsWeights?: number[];
-    algorithm?: "fsrs" | "sm2" | "sm18" | "sm20";
+    algorithm?: LearningSettings["algorithm"];
     noScheduleUpdate?: boolean;
     /** Native SM-20 grade (0-5). When set, the backend schedules with this
      * grade directly instead of mapping the 4-button rating. */
