@@ -8,6 +8,7 @@ import { useCollectionStore } from "./collectionStore";
 import { importFromUrl as importFromUrlUtil, importFromArxiv as importFromArxivUtil } from "../utils/documentImport";
 import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
+import { emitFeedback } from "../lib/feedback";
 import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
 
 let fileSyncModPromise: Promise<typeof import("../lib/fileSyncRegistration")> | null = null;
@@ -514,12 +515,20 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         importProgress: { current: imported.length, total: filePaths.length }
       }));
 
-      // Show summary toast for multi-file auto-segmentation
-      if (autoSegment && totalExtracts > 0) {
-        useToastStore.getState().addToast({
-          type: ToastType.Success,
+      if (imported.length > 0) {
+        const message = autoSegment && totalExtracts > 0
+          ? `${imported.length} document${imported.length !== 1 ? "s" : ""} imported, ${totalExtracts} extract${totalExtracts !== 1 ? "s" : ""} created`
+          : `${imported.length} document${imported.length !== 1 ? "s" : ""} imported`;
+        void emitFeedback("import.completed", {
+          documentCount: imported.length,
+          extractCount: totalExtracts,
           title: "Import complete",
-          message: `${imported.length} document${imported.length !== 1 ? "s" : ""} imported, ${totalExtracts} extract${totalExtracts !== 1 ? "s" : ""} created`,
+          message,
+        });
+      } else if (filePaths.length > 0) {
+        void emitFeedback("import.failed", {
+          title: "Import failed",
+          message: "No documents could be imported.",
         });
       }
 
@@ -545,8 +554,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       const staged = await documentsApi.pickFolderDocuments();
       if (staged.length === 0) {
         set({ isImporting: false, importProgress: { current: 0, total: 0 } });
-        useToastStore.getState().addToast({
-          type: ToastType.Info,
+        void emitFeedback("import.completed", {
+          documentCount: 0,
+          extractCount: 0,
           title: "No files found",
           message: "The selected folder has no supported documents, or the import was cancelled.",
         });
@@ -557,6 +567,10 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       const paths = staged.map((f) => f.path);
       return await get().importFromFiles(paths);
     } catch (error) {
+      void emitFeedback("import.failed", {
+        title: "Failed to import documents",
+        message: error instanceof Error ? error.message : "Failed to import documents",
+      });
       set({
         error: error instanceof Error ? error.message : "Failed to import folder",
         isImporting: false,

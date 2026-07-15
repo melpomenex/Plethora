@@ -5,6 +5,7 @@ const bulkDeleteDocumentsMock = vi.fn();
 const pickFolderDocumentsMock = vi.fn();
 const importDocumentMock = vi.fn();
 const loadDocumentsMock = vi.fn();
+const emitFeedbackMock = vi.hoisted(() => vi.fn().mockResolvedValue({ channels: [] }));
 vi.mock("../../api/documents", () => ({
   bulkDeleteDocuments: (...args: unknown[]) => bulkDeleteDocumentsMock(...args),
   pickFolderDocuments: (...args: unknown[]) => pickFolderDocumentsMock(...args),
@@ -25,6 +26,7 @@ vi.mock("../../utils/documentImport", () => ({
   importFromArxiv: vi.fn(),
 }));
 vi.mock("../../lib/tauri", () => ({ listen: vi.fn(), isTauri: () => false }));
+vi.mock("../../lib/feedback", () => ({ emitFeedback: emitFeedbackMock }));
 vi.mock("../../components/common/Toast", () => ({
   useToastStore: { getState: () => ({ addToast: vi.fn() }) },
   ToastType: { Success: "success", Error: "error", Info: "info" },
@@ -118,6 +120,7 @@ describe("documentStore.importFromFolder", () => {
     pickFolderDocumentsMock.mockReset();
     importDocumentMock.mockReset();
     loadDocumentsMock.mockReset();
+    emitFeedbackMock.mockClear();
     useDocumentStore.setState({ documents: [] });
   });
 
@@ -138,6 +141,11 @@ describe("documentStore.importFromFolder", () => {
     expect(importDocumentMock).toHaveBeenCalledWith("/imports/Sci-Fi/Dune.epub", null);
     expect(importDocumentMock).toHaveBeenCalledWith("/imports/guide.pdf", null);
     expect(result).toHaveLength(2);
+    expect(emitFeedbackMock).toHaveBeenCalledWith("import.completed", expect.objectContaining({
+      documentCount: 2,
+      extractCount: 0,
+      title: "Import complete",
+    }));
   });
 
   it("returns an empty list and toasts when the folder has no supported files", async () => {
@@ -149,5 +157,9 @@ describe("documentStore.importFromFolder", () => {
     expect(importDocumentMock).not.toHaveBeenCalled();
     expect(result).toEqual([]);
     expect(useDocumentStore.getState().isImporting).toBe(false);
+    expect(emitFeedbackMock).toHaveBeenCalledWith("import.completed", expect.objectContaining({
+      documentCount: 0,
+      title: "No files found",
+    }));
   });
 });
