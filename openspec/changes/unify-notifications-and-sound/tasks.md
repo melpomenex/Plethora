@@ -125,7 +125,7 @@ tests) already exists — build on it, do not regenerate it.
 
 ## 6. Quality gates (final pass)
 
-- [ ] 6.1 Automated: `npm run lint`, `npx tsc -p tsconfig.json --noEmit` (or
+- [x] 6.1 Automated: `npm run lint`, `npx tsc -p tsconfig.json --noEmit` (or
   `npm run build:check`), `npx vitest run src/lib/feedback src/components/common/__tests__/Toast.test.tsx`
   plus the existing review/queue suites
   (`src/components/review/__tests__/queueActions.test.ts`,
