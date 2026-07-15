@@ -48,9 +48,9 @@ export function useLongPress(
     (e: React.TouchEvent) => {
       const touch = e.touches[0];
       if (!touch) return;
+      clear();
       startPosRef.current = { x: touch.clientX, y: touch.clientY };
       triggeredRef.current = false;
-      clear();
       timerRef.current = setTimeout(() => {
         if (startPosRef.current && !triggeredRef.current) {
           triggeredRef.current = true;

@@ -8,6 +8,7 @@ import {
   getQueueStatus,
   getTimeEstimateRange,
   isScheduledItem,
+  orderQueueItems,
 } from "../reviewUx";
 
 const baseItem = (overrides: Partial<QueueItem>): QueueItem => ({
@@ -52,6 +53,54 @@ describe("reviewUx helpers", () => {
 
   it("treats items with due dates as scheduled", () => {
     expect(isScheduledItem(baseItem({ dueDate: new Date().toISOString() }))).toBe(true);
+  });
+
+  it("orders mixed queue items and decorates visible positions", () => {
+    const items = [
+      baseItem({ id: "document", itemType: "document", priority: 4 }),
+      baseItem({ id: "learning", itemType: "learning-item", priority: 9 }),
+      baseItem({ id: "rss", itemType: "rss-article", priority: 6 }),
+    ];
+
+    const ordered = orderQueueItems(items, "maximize-retention");
+
+    expect(ordered).toHaveLength(3);
+    expect(ordered.map((item) => item.id)).toEqual(["learning", "rss", "document"]);
+    expect(ordered.map((item) => item.queuePosition)).toEqual([1, 2, 3]);
+    expect(ordered.every((item) => item.queueTotal === 3)).toBe(true);
+    expect(ordered[0].isUpNext).toBe(true);
+    expect(ordered.slice(1).every((item) => !item.isUpNext)).toBe(true);
+  });
+
+  it("keeps equal-ranked items stable with deterministic tie breakers", () => {
+    const items = [
+      baseItem({ id: "z-item", priority: 5 }),
+      baseItem({ id: "a-item", priority: 5 }),
+      baseItem({ id: "positioned", priority: 5, position: 1 }),
+    ];
+
+    expect(orderQueueItems(items).map((item) => item.id)).toEqual([
+      "positioned",
+      "a-item",
+      "z-item",
+    ]);
+    expect(orderQueueItems(items).map((item) => item.id)).toEqual([
+      "positioned",
+      "a-item",
+      "z-item",
+    ]);
+  });
+
+  it("numbers only the currently visible filtered items", () => {
+    const filtered = [
+      baseItem({ id: "second-visible", priority: 6 }),
+      baseItem({ id: "first-visible", priority: 8 }),
+    ];
+
+    const ordered = orderQueueItems(filtered);
+
+    expect(ordered.map((item) => item.queuePosition)).toEqual([1, 2]);
+    expect(ordered.map((item) => item.queueTotal)).toEqual([2, 2]);
   });
 });
 

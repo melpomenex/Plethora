@@ -39,6 +39,7 @@ export const DocumentQATab = debugLazy("DocumentQATab", () => import("./Document
 export const NotebookLMTab = debugLazy("NotebookLMTab", () => import("../../pages/NotebookLMPage").then(m => ({ default: m.NotebookLMPage })));
 export const ImageRegistryTab = debugLazy("ImageRegistryTab", () => import("./ImageRegistryTab").then(m => ({ default: m.ImageRegistryTab })));
 export const PodcastTab = debugLazy("PodcastTab", () => import("../media/PodcastManager").then(m => ({ default: m.PodcastManager })));
+export const AudiobooksTab = debugLazy("AudiobooksTab", () => import("./AudiobooksTab").then(m => ({ default: m.AudiobooksTab })));
 
 export const TAB_TYPE_ICONS: Record<string, string> = {
   dashboard: "📊", documents: "📂", queue: "📚", review: "🧠",
@@ -47,6 +48,7 @@ export const TAB_TYPE_ICONS: Record<string, string> = {
   "doc-qa": "💬", notebooklm: "🤖", "image-registry": "🖼️",
   "web-browser": "🌐", "document-viewer": "📄", "continue-reading": "📖",
   "queue-scroll": "📜", "audiobook-epub-sync": "🎧",
+  audiobook: "🎧",
 };
 
 export const tabContentRegistry: Record<TabType, { content: ComponentType; title: string; icon: string; closable: boolean }> = {
@@ -69,6 +71,7 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   "image-registry": { content: ImageRegistryTab, title: "Images", icon: "🖼️", closable: true },
   podcast: { content: PodcastTab, title: "Podcasts", icon: "🎙️", closable: true },
   "audiobook-epub-sync": { content: DocumentViewer, title: "Audiobook Sync", icon: "🎧", closable: true },
+  audiobook: { content: AudiobooksTab, title: "Audiobooks", icon: "🎧", closable: true },
 };
 
 /**

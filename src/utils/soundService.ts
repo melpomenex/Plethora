@@ -27,8 +27,14 @@ export type NotificationSoundId =
   | 'sonar'
   | 'none';
 
-/** Map of feedback types to tactile UI sound files in public/sounds/. */
-const FEEDBACK_SOUND_FILES: Record<FeedbackType, string> = {
+/**
+ * Map of feedback types to tactile UI sound files in public/sounds/.
+ * Exported for the feedback policy layer (src/lib/feedback/) so sound-role →
+ * asset resolution has one source of truth. TODO(implementation): the feedback
+ * orchestrator (openspec/changes/unify-notifications-and-sound) resolves roles
+ * through this map via playFile().
+ */
+export const FEEDBACK_SOUND_FILES: Record<FeedbackType, string> = {
   success: '/sounds/success.wav',
   error: '/sounds/error.wav',
   warning: '/sounds/warning.mp3',

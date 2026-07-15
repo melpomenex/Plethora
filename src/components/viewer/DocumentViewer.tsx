@@ -6155,6 +6155,7 @@ export function DocumentViewer({
               autoPlayOnOpen={!!autoPlay && initialJump?.kind === "audio"}
               onEpisodeEnded={onEnded}
               onBack={handleBack}
+              hideTitleHeader={true}
             />
           ) : mediaError ? (
             <div className="flex items-center justify-center h-full">

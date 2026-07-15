@@ -20,6 +20,7 @@ import {
   Check,
   Clock,
   DeviceMobile,
+  DotsThree,
   MagnifyingGlass,
   Play,
   Sliders,
@@ -32,11 +33,15 @@ import { useToast } from "../common/Toast";
 import { cn } from "../../utils";
 import { SwipeableItem } from "./SwipeableItem";
 import { PullToRefresh } from "./PullToRefresh";
-import { bulkSuspendItems, bulkUnsuspendItems, postponeItem } from "../../api/queue";
+import { bulkSuspendItems, bulkUnsuspendItems } from "../../api/queue";
+import { dismissDocument } from "../../api/documents";
 import { useI18n } from "../../lib/i18n";
 import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
 import { MobileScheduleView } from "../schedule/MobileScheduleView";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { orderQueueItems, type OrderedQueueItem, type PriorityPreset } from "../../utils/reviewUx";
+import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
 
 interface MobileQueueViewProps {
   onStartReview?: (itemId?: string) => void;
@@ -67,6 +72,7 @@ export function MobileQueueView({
     bulkSuspend,
     bulkUnsuspend,
     bulkDelete,
+    postponeItemSmart,
   } = useQueueStore(
     useShallow((state) => ({
       items: state.items,
@@ -79,6 +85,7 @@ export function MobileQueueView({
       bulkSuspend: state.bulkSuspend,
       bulkUnsuspend: state.bulkUnsuspend,
       bulkDelete: state.bulkDelete,
+      postponeItemSmart: state.postponeItemSmart,
     }))
   );
 
@@ -88,10 +95,15 @@ export function MobileQueueView({
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("today");
   const { t } = useI18n();
   const toast = useToast();
+  const queueStrategyPreset = useSettingsStore(
+    (state) => state.settings.smartQueue.queueStrategyPreset as PriorityPreset,
+  );
 
-  // Multi-select mode: entered via long-press on a row. While active, tapping a
-  // row toggles selection instead of opening it.
+  // Multi-select mode: entered from an item action sheet. While active, tapping
+  // a row toggles selection instead of opening it.
   const [selectionMode, setSelectionMode] = useState(false);
+  const [actionItem, setActionItem] = useState<QueueItem | null>(null);
+  const actionTriggerRef = useRef<HTMLElement | null>(null);
 
   // --- Scroll position preservation across tab switches ---
   // MobileQueueView is kept mounted (display:none) when inactive, so React
@@ -99,6 +111,7 @@ export function MobileQueueView({
   // element is hidden. We capture it continuously and restore on reactivation.
   const listScrollRef = useRef<HTMLDivElement>(null);
   const savedScrollRef = useRef(0);
+  const scrollAnchorRef = useRef<{ id: string; offset: number } | null>(null);
   const isActiveTab = useIsActiveTab();
   const wasActiveRef = useRef(isActiveTab);
 
@@ -142,11 +155,26 @@ export function MobileQueueView({
     wasActiveRef.current = isActiveTab;
   }, [isActiveTab]);
 
+  const captureScrollAnchor = useCallback(() => {
+    const container = listScrollRef.current;
+    if (!container) return;
+    const containerTop = container.getBoundingClientRect().top;
+    const firstVisible = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+    ).find((row) => row.getBoundingClientRect().bottom > containerTop + 1);
+    if (!firstVisible) return;
+    scrollAnchorRef.current = {
+      id: firstVisible.dataset.queueItemId ?? "",
+      offset: firstVisible.getBoundingClientRect().top - containerTop,
+    };
+  }, []);
+
   // Undo toast state
   const [undoState, setUndoState] = useState<{
     visible: boolean;
-    action: "suspend" | "postpone";
+    action: "suspend" | "postpone" | "dismiss";
     itemId: string;
+    documentId?: string;
     itemTitle: string;
     progress: number;
   } | null>(null);
@@ -192,15 +220,26 @@ export function MobileQueueView({
       );
     }
 
-    // Sort: due items first, then by priority
-    return result.sort((a, b) => {
-      const aDue = a.dueDate ? new Date(a.dueDate) <= new Date() : false;
-      const bDue = b.dueDate ? new Date(b.dueDate) <= new Date() : false;
-      if (aDue && !bDue) return -1;
-      if (!aDue && bDue) return 1;
-      return (b.priority ?? 0) - (a.priority ?? 0);
+    return orderQueueItems(result, queueStrategyPreset);
+  }, [items, activeTab, searchQuery, queueStrategyPreset]);
+
+  useEffect(() => {
+    if (isLoading || !scrollAnchorRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      const container = listScrollRef.current;
+      const anchor = scrollAnchorRef.current;
+      if (!container || !anchor?.id) return;
+      const row = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+      ).find((candidate) => candidate.dataset.queueItemId === anchor.id);
+      if (row) {
+        const containerTop = container.getBoundingClientRect().top;
+        container.scrollTop += row.getBoundingClientRect().top - containerTop - anchor.offset;
+      }
+      scrollAnchorRef.current = null;
     });
-  }, [items, activeTab, searchQuery]);
+    return () => cancelAnimationFrame(frame);
+  }, [filteredItems, isLoading]);
 
   const dueCount = useMemo(() => {
     return items.filter((item) => {
@@ -239,6 +278,7 @@ export function MobileQueueView({
 
   // Swipe handlers
   const handleSuspend = useCallback(async (item: QueueItem) => {
+    captureScrollAnchor();
     try {
       await bulkSuspendItems([item.id]);
       toast.success(t("mobileQueue.itemSuspended"), t("mobileQueue.removedFromQueue"));
@@ -272,13 +312,17 @@ export function MobileQueueView({
     } catch (error) {
       toast.error(t("mobileQueue.failedToSuspend"), error instanceof Error ? error.message : t("reviewSession.unknownError"));
     }
-  }, [loadQueue, toast, undoState?.visible]);
+  }, [captureScrollAnchor, loadQueue, toast, undoState?.visible]);
 
   const handlePostpone = useCallback(async (item: QueueItem) => {
+    captureScrollAnchor();
     try {
-      await postponeItem(item.id, 1); // Postpone by 1 day
-      toast.success(t("mobileQueue.itemPostponed"), t("mobileQueue.rescheduledForTomorrow"));
-      loadQueue(); // Refresh the queue
+      const result = await postponeItemSmart(item);
+      toast.success(
+        t("mobileQueue.itemPostponed"),
+        t("mobileQueue.rescheduledByDays", { days: result.increase }),
+      );
+      await loadQueue();
 
       // Show undo toast (for postpone, we'd need to store the original due date to undo)
       setUndoState({
@@ -309,7 +353,58 @@ export function MobileQueueView({
     } catch (error) {
       toast.error(t("mobileQueue.failedToPostpone"), error instanceof Error ? error.message : t("reviewSession.unknownError"));
     }
-  }, [loadQueue, toast, undoState?.visible]);
+  }, [captureScrollAnchor, loadQueue, postponeItemSmart, toast, t, undoState?.visible]);
+
+  const handleActionPostpone = useCallback(async (item: QueueItem) => {
+    await handlePostpone(item);
+  }, [handlePostpone]);
+
+  const handleActionRemove = useCallback(async (item: QueueItem) => {
+    captureScrollAnchor();
+    try {
+      if (item.itemType === "learning-item") {
+        const result = await bulkSuspendItems([item.id]);
+        if (result.failed.length > 0) {
+          throw new Error(result.errors.join(", "));
+        }
+        toast.success(t("mobileQueue.itemSuspended"), t("mobileQueue.removedFromQueue"));
+        setUndoState({
+          visible: true,
+          action: "suspend",
+          itemId: item.id,
+          itemTitle: item.documentTitle,
+          progress: 100,
+        });
+      } else if (item.itemType === "document") {
+        await dismissDocument(item.documentId, true);
+        toast.success(t("queueScroll.documentDismissed"), t("queueScroll.documentDismissedDesc"));
+        setUndoState({
+          visible: true,
+          action: "dismiss",
+          itemId: item.id,
+          documentId: item.documentId,
+          itemTitle: item.documentTitle,
+          progress: 100,
+        });
+      }
+      await loadQueue();
+    } catch (error) {
+      toast.error(
+        t("mobileQueue.failedToRemove"),
+        error instanceof Error ? error.message : t("reviewSession.unknownError"),
+      );
+    }
+  }, [captureScrollAnchor, loadQueue, t, toast]);
+
+  const openItemActions = useCallback((item: QueueItem, trigger?: HTMLElement) => {
+    actionTriggerRef.current = trigger ?? null;
+    setActionItem(item);
+  }, []);
+
+  const closeItemActions = useCallback(() => {
+    setActionItem(null);
+    requestAnimationFrame(() => actionTriggerRef.current?.focus());
+  }, []);
 
   const handleUndo = useCallback(async () => {
     if (!undoState) return;
@@ -317,6 +412,9 @@ export function MobileQueueView({
     try {
       if (undoState.action === "suspend") {
         await bulkUnsuspendItems([undoState.itemId]);
+        toast.success(t("mobileQueue.itemRestored"), t("mobileQueue.backInQueue"));
+      } else if (undoState.action === "dismiss" && undoState.documentId) {
+        await dismissDocument(undoState.documentId, false);
         toast.success(t("mobileQueue.itemRestored"), t("mobileQueue.backInQueue"));
       }
       // Postpone undo would require storing the original due date
@@ -540,8 +638,8 @@ export function MobileQueueView({
           div is the scroll container (data-scroll-container) so PullToRefresh
           can detect scroll-top, and its scrollTop is preserved across tab
           switches via listScrollRef (see restore effect above). */}
-      <PullToRefresh onRefresh={() => loadQueue()}>
-        <div ref={listScrollRef} className="flex-1 overflow-y-auto h-full" data-scroll-container="true">
+      <PullToRefresh onRefresh={() => loadQueue()} className="flex-1 min-h-0 overflow-hidden">
+        <div ref={listScrollRef} className="h-full min-h-0 overflow-y-auto overscroll-contain" data-scroll-container="true">
           {isLoading ? (
             <div className="flex items-center justify-center h-32 text-muted-foreground">
               <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full mr-2" />
@@ -572,10 +670,10 @@ export function MobileQueueView({
                   activeTab={activeTab}
                   selectionMode={selectionMode}
                   isSelected={selectedIds.has(item.id)}
-                  onEnterSelection={enterSelection}
                   onToggleSelect={toggleSelect}
                   onOpenDocument={onOpenDocument}
                   onStartReview={onStartReview}
+                  onOpenActions={openItemActions}
                   onSwipeLeft={handlePostpone}
                   onSwipeRight={handleSuspend}
                   t={t}
@@ -590,6 +688,18 @@ export function MobileQueueView({
       <div className="px-4 py-2 border-t border-border bg-card/30 text-center text-xs text-muted-foreground">
         {t("mobileQueue.itemsReady", { count: filteredItems.length })}
       </div>
+
+      <QueueItemActionSheet
+        item={actionItem}
+        open={Boolean(actionItem)}
+        onClose={closeItemActions}
+        triggerElement={actionTriggerRef.current}
+        onOpenDocument={onOpenDocument}
+        onStartReview={onStartReview}
+        onPostpone={handleActionPostpone}
+        onRemove={handleActionRemove}
+        onSelect={(item) => enterSelection(item.id)}
+      />
 
       {/* Undo Toast */}
       {undoState && undoState.visible && (
@@ -684,14 +794,14 @@ export function MobileQueueView({
 //     a component (not inside a .map() callback, which would violate the Rules
 //     of Hooks). ---
 interface QueueRowProps {
-  item: QueueItem;
+  item: OrderedQueueItem;
   activeTab: "reading" | "review" | "schedule";
   selectionMode: boolean;
   isSelected: boolean;
-  onEnterSelection: (itemId: string) => void;
   onToggleSelect: (itemId: string) => void;
   onOpenDocument?: (item: QueueItem) => void;
   onStartReview?: (itemId?: string) => void;
+  onOpenActions: (item: QueueItem, trigger?: HTMLElement) => void;
   onSwipeLeft: (item: QueueItem) => void;
   onSwipeRight: (item: QueueItem) => void;
   t: (key: string, params?: Record<string, unknown>) => string;
@@ -713,18 +823,19 @@ function QueueRow({
   activeTab,
   selectionMode,
   isSelected,
-  onEnterSelection,
   onToggleSelect,
   onOpenDocument,
   onStartReview,
+  onOpenActions,
   onSwipeLeft,
   onSwipeRight,
   t,
 }: QueueRowProps) {
   const dueBadge = getDueBadge(item, t);
-  // Long-press enters selection mode and selects this item. The tap that would
-  // otherwise immediately follow a long-press is suppressed via didFire().
-  const rowLongPress = useLongPress(() => onEnterSelection(item.id));
+  const rowButtonRef = useRef<HTMLButtonElement>(null);
+  // Long-press opens the item action sheet. The tap that would otherwise
+  // immediately follow a long-press is suppressed via didFire().
+  const rowLongPress = useLongPress(() => onOpenActions(item, rowButtonRef.current ?? undefined));
 
   return (
     <SwipeableItem
@@ -748,22 +859,24 @@ function QueueRow({
         selectionMode && isSelected && "bg-primary/10",
       )}
     >
-      <button
-        {...(selectionMode ? {} : rowLongPress)}
-        onClick={() => {
-          if (selectionMode) {
-            onToggleSelect(item.id);
-            return;
-          }
-          if (rowLongPress.didFire()) return; // suppress tap right after long-press
-          if (activeTab === "reading") {
-            onOpenDocument?.(item);
-          } else {
-            onStartReview?.(item.learningItemId ?? item.id);
-          }
-        }}
-        className="w-full px-4 py-4 flex items-start gap-3 active:bg-muted/50 transition-colors text-left"
-      >
+      <div className="flex items-stretch gap-1" data-queue-item-id={item.id}>
+        <button
+          ref={rowButtonRef}
+          {...(selectionMode ? {} : rowLongPress)}
+          onClick={() => {
+            if (selectionMode) {
+              onToggleSelect(item.id);
+              return;
+            }
+            if (rowLongPress.didFire()) return; // suppress tap right after long-press
+            if (activeTab === "reading") {
+              onOpenDocument?.(item);
+            } else {
+              onStartReview?.(item.learningItemId ?? item.id);
+            }
+          }}
+          className="flex-1 min-w-0 px-4 py-4 flex items-start gap-3 active:bg-muted/50 transition-colors text-left"
+        >
         {/* Selection checkbox / Icon-Status */}
         <div className="flex-shrink-0 mt-0.5">
           {selectionMode ? (
@@ -798,6 +911,20 @@ function QueueRow({
             {item.documentTitle}
           </h3>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span
+              className={cn(
+                "px-1.5 py-0.5 rounded font-medium",
+                item.isUpNext ? "bg-primary/15 text-primary" : "bg-muted",
+              )}
+              aria-label={t("queue.queuePosition", {
+                position: item.queuePosition,
+                total: item.queueTotal,
+              })}
+            >
+              {item.isUpNext
+                ? `${t("queue.upNext")} · ${t("queue.positionOf", { position: item.queuePosition, total: item.queueTotal })}`
+                : t("queue.positionOf", { position: item.queuePosition, total: item.queueTotal })}
+            </span>
             {dueBadge && (
               <span className={cn(
                 "px-1.5 py-0.5 rounded text-white font-medium",
@@ -818,8 +945,22 @@ function QueueRow({
         </div>
 
         {/* Chevron */}
-        <CaretDown className="w-5 h-5 text-muted-foreground -rotate-90 flex-shrink-0 mt-2" />
-      </button>
+          <CaretDown className="w-5 h-5 text-muted-foreground -rotate-90 flex-shrink-0 mt-2" />
+        </button>
+        {!selectionMode && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenActions(item, event.currentTarget);
+            }}
+            className="mt-3 mr-2 h-10 w-10 flex-shrink-0 rounded-lg text-muted-foreground hover:bg-muted active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label={t("queue.itemActionsFor", { title: item.documentTitle })}
+          >
+            <DotsThree className="w-5 h-5 mx-auto" weight="bold" />
+          </button>
+        )}
+      </div>
     </SwipeableItem>
   );
 }

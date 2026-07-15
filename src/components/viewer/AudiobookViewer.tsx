@@ -125,8 +125,9 @@ function mapOriginalTimeToCutTime(t: number, cuts: SponsorBlockCut[]): number {
 }
 
 interface SleepTimer {
-  minutes: number;
-  endTime: number;
+  minutes?: number;
+  endTime?: number;
+  mode: "time" | "chapter";
 }
 
 interface MultiPartInfo {
@@ -342,6 +343,23 @@ export function AudiobookViewer({
   const [podcastTranscriptionProgress, setPodcastTranscriptionProgress] = useState<{ status: string; progress: number } | null>(null);
   const [podcastTranscriptStatus, setPodcastTranscriptStatus] = useState<string | null>(null);
   const [hasLoadedStatus, setHasLoadedStatus] = useState(false);
+
+  // Bookmark annotations state
+  const [showBookmarkNoteModal, setShowBookmarkNoteModal] = useState(false);
+  const [newBookmarkTime, setNewBookmarkTime] = useState<number | null>(null);
+  const [bookmarkTitleInput, setBookmarkTitleInput] = useState("");
+  const [bookmarkNoteInput, setBookmarkNoteInput] = useState("");
+
+  // Smart audio enhancements (Web Audio API)
+  const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
+  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
+  const [gainNode, setGainNode] = useState<GainNode | null>(null);
+  const [silenceSkipEnabled, setSilenceSkipEnabled] = useState(false);
+  const [volumeBoostEnabled, setVolumeBoostEnabled] = useState(false);
+
+  // Listening statistics & tracking
+  const [listeningStats, setListeningStats] = useState({ today: 0, week: 0 });
+  const lastTimeRef = useRef(0);
 
   // Audiobook (non-podcast) Groq transcription state. Used on mobile and when
   // the provider is Groq — the auto-transcription queue worker has no Groq path,
@@ -870,7 +888,6 @@ export function AudiobookViewer({
     toGlobalSeconds,
   ]);
   
-  // Audio event handlers
   const handleTimeUpdate = useCallback(() => {
     if (audioRef.current) {
       const time = audioRef.current.currentTime;
@@ -878,6 +895,13 @@ export function AudiobookViewer({
       currentTimeRef.current = time;
       currentGlobalTimeRef.current = toGlobalSeconds(currentPartIndex, time);
       onTimeUpdate?.(toGlobalSeconds(currentPartIndex, time));
+
+      // Accumulate listening stats
+      const diff = time - lastTimeRef.current;
+      if (isPlaying && diff > 0 && diff < 5) {
+        accumulateListeningTime(diff);
+      }
+      lastTimeRef.current = time;
 
       // SponsorBlock cut metadata (pre-cut) check
       if (sponsorBlockCuts && sponsorBlockCuts.length > 0) {
@@ -1500,21 +1524,219 @@ export function AudiobookViewer({
     }
     localStorage.setItem("audiobook-rate", nextRate.toString());
   };
+
+  // Listening statistics accumulator
+  const accumulateListeningTime = (seconds: number) => {
+    if (seconds <= 0) return;
+    const key = "audiobook-listening-stats-summary";
+    const raw = localStorage.getItem(key);
+    let today = 0;
+    let week = 0;
+    let lastDate = new Date().toDateString();
+    
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        today = parsed.today || 0;
+        week = parsed.week || 0;
+        lastDate = parsed.lastDate || new Date().toDateString();
+      } catch {
+        // ignore
+      }
+    }
+    
+    const currentDate = new Date().toDateString();
+    if (lastDate !== currentDate) {
+      today = 0; // reset daily stats
+    }
+    
+    today += seconds;
+    week += seconds;
+    
+    const updated = { today, week, lastDate: currentDate };
+    localStorage.setItem(key, JSON.stringify(updated));
+    setListeningStats(updated);
+  };
+
+  // Smart audio nodes initialization (Volume Boost & Silence Skip)
+  const initAudioNodes = () => {
+    if (!audioRef.current || audioContext) return;
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const srcNode = ctx.createMediaElementSource(audioRef.current);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      const gain = ctx.createGain();
+      
+      srcNode.connect(analyser);
+      analyser.connect(gain);
+      gain.connect(ctx.destination);
+      
+      setAudioContext(ctx);
+      setAnalyserNode(analyser);
+      setGainNode(gain);
+      
+      // Sync initial volume boost setting
+      gain.gain.value = volumeBoostEnabled ? 2.2 : 1.0;
+    } catch (err) {
+      console.warn("Failed to initialize AudioContext:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (gainNode) {
+      gainNode.gain.value = volumeBoostEnabled ? 2.2 : 1.0;
+    }
+  }, [volumeBoostEnabled, gainNode]);
+
+  // Smart Silence Skipping interval analyzer
+  useEffect(() => {
+    if (!silenceSkipEnabled || !analyserNode || !audioRef.current || !isPlaying) return;
+    
+    const bufferLength = analyserNode.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    let lastNonSilentTime = Date.now();
+    
+    const interval = setInterval(() => {
+      if (!audioRef.current) return;
+      analyserNode.getByteFrequencyData(dataArray);
+      
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i];
+      }
+      const average = sum / bufferLength;
+      
+      if (average > 8) {
+        lastNonSilentTime = Date.now();
+      } else {
+        const silentDuration = Date.now() - lastNonSilentTime;
+        if (silentDuration > 500) {
+          // Skip past silence (jump forward 0.5s)
+          audioRef.current.currentTime = Math.min(
+            audioRef.current.duration || 0,
+            audioRef.current.currentTime + 0.5
+          );
+          lastNonSilentTime = Date.now();
+        }
+      }
+    }, 100);
+    
+    return () => clearInterval(interval);
+  }, [silenceSkipEnabled, analyserNode, isPlaying]);
+
+  // Web Media Session API synchronization
+  useEffect(() => {
+    if ("mediaSession" in navigator && document) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: metadata.title || document.title,
+        artist: metadata.author || document.metadata?.author || "Unknown Author",
+        album: "Audiobook",
+        artwork: localCoverUrl ? [
+          { src: localCoverUrl, sizes: "256x256", type: "image/png" }
+        ] : []
+      });
+    }
+  }, [document, metadata, localCoverUrl]);
+
+  useEffect(() => {
+    if ("mediaSession" in navigator) {
+      try {
+        navigator.mediaSession.setActionHandler("play", () => {
+          if (audioRef.current) {
+            audioRef.current.play().catch(() => {});
+            setIsPlaying(true);
+          }
+        });
+        
+        navigator.mediaSession.setActionHandler("pause", () => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            setIsPlaying(false);
+          }
+        });
+
+        navigator.mediaSession.setActionHandler("seekbackward", (details) => {
+          const offset = details.seekOffset || 15;
+          skip(-offset);
+        });
+
+        navigator.mediaSession.setActionHandler("seekforward", (details) => {
+          const offset = details.seekOffset || 15;
+          skip(offset);
+        });
+
+        navigator.mediaSession.setActionHandler("previoustrack", () => {
+          if (audioRef.current) {
+            audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 15);
+          }
+        });
+
+        navigator.mediaSession.setActionHandler("nexttrack", () => {
+          skip(30);
+        });
+      } catch (err) {
+        console.warn("Media Session action handlers failed to register:", err);
+      }
+    }
+    
+    return () => {
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.setActionHandler("play", null);
+        navigator.mediaSession.setActionHandler("pause", null);
+        navigator.mediaSession.setActionHandler("seekbackward", null);
+        navigator.mediaSession.setActionHandler("seekforward", null);
+        navigator.mediaSession.setActionHandler("previoustrack", null);
+        navigator.mediaSession.setActionHandler("nexttrack", null);
+      }
+    };
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if ("mediaSession" in navigator && audioRef.current) {
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+    }
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if ("mediaSession" in navigator && audioRef.current && Number.isFinite(duration) && duration > 0) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: duration,
+          playbackRate: playbackRate,
+          position: currentTime
+        });
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [currentTime, duration, playbackRate]);
   
   // Bookmarks
   const addBookmark = () => {
     const chapter = getCurrentChapter();
+    setNewBookmarkTime(currentTime);
+    setBookmarkTitleInput(chapter?.title || `Bookmark @ ${audiobookApi.formatDuration(currentTime)}`);
+    setBookmarkNoteInput("");
+    setShowBookmarkNoteModal(true);
+  };
+
+  const saveBookmarkWithNote = () => {
+    if (newBookmarkTime === null) return;
+    
     const newBookmark: AudiobookBookmark = {
       id: `bookmark-${Date.now()}`,
-      time: currentTime,
-      title: chapter?.title || `${t("viewer.bookmark")} @ ${audiobookApi.formatDuration(currentTime)}`,
+      time: newBookmarkTime,
+      title: bookmarkTitleInput || `Bookmark @ ${audiobookApi.formatDuration(newBookmarkTime)}`,
+      note: bookmarkNoteInput.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
     
     const updated = [...bookmarks, newBookmark];
     setBookmarks(updated);
     localStorage.setItem(`audiobook-${document.id}-bookmarks`, JSON.stringify(updated));
-    showSuccess("Bookmark added", `Saved at ${audiobookApi.formatDuration(currentTime)}`);
+    setShowBookmarkNoteModal(false);
+    showSuccess("Bookmark added", `Saved at ${audiobookApi.formatDuration(newBookmarkTime)}`);
   };
   
   const deleteBookmark = (id: string) => {
@@ -1531,31 +1753,83 @@ export function AudiobookViewer({
   // Sleep timer
   const startSleepTimer = (minutes: number) => {
     const endTime = Date.now() + minutes * 60 * 1000;
-    setSleepTimer({ minutes, endTime });
+    setSleepTimer({ minutes, endTime, mode: "time" });
     setShowSleepTimer(false);
     showSuccess("Sleep timer set", `Playback will pause in ${minutes} minutes`);
+  };
+
+  const startChapterSleepTimer = () => {
+    setSleepTimer({ mode: "chapter" });
+    setShowSleepTimer(false);
+    showSuccess("Sleep timer set", "Playback will pause at the end of the current chapter");
   };
   
   const cancelSleepTimer = () => {
     setSleepTimer(null);
+  };
+
+  const handleToggleSilenceSkip = () => {
+    initAudioNodes();
+    setSilenceSkipEnabled(!silenceSkipEnabled);
+  };
+
+  const handleToggleVolumeBoost = () => {
+    initAudioNodes();
+    setVolumeBoostEnabled(!volumeBoostEnabled);
   };
   
   useEffect(() => {
     if (!sleepTimer) return;
     
     const interval = setInterval(() => {
-      if (Date.now() >= sleepTimer.endTime) {
-        if (audioRef.current && isPlaying) {
-          audioRef.current.pause();
-          setIsPlaying(false);
+      if (!audioRef.current) return;
+      
+      if (sleepTimer.mode === "time" && sleepTimer.endTime) {
+        const timeLeftMs = sleepTimer.endTime - Date.now();
+        if (timeLeftMs <= 0) {
+          if (isPlaying) {
+            audioRef.current.pause();
+            setIsPlaying(false);
+            audioRef.current.volume = volume;
+          }
+          setSleepTimer(null);
+          showInfo("Sleep timer", "Playback paused");
+        } else if (timeLeftMs <= 5000) {
+          // Gradual volume fade-out over last 5 seconds
+          const factor = timeLeftMs / 5000;
+          audioRef.current.volume = volume * factor;
         }
-        setSleepTimer(null);
-        showInfo("Sleep timer", "Playback paused");
+      } else if (sleepTimer.mode === "chapter") {
+        const activeChapter = getCurrentChapter();
+        if (activeChapter) {
+          const chapEnd = activeChapter.endTime || (activeChapter.startTime + (activeChapter.duration || 0));
+          if (chapEnd > 0) {
+            const timeUntilEnd = chapEnd - audioRef.current.currentTime;
+            if (timeUntilEnd <= 0) {
+              if (isPlaying) {
+                audioRef.current.pause();
+                setIsPlaying(false);
+                audioRef.current.volume = volume;
+              }
+              setSleepTimer(null);
+              showInfo("Sleep timer", "Chapter finished, playback paused");
+            } else if (timeUntilEnd <= 5) {
+              // Gradual volume fade-out over last 5 seconds
+              const factor = timeUntilEnd / 5;
+              audioRef.current.volume = volume * factor;
+            }
+          }
+        }
       }
-    }, 1000);
+    }, 250);
     
-    return () => clearInterval(interval);
-  }, [sleepTimer, isPlaying, showInfo]);
+    return () => {
+      clearInterval(interval);
+      if (audioRef.current) {
+        audioRef.current.volume = volume;
+      }
+    };
+  }, [sleepTimer, isPlaying, volume, showInfo]);
   
   const getCurrentChapter = (): AudiobookChapter | null => {
     if (!chapters.length) return null;
@@ -2465,16 +2739,20 @@ export function AudiobookViewer({
               </div>
               
               {/* Right - Additional controls */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 {/* Sleep timer indicator */}
                 {sleepTimer && (
                   <button
                     onClick={cancelSleepTimer}
-                    className="flex items-center gap-1 px-2 py-1 text-xs text-amber-500 bg-amber-500/10 rounded-lg hover:bg-amber-500/20"
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs text-amber-500 bg-amber-500/10 rounded-lg hover:bg-amber-500/20"
                     title={t("viewer.cancelSleepTimer")}
                   >
-                    <Moon className="h-3 w-3" />
-                    {audiobookApi.formatDuration(Math.max(0, (sleepTimer.endTime - Date.now()) / 1000))}
+                    <Moon className="h-3 w-3 animate-pulse" />
+                    {sleepTimer.mode === "time" && sleepTimer.endTime ? (
+                      audiobookApi.formatDuration(Math.max(0, (sleepTimer.endTime - Date.now()) / 1000))
+                    ) : (
+                      "Chapter"
+                    )}
                   </button>
                 )}
                 
@@ -2489,15 +2767,54 @@ export function AudiobookViewer({
                 >
                   <Clock className="h-5 w-5" />
                 </button>
-                
-                {/* Speed */}
+
+                {/* Silence Skipping */}
                 <button
-                  onClick={cyclePlaybackRate}
-                  className="px-2 py-1 text-sm font-medium hover:bg-muted rounded-lg transition-colors"
-                  title={t("viewer.playbackSpeed")}
+                  onClick={handleToggleSilenceSkip}
+                  className={cn(
+                    "p-2 rounded-lg transition-colors relative",
+                    silenceSkipEnabled ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
+                  )}
+                  title="Silence Skipping"
                 >
-                  {playbackRate}x
+                  <Sparkle className="h-5 w-5" />
                 </button>
+
+                {/* Volume Boost */}
+                <button
+                  onClick={handleToggleVolumeBoost}
+                  className={cn(
+                    "p-2 rounded-lg transition-colors relative",
+                    volumeBoostEnabled ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
+                  )}
+                  title="Volume Boost"
+                >
+                  <SpeakerHigh className="h-5 w-5" />
+                </button>
+                
+                {/* Speed Slider */}
+                <div className="flex items-center gap-2 px-2.5 py-1 bg-muted/40 rounded-lg border border-border/50">
+                  <span className="text-[10px] text-muted-foreground font-semibold select-none">Speed:</span>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="3.0"
+                    step="0.05"
+                    value={playbackRate}
+                    onChange={(e) => {
+                      const rate = parseFloat(e.target.value);
+                      setPlaybackRate(rate);
+                      if (audioRef.current) {
+                        audioRef.current.playbackRate = rate;
+                      }
+                      localStorage.setItem("audiobook-rate", rate.toString());
+                    }}
+                    className="w-16 h-1 bg-muted rounded-full appearance-none cursor-pointer accent-primary [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
+                  />
+                  <span className="text-[11px] font-bold text-foreground w-10 text-right select-none">
+                    {playbackRate.toFixed(2)}x
+                  </span>
+                </div>
                 
                 {/* Volume (desktop only — mobile uses hardware volume) */}
                 {!isMobile && (
@@ -2723,25 +3040,92 @@ export function AudiobookViewer({
       
       {/* Sleep timer popup */}
       {showSleepTimer && (
-        <div className="absolute bottom-20 right-4 bg-card border border-border rounded-lg shadow-lg p-4 z-50">
-          <h4 className="font-medium mb-3">{t("viewer.sleepTimerTitle")}</h4>
-          <div className="grid grid-cols-3 gap-2">
-            {[15, 30, 45, 60, 90, 120].map(minutes => (
+        <div className="absolute bottom-20 right-4 bg-card border border-border rounded-xl shadow-2xl p-4 z-50 max-w-[280px]">
+          <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
+            <Moon className="w-4 h-4 text-amber-500 animate-pulse" />
+            Sleep Timer
+          </h4>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {[5, 15, 30, 45, 60, 90].map(minutes => (
               <button
                 key={minutes}
                 onClick={() => startSleepTimer(minutes)}
-                className="px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors"
+                className="px-2 py-1.5 text-xs bg-muted hover:bg-muted/80 rounded-lg transition-colors font-medium"
               >
                 {minutes}m
               </button>
             ))}
           </div>
           <button
+            onClick={startChapterSleepTimer}
+            className="w-full py-2 text-xs bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors font-semibold"
+          >
+            End of Chapter
+          </button>
+          <button
             onClick={() => setShowSleepTimer(false)}
-            className="mt-3 w-full py-2 text-sm text-muted-foreground hover:text-foreground"
+            className="mt-3 w-full py-1.5 text-xs text-muted-foreground hover:text-foreground font-medium"
           >
             Cancel
           </button>
+        </div>
+      )}
+
+      {/* Bookmark note modal */}
+      {showBookmarkNoteModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
+          <div className="bg-card border border-border rounded-xl max-w-md w-full p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowBookmarkNoteModal(false)}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            
+            <h3 className="text-lg font-bold mb-4">Add Bookmark Note</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={bookmarkTitleInput}
+                  onChange={(e) => setBookmarkTitleInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-xs font-semibold text-muted-foreground mb-1">
+                  Note
+                </label>
+                <textarea
+                  value={bookmarkNoteInput}
+                  onChange={(e) => setBookmarkNoteInput(e.target.value)}
+                  placeholder="Enter textual annotation/notes for this timestamp..."
+                  rows={3}
+                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                />
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowBookmarkNoteModal(false)}
+                className="px-4 py-2 border border-border hover:bg-muted text-sm rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveBookmarkWithNote}
+                className="px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:opacity-90 transition-opacity"
+              >
+                Save Bookmark
+              </button>
+            </div>
+          </div>
         </div>
       )}
       

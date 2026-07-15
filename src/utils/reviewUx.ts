@@ -46,6 +46,12 @@ export type SessionItemTypes = {
   learningItems: boolean;
 };
 
+export type OrderedQueueItem = QueueItem & {
+  queuePosition: number;
+  queueTotal: number;
+  isUpNext: boolean;
+};
+
 export type SessionCustomizationOptions = {
   maxItems?: number;
   blockTimeBudgets?: SessionBlockTimeBudgets;
@@ -128,6 +134,38 @@ export function getPriorityScore(item: QueueItem, preset: PriorityPreset): numbe
       vector.userIntent * weights.userIntent +
       vector.overduePenalty * weights.overduePenalty
   );
+}
+
+/**
+ * Sort a filtered queue into the same deterministic order used for queue
+ * sessions, then decorate each item with the position information needed by
+ * list surfaces. The input is intentionally treated as already filtered so
+ * search/session filters cannot create gaps in the visible positions.
+ */
+export function orderQueueItems(
+  items: QueueItem[],
+  preset: PriorityPreset = "maximize-retention",
+): OrderedQueueItem[] {
+  const indexed = items.map((item, index) => ({ item, index }));
+
+  indexed.sort((a, b) => {
+    const scoreDifference = getPriorityScore(b.item, preset) - getPriorityScore(a.item, preset);
+    if (scoreDifference !== 0) return scoreDifference;
+
+    const positionA = a.item.position ?? Number.POSITIVE_INFINITY;
+    const positionB = b.item.position ?? Number.POSITIVE_INFINITY;
+    if (positionA !== positionB) return positionA - positionB;
+
+    const idDifference = a.item.id.localeCompare(b.item.id);
+    return idDifference !== 0 ? idDifference : a.index - b.index;
+  });
+
+  return indexed.map(({ item }, index) => ({
+    ...item,
+    queuePosition: index + 1,
+    queueTotal: indexed.length,
+    isUpNext: index === 0,
+  }));
 }
 
 export function getQueueStatus(item: QueueItem): QueueStatus {

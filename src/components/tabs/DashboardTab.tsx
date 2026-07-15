@@ -15,6 +15,7 @@ import {
   SettingsTab,
   RSSReader,
   DocumentViewer,
+  AudiobooksTab,
 } from "./TabRegistry";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
 import { getDocumentsWithProgress } from "../../api/position";
@@ -29,6 +30,7 @@ import {
   ChartBar,
   Files,
   Gear,
+  Headphones,
   Lightning,
   Rss,
   Target,
@@ -147,6 +149,17 @@ export function DashboardTab() {
       tabType: "rss",
       tabTitle: t("tabs.rssFeeds"),
       content: RSSReader,
+      closable: true,
+    },
+    {
+      id: "audiobooks",
+      title: "Audiobooks",
+      description: "Manage and listen to audiobooks",
+      icon: Headphones,
+      iconBg: "bg-amber-500/10 text-amber-500",
+      tabType: "audiobook",
+      tabTitle: "Audiobooks",
+      content: AudiobooksTab,
       closable: true,
     },
     {
@@ -316,7 +329,7 @@ export function DashboardTab() {
 
         {/* Quick Actions Grid - 2 columns mobile, 3 columns tablet+, adaptive rows */}
         <SummarySection title={t("dashboard.quickActions")}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 md:gap-4 mb-6 md:mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3 md:gap-4 mb-6 md:mb-8">
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (

@@ -24,7 +24,8 @@ export type TabType =
   | "notebooklm"
   | "image-registry"
   | "podcast"
-  | "audiobook-epub-sync";
+  | "audiobook-epub-sync"
+  | "audiobook";
 
 export interface Tab {
   id: string;
@@ -195,6 +196,7 @@ const SINGLE_INSTANCE_TAB_TYPES: ReadonlySet<TabType> = new Set([
   "newsletter",
   "doc-qa",
   "notebooklm",
+  "audiobook",
 ]);
 
 function findReusableTab(state: TabsState, tab: Omit<Tab, "id">): Tab | undefined {

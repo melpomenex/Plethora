@@ -45,6 +45,7 @@ import {
   getReadingImpact,
   getStatusLabel,
   getTimeEstimateRange,
+  orderQueueItems,
   type SessionCustomizationOptions,
 } from "../../utils/reviewUx";
 import {
@@ -61,6 +62,7 @@ import { dismissDocument } from "../../api/documents";
 import { useToast } from "../common/Toast";
 import { EmptyState } from "../common/EmptyState";
 import { getQueuePrimaryAction } from "./queueActions";
+import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
 import { getSessionStats, clearQueueSession } from "../../lib/queueSession";
 import { useI18n } from "../../lib/i18n";
 import { ScheduleView } from "../schedule/ScheduleView";
@@ -97,6 +99,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     bulkSuspend,
     bulkUnsuspend,
     bulkDelete,
+    postponeItemSmart,
     bulkOperationLoading,
     bulkOperationResult,
     clearBulkResult,
@@ -119,6 +122,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       bulkSuspend: state.bulkSuspend,
       bulkUnsuspend: state.bulkUnsuspend,
       bulkDelete: state.bulkDelete,
+      postponeItemSmart: state.postponeItemSmart,
       bulkOperationLoading: state.bulkOperationLoading,
       bulkOperationResult: state.bulkOperationResult,
       clearBulkResult: state.clearBulkResult,
@@ -186,6 +190,8 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const [selectedFileType, setSelectedFileType] = useState<string>("all");
   const searchRef = useRef<HTMLInputElement>(null);
   const queueListRef = useRef<HTMLDivElement>(null);
+  const queueScrollRef = useRef<HTMLDivElement>(null);
+  const scrollAnchorRef = useRef<{ id: string; offset: number } | null>(null);
   const selectedIndexRef = useRef(0);
   const lastSelectedLearningIdRef = useRef<string | null>(null);
   const toast = useToast();
@@ -194,6 +200,22 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const [ctxItem, setCtxItem] = useState<QueueItem | null>(null);
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
+  const [actionItem, setActionItem] = useState<QueueItem | null>(null);
+  const actionTriggerRef = useRef<HTMLElement | null>(null);
+
+  const captureQueueScrollAnchor = () => {
+    const container = queueScrollRef.current;
+    if (!container) return;
+    const containerTop = container.getBoundingClientRect().top;
+    const firstVisible = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+    ).find((row) => row.getBoundingClientRect().bottom > containerTop + 1);
+    if (!firstVisible) return;
+    scrollAnchorRef.current = {
+      id: firstVisible.dataset.queueItemId ?? "",
+      offset: firstVisible.getBoundingClientRect().top - containerTop,
+    };
+  };
 
   useEffect(() => {
     (async () => {
@@ -348,8 +370,26 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       semanticStudy: sessionCustomization.semanticStudy,
     };
     const filtered = applyFilters(searchedItems, customizationOptions);
-    return [...filtered].sort((a, b) => getPriorityScore(b, preset) - getPriorityScore(a, preset));
+    return orderQueueItems(filtered, preset);
   }, [items, queueMode, preset, searchQuery, selectedFileType, sessionCustomization, customSubset]);
+
+  useEffect(() => {
+    if (isLoading || !scrollAnchorRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      const container = queueScrollRef.current;
+      const anchor = scrollAnchorRef.current;
+      if (!container || !anchor?.id) return;
+      const row = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+      ).find((candidate) => candidate.dataset.queueItemId === anchor.id);
+      if (row) {
+        const containerTop = container.getBoundingClientRect().top;
+        container.scrollTop += row.getBoundingClientRect().top - containerTop - anchor.offset;
+      }
+      scrollAnchorRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [visibleItems, isLoading]);
 
   const selectableItems = useMemo(
     () => visibleItems.filter((item) => item.itemType === "learning-item"),
@@ -383,6 +423,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   };
 
   const refreshQueue = async () => {
+    captureQueueScrollAnchor();
     if (sessionCustomization.semanticStudy?.enabled && sessionCustomization.semanticStudy?.focalTopic) {
       await loadQueue(true);
     } else if (queueMode === "review") {
@@ -452,10 +493,14 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   };
 
   const openItemActions = (item: QueueItem, target: HTMLElement) => {
-    const rect = target.getBoundingClientRect();
+    actionTriggerRef.current = target;
     setSelectedId(item.id);
-    setCtxItem(item);
-    setCtxPos({ x: Math.max(8, rect.right - 220), y: rect.bottom + 4 });
+    setActionItem(item);
+  };
+
+  const closeItemActions = () => {
+    setActionItem(null);
+    requestAnimationFrame(() => actionTriggerRef.current?.focus());
   };
 
   const handleCtxSuspend = async (item: QueueItem) => {
@@ -563,6 +608,36 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         error instanceof Error ? error.message : t("queueScroll.pleaseTryAgain")
       );
     }
+  };
+
+  const handleActionPostpone = async (item: QueueItem) => {
+    if (!postponeItemSmart) return;
+    try {
+      const result = await postponeItemSmart(item);
+      toast.success(
+        t("queue.postponed"),
+        t("queue.reviewScheduleUpdated", { days: result.increase }),
+      );
+      await refreshQueue();
+    } catch (error) {
+      toast.error(
+        t("queue.operationFailed"),
+        error instanceof Error ? error.message : t("queue.pleaseRefresh"),
+      );
+    }
+  };
+
+  const handleActionRemove = async (item: QueueItem) => {
+    if (item.itemType === "learning-item") {
+      await handleCtxSuspend(item);
+    } else if (item.itemType === "document") {
+      await handleDismissDocument(item);
+    }
+  };
+
+  const handleActionSelect = (item: QueueItem) => {
+    setSelected(item.id, true);
+    toast.info(t("queue.selectedCount", { count: 1 }), item.documentTitle);
   };
 
   const moveBrowseSelection = (delta: number) => {
@@ -1022,8 +1097,8 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         />
       ) : (
       <>
-      <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 overflow-auto p-4 space-y-4">
+      <div className="min-h-0 flex-1 flex overflow-hidden">
+        <div ref={queueScrollRef} className="min-h-0 flex-1 overflow-auto overscroll-contain p-4 space-y-4">
           {error && (
             <div className="p-4 bg-destructive/10 border border-destructive text-destructive rounded-lg">
               {error}
@@ -1315,8 +1390,19 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                       !!(event.nativeEvent as MouseEvent).shiftKey
                                     );
                                   }}
-                                />
-                              )}
+                                  />
+                                )}
+                              <span
+                                className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${item.isUpNext ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
+                                aria-label={t("queue.queuePosition", {
+                                  position: item.queuePosition,
+                                  total: item.queueTotal,
+                                })}
+                              >
+                                {item.isUpNext
+                                  ? `${t("queue.upNext")} · ${t("queue.positionOf", { position: item.queuePosition, total: item.queueTotal })}`
+                                  : t("queue.positionOf", { position: item.queuePosition, total: item.queueTotal })}
+                              </span>
                               <StatusPill status={status} />
                               {item.itemType === "document" && (() => {
                                 const fsrsInfo = getFsrsSchedulingInfo(item);
@@ -1380,7 +1466,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                   openItemActions(item, event.currentTarget);
                                 }}
                                 className="min-h-9 min-w-9 rounded-md border border-border bg-background p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                                aria-label={`More actions for ${item.documentTitle}`}
+                                aria-label={t("queue.itemActionsFor", { title: item.documentTitle })}
                               >
                                 <DotsThree className="h-4 w-4" weight="bold" aria-hidden="true" />
                               </button>
@@ -1531,8 +1617,19 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                     !!(event.nativeEvent as MouseEvent).shiftKey
                                   );
                                 }}
-                              />
-                            )}
+                                />
+                              )}
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${item.isUpNext ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
+                              aria-label={t("queue.queuePosition", {
+                                position: item.queuePosition,
+                                total: item.queueTotal,
+                              })}
+                            >
+                              {item.isUpNext
+                                ? `${t("queue.upNext")} · ${t("queue.positionOf", { position: item.queuePosition, total: item.queueTotal })}`
+                                : t("queue.positionOf", { position: item.queuePosition, total: item.queueTotal })}
+                            </span>
                             <StatusPill status={status} />
                             {item.itemType === "document" && (() => {
                               const fsrsInfo = getFsrsSchedulingInfo(item);
@@ -1587,10 +1684,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                openItemActions(item, event.currentTarget);
+                                  openItemActions(item, event.currentTarget);
                               }}
                               className="min-h-9 min-w-9 rounded-md border border-border bg-background p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                              aria-label={`More actions for ${item.documentTitle}`}
+                              aria-label={t("queue.itemActionsFor", { title: item.documentTitle })}
                             >
                               <DotsThree className="h-4 w-4" weight="bold" aria-hidden="true" />
                             </button>
@@ -1923,6 +2020,18 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           </div>
         </>
       )}
+
+      <QueueItemActionSheet
+        item={actionItem}
+        open={Boolean(actionItem)}
+        onClose={closeItemActions}
+        triggerElement={actionTriggerRef.current}
+        onOpenDocument={onOpenDocument}
+        onStartReview={onStartReview}
+        onPostpone={handleActionPostpone}
+        onRemove={handleActionRemove}
+        onSelect={handleActionSelect}
+      />
 
       <SessionCustomizeModal
         isOpen={isCustomizeModalOpen}

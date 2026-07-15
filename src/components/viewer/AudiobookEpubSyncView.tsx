@@ -218,6 +218,7 @@ export function AudiobookEpubSyncView({
           fileContent={mediaSource.src}
           audioRef={audioRef}
           onTimeUpdate={setAudioCurrentTime}
+          hideTitleHeader={true}
         />
       )}
     </div>

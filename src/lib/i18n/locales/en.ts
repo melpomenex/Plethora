@@ -429,6 +429,7 @@ export const en: Dict = {
   "toolbar.startReview": "Start Review",
   "toolbar.rssFeeds": "RSS Feeds",
   "toolbar.podcasts": "Podcasts",
+  "toolbar.audiobooks": "Audiobooks",
   "toolbar.dashboard": "Dashboard",
   "toolbar.continueReading": "Continue Reading",
   "toolbar.knowledgeGraph": "Knowledge Graph",

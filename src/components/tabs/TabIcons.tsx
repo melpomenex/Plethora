@@ -63,6 +63,7 @@ export const TAB_TYPE_ICONS: Record<TabType, Icon> = {
   "image-registry": Image,
   podcast: Microphone,
   "audiobook-epub-sync": Headphones,
+  audiobook: Headphones,
 };
 
 /**

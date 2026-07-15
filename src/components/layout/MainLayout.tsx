@@ -7,7 +7,7 @@ import { useShortcut } from "../common/KeyboardShortcuts";
 import { VimiumNavigationProvider, useVimiumEnabled, type VimiumCommand } from "../common/VimiumNavigation";
 import { Toolbar } from "../Toolbar";
 import { Tabs } from "../common/Tabs";
-import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer } from "../tabs/TabRegistry";
+import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer } from "../tabs/TabRegistry";
 import type { Document } from "../../types/document";
 import { CommandCenter } from "../search/CommandCenter";
 import { captureAndSaveScreenshot } from "../../utils/screenshotCaptureFlow";
@@ -37,6 +37,7 @@ const TAB_TYPE_ALIASES: Record<string, TabType> = {
   rss: "rss", feeds: "rss",
   news: "newsletter", newsletter: "newsletter",
   pod: "podcast", podcast: "podcast", podcasts: "podcast",
+  audiobook: "audiobook", audiobooks: "audiobook", ab: "audiobook",
   ks: "knowledge-sphere", sphere: "knowledge-sphere", "knowledge-sphere": "knowledge-sphere",
   kn: "knowledge-network", network: "knowledge-network", "knowledge-network": "knowledge-network",
   qa: "doc-qa", "doc-qa": "doc-qa",
@@ -532,6 +533,7 @@ export function MainLayout() {
       rss: { title: "RSS", content: RssTab, closable: true },
       newsletter: { title: "Newsletters", content: NewsletterDirectoryTab, closable: true },
       podcast: { title: "Podcasts", content: PodcastTab, closable: true },
+      audiobook: { title: "Audiobooks", content: AudiobooksTab, closable: true },
       "knowledge-sphere": { title: "Knowledge Sphere", content: KnowledgeSphereTab, closable: true },
       "knowledge-network": { title: "Knowledge Network", content: KnowledgeNetworkTab, closable: true },
       "doc-qa": { title: "Document Q&A", content: DocumentQATab, closable: true },

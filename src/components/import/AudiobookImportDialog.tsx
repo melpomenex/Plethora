@@ -860,18 +860,15 @@ export function AudiobookImportDialog({
   return (
     <div
       className={cn(
-        "fixed inset-0 z-50 flex flex-col bg-background",
-        // Mobile shell: true fullscreen (no dimmed backdrop, no rounded card,
-        // no 90vh gap → eliminates the "tiny slivers of window below"). Desktop
-        // keeps the centered card over a dimmed backdrop.
+        "fixed inset-0 z-50 flex flex-col",
         isMobileShell
-          ? "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
-          : "items-center justify-center bg-black/50 p-4"
+          ? "bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+          : "items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       )}
     >
       <div
         className={cn(
-          "relative flex w-full flex-col overflow-hidden bg-background",
+          "relative flex w-full flex-col overflow-hidden bg-card border border-border",
           isMobileShell
             ? "h-full"
             : "h-[90vh] max-w-6xl rounded-xl shadow-2xl"

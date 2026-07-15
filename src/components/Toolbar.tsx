@@ -13,6 +13,7 @@ import {
   DocumentQATab,
   NotebookLMTab,
   PodcastTab,
+  AudiobooksTab,
 } from "./tabs/TabRegistry";
 import { WebArticleImportDialog } from "./import/WebArticleImportDialog";
 import { KnowledgeGraphPage } from "../pages/KnowledgeGraphPage";
@@ -39,6 +40,7 @@ import {
   Graph,
   Headphones,
   Link,
+  Microphone,
   Newspaper,
   Planet,
   Rss,
@@ -239,6 +241,16 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: <Headphones className="w-4 h-4" />,
       type: "podcast",
       content: PodcastTab,
+      closable: true,
+    });
+  };
+
+  const handleAudiobooks = () => {
+    addTab({
+      title: "Audiobooks",
+      icon: <Headphones className="w-4 h-4" />,
+      type: "audiobook",
+      content: AudiobooksTab,
       closable: true,
     });
   };
@@ -526,10 +538,18 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     },
     {
       id: "podcast",
-      icon: Headphones,
+      icon: Microphone,
       label: t("toolbar.podcasts"),
       shortcut: "",
       action: handlePodcast,
+      group: 2,
+    },
+    {
+      id: "audiobook",
+      icon: Headphones,
+      label: t("toolbar.audiobooks"),
+      shortcut: "",
+      action: handleAudiobooks,
       group: 2,
     },
     // Group 3: Navigation

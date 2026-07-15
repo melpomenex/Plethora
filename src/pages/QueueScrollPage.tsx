@@ -3309,6 +3309,7 @@ export function QueueScrollPage() {
                 advanceAfterRemoval(renderedItem.id);
               }}
               onBack={handleExit}
+              hideTitleHeader={true}
             />
           ) : renderedItem?.type === "extract" && renderedItem.extract ? (
             <ExtractScrollItem

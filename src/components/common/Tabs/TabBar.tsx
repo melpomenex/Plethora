@@ -50,6 +50,8 @@ export function TabBar({
         return t("nav.settings");
       case "podcast":
         return t("toolbar.podcasts");
+      case "audiobook":
+        return t("toolbar.audiobooks");
       case "rss":
         return t("dashboard.rssFeeds");
       case "newsletter":

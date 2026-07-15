@@ -122,6 +122,14 @@ describe("ReviewQueueView", () => {
       expect.objectContaining({ id: "item-3", documentId: "doc-3" })
     );
   });
+
+  it("shows deterministic visible queue positions and marks the next item", () => {
+    render(<ReviewQueueView />);
+
+    expect(screen.getByLabelText("Queue position 1 of 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Queue position 2 of 2")).toBeInTheDocument();
+    expect(screen.getByText("Up next · #1 of 2")).toBeInTheDocument();
+  });
 });
 
 describe("Session customization filtering", () => {
