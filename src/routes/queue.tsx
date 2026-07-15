@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowsVertical,
   CalendarHeart,
   CheckSquare,
   Download,
+  DotsThree,
   Funnel,
   MagnifyingGlass,
   Play,
@@ -15,14 +16,19 @@ import { useQueueStore } from "../stores";
 import { QueueStatsDisplay } from "../components/queue/QueueStats";
 import { BulkActionBar } from "../components/queue/BulkActionBar";
 import { QueueContextMenu } from "../components/queue/QueueContextMenu";
+import { QueueItemActionSheet } from "../components/queue/QueueItemActionSheet";
 import { ExportQueueDialog } from "../components/queue/ExportQueueDialog";
 import { PostponeAllDialog } from "../components/queue/PostponeAllDialog";
 import { AutoPostponePrompt } from "../components/queue/AutoPostponePrompt";
 import { DynamicVirtualList } from "../components/common/VirtualList";
 import type { QueueItem } from "../types/queue";
-import { updateDocumentPriority } from "../api/documents";
+import { dismissDocument, updateDocumentPriority } from "../api/documents";
+import { bulkSuspendItems, bulkUnsuspendItems } from "../api/queue";
 import { TranscriptionQueueActions, TranscriptionQueueIndicator, isTranscribableFileType } from "../components/transcription/TranscriptionQueueActions";
 import { useI18n } from "../lib/i18n";
+import { useSettingsStore } from "../stores/settingsStore";
+import { orderQueueItems, type PriorityPreset } from "../utils/reviewUx";
+import { emitQueueActionFeedback } from "../components/review/queueActions";
 
 export function Queue() {
   const { t } = useI18n();
@@ -45,6 +51,7 @@ export function Queue() {
     bulkSuspend,
     bulkUnsuspend,
     bulkDelete,
+    postponeItemSmart,
     bulkOperationLoading,
     bulkOperationResult,
     clearBulkResult,
@@ -66,6 +73,7 @@ export function Queue() {
     bulkSuspend: state.bulkSuspend,
     bulkUnsuspend: state.bulkUnsuspend,
     bulkDelete: state.bulkDelete,
+    postponeItemSmart: state.postponeItemSmart,
     bulkOperationLoading: state.bulkOperationLoading,
     bulkOperationResult: state.bulkOperationResult,
     clearBulkResult: state.clearBulkResult,
@@ -77,6 +85,15 @@ export function Queue() {
   const [showPostponeAllDialog, setShowPostponeAllDialog] = useState(false);
   const [priorityDrafts, setPriorityDrafts] = useState<Record<string, { rating?: number; slider?: number }>>({});
   const [priorityUpdatingIds, setPriorityUpdatingIds] = useState<Set<string>>(new Set());
+  const [actionItem, setActionItem] = useState<QueueItem | null>(null);
+  const actionTriggerRef = useRef<HTMLElement | null>(null);
+  const queueStrategyPreset = useSettingsStore(
+    (state) => state.settings.smartQueue.queueStrategyPreset as PriorityPreset,
+  );
+  const orderedItems = useMemo(
+    () => orderQueueItems(filteredItems, queueStrategyPreset),
+    [filteredItems, queueStrategyPreset],
+  );
 
   useEffect(() => {
     loadQueue();
@@ -114,6 +131,91 @@ export function Queue() {
     // For now, select the item and use bulk delete
     setSelected(id, true);
     await bulkDelete();
+  };
+
+  const openItemActions = (item: QueueItem, trigger: HTMLElement) => {
+    actionTriggerRef.current = trigger;
+    setActionItem(item);
+  };
+
+  const closeItemActions = () => {
+    setActionItem(null);
+    requestAnimationFrame(() => actionTriggerRef.current?.focus());
+  };
+
+  const handleActionPostpone = async (item: QueueItem) => {
+    try {
+      const result = await postponeItemSmart(item);
+      emitQueueActionFeedback({
+        action: "postpone",
+        succeeded: true,
+        title: t("queue.postponed"),
+        message: t("queue.reviewScheduleUpdated", { days: result.increase }),
+      });
+      await loadQueue();
+    } catch (error) {
+      emitQueueActionFeedback({
+        action: "postpone",
+        succeeded: false,
+        title: t("queue.operationFailed"),
+        message: error instanceof Error ? error.message : t("queue.pleaseRefresh"),
+      });
+    }
+  };
+
+  const handleActionRemove = async (item: QueueItem) => {
+    try {
+      if (item.itemType === "document") {
+        await dismissDocument(item.documentId, true);
+        emitQueueActionFeedback({
+          action: "dismiss",
+          succeeded: true,
+          title: t("queueScroll.documentDismissed"),
+          message: t("queueScroll.documentDismissedDesc"),
+          undoLabel: t("queue.undo"),
+          onUndo: async () => {
+            await dismissDocument(item.documentId, false);
+            await loadQueue();
+            emitQueueActionFeedback({
+              action: "restore",
+              succeeded: true,
+              title: t("queue.restored"),
+              message: t("queue.scheduleUpdated"),
+            });
+          },
+        });
+      } else if (item.itemType === "learning-item") {
+        const result = await bulkSuspendItems([item.id]);
+        if (result.failed.length > 0) {
+          throw new Error(result.errors.join(", "));
+        }
+        emitQueueActionFeedback({
+          action: "suspend",
+          succeeded: true,
+          title: t("queue.suspended"),
+          message: t("queue.scheduleUpdated"),
+          undoLabel: t("queue.undo"),
+          onUndo: async () => {
+            await bulkUnsuspendItems([item.id]);
+            await loadQueue();
+            emitQueueActionFeedback({
+              action: "restore",
+              succeeded: true,
+              title: t("queue.restored"),
+              message: t("queue.scheduleUpdated"),
+            });
+          },
+        });
+      }
+      await loadQueue();
+    } catch (error) {
+      emitQueueActionFeedback({
+        action: item.itemType === "document" ? "dismiss" : "suspend",
+        succeeded: false,
+        title: t("queue.operationFailed"),
+        message: error instanceof Error ? error.message : t("queue.pleaseRefresh"),
+      });
+    }
   };
 
   const getItemIcon = (itemType: QueueItem["itemType"], fileType?: string) => {
@@ -348,7 +450,7 @@ export function Queue() {
           )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="min-h-0 space-y-3">
           {/* Select All Header */}
           <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-md">
             <button
@@ -369,7 +471,7 @@ export function Queue() {
 
           {/* Virtual Scrolled Items List */}
           <DynamicVirtualList
-            items={filteredItems}
+            items={orderedItems}
             renderItem={(item) => (
               <div
                 className={`p-4 mb-3 bg-card border border-border rounded-lg hover:shadow-md transition-shadow ${
@@ -398,6 +500,18 @@ export function Queue() {
                       <Square className="w-5 h-5 text-muted-foreground" />
                     )}
                   </button>
+
+                  <div
+                    className={`shrink-0 rounded-full px-2 py-1 text-xs font-semibold ${item.isUpNext ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
+                    aria-label={t("queue.queuePosition", {
+                      position: item.queuePosition,
+                      total: item.queueTotal,
+                    })}
+                  >
+                    {item.isUpNext
+                      ? `${t("queue.upNext")} · ${t("queue.positionOf", { position: item.queuePosition, total: item.queueTotal })}`
+                      : t("queue.positionOf", { position: item.queuePosition, total: item.queueTotal })}
+                  </div>
 
                   {/* Icon */}
                   <div className="text-2xl flex-shrink-0">{getItemIcon(item.itemType, item.documentFileType)}</div>
@@ -570,6 +684,18 @@ export function Queue() {
                           {t("common.start")}
                         </button>
 
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openItemActions(item, event.currentTarget);
+                          }}
+                          className="min-h-9 min-w-9 rounded-md border border-border bg-background p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          aria-label={t("queue.itemActionsFor", { title: item.documentTitle })}
+                        >
+                          <DotsThree className="h-4 w-4" weight="bold" aria-hidden="true" />
+                        </button>
+
                         <QueueContextMenu
                           item={item}
                           onDelete={handleDeleteItem}
@@ -581,7 +707,7 @@ export function Queue() {
                 </div>
               </div>
             )}
-            className="max-h-[60vh]"
+            className="max-h-[calc(100vh-20rem)] min-h-[280px]"
             estimateSize={200}
           />
         </div>
@@ -601,6 +727,20 @@ export function Queue() {
 
       {/* Auto-Postpone Prompt */}
       <AutoPostponePrompt />
+
+      <QueueItemActionSheet
+        item={actionItem}
+        open={Boolean(actionItem)}
+        onClose={closeItemActions}
+        triggerElement={actionTriggerRef.current}
+        onOpenDocument={(item) => handleStartReview(item)}
+        onStartReview={() => {
+          if (actionItem) handleStartReview(actionItem);
+        }}
+        onPostpone={handleActionPostpone}
+        onRemove={handleActionRemove}
+        onSelect={(item) => setSelected(item.id, true)}
+      />
     </div>
   );
 }

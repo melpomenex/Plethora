@@ -65,7 +65,7 @@ tests) already exists — build on it, do not regenerate it.
   `playNotificationGatedFeedback` calls with
   `emitFeedback("review.session-completed", …)` + `"review.streak-milestone"`;
   add hidden-window OS pathway per policy. Keep the `didPlaySoundsRef` guard.
-- [ ] 3.2 `src/components/review/queueActions.ts` + `src/utils/reviewUx.ts`:
+- [x] 3.2 `src/components/review/queueActions.ts` + `src/utils/reviewUx.ts`:
   route action success/failure feedback through `emitFeedback("review.card-action")`
   keeping existing toast copy + Undo wiring exactly (this file is under active
   development on `main` — coordinate, smallest possible diff).
