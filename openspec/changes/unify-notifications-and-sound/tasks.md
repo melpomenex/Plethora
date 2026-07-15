@@ -97,7 +97,7 @@ tests) already exists — build on it, do not regenerate it.
   - Replace dead `initializeNotifications`/`scheduleStudyReminder` in
     `notificationService.ts` (delete or mark deprecated with pointer).
   - Tests: fake timers around fire-time math, cooldown, quiet-hours interaction.
-- [ ] 4.2 Repair the installed-PWA background path: write `due-card-count`.
+- [x] 4.2 Repair the installed-PWA background path: write `due-card-count`.
   - Files: `src/utils/pushSubscription.ts` (add `storeDueCountForSW(count)`), call
     it wherever queue stats load and after review completion (same hook points as
     4.3), and on `subscribeToPush`. Keep SW (`public/sw.js`) unchanged if possible.

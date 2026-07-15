@@ -16,6 +16,7 @@ import { useCollectionStore } from "./collectionStore";
 import type { QueueItem, SortOptions, SearchFilters } from "../types";
 import { useDocumentStore } from "./documentStore";
 import { useSettingsStore } from "./settingsStore";
+import { storeDueCountForSW } from "../utils/pushSubscription";
 import {
   postponeElement,
   postponeAll as enginePostponeAll,
@@ -210,6 +211,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     try {
       const stats = await getQueueStats();
       set({ stats });
+      void storeDueCountForSW(stats.due_today);
     } catch (error) {
       console.error("Failed to load queue stats:", error);
     }

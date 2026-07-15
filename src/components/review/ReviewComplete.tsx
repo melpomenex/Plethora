@@ -9,6 +9,9 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../lib/i18n";
 import { emitFeedback } from "../../lib/feedback";
+import { getQueueStats } from "../../api/queue";
+import { storeDueCountForSW } from "../../utils/pushSubscription";
+import { isPWA } from "../../lib/tauri";
 
 interface ReviewCompleteProps {
   reviewsCompleted: number;
@@ -49,6 +52,14 @@ export function ReviewComplete({
       correctCount,
       durationMs,
     });
+
+    if (isPWA()) {
+      void getQueueStats()
+        .then((stats) => storeDueCountForSW(stats.due_today))
+        .catch(() => {
+          // Due-count persistence is best-effort and must not affect completion UI.
+        });
+    }
 
     if (hitMilestone) {
       window.setTimeout(() => {

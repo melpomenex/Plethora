@@ -13,6 +13,7 @@
  */
 
 import { isPWA } from '../lib/tauri';
+import { getQueueStats } from '../api/queue';
 
 const SYNC_TAG = 'check-due-cards';
 
@@ -83,6 +84,8 @@ export async function subscribeToPush(): Promise<boolean> {
 
     // Store notification preferences in IndexedDB for the SW to read
     await storePrefsForSW();
+    const stats = await getQueueStats();
+    await storeDueCountForSW(stats.due_today);
 
     // Register periodic sync - browser will wake the SW at ~24 hour intervals
     await (registration as any).periodicSync.register(SYNC_TAG, {
@@ -141,6 +144,28 @@ async function storePrefsForSW(): Promise<void> {
     });
   } catch {
     // IndexedDB may not be available
+  }
+}
+
+/** Keep the service worker's due-card snapshot current for periodic sync. */
+export async function storeDueCountForSW(count: number): Promise<void> {
+  if (!isPWA() || !Number.isFinite(count)) return;
+
+  try {
+    const db = await openDB();
+    const tx = db.transaction('preferences', 'readwrite');
+    tx.objectStore('preferences').put({
+      key: 'due-card-count',
+      count: Math.max(0, Math.floor(count)),
+      updatedAt: Date.now(),
+    });
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch {
+    // IndexedDB is optional; foreground feedback remains available.
   }
 }
 
