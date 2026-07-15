@@ -238,30 +238,37 @@ export function FSRSInspector({ card, isOpen, onClose }: FSRSInspectorProps) {
     : "1-10 scale. Higher = harder to remember";
 
   return (
-    <div
-      ref={panelRef}
-      className={cn(
-        "fixed right-0 top-0 bottom-0 w-80 bg-card border-l border-border shadow-2xl z-50",
-        "transform transition-transform duration-150 ease-out",
-        isOpen ? "translate-x-0" : "translate-x-full"
-      )}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Pulse className="w-4 h-4 text-primary" />
-          <span className="text-sm font-semibold">{inspectorTitle}</span>
-        </div>
-        <button
-          onClick={onClose}
-          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+    <>
+      {/* Backdrop for tapping away to close */}
+      <div
+        className="fixed inset-0 bg-black/40 backdrop-blur-[1px] z-40 transition-opacity duration-150"
+        onClick={onClose}
+      />
 
-      {/* Content */}
-      <div className="overflow-y-auto h-[calc(100%-48px)]">
+      <div
+        ref={panelRef}
+        className={cn(
+          "fixed right-0 top-0 bottom-0 w-80 bg-card border-l border-border shadow-2xl z-50 flex flex-col pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]",
+          "transform transition-transform duration-150 ease-out",
+          isOpen ? "translate-x-0" : "translate-x-full"
+        )}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Pulse className="w-4 h-4 text-primary" />
+            <span className="text-sm font-semibold">{inspectorTitle}</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
         {/* Card ID */}
         <div className="px-4 py-2 bg-muted/50 border-b border-border">
           <div className="text-[10px] font-mono text-muted-foreground truncate">
@@ -408,6 +415,7 @@ export function FSRSInspector({ card, isOpen, onClose }: FSRSInspectorProps) {
         </div>
       </div>
     </div>
+    </>
   );
 }
 
