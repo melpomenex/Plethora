@@ -416,6 +416,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       }
 
       if (e.key === "Escape") {
+        // In Zen Mode, let ZenReviewMode's own Escape handler exit Zen only
+        // (back to the normal session). This session-level handler stays
+        // mounted while Zen is shown, so without this guard a single Esc
+        // would also leave the whole session.
+        if (isZenMode) return;
         e.preventDefault();
         onExit();
         return;
@@ -486,6 +491,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     goToIndex,
     currentIndex,
     useNativeGrades,
+    isZenMode,
   ]);
 
   if (isLoading) {

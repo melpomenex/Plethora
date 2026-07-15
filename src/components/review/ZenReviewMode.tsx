@@ -1,12 +1,14 @@
 /**
  * Zen Review Mode
- * 
+ *
  * Absolute minimal UI for distraction-free review sessions.
  * Philosophy: Only the card text exists. Everything else is invisible.
- * 
+ *
  * Features:
  * - No visible buttons, progress bars, or headers
- * - Pure keyboard grading (1-4, Space)
+ * - Keyboard grading (1-4 / 0-5 for SM-18/SM-20, Space)
+ * - Touch grading after reveal: the same H-pattern 6-grade joystick
+ *   (SM-18/SM-20) or 4-direction swipe (FSRS/SM-2) as the regular review
  * - Subtle algorithm metadata (10px monospace, bottom-right)
  * - Context Peek: Hold Alt to see source document context
  * - Instant card transitions (no animations)
@@ -23,6 +25,11 @@ import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { sanitizeHtml } from "../common/RichContentRenderer";
 import { normalizeClozeSyntax } from "../../utils/cloze";
+import { useFormFactor } from "../../hooks/useFormFactor";
+import { useRatingJoystick } from "../../hooks/useRatingJoystick";
+import { useSwipeGesture } from "../../hooks/useSwipeGesture";
+import { useHapticFeedback } from "../../hooks/useHapticFeedback";
+import { RatingJoystick } from "./RatingJoystick";
 
 interface ZenReviewModeProps {
   onExit: () => void;
@@ -332,17 +339,57 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
     isSubmitting,
     error,
     currentIndex,
-    previewIntervals: _previewIntervals,
+    previewIntervals,
     showAnswer,
     submitRating,
     nextCard,
     sessionStartTime,
   } = useReviewStore();
-  
+
   const [contextPeekVisible, setContextPeekVisible] = useState(false);
   const [justRated, setJustRated] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettingsStore();
+
+  // Touch grading: SM-18/SM-20 get the 6-grade H-pattern joystick; FSRS/SM-2
+  // (and desktop) keep the classic 4-direction swipe. Mirrors ReviewSession.
+  const useNativeGrades =
+    settings.learning.algorithm === "sm20" || settings.learning.algorithm === "sm18";
+  const formFactor = useFormFactor();
+  const isTouch = formFactor === "phone" || formFactor === "tablet";
+  const useJoystick = useNativeGrades && isTouch;
+  const haptic = useHapticFeedback();
+
+  // Keep latest state in refs so the gesture callbacks (registered once)
+  // always see current values without re-binding listeners every render.
+  const answerShownRef = useRef(isAnswerShown);
+  const submittingRef = useRef(isSubmitting);
+  // `handleRating` is declared below; initialize to a no-op and patch the ref
+  // every render once it exists. The gesture hooks read `.current` at call time.
+  const ratingCbRef = useRef<(rating: ReviewRating, grade?: number) => Promise<void>>(
+    async () => {},
+  );
+  answerShownRef.current = isAnswerShown;
+  submittingRef.current = isSubmitting;
+
+  const {
+    ref: swipeRef,
+  } = useSwipeGesture({
+    onSwipeLeft: () => answerShownRef.current && !submittingRef.current && ratingCbRef.current(1 as ReviewRating),
+    onSwipeRight: () => answerShownRef.current && !submittingRef.current && ratingCbRef.current(4 as ReviewRating),
+    onSwipeUp: () => answerShownRef.current && !submittingRef.current && ratingCbRef.current(3 as ReviewRating),
+    onSwipeDown: () => answerShownRef.current && !submittingRef.current && ratingCbRef.current(2 as ReviewRating),
+    threshold: 80,
+    preventDefaultTouch: true,
+  });
+
+  const joystick = useRatingJoystick({
+    onSelect: (rating, grade) => ratingCbRef.current(rating as ReviewRating, grade),
+    enabled: () => answerShownRef.current && !submittingRef.current,
+  });
+  // The joystick and swipe hooks both attach to the card container; only one
+  // is active depending on the algorithm + form factor.
+  const gestureRef = useJoystick ? joystick.ref : swipeRef;
   
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -385,41 +432,57 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
       // Rating keys (only when answer shown)
       if (isAnswerShown && currentCard && !isSubmitting && !justRated) {
         const key = e.key;
-        if (key >= "1" && key <= "4") {
+        if (useNativeGrades && /^[0-5]$/.test(key)) {
+          // Native SM-18/SM-20 0-5 grade scale (mirrors ReviewSession).
+          e.preventDefault();
+          const grade = Number(key);
+          const rating = (grade < 3 ? 1 : grade - 1) as ReviewRating;
+          handleRating(rating, grade);
+        } else if (key >= "1" && key <= "4") {
           e.preventDefault();
           const rating = parseInt(key) as ReviewRating;
           handleRating(rating);
         }
       }
     };
-    
+
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.key === "Alt") {
         setContextPeekVisible(false);
       }
     };
-    
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [isAnswerShown, currentCard, isSubmitting, justRated, onExit, showAnswer]);
+  }, [isAnswerShown, currentCard, isSubmitting, justRated, onExit, showAnswer, useNativeGrades]);
   
-  const handleRating = useCallback(async (rating: ReviewRating) => {
+  const handleRating = useCallback(async (rating: ReviewRating, grade?: number) => {
     if (justRated || isSubmitting) return;
-    
+
+    haptic.click();
     setJustRated(true);
-    await submitRating(rating);
-    
+    const beforeId = currentCard?.id;
+    await submitRating(rating, grade);
+    if (!beforeId) return;
+
+    // `submitRating` already advances the queue; only step again if it didn't
+    // (mirrors ReviewSession's guard so we never skip a card).
+    const afterId = useReviewStore.getState().currentCard?.id;
+    if (afterId === beforeId) {
+      nextCard();
+    }
     // Instant transition - no animation delay
     setTimeout(() => {
-      nextCard();
       setJustRated(false);
     }, 50);
-  }, [justRated, isSubmitting, submitRating, nextCard]);
-  
+  }, [justRated, isSubmitting, submitRating, nextCard, currentCard?.id, haptic]);
+  // Keep the gesture-hook ref pointed at the latest rating handler.
+  ratingCbRef.current = handleRating;
+
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -494,10 +557,13 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
       {sessionStartTime && <SessionTimer startTime={sessionStartTime} />}
 
       {/* Card Content */}
-      <div className={cn(
-        "w-full flex-1 flex items-center justify-center",
-        justRated && "opacity-0"
-      )}>
+      <div
+        ref={gestureRef}
+        className={cn(
+          "w-full flex-1 flex items-center justify-center touch-pan-y",
+          justRated && "opacity-0"
+        )}
+      >
         <ZenCard
           item={currentCard}
           showAnswer={isAnswerShown}
@@ -506,10 +572,12 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
         />
       </div>
 
-      {/* Subtle hint at bottom */}
+      {/* Subtle hint at bottom — reflects the active grading scheme. The
+          touch joystick/swipe show their own hint while active, so this is a
+          cue for keyboard/hardware-keyboard users. */}
       <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs text-muted-foreground/20">
         {isAnswerShown ? (
-          <span className="tracking-widest">1 2 3 4</span>
+          <span className="tracking-widest">{useNativeGrades ? "0 1 2 3 4 5" : "1 2 3 4"}</span>
         ) : (
           <span className="tracking-wide">Space</span>
         )}
@@ -533,12 +601,12 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
       {/* Progress indicator - ultra subtle dots */}
       <div className="fixed top-4 right-4 flex gap-1">
         {queue.slice(0, 20).map((_, i) => (
-          <div 
+          <div
             key={i}
             className={cn(
               "w-1 h-1 rounded-full transition-colors duration-75",
-              i < currentIndex ? "bg-muted-foreground/20" : 
-              i === currentIndex ? "bg-muted-foreground/40" : 
+              i < currentIndex ? "bg-muted-foreground/20" :
+              i === currentIndex ? "bg-muted-foreground/40" :
               "bg-muted-foreground/5"
             )}
           />
@@ -549,6 +617,18 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
           </div>
         )}
       </div>
+
+      {/* Touch rating overlay — same H-pattern joystick as the regular
+          review; active on touch devices with an SM-18/SM-20 algorithm. */}
+      {useJoystick && (
+        <RatingJoystick
+          activeGrade={joystick.activeGrade}
+          knob={joystick.knob}
+          base={joystick.base}
+          isActive={joystick.isActive}
+          previewIntervals={previewIntervals}
+        />
+      )}
     </div>
   );
 }
