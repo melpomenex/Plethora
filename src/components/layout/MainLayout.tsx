@@ -352,12 +352,12 @@ export function MainLayout() {
   useEffect(() => {
     const handleSyncCorruption = (event: Event) => {
       const detail = (event as CustomEvent<{ message?: string }>).detail;
-      const message = detail?.message || "Sync is paused. Your local data is safe; review recovery options in Settings.";
-      void emitFeedback("sync.corruption", { message }, {
+      const diagnostic = detail?.message || t("mainLayout.syncCorruptionMessage");
+      void emitFeedback("sync.corruption", { message: diagnostic }, {
         toast: {
           type: ToastType.Error,
-          title: "Sync needs attention",
-          message,
+          title: t("mainLayout.syncCorruptionTitle"),
+          message: t("mainLayout.syncCorruptionMessage"),
           duration: 0,
           action: {
             label: t("mainLayout.openSettings"),

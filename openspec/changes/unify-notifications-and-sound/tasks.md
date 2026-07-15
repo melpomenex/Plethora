@@ -114,7 +114,7 @@ tests) already exists — build on it, do not regenerate it.
   "Reset to recommended defaults" (confirm dialog → `resetCategory("notifications")`),
   render app-preference vs. permission vs. capability as three distinct facts with
   per-platform recovery copy for denied state.
-- [ ] 5.2 i18n: add new keys (reset button, recovery guidance, reminder copy,
+- [x] 5.2 i18n: add new keys (reset button, recovery guidance, reminder copy,
   sync-corruption toast) to all 6 locales in `src/lib/i18n/locales/` following the
   flat `"notificationSettings.*"` / `"mainLayout.*"` style; English strings are
   source of truth, other locales may start with English values marked for

@@ -28,6 +28,7 @@ import {
   queryAsyncCapabilities,
   type AsyncFeedbackCapabilities,
 } from "./capabilities";
+import { t } from "../i18n";
 
 export type FeedbackChannel = "toast" | "sound" | "haptic" | "os" | "badge";
 
@@ -251,8 +252,8 @@ function defaultToast(eventId: FeedbackEventId, payload: FeedbackEventPayloads[F
     const dueCount = (payload as FeedbackEventPayloads["reminder.reviews-due"]).dueCount;
     return {
       type: ToastType.Info,
-      title: payloadTitle ?? "Reviews due",
-      message: payloadMessage ?? `You have ${dueCount} cards due for review.`,
+      title: payloadTitle ?? t("notificationSettings.reminderTitle"),
+      message: payloadMessage ?? t("notificationSettings.reminderMessage", { count: dueCount }),
     };
   }
   if (eventId === "sync.corruption") {
@@ -332,8 +333,8 @@ function defaultNotification(
   if (eventId === "reminder.reviews-due") {
     const reminder = payload as FeedbackEventPayloads["reminder.reviews-due"];
     return {
-      title: "Reviews due",
-      body: `You have ${reminder.dueCount} cards due for review.`,
+      title: t("notificationSettings.reminderTitle"),
+      body: t("notificationSettings.reminderMessage", { count: reminder.dueCount }),
     };
   }
   return { title: toast.title, body: toast.message };

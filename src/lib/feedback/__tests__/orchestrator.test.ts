@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => {
   const settingsState = {
     settings: {
+      general: { language: "en" },
       notifications: {
         enabled: true,
         studyReminders: true,
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     settingsState,
+    subscribe: vi.fn(() => vi.fn()),
     addToast: vi.fn(),
     sendNotification: vi.fn().mockResolvedValue(true),
     playFile: vi.fn(),
@@ -33,7 +35,10 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("../../../stores/settingsStore", () => ({
-  useSettingsStore: { getState: () => mocks.settingsState },
+  useSettingsStore: {
+    getState: () => mocks.settingsState,
+    subscribe: mocks.subscribe,
+  },
 }));
 vi.mock("../../../components/common/Toast", () => ({
   ToastType: {
