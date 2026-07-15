@@ -36,7 +36,7 @@ tests) already exists — build on it, do not regenerate it.
 
 ## 2. Orchestrator (decision layer)
 
-- [ ] 2.1 Implement `emitFeedback` in `src/lib/feedback/orchestrator.ts`.
+- [x] 2.1 Implement `emitFeedback` in `src/lib/feedback/orchestrator.ts`.
   - Consume `FEEDBACK_POLICY_REGISTRY`; gates in order: policy → settings
     (`useSettingsStore.getState().settings.notifications`) → capabilities →
     visibility/focus (`document.visibilityState` + `blur`/`focus` listeners) →
