@@ -38,6 +38,7 @@ import { useCollectionStore } from "../../stores/collectionStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { renderAnkiHtmlWithLatex } from "../../utils/ankiLatex";
 import { useI18n } from "../../lib/i18n";
+import { setActiveReviewSession } from "../../lib/feedback";
 
 interface ReviewSessionProps {
   onExit: () => void;
@@ -95,6 +96,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     selectedOptionText?: string;
   } | null>(null);
   const { t } = useI18n();
+
+  useEffect(() => {
+    setActiveReviewSession(true);
+    return () => setActiveReviewSession(false);
+  }, []);
   
   // Zen mode state
   const [isZenMode, setIsZenMode] = useState(false);

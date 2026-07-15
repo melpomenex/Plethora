@@ -163,6 +163,17 @@ describe("emitFeedback", () => {
     expect(mocks.addToast).toHaveBeenCalledOnce();
   });
 
+  it("honors the persisted once-per-calendar-day reminder cooldown", async () => {
+    const now = new Date();
+    const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    localStorage.setItem("incrementum-feedback:last-reminder", day);
+
+    const result = await emitFeedback("reminder.reviews-due", { dueCount: 4 });
+
+    expect(result).toEqual({ channels: [], suppressedBy: "daily-cooldown" });
+    expect(mocks.addToast).not.toHaveBeenCalled();
+  });
+
   it("uses the OS path for hidden completion without adding a second sound", async () => {
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
 

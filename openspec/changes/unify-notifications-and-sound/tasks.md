@@ -86,7 +86,7 @@ tests) already exists — build on it, do not regenerate it.
 
 ## 4. Reminders, badge, background repair
 
-- [ ] 4.1 `src/lib/feedback/reminderScheduler.ts`: daily reminder while app runs.
+- [x] 4.1 `src/lib/feedback/reminderScheduler.ts`: daily reminder while app runs.
   - Boot from `src/main.tsx` via the existing `runAfterFirstPaint` pattern.
   - Read `studyReminders`/`reminderTime`; compute next fire; `setTimeout` chain +
     `visibilitychange` re-check; deliver `emitFeedback("reminder.reviews-due",

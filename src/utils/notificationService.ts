@@ -392,65 +392,12 @@ function generateId(): string {
 }
 
 /**
- * Initialize notification service
- * Sets up listeners and restores scheduled notifications
+ * @deprecated Use `startReminderScheduler` from `src/lib/feedback`.
+ * Reminder scheduling now reads the Zustand settings slice and routes delivery
+ * through the unified feedback orchestrator.
  */
 export function initializeNotifications(): void {
-  // Listen for messages from service worker
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.addEventListener("message", (event) => {
-      if (event.data?.type === "NOTIFICATION_CLICKED") {
-        window.focus();
-        // Could dispatch a custom event here
-        window.dispatchEvent(
-          new CustomEvent("notification-clicked", {
-            detail: event.data.payload,
-          })
-        );
-      }
-    });
-  }
-
-  // Schedule daily study reminder if enabled
-  scheduleStudyReminder();
-}
-
-/**
- * Schedule study reminder based on settings
- */
-function scheduleStudyReminder(): void {
-  const settings = localStorage.getItem("incrementum-settings");
-  if (!settings) return;
-
-  try {
-    const parsed = JSON.parse(settings);
-    const { notifications } = parsed.state?.settings || {};
-
-    if (
-      !notifications?.enabled ||
-      !notifications?.studyReminders
-    ) {
-      return;
-    }
-
-    const [hour, minute] = (notifications.reminderTime || "09:00")
-      .split(":")
-      .map(Number);
-
-    scheduleDailyNotification(
-      {
-        title: "Time to Study! 📚",
-        body: "Your daily review is ready. Keep your streak going!",
-        icon: "/icon.png",
-        tag: "study-reminder",
-      },
-      hour,
-      minute
-    );
-
-  } catch (error) {
-    console.error("Failed to schedule study reminder:", error);
-  }
+  // Kept as a no-op compatibility export for integrations that still import it.
 }
 
 /**

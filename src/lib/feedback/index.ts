@@ -48,6 +48,7 @@ export {
   setActiveReviewSession,
   setReviewSessionActive,
 } from "./orchestrator";
+export { getNextReminderDelay, startReminderScheduler } from "./reminderScheduler";
 export type {
   FeedbackChannel,
   FeedbackEmitOptions,

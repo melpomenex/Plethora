@@ -111,6 +111,7 @@ import { isNativeMobile, isPWA, isTauri } from "./lib/tauri";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 import { installConsoleLogcatBridge } from "./lib/consoleLogcatBridge";
 import { markSyncPhaseStart } from "./lib/sync/syncTelemetry";
+import { startReminderScheduler } from "./lib/feedback/reminderScheduler";
 
 import { MainLayout } from "./components/layout/MainLayout";
 import { DevPerformanceMonitor } from "./components/common/PerformanceMonitor";
@@ -249,6 +250,12 @@ function initLocalStorageSyncLazy(): Promise<void> {
     initLocalStorageSync(),
   );
 }
+
+// Keep the in-app reminder alive on every surface. The scheduler is deliberately
+// deferred until after the first paint so local boot remains responsive.
+runAfterFirstPaint(() => {
+  startReminderScheduler();
+});
 
 // Initialize localStorage -> Yjs sync (shared state across devices). Keep the
 // module lazy on native/Tauri boot so the Yjs/hash-wasm dependency chain stays
