@@ -29,6 +29,7 @@ import {
 import { DEFAULT_TIMER_CONFIG, type FocusTimerState, type FocusTimerConfig, type TimerPhase } from "../../types/focus-timer";
 import { useToast } from '../common/Toast';
 import { t } from '../../lib/i18n';
+import { emitFeedback } from '../../lib/feedback';
 
 // Format time as MM:SS
 const formatTime = (seconds: number): string => {
@@ -325,12 +326,17 @@ export function FocusTimer() {
 
   const handleTimerComplete = useCallback((state: FocusTimerState) => {
     const phaseLabel = t(phaseConfig[state.phase].labelKey);
+    const phase = state.phase === 'shortbreak'
+      ? 'short_break'
+      : state.phase === 'longbreak'
+        ? 'long_break'
+        : 'work';
+    const title = t("focusTimer.phaseComplete", { phase: phaseLabel });
+    const message = state.phase === 'work' ? t("focusTimer.timeForBreak") : t("focusTimer.readyToFocus");
 
     toast.success(
-      t("focusTimer.phaseComplete", { phase: phaseLabel }),
-      state.phase === 'work'
-        ? t("focusTimer.timeForBreak")
-        : t("focusTimer.readyToFocus")
+      title,
+      message,
     );
 
     // Play sound if enabled
@@ -338,13 +344,11 @@ export function FocusTimer() {
       import('../../utils/soundService').then(({ playTimerComplete }) => playTimerComplete());
     }
 
-    // Show notification if enabled
-    if (state.config.notifications_enabled && 'Notification' in window && Notification.permission === 'granted') {
-      new Notification(t("focusTimer.phaseComplete", { phase: phaseLabel }), {
-        body: state.phase === 'work' ? t("focusTimer.timeForBreak") : t("focusTimer.readyToFocus"),
-        icon: '/favicon.ico',
-      });
-    }
+    void emitFeedback("focus.phase-completed", { phase, phaseLabel }, {
+      notificationsEnabled: state.config.notifications_enabled,
+      soundHandledExternally: true,
+      notification: { title, body: message, data: { url: "/focus" } },
+    });
   }, [toast]);
 
   const handleStart = async () => {

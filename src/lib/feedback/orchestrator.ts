@@ -71,6 +71,8 @@ export interface FeedbackEmitOptions {
   notification?: FeedbackNotificationOptions;
   /** FocusTimer's local notification toggle is an event fact, not a channel choice. */
   notificationsEnabled?: boolean;
+  /** The caller owns the event's sound delivery and the orchestrator must not layer one. */
+  soundHandledExternally?: boolean;
 }
 
 type NotificationSettings = ReturnType<typeof useSettingsStore.getState>["settings"]["notifications"];
@@ -458,6 +460,7 @@ export async function emitFeedback<Event extends FeedbackEventId>(
   const toast = toastAllowed && !os;
   const role = policy.sound;
   const sound = role !== null
+    && !options?.soundHandledExternally
     && roleIsEnabled(role, settings)
     && !quietHoursSuppressesSound(policy, role, settings)
     && !os;

@@ -177,6 +177,17 @@ describe("emitFeedback", () => {
     expect(mocks.playFile).not.toHaveBeenCalled();
   });
 
+  it("does not layer a sound when the caller owns delivery", async () => {
+    const result = await emitFeedback("focus.phase-completed", {
+      phase: "work",
+      phaseLabel: "Focus",
+    }, { soundHandledExternally: true, notificationsEnabled: false });
+
+    expect(result.channels).toEqual([]);
+    expect(mocks.playFile).not.toHaveBeenCalled();
+    expect(mocks.sendNotification).not.toHaveBeenCalled();
+  });
+
   it("logs resolutions only when feedback debug mode is enabled", async () => {
     const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
     localStorage.setItem("incrementum-feedback:debug", "1");

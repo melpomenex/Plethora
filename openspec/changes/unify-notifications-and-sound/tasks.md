@@ -71,7 +71,7 @@ tests) already exists — build on it, do not regenerate it.
   development on `main` — coordinate, smallest possible diff).
 - [x] 3.3 `src/stores/documentStore.ts`: import completed / none-found / failed →
   `emitFeedback("import.completed" | "import.failed", …)`; keep messages.
-- [ ] 3.4 `src/components/focus/FocusTimer.tsx`: replace raw `new Notification`
+- [x] 3.4 `src/components/focus/FocusTimer.tsx`: replace raw `new Notification`
   with `emitFeedback("focus.phase-completed", …)`; keep `playTimerComplete` as the
   sound delivery for this event's `complete` role; respect
   `config.notifications_enabled`.
