@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import {
   useToastStore,
   Toast,
@@ -109,6 +109,16 @@ describe("Toast Component", () => {
     render(<Toast />);
 
     expect(screen.getByText("Success!")).toBeInTheDocument();
+  });
+
+  it("renders a store dispatch without ToastProvider", () => {
+    render(<Toast />);
+
+    act(() => {
+      useToastStore.getState().addToast({ type: ToastType.Info, title: "Dispatched" });
+    });
+
+    expect(screen.getByText("Dispatched")).toBeInTheDocument();
   });
 
   it("should render toast with message", () => {

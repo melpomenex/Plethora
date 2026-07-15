@@ -114,6 +114,7 @@ import { markSyncPhaseStart } from "./lib/sync/syncTelemetry";
 
 import { MainLayout } from "./components/layout/MainLayout";
 import { DevPerformanceMonitor } from "./components/common/PerformanceMonitor";
+import { Toast } from "./components/common/Toast";
 import { Analytics } from "@vercel/analytics/react";
 import { BatteryProvider } from "./contexts/BatteryContext";
 import { PresentationProvider } from "./contexts/PresentationContext";
@@ -347,6 +348,7 @@ reactRoot.render(
               </Routes>
             </Suspense>
             <DevPerformanceMonitor />
+            <Toast />
             {/* Only load Vercel Analytics in web/PWA mode, not in Tauri desktop */}
             {!isTauri() && <Analytics />}
           </HashRouter>
