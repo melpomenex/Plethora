@@ -119,7 +119,7 @@ tests) already exists — build on it, do not regenerate it.
   flat `"notificationSettings.*"` / `"mainLayout.*"` style; English strings are
   source of truth, other locales may start with English values marked for
   translation if that is the existing convention (verify with a recent commit).
-- [ ] 5.3 Verify persistence: settings survive restart on Tauri + PWA (deep-merge
+- [x] 5.3 Verify persistence: settings survive restart on Tauri + PWA (deep-merge
   rehydration covers absent keys; confirm no version bump needed since the slice
   shape is unchanged).
 
