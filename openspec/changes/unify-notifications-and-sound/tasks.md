@@ -110,7 +110,7 @@ tests) already exists — build on it, do not regenerate it.
 
 ## 5. Settings UX polish
 
-- [ ] 5.1 `src/components/settings/NotificationSettings.tsx`: add
+- [x] 5.1 `src/components/settings/NotificationSettings.tsx`: add
   "Reset to recommended defaults" (confirm dialog → `resetCategory("notifications")`),
   render app-preference vs. permission vs. capability as three distinct facts with
   per-platform recovery copy for denied state.

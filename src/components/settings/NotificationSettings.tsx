@@ -23,6 +23,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../lib/i18n";
 import { isTauri, isPWA } from "../../lib/tauri";
 import {
+  areNotificationsSupported,
   requestNotificationPermission,
   checkNotificationPermission,
   scheduleNotification,
@@ -143,13 +144,14 @@ function BackgroundNotificationSettings({
 export function NotificationSettings({ onChange }: NotificationSettingsProps) {
   const { t } = useI18n();
   const hapticsSupported = supportsHaptics();
-  const { settings, updateSettingsCategory } = useSettingsStore();
+  const { settings, updateSettingsCategory, resetCategory } = useSettingsStore();
   const notificationSettings = settings.notifications;
 
   const [permission, setPermission] = useState<NotificationPermission>("default");
   const [isRequesting, setIsRequesting] = useState(false);
   const [testNotificationSent, setTestNotificationSent] = useState(false);
   const [platform, setPlatform] = useState<"tauri" | "pwa" | "web">("web");
+  const [notificationsSupported, setNotificationsSupported] = useState<boolean | null>(null);
 
   // Detect platform on mount
   useEffect(() => {
@@ -163,11 +165,18 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
   }, []);
 
   useEffect(() => {
+    setNotificationsSupported(areNotificationsSupported());
     checkNotificationPermission().then(setPermission);
   }, []);
 
   const handleUpdate = (updates: Partial<typeof notificationSettings>) => {
     updateSettingsCategory("notifications", updates);
+    onChange?.();
+  };
+
+  const handleResetRecommended = () => {
+    if (!window.confirm(t("notificationSettings.resetConfirm"))) return;
+    resetCategory("notifications");
     onChange?.();
   };
 
@@ -258,8 +267,37 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
 
       {/* Permission Status */}
       <section>
-        <h3 className="text-lg font-semibold mb-4">{t("notificationSettings.title")}</h3>
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <h3 className="text-lg font-semibold">{t("notificationSettings.title")}</h3>
+          <button
+            type="button"
+            onClick={handleResetRecommended}
+            className="text-sm text-muted-foreground underline hover:text-foreground"
+          >
+            {t("notificationSettings.resetRecommended")}
+          </button>
+        </div>
         <div className="space-y-4">
+          <div className="p-4 bg-muted/30 rounded-lg space-y-2 text-sm">
+            <p>
+              <span className="font-medium">{t("notificationSettings.appPreference")}: </span>
+              {notificationSettings.enabled
+                ? t("notificationSettings.preferenceOn")
+                : t("notificationSettings.preferenceOff")}
+            </p>
+            <p>
+              <span className="font-medium">{t("notificationSettings.permissionFact")}: </span>
+              {permissionStatus.text}
+            </p>
+            <p>
+              <span className="font-medium">{t("notificationSettings.capabilityFact")}: </span>
+              {notificationsSupported === null
+                ? t("notificationSettings.capabilityChecking")
+                : notificationsSupported
+                ? t("notificationSettings.capabilityAvailable")
+                : t("notificationSettings.capabilityUnavailable")}
+            </p>
+          </div>
           <div
             className={`flex items-center gap-3 p-4 rounded-lg ${permissionStatus.bg}`}
           >
@@ -270,10 +308,14 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
               </p>
               <p className="text-xs text-muted-foreground">
                 {permission === "granted"
-                  ? "You will receive notifications based on your preferences"
+                  ? t("notificationSettings.willReceive")
                   : permission === "denied"
-                  ? "Please enable notifications in your browser or system settings"
-                  : "Click the button below to enable notifications"}
+                  ? platform === "tauri"
+                    ? t("notificationSettings.deniedRecoveryTauri")
+                    : platform === "pwa"
+                    ? t("notificationSettings.deniedRecoveryPwa")
+                    : t("notificationSettings.deniedRecoveryBrowser")
+                  : t("notificationSettings.requestPermissionHint")}
               </p>
             </div>
             {permission !== "granted" && (
