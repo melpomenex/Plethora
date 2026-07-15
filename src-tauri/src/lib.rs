@@ -1000,6 +1000,7 @@ pub fn run() {
             commands::get_documents,
             commands::get_document,
             commands::resolve_document_cover,
+            commands::set_document_cover,
             commands::create_document,
             commands::update_document,
             commands::upsert_synced_document,

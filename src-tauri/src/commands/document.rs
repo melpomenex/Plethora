@@ -674,6 +674,46 @@ pub async fn resolve_document_cover(
     Ok(Some(doc))
 }
 
+/// Persist a cover image (as a data URL) for a document, used by the frontend
+/// PDF-cover renderer. After rendering page 1 to a JPEG in the webview (via
+/// `pdfjs-dist`), the frontend sends the data URL here so it is cached in the
+/// same `cover_image_url` / `cover_image_source` columns the rest of the cover
+/// pipeline uses. `cover_image_source` is set to `"rendered"`.
+///
+/// A null/empty `cover_image_url` is stored as `None` so callers can clear a
+/// stale cover. Only documents without an existing cover are written, matching
+/// the `resolve_document_cover` fast path — a present cover is a no-op return.
+#[tauri::command]
+pub async fn set_document_cover(
+    id: String,
+    cover_image_url: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<Option<Document>> {
+    let doc = match repo.get_document(&id).await? {
+        Some(doc) => doc,
+        None => return Ok(None),
+    };
+
+    // Treat an empty/whitespace string as "no cover" to avoid storing a
+    // blank data URL when the renderer bails out.
+    let url = cover_image_url
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    if doc.cover_image_url.is_some() {
+        // Already has a cover (embedded/youtube/anna/rendered) — keep it.
+        return Ok(Some(doc));
+    }
+
+    repo.update_document_cover(&doc.id, url.clone(), Some("rendered".to_string()))
+        .await?;
+
+    let mut doc = doc;
+    doc.cover_image_url = url;
+    doc.cover_image_source = Some("rendered".to_string());
+    Ok(Some(doc))
+}
+
 #[tauri::command]
 pub async fn create_document(
     title: String,

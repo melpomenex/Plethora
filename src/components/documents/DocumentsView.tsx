@@ -64,12 +64,14 @@ import {
 import {
   importYouTubeVideo,
   resolveDocumentCover,
+  setDocumentCover,
   updateDocument as updateDocumentApi,
 } from "../../api/documents";
 import { getYouTubeThumbnail, extractYouTubeTimestamp } from "../../api/youtube";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useLongPress } from "../../hooks/useLongPress";
 import { invokeCommand, isTauri, isNativeMobile } from "../../lib/tauri";
+import { renderPdfCover } from "../../lib/pdfCoverRender";
 import { DocumentFileSyncBadge } from "../sync/DocumentFileSyncBadge";
 import { importAnkiPackage } from "../../utils/ankiImport";
 import { useI18n } from "../../lib/i18n";
@@ -144,6 +146,7 @@ type SavedView = {
   sortKey: DocumentSortKey;
   sortDirection: DocumentSortDirection;
   mode: DocumentViewMode;
+  compactDocumentsView?: boolean;
   showNextAction: boolean;
   fileTypeFilter: string;
 };
@@ -370,30 +373,77 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     if (!isTauri() || (mode !== "grid" && !compactDocumentsView)) return;
 
     const pendingDocs = sortedDocuments.filter((doc) => {
-      if (doc.coverImageUrl || doc.coverImageSource === "fallback") return false;
+      if (doc.coverImageUrl) return false;
       if (processedDocIdsRef.current.has(doc.id)) return false;
+      if (doc.fileType === "pdf") {
+        // PDFs previously resolved to "fallback" get a second chance via the
+        // client-side first-page renderer (see renderPdfCover), so do NOT skip
+        // them here the way non-PDF fallbacks are skipped.
+        return true;
+      }
+      if (doc.coverImageSource === "fallback") return false;
       return true;
     });
 
     if (pendingDocs.length === 0) return;
+    // Claim every pending id up-front so a re-render of this effect (e.g. when
+    // sortedDocuments changes) doesn't re-fire resolution for the same docs.
+    pendingDocs.forEach((doc) => processedDocIdsRef.current.add(doc.id));
 
-    pendingDocs.forEach((doc) => {
-      processedDocIdsRef.current.add(doc.id);
-      resolveDocumentCover(doc.id)
-        .then((updated) => {
-          if (!updated) return;
-          // Only update if cover actually changed
-          const current = useDocumentStore.getState().documents.find(d => d.id === doc.id);
-          if (current?.coverImageUrl === updated.coverImageUrl) return;
-          updateDocument(doc.id, {
-            coverImageUrl: updated.coverImageUrl,
-            coverImageSource: updated.coverImageSource,
-          });
-        })
-        .catch((error) => {
+    let cancelled = false;
+
+    // Resolve sequentially. The PDF render path loads + rasterizes a page per
+    // document via pdfjs; running many in parallel would spike memory and jank
+    // the grid. Non-PDF resolution is cheap but is kept on the same chain for
+    // simplicity and a bounded concurrency of one.
+    void (async () => {
+      for (const doc of pendingDocs) {
+        if (cancelled) return;
+        try {
+          await resolveOneDocumentCover(doc);
+        } catch (error) {
           console.warn(`Failed to resolve cover for document ${doc.id}:`, error);
-        });
-    });
+        }
+      }
+    })();
+
+    async function resolveOneDocumentCover(doc: Document): Promise<void> {
+      // Step 1: backend resolver (embedded image / YouTube / Anna's Archive).
+      // For PDFs already marked "fallback" we know this found nothing before,
+      // so skip straight to the render path and avoid re-querying Anna.
+      let resolved = doc;
+      if (doc.fileType !== "pdf" || doc.coverImageSource !== "fallback") {
+        const updated = await resolveDocumentCover(doc.id);
+        if (updated) {
+          applyCoverUpdate(doc.id, updated.coverImageUrl, updated.coverImageSource);
+          resolved = updated;
+        }
+      }
+      if (resolved.coverImageUrl) return; // backend (or prior render) already found a cover
+
+      // Step 2: PDF-only client-side first-page render fallback.
+      if (doc.fileType !== "pdf") return;
+      const dataUrl = await renderPdfCover(doc.id);
+      if (cancelled || !dataUrl) return; // render failed/timeout → keep icon placeholder
+      const updated = await setDocumentCover(doc.id, dataUrl);
+      if (updated) {
+        applyCoverUpdate(doc.id, updated.coverImageUrl, updated.coverImageSource);
+      }
+    }
+
+    function applyCoverUpdate(
+      id: string,
+      coverImageUrl: string | undefined,
+      coverImageSource: string | undefined,
+    ): void {
+      const current = useDocumentStore.getState().documents.find((d) => d.id === id);
+      if (current?.coverImageUrl === coverImageUrl) return;
+      updateDocument(id, { coverImageUrl, coverImageSource });
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [compactDocumentsView, mode, sortedDocuments, updateDocument]);
 
   const _sectionedDocuments = useMemo(() => {
@@ -840,6 +890,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
       sortKey,
       sortDirection,
       mode,
+      compactDocumentsView,
       showNextAction,
       fileTypeFilter: selectedFileType,
     };
@@ -860,13 +911,21 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     setSortKey(view.sortKey);
     setSortDirection(view.sortDirection);
     setMode(view.mode);
+    updateSettingsCategory("interface", { compactDocumentsView: view.compactDocumentsView ?? false });
     setShowNextAction(view.showNextAction);
     setSelectedFileType(view.fileTypeFilter ?? "all");
     setActiveViewId(view.id);
   };
 
-  const handleUseStandardView = () => {
-    updateSettingsCategory("interface", { compactDocumentsView: false });
+  const handleViewModeChange = (nextMode: DocumentViewMode) => {
+    setMode(nextMode);
+    if (compactDocumentsView) {
+      updateSettingsCategory("interface", { compactDocumentsView: false });
+    }
+  };
+
+  const handleCompactViewChange = () => {
+    updateSettingsCategory("interface", { compactDocumentsView: true });
   };
 
   const _toggleSection = (section: string) => {
@@ -938,45 +997,13 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
             {/* Mobile Controls Row - View Toggle + Views + Funnel */}
             <div className="flex sm:hidden items-center gap-2 order-2">
               {/* View Mode Toggle */}
-              {!compactDocumentsView && <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-1">
-                <button
-                  onClick={() => setMode("grid")}
-                  className={`p-2 rounded-md transition-all ${
-                    mode === "grid"
-                      ? "bg-background shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  aria-label={t("documentsView.gridView")}
-                >
-                  <GridFour className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setMode("list")}
-                  className={`p-2 rounded-md transition-all ${
-                    mode === "list"
-                      ? "bg-background shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  aria-label={t("documentsView.listView")}
-                >
-                  <List className="w-4 h-4" />
-                </button>
-              </div>}
-
-              {compactDocumentsView && (
-                <>
-                  <span className="rounded-md border border-primary/20 bg-primary/10 px-2.5 py-2 text-xs font-medium text-primary">
-                    {t("documentsView.compactLibrary")}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleUseStandardView}
-                    className="rounded-md border border-border bg-background px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  >
-                    {t("documentsView.standardView")}
-                  </button>
-                </>
-              )}
+              <DocumentsViewSwitcher
+                mode={mode}
+                compactDocumentsView={compactDocumentsView}
+                compact={true}
+                onModeChange={handleViewModeChange}
+                onCompactChange={handleCompactViewChange}
+              />
 
               {/* Type Funnel */}
               <div className="relative">
@@ -1009,45 +1036,12 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
             {/* Desktop Controls */}
             <div className="hidden sm:flex items-center gap-2">
               {/* View Mode Toggle */}
-              {!compactDocumentsView && <div className="flex items-center gap-2 bg-muted/40 rounded-lg p-1">
-                <button
-                  onClick={() => setMode("grid")}
-                  className={`px-2.5 py-1.5 rounded-md text-sm flex items-center gap-1.5 transition-all ${
-                    mode === "grid"
-                      ? "bg-background shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <GridFour className="w-4 h-4" />
-                  {t("documentsView.grid")}
-                </button>
-                <button
-                  onClick={() => setMode("list")}
-                  className={`px-2.5 py-1.5 rounded-md text-sm flex items-center gap-1.5 transition-all ${
-                    mode === "list"
-                      ? "bg-background shadow-sm text-foreground"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <List className="w-4 h-4" />
-                  {t("documentsView.list")}
-                </button>
-              </div>}
-
-              {compactDocumentsView && (
-                <>
-                  <span className="rounded-md border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
-                    {t("documentsView.compactLibrary")}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleUseStandardView}
-                    className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  >
-                    {t("documentsView.standardView")}
-                  </button>
-                </>
-              )}
+              <DocumentsViewSwitcher
+                mode={mode}
+                compactDocumentsView={compactDocumentsView}
+                onModeChange={handleViewModeChange}
+                onCompactChange={handleCompactViewChange}
+              />
 
               <button
                 onClick={() => setInspectorOpen((prev) => !prev)}
@@ -3330,7 +3324,11 @@ function MobileSavedViewsMenu({
                       activeViewId === view.id ? "bg-primary/10" : "bg-muted"
                     }`}
                   >
-                    {view.mode === "grid" ? (
+                    {view.compactDocumentsView ? (
+                      <Columns
+                        className={`w-4 h-4 ${activeViewId === view.id ? "text-primary" : "text-muted-foreground"}`}
+                      />
+                    ) : view.mode === "grid" ? (
                       <GridFour
                         className={`w-4 h-4 ${activeViewId === view.id ? "text-primary" : "text-muted-foreground"}`}
                       />
@@ -3363,6 +3361,84 @@ function MobileSavedViewsMenu({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+interface DocumentsViewSwitcherProps {
+  mode: DocumentViewMode;
+  compactDocumentsView: boolean;
+  compact?: boolean;
+  onModeChange: (mode: DocumentViewMode) => void;
+  onCompactChange: () => void;
+}
+
+function DocumentsViewSwitcher({
+  mode,
+  compactDocumentsView,
+  compact = false,
+  onModeChange,
+  onCompactChange,
+}: DocumentsViewSwitcherProps) {
+  const { t } = useI18n();
+  const activeMode = compactDocumentsView ? "compact" : mode;
+  const options = [
+    {
+      id: "grid" as const,
+      label: t("documentsView.grid"),
+      ariaLabel: t("documentsView.gridView"),
+      icon: GridFour,
+    },
+    {
+      id: "list" as const,
+      label: t("documentsView.list"),
+      ariaLabel: t("documentsView.listView"),
+      icon: List,
+    },
+    {
+      id: "compact" as const,
+      label: t("documentsView.compact"),
+      ariaLabel: t("documentsView.compactView"),
+      icon: Columns,
+    },
+  ];
+
+  return (
+    <div
+      role="group"
+      aria-label={t("documentsView.viewMode")}
+      className="flex items-center gap-1 rounded-lg bg-muted/40 p-1"
+    >
+      {options.map((option) => {
+        const Icon = option.icon;
+        const isActive = activeMode === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => {
+              if (option.id === "compact") {
+                onCompactChange();
+              } else {
+                onModeChange(option.id);
+              }
+            }}
+            aria-label={option.ariaLabel}
+            aria-pressed={isActive}
+            className={`flex items-center gap-1.5 rounded-md text-sm transition-all focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+              compact ? "p-2" : "px-2.5 py-1.5"
+            } ${
+              isActive
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            title={option.ariaLabel}
+          >
+            <Icon className="h-4 w-4" aria-hidden="true" />
+            {!compact && <span>{option.label}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }

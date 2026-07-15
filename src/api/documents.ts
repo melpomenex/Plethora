@@ -55,6 +55,26 @@ export async function resolveDocumentCover(id: string): Promise<Document | null>
   return mapDocument(result);
 }
 
+/**
+ * Persist a rendered PDF cover (a JPEG data URL) for a document. Used by the
+ * frontend PDF-cover renderer after it rasterizes page 1 via `pdfjs-dist`:
+ * the result is cached in `cover_image_url` with `cover_image_source =
+ * "rendered"` so it is not re-rendered on later grid loads.
+ *
+ * Tauri-only — the render path uses the native range transport, so it is not
+ * available in browser/PWA mode.
+ */
+export async function setDocumentCover(
+  id: string,
+  coverImageUrl: string | null,
+): Promise<Document | null> {
+  const result = await invokeCommand<Document | null>("set_document_cover", {
+    id,
+    coverImageUrl,
+  });
+  return mapDocument(result);
+}
+
 export async function createDocument(
   title: string,
   filePath: string,

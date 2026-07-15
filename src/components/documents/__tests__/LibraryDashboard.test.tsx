@@ -184,8 +184,16 @@ vi.mock("../../../api/documents", async (importOriginal) => {
   return {
     ...original,
     resolveDocumentCover: vi.fn().mockResolvedValue(null),
+    setDocumentCover: vi.fn().mockResolvedValue(null),
   };
 });
+
+// PDF first-page cover rendering is exercised in its own unit tests; in the
+// grid-view component tests it must stay a no-op so async re-renders don't
+// ripple through unrelated assertions.
+vi.mock("../../../lib/pdfCoverRender", () => ({
+  renderPdfCover: vi.fn().mockResolvedValue(null),
+}));
 
 vi.mock("../../../api/youtube", () => ({
   getYouTubeThumbnail: vi.fn(),
@@ -303,8 +311,13 @@ describe("DocumentsView grid mode", () => {
 
   it("renders grid view toggle button", () => {
     render(<DocumentsView enableYouTubeImport={false} />);
-    const gridButton = screen.getByLabelText("documentsView.gridView");
-    expect(gridButton).toBeInTheDocument();
+    expect(screen.getAllByLabelText("documentsView.gridView").length).toBeGreaterThan(0);
+  });
+
+  it("renders compact view alongside grid and list controls", () => {
+    render(<DocumentsView enableYouTubeImport={false} />);
+    expect(screen.getAllByLabelText("documentsView.compactView").length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("documentsView.listView").length).toBeGreaterThan(0);
   });
 
   it("shows +N tag overflow for cards with many tags", () => {
@@ -357,14 +370,14 @@ describe("DocumentsView grid mode", () => {
 
     expect(screen.getByText("documentsView.signals")).toBeInTheDocument();
     expect(screen.getByText("emptyState.importFirst")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "documentsView.standardView" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "documentsView.compactView" }).length).toBeGreaterThan(0);
   });
 
-  it("provides a standard view escape hatch", () => {
+  it("lets users leave compact view from the view switcher", () => {
     settingsStoreValues.settings.interface.compactDocumentsView = true;
     render(<DocumentsView enableYouTubeImport={false} />);
 
-    screen.getAllByRole("button", { name: "documentsView.standardView" })[0].click();
+    fireEvent.click(screen.getAllByRole("button", { name: "documentsView.gridView" })[0]);
 
     expect(settingsStoreValues.updateSettingsCategory).toHaveBeenCalledWith("interface", {
       compactDocumentsView: false,
