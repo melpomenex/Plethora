@@ -1,6 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Flask, Info } from "@phosphor-icons/react";
-import { formatInterval, type LearningItem, type PreviewIntervals } from "../../api/review";
+import {
+  formatInterval,
+  getSm20ArenaStats,
+  type LearningItem,
+  type PreviewIntervals,
+  type SM20ArenaStats,
+} from "../../api/review";
 import { parseSm18State, sm18Retrievability, type SM18State } from "../../lib/sm18";
 import { parseSm20State, sm20Retrievability, type SM20State } from "../../lib/sm20";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -23,11 +29,27 @@ function getAlgorithmLabel(algorithmType?: string): string {
 export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransparencyPanelProps) {
   const [showRaw, setShowRaw] = useState(false);
   const [showSuspendNote, setShowSuspendNote] = useState(false);
+  const [arenaStats, setArenaStats] = useState<SM20ArenaStats | null>(null);
   const { settings } = useSettingsStore();
 
   // The global setting determines which algorithm the next review will use (matches submitReview behavior).
   // Card's algorithm_type is only used to detect stored state for display purposes.
   const activeAlgorithm = settings.learning.algorithm;
+
+  // Algorithm Arena weights change slowly (per committed review) — fetch once
+  // per mount; tolerate absence (non-Tauri surfaces, old backend).
+  useEffect(() => {
+    if (activeAlgorithm !== "sm20") return;
+    let cancelled = false;
+    getSm20ArenaStats()
+      .then((stats) => {
+        if (!cancelled) setArenaStats(stats);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAlgorithm]);
   const hasSm18State = !!card.algorithm_state && card.algorithm_state.startsWith("{") && card.algorithm_state.includes('"stability"') && (card.algorithm_type === "sm18" || card.algorithm_state.includes('"repetition"'));
   const hasSm20State = !!card.algorithm_state && card.algorithm_type === "sm20";
   const sm18State: SM18State | null = hasSm18State ? parseSm18State(card.algorithm_state) : null;
@@ -85,6 +107,26 @@ export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransp
       {sm20State && (
         <div className="text-xs text-muted-foreground">
           Reps {sm20State.repetition} • Lapses {sm20State.lapses}
+        </div>
+      )}
+
+      {activeAlgorithm === "sm20" && arenaStats && (
+        <div className="text-xs text-muted-foreground">
+          {settings.learning.sm20PureM4 ? (
+            <span className="text-amber-500 font-semibold block mb-0.5">
+              Pure SM-20 Mode (scheduling with M4 only; Arena weights not used):
+            </span>
+          ) : null}
+          Arena{" "}
+          {arenaStats.model_names
+            .map((name, i) => `${name} ${Math.round(arenaStats.weights[i] ?? 0)}`)
+            .join(" · ")}
+          {arenaStats.r_metric != null && (
+            <>
+              {" "}• R-Metric {arenaStats.r_metric >= 0 ? "+" : ""}
+              {arenaStats.r_metric.toFixed(1)}%
+            </>
+          )}
         </div>
       )}
 

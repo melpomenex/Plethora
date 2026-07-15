@@ -35,6 +35,7 @@ export async function submitReview(
     /** Native SM-20 grade (0-5). When set, the backend schedules with this
      * grade directly instead of mapping the 4-button rating. */
     grade?: number;
+    sm20PureM4?: boolean;
   }
 ): Promise<LearningItem> {
   const normalizedSessionId = sessionId?.trim() ? sessionId : undefined;
@@ -54,6 +55,8 @@ export async function submitReview(
     no_schedule_update: options?.noScheduleUpdate,
     noScheduleUpdate: options?.noScheduleUpdate,
     grade: options?.grade,
+    sm20_pure_m4: options?.sm20PureM4,
+    sm20PureM4: options?.sm20PureM4,
   });
 
   // Replicate the review to other devices. Fire-and-forget — never blocks the
@@ -131,17 +134,70 @@ export async function getDueItems(collectionId?: string): Promise<LearningItem[]
 
 export async function previewReviewIntervals(
   itemId: string,
-  algorithm?: string
+  algorithm?: string,
+  sm20PureM4?: boolean
 ): Promise<PreviewIntervals> {
   return await invokeCommand<PreviewIntervals>("preview_review_intervals", {
     item_id: itemId,
     itemId,
     algorithm,
+    sm20_pure_m4: sm20PureM4,
+    sm20PureM4,
   });
 }
 
 export async function getReviewStreak(): Promise<ReviewStreak> {
   return await invokeCommand<ReviewStreak>("get_review_streak");
+}
+
+// ── SM-20 Algorithm Arena + per-user optimizers ─────────────────────────────
+
+/** Live Algorithm Arena snapshot: adaptive weights over the five SM-20
+ * competitors (SM-2 / SM-15 / SM-19 / SM-20 / FSRS) plus the R-Metric. */
+export interface SM20ArenaStats {
+  model_names: string[];
+  /** Blend weights, sum 100, slot order matches model_names. */
+  weights: number[];
+  /** Mean decayed log-loss per model (null until enough scored reviews). */
+  mean_losses: number[] | null;
+  /** % log-loss improvement of the blend over SM-19 alone. */
+  r_metric: number | null;
+  total_scored: number;
+  fsrs_optimized: boolean;
+  m4_optimized: boolean;
+}
+
+export async function getSm20ArenaStats(): Promise<SM20ArenaStats> {
+  return await invokeCommand<SM20ArenaStats>("get_sm20_arena_stats");
+}
+
+export interface FsrsOptimizeSummary {
+  accepted: boolean;
+  items: number;
+  train_items: number;
+  message: string;
+}
+
+/** Fit per-user FSRS parameters for the Arena's FSRS competitor. */
+export async function optimizeSm20Fsrs(): Promise<FsrsOptimizeSummary> {
+  return await invokeCommand<FsrsOptimizeSummary>("optimize_sm20_fsrs");
+}
+
+export interface M4OptimizeOutcome {
+  accepted: boolean;
+  params?: number[] | null;
+  items: number;
+  train_predictions: number;
+  val_predictions: number;
+  val_loss_before: number;
+  val_loss_after: number;
+  iterations: number;
+  message: string;
+}
+
+/** Fit the SM-20 (M4) 35-parameter kernel to the user's review history. */
+export async function optimizeSm20M4(): Promise<M4OptimizeOutcome> {
+  return await invokeCommand<M4OptimizeOutcome>("optimize_sm20_m4");
 }
 
 export interface CardSourceContext {

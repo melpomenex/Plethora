@@ -343,7 +343,7 @@ async function applySm18ReviewBrowser(item: db.LearningItem, rating: number, alg
     });
 }
 
-async function applySm20ReviewBrowser(item: db.LearningItem, rating: number, algorithmType?: string): Promise<db.LearningItem> {
+async function applySm20ReviewBrowser(item: db.LearningItem, rating: number, algorithmType?: string, pureM4?: boolean): Promise<db.LearningItem> {
     const state = parseSm20State(item.algorithm_state);
     const now = new Date();
 
@@ -352,7 +352,7 @@ async function applySm20ReviewBrowser(item: db.LearningItem, rating: number, alg
         elapsedDays = (now.getTime() - new Date(item.last_review_date).getTime()) / (86400 * 1000);
     }
 
-    const result = sm20Review(state, rating, elapsedDays);
+    const result = sm20Review(state, rating, elapsedDays, undefined, undefined, pureM4);
     const intervalMs = result.interval_days * 86400 * 1000;
     const nextDue = new Date(now.getTime() + intervalMs);
     const failed = rating <= 1;
@@ -1718,7 +1718,8 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         if (algorithmType === 'sm20') {
-            return toCamelCase(await applySm20ReviewBrowser(item, rating, algorithmType));
+            const pureM4 = Boolean(args.sm20_pure_m4 ?? args.sm20PureM4);
+            return toCamelCase(await applySm20ReviewBrowser(item, rating, algorithmType, pureM4));
         }
 
         // FSRS-6 (default)
@@ -1783,7 +1784,8 @@ const commandHandlers: Record<string, CommandHandler> = {
             if (item.last_review_date) {
                 elapsedDays = (now.getTime() - new Date(item.last_review_date).getTime()) / (86400 * 1000);
             }
-            return sm20PreviewIntervals(parseSm20State(item.algorithm_state), elapsedDays);
+            const pureM4 = Boolean(args.sm20_pure_m4 ?? args.sm20PureM4);
+            return sm20PreviewIntervals(parseSm20State(item.algorithm_state), elapsedDays, pureM4);
         }
 
         const now = new Date();
@@ -2092,6 +2094,49 @@ const commandHandlers: Record<string, CommandHandler> = {
         };
         await db.setSyncState("sm20_optimizer_profile", status);
         return status;
+    },
+
+    // SM-20 Algorithm Arena. The Arena runs natively in the desktop app; in the
+    // browser we return a static, well-formed snapshot so the settings panel can
+    // render without crashing. Optimization is a no-op (browser data is local).
+    get_sm20_arena_stats: async () => {
+        const items = await db.getLearningItems();
+        const totalScored = items.reduce(
+            (sum, item) => sum + Math.max(0, (item.review_count || 0) - 1),
+            0
+        );
+        return {
+            model_names: ["SM-2", "SM-15", "SM-19", "SM-20", "FSRS"],
+            weights: [6, 14, 45, 25, 10],
+            mean_losses: null,
+            r_metric: null,
+            total_scored: totalScored,
+            fsrs_optimized: false,
+            m4_optimized: false,
+        };
+    },
+
+    optimize_sm20_fsrs: async () => {
+        return {
+            accepted: false,
+            items: 0,
+            train_items: 0,
+            message: "FSRS fitting runs in the desktop app; browser data stays on this device.",
+        };
+    },
+
+    optimize_sm20_m4: async () => {
+        return {
+            accepted: false,
+            params: null,
+            items: 0,
+            train_predictions: 0,
+            val_predictions: 0,
+            val_loss_before: 0,
+            val_loss_after: 0,
+            iterations: 0,
+            message: "SM-20 parameter fitting runs in the desktop app; browser data stays on this device.",
+        };
     },
 
     get_workload_data: async (args: { start_date: string; end_date: string }) => {

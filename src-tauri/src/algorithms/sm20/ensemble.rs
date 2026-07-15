@@ -58,21 +58,37 @@ pub const DEFAULT_FI: u8 = 10;
 // ENSEMBLE — FUN_00cf4d50
 // =============================================================================
 
-/// Weighted average of the 5 model stabilities. `[C][BIN]`
+/// Weighted average of the 5 model stabilities with explicit weights. `[C][BIN]`
+///
+/// Mirrors `FUN_00cf4d50`: the weights live in mutable per-user state (the
+/// binary's `[Algorithm] PA2/PA15/PA19/PA20/PAF` settings), and when they sum
+/// to zero the blend falls back to the SM-19 slot (`+0x7b`).
 ///
 /// M1 and M2 are stored as int32 in the item struct, so they are rounded
 /// before weighting (matching `(double)*(int*)(item+0x73/0x77)`).
-pub fn ensemble_stability(m1: f64, m2: f64, m3: f64, m4: f64, m5: f64) -> f64 {
-    let total = W_SUM;
+pub fn ensemble_stability_weighted(
+    weights: &[f64; 5],
+    m1: f64,
+    m2: f64,
+    m3: f64,
+    m4: f64,
+    m5: f64,
+) -> f64 {
+    let total: f64 = weights.iter().sum();
     if total <= ENSEMBLE_THRESHOLD {
-        return m3; // default = slot +0x7b (M3)
+        return m3; // default = slot +0x7b (SM-19)
     }
-    let num = W1 * (m1.round() as i64 as f64)
-        + W2 * (m2.round() as i64 as f64)
-        + W3 * m3
-        + W4 * m4
-        + W5 * m5;
+    let num = weights[0] * (m1.round() as i64 as f64)
+        + weights[1] * (m2.round() as i64 as f64)
+        + weights[2] * m3
+        + weights[3] * m4
+        + weights[4] * m5;
     num / total
+}
+
+/// Weighted average at the binary's fresh-install default weights.
+pub fn ensemble_stability(m1: f64, m2: f64, m3: f64, m4: f64, m5: f64) -> f64 {
+    ensemble_stability_weighted(&[W1, W2, W3, W4, W5], m1, m2, m3, m4, m5)
 }
 
 // =============================================================================

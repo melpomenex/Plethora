@@ -1,32 +1,40 @@
-//! SM-20 Algorithm — True 5-Model Ensemble Implementation
+//! SuperMemo 20 scheduling — the **Algorithm Arena** implementation.
 //!
-//! This module implements the actual SM-20 scheduling algorithm as decoded
-//! from `sm20.exe` (SHA-256 `b5cd214e...`). SM-20 is NOT a single formula —
-//! it is a **5-model weighted ensemble** that blends five independent
-//! prediction models:
+//! Decoded from `sm20.exe` (SHA-256 `b5cd214e...`). SuperMemo 20 schedules
+//! with a weighted blend of **five competing algorithms** — the "Algorithm
+//! Arena" feature. The binary persists the five weights as per-user settings
+//! (`[Algorithm] PA2/PA15/PA19/PA20/PAF`, loader `d7f350`, saver `d71070`)
+//! with compile-time defaults at `DAT_00d81ab8`:
 //!
 //! ```text
-//! ensemble = (6·M1 + 14·M2 + 45·M3 + 25·M4 + 10·M5) / 100
-//! adjusted = ln(1 - FI/100) / ln(0.9) · ensemble
+//! blend    = (w₁·SM2 + w₂·SM15 + w₃·SM19 + w₄·SM20 + w₅·FSRS) / Σw
+//! adjusted = ln(1 - FI/100) / ln(0.9) · blend
 //! interval = clamp(round(clamp(adjusted, 0.7, 44530)), 1, 44530)
+//! defaults : w = [6, 14, 45, 25, 10]
 //! ```
 //!
-//! All 5 models, the ensemble, retention adjustment, dispersal, post-lapse,
+//! All 5 competitors, the blend, retention adjustment, dispersal, post-lapse,
 //! and finalization are decoded and live-validated against the running
 //! `sm20.exe` binary via Frida injection.
 //!
-//! ## Model Summary
+//! ## The five competitors (slot order = item struct offsets)
 //!
-//! | Model | Weight | Function | Description |
-//! |-------|--------|----------|-------------|
-//! | M1 | 6% | `d43e00` | Legacy SM-15 scheduler (deterministic multiplier) |
-//! | M2 | 14% | `a651f0`→`a605a0` | Classic SM-15/16 scheduler (matrix optimizer) |
-//! | M3 | 45% | `cea5a0` | SM-15 raw matrix scheduler (Bayesian 21³ matrices) |
-//! | M4 | 25% | `af9420` | 35-param FSRS mixture kernel (3-expert forgetting model) |
-//! | M5 | 10% | `ce6c70`→`ce71b0` | Analytic stability formula |
+//! | Slot | Key | Default | Function | Algorithm |
+//! |------|------|---------|----------|-----------|
+//! | M1 (+0x73) | `PA2` | 6% | `d43e00` | **SM-2** (EF 2.5/1.3, I(2)=6, classic EF update) |
+//! | M2 (+0x77) | `PA15` | 14% | `a651f0`→`a605a0` | **SM-15** (A-factor/OF-matrix optimizer) |
+//! | M3 (+0x7b) | `PA19` | 45% | `cea5a0` | **SM-19** (Bayesian 21³ D/S/R matrices) |
+//! | M4 (+0x83) | `PA20` | 25% | `af9420` | **SM-20 proper** (35-param theory-based kernel, no matrices) |
+//! | M5 (+0x8b) | `PAF` | 10% | `ce6c70`→`ce71b0` | **FSRS** (19/81 power curve, near-default weights) |
+//!
+//! This port adds the Arena's adaptive layer (see [`arena`]): weights update
+//! per committed review via multiplicative weights over per-model log-loss,
+//! and both trainable competitors can be fitted to the user's own review log
+//! (see [`optimize`] for SM-20/M4, and the fsrs crate integration for M5).
 //!
 //! Evidence: `[C]` = decompiled C, `[ASM]` = assembly, `[BIN]` = binary extraction
 
+pub mod arena;
 pub mod ensemble;
 pub mod helpers;
 pub mod kernel;
@@ -34,11 +42,13 @@ pub mod model1;
 pub mod model2;
 pub mod model3;
 pub mod model5;
+pub mod optimize;
 
 use serde::{Deserialize, Serialize};
 
+use arena::ArenaState;
 use ensemble::*;
-use kernel::review_kernel;
+use kernel::review_kernel_with;
 use model1::{model_1, M1HistoryPoint, M1ItemState};
 use model2::{model_2, ClassicM2Optimizer, M2ItemState};
 use model3::{model_3_stateful, M3ItemState, M3MatrixState};
@@ -123,6 +133,24 @@ pub struct SM20State {
     pub m2_state: M2ItemState,
     #[serde(default)]
     pub m3_state: M3ItemState,
+
+    // --- Algorithm Arena support ---
+    /// The five models' stability outputs at the last review
+    /// (SM-2/SM-15/SM-19/SM-20/FSRS slot order). Used to score each
+    /// competitor's recall prediction at the next review.
+    #[serde(default)]
+    pub slot_stabilities: Option<[f64; 5]>,
+    /// Per-item memory state for the personalized-FSRS M5 path (only
+    /// populated once user-optimized FSRS parameters exist).
+    #[serde(default)]
+    pub m5_memory: Option<M5Memory>,
+}
+
+/// FSRS memory state carried per item for the personalized M5 competitor.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct M5Memory {
+    pub stability: f64,
+    pub difficulty: f64,
 }
 
 fn default_one() -> f64 {
@@ -147,6 +175,8 @@ impl Default for SM20State {
             m1_history: None,
             m2_state: M2ItemState::default(),
             m3_state: M3ItemState::default(),
+            slot_stabilities: None,
+            m5_memory: None,
         }
     }
 }
@@ -172,6 +202,15 @@ pub struct SM20PreviewIntervals {
 pub struct SM20CollectionState {
     pub m2_optimizer: ClassicM2Optimizer,
     pub m3_matrices: M3MatrixState,
+    /// Algorithm Arena weights + R-Metric accumulators (mutated on commit).
+    pub arena: ArenaState,
+    /// Per-user FSRS parameters from the optimizer. When present, the M5
+    /// competitor runs real FSRS with these weights instead of the binary's
+    /// stock FSRS formulas.
+    pub fsrs_params: Option<Vec<f32>>,
+    /// Per-user SM-20 kernel parameters (35 doubles) from the optimizer.
+    /// When present, M4 runs with these instead of the shipped defaults.
+    pub m4_params: Option<Vec<f64>>,
 }
 
 impl Default for SM20CollectionState {
@@ -179,6 +218,9 @@ impl Default for SM20CollectionState {
         Self {
             m2_optimizer: ClassicM2Optimizer::fresh(),
             m3_matrices: M3MatrixState::default(),
+            arena: ArenaState::default(),
+            fsrs_params: None,
+            m4_params: None,
         }
     }
 }
@@ -228,6 +270,59 @@ pub fn rating_to_grade(rating: i32) -> i32 {
 }
 
 // =============================================================================
+// PERSONALIZED MODEL PLUMBING
+// =============================================================================
+
+/// Resolve the M4 (Algorithm SM-20) parameter block: the per-user fit when a
+/// valid one exists, otherwise the binary's shipped defaults.
+fn resolve_m4_params(custom: Option<&[f64]>) -> [f64; 35] {
+    if let Some(p) = custom {
+        if p.len() == 35 && p.iter().all(|v| v.is_finite()) {
+            let mut out = [0.0f64; 35];
+            out.copy_from_slice(p);
+            return out;
+        }
+    }
+    kernel::P
+}
+
+/// Run the M5 competitor as real FSRS with per-user parameters.
+///
+/// Returns the new slot stability and the item's next FSRS memory state, or
+/// `None` when the parameters are unusable (caller falls back to the stock
+/// M5 formulas).
+fn fsrs_m5(
+    params: &[f32],
+    memory: Option<M5Memory>,
+    elapsed_days: f64,
+    grade: i32,
+) -> Option<(f64, M5Memory)> {
+    let engine = fsrs::FSRS::new(Some(params)).ok()?;
+    let mem = memory.map(|m| fsrs::MemoryState {
+        stability: m.stability as f32,
+        difficulty: m.difficulty as f32,
+    });
+    let elapsed = elapsed_days.round().max(0.0) as u32;
+    let states = engine.next_states(mem, 0.9, elapsed).ok()?;
+    // Grade → FSRS rating: 0-2 fail → Again, 3 → Hard, 4 → Good, 5 → Easy.
+    let chosen = match grade {
+        g if g < 3 => states.again,
+        3 => states.hard,
+        4 => states.good,
+        _ => states.easy,
+    };
+    let stability = chosen.memory.stability as f64;
+    if !stability.is_finite() || stability <= 0.0 {
+        return None;
+    }
+    let next = M5Memory {
+        stability,
+        difficulty: chosen.memory.difficulty as f64,
+    };
+    Some((stability, next))
+}
+
+// =============================================================================
 // REVIEW (the main entry point)
 // =============================================================================
 
@@ -260,18 +355,32 @@ pub fn review(
     commit: bool,
     disperse: bool,
     rng: &mut impl rand::Rng,
+    pure_m4: bool,
 ) -> SM20ReviewResult {
     let grade = grade.clamp(0, 5);
     let t = elapsed_days;
     let s = state.stability;
     let d = state.difficulty;
 
-    // --- M4: FSRS 35-param kernel (25%) — always fresh, stateless ---
-    let m4_result = review_kernel(t, grade, d, s);
+    // --- M4: Algorithm SM-20 — the 35-param kernel (default weight 25%) ---
+    // Runs with the per-user parameter fit when one exists, else the
+    // binary's shipped pretrained block.
+    let m4_p = resolve_m4_params(collection.m4_params.as_deref());
+    let m4_result = review_kernel_with(&m4_p, t, grade, d, s);
     let m4 = m4_result.s_new;
 
-    // --- M5: analytic stability (10%) — always fresh, stateless ---
-    let m5 = model_5(t, grade, s);
+    // --- M5: FSRS (default weight 10%) ---
+    // With per-user FSRS parameters, run real FSRS (the thing the optimizer
+    // trained) on the item's own FSRS memory state. Otherwise keep the
+    // binary's stock FSRS formulas — byte-faithful to the verified port.
+    let (m5, next_m5_memory) = match collection
+        .fsrs_params
+        .as_deref()
+        .and_then(|w| fsrs_m5(w, state.m5_memory, t, grade))
+    {
+        Some((slot, mem)) => (slot, Some(mem)),
+        None => (model_5(t, grade, s), state.m5_memory),
+    };
 
     // --- M1: legacy scheduler (6%) ---
     let m1_review = model_1(&state.m1_state, today, grade, state.m1_history.as_ref());
@@ -300,8 +409,12 @@ pub fn review(
     );
     let m3 = m3_review.stability;
 
-    // --- Ensemble ---
-    let ensemble_val = ensemble_stability(m1, m2, m3, m4, m5);
+    // --- Ensemble (Algorithm Arena blend at the live per-user weights or Pure SM-20 M4) ---
+    let ensemble_val = if pure_m4 {
+        m4
+    } else {
+        ensemble_stability_weighted(&collection.arena.weights, m1, m2, m3, m4, m5)
+    };
 
     // --- Determine post-lapse mode ---
     // In the binary: item[+0xb9] != 0 && item[+0xb7] == 1
@@ -324,6 +437,18 @@ pub fn review(
         disperse,
         if disperse { Some(rng) } else { None },
     );
+
+    // --- Algorithm Arena: score the five competitors on this outcome ---
+    // Uses the slot stabilities persisted at the item's PREVIOUS review, so
+    // each model is judged on the prediction it actually made. Runs after the
+    // blend (this review scheduled with the pre-update weights, keeping
+    // preview() and commit identical); the updated weights apply from the
+    // next review on.
+    if commit {
+        if let Some(slots) = &state.slot_stabilities {
+            collection.arena.observe(slots, elapsed_days, grade >= 3);
+        }
+    }
 
     // --- Write back previous_interval for stateful models ---
     let final_interval = fin.interval;
@@ -371,6 +496,10 @@ pub fn review(
         m1_history: Some(next_m1_history),
         m2_state: next_m2_item,
         m3_state: next_m3_item,
+        // Arena: persist each competitor's stability so its recall
+        // prediction can be scored at the next review.
+        slot_stabilities: Some([m1, m2, m3, m4, m5]),
+        m5_memory: next_m5_memory,
     };
 
     SM20ReviewResult {
@@ -390,8 +519,9 @@ pub fn preview(
     collection: &SM20CollectionState,
     today: i32,
     rng: &mut impl rand::Rng,
+    pure_m4: bool,
 ) -> SM20PreviewIntervals {
-    let grades = preview_grades(state, elapsed_days, fi, collection, today, rng);
+    let grades = preview_grades(state, elapsed_days, fi, collection, today, rng, pure_m4);
     SM20PreviewIntervals {
         again: grades[rating_to_grade(1) as usize],
         hard: grades[rating_to_grade(2) as usize],
@@ -411,17 +541,21 @@ pub fn preview_grades(
     collection: &SM20CollectionState,
     today: i32,
     rng: &mut impl rand::Rng,
+    pure_m4: bool,
 ) -> [f64; 6] {
     // Clone collection state so we don't mutate it during preview
     let mut coll = SM20CollectionState {
         m2_optimizer: collection.m2_optimizer.clone(),
         m3_matrices: collection.m3_matrices.clone(),
+        arena: collection.arena.clone(),
+        fsrs_params: collection.fsrs_params.clone(),
+        m4_params: collection.m4_params.clone(),
     };
 
     let mut out = [0.0f64; 6];
     for grade in 0..6 {
         out[grade as usize] =
-            review(state, grade, elapsed_days, fi, &mut coll, today, false, false, rng)
+            review(state, grade, elapsed_days, fi, &mut coll, today, false, false, rng, pure_m4)
                 .interval_days;
     }
     out

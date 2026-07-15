@@ -493,6 +493,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
           algorithm: settings.learning.algorithm,
           noScheduleUpdate: false,
           grade,
+          sm20PureM4: settings.learning.sm20PureM4,
         });
       }
       lastUndoSnapshot = snapshot;
@@ -524,7 +525,11 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 
     try {
       const settings = useSettingsStore.getState().settings;
-      const intervals = await previewReviewIntervals(currentCard.id, settings.learning.algorithm);
+      const intervals = await previewReviewIntervals(
+        currentCard.id,
+        settings.learning.algorithm,
+        settings.learning.sm20PureM4
+      );
       set({ previewIntervals: intervals });
     } catch (error) {
       // Non-critical, just log but don't set error

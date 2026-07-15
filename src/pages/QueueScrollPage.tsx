@@ -2430,8 +2430,11 @@ export function QueueScrollPage() {
 
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
-        // Rate flashcard using FSRS
-        await submitReview(currentItem.learningItem.id, rating, timeTaken);
+        // Rate flashcard using FSRS/SM-20
+        await submitReview(currentItem.learningItem.id, rating, timeTaken, undefined, {
+          algorithm: settings.learning.algorithm,
+          sm20PureM4: settings.learning.sm20PureM4,
+        });
 
         // Track items reviewed
         setItemsReviewedThisSession(prev => prev + 1);

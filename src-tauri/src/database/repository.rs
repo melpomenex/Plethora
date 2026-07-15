@@ -3448,6 +3448,74 @@ impl Repository {
         Ok(())
     }
 
+    /// Load the Algorithm Arena state (JSON `ArenaState`).
+    pub async fn get_sm20_arena(&self) -> Result<Option<String>> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT state FROM sm20_arena WHERE id = 'global'")
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(s,)| s))
+    }
+
+    /// Save the Algorithm Arena state (JSON `ArenaState`).
+    pub async fn save_sm20_arena(&self, state_json: &str) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO sm20_arena (id, state, date_modified)
+             VALUES ('global', ?, ?)
+             ON CONFLICT(id) DO UPDATE SET state = excluded.state, date_modified = excluded.date_modified",
+        )
+        .bind(state_json)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Load per-user optimized model parameters (`id` = 'fsrs' or 'm4').
+    /// Returns the params JSON string.
+    pub async fn get_sm20_model_params(&self, id: &str) -> Result<Option<String>> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT params FROM sm20_model_params WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(|(s,)| s))
+    }
+
+    /// Save per-user optimized model parameters (`id` = 'fsrs' or 'm4').
+    pub async fn save_sm20_model_params(
+        &self,
+        id: &str,
+        params_json: &str,
+        meta_json: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO sm20_model_params (id, params, meta, date_modified)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET params = excluded.params, meta = excluded.meta, date_modified = excluded.date_modified",
+        )
+        .bind(id)
+        .bind(params_json)
+        .bind(meta_json)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch the full review log for optimizer training:
+    /// `(item_id, rating, timestamp)` ordered by item then time.
+    pub async fn get_revlog_for_training(&self) -> Result<Vec<(String, i32, String)>> {
+        let rows: Vec<(String, i32, String)> = sqlx::query_as(
+            "SELECT item_id, rating, timestamp FROM review_results ORDER BY item_id, timestamp",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     fn bytes_to_u32_vec(bytes: &[u8], expected_len: usize) -> Vec<u32> {
         bytes
             .chunks_exact(4)

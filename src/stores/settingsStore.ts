@@ -79,6 +79,7 @@ export interface LearningSettings {
   scopedFsrsOverrides: FSRSScopeOverride[];
   timezone: string;
   postpone: PostponeSettings;
+  sm20PureM4: boolean;
 }
 
 /**
@@ -568,6 +569,7 @@ export const defaultSettings: Settings = {
       simpleMode: false,
       autoPostponeEnabled: false,
     },
+    sm20PureM4: false,
   },
   documents: {
     defaultCategory: "Uncategorized",
@@ -888,6 +890,7 @@ export const useSettingsStore = create<SettingsState>()(
               personalizedWeights: normalizedGlobalWeights,
             },
             scopedFsrsOverrides: normalizedScopedOverrides,
+            sm20PureM4: persisted.learning?.sm20PureM4 ?? defaultSettings.learning.sm20PureM4,
           },
           documents: {
             ...defaultSettings.documents,

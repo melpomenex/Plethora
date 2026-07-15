@@ -511,6 +511,7 @@ export function sm20Review(
   elapsedDays: number,
   _intervalMatrix?: Float64Array,
   _countMatrix?: Uint32Array,
+  pureM4?: boolean,
 ): SM20ReviewResult {
   const state = parseSm20State(JSON.stringify(currentState));
   const grade = ratingToGrade(rating);
@@ -542,7 +543,7 @@ export function sm20Review(
   const m3 = m4;
 
   // Ensemble
-  const ensemble = ensembleStability(m1, m2, m3, m4, m5);
+  const ensemble = pureM4 ? m4 : ensembleStability(m1, m2, m3, m4, m5);
 
   // Finalize (post-lapse path for grade < 3)
   const postLapseMode = grade < 3;
@@ -580,12 +581,13 @@ export function sm20Review(
 export function sm20PreviewIntervals(
   currentState: SM20State,
   elapsedDays: number,
+  pureM4?: boolean,
 ): SM20PreviewIntervals {
   return {
-    again: sm20Review(currentState, 1, elapsedDays).interval_days,
-    hard: sm20Review(currentState, 2, elapsedDays).interval_days,
-    good: sm20Review(currentState, 3, elapsedDays).interval_days,
-    easy: sm20Review(currentState, 4, elapsedDays).interval_days,
+    again: sm20Review(currentState, 1, elapsedDays, undefined, undefined, pureM4).interval_days,
+    hard: sm20Review(currentState, 2, elapsedDays, undefined, undefined, pureM4).interval_days,
+    good: sm20Review(currentState, 3, elapsedDays, undefined, undefined, pureM4).interval_days,
+    easy: sm20Review(currentState, 4, elapsedDays, undefined, undefined, pureM4).interval_days,
   };
 }
 

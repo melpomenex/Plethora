@@ -2055,6 +2055,29 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    // Algorithm Arena state (adaptive per-user weights over the five SM-20
+    // competitors, mirroring the binary's [Algorithm] PA2/PA15/PA19/PA20/PAF
+    // settings) plus per-user optimized model parameters:
+    //   sm20_model_params rows: id='fsrs' (M5 weights), id='m4' (SM-20 kernel).
+    Migration::new(
+        "060_add_sm20_arena_and_model_params",
+        r#"
+        CREATE TABLE IF NOT EXISTS sm20_arena (
+            id TEXT PRIMARY KEY DEFAULT 'global',
+            collection_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+            state TEXT NOT NULL,
+            date_modified TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS sm20_model_params (
+            id TEXT PRIMARY KEY,
+            collection_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000001',
+            params TEXT NOT NULL,
+            meta TEXT,
+            date_modified TEXT NOT NULL
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

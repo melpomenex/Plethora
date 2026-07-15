@@ -119,18 +119,19 @@ pub fn expert3(t: f64, s: f64) -> f64 {
     delphi_exp(neg_ratio * DAT_DECAY)
 }
 
-/// 3-expert weighted average → retrievability proxy A. `FUN_00af8d00`. `[C][ASM][BIN]`
+/// 3-expert weighted average → retrievability proxy A, with explicit
+/// parameter block (personalized or default). `FUN_00af8d00`. `[C][ASM][BIN]`
 ///
 /// Weights use **S** for the time component and **D** for the stability component.
-pub fn expert_mixture(t: f64, s: f64, d: f64) -> f64 {
-    let e1 = expert1(P[0], t, s);
+pub fn expert_mixture_with(p: &[f64; 35], t: f64, s: f64, d: f64) -> f64 {
+    let e1 = expert1(p[0], t, s);
     let e2 = expert2(t, s);
     let e3 = expert3(t, s);
 
-    let s_weight = sigmoid_ratio(s, P[1]);
-    let d_weight1 = sigmoid_ratio(d, P[2]);
-    let d_weight2 = sigmoid_ratio(d, P[3]);
-    let s_weight3 = sigmoid_ratio(s, P[4]);
+    let s_weight = sigmoid_ratio(s, p[1]);
+    let d_weight1 = sigmoid_ratio(d, p[2]);
+    let d_weight2 = sigmoid_ratio(d, p[3]);
+    let s_weight3 = sigmoid_ratio(s, p[4]);
 
     let w1 = ((DAT_ONE - s_weight) + d_weight1) / DAT_2_0;
     let w2 = ((DAT_ONE - s_weight) + d_weight2) / DAT_2_0;
@@ -144,6 +145,11 @@ pub fn expert_mixture(t: f64, s: f64, d: f64) -> f64 {
     }
 }
 
+/// [`expert_mixture_with`] at the binary's shipped parameter block.
+pub fn expert_mixture(t: f64, s: f64, d: f64) -> f64 {
+    expert_mixture_with(&P, t, s, d)
+}
+
 // =============================================================================
 // DIFFICULTY UPDATE
 // =============================================================================
@@ -152,11 +158,16 @@ pub fn expert_mixture(t: f64, s: f64, d: f64) -> f64 {
 ///
 /// `w = S/(S+P[24])`, `target = 1.0 if grade>2 else 0.0`,
 /// `D_new = clamp(w*D + (1-w)*(D - (target - A)), 0, 1)`
-pub fn difficulty_update(d: f64, s: f64, a: f64, grade: i32) -> f64 {
-    let w = sigmoid_ratio(s, P[24]); // P[24]=95.04
+pub fn difficulty_update_with(p: &[f64; 35], d: f64, s: f64, a: f64, grade: i32) -> f64 {
+    let w = sigmoid_ratio(s, p[24]); // P[24]=95.04
     let target = if grade > 2 { DAT_ONE } else { DAT_ZERO };
     let d_new = w * d + (DAT_ONE - w) * (d - (target - a));
     clamp(d_new, 0.0, 1.0)
+}
+
+/// [`difficulty_update_with`] at the shipped parameter block.
+pub fn difficulty_update(d: f64, s: f64, a: f64, grade: i32) -> f64 {
+    difficulty_update_with(&P, d, s, a, grade)
 }
 
 // =============================================================================
@@ -166,49 +177,59 @@ pub fn difficulty_update(d: f64, s: f64, a: f64, grade: i32) -> f64 {
 /// Stability update for lapse (grade < 3). `FUN_00af9010`. `[C][BIN]`
 ///
 /// Third term is **added**, not multiplied.
+pub fn lapse_stability_with(p: &[f64; 35], d: f64, s: f64, a: f64) -> f64 {
+    let base = (DAT_ONE - d) * p[19] + DAT_ONE;
+    let w = sigmoid_ratio(s, p[20]);
+    let mult = w * p[21] + DAT_ONE;
+    let retro = sigmoid_ratio(DAT_ONE - a, p[22]);
+    base * mult + retro * p[23] + DAT_ONE
+}
+
+/// [`lapse_stability_with`] at the shipped parameter block.
 pub fn lapse_stability(d: f64, s: f64, a: f64) -> f64 {
-    let base = (DAT_ONE - d) * P[19] + DAT_ONE;
-    let w = sigmoid_ratio(s, P[20]);
-    let mult = w * P[21] + DAT_ONE;
-    let retro = sigmoid_ratio(DAT_ONE - a, P[22]);
-    base * mult + retro * P[23] + DAT_ONE
+    lapse_stability_with(&P, d, s, a)
 }
 
 /// Stability update for successful recall (grade ≥ 3). `FUN_00af91f0`. `[C][ASM][BIN]`
 ///
 /// The inner term is `P[27] + (blend - P[27]) * product` (assembly-verified).
-pub fn recall_stability(d: f64, s: f64, a: f64, t: f64, grade: i32) -> f64 {
+pub fn recall_stability_with(p: &[f64; 35], d: f64, s: f64, a: f64, t: f64, grade: i32) -> f64 {
     // S_min = max(S, t)
     let s_min = if s > t { s } else { t };
 
     // Hard bonus
     let hard_bonus = if t < s && s > 0.0 {
         let t_over_s = t / s;
-        P[28] + P[29] * sigmoid_ratio(t_over_s, P[30])
+        p[28] + p[29] * sigmoid_ratio(t_over_s, p[30])
     } else {
         DAT_ONE
     };
 
     // Time factor
     let time_factor = if s_min > 0.0 {
-        delphi_pow(s_min, P[31])
+        delphi_pow(s_min, p[31])
     } else {
         0.0
     };
 
     // Recall signal: exp(-(P[32]*(1-D) + P[33]) * A)
-    let inner_rs = P[32] * (DAT_ONE - d) + P[33];
+    let inner_rs = p[32] * (DAT_ONE - d) + p[33];
     let recall_signal = delphi_exp(sign_flip(inner_rs) * a);
 
     // Grade factor
-    let grade_factor = (grade - 4) as f64 * P[34] + DAT_ONE;
+    let grade_factor = (grade - 4) as f64 * p[34] + DAT_ONE;
 
     // Difficulty blend
-    let blend = P[26] + (DAT_ONE - d) * (P[25] - P[26]);
+    let blend = p[26] + (DAT_ONE - d) * (p[25] - p[26]);
 
     // Final assembly
-    let inner = P[27] + (blend - P[27]) * time_factor * recall_signal * grade_factor;
+    let inner = p[27] + (blend - p[27]) * time_factor * recall_signal * grade_factor;
     s_min * hard_bonus * inner
+}
+
+/// [`recall_stability_with`] at the shipped parameter block.
+pub fn recall_stability(d: f64, s: f64, a: f64, t: f64, grade: i32) -> f64 {
+    recall_stability_with(&P, d, s, a, t, grade)
 }
 
 // =============================================================================
@@ -224,25 +245,26 @@ pub struct KernelResult {
     pub ratio: f64,
 }
 
-/// Full SM-20 FSRS review kernel. `FUN_00af9420`. `[C][ASM][BIN]`
+/// Full SM-20 review kernel with an explicit parameter block. `FUN_00af9420`. `[C][ASM][BIN]`
 ///
 /// Args:
+/// - `p`: the 35-double parameter block (shipped defaults or per-user fit)
 /// - `t`: elapsed days since last review
 /// - `grade`: response grade 0-5 (0-2 = lapse, 3-5 = recall)
 /// - `d`: current difficulty [0.0, 1.0]
 /// - `s`: current stability (days)
-pub fn review_kernel(t: f64, grade: i32, d: f64, s: f64) -> KernelResult {
+pub fn review_kernel_with(p: &[f64; 35], t: f64, grade: i32, d: f64, s: f64) -> KernelResult {
     // Step 1: retrievability proxy A (uses old D)
-    let a = expert_mixture(t, s, d);
+    let a = expert_mixture_with(p, t, s, d);
 
     // Step 2: update difficulty
-    let d_new = difficulty_update(d, s, a, grade);
+    let d_new = difficulty_update_with(p, d, s, a, grade);
 
     // Step 3: update stability (uses new D)
     let s_new = if grade < 3 {
-        lapse_stability(d_new, s, a)
+        lapse_stability_with(p, d_new, s, a)
     } else {
-        recall_stability(d_new, s, a, t, grade)
+        recall_stability_with(p, d_new, s, a, t, grade)
     };
 
     // Step 4: ratio
@@ -251,12 +273,23 @@ pub fn review_kernel(t: f64, grade: i32, d: f64, s: f64) -> KernelResult {
     KernelResult { s_new, d_new, a, ratio }
 }
 
-/// Initialize state for a brand-new item. `FUN_00ceb590` + `FUN_00af8ed0` + `FUN_00af8f70`. `[C][BIN]`
+/// [`review_kernel_with`] at the binary's shipped parameter block.
+pub fn review_kernel(t: f64, grade: i32, d: f64, s: f64) -> KernelResult {
+    review_kernel_with(&P, t, grade, d, s)
+}
+
+/// Initialize state for a brand-new item with an explicit parameter block.
+/// `FUN_00ceb590` + `FUN_00af8ed0` + `FUN_00af8f70`. `[C][BIN]`
 ///
 /// Returns `(stability, difficulty)` for the given grade (0-5).
-pub fn init_new_item(grade: i32) -> (f64, f64) {
+pub fn init_new_item_with(p: &[f64; 35], grade: i32) -> (f64, f64) {
     let g = clamp(grade as f64, 0.0, 5.0) as usize;
-    let s = P[6 + g]; // init_s[grade]
-    let d = P[13 + g]; // init_d[grade]
+    let s = p[6 + g]; // init_s[grade]
+    let d = p[13 + g]; // init_d[grade]
     (s, d)
+}
+
+/// [`init_new_item_with`] at the shipped parameter block.
+pub fn init_new_item(grade: i32) -> (f64, f64) {
+    init_new_item_with(&P, grade)
 }

@@ -233,6 +233,7 @@ pub async fn submit_review(
     algorithm: Option<String>,
     no_schedule_update: Option<bool>,
     grade: Option<i32>,
+    sm20_pure_m4: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
     tracing::info!(
@@ -242,6 +243,7 @@ pub async fn submit_review(
         time_taken,
         session_id = session_id.as_deref().unwrap_or(""),
         algorithm = algorithm.as_deref().unwrap_or("fsrs"),
+        sm20_pure_m4 = sm20_pure_m4.unwrap_or(false),
         "submit_review invoked"
     );
     apply_review(
@@ -255,6 +257,7 @@ pub async fn submit_review(
         no_schedule_update.unwrap_or(false),
         algorithm.as_deref(),
         grade,
+        sm20_pure_m4.unwrap_or(false),
     )
     .await
 }
@@ -277,6 +280,7 @@ pub async fn apply_review(
     no_schedule_update: bool,
     algorithm: Option<&str>,
     native_grade: Option<i32>,
+    sm20_pure_m4: bool,
 ) -> Result<LearningItem> {
     let mut item = repo.get_learning_item(item_id).await?.ok_or_else(|| {
         crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
@@ -323,7 +327,7 @@ pub async fn apply_review(
             apply_sm18_review(&mut item, review_rating, now)?;
         }
         AlgorithmType::Sm20 => {
-            apply_sm20_review(&mut item, review_rating, native_grade, now, repo).await?;
+            apply_sm20_review(&mut item, review_rating, native_grade, now, sm20_pure_m4, repo).await?;
         }
     }
 
@@ -787,14 +791,55 @@ fn parse_sm20_state(item: &LearningItem) -> SM20State {
         })
 }
 
+/// Load the full SM-20 collection-wide state: M2 optimizer, M3 matrices,
+/// Algorithm Arena weights, and any per-user optimized model parameters.
+/// Missing/corrupt rows fall back to fresh defaults (a new collection).
+async fn load_sm20_collection(
+    repo: &Repository,
+) -> Result<crate::algorithms::sm20::SM20CollectionState> {
+    use crate::algorithms::sm20::{arena::ArenaState, SM20CollectionState};
+
+    let m2_optimizer = match repo.get_sm20_m2_optimizer().await? {
+        Some(bytes) => serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh()),
+        None => crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh(),
+    };
+    let m3_matrices = repo.get_sm20_m3_matrices().await?.unwrap_or_default();
+    let arena = repo
+        .get_sm20_arena()
+        .await?
+        .and_then(|json| serde_json::from_str::<ArenaState>(&json).ok())
+        .unwrap_or_default()
+        .sanitized();
+    let fsrs_params = repo
+        .get_sm20_model_params("fsrs")
+        .await?
+        .and_then(|json| serde_json::from_str::<Vec<f32>>(&json).ok())
+        .filter(|p| !p.is_empty() && p.iter().all(|v| v.is_finite()));
+    let m4_params = repo
+        .get_sm20_model_params("m4")
+        .await?
+        .and_then(|json| serde_json::from_str::<Vec<f64>>(&json).ok())
+        .filter(|p| p.len() == 35 && p.iter().all(|v| v.is_finite()));
+
+    Ok(SM20CollectionState {
+        m2_optimizer,
+        m3_matrices,
+        arena,
+        fsrs_params,
+        m4_params,
+    })
+}
+
 async fn apply_sm20_review(
     item: &mut LearningItem,
     review_rating: ReviewRating,
     native_grade: Option<i32>,
     now: chrono::DateTime<Utc>,
+    sm20_pure_m4: bool,
     repo: &Repository,
 ) -> Result<()> {
-    use crate::algorithms::sm20::{SM20CollectionState, DEFAULT_FI};
+    use crate::algorithms::sm20::DEFAULT_FI;
 
     // Native SM-20 grade (0-5) when the UI offers the native scale; otherwise
     // map the 4-button rating (Again→0, Hard→3, Good→4, Easy→5).
@@ -809,18 +854,9 @@ async fn apply_sm20_review(
         .unwrap_or(0.0)
         .max(0.0);
 
-    // Load collection-wide state (M2 optimizer + M3 matrices).
-    // On first run, these default to fresh/empty — matching a new SuperMemo collection.
-    let mut collection = SM20CollectionState {
-        m2_optimizer: match repo.get_sm20_m2_optimizer().await? {
-            Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| {
-                crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh()
-            }),
-            None => crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh(),
-        },
-        m3_matrices: repo.get_sm20_m3_matrices().await?
-            .unwrap_or_default(),
-    };
+    // Load collection-wide state (M2 optimizer, M3 matrices, Arena weights,
+    // per-user model parameters).
+    let mut collection = load_sm20_collection(repo).await?;
 
     let today = now.timestamp() as i32 / 86400;
     let mut rng = rand::rngs::StdRng::from_entropy();
@@ -836,13 +872,17 @@ async fn apply_sm20_review(
         true,    // commit — mutate M2/M3 state
         true,    // disperse — stochastic day-spread (production behavior)
         &mut rng,
+        sm20_pure_m4,
     );
 
-    // Persist collection-wide state (M2 optimizer + M3 matrices).
+    // Persist collection-wide state (M2 optimizer + M3 matrices + Arena).
     if let Ok(m2_bytes) = serde_json::to_vec(&collection.m2_optimizer) {
         let _ = repo.save_sm20_m2_optimizer(&m2_bytes).await;
     }
     let _ = repo.save_sm20_m3_matrices(&collection.m3_matrices).await;
+    if let Ok(arena_json) = serde_json::to_string(&collection.arena) {
+        let _ = repo.save_sm20_arena(&arena_json).await;
+    }
 
     let interval_seconds = (response.interval_days * 86400.0).round().max(60.0) as i64;
     item.due_date = now + Duration::seconds(interval_seconds);
@@ -969,6 +1009,7 @@ pub async fn get_next_review_times(repo: State<'_, Repository>) -> Result<Vec<St
 pub async fn preview_review_intervals(
     item_id: String,
     algorithm: Option<String>,
+    sm20_pure_m4: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<PreviewIntervals> {
     let algo = algorithm.as_deref().unwrap_or("fsrs");
@@ -986,15 +1027,7 @@ pub async fn preview_review_intervals(
         let state = parse_sm20_state(&item);
 
         // Load collection state for preview (scratch mode — no mutation)
-        let collection = crate::algorithms::sm20::SM20CollectionState {
-            m2_optimizer: match repo.get_sm20_m2_optimizer().await? {
-                Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| {
-                    crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh()
-                }),
-                None => crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh(),
-            },
-            m3_matrices: repo.get_sm20_m3_matrices().await?.unwrap_or_default(),
-        };
+        let collection = load_sm20_collection(&repo).await?;
         let today = now.timestamp() as i32 / 86400;
         // Fixed seed: previews must be reproducible across fetches. The rng is
         // only consumed by M2's probabilistic tail-fix during scratch replay
@@ -1004,6 +1037,7 @@ pub async fn preview_review_intervals(
         let grades = sm20::preview_grades(
             &state, elapsed_days, crate::algorithms::sm20::DEFAULT_FI,
             &collection, today, &mut rng,
+            sm20_pure_m4.unwrap_or(false),
         );
 
         return Ok(PreviewIntervals {
@@ -1133,6 +1167,202 @@ pub struct PreviewIntervals {
     /// algorithms with a native grade scale (currently SM-20).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grade_intervals: Option<Vec<f64>>,
+}
+
+// =============================================================================
+// ALGORITHM ARENA + PER-USER OPTIMIZERS
+// =============================================================================
+
+/// Snapshot of the Algorithm Arena for the UI.
+#[derive(serde::Serialize)]
+pub struct SM20ArenaStats {
+    /// The five competitors, slot order.
+    pub model_names: Vec<String>,
+    /// Live blend weights (sum 100).
+    pub weights: Vec<f64>,
+    /// Mean decayed log-loss per model (None until enough scored reviews).
+    pub mean_losses: Option<Vec<f64>>,
+    /// R-Metric: % log-loss improvement of the blend over SM-19 alone.
+    pub r_metric: Option<f64>,
+    /// Lifetime scored reviews.
+    pub total_scored: u64,
+    /// Whether per-user optimized parameters are active.
+    pub fsrs_optimized: bool,
+    pub m4_optimized: bool,
+}
+
+/// Current Algorithm Arena weights and R-Metric.
+#[tauri::command]
+pub async fn get_sm20_arena_stats(repo: State<'_, Repository>) -> Result<SM20ArenaStats> {
+    let collection = load_sm20_collection(&repo).await?;
+    let arena = &collection.arena;
+    Ok(SM20ArenaStats {
+        model_names: crate::algorithms::sm20::arena::ARENA_MODEL_NAMES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        weights: arena.weights.to_vec(),
+        mean_losses: arena.mean_losses().map(|l| l.to_vec()),
+        r_metric: arena.r_metric(),
+        total_scored: arena.total_scored,
+        fsrs_optimized: collection.fsrs_params.is_some(),
+        m4_optimized: collection.m4_params.is_some(),
+    })
+}
+
+/// Build per-item review sequences `(elapsed_days, grade)` from the revlog.
+/// Ratings (1-4) map onto the SM grade scale via the standard mapping.
+async fn build_revlog_items(
+    repo: &Repository,
+) -> Result<Vec<crate::algorithms::sm20::optimize::RevlogItem>> {
+    use crate::algorithms::sm20::optimize::RevlogItem;
+
+    fn parse_ts(s: &str) -> Option<chrono::DateTime<Utc>> {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|d| d.with_timezone(&Utc))
+            .ok()
+            .or_else(|| {
+                chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")
+                    .ok()
+                    .map(|n| n.and_utc())
+            })
+    }
+
+    let rows = repo.get_revlog_for_training().await?;
+    let mut items: Vec<RevlogItem> = Vec::new();
+    let mut current_id: Option<String> = None;
+    let mut last_ts: Option<chrono::DateTime<Utc>> = None;
+    for (item_id, rating, ts) in rows {
+        let Some(ts) = parse_ts(&ts) else { continue };
+        let grade = sm20::rating_to_grade(rating);
+        if current_id.as_deref() != Some(item_id.as_str()) {
+            current_id = Some(item_id);
+            last_ts = None;
+            items.push(RevlogItem { reviews: Vec::new() });
+        }
+        let elapsed = match last_ts {
+            Some(prev) => ((ts - prev).num_seconds() as f64 / 86400.0).max(0.0),
+            None => 0.0,
+        };
+        last_ts = Some(ts);
+        if let Some(item) = items.last_mut() {
+            item.reviews.push((elapsed, grade));
+        }
+    }
+    items.retain(|i| !i.reviews.is_empty());
+    Ok(items)
+}
+
+/// Summary of an FSRS (M5) optimization run.
+#[derive(serde::Serialize)]
+pub struct FsrsOptimizeSummary {
+    pub accepted: bool,
+    pub items: usize,
+    pub train_items: usize,
+    pub message: String,
+}
+
+/// Fit per-user FSRS parameters for the Arena's M5 competitor using the
+/// fsrs crate's own optimizer over the full review log.
+#[tauri::command]
+pub async fn optimize_sm20_fsrs(repo: State<'_, Repository>) -> Result<FsrsOptimizeSummary> {
+    use crate::algorithms::sm20::optimize::build_fsrs_items;
+
+    let revlog = build_revlog_items(&repo).await?;
+    let items_count = revlog.len();
+    let train_set = build_fsrs_items(&revlog);
+    let train_items = train_set.len();
+
+    let params = tauri::async_runtime::spawn_blocking(move || {
+        let engine = fsrs::FSRS::new(Some(&[]))
+            .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
+        engine
+            .compute_parameters(fsrs::ComputeParametersInput {
+                train_set,
+                progress: None,
+                enable_short_term: true,
+                num_relearning_steps: None,
+            })
+            .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))
+    })
+    .await
+    .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))??;
+
+    // The crate returns its stock defaults when there is too little history —
+    // storing those would just add overhead for no personalization.
+    let is_default = params
+        .iter()
+        .zip(fsrs::DEFAULT_PARAMETERS.iter())
+        .all(|(a, b)| (a - b).abs() < 1e-9)
+        && params.len() == fsrs::DEFAULT_PARAMETERS.len();
+
+    if is_default {
+        return Ok(FsrsOptimizeSummary {
+            accepted: false,
+            items: items_count,
+            train_items,
+            message: format!(
+                "Not enough review history to personalize FSRS yet ({train_items} training \
+                 reviews). Keep reviewing and try again."
+            ),
+        });
+    }
+
+    let meta = serde_json::json!({
+        "items": items_count,
+        "train_items": train_items,
+        "optimized_at": Utc::now().to_rfc3339(),
+    });
+    repo.save_sm20_model_params(
+        "fsrs",
+        &serde_json::to_string(&params)?,
+        Some(&meta.to_string()),
+    )
+    .await?;
+
+    Ok(FsrsOptimizeSummary {
+        accepted: true,
+        items: items_count,
+        train_items,
+        message: format!(
+            "Personalized FSRS parameters fitted from {train_items} training reviews across \
+             {items_count} items. The Arena's FSRS competitor now uses them."
+        ),
+    })
+}
+
+/// Fit the SM-20 (M4) 35-parameter kernel to the user's review log.
+#[tauri::command]
+pub async fn optimize_sm20_m4(
+    repo: State<'_, Repository>,
+) -> Result<crate::algorithms::sm20::optimize::M4OptimizeOutcome> {
+    use crate::algorithms::sm20::optimize::optimize_m4;
+
+    let revlog = build_revlog_items(&repo).await?;
+    let outcome = tauri::async_runtime::spawn_blocking(move || optimize_m4(&revlog))
+        .await
+        .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
+
+    if outcome.accepted {
+        if let Some(params) = &outcome.params {
+            let meta = serde_json::json!({
+                "items": outcome.items,
+                "train_predictions": outcome.train_predictions,
+                "val_predictions": outcome.val_predictions,
+                "val_loss_before": outcome.val_loss_before,
+                "val_loss_after": outcome.val_loss_after,
+                "iterations": outcome.iterations,
+                "optimized_at": Utc::now().to_rfc3339(),
+            });
+            repo.save_sm20_model_params(
+                "m4",
+                &serde_json::to_string(params)?,
+                Some(&meta.to_string()),
+            )
+            .await?;
+        }
+    }
+    Ok(outcome)
 }
 
 /// Get all review sessions for a specific collection

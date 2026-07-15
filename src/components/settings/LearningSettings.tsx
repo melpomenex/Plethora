@@ -7,6 +7,12 @@ import {
   optimizeAlgorithmParams,
   type SM20OptimizationStatus,
 } from "../../api/algorithm";
+import {
+  getSm20ArenaStats,
+  optimizeSm20Fsrs,
+  optimizeSm20M4,
+  type SM20ArenaStats,
+} from "../../api/review";
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
 import { NumericInput } from "../common";
 
@@ -19,12 +25,21 @@ export function LearningSettings() {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizerMessage, setOptimizerMessage] = useState<string | null>(null);
   const [sm20Status, setSm20Status] = useState<SM20OptimizationStatus | null>(null);
+  const [arenaStats, setArenaStats] = useState<SM20ArenaStats | null>(null);
+  const [sm20OptRunning, setSm20OptRunning] = useState<"fsrs" | "m4" | null>(null);
+  const [sm20OptMessage, setSm20OptMessage] = useState<string | null>(null);
+
+  const refreshArena = () =>
+    getSm20ArenaStats()
+      .then(setArenaStats)
+      .catch(() => setArenaStats(null));
 
   useEffect(() => {
     if (settings.learning.algorithm !== "sm20") return;
     void getSM20OptimizationStatus()
       .then(setSm20Status)
       .catch(() => setSm20Status(null));
+    void refreshArena();
   }, [settings.learning.algorithm]);
 
   const scopedOverrides = settings.learning.scopedFsrsOverrides ?? [];
@@ -68,36 +83,127 @@ export function LearningSettings() {
           {settings.learning.algorithm === "sm20" && (
             <div className="border border-border rounded-lg p-4 space-y-3">
               <div>
-                <h4 className="font-medium text-foreground">SM-20 Ensemble Status</h4>
+                <h4 className="font-medium text-foreground">Algorithm Arena</h4>
                 <p className="text-xs text-muted-foreground mt-1">
-                  The true SM-20 algorithm uses a 5-model weighted ensemble (M1–M5).
-                  M2 (classic scheduler) and M3 (Bayesian matrix) learn automatically
-                  on every review — no manual optimization needed.
+                  SuperMemo 20 runs five algorithms in parallel — SM-2, SM-15, SM-19,
+                  SM-20 and FSRS — and shifts weight toward whichever predicts your
+                  recall best. SM-15 and SM-19 learn automatically on every review;
+                  SM-20 and FSRS can additionally be fitted to your review history below.
                 </p>
               </div>
+
+              <div className="border-t border-border pt-3">
+                <SettingToggle
+                  label="Pure SM-20 Mode (M4 kernel only)"
+                  description="Bypasses the Algorithm Arena blend to schedule with the pure SM-20 M4 model alone. Arena scoring and weights adaptation continue in the background so you can compare their performance."
+                  checked={settings.learning.sm20PureM4}
+                  onChange={(checked) =>
+                    updateSettings({
+                      learning: { ...settings.learning, sm20PureM4: checked },
+                    })
+                  }
+                />
+              </div>
+
+              {arenaStats && Array.isArray(arenaStats.model_names) && arenaStats.model_names.length > 0 && (
+                <div className="space-y-1">
+                  {settings.learning.sm20PureM4 && (
+                    <div className="text-xs font-semibold text-amber-500 mb-1">
+                      Running in Pure M4 Mode (Arena blend weights below are not used for scheduling)
+                    </div>
+                  )}
+                  <div className="grid grid-cols-5 gap-1 text-center text-xs">
+                    {arenaStats.model_names.map((name, i) => (
+                      <div key={name} className="bg-muted/50 rounded-md py-1.5">
+                        <div className="text-muted-foreground">
+                          {name}
+                          {(name === "FSRS" && arenaStats.fsrs_optimized) ||
+                          (name === "SM-20" && arenaStats.m4_optimized)
+                            ? " ★"
+                            : ""}
+                        </div>
+                        <div className="font-semibold text-foreground">
+                          {arenaStats.weights[i]?.toFixed(1)}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {arenaStats.r_metric != null
+                      ? `R-Metric: ${arenaStats.r_metric >= 0 ? "+" : ""}${arenaStats.r_metric.toFixed(1)}% vs SM-19 alone · ${arenaStats.total_scored} scored reviews`
+                      : `Weights adapt as reviews accumulate (${arenaStats.total_scored} scored so far; ★ = personalized parameters active).`}
+                  </div>
+                </div>
+              )}
+
               <div className="text-xs text-muted-foreground">
-                M2 optimizer: {sm20Status?.m2_optimizer_initialized ? "initialized" : "fresh (will initialize on first review)"}
+                SM-15 optimizer: {sm20Status?.m2_optimizer_initialized ? "initialized" : "fresh (will initialize on first review)"}
                 {sm20Status?.m3_matrix_cells_populated != null
-                  ? ` · M3 matrix cells: ${sm20Status.m3_matrix_cells_populated}/${sm20Status.m3_matrix_total_cells ?? 9261}`
+                  ? ` · SM-19 matrix cells: ${sm20Status.m3_matrix_cells_populated}/${sm20Status.m3_matrix_total_cells ?? 9261}`
                   : ""}
               </div>
-              <button
-                onClick={async () => {
-                  try {
-                    setIsOptimizing(true);
-                    const status = await getSM20OptimizationStatus();
-                    setSm20Status(status);
-                  } catch {
-                    // ignore refresh errors
-                  } finally {
-                    setIsOptimizing(false);
-                  }
-                }}
-                disabled={isOptimizing}
-                className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
-              >
-                {isOptimizing ? "Refreshing..." : "Refresh Status"}
-              </button>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      setSm20OptRunning("fsrs");
+                      setSm20OptMessage(null);
+                      const result = await optimizeSm20Fsrs();
+                      setSm20OptMessage(result.message);
+                      await refreshArena();
+                    } catch (error) {
+                      setSm20OptMessage(error instanceof Error ? error.message : "FSRS optimization failed");
+                    } finally {
+                      setSm20OptRunning(null);
+                    }
+                  }}
+                  disabled={sm20OptRunning !== null}
+                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
+                >
+                  {sm20OptRunning === "fsrs" ? "Optimizing FSRS…" : "Optimize FSRS competitor"}
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      setSm20OptRunning("m4");
+                      setSm20OptMessage(null);
+                      const result = await optimizeSm20M4();
+                      setSm20OptMessage(result.message);
+                      await refreshArena();
+                    } catch (error) {
+                      setSm20OptMessage(error instanceof Error ? error.message : "SM-20 optimization failed");
+                    } finally {
+                      setSm20OptRunning(null);
+                    }
+                  }}
+                  disabled={sm20OptRunning !== null}
+                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
+                >
+                  {sm20OptRunning === "m4" ? "Optimizing SM-20…" : "Optimize SM-20 parameters"}
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      setIsOptimizing(true);
+                      const status = await getSM20OptimizationStatus();
+                      setSm20Status(status);
+                      await refreshArena();
+                    } catch {
+                      // ignore refresh errors
+                    } finally {
+                      setIsOptimizing(false);
+                    }
+                  }}
+                  disabled={isOptimizing}
+                  className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
+                >
+                  {isOptimizing ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+              {sm20OptMessage && (
+                <p className="text-xs text-muted-foreground">{sm20OptMessage}</p>
+              )}
               {optimizerMessage && (
                 <p className="text-xs text-muted-foreground">{optimizerMessage}</p>
               )}

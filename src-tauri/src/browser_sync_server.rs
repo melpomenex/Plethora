@@ -1739,6 +1739,7 @@ async fn handle_automation_submit_review(
         false,
         None,
         None,
+        false,
     )
     .await
     {
