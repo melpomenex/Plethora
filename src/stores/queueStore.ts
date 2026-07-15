@@ -17,6 +17,7 @@ import type { QueueItem, SortOptions, SearchFilters } from "../types";
 import { useDocumentStore } from "./documentStore";
 import { useSettingsStore } from "./settingsStore";
 import { storeDueCountForSW } from "../utils/pushSubscription";
+import { updateDueBadgeCount } from "../lib/feedback";
 import {
   postponeElement,
   postponeAll as enginePostponeAll,
@@ -212,6 +213,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       const stats = await getQueueStats();
       set({ stats });
       void storeDueCountForSW(stats.due_today);
+      void updateDueBadgeCount(stats.due_today);
     } catch (error) {
       console.error("Failed to load queue stats:", error);
     }

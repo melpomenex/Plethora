@@ -49,6 +49,7 @@ export {
   setReviewSessionActive,
 } from "./orchestrator";
 export { getNextReminderDelay, startReminderScheduler } from "./reminderScheduler";
+export { updateDueBadgeCount } from "./badge";
 export type {
   FeedbackChannel,
   FeedbackEmitOptions,

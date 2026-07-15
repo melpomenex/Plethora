@@ -103,7 +103,7 @@ tests) already exists — build on it, do not regenerate it.
     4.3), and on `subscribeToPush`. Keep SW (`public/sw.js`) unchanged if possible.
   - Manual validation: DevTools → Application → Periodic Background Sync → trigger
     `check-due-cards`; notification shows real count.
-- [ ] 4.3 Badge wiring: on queue-stats load and review completion call
+- [x] 4.3 Badge wiring: on queue-stats load and review completion call
   `updateBadgeCount(dueCount)` / `clearBadge()` (exist in
   `notificationService.ts`), gated by `showBadge` + capability.
   - Acceptance: badge visible on installed Chromium PWA, silently absent elsewhere.

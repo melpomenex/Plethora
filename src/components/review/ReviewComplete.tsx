@@ -12,6 +12,7 @@ import { emitFeedback } from "../../lib/feedback";
 import { getQueueStats } from "../../api/queue";
 import { storeDueCountForSW } from "../../utils/pushSubscription";
 import { isPWA } from "../../lib/tauri";
+import { updateDueBadgeCount } from "../../lib/feedback";
 
 interface ReviewCompleteProps {
   reviewsCompleted: number;
@@ -55,7 +56,10 @@ export function ReviewComplete({
 
     if (isPWA()) {
       void getQueueStats()
-        .then((stats) => storeDueCountForSW(stats.due_today))
+        .then((stats) => Promise.all([
+          storeDueCountForSW(stats.due_today),
+          updateDueBadgeCount(stats.due_today),
+        ]))
         .catch(() => {
           // Due-count persistence is best-effort and must not affect completion UI.
         });
