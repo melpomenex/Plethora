@@ -8,7 +8,7 @@ import {
 } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../lib/i18n";
-import { playNotificationGatedFeedback } from "../../utils/soundService";
+import { emitFeedback } from "../../lib/feedback";
 
 interface ReviewCompleteProps {
   reviewsCompleted: number;
@@ -33,6 +33,7 @@ export function ReviewComplete({
     ? Math.round((correctCount / reviewsCompleted) * 100)
     : 0;
   const duration = Math.round((Date.now() - sessionStartTime) / 1000 / 60); // in minutes
+  const durationMs = Math.max(0, Date.now() - sessionStartTime);
   const hitMilestone = Boolean(
     streak &&
     streak.current_streak > 1 &&
@@ -43,14 +44,20 @@ export function ReviewComplete({
     if (didPlaySoundsRef.current) return;
     didPlaySoundsRef.current = true;
 
-    playNotificationGatedFeedback("review-complete");
+    void emitFeedback("review.session-completed", {
+      reviewsCompleted,
+      correctCount,
+      durationMs,
+    });
 
     if (hitMilestone) {
       window.setTimeout(() => {
-        playNotificationGatedFeedback("milestone");
+        void emitFeedback("review.streak-milestone", {
+          currentStreak: streak?.current_streak ?? 0,
+        });
       }, 200);
     }
-  }, [hitMilestone]);
+  }, [correctCount, durationMs, hitMilestone, reviewsCompleted, streak?.current_streak]);
 
   return (
     <div className="w-full max-w-md mx-auto text-center">

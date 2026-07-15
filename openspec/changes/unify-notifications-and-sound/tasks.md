@@ -61,7 +61,7 @@ tests) already exists — build on it, do not regenerate it.
 
 ## 3. Call-site migrations (one per commit, mechanical)
 
-- [ ] 3.1 `src/components/review/ReviewComplete.tsx`: replace direct
+- [x] 3.1 `src/components/review/ReviewComplete.tsx`: replace direct
   `playNotificationGatedFeedback` calls with
   `emitFeedback("review.session-completed", …)` + `"review.streak-milestone"`;
   add hidden-window OS pathway per policy. Keep the `didPlaySoundsRef` guard.
