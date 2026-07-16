@@ -12,6 +12,7 @@ lerna-debug.log*
 # agent skills (e.g. cut-release). Only personal/session state stays ignored.
 .zcode/
 handoff.md
+.claude/launch.json
 
 reasonix.toml
 
@@ -119,4 +120,6 @@ src-tauri/plugins/*/ios/build/
 # tracking them would sweep unrelated files into release commits via `git add -A`.
 *.xpi
 browser_extension/
+
+scratch/
 
