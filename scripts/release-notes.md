@@ -1,7 +1,12 @@
 ### Added
 
 - **Queue nav remembers your last position** — Clicking the "Queue" entry (sidebar, mobile bottom-nav, and dashboard quick-action) now reactivates whichever queue-related tab you were most recently viewing — the plain list *or* Scroll Mode — instead of always landing on the list. If you were reading inside Scroll Mode and navigated away, tapping "Queue" drops you back on that document at its live position, so you no longer have to notice and re-open Scroll Mode manually. First-time navigation is unchanged: when no queue tab exists yet, it still opens the list.
+- **Audiobooks on mobile** — The Audiobooks destination is now reachable from the mobile More menu, so the shelf isn't stranded on desktop-only nav.
 
 ### Fixed & Improved
 
-- **Stale-tab resilience** — The "most recently active" resolution now skips closed or missing tabs gracefully instead of erroring, with unit tests covering the MRU ordering and the undefined fallback.
+- **Faster, calmer startup** — Duplicate eager database reads at launch are replaced with a versioned, collection-scoped snapshot that returns bounded document, queue, and progress projections; hidden-tab work, content hydration, and file registration are deferred, and file uploads are skipped when Yjs sync is disabled. On the Boox Palma 2, median cold activity launch dropped from 268 ms to 247 ms (~8%), and the 30+ second storm of large EPUB reads and disabled-sync upload attempts that previously blocked useful startup work is gone. Also fixes an unstable startup selector fallback that caused React error #185 on the Palma.
+- **Schedule titles, dates, and pane stability** — Scheduled learning items now show parent-document or bounded prompt context instead of blank titles, progress timestamps are normalized to milliseconds before rendering relative dates, and split-pane normalization and active-tab synchronization are referentially stable (fixes the React maximum-update-depth crash). Includes localized labels across de/en/es/fr/ja/zh.
+- **EPUB chrome in embedded readers** — The EPUB top toolbar and floating controls now render in embedded mobile readers (standalone back action stays hidden for embedded contexts), so controls aren't missing when an EPUB is opened inside another surface.
+- **Audiobook shelf no longer lists podcasts** — Podcast-tagged audio documents are now classified outside the Audiobooks shelf, while plain audio and explicitly tagged audiobooks are preserved.
+- **Stale-tab resilience** — The "most recently active" queue-tab resolution now skips closed or missing tabs gracefully instead of erroring, with unit tests covering the MRU ordering and the undefined fallback.
