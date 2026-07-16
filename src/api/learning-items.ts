@@ -187,6 +187,23 @@ export async function getLearningItemVersions(itemId: string): Promise<CardVersi
   return await invokeCommand<CardVersionEntry[]>("get_learning_item_versions", { itemId });
 }
 
+export async function updateLearningItemTags(itemId: string, tags: string[]): Promise<LearningItem> {
+  const item = await invokeCommand<LearningItem>("update_learning_item_tags", { itemId, tags });
+  void (async () => {
+    try {
+      const { publishCard, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
+      const { nowHLC } = await import("../lib/sync/syncClock");
+      const synced = toSyncedLearningItem(item as unknown as Record<string, unknown>);
+      synced.updated_at = nowHLC();
+      synced.updatedAt = synced.updated_at;
+      await publishCard(synced);
+    } catch (err) {
+      console.warn("[learning-items] tag update sync publish failed (non-fatal)", err);
+    }
+  })();
+  return item;
+}
+
 export async function revertLearningItemVersion(itemId: string, versionId: string): Promise<LearningItem> {
   const item = await invokeCommand<LearningItem>("revert_learning_item_version", {
     itemId,

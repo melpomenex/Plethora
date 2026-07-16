@@ -116,6 +116,7 @@ import { startReminderScheduler } from "./lib/feedback/reminderScheduler";
 import { MainLayout } from "./components/layout/MainLayout";
 import { DevPerformanceMonitor } from "./components/common/PerformanceMonitor";
 import { Toast } from "./components/common/Toast";
+import { Modal } from "./components/common/Modal";
 import { Analytics } from "@vercel/analytics/react";
 import { BatteryProvider } from "./contexts/BatteryContext";
 import { PresentationProvider } from "./contexts/PresentationContext";
@@ -356,6 +357,7 @@ reactRoot.render(
             </Suspense>
             <DevPerformanceMonitor />
             <Toast />
+            <Modal />
             {/* Only load Vercel Analytics in web/PWA mode, not in Tauri desktop */}
             {!isTauri() && <Analytics />}
           </HashRouter>

@@ -2374,7 +2374,7 @@ impl Repository {
     pub async fn update_learning_item(&self, item: &LearningItem) -> Result<LearningItem> {
         let _item_type_str = format!("{:?}", item.item_type).to_lowercase();
         let state_str = format!("{:?}", item.state).to_lowercase();
-        let _tags_json = serde_json::to_string(&item.tags)?;
+        let tags_json = serde_json::to_string(&item.tags)?;
         let interaction_metadata_json = item
             .interaction_metadata
             .as_ref()
@@ -2395,7 +2395,7 @@ impl Repository {
                 last_review_date = ?7, date_modified = ?8,
                 memory_state_stability = ?9, memory_state_difficulty = ?10,
                 interaction_metadata = ?12, algorithm_type = ?13, algorithm_state = ?14,
-                updated_at = COALESCE(?15, updated_at)
+                updated_at = COALESCE(?15, updated_at), tags = ?16
             WHERE id = ?11
             "#,
         )
@@ -2414,6 +2414,7 @@ impl Repository {
         .bind(&item.algorithm_type)
         .bind(&item.algorithm_state)
         .bind(&item.updated_at)
+        .bind(&tags_json)
         .execute(&self.pool)
         .await?;
 

@@ -358,6 +358,23 @@ pub async fn update_learning_item_content_with_version(
 }
 
 #[tauri::command]
+pub async fn update_learning_item_tags(
+    item_id: String,
+    tags: Vec<String>,
+    repo: State<'_, Repository>,
+) -> Result<LearningItem> {
+    let mut item = repo
+        .get_learning_item(&item_id)
+        .await?
+        .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+
+    item.tags = tags;
+    item.date_modified = chrono::Utc::now();
+    repo.update_learning_item(&item).await?;
+    Ok(item)
+}
+
+#[tauri::command]
 pub async fn get_learning_item_versions(
     item_id: String,
     repo: State<'_, Repository>,

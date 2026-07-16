@@ -1,20 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Calendar,
   CircleNotch,
   Eye,
   EyeSlash,
   Info,
+  Plus,
+  Trash,
   X,
 } from "@phosphor-icons/react";
-import { getDocument, dismissDocument } from "../../api/documents";
+import { getDocument, dismissDocument, updateDocument } from "../../api/documents";
 import { useToast } from "../common/Toast";
-import { getExtract } from "../../api/extracts";
-import { getLearningItem } from "../../api/learning-items";
+import { getExtract, updateExtract } from "../../api/extracts";
+import { getLearningItem, updateLearningItemTags } from "../../api/learning-items";
 import { getAlgorithmParams } from "../../api/algorithm";
 import { previewReviewIntervals, formatInterval, type PreviewIntervals } from "../../api/review";
+import type { TaggedItemSummary } from "../../api/tags";
 import { cn } from "../../utils";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../lib/i18n";
+import { useModal } from "./Modal";
+import { TagItemsModalContent } from "./TagItemsModal";
 
 export type ItemDetailsTarget =
   | {
@@ -66,6 +72,12 @@ interface ItemDetailsPopoverProps {
   align?: "left" | "right";
   className?: string;
   onDismissStateChange?: (dismissed: boolean) => void;
+  /** Runs the same smart-postpone flow as the Queue context menu. Omit to hide the postpone action. */
+  onPostpone?: () => Promise<{ increase: number; newInterval: number }>;
+  /** Deletes the current item (caller decides how). Omit to hide the delete action. */
+  onDelete?: () => Promise<void>;
+  /** Called when the user picks an item from the "items with this tag" modal. Omit to disable navigation from that modal. */
+  onNavigateToTaggedItem?: (item: TaggedItemSummary) => void;
 }
 
 const EMPTY_DETAILS: ItemDetailsData = {
@@ -169,6 +181,9 @@ export function ItemDetailsPopover({
   align = "right",
   className,
   onDismissStateChange,
+  onPostpone,
+  onDelete,
+  onNavigateToTaggedItem,
 }: ItemDetailsPopoverProps) {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
@@ -177,9 +192,16 @@ export function ItemDetailsPopover({
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const [isUpdatingDismiss, setIsUpdatingDismiss] = useState(false);
+  const [localTags, setLocalTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+  const [isSavingTag, setIsSavingTag] = useState(false);
+  const [isPostponing, setIsPostponing] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
+  const modal = useModal();
   const { settings } = useSettingsStore();
+  const canEditTags = target.type !== "rss";
 
   const targetKey = useMemo(() => {
     if (target.type === "rss") return `rss:${target.title}`;
@@ -244,8 +266,146 @@ export function ItemDetailsPopover({
     }
   }, [isOpen]);
 
+  // Reset to the prop-supplied tags whenever the popover opens or the target
+  // changes; the loadItemDetails effect below reconciles with the freshly
+  // fetched item once it resolves, since target.tags can be stale.
+  useEffect(() => {
+    if (!isOpen) return;
+    setLocalTags(target.type === "rss" ? [] : target.tags ?? []);
+    setTagInput("");
+  }, [isOpen, targetKey]);
+
+  useEffect(() => {
+    if (!details.raw) return;
+    const rawTags = (details.raw as { tags?: unknown }).tags;
+    if (Array.isArray(rawTags)) {
+      setLocalTags(rawTags.filter((tag): tag is string => typeof tag === "string"));
+    }
+  }, [details.raw]);
+
   const handleToggle = () => {
     setIsOpen((prev) => !prev);
+  };
+
+  const persistTags = async (nextTags: string[]) => {
+    if (target.type === "document") {
+      const rawDoc = details.raw as unknown as import("../../types/document").Document | null;
+      if (!rawDoc) throw new Error("Document details not loaded yet");
+      await updateDocument(target.id, { ...rawDoc, tags: nextTags });
+    } else if (target.type === "extract") {
+      await updateExtract({ id: target.id, tags: nextTags });
+    } else if (target.type === "learning-item") {
+      await updateLearningItemTags(target.id, nextTags);
+    }
+  };
+
+  const handleAddTag = async () => {
+    if (!canEditTags) return;
+    const trimmed = tagInput.trim();
+    if (!trimmed) return;
+    if (localTags.some((existing) => existing.toLowerCase() === trimmed.toLowerCase())) {
+      setTagInput("");
+      return;
+    }
+
+    const previousTags = localTags;
+    setLocalTags([...localTags, trimmed]);
+    setTagInput("");
+    setIsSavingTag(true);
+    try {
+      await persistTags([...localTags, trimmed]);
+    } catch (err) {
+      console.error("Failed to add tag", err);
+      setLocalTags(previousTags);
+      setTagInput(trimmed);
+      toast.error(
+        t("itemDetails.tagAddFailed"),
+        err instanceof Error ? err.message : t("itemDetails.pleaseTryAgain")
+      );
+    } finally {
+      setIsSavingTag(false);
+    }
+  };
+
+  const handleRemoveTag = async (tagToRemove: string) => {
+    if (!canEditTags) return;
+    const previousTags = localTags;
+    const nextTags = localTags.filter((existing) => existing !== tagToRemove);
+    setLocalTags(nextTags);
+    setIsSavingTag(true);
+    try {
+      await persistTags(nextTags);
+    } catch (err) {
+      console.error("Failed to remove tag", err);
+      setLocalTags(previousTags);
+      toast.error(
+        t("itemDetails.tagRemoveFailed"),
+        err instanceof Error ? err.message : t("itemDetails.pleaseTryAgain")
+      );
+    } finally {
+      setIsSavingTag(false);
+    }
+  };
+
+  const handleTagInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void handleAddTag();
+    }
+  };
+
+  const handleTagClick = (tag: string) => {
+    void modal.custom(
+      <TagItemsModalContent
+        tag={tag}
+        currentItemId={target.type !== "rss" ? target.id : undefined}
+        onSelect={(item) => onNavigateToTaggedItem?.(item)}
+      />,
+      {
+        title: t("itemDetails.tagItemsModalTitle", { tag }),
+        size: "md",
+        confirmText: t("common.close"),
+      }
+    );
+  };
+
+  const handlePostpone = async () => {
+    if (!onPostpone) return;
+    setIsPostponing(true);
+    try {
+      const result = await onPostpone();
+      toast.success(
+        t("postpone.itemPostponed"),
+        t("postpone.itemPostponedDescription", { days: result.increase, newInterval: result.newInterval })
+      );
+    } catch (err) {
+      console.error("Failed to postpone item", err);
+      toast.error(
+        t("itemDetails.postponeFailed"),
+        err instanceof Error ? err.message : t("itemDetails.pleaseTryAgain")
+      );
+    } finally {
+      setIsPostponing(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    if (!confirm(t("itemDetails.deleteConfirm", { title: target.title }))) return;
+    setIsDeleting(true);
+    try {
+      await onDelete();
+      setIsOpen(false);
+      toast.success(t("itemDetails.itemDeleted"));
+    } catch (err) {
+      console.error("Failed to delete item", err);
+      toast.error(
+        t("itemDetails.deleteFailed"),
+        err instanceof Error ? err.message : t("itemDetails.pleaseTryAgain")
+      );
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleDismissToggle = async () => {
@@ -273,8 +433,6 @@ export function ItemDetailsPopover({
       setIsUpdatingDismiss(false);
     }
   };
-
-  const tags = target.type === "rss" ? [] : target.tags ?? [];
 
   return (
     <div ref={wrapperRef} className={cn("relative inline-flex", className)}>
@@ -310,23 +468,61 @@ export function ItemDetailsPopover({
               )}
             </div>
 
-            {(tags.length > 0 || target.category) && (
+            {(localTags.length > 0 || target.category || canEditTags) && (
               <div className="space-y-1">
                 {target.category && (
                   <div className="text-xs text-foreground/80">{t("itemDetails.category")}: {target.category}</div>
                 )}
-                {tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-2 py-0.5 rounded bg-muted/60 text-xs text-foreground border border-border/50"
+                <div className="flex flex-wrap items-center gap-1">
+                  {localTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-muted/60 text-xs text-foreground border border-border/50"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleTagClick(tag)}
+                        className="hover:underline"
+                        title={t("itemDetails.viewItemsWithTag", { tag })}
                       >
                         {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                      </button>
+                      {canEditTags && (
+                        <button
+                          type="button"
+                          onClick={() => void handleRemoveTag(tag)}
+                          disabled={isSavingTag}
+                          aria-label={t("itemDetails.removeTag", { tag })}
+                          className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                  {canEditTags && (
+                    <div className="inline-flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={tagInput}
+                        onChange={(event) => setTagInput(event.target.value)}
+                        onKeyDown={handleTagInputKeyDown}
+                        placeholder={t("itemDetails.addTagPlaceholder")}
+                        disabled={isSavingTag}
+                        className="w-24 px-1.5 py-0.5 text-xs rounded border border-border/50 bg-background focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleAddTag()}
+                        disabled={isSavingTag || !tagInput.trim()}
+                        aria-label={t("itemDetails.addTag")}
+                        className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -426,37 +622,74 @@ export function ItemDetailsPopover({
               </div>
             )}
 
-            {/* Dismiss/Undismiss button for documents */}
-            {target.type === "document" && (
-              <div className="border-t border-border pt-3">
-                <button
-                  onClick={handleDismissToggle}
-                  disabled={isUpdatingDismiss}
-                  className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    details.isDismissed
-                      ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
-                      : "bg-slate-500/10 text-slate-600 hover:bg-slate-500/20"
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                >
-                  {isUpdatingDismiss ? (
-                    <CircleNotch className="w-4 h-4 animate-spin" />
-                  ) : details.isDismissed ? (
-                    <>
-                      <Eye className="w-4 h-4" />
-                      {t("itemDetails.undismiss")}
-                    </>
-                  ) : (
-                    <>
-                      <EyeSlash className="w-4 h-4" />
-                      {t("itemDetails.dismiss")}
-                    </>
+            {/* Common actions: dismiss (documents), postpone, delete */}
+            {(target.type === "document" || onPostpone || onDelete) && (
+              <div className="border-t border-border pt-3 space-y-2">
+                <div className="text-xs text-muted-foreground">{t("itemDetails.commonActions")}</div>
+                <div className="flex flex-col gap-2">
+                  {target.type === "document" && (
+                    <button
+                      onClick={handleDismissToggle}
+                      disabled={isUpdatingDismiss}
+                      className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                        details.isDismissed
+                          ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
+                          : "bg-slate-500/10 text-slate-600 hover:bg-slate-500/20"
+                      } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {isUpdatingDismiss ? (
+                        <CircleNotch className="w-4 h-4 animate-spin" />
+                      ) : details.isDismissed ? (
+                        <>
+                          <Eye className="w-4 h-4" />
+                          {t("itemDetails.undismiss")}
+                        </>
+                      ) : (
+                        <>
+                          <EyeSlash className="w-4 h-4" />
+                          {t("itemDetails.dismiss")}
+                        </>
+                      )}
+                    </button>
                   )}
-                </button>
-                <p className="mt-1 text-xs text-muted-foreground text-center">
-                  {details.isDismissed
-                    ? t("itemDetails.hiddenButSearchable")
-                    : t("itemDetails.dismissedRemainSearchable")}
-                </p>
+
+                  {onPostpone && (
+                    <button
+                      onClick={() => void handlePostpone()}
+                      disabled={isPostponing}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isPostponing ? (
+                        <CircleNotch className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Calendar className="w-4 h-4" />
+                      )}
+                      {t("delete.postpone")}
+                    </button>
+                  )}
+
+                  {onDelete && (
+                    <button
+                      onClick={() => void handleDelete()}
+                      disabled={isDeleting}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isDeleting ? (
+                        <CircleNotch className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash className="w-4 h-4" />
+                      )}
+                      {t("common.delete")}
+                    </button>
+                  )}
+                </div>
+                {target.type === "document" && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    {details.isDismissed
+                      ? t("itemDetails.hiddenButSearchable")
+                      : t("itemDetails.dismissedRemainSearchable")}
+                  </p>
+                )}
               </div>
             )}
           </div>

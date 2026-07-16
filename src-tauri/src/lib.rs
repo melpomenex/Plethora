@@ -1097,6 +1097,8 @@ pub fn run() {
             commands::get_due_items,
             commands::create_learning_item,
             commands::update_learning_item_content_with_version,
+            commands::update_learning_item_tags,
+            commands::get_items_by_tag,
             commands::get_learning_item_versions,
             commands::revert_learning_item_version,
             commands::set_learning_item_prerequisites,

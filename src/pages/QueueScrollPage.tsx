@@ -56,6 +56,8 @@ import { scoreRssRelevance, type RssClassifier } from "../utils/rssRelevance";
 import { useClassifiersStore } from "../stores/classifiersStore";
 import { RelevanceIndicator } from "../components/media/RelevanceIndicator";
 import { ItemDetailsPopover, type ItemDetailsTarget } from "../components/common/ItemDetailsPopover";
+import type { TaggedItemSummary } from "../api/tags";
+import { useUndoableOperations } from "../api/undoable";
 import { AssistantPanel, type AssistantContext, type AssistantPosition } from "../components/assistant/AssistantPanel";
 import { useToast } from "../components/common/Toast";
 import { useMobileShell } from "../hooks/useMobileShell";
@@ -185,11 +187,13 @@ const SESSION_KEYS = {
  */
 export function QueueScrollPage() {
   const { t } = useI18n();
-  const { filteredItems: allQueueItems, loadQueue, customSubset } = useQueueStore(useShallow(s => ({
+  const { filteredItems: allQueueItems, loadQueue, customSubset, postponeItemSmart } = useQueueStore(useShallow(s => ({
     filteredItems: s.filteredItems,
     loadQueue: s.loadQueue,
     customSubset: s.customSubset,
+    postponeItemSmart: s.postponeItemSmart,
   })));
+  const { deleteDocument: deleteDocumentUndoable, deleteExtract: deleteExtractUndoable, deleteLearningItem: deleteLearningItemUndoable } = useUndoableOperations();
   const { documents, loadDocuments, addDocument, updateDocument } = useDocumentStore(useShallow(s => ({
     documents: s.documents,
     loadDocuments: s.loadDocuments,
@@ -1432,6 +1436,73 @@ export function QueueScrollPage() {
     return null;
   }, [currentItem, documents]);
 
+  // Matching QueueItem for the Details popover's postpone action — postponeItemSmart
+  // needs the full queue-store shape (priority, etc.), not the lighter ScrollItem.
+  // Only document/flashcard items are postponable (matches QueueContextMenu's canPostpone).
+  const detailsQueueItem = useMemo(() => {
+    if (!currentItem) return null;
+    if (currentItem.type === "document" && currentItem.documentId) {
+      return allQueueItems.find(
+        (qi) => qi.itemType === "document" && qi.documentId === currentItem.documentId
+      ) ?? null;
+    }
+    if (currentItem.type === "flashcard" && currentItem.learningItem) {
+      return allQueueItems.find(
+        (qi) => qi.itemType === "learning-item" && qi.learningItemId === currentItem.learningItem?.id
+      ) ?? null;
+    }
+    return null;
+  }, [currentItem, allQueueItems]);
+
+  const handleDetailsPostpone = useCallback(async () => {
+    if (!detailsQueueItem) throw new Error("Item not found in queue");
+    return postponeItemSmart(detailsQueueItem);
+  }, [detailsQueueItem, postponeItemSmart]);
+
+  const handleNavigateToTaggedItem = useCallback((item: TaggedItemSummary) => {
+    if (item.itemType === "document") {
+      addTab({
+        title: item.title,
+        icon: <TextT className="w-4 h-4 text-muted-foreground" />,
+        type: "document-viewer",
+        content: DocumentViewerTab,
+        closable: true,
+        data: { documentId: item.id },
+      }, paneId);
+      return;
+    }
+
+    if (item.itemType === "extract" && item.documentId) {
+      addTab({
+        title: item.title,
+        icon: <TextT className="w-4 h-4 text-muted-foreground" />,
+        type: "document-viewer",
+        content: DocumentViewerTab,
+        closable: true,
+        data: {
+          documentId: item.documentId,
+          initialViewMode: "extracts",
+          focusedExtractId: item.id,
+        },
+      }, paneId);
+      return;
+    }
+
+    if (item.itemType === "learning-item" && item.documentId) {
+      addTab({
+        title: item.title,
+        icon: <TextT className="w-4 h-4 text-muted-foreground" />,
+        type: "document-viewer",
+        content: DocumentViewerTab,
+        closable: true,
+        data: { documentId: item.documentId },
+      }, paneId);
+      return;
+    }
+
+    toast.error(t("itemDetails.cannotOpenItem"));
+  }, [addTab, paneId, toast, t]);
+
   const [selection, setSelection] = useState("");
   const [scrollState, setScrollState] = useState<{ pageNumber?: number; scrollPercent?: number }>({});
   const [debouncedScrollPercent, setDebouncedScrollPercent] = useState<number | undefined>(undefined);
@@ -1859,6 +1930,21 @@ export function QueueScrollPage() {
       return updated;
     });
   }, [currentIndex, resetScrollToTop]);
+
+  const handleDetailsDelete = useCallback(async () => {
+    if (!currentItem) return;
+    if (currentItem.type === "document" && currentItem.documentId) {
+      await deleteDocumentUndoable(currentItem.documentId);
+    } else if (currentItem.type === "extract" && currentItem.extract) {
+      await deleteExtractUndoable(currentItem.extract.id);
+    } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
+      await deleteLearningItemUndoable(currentItem.learningItem.id);
+    } else {
+      return;
+    }
+    advanceAfterRemoval(currentItem.id);
+    void loadQueue();
+  }, [currentItem, deleteDocumentUndoable, deleteExtractUndoable, deleteLearningItemUndoable, advanceAfterRemoval, loadQueue]);
 
   // --- AI Summary (Optimal Queue) ---------------------------------------------------
   // Mirrors the RSS Scroll Mode summary experience but operates on whichever item
@@ -3663,6 +3749,9 @@ export function QueueScrollPage() {
               }
               void loadQueue();
             }}
+            onPostpone={detailsQueueItem ? handleDetailsPostpone : undefined}
+            onDelete={handleDetailsDelete}
+            onNavigateToTaggedItem={handleNavigateToTaggedItem}
             renderTrigger={({ onClick, isOpen }) => (
               <button
                 onClick={onClick}
