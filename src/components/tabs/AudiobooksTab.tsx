@@ -19,6 +19,7 @@ import { AudiobookImportDialog } from "../import/AudiobookImportDialog";
 import { DocumentViewer } from "./TabRegistry";
 import { cn } from "../../utils";
 import { formatDuration } from "../../api/audiobooks";
+import { isAudiobookDocument } from "./audiobookClassification";
 import { useIsActiveTab } from "../common/Tabs";
 
 export function AudiobooksTab() {
@@ -60,13 +61,7 @@ export function AudiobooksTab() {
 
   // Filter documents to get audiobooks
   const audiobooks = useMemo(() => {
-    return documents.filter((doc) => {
-      const isAudio = doc.fileType === "audio";
-      const hasAudioTag = doc.tags?.some(
-        (t) => t.toLowerCase() === "audiobook" || t.toLowerCase() === "audio"
-      );
-      return isAudio || hasAudioTag;
-    });
+    return documents.filter(isAudiobookDocument);
   }, [documents]);
 
   // Enrich books with status derived from progress + manual DNF override

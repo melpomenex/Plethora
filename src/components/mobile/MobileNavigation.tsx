@@ -18,6 +18,7 @@ import {
   ChartBar,
   Download,
   Gear,
+  Headphones,
   House,
   List,
   MagnifyingGlass,
@@ -43,6 +44,7 @@ import {
   RSSReader,
   NewsletterDirectoryTab,
   PodcastTab,
+  AudiobooksTab,
 } from "../tabs/TabRegistry";
 
 interface NavItem {
@@ -166,6 +168,16 @@ const allNavItems: NavItem[] = [
     tabTitle: "podcastManager.podcasts",
     tabIcon: "🎙️",
     tabContent: PodcastTab,
+    closable: true,
+  },
+  {
+    id: "audiobook",
+    label: "toolbar.audiobooks",
+    icon: Headphones,
+    tabType: "audiobook",
+    tabTitle: "toolbar.audiobooks",
+    tabIcon: "🎧",
+    tabContent: AudiobooksTab,
     closable: true,
   },
 ];
