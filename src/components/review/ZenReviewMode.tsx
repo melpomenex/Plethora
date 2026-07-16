@@ -23,7 +23,6 @@ import { parseSm18State, sm18Retrievability } from "../../lib/sm18";
 import { parseSm20State, sm20Retrievability } from "../../lib/sm20";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { sanitizeHtml } from "../common/RichContentRenderer";
 import { normalizeClozeSyntax } from "../../utils/cloze";
 import { useFormFactor } from "../../hooks/useFormFactor";
 import { useRatingJoystick } from "../../hooks/useRatingJoystick";
@@ -48,25 +47,6 @@ function ZenCard({
   onShowAnswer: () => void;
   t: (key: string, params?: Record<string, string | number>) => string;
 }) {
-  const isDocument = (item as any).itemType === "document";
-  
-  if (isDocument) {
-    const docItem = item as any;
-    return (
-      <div className="max-w-3xl mx-auto">
-        <div className="text-xs text-muted-foreground/50 mb-4 font-mono tracking-wide">
-          {docItem.documentTitle || t("zenReview.documentReview")}
-        </div>
-        <div className="prose prose-lg dark:prose-invert max-w-none">
-          <div 
-            className="text-foreground/90 leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: sanitizeHtml(docItem.extractContent || docItem.content || "") }}
-          />
-        </div>
-      </div>
-    );
-  }
-
   const card = item as any;
 
   // Render cloze text by parsing [[cN::content]] markers

@@ -12,9 +12,6 @@ import {
   ReviewStreak,
 } from "../api/review";
 import { getLearningItems } from "../api/learning-items";
-import { getDueDocumentsOnly } from "../api/queue";
-import { rateDocument, restoreDocumentScheduling } from "../api/algorithm";
-import { getDocument } from "../api/documents";
 import { useCollectionStore } from "./collectionStore";
 import { useSettingsStore } from "./settingsStore";
 import { useStudyDeckStore } from "./studyDeckStore";
@@ -56,19 +53,9 @@ const clearStoredSession = () => {
   window.localStorage.removeItem(getReviewSessionKey());
 };
 
-export type ReviewDocumentItem = {
-  id: string;
-  itemType: "document";
-  documentId: string;
-  documentTitle: string;
-  tags: string[];
-  dueDate?: string;
-  estimatedTime?: number;
-  category?: string;
-  progress?: number;
-};
-
-export type ReviewSessionItem = LearningItem | ReviewDocumentItem;
+// The review session queue is flashcards / learning items only. Reading items
+// (documents) are reviewed in the Queue / Optimal Queue tab, never here.
+export type ReviewSessionItem = LearningItem;
 
 interface ReviewState {
   // Data
@@ -170,16 +157,6 @@ type ReviewUndoSnapshot = {
     memoryState?: { stability: number; difficulty: number } | null;
     difficulty: number;
   };
-  documentState?: {
-    documentId: string;
-    nextReadingDate?: string;
-    stability?: number;
-    difficulty?: number;
-    reps?: number;
-    totalTimeSpent?: number;
-    consecutiveCount?: number;
-    dateLastReviewed?: string;
-  };
 };
 
 let lastUndoSnapshot: ReviewUndoSnapshot | null = null;
@@ -216,23 +193,12 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const collectionId = useCollectionStore.getState().activeCollectionId;
-      const [items, dueDocuments] = await Promise.all([getDueItems(collectionId), getDueDocumentsOnly(collectionId)]);
+      const items = await getDueItems(collectionId);
 
-      const documentItems: ReviewDocumentItem[] = dueDocuments.map((doc) => ({
-        id: `doc:${doc.documentId}`,
-        itemType: "document",
-        documentId: doc.documentId,
-        documentTitle: doc.documentTitle,
-        tags: doc.tags ?? [],
-        dueDate: doc.dueDate,
-        estimatedTime: doc.estimatedTime,
-        category: doc.category,
-        progress: doc.progress,
-      }));
-
-      // Collection filtering is now handled by the backend (collection_id on items)
+      // Collection filtering is handled by the backend (collection_id on items).
+      // The review session is flashcards / learning items only — reading items
+      // (documents) are reviewed in the Queue / Optimal Queue tab, never here.
       const collectionFilteredItems = items;
-      const collectionFilteredDocuments = documentItems;
 
       // Filter by active deck selection
       const { activeDeckIds, decks } = useStudyDeckStore.getState();
@@ -242,14 +208,10 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       const deckFilteredItems = activeDecks.length > 0
         ? filterByDecks(collectionFilteredItems, activeDecks)
         : collectionFilteredItems;
-      const deckFilteredDocuments = activeDecks.length > 0
-        ? filterByDecks(collectionFilteredDocuments, activeDecks)
-        : collectionFilteredDocuments;
 
       const storedSession = loadStoredSession();
       const reviewedIds = new Set(storedSession?.reviewedIds ?? []);
       const pendingCards = deckFilteredItems.filter((item) => !reviewedIds.has(item.id));
-      const pendingDocuments = deckFilteredDocuments.filter((item) => !reviewedIds.has(item.id));
 
       const sortByDueDate = (date: string | undefined) => {
         if (!date) return 0;
@@ -257,40 +219,15 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         return Number.isNaN(ts) ? 0 : ts;
       };
 
-      const sortedCards = [...pendingCards].sort(
+      const queue: ReviewSessionItem[] = [...pendingCards].sort(
         (a, b) => sortByDueDate(a.due_date) - sortByDueDate(b.due_date)
       );
-      const sortedDocuments = [...pendingDocuments].sort(
-        (a, b) => sortByDueDate(a.dueDate) - sortByDueDate(b.dueDate)
-      );
 
-      const interleaved: ReviewSessionItem[] = [];
-      let cardIndex = 0;
-      let docIndex = 0;
-      let useCards = true;
-      if (sortedCards.length > 0 && sortedDocuments.length > 0) {
-        useCards = sortByDueDate(sortedCards[0].due_date) <= sortByDueDate(sortedDocuments[0].dueDate);
-      }
-
-      while (cardIndex < sortedCards.length || docIndex < sortedDocuments.length) {
-        if (useCards && cardIndex < sortedCards.length) {
-          interleaved.push(sortedCards[cardIndex++]);
-        } else if (!useCards && docIndex < sortedDocuments.length) {
-          interleaved.push(sortedDocuments[docIndex++]);
-        } else if (cardIndex < sortedCards.length) {
-          interleaved.push(sortedCards[cardIndex++]);
-        } else if (docIndex < sortedDocuments.length) {
-          interleaved.push(sortedDocuments[docIndex++]);
-        }
-        useCards = !useCards;
-      }
-
-      const sessionId = interleaved.length > 0 ? await startReview() : "";
-      const firstItem = interleaved[0] || null;
-      const isFirstDocument = firstItem && (firstItem as ReviewDocumentItem).itemType === "document";
+      const sessionId = queue.length > 0 ? await startReview() : "";
+      const firstItem = queue[0] || null;
 
       set({
-        queue: interleaved,
+        queue,
         currentIndex: 0,
         currentCard: firstItem,
         sessionStartTime: Date.now(),
@@ -299,14 +236,14 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         correctCount: 0,
         sessionId,
         averageTimePerCard: 0,
-        isAnswerShown: isFirstDocument ? true : false,
+        isAnswerShown: false,
         previewIntervals: null,
         canUndoLastReview: false,
         lastUndoError: null,
       });
       lastUndoSnapshot = null;
 
-      if (interleaved.length > 0) {
+      if (queue.length > 0) {
         saveStoredSession({
           reviewedIds: Array.from(reviewedIds),
           sessionId,
@@ -318,7 +255,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 
       get().loadStreak();
 
-      if (interleaved.length > 0 && firstItem && !isFirstDocument) {
+      if (queue.length > 0) {
         get().loadPreviewIntervals();
       }
     } catch (error) {
@@ -370,14 +307,11 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     const newReviewsCompleted = reviewsCompleted + 1;
     const newAverageTime = (reviewsCompleted * (get().averageTimePerCard || 0) + timeTaken) / (reviewsCompleted + 1);
       const { queue, currentIndex } = get();
-    const currentLearningItem = (currentCard as ReviewDocumentItem).itemType === "document"
-      ? null
-      : (currentCard as LearningItem);
-    const buryExtractId = currentLearningItem?.extract_id;
+    const learningCard = currentCard as LearningItem;
+    const buryExtractId = learningCard.extract_id;
     const remainingQueue = queue.filter((item) => {
       if (item.id === currentCard.id) return false;
       if (!buryExtractId) return true;
-      if ((item as ReviewDocumentItem).itemType === "document") return true;
       return (item as LearningItem).extract_id !== buryExtractId;
     });
     const storedSession = loadStoredSession();
@@ -397,36 +331,18 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       reviewedIdsBefore,
     };
 
-    if ((currentCard as ReviewDocumentItem).itemType === "document") {
-      const docItem = currentCard as ReviewDocumentItem;
-      const previousDoc = await getDocument(docItem.documentId);
-      if (previousDoc) {
-        snapshot.documentState = {
-          documentId: docItem.documentId,
-          nextReadingDate: previousDoc.nextReadingDate,
-          stability: previousDoc.stability,
-          difficulty: previousDoc.difficulty,
-          reps: previousDoc.reps,
-          totalTimeSpent: previousDoc.totalTimeSpent,
-          consecutiveCount: previousDoc.consecutiveCount,
-          dateLastReviewed: previousDoc.dateLastReviewed,
-        };
-      }
-    } else {
-      const learningCard = currentCard as LearningItem;
-      snapshot.learningItemState = {
-        itemId: learningCard.id,
-        dueDate: learningCard.due_date,
-        interval: learningCard.interval,
-        easeFactor: learningCard.ease_factor,
-        lastReviewDate: learningCard.last_review_date,
-        reviewCount: learningCard.review_count,
-        lapses: learningCard.lapses,
-        state: learningCard.state,
-        memoryState: learningCard.memory_state ?? null,
-        difficulty: learningCard.difficulty,
-      };
-    }
+    snapshot.learningItemState = {
+      itemId: learningCard.id,
+      dueDate: learningCard.due_date,
+      interval: learningCard.interval,
+      easeFactor: learningCard.ease_factor,
+      lastReviewDate: learningCard.last_review_date,
+      reviewCount: learningCard.review_count,
+      lapses: learningCard.lapses,
+      state: learningCard.state,
+      memoryState: learningCard.memory_state ?? null,
+      difficulty: learningCard.difficulty,
+    };
 
     if (remainingQueue.length === 0) {
       set({
@@ -446,12 +362,11 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     } else {
       const nextIndex = Math.min(currentIndex, remainingQueue.length - 1);
       const nextItem = remainingQueue[nextIndex];
-      const nextIsDocument = nextItem && (nextItem as ReviewDocumentItem).itemType === "document";
       set({
         queue: remainingQueue,
         currentIndex: nextIndex,
         currentCard: nextItem,
-        isAnswerShown: nextIsDocument ? true : false,
+        isAnswerShown: false,
         isSubmitting: false,
         previewIntervals: null,
         reviewsCompleted: newReviewsCompleted,
@@ -467,17 +382,12 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       });
 
       setTimeout(() => {
-        if (!nextIsDocument) {
-          get().loadPreviewIntervals();
-        }
+        get().loadPreviewIntervals();
       }, 100);
     }
 
     try {
-      if (reviewMode === "normal" && (currentCard as ReviewDocumentItem).itemType === "document") {
-        const docItem = currentCard as ReviewDocumentItem;
-        await rateDocument(docItem.documentId, rating, timeTaken);
-      } else if (reviewMode === "normal") {
+      if (reviewMode === "normal") {
         const learningCard = currentCard as LearningItem;
         const settings = useSettingsStore.getState().settings;
         const studyDeckState = useStudyDeckStore.getState();
@@ -521,7 +431,6 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   loadPreviewIntervals: async () => {
     const { currentCard } = get();
     if (!currentCard) return;
-    if ((currentCard as ReviewDocumentItem).itemType === "document") return;
 
     try {
       const settings = useSettingsStore.getState().settings;
@@ -552,20 +461,17 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       });
     } else {
       const nextItem = queue[nextIndex];
-      const nextIsDocument = nextItem && (nextItem as ReviewDocumentItem).itemType === "document";
       set({
         currentIndex: nextIndex,
         currentCard: nextItem,
-        isAnswerShown: nextIsDocument ? true : false,
+        isAnswerShown: false,
         isSubmitting: false,
         previewIntervals: null,
         sessionStartTime: Date.now(), // Reset for next card
       });
 
       setTimeout(() => {
-        if (!nextIsDocument) {
-          get().loadPreviewIntervals();
-        }
+        get().loadPreviewIntervals();
       }, 100);
     }
   },
@@ -586,21 +492,18 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
 
     const clampedIndex = Math.max(0, Math.min(index, queue.length - 1));
     const nextItem = queue[clampedIndex];
-    const nextIsDocument = nextItem && (nextItem as ReviewDocumentItem).itemType === "document";
     set({
       currentIndex: clampedIndex,
       currentCard: nextItem,
-      isAnswerShown: nextIsDocument ? true : false,
+      isAnswerShown: false,
       isSubmitting: false,
       previewIntervals: null,
       sessionStartTime: Date.now(),
     });
 
-    if (!nextIsDocument) {
-      setTimeout(() => {
-        get().loadPreviewIntervals();
-      }, 100);
-    }
+    setTimeout(() => {
+      get().loadPreviewIntervals();
+    }, 100);
   },
 
   resetSession: () => {
@@ -636,20 +539,17 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     const index = queue.findIndex((item) => item.id === itemId);
     if (index === -1) return;
     const nextItem = queue[index];
-    const nextIsDocument = nextItem && (nextItem as ReviewDocumentItem).itemType === "document";
     set({
       currentIndex: index,
       currentCard: nextItem,
-      isAnswerShown: nextIsDocument ? true : false,
+      isAnswerShown: false,
       isSubmitting: false,
       previewIntervals: null,
       sessionStartTime: Date.now(),
     });
-    if (!nextIsDocument) {
-      setTimeout(() => {
-        get().loadPreviewIntervals();
-      }, 100);
-    }
+    setTimeout(() => {
+      get().loadPreviewIntervals();
+    }, 100);
   },
 
   studyDocumentCards: async (documentId: string) => {
@@ -717,18 +617,6 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
           state: snapshot.learningItemState.state,
           memoryState: snapshot.learningItemState.memoryState,
           difficulty: snapshot.learningItemState.difficulty,
-        });
-      }
-      if (snapshot.documentState) {
-        await restoreDocumentScheduling({
-          document_id: snapshot.documentState.documentId,
-          next_reading_date: snapshot.documentState.nextReadingDate,
-          stability: snapshot.documentState.stability,
-          difficulty: snapshot.documentState.difficulty,
-          reps: snapshot.documentState.reps,
-          total_time_spent: snapshot.documentState.totalTimeSpent,
-          consecutive_count: snapshot.documentState.consecutiveCount,
-          date_last_reviewed: snapshot.documentState.dateLastReviewed,
         });
       }
 

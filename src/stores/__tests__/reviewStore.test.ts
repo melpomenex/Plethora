@@ -1,17 +1,8 @@
 import { beforeEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-const {
-  submitReviewMock,
-  restoreLearningItemStateMock,
-  rateDocumentMock,
-  restoreDocumentSchedulingMock,
-  getDocumentMock,
-} = vi.hoisted(() => ({
+const { submitReviewMock, restoreLearningItemStateMock } = vi.hoisted(() => ({
   submitReviewMock: vi.fn(),
   restoreLearningItemStateMock: vi.fn(),
-  rateDocumentMock: vi.fn(),
-  restoreDocumentSchedulingMock: vi.fn(),
-  getDocumentMock: vi.fn(),
 }));
 
 vi.mock("../../api/review", () => ({
@@ -25,19 +16,6 @@ vi.mock("../../api/review", () => ({
     total_reviews: 0,
   }),
   startReview: vi.fn().mockResolvedValue("session"),
-}));
-
-vi.mock("../../api/queue", () => ({
-  getDueDocumentsOnly: vi.fn().mockResolvedValue([]),
-}));
-
-vi.mock("../../api/algorithm", () => ({
-  rateDocument: rateDocumentMock,
-  restoreDocumentScheduling: restoreDocumentSchedulingMock,
-}));
-
-vi.mock("../../api/documents", () => ({
-  getDocument: getDocumentMock,
 }));
 
 vi.mock("../collectionStore", () => ({
@@ -75,6 +53,7 @@ vi.mock("../../lib/sync-client", () => ({
   getUser: vi.fn(() => null),
 }));
 
+import { getDueItems } from "../../api/review";
 import { useReviewStore } from "../reviewStore";
 
 beforeAll(() => {
@@ -121,9 +100,7 @@ describe("reviewStore Wave 1 behavior", () => {
   beforeEach(() => {
     submitReviewMock.mockReset();
     restoreLearningItemStateMock.mockReset();
-    rateDocumentMock.mockReset();
-    restoreDocumentSchedulingMock.mockReset();
-    getDocumentMock.mockReset();
+    vi.mocked(getDueItems).mockReset();
     window.localStorage.clear();
     useReviewStore.getState().resetSession();
   });
@@ -142,72 +119,6 @@ describe("reviewStore Wave 1 behavior", () => {
     await useReviewStore.getState().submitRating(3);
 
     expect(submitReviewMock).not.toHaveBeenCalled();
-    expect(rateDocumentMock).not.toHaveBeenCalled();
-  });
-
-  it("undo restores document scheduling and queue state", async () => {
-    const docItem = {
-      id: "doc:doc-1",
-      itemType: "document" as const,
-      documentId: "doc-1",
-      documentTitle: "Doc",
-      tags: [],
-    };
-
-    getDocumentMock.mockResolvedValue({
-      id: "doc-1",
-      title: "Doc",
-      filePath: "/tmp/doc.pdf",
-      fileType: "pdf",
-      tags: [],
-      dateAdded: new Date().toISOString(),
-      dateModified: new Date().toISOString(),
-      extractCount: 0,
-      learningItemCount: 0,
-      priorityRating: 0,
-      prioritySlider: 50,
-      priorityScore: 0,
-      isArchived: false,
-      isFavorite: false,
-      nextReadingDate: "2026-03-15T00:00:00.000Z",
-      stability: 10,
-      difficulty: 4,
-      reps: 5,
-      totalTimeSpent: 120,
-      consecutiveCount: 2,
-      dateLastReviewed: "2026-02-28T00:00:00.000Z",
-    });
-    rateDocumentMock.mockResolvedValue({});
-    restoreDocumentSchedulingMock.mockResolvedValue(undefined);
-
-    useReviewStore.setState({
-      queue: [docItem],
-      currentCard: docItem,
-      currentIndex: 0,
-      reviewMode: "normal",
-      sessionStartTime: Date.now() - 1000,
-      sessionId: "s1",
-    });
-
-    await useReviewStore.getState().submitRating(3);
-    expect(rateDocumentMock).toHaveBeenCalledWith("doc-1", 3, expect.any(Number));
-
-    await useReviewStore.getState().undoLastReview();
-
-    expect(restoreDocumentSchedulingMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        document_id: "doc-1",
-        next_reading_date: "2026-03-15T00:00:00.000Z",
-        stability: 10,
-        difficulty: 4,
-        reps: 5,
-        total_time_spent: 120,
-        consecutive_count: 2,
-      })
-    );
-    expect(useReviewStore.getState().queue).toHaveLength(1);
-    expect(useReviewStore.getState().currentCard?.id).toBe("doc:doc-1");
-    expect(useReviewStore.getState().canUndoLastReview).toBe(false);
   });
 
   it("buries sibling cards from the same extract in the active session", async () => {
@@ -258,5 +169,58 @@ describe("reviewStore Wave 1 behavior", () => {
       typedCorrect: true,
       typedSimilarity: 0.91,
     });
+  });
+
+  it("loadQueue populates the queue only with due flashcards, never documents", async () => {
+    // getDueItems returns flashcards; documents would have come from a separate
+    // stream that the review session no longer touches.
+    vi.mocked(getDueItems).mockResolvedValue([
+      makeLearningCard({ id: "card-1", extract_id: "extract-a" }),
+      makeLearningCard({ id: "card-2", extract_id: "extract-b" }),
+    ]);
+
+    await useReviewStore.getState().loadQueue();
+
+    const state = useReviewStore.getState();
+    expect(state.queue).toHaveLength(2);
+    expect(state.queue.every((item) => item.id.startsWith("card-"))).toBe(true);
+    expect(state.queue.some((item) => (item as any).itemType === "document")).toBe(false);
+    expect(state.currentCard?.id).toBe("card-1");
+    // Answer is never auto-revealed (that was document-only behavior).
+    expect(state.isAnswerShown).toBe(false);
+  });
+
+  it("loadQueue yields an empty queue when no flashcards are due, with no document padding", async () => {
+    vi.mocked(getDueItems).mockResolvedValue([]);
+
+    await useReviewStore.getState().loadQueue();
+
+    const state = useReviewStore.getState();
+    expect(state.queue).toHaveLength(0);
+    expect(state.currentCard).toBeNull();
+    expect(state.sessionId).toBe("");
+  });
+
+  it("submitRating routes learning cards through the flashcard scheduler", async () => {
+    submitReviewMock.mockResolvedValue({});
+    const card = makeLearningCard();
+    useReviewStore.setState({
+      queue: [card],
+      currentCard: card,
+      currentIndex: 0,
+      reviewMode: "normal",
+      sessionStartTime: Date.now() - 1000,
+      sessionId: "s1",
+    });
+
+    await useReviewStore.getState().submitRating(4);
+
+    expect(submitReviewMock).toHaveBeenCalledWith(
+      "card-1",
+      4,
+      expect.any(Number),
+      "s1",
+      expect.objectContaining({ noScheduleUpdate: false })
+    );
   });
 });

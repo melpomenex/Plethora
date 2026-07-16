@@ -7,9 +7,8 @@ import {
   Upload,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { useReviewStore, type ReviewDocumentItem, type ReviewSessionItem } from "../../stores/reviewStore";
+import { useReviewStore, type ReviewSessionItem } from "../../stores/reviewStore";
 import { ReviewCard } from "./ReviewCard";
-import { ReviewDocumentCard } from "./ReviewDocumentCard";
 import { RatingButtons } from "./RatingButtons";
 import { ReviewProgress } from "./ReviewProgress";
 import { ReviewComplete } from "./ReviewComplete";
@@ -178,9 +177,6 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     continueAfterReminder: continueAfterBreakReminder,
   } = useBreakReminder(sessionStartTime, 30);
 
-  const isDocumentItem = (item: ReviewSessionItem | null): item is ReviewDocumentItem =>
-    !!item && (item as ReviewDocumentItem).itemType === "document";
-
   // Feedback state
   const [feedback, setFeedback] = useState<{
     type: "streak" | "milestone" | "complete" | "mastered" | null;
@@ -188,7 +184,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   }>({ type: null });
 
   // Audio read-aloud review mode (hands-free TTS flow).
-  const audioCard = !isDocumentItem(currentCard) ? currentCard : null;
+  const audioCard = currentCard;
   const audioQuestionText = audioCard
     ? (audioCard.cloze_text || audioCard.question || "").replace(/<[^>]*>/g, " ")
     : "";
@@ -243,7 +239,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   ratingCbRef.current = handleRating;
 
   const handleDeleteCurrent = async () => {
-    if (!currentCard || isDocumentItem(currentCard)) {
+    if (!currentCard) {
       toast.info(t("queue.delete"), t("reviewSession.deleteOnlyLearning"));
       return;
     }
@@ -257,7 +253,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   };
 
   const handleSuspendCurrent = async () => {
-    if (!currentCard || isDocumentItem(currentCard)) {
+    if (!currentCard) {
       toast.info(t("queue.suspend"), t("reviewSession.suspendOnlyLearning"));
       return;
     }
@@ -433,13 +429,13 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       }
 
       // Space to show answer for learning items
-      if (e.key === " " && !isAnswerShown && currentCard && !isDocumentItem(currentCard)) {
+      if (e.key === " " && !isAnswerShown && currentCard) {
         e.preventDefault();
         showAnswer();
       }
 
       // Ctrl/Cmd + Enter to show answer
-      if (mod && e.key === "Enter" && !isAnswerShown && currentCard && !isDocumentItem(currentCard)) {
+      if (mod && e.key === "Enter" && !isAnswerShown && currentCard) {
         e.preventDefault();
         showAnswer();
         return;
@@ -464,7 +460,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
 
       // Number keys for rating (only when answer is shown)
       if (isAnswerShown && currentCard && !isSubmitting) {
-        if (useNativeGrades && !isDocumentItem(currentCard)) {
+        if (useNativeGrades) {
           // Native SM-20 grade scale: keys 0-5 (0-2 fail, 3-5 pass).
           if (/^[0-5]$/.test(e.key)) {
             const grade = Number(e.key);
@@ -584,7 +580,6 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   const safeStopCount = Math.max(1, Math.min(remainingItems, Math.floor((20 * 60) / perItemSeconds)));
   const minMinutes = Math.max(1, Math.round((estimatedSecondsRemaining / 60) * 0.85));
   const maxMinutes = Math.max(1, Math.round((estimatedSecondsRemaining / 60) * 1.15));
-  const isCurrentDocument = isDocumentItem(currentCard);
 
   if (isZenMode && !isLoading && queue.length > 0 && currentCard) {
     return (
@@ -700,15 +695,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                         {index + 1} / {queue.length}
                       </div>
                       <div className="line-clamp-2">
-                        {"documentTitle" in item ? (
-                          item.documentTitle || t("reviewSession.untitledDocument")
-                        ) : (
-                          <span
-                            dangerouslySetInnerHTML={{
-                              __html: renderAnkiHtmlWithLatex(item.question || item.cloze_text || t("reviewSession.untitledCard")),
-                            }}
-                          />
-                        )}
+                        <span
+                          dangerouslySetInnerHTML={{
+                            __html: renderAnkiHtmlWithLatex(item.question || item.cloze_text || t("reviewSession.untitledCard")),
+                          }}
+                        />
                       </div>
                     </button>
                   ))}
@@ -777,27 +768,14 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
               />
             )}
 
-            {isCurrentDocument ? (
-              <>
-                <div className="flex-1 flex items-center">
-                  <ReviewDocumentCard item={currentCard as ReviewDocumentItem} />
-                </div>
-
-                <div className="flex-shrink-0 mt-4">
-                  <RatingButtons
-                    onSelectRating={handleRating}
-                    disabled={isSubmitting}
-                  />
-                </div>
-              </>
-            ) : isAnswerShown ? (
+            {isAnswerShown ? (
               <>
                 {/* Card with answer shown */}
                 <div className="flex-none overflow-visible md:flex-1 md:overflow-y-auto md:min-h-0">
                   <div className="w-full flex flex-col justify-start md:min-h-full md:justify-center">
                     <div className="w-full">
                       <ReviewCard
-                        card={currentCard as Exclude<ReviewSessionItem, ReviewDocumentItem>}
+                        card={currentCard}
                         showAnswer={true}
                         onShowAnswer={() => {}}
                         onInteractionResultChange={setInteractionResult}
@@ -827,7 +805,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                 {/* Card with answer hidden */}
                 <div className="flex-1 flex items-center">
                   <ReviewCard
-                    card={currentCard as Exclude<ReviewSessionItem, ReviewDocumentItem>}
+                    card={currentCard}
                     showAnswer={false}
                     onShowAnswer={showAnswer}
                     onInteractionResultChange={setInteractionResult}
@@ -839,12 +817,10 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         </div>
 
         <div className="space-y-4">
-          {!isCurrentDocument && (
-            <ReviewTransparencyPanel
-              card={currentCard as Exclude<ReviewSessionItem, ReviewDocumentItem>}
-              previewIntervals={previewIntervals}
-            />
-          )}
+          <ReviewTransparencyPanel
+            card={currentCard}
+            previewIntervals={previewIntervals}
+          />
           <div className="hidden md:block bg-card border border-border rounded-lg p-4 text-xs text-muted-foreground">
             {t("review.cutoffGuarantee", { count: safeStopCount })}
           </div>

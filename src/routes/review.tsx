@@ -99,9 +99,9 @@ export function Review() {
   const a11yConfig = getReviewAccessibilityConfig(isZenMode);
 
   const typedMode = useMemo(() => {
-   
+
     const card = currentCard as any;
-    if (!card || card.itemType === "document") return null;
+    if (!card) return null;
     const metadataMode = card?.interaction_metadata?.typedMode as TypedAnswerMode | undefined;
     if (metadataMode) return metadataMode;
     const tags = (card.tags ?? []) as string[];
@@ -113,9 +113,9 @@ export function Review() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
   const hintStages = useMemo(() => {
-   
+
     const card = currentCard as any;
-    if (!card || card.itemType === "document") return [];
+    if (!card) return [];
     const fromMetadata = card?.interaction_metadata?.hints;
     if (Array.isArray(fromMetadata) && fromMetadata.length > 0) {
       return fromMetadata.map((v: unknown) => String(v));
@@ -124,9 +124,9 @@ export function Review() {
   }, [currentCard]);
 
   const acceptedAnswers = useMemo(() => {
-   
+
     const card = currentCard as any;
-    if (!card || card.itemType === "document") return [];
+    if (!card) return [];
     const fromMetadata = card?.interaction_metadata?.acceptedAnswers;
     if (Array.isArray(fromMetadata) && fromMetadata.length > 0) {
       return fromMetadata.map((v: unknown) => String(v)).filter(Boolean);
@@ -137,9 +137,9 @@ export function Review() {
   }, [currentCard]);
 
   const interactionType = useMemo(() => {
-   
+
     const card = currentCard as any;
-    if (!card || card.itemType === "document") return null;
+    if (!card) return null;
     const t = card?.interaction_metadata?.interactionType;
     if (t === "ordering" || t === "matching") return t;
     const tags = (card.tags ?? []) as string[];
@@ -192,9 +192,9 @@ export function Review() {
   }, [currentCard, interactionType]);
 
   const supportsHandwriting = useMemo(() => {
-   
+
     const card = currentCard as any;
-    if (!card || card.itemType === "document") return false;
+    if (!card) return false;
     if (card?.interaction_metadata?.handwritingEnabled) return true;
     const tags = (card.tags ?? []) as string[];
     return tags.includes("input:handwriting");
