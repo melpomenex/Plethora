@@ -31,7 +31,7 @@ vi.mock("../settingsStore", () => ({
   },
 }));
 
-import { useTabsStore, createSplitPane, createTabPane } from "../tabsStore";
+import { useTabsStore, createSplitPane, createTabPane, normalizePane } from "../tabsStore";
 
 const DummyComponent = () => null;
 
@@ -206,5 +206,36 @@ describe("tabsStore activeTabHistory and MRU close behavior", () => {
     expect((navigate.mock.calls[0][0] as CustomEvent).detail).toBe("/dashboard");
 
     window.removeEventListener("navigate", navigate);
+  });
+});
+
+describe("pane normalization", () => {
+  it("preserves identity when a split pane is already valid", () => {
+    const left = createTabPane(["left"], "left");
+    const right = createTabPane(["right"], "right");
+    const pane = createSplitPane("horizontal", [left, right], [50, 50]);
+
+    expect(normalizePane(pane)).toBe(pane);
+    expect(normalizePane(normalizePane(pane))).toBe(pane);
+  });
+
+  it("repairs malformed persisted pane data and becomes stable", () => {
+    const malformed = {
+      id: "split",
+      type: "split",
+      direction: "horizontal",
+      children: [{ id: "tabs", type: "tabs", tabIds: ["tab"], activeTabId: "missing" }],
+      sizes: [Number.NaN],
+    } as any;
+
+    const normalized = normalizePane(malformed);
+
+    expect(normalized).not.toBe(malformed);
+    expect(normalized).toMatchObject({
+      type: "split",
+      sizes: [100],
+      children: [{ activeTabId: "tab" }],
+    });
+    expect(normalizePane(normalized)).toBe(normalized);
   });
 });

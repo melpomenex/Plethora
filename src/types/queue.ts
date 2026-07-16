@@ -104,6 +104,8 @@ export interface ScheduleDayItem {
   id: string;
   documentId: string;
   documentTitle: string;
+  question?: string;
+  clozeText?: string;
   documentFileType?: DocumentFileType;
   itemType: "document" | "extract" | "learning-item";
   dueDate: string;

@@ -85,22 +85,25 @@ export function normalizePane(pane: Pane | null | undefined): Pane {
 
   const children = Array.isArray(pane.children) ? pane.children : [];
   const normalizedChildren = children.map(normalizePane);
-  let sizes = Array.isArray(pane.sizes) ? pane.sizes : [];
+  const childrenChanged =
+    !Array.isArray(pane.children) ||
+    normalizedChildren.length !== children.length ||
+    normalizedChildren.some((child, index) => child !== children[index]);
+  const sizes = Array.isArray(pane.sizes) ? pane.sizes : [];
   const sizesValid =
     sizes.length === normalizedChildren.length &&
     sizes.every((size) => typeof size === "number" && Number.isFinite(size));
-  if (!sizesValid) {
-    const count = normalizedChildren.length || 1;
-    const equal = 100 / count;
-    sizes = Array.from({ length: count }, () => equal);
-  }
+  const normalizedSizes = sizesValid
+    ? sizes
+    : (() => {
+        const count = normalizedChildren.length || 1;
+        const equal = 100 / count;
+        return Array.from({ length: count }, () => equal);
+      })();
 
-  const changed =
-    pane.children !== normalizedChildren ||
-    pane.sizes !== sizes ||
-    normalizedChildren.some((child, index) => child !== children[index]);
-
-  return changed ? { ...pane, children: normalizedChildren, sizes } : pane;
+  return childrenChanged || !sizesValid
+    ? { ...pane, children: normalizedChildren, sizes: normalizedSizes }
+    : pane;
 }
 
 // Helper to create a new tab pane

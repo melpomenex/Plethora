@@ -23,6 +23,7 @@ import { cn } from "../../utils";
 import { findCompanionDoc } from "../../utils/documentPairing";
 import { useDocumentStore } from "../../stores/documentStore";
 import type { Document } from "../../types/document";
+import { getScheduleItemTitle } from "./scheduleTitles";
 
 interface ScheduleItemRowProps {
   item: ScheduleDayItem;
@@ -256,7 +257,7 @@ export const ScheduleItemRow = memo(function ScheduleItemRow({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-medium text-foreground line-clamp-1 leading-snug">
-                  {item.documentTitle || "Untitled"}
+                  {getScheduleItemTitle(item, t)}
                 </h3>
 
                 {/* Expand toggle (desktop) */}

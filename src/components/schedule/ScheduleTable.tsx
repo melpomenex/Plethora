@@ -18,6 +18,7 @@ import { useI18n } from "../../lib/i18n";
 import { parseScheduleDate } from "../../lib/scheduleUtils";
 import type { ScheduleDayItem } from "../../types/queue";
 import { cn } from "../../utils";
+import { getScheduleItemTitle } from "./scheduleTitles";
 
 interface ScheduleGroup {
   date: string;
@@ -230,7 +231,7 @@ function Row({ item, idx, isExpanded, onToggleExpand, onPostpone, onOpen, onSusp
             {idx}
           </span>
         </td>
-        <td className="px-2 py-1 text-[12px] font-medium text-foreground line-clamp-1 max-w-[280px] min-w-[120px]">{item.documentTitle || "Untitled"}</td>
+        <td className="px-2 py-1 text-[12px] font-medium text-foreground line-clamp-1 max-w-[280px] min-w-[120px]">{getScheduleItemTitle(item, t)}</td>
         <td className="px-1.5 py-1 w-8 text-center">{typeBadge(item.itemType, t)}</td>
         <td className="px-1.5 py-1 w-8 text-center text-[11px] font-mono tabular-nums text-muted-foreground">{item.priority}</td>
         <td className="px-1.5 py-1 w-12 text-[11px] font-mono tabular-nums text-muted-foreground text-center">
@@ -328,7 +329,7 @@ function ExpandedRow({ item, onPostpone, onOpen, busyId, setBusyId }: {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground leading-snug">
-                {item.documentTitle || "Untitled"}
+                {getScheduleItemTitle(item, t)}
               </p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 {daysText && (

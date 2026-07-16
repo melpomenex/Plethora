@@ -13,6 +13,7 @@ import type {
 } from '../types/position';
 import { enqueueSyncOperation } from '../lib/sync/syncJournal';
 import { nowHLC } from '../lib/sync/syncClock';
+import { normalizeUnixTimestampMs } from '../utils/relativeTime';
 // Re-export position helper functions for convenience
 export {
   pagePosition,
@@ -161,13 +162,13 @@ export async function getDocumentsWithProgress(
   limit?: number,
 ): Promise<DocumentWithProgress[]> {
   const results = isWebMode()
-    ? await browserInvoke<[string, number, string, number][]>('get_documents_with_progress', { limit })
-    : await invokeCommand<[string, number, string, number][]>('get_documents_with_progress', { limit });
+    ? await browserInvoke<[string, number, string, number | null][]>('get_documents_with_progress', { limit })
+    : await invokeCommand<[string, number, string, number | null][]>('get_documents_with_progress', { limit });
   return results.map(([id, progress, title, date_modified]) => ({
     id,
     progress,
     title,
-    date_modified,
+    date_modified: normalizeUnixTimestampMs(date_modified),
   }));
 }
 

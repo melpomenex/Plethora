@@ -4,6 +4,7 @@ import { useDocumentStore } from "../../stores/documentStore";
 import { useCollectionStore } from "../../stores/collectionStore";
 import type { TabType } from "../../stores/tabsStore";
 import { useI18n } from "../../lib/i18n";
+import { formatRelativeTime } from "../../utils/relativeTime";
 import { usePresentationMode } from "../../contexts/PresentationContext";
 import { useIsActiveTab } from "../common/Tabs";
 import { useStartupStore } from "../../stores/startupStore";
@@ -399,8 +400,16 @@ export function DashboardTab() {
                     <h4 className="font-semibold text-xs md:text-sm text-foreground line-clamp-2 flex-1 group-hover:text-primary transition-colors">
                       {doc.title}
                     </h4>
-                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                      {formatTimeAgo(doc.date_modified)}
+                    <span
+                      className="text-[10px] text-muted-foreground whitespace-nowrap"
+                      title={t("continueReading.lastUpdated", {
+                        relative: formatRelativeTime(doc.date_modified),
+                      })}
+                      aria-label={t("continueReading.lastUpdated", {
+                        relative: formatRelativeTime(doc.date_modified),
+                      })}
+                    >
+                      {formatRelativeTime(doc.date_modified)}
                     </span>
                   </div>
                   <div className="w-full space-y-1.5 mt-auto">
@@ -586,13 +595,4 @@ export function DashboardTab() {
       </div>
     </SafeScrollContainer>
   );
-}
-
-function formatTimeAgo(timestamp: number) {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-  return `${Math.floor(seconds / 604800)}w ago`;
 }

@@ -25,6 +25,7 @@ import { emitFeedback } from "../../lib/feedback";
 import { PasteExtractDialog } from "../extracts/PasteExtractDialog";
 import { TwitterImportDialog } from "../documents/TwitterImportDialog";
 import { Desktop, ListChecks, SquaresFour, BookOpen, TextT, YoutubeLogo } from "@phosphor-icons/react";
+import { syncActivePaneTabId } from "./activePaneSync";
 
 const TAB_TYPE_ALIASES: Record<string, TabType> = {
   dash: "dashboard", dashboard: "dashboard", home: "dashboard",
@@ -95,7 +96,7 @@ export function MainLayout() {
 
     const firstPane = findFirstTabPane(rootPane);
     if (firstPane && firstPane.type === "tabs") {
-      setActivePaneTabId(firstPane.activeTabId);
+      setActivePaneTabId((currentTabId) => syncActivePaneTabId(currentTabId, firstPane.activeTabId));
     }
   }, [rootPane]);
 

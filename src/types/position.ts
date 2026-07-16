@@ -147,7 +147,8 @@ export interface DocumentWithProgress {
   id: string;
   progress: number;
   title: string;
-  date_modified: number;
+  /** Unix epoch milliseconds after API-boundary normalization. */
+  date_modified: number | null;
 }
 
 /**

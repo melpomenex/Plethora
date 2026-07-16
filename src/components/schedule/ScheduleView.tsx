@@ -21,6 +21,8 @@ function queueItemToScheduleDay(item: {
   id: string;
   documentId: string;
   documentTitle: string;
+  question?: string;
+  clozeText?: string;
   documentFileType?: string;
   itemType: string;
   dueDate?: string;
@@ -41,6 +43,8 @@ function queueItemToScheduleDay(item: {
     id: item.id,
     documentId: item.documentId,
     documentTitle: item.documentTitle,
+    question: item.question,
+    clozeText: item.clozeText,
     documentFileType: item.documentFileType as ScheduleDayItem["documentFileType"],
     itemType: item.itemType as ScheduleDayItem["itemType"],
     dueDate: item.dueDate,

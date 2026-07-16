@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../database", () => ({
   getDocuments: vi.fn(),
+  getDocumentsWithProgress: vi.fn(),
 }));
 
 vi.mock("../../stores/llmProvidersStore", () => ({
@@ -47,5 +48,21 @@ describe("browser backend get_documents collection filter", () => {
 
     const docs = await browserInvoke<any[]>("get_documents", { collectionId: null });
     expect(docs.map((d) => d.id)).toEqual(["d1", "d2"]);
+  });
+
+  it("returns document progress timestamps as Unix seconds", async () => {
+    const dateModified = "2026-07-16T12:00:00.000Z";
+    vi.mocked(db.getDocumentsWithProgress).mockResolvedValue([
+      {
+        id: "d1",
+        progress_percent: 25,
+        title: "Recent document",
+        date_modified: dateModified,
+      } as any,
+    ]);
+
+    const docs = await browserInvoke<any[]>("get_documents_with_progress", { limit: 10 });
+
+    expect(docs).toEqual([["d1", 25, "Recent document", Math.floor(Date.parse(dateModified) / 1000)]]);
   });
 });

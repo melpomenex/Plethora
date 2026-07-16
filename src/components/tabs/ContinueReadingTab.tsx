@@ -15,6 +15,7 @@ import {
 import { useTabsStore } from "../../stores";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useI18n } from "../../lib/i18n";
+import { formatRelativeTime } from "../../utils/relativeTime";
 import { useIsActiveTab } from "../common/Tabs";
 import { useStartupStore } from "../../stores/startupStore";
 import { useCollectionStore } from "../../stores/collectionStore";
@@ -28,15 +29,6 @@ interface GroupedDocuments {
   group: ProgressGroup;
   info: (typeof PROGRESS_GROUPS)[ProgressGroup];
   documents: DocumentWithProgress[];
-}
-
-function formatTimeAgo(timestamp: number) {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
-  return `${Math.floor(seconds / 604800)}w ago`;
 }
 
 const EMPTY_STARTUP_PROGRESS: StartupProgressItem[] = [];
@@ -73,7 +65,7 @@ export function ContinueReadingTab() {
       .map(([group, docs]) => ({
         group: group as ProgressGroup,
         info: PROGRESS_GROUPS[group as ProgressGroup],
-        documents: docs.sort((a, b) => b.date_modified - a.date_modified),
+        documents: docs.sort((a, b) => (b.date_modified ?? 0) - (a.date_modified ?? 0)),
       }))
       .sort((a, b) => {
         const priority = { "not-started": 0, "just-started": 1, halfway: 2, "almost-done": 3 } as const;
@@ -163,8 +155,16 @@ export function ContinueReadingTab() {
                     <h3 className="font-medium text-foreground line-clamp-2 flex-1">
                       {doc.title}
                     </h3>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-                      {formatTimeAgo(doc.date_modified)}
+                    <span
+                      className="text-xs text-muted-foreground whitespace-nowrap"
+                      title={t("continueReading.lastUpdated", {
+                        relative: formatRelativeTime(doc.date_modified),
+                      })}
+                      aria-label={t("continueReading.lastUpdated", {
+                        relative: formatRelativeTime(doc.date_modified),
+                      })}
+                    >
+                      {formatRelativeTime(doc.date_modified)}
                     </span>
                   </div>
 
@@ -193,4 +193,3 @@ export function ContinueReadingTab() {
     </div>
   );
 }
-
