@@ -608,6 +608,11 @@ function readBrowserSyncConfig(): { host: string; port: number; autoStart: boole
 /**
  * Command handlers mapping - mirrors Tauri commands
  */
+function toUnixSeconds(value: unknown): number | null {
+    const timestampMs = new Date(String(value ?? '')).getTime();
+    return Number.isFinite(timestampMs) ? Math.floor(timestampMs / 1000) : null;
+}
+
 const commandHandlers: Record<string, CommandHandler> = {
     // Bounded equivalent of the native startup snapshot. Browser mode has no
     // collection table, so it exposes the same stable default collection and
@@ -669,7 +674,8 @@ const commandHandlers: Record<string, CommandHandler> = {
                 id: doc.id,
                 progress: doc.progressPercent ?? 0,
                 title: doc.title,
-                dateModified: Math.floor(new Date(doc.dateModified).getTime() / 1000),
+                dateModified: toUnixSeconds(doc.dateModified),
+                dateAdded: toUnixSeconds(doc.dateAdded),
             }));
         const dueDocs = startupDocs.filter((doc: any) =>
             !doc.isArchived && !doc.isDismissed &&
@@ -872,13 +878,14 @@ const commandHandlers: Record<string, CommandHandler> = {
     get_documents_with_progress: async (args) => {
         const limit = (args.limit as number) || 50;
         const docs = await db.getDocumentsWithProgress(limit);
-        // Return as tuples: [id, progress, title, date_modified]
-        // Convert date_modified from ISO string to Unix timestamp (seconds)
+        // Return as tuples: [id, progress, title, date_modified, date_added]
+        // Convert ISO timestamps to Unix seconds at the transport boundary.
         return docs.map((doc) => [
             doc.id,
             doc.progress_percent || 0,
             doc.title,
-            Math.floor(new Date(doc.date_modified).getTime() / 1000),
+            toUnixSeconds(doc.date_modified),
+            toUnixSeconds(doc.date_added),
         ]);
     },
 

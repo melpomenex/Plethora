@@ -143,6 +143,7 @@ interface DocumentState {
   // Actions
   loadDocuments: () => Promise<void>;
   hydrateStartupDocuments: (documents: Document[]) => void;
+  hydrateDocument: (id: string) => Promise<Document | null>;
   loadDocumentsPage: (page?: number, append?: boolean) => Promise<void>;
   setDocuments: (documents: Document[]) => void;
   setCurrentDocument: (document: Document | null) => void;
@@ -218,6 +219,28 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         endHydration({ records: documents.length, surface: "startup" });
       });
     });
+  },
+
+  hydrateDocument: async (id) => {
+    const hydrated = await documentsApi.getDocument(id);
+    if (!hydrated) return null;
+
+    set((state) => {
+      const existingIndex = state.documents.findIndex((doc) => doc.id === id);
+      const documents = existingIndex === -1
+        ? [...state.documents, hydrated]
+        : state.documents.map((doc) => doc.id === id ? { ...doc, ...hydrated } : doc);
+      return {
+        documents,
+        // A response for a background or previously active document may warm
+        // the cache, but must never replace a different active document.
+        currentDocument: state.currentDocument?.id === id
+          ? { ...state.currentDocument, ...hydrated }
+          : state.currentDocument,
+      };
+    });
+
+    return hydrated;
   },
 
   loadDocumentsPage: async (page = 1, append = false) => {

@@ -52,17 +52,47 @@ describe("browser backend get_documents collection filter", () => {
 
   it("returns document progress timestamps as Unix seconds", async () => {
     const dateModified = "2026-07-16T12:00:00.000Z";
+    const dateAdded = "2026-07-14T12:00:00.000Z";
     vi.mocked(db.getDocumentsWithProgress).mockResolvedValue([
       {
         id: "d1",
         progress_percent: 25,
         title: "Recent document",
         date_modified: dateModified,
+        date_added: dateAdded,
       } as any,
     ]);
 
     const docs = await browserInvoke<any[]>("get_documents_with_progress", { limit: 10 });
 
-    expect(docs).toEqual([["d1", 25, "Recent document", Math.floor(Date.parse(dateModified) / 1000)]]);
+    expect(docs).toEqual([[
+      "d1",
+      25,
+      "Recent document",
+      Math.floor(Date.parse(dateModified) / 1000),
+      Math.floor(Date.parse(dateAdded) / 1000),
+    ]]);
+  });
+
+  it("returns a null import timestamp for legacy documents without date_added", async () => {
+    const dateModified = "2026-07-16T12:00:00.000Z";
+    vi.mocked(db.getDocumentsWithProgress).mockResolvedValue([
+      {
+        id: "legacy",
+        progress_percent: 10,
+        title: "Legacy document",
+        date_modified: dateModified,
+      } as any,
+    ]);
+
+    const docs = await browserInvoke<any[]>("get_documents_with_progress", { limit: 10 });
+
+    expect(docs[0]).toEqual([
+      "legacy",
+      10,
+      "Legacy document",
+      Math.floor(Date.parse(dateModified) / 1000),
+      null,
+    ]);
   });
 });

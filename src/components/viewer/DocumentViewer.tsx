@@ -326,7 +326,7 @@ export function DocumentViewer({
   const toast = useToast();
   const { t } = useI18n();
   const { theme } = useTheme();
-  const { documents, setCurrentDocument, currentDocument: globalCurrentDocument, updateDocument } = useDocumentStore();
+  const { documents, hydrateDocument, setCurrentDocument, currentDocument: globalCurrentDocument, updateDocument } = useDocumentStore();
   
   // Use local document lookup by documentId prop instead of global currentDocument
   // This allows multiple DocumentViewers to show different documents in split panes
@@ -847,8 +847,6 @@ export function DocumentViewer({
   const suppressSelectionUntilRef = useRef(0);
   const lastDocumentIdRef = useRef<string | null>(null);
   const lastLoadedDocumentIdRef = useRef<string | null>(null); // Track successfully loaded documents
-  const documentsRef = useRef(documents);
-  documentsRef.current = documents;
 
   // Mobile PWA text selection state
   const [mobileSelection, setMobileSelection] = useState<{
@@ -1977,6 +1975,8 @@ export function DocumentViewer({
     if (!isTabActive) return;
     if (!documentId) return;
 
+    let cancelled = false;
+
     setOcrContextText(null);
     setContextMenuState(null);
 
@@ -1993,26 +1993,22 @@ export function DocumentViewer({
       // Mark as viewed in session (for smart queue filtering)
       markItemViewed(documentId, false);
 
-      const doc = documentsRef.current.find((d) => d.id === documentId);
-      if (doc) {
-        setCurrentDocument(doc);
-        loadDocumentData(doc);
-        lastLoadedDocumentIdRef.current = documentId; // Mark as successfully loaded
-      } else {
-        documentsApi.getDocument(documentId)
-          .then((fetched) => {
-            if (!fetched) return;
-            setCurrentDocument(fetched);
-            loadDocumentData(fetched);
-            lastLoadedDocumentIdRef.current = documentId;
-          })
-          .catch((error) => {
-            console.error("Failed to load document by id:", error);
-          });
-      }
+      // Startup/library rows are intentionally content-free projections. Always
+      // hydrate the full row before the reader consumes document content.
+      hydrateDocument(documentId)
+        .then((fetched) => {
+          if (cancelled || !fetched) return;
+          setCurrentDocument(fetched);
+          loadDocumentData(fetched);
+          lastLoadedDocumentIdRef.current = documentId;
+        })
+        .catch((error) => {
+          if (!cancelled) console.error("Failed to hydrate document by id:", error);
+        });
     }
 
     return () => {
+      cancelled = true;
       // Capture and save scroll position on document switch or unmount
       const container = document.querySelector("[data-document-scroll-container]") as HTMLElement | null;
       let state = lastScrollStateRef.current;
@@ -2066,7 +2062,7 @@ export function DocumentViewer({
           .catch((error) => console.warn("Failed to save unified position on cleanup:", error));
       }
     };
-  }, [documentId, isTabActive, setCurrentDocument, loadDocumentData, docType]);
+  }, [documentId, isTabActive, hydrateDocument, setCurrentDocument, loadDocumentData, docType]);
 
   // Re-load the open document's file bytes when its filePath arrives after the
   // viewer was already mounted — i.e. the post-sync-download case. The main load

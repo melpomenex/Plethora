@@ -13,8 +13,10 @@ describe("relative time utilities", () => {
 
   it("formats normalized backend timestamps as recent values", () => {
     const seconds = Math.floor((nowMs - 30_000) / 1000);
+    const twoDaysAgoSeconds = Math.floor((nowMs - 2 * 86_400_000) / 1000);
 
     expect(formatRelativeTime(normalizeUnixTimestampMs(seconds), nowMs)).toBe("just now");
+    expect(formatRelativeTime(normalizeUnixTimestampMs(twoDaysAgoSeconds), nowMs)).toBe("2d ago");
     expect(formatRelativeTime(nowMs - 5 * 60_000, nowMs)).toBe("5m ago");
     expect(formatRelativeTime(nowMs - 2 * 86_400_000, nowMs)).toBe("2d ago");
   });

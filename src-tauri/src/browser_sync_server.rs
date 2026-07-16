@@ -729,11 +729,13 @@ async fn handle_extension_request(
     // Route to appropriate handler based on type field.
     // Browser extension "page"/link saves should be treated as HTML, not "other",
     // so they remain directly viewable in-app.
-    let request_type = payload.r#type.trim().to_ascii_lowercase();
-    let result = match request_type.as_str() {
-        "extract" => handle_extract_request(&state, &payload).await,
-        "video" => handle_import_request(&state, &payload, FileType::Youtube).await,
-        "page" | "link" | "" => {
+    let request_kind = classify_extension_request(&payload);
+    let result = match request_kind {
+        ExtensionRequestKind::Extract => handle_extract_request(&state, &payload).await,
+        ExtensionRequestKind::Video => {
+            handle_import_request(&state, &payload, FileType::Youtube).await
+        }
+        ExtensionRequestKind::Page => {
             let file_type = if is_youtube_url(&payload.url) {
                 FileType::Youtube
             } else {
@@ -741,7 +743,7 @@ async fn handle_extension_request(
             };
             handle_import_request(&state, &payload, file_type).await
         }
-        _ => {
+        ExtensionRequestKind::Import => {
             let file_type = infer_extension_file_type(&payload);
             handle_import_request(&state, &payload, file_type).await
         }
@@ -753,6 +755,23 @@ async fn handle_extension_request(
             error!("Error handling extension request: {}", e);
             error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string())
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExtensionRequestKind {
+    Page,
+    Extract,
+    Video,
+    Import,
+}
+
+fn classify_extension_request(payload: &ExtensionRequest) -> ExtensionRequestKind {
+    match payload.r#type.trim().to_ascii_lowercase().as_str() {
+        "extract" => ExtensionRequestKind::Extract,
+        "video" => ExtensionRequestKind::Video,
+        "page" | "link" | "" => ExtensionRequestKind::Page,
+        _ => ExtensionRequestKind::Import,
     }
 }
 
@@ -769,6 +788,26 @@ fn infer_extension_file_type(payload: &ExtensionRequest) -> FileType {
         return FileType::Pdf;
     }
     FileType::Html
+}
+
+fn normalize_browser_source_url(raw: &str) -> String {
+    let Ok(mut url) = Url::parse(raw.trim()) else {
+        return raw.trim().to_string();
+    };
+    url.set_fragment(None);
+    url.to_string()
+}
+
+fn select_extension_document_text(payload: &ExtensionRequest) -> String {
+    if !payload.text.trim().is_empty() {
+        payload.text.trim().to_string()
+    } else {
+        payload
+            .html_content
+            .as_deref()
+            .map(crate::processor::html::extract_text_from_html_fragment)
+            .unwrap_or_default()
+    }
 }
 
 fn build_browser_import_metadata(payload: &ExtensionRequest) -> crate::models::DocumentMetadata {
@@ -837,24 +876,6 @@ fn build_browser_import_metadata_with_article(
     metadata
 }
 
-fn extract_text_from_html_fragment(html: &str) -> String {
-    html2text::from_read(html.as_bytes(), 80)
-        .unwrap_or_else(|_| {
-            regex::Regex::new(r"<[^>]+>")
-                .expect("valid html tag regex")
-                .replace_all(html, " ")
-                .to_string()
-        })
-        .replace('\u{a0}', " ")
-        .lines()
-        .map(str::trim_end)
-        .collect::<Vec<_>>()
-        .join("\n")
-        .replace("\n\n\n", "\n\n")
-        .trim()
-        .to_string()
-}
-
 fn extract_images_from_html_fragment(html: &str, base_url: &str) -> Vec<DocumentImageAsset> {
     let src_regex = regex::Regex::new(r#"(?is)<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>"#)
         .expect("valid image src regex");
@@ -910,13 +931,7 @@ async fn handle_import_request(
         .as_ref()
         .map(|html| !html.trim().is_empty())
         .unwrap_or(false);
-    let payload_content = if !payload.text.trim().is_empty() {
-        payload.text.trim().to_string()
-    } else if let Some(html) = payload.html_content.as_deref() {
-        extract_text_from_html_fragment(html)
-    } else {
-        String::new()
-    };
+    let payload_content = select_extension_document_text(payload);
     let payload_images = payload.extracted_images.as_ref().map(|images| {
         images
             .iter()
@@ -927,9 +942,19 @@ async fn handle_import_request(
             .collect::<Vec<_>>()
     });
 
-    let existing = state.repo.find_document_by_url(&payload.url).await.ok();
+    let normalized_url = normalize_browser_source_url(&payload.url);
+    let existing = match state.repo.find_document_by_url(&normalized_url).await {
+        Ok(Some(doc)) => Some(doc),
+        _ if normalized_url != payload.url => state
+            .repo
+            .find_document_by_url(&payload.url)
+            .await
+            .ok()
+            .flatten(),
+        _ => None,
+    };
 
-    if let Some(Some(doc)) = existing {
+    if let Some(doc) = existing {
         let existing_missing_text = doc
             .content
             .as_deref()
@@ -1152,7 +1177,7 @@ async fn handle_import_request(
         id: uuid::Uuid::new_v4().to_string(),
         collection_id: crate::models::collection::DEFAULT_COLLECTION_ID.to_string(),
         title,
-        file_path: payload.url.clone(),
+        file_path: normalized_url,
         file_type,
         content: Some(content),
         content_hash: None,
@@ -1209,16 +1234,16 @@ async fn handle_import_request(
         let bg_doc_id = created.id.clone();
         let bg_url = payload.url.clone();
         let bg_repo = state.repo.clone();
-        let bg_extension_text_len = content_len;
+        let bg_expected_date_modified = created.date_modified;
         let bg_payload = payload.url.clone();
 
         tokio::spawn(async move {
             match fetch_readable_content(&bg_url).await {
-                Ok(readable) if readable.text.len() > bg_extension_text_len => {
+                Ok(readable) => {
                     info!(
                         "Readability extracted {} chars (vs {} from extension) for: {}",
                         readable.text.len(),
-                        bg_extension_text_len,
+                        content_len,
                         bg_url
                     );
                     let metadata = build_browser_import_metadata_with_article(
@@ -1250,27 +1275,25 @@ async fn handle_import_request(
                         Some(readable.html.clone()),
                         Some(readable.images.clone()),
                     );
-                    if let Err(e) = bg_repo
-                        .update_document_content(
+                    match bg_repo
+                        .guarded_enrich_browser_document(
                             &bg_doc_id,
+                            bg_expected_date_modified,
                             &readable.text,
-                            None,
-                            None,
-                            Some(metadata),
+                            metadata,
                         )
                         .await
                     {
-                        warn!(
+                        Ok(true) => {}
+                        Ok(false) => info!(
+                            "Discarded empty, poorer, or stale readability result for: {}",
+                            bg_url
+                        ),
+                        Err(e) => warn!(
                             "Failed to update document {} with readable content: {}",
                             bg_doc_id, e
-                        );
+                        ),
                     }
-                }
-                Ok(readable) => {
-                    info!(
-                        "Readability extracted {} chars (not better than {} from extension) for: {}",
-                        readable.text.len(), bg_extension_text_len, bg_url
-                    );
                 }
                 Err(e) => {
                     warn!(
@@ -1296,7 +1319,18 @@ async fn handle_extract_request(
     payload: &ExtensionRequest,
 ) -> Result<ExtensionResponse, AppError> {
     // Find or create document for this URL
-    let document_id = if let Ok(Some(doc)) = state.repo.find_document_by_url(&payload.url).await {
+    let normalized_url = normalize_browser_source_url(&payload.url);
+    let existing = match state.repo.find_document_by_url(&normalized_url).await {
+        Ok(Some(doc)) => Some(doc),
+        _ if normalized_url != payload.url => state
+            .repo
+            .find_document_by_url(&payload.url)
+            .await
+            .ok()
+            .flatten(),
+        _ => None,
+    };
+    let document_id = if let Some(doc) = existing {
         doc.id
     } else {
         let inferred_file_type = infer_extension_file_type(payload);
@@ -1309,7 +1343,7 @@ async fn handle_extract_request(
             id: uuid::Uuid::new_v4().to_string(),
             collection_id: crate::models::collection::DEFAULT_COLLECTION_ID.to_string(),
             title: payload.title.clone(),
-            file_path: payload.url.clone(),
+            file_path: normalized_url,
             file_type: inferred_file_type,
             content: None,
             content_hash: None,
@@ -1546,7 +1580,7 @@ async fn fetch_page_content(url: &str) -> Result<String, AppError> {
 
 /// Extract readable text from HTML
 fn extract_text_from_html(html: &str) -> String {
-    extract_text_from_html_fragment(html)
+    crate::processor::html::extract_text_from_html_fragment(html)
 }
 
 /// Fetch URL and extract readable article content using the readability algorithm.
@@ -1599,7 +1633,7 @@ async fn fetch_readable_content(url: &str) -> Result<ReadableArticle, AppError> 
     }
 
     Ok(ReadableArticle {
-        text: extract_text_from_html_fragment(&content),
+        text: crate::processor::html::extract_text_from_html_fragment(&content),
         images: extract_images_from_html_fragment(&content, url),
         html: content,
     })
@@ -4403,4 +4437,79 @@ pub async fn initialize_if_enabled(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod browser_import_persistence_tests {
+    use super::*;
+
+    fn payload(kind: &str, text: &str, html: Option<&str>, url: &str) -> ExtensionRequest {
+        ExtensionRequest {
+            url: url.to_string(),
+            title: "Saved page".to_string(),
+            text: text.to_string(),
+            html_content: html.map(str::to_string),
+            extracted_images: None,
+            r#type: kind.to_string(),
+            source: "browser_extension".to_string(),
+            timestamp: None,
+            context: None,
+            tags: None,
+            priority: None,
+            analysis: None,
+            fsrs_data: None,
+            test: Some(true),
+        }
+    }
+
+    #[test]
+    fn only_explicit_extract_requests_route_to_extracts() {
+        for kind in ["page", "link", "", " PAGE "] {
+            assert_eq!(
+                classify_extension_request(&payload(kind, "body", None, "https://example.com")),
+                ExtensionRequestKind::Page
+            );
+        }
+        assert_eq!(
+            classify_extension_request(&payload(
+                "extract",
+                "selection",
+                None,
+                "https://example.com"
+            )),
+            ExtensionRequestKind::Extract
+        );
+    }
+
+    #[test]
+    fn extension_text_is_preferred_and_html_is_the_fallback() {
+        let with_text = payload(
+            "page",
+            "  Extension article body  ",
+            Some("<p>HTML fallback</p>"),
+            "https://example.com",
+        );
+        assert_eq!(
+            select_extension_document_text(&with_text),
+            "Extension article body"
+        );
+
+        let html_only = payload(
+            "page",
+            "",
+            Some("<article><h1>Heading</h1><p>Recovered body.</p></article>"),
+            "https://example.com",
+        );
+        let selected = select_extension_document_text(&html_only);
+        assert!(selected.contains("Heading"));
+        assert!(selected.contains("Recovered body."));
+    }
+
+    #[test]
+    fn browser_source_urls_drop_fragments_for_deduplication() {
+        assert_eq!(
+            normalize_browser_source_url(" https://EXAMPLE.com/article#selection "),
+            "https://example.com/article"
+        );
+    }
 }

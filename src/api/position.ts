@@ -29,6 +29,14 @@ function isWebMode(): boolean {
   return !isTauri();
 }
 
+type DocumentProgressRow = [
+  string,
+  number,
+  string,
+  number | null,
+  (number | null)?,
+];
+
 /**
  * Get the current position for a document
  */
@@ -162,13 +170,14 @@ export async function getDocumentsWithProgress(
   limit?: number,
 ): Promise<DocumentWithProgress[]> {
   const results = isWebMode()
-    ? await browserInvoke<[string, number, string, number | null][]>('get_documents_with_progress', { limit })
-    : await invokeCommand<[string, number, string, number | null][]>('get_documents_with_progress', { limit });
-  return results.map(([id, progress, title, date_modified]) => ({
+    ? await browserInvoke<DocumentProgressRow[]>('get_documents_with_progress', { limit })
+    : await invokeCommand<DocumentProgressRow[]>('get_documents_with_progress', { limit });
+  return results.map(([id, progress, title, date_modified, date_added]) => ({
     id,
     progress,
     title,
     date_modified: normalizeUnixTimestampMs(date_modified),
+    date_added: normalizeUnixTimestampMs(date_added),
   }));
 }
 

@@ -21,7 +21,7 @@ pub async fn extract_html_content(file_path: &str) -> Result<ExtractedContent> {
     // Extract title from <title> tag
     let title = extract_title_from_html(&content);
 
-    let text = extract_text_from_html(&content);
+    let text = extract_text_from_html_fragment(&content);
 
     // Estimate page count
     let word_count = text.split_whitespace().count();
@@ -53,62 +53,37 @@ fn extract_title_from_html(html: &str) -> Option<String> {
     }
 }
 
-fn extract_text_from_html(html: &str) -> String {
-    let mut result = String::new();
-    let mut in_tag = false;
-    let mut in_script = false;
-    let mut in_style = false;
+/// Convert stored article HTML into stable plain text for reading, Q&A, and
+/// recovery of legacy browser-extension imports.
+pub fn extract_text_from_html_fragment(html: &str) -> String {
+    html2text::from_read(html.as_bytes(), 80)
+        .unwrap_or_else(|_| {
+            regex::Regex::new(r"<[^>]+>")
+                .expect("valid html tag regex")
+                .replace_all(html, " ")
+                .to_string()
+        })
+        .replace('\u{a0}', " ")
+        .lines()
+        .map(str::trim_end)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace("\n\n\n", "\n\n")
+        .trim()
+        .to_string()
+}
 
-    let mut chars = html.chars().peekable();
+#[cfg(test)]
+mod tests {
+    use super::extract_text_from_html_fragment;
 
-    while let Some(c) = chars.next() {
-        match c {
-            '<' => {
-                in_tag = true;
-
-                let mut tag_name = String::new();
-                while let Some(&next) = chars.peek() {
-                    if next.is_alphabetic() {
-                        chars.next();
-                        tag_name.push(next);
-                    } else {
-                        break;
-                    }
-                }
-
-                let tag_lower = tag_name.to_lowercase();
-                if tag_lower == "script" {
-                    in_script = true;
-                } else if tag_lower == "style" {
-                    in_style = true;
-                } else if tag_lower == "/script" {
-                    in_script = false;
-                } else if tag_lower == "/style" {
-                    in_style = false;
-                }
-            }
-            '>' => {
-                in_tag = false;
-            }
-            _ if !in_tag && !in_script && !in_style => {
-                if c.is_whitespace() {
-                    if !result.ends_with(' ') {
-                        result.push(' ');
-                    }
-                } else {
-                    result.push(c);
-                }
-            }
-            _ => {}
-        }
+    #[test]
+    fn extracts_readable_text_without_script_content() {
+        let text = extract_text_from_html_fragment(
+            "<article><h1>Title</h1><p>Durable body.</p><script>ignore()</script></article>",
+        );
+        assert!(text.contains("Title"));
+        assert!(text.contains("Durable body."));
+        assert!(!text.contains("ignore()"));
     }
-
-    result = result.replace("&nbsp;", " ");
-    result = result.replace("&amp;", "&");
-    result = result.replace("&lt;", "<");
-    result = result.replace("&gt;", ">");
-    result = result.replace("&quot;", "\"");
-    result = result.replace("&#39;", "'");
-
-    result.split_whitespace().collect::<Vec<&str>>().join(" ")
 }

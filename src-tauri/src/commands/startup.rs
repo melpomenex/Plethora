@@ -29,6 +29,7 @@ pub struct StartupProgressItem {
     pub progress: f32,
     pub title: String,
     pub date_modified: i32,
+    pub date_added: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -121,12 +122,15 @@ pub async fn get_startup_snapshot(
 
     let progress = progress
         .into_iter()
-        .map(|(id, progress, title, date_modified)| StartupProgressItem {
-            id,
-            progress,
-            title,
-            date_modified,
-        })
+        .map(
+            |(id, progress, title, date_modified, date_added)| StartupProgressItem {
+                id,
+                progress,
+                title,
+                date_modified,
+                date_added,
+            },
+        )
         .collect::<Vec<_>>();
 
     Ok(StartupSnapshot {

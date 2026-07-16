@@ -607,6 +607,29 @@ pub async fn get_document(id: String, repo: State<'_, Repository>) -> Result<Opt
         .unwrap_or(true)
         || has_epub_placeholder;
 
+    if needs_content {
+        if let Some(recovered) = recover_browser_import_text(&doc) {
+            let content_hash = Some(processor::generate_content_hash(&recovered));
+            repo.update_document_content(
+                &doc.id,
+                &recovered,
+                content_hash.clone(),
+                None,
+                doc.metadata.clone(),
+            )
+            .await?;
+            doc.content = Some(recovered);
+            doc.content_hash = content_hash;
+        }
+    }
+
+    let needs_content = doc
+        .content
+        .as_ref()
+        .map(|content| content.trim().is_empty())
+        .unwrap_or(true)
+        || has_epub_placeholder;
+
     if needs_content
         && matches!(
             doc.file_type,
@@ -647,6 +670,22 @@ pub async fn get_document(id: String, repo: State<'_, Repository>) -> Result<Opt
     }
 
     Ok(Some(doc))
+}
+
+fn recover_browser_import_text(doc: &Document) -> Option<String> {
+    if !matches!(doc.file_type, FileType::Html) {
+        return None;
+    }
+    let metadata = doc.metadata.as_ref()?;
+    if metadata.source.as_deref() != Some("browser_extension") {
+        return None;
+    }
+    let html = metadata.article_html.as_deref()?.trim();
+    if html.is_empty() {
+        return None;
+    }
+    let text = processor::html::extract_text_from_html_fragment(html);
+    (!text.trim().is_empty()).then_some(text)
 }
 
 #[tauri::command]
@@ -1447,4 +1486,41 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
         file_name,
         content_type: final_content_type,
     })
+}
+
+#[cfg(test)]
+mod browser_import_recovery_tests {
+    use super::*;
+
+    fn html_document(source: Option<&str>, article_html: Option<&str>) -> Document {
+        let mut doc = Document::new(
+            "Legacy browser import".to_string(),
+            "https://example.com/article".to_string(),
+            FileType::Html,
+        );
+        doc.content = Some(String::new());
+        doc.metadata = Some(DocumentMetadata {
+            source: source.map(str::to_string),
+            article_html: article_html.map(str::to_string),
+            ..Default::default()
+        });
+        doc
+    }
+
+    #[test]
+    fn recovers_empty_browser_import_from_document_owned_html() {
+        let doc = html_document(
+            Some("browser_extension"),
+            Some("<article><h1>Recovered</h1><p>Durable article body.</p></article>"),
+        );
+        let recovered = recover_browser_import_text(&doc).expect("recoverable text");
+        assert!(recovered.contains("Recovered"));
+        assert!(recovered.contains("Durable article body."));
+    }
+
+    #[test]
+    fn does_not_recover_untrusted_non_extension_html() {
+        let doc = html_document(None, Some("<p>Could be unrelated metadata.</p>"));
+        assert!(recover_browser_import_text(&doc).is_none());
+    }
 }

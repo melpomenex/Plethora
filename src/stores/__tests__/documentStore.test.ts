@@ -5,6 +5,7 @@ const bulkDeleteDocumentsMock = vi.fn();
 const pickFolderDocumentsMock = vi.fn();
 const importDocumentMock = vi.fn();
 const loadDocumentsMock = vi.fn();
+const getDocumentMock = vi.fn();
 const emitFeedbackMock = vi.hoisted(() => vi.fn().mockResolvedValue({ channels: [] }));
 vi.mock("../../api/documents", () => ({
   bulkDeleteDocuments: (...args: unknown[]) => bulkDeleteDocumentsMock(...args),
@@ -12,6 +13,7 @@ vi.mock("../../api/documents", () => ({
   importDocument: (...args: unknown[]) => importDocumentMock(...args),
   // loadDocuments is destructured as documentsApi.loadDocuments in the store.
   loadDocuments: (...args: unknown[]) => loadDocumentsMock(...args),
+  getDocument: (...args: unknown[]) => getDocumentMock(...args),
 }));
 
 vi.mock("../../api/segmentation", () => ({ segmentDocument: vi.fn() }));
@@ -112,6 +114,42 @@ describe("documentStore.bulkDelete", () => {
     expect(bulkDeleteDocumentsMock).not.toHaveBeenCalled();
     expect(result.succeeded).toEqual([]);
     expect(useDocumentStore.getState().documents).toHaveLength(3);
+  });
+});
+
+describe("documentStore.hydrateDocument", () => {
+  beforeEach(() => {
+    getDocumentMock.mockReset();
+    useDocumentStore.setState({
+      documents: [{ ...makeDoc("summary"), content: undefined }],
+      currentDocument: null,
+    });
+  });
+
+  it("replaces a content-free startup summary with the full document", async () => {
+    const full = { ...makeDoc("summary"), content: "Persisted browser article body." };
+    getDocumentMock.mockResolvedValue(full);
+
+    const hydrated = await useDocumentStore.getState().hydrateDocument("summary");
+
+    expect(getDocumentMock).toHaveBeenCalledWith("summary");
+    expect(hydrated?.content).toBe("Persisted browser article body.");
+    expect(useDocumentStore.getState().documents[0].content).toBe("Persisted browser article body.");
+  });
+
+  it("does not replace a different active document when hydration completes late", async () => {
+    let resolveHydration!: (doc: Document) => void;
+    getDocumentMock.mockReturnValue(new Promise<Document>((resolve) => {
+      resolveHydration = resolve;
+    }));
+    useDocumentStore.setState({ currentDocument: makeDoc("active") });
+
+    const pending = useDocumentStore.getState().hydrateDocument("summary");
+    resolveHydration({ ...makeDoc("summary"), content: "Late body" });
+    await pending;
+
+    expect(useDocumentStore.getState().currentDocument?.id).toBe("active");
+    expect(useDocumentStore.getState().documents[0].content).toBe("Late body");
   });
 });
 

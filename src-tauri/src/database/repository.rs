@@ -1308,6 +1308,44 @@ impl Repository {
         Ok(())
     }
 
+    /// Apply asynchronous browser-article enrichment only when it is still an
+    /// improvement over the exact document version that started the fetch.
+    pub async fn guarded_enrich_browser_document(
+        &self,
+        id: &str,
+        expected_date_modified: chrono::DateTime<chrono::Utc>,
+        candidate_content: &str,
+        metadata: DocumentMetadata,
+    ) -> Result<bool> {
+        let candidate = candidate_content.trim();
+        if candidate.is_empty() {
+            return Ok(false);
+        }
+
+        let metadata_json = serde_json::to_string(&metadata)?;
+        let result = sqlx::query(
+            r#"
+            UPDATE documents SET
+                content = ?1,
+                metadata = ?2,
+                date_modified = ?3
+            WHERE id = ?4
+              AND date_modified = ?5
+              AND LENGTH(TRIM(COALESCE(content, ''))) < ?6
+            "#,
+        )
+        .bind(candidate)
+        .bind(metadata_json)
+        .bind(Utc::now())
+        .bind(id)
+        .bind(expected_date_modified)
+        .bind(candidate.chars().count() as i64)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn update_document_priority(
         &self,
         id: &str,
@@ -6675,7 +6713,7 @@ fn map_row_to_podcast_episode(row: &SqliteRow) -> PodcastEpisode {
 mod tests {
     use super::*;
     use crate::database::connection::Database;
-    use crate::models::{Document, Extract, FileType, ItemType, LearningItem};
+    use crate::models::{Document, DocumentMetadata, Extract, FileType, ItemType, LearningItem};
     use sha2::{Digest, Sha256};
     use std::path::PathBuf;
 
@@ -7312,5 +7350,120 @@ mod tests {
 
         let (got_interval, _) = repo.get_sm20_matrices().await.expect("get").expect("row");
         assert_eq!(got_interval[42], 99.0, "ON CONFLICT must update in place");
+    }
+
+    #[tokio::test]
+    async fn guarded_browser_enrichment_accepts_only_current_improvements() {
+        let repo = setup_repo().await;
+        let mut doc = Document::new(
+            "Browser article".to_string(),
+            "https://example.com/article".to_string(),
+            FileType::Html,
+        );
+        doc.content = Some("short body".to_string());
+        doc.metadata = Some(DocumentMetadata {
+            source: Some("browser_extension".to_string()),
+            ..Default::default()
+        });
+        let created = repo
+            .create_document(&doc)
+            .await
+            .expect("create browser document");
+        let richer_metadata = DocumentMetadata {
+            source: Some("browser_extension".to_string()),
+            article_html: Some(
+                "<article>A substantially longer durable article body.</article>".to_string(),
+            ),
+            ..Default::default()
+        };
+
+        assert!(!repo
+            .guarded_enrich_browser_document(
+                &created.id,
+                created.date_modified,
+                "",
+                richer_metadata.clone(),
+            )
+            .await
+            .expect("reject empty"));
+        assert!(repo
+            .guarded_enrich_browser_document(
+                &created.id,
+                created.date_modified,
+                "A substantially longer durable article body.",
+                richer_metadata.clone(),
+            )
+            .await
+            .expect("accept improvement"));
+
+        let enriched = repo
+            .get_document(&created.id)
+            .await
+            .expect("get")
+            .expect("document");
+        assert_eq!(
+            enriched.content.as_deref(),
+            Some("A substantially longer durable article body.")
+        );
+        assert!(!repo
+            .guarded_enrich_browser_document(
+                &created.id,
+                created.date_modified,
+                "A stale result that is longer than both previous article bodies but must not win.",
+                richer_metadata,
+            )
+            .await
+            .expect("reject stale"));
+    }
+
+    #[tokio::test]
+    async fn browser_document_content_survives_reopening_the_database() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("browser-import.sqlite");
+        let document_id;
+
+        {
+            let db = Database::new(path.clone()).await.expect("first database");
+            db.migrate().await.expect("first migration");
+            let repo = Repository::new(db.pool().clone());
+            let mut doc = Document::new(
+                "Persisted article".to_string(),
+                "https://example.com/persisted".to_string(),
+                FileType::Html,
+            );
+            doc.content = Some("Article text stored on the parent document.".to_string());
+            doc.metadata = Some(DocumentMetadata {
+                source: Some("browser_extension".to_string()),
+                article_html: Some(
+                    "<article>Article text stored on the parent document.</article>".to_string(),
+                ),
+                ..Default::default()
+            });
+            document_id = repo.create_document(&doc).await.expect("create").id;
+            assert!(repo
+                .list_extracts_by_document(&document_id)
+                .await
+                .expect("extracts")
+                .is_empty());
+            db.pool().close().await;
+        }
+
+        let reopened = Database::new(path).await.expect("reopened database");
+        reopened.migrate().await.expect("reopened migration");
+        let repo = Repository::new(reopened.pool().clone());
+        let doc = repo
+            .get_document(&document_id)
+            .await
+            .expect("get")
+            .expect("document");
+        assert_eq!(
+            doc.content.as_deref(),
+            Some("Article text stored on the parent document.")
+        );
+        assert!(repo
+            .list_extracts_by_document(&document_id)
+            .await
+            .expect("extracts")
+            .is_empty());
     }
 }

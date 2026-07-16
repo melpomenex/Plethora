@@ -21,6 +21,17 @@ describe("Document Q&A focused-section provider boundary", () => {
     expect(extractDocumentText).toHaveBeenCalledWith("doc-pdf");
   });
 
+  it("uses persisted browser document text after restart without extraction fallback", async () => {
+    const getDocument = vi.fn().mockResolvedValue({ content: "Persisted browser article body." });
+    const extractDocumentText = vi.fn().mockResolvedValue({ content: "" });
+
+    const content = await loadDocumentQaText("browser-doc", { getDocument, extractDocumentText });
+
+    expect(content).toBe("Persisted browser article body.");
+    expect(content).not.toContain("No text content available");
+    expect(extractDocumentText).not.toHaveBeenCalled();
+  });
+
   it("does not call a provider when focused context is unresolved", async () => {
     const fullContent = "# Available\nAvailable body.";
     const { flat } = buildDocumentSections(fullContent);

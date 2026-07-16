@@ -83,6 +83,13 @@ export function ContinueReadingPage() {
     return `${Math.round(progress)}%`;
   };
 
+  const formatImportedTime = (doc: DocumentWithProgress) => {
+    const relative = formatRelativeTime(doc.date_added ?? doc.date_modified);
+    return relative === "—"
+      ? t("continueReading.importTimeUnavailable")
+      : t("continueReading.imported", { relative });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -133,47 +140,46 @@ export function ContinueReadingPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {documents.map((doc) => (
-                  <button
-                    key={doc.id}
-                    onClick={() => handleDocumentClick(doc.id)}
-                    className="text-left p-4 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-md transition-shadow border border-gray-200 dark:border-gray-700"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="font-medium text-gray-900 dark:text-gray-100 line-clamp-2 flex-1">
-                        {doc.title}
-                      </h3>
-                      <span
-                        className="ml-2 text-xs text-gray-500 whitespace-nowrap"
-                        title={t("continueReading.lastUpdated", {
-                          relative: formatRelativeTime(doc.date_modified),
-                        })}
-                        aria-label={t("continueReading.lastUpdated", {
-                          relative: formatRelativeTime(doc.date_modified),
-                        })}
-                      >
-                        {formatRelativeTime(doc.date_modified)}
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      {/* Progress bar */}
-                      <div className="relative h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className="absolute top-0 left-0 h-full bg-blue-500 rounded-full transition-all"
-                          style={{ width: `${Math.min(doc.progress, 100)}%` }}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600 dark:text-gray-400">
-                          {formatProgress(doc.progress)} {t("continueReading.complete")}
+                {documents.map((doc) => {
+                  const importedTime = formatImportedTime(doc);
+                  return (
+                    <button
+                      key={doc.id}
+                      onClick={() => handleDocumentClick(doc.id)}
+                      className="text-left p-4 bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-md transition-shadow border border-gray-200 dark:border-gray-700"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <h3 className="font-medium text-gray-900 dark:text-gray-100 line-clamp-2 flex-1">
+                          {doc.title}
+                        </h3>
+                        <span
+                          className="ml-2 text-xs text-gray-500 whitespace-nowrap"
+                          title={importedTime}
+                          aria-label={importedTime}
+                        >
+                          {importedTime}
                         </span>
-                        <span className="text-blue-500 font-medium">{t("continueReading.resume")} →</span>
                       </div>
-                    </div>
-                  </button>
-                ))}
+
+                      <div className="space-y-2">
+                        {/* Progress bar */}
+                        <div className="relative h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <div
+                            className="absolute top-0 left-0 h-full bg-blue-500 rounded-full transition-all"
+                            style={{ width: `${Math.min(doc.progress, 100)}%` }}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-600 dark:text-gray-400">
+                            {formatProgress(doc.progress)} {t("continueReading.complete")}
+                          </span>
+                          <span className="text-blue-500 font-medium">{t("continueReading.resume")} →</span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )

@@ -12,6 +12,7 @@ import {
 } from "../types/startup";
 import type { Document } from "../types/document";
 import { markSyncPhaseStart, recordStartupRequest } from "../lib/sync/syncTelemetry";
+import { normalizeUnixTimestampMs } from "../utils/relativeTime";
 
 interface StartupPageWire<T> {
   items: T[];
@@ -24,7 +25,8 @@ interface StartupProgressWire {
   id: string;
   progress: number;
   title: string;
-  dateModified: number;
+  dateModified: number | null;
+  dateAdded?: number | null;
 }
 
 interface StartupSnapshotWire {
@@ -94,7 +96,8 @@ export async function getStartupSnapshot(options: {
       id: item.id,
       progress: item.progress,
       title: item.title,
-      date_modified: item.dateModified,
+      date_modified: normalizeUnixTimestampMs(item.dateModified),
+      date_added: normalizeUnixTimestampMs(item.dateAdded),
     })),
     dueCount: raw.dueCount ?? 0,
   };

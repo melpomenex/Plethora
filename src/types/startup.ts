@@ -22,7 +22,10 @@ export interface StartupProgressItem {
   id: string;
   progress: number;
   title: string;
-  date_modified: number;
+  /** Unix epoch milliseconds after API-boundary normalization. */
+  date_modified: number | null;
+  /** Import/add time in Unix epoch milliseconds after API-boundary normalization. */
+  date_added: number | null;
 }
 
 export interface StartupSnapshot {

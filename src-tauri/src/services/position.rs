@@ -335,7 +335,7 @@ impl PositionService {
     pub async fn get_documents_with_progress(
         &self,
         limit: Option<u32>,
-    ) -> Result<Vec<(String, f32, String, i32)>> {
+    ) -> Result<Vec<(String, f32, String, i32, Option<i32>)>> {
         let limit_val = limit.unwrap_or(50) as i64;
         // `date_modified` is stored as TEXT (RFC3339 via chrono DateTime<Utc>), so
         // convert it to a Unix epoch integer in SQL rather than decoding the
@@ -343,10 +343,11 @@ impl PositionService {
         // whole query. The TS contract expects `date_modified: number` (Unix
         // seconds); the browser backend already performs the same conversion
         // (browser-backend.ts get_documents_with_progress).
-        let rows = sqlx::query_as::<_, (String, f64, String, i64)>(
+        let rows = sqlx::query_as::<_, (String, f64, String, i64, Option<i64>)>(
             r#"
             SELECT id, COALESCE(progress_percent, 0) AS progress, title,
-                   CAST(strftime('%s', date_modified) AS INTEGER) AS date_modified
+                   CAST(strftime('%s', date_modified) AS INTEGER) AS date_modified,
+                   CAST(strftime('%s', date_added) AS INTEGER) AS date_added
             FROM documents
             WHERE is_archived = 0 AND (progress_percent IS NULL OR progress_percent < 100)
             ORDER BY date_modified DESC
@@ -362,8 +363,14 @@ impl PositionService {
 
         Ok(rows
             .into_iter()
-            .map(|(id, progress, title, date_modified)| {
-                (id, progress as f32, title, date_modified as i32)
+            .map(|(id, progress, title, date_modified, date_added)| {
+                (
+                    id,
+                    progress as f32,
+                    title,
+                    date_modified as i32,
+                    date_added.map(|value| value as i32),
+                )
             })
             .collect())
     }
@@ -373,12 +380,13 @@ impl PositionService {
         &self,
         limit: Option<u32>,
         collection_id: &str,
-    ) -> Result<Vec<(String, f32, String, i32)>> {
+    ) -> Result<Vec<(String, f32, String, i32, Option<i32>)>> {
         let limit_val = i64::from(limit.unwrap_or(10).min(50));
-        let rows = sqlx::query_as::<_, (String, f64, String, i64)>(
+        let rows = sqlx::query_as::<_, (String, f64, String, i64, Option<i64>)>(
             r#"
             SELECT id, COALESCE(progress_percent, 0) AS progress, title,
-                   CAST(strftime('%s', date_modified) AS INTEGER) AS date_modified
+                   CAST(strftime('%s', date_modified) AS INTEGER) AS date_modified,
+                   CAST(strftime('%s', date_added) AS INTEGER) AS date_added
             FROM documents
             WHERE collection_id = ?1
               AND is_archived = 0
@@ -400,8 +408,14 @@ impl PositionService {
 
         Ok(rows
             .into_iter()
-            .map(|(id, progress, title, date_modified)| {
-                (id, progress as f32, title, date_modified as i32)
+            .map(|(id, progress, title, date_modified, date_added)| {
+                (
+                    id,
+                    progress as f32,
+                    title,
+                    date_modified as i32,
+                    date_added.map(|value| value as i32),
+                )
             })
             .collect())
     }

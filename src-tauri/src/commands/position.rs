@@ -141,7 +141,7 @@ pub async fn get_active_session(
 pub async fn get_documents_with_progress(
     limit: Option<u32>,
     repo: State<'_, crate::database::Repository>,
-) -> Result<Vec<(String, f32, String, i32)>, String> {
+) -> Result<Vec<(String, f32, String, i32, Option<i32>)>, String> {
     let service = PositionService::new(repo.pool().clone());
     service
         .get_documents_with_progress(limit)
