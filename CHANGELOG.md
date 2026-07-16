@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.86.1] - 2026-07-16
+
+### Fixed & Improved
+
+- **Browser-saved pages keep their text after restart** — Pages imported through the browser extension ("Save Current Tab") were readable immediately but could lose their article text after Incrementum restarted, appearing empty or as a bare extract and breaking document Q&A. Extracted article text is now durably stored on the document row, the page-import vs. user-extract distinction is preserved across persistence and startup restoration, and background readability enrichment is non-destructive so failed, empty, or stale enrichment can no longer overwrite valid extension-provided text. Previously imported documents with recoverable text in metadata are also rehydrated. (Issue #39.)
+- **Continue Reading shows a trustworthy recency** — Cards previously displayed nonsensical values like `2947w ago` because a backend timestamp with no stable user-facing meaning was formatted directly, vulnerable to Unix-seconds vs. JavaScript-milliseconds mismatches. Recency now reflects time since the document was imported/added to the library, with timestamps normalized to JavaScript milliseconds at the API boundary across both native and browser backends; ordering by most-recently-modified is unchanged, and a safe fallback covers legacy or invalid import timestamps (full timestamp retained for hover/accessibility).
+- **Review queue is flashcards-only again** — The Review tab silently interleaved reading items (documents) into the spaced-repetition flow, auto-revealing an "answer" and rating the document, which broke the one-card-at-a-time mental model and inflated review counts. Reading items are now excluded from the Review session entirely; they remain reviewable where they belong in the Optimal Queue / Queue tab. The dead document-card code path is removed.
+
 ## [1.86.0] - 2026-07-16
 
 ### Added
