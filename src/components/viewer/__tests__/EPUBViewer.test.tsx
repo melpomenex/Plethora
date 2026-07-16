@@ -152,7 +152,7 @@ describe("EPUBViewer", () => {
     });
   });
 
-  it("omits mobile bottom toolbar controls when embedded", () => {
+  it("keeps one set of top chrome controls when embedded", () => {
     render(
       <EPUBViewer
         embedded
@@ -163,8 +163,8 @@ describe("EPUBViewer", () => {
       />
     );
 
-    expect(screen.queryByText("TOC")).not.toBeInTheDocument();
-    expect(screen.queryByText("Aa")).not.toBeInTheDocument();
+    expect(screen.getAllByText("TOC")).toHaveLength(1);
+    expect(screen.getAllByText("Aa")).toHaveLength(1);
   });
 
   it("does not render the old mobile bottom toolbar when standalone", () => {

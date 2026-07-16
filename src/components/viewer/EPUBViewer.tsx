@@ -2408,17 +2408,16 @@ export function EPUBViewer({
           )}
 
           {/* Mobile chrome - Top Bar */}
-          {!(embedded && isMobile) && (
-            <div
-              className={cn(
-                "absolute left-0 right-0 top-0 z-40 transition-all duration-300",
-                chromeVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-full pointer-events-none"
-              )}
-            >
+          <div
+            className={cn(
+              "absolute left-0 right-0 top-0 z-40 transition-all duration-300",
+              chromeVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-full pointer-events-none"
+            )}
+          >
               <div className="mx-3 mt-3 rounded-2xl bg-background/95 backdrop-blur border border-border shadow-lg">
                 <div className="flex items-center justify-between px-4 py-3">
                   <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
-                    {onBack && (
+                    {onBack && !embedded && (
                       <button
                         type="button"
                         data-chrome-control="true"
@@ -2485,10 +2484,9 @@ export function EPUBViewer({
                 </div>
               </div>
             </div>
-          )}
 
           {/* Floating Expand Buttons (when chrome is hidden) */}
-          {!chromeVisible && !(embedded && isMobile) && (
+          {!chromeVisible && (
             <>
               {/* Top-left: Show toolbar button */}
               <button
