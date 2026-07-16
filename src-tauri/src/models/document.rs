@@ -58,6 +58,48 @@ pub struct Document {
     pub consecutive_count: Option<i32>,
 }
 
+/// Bounded document projection used by the startup snapshot.
+///
+/// This deliberately excludes content, content hashes, metadata, and cover
+/// bytes/URLs. Those fields are either large or only needed after the user
+/// opens a document, so they must not be part of the first useful-data path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartupDocumentSummary {
+    pub id: String,
+    pub collection_id: String,
+    pub title: String,
+    pub file_path: String,
+    pub file_type: FileType,
+    pub total_pages: Option<i32>,
+    pub current_page: Option<i32>,
+    pub current_scroll_percent: Option<f64>,
+    pub current_cfi: Option<String>,
+    pub current_view_state: Option<String>,
+    pub position_json: Option<String>,
+    pub progress_percent: Option<f64>,
+    pub category: Option<String>,
+    pub tags: Vec<String>,
+    pub date_added: DateTime<Utc>,
+    pub date_modified: DateTime<Utc>,
+    pub date_last_reviewed: Option<DateTime<Utc>>,
+    pub extract_count: i32,
+    pub learning_item_count: i32,
+    pub priority_rating: i32,
+    pub priority_slider: i32,
+    pub priority_score: f64,
+    pub is_archived: bool,
+    pub is_favorite: bool,
+    pub is_dismissed: bool,
+    pub next_reading_date: Option<DateTime<Utc>>,
+    pub reading_count: i32,
+    pub stability: Option<f64>,
+    pub difficulty: Option<f64>,
+    pub reps: Option<i32>,
+    pub total_time_spent: Option<i32>,
+    pub consecutive_count: Option<i32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FileType {

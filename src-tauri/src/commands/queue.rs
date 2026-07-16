@@ -380,6 +380,26 @@ async fn get_queue_items_from_repo(
     Ok(queue_items)
 }
 
+/// Build only the bounded response needed for the first queue render. The
+/// existing queue builder remains the source of truth for ordering and item
+/// semantics; this helper prevents the large queue from crossing IPC and keeps
+/// the startup contract explicit while the queue screen is visible.
+pub(crate) async fn get_startup_queue_preview_from_repo(
+    repo: &Repository,
+    collection_id: Option<&str>,
+    limit: u32,
+    mode: Option<&str>,
+) -> Result<(Vec<QueueItem>, i64)> {
+    let mut queue = if mode == Some("due-today") {
+        get_due_documents_only_from_repo(repo, collection_id).await?
+    } else {
+        get_due_queue_items_from_repo(repo, collection_id, None).await?
+    };
+    let total = queue.len() as i64;
+    queue.truncate(limit.min(50) as usize);
+    Ok((queue, total))
+}
+
 /// Helper to get queue with collection filtering (for commands that have State)
 async fn get_queue_with_collection(
     repo: State<'_, Repository>,
@@ -987,5 +1007,24 @@ mod tests {
 
         assert!(due_document_ids.contains(&visible.id));
         assert!(!due_document_ids.contains(&dismissed.id));
+    }
+
+    #[tokio::test]
+    async fn startup_queue_preview_is_collection_scoped_and_bounded() {
+        let repo = setup_repo().await;
+        for index in 0..3 {
+            create_test_document(&repo, &format!("startup-{index}"), false, false).await;
+        }
+
+        let (items, total) = get_startup_queue_preview_from_repo(
+            &repo,
+            Some(crate::models::DEFAULT_COLLECTION_ID),
+            2,
+            Some("due-today"),
+        )
+        .await
+        .expect("startup queue preview");
+        assert_eq!(items.len(), 2);
+        assert_eq!(total, 3);
     }
 }

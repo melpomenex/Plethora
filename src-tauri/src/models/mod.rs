@@ -16,7 +16,7 @@ pub mod video_extract;
 
 pub use category::Category;
 pub use collection::{Collection, DEFAULT_COLLECTION_ID};
-pub use document::{Document, DocumentImageAsset, DocumentMetadata, FileType};
+pub use document::{Document, DocumentImageAsset, DocumentMetadata, FileType, StartupDocumentSummary};
 pub use extract::Extract;
 pub use image_asset::{ImageAsset, ImageAssetWithUsage};
 pub use learning_item::{ItemState, ItemType, LearningItem, MemoryState, ReviewRating};

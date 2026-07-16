@@ -2,6 +2,7 @@ export { useQueueStore } from "./queueStore";
 export { useTASStore } from "./tasStore";
 export { useReviewStore } from "./reviewStore";
 export { useDocumentStore } from "./documentStore";
+export { useStartupStore } from "./startupStore";
 export { useSettingsStore } from "./settingsStore";
 export { useStudyDeckStore } from "./studyDeckStore";
 export { useUIStore } from "./uiStore";

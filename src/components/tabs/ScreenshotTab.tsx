@@ -11,6 +11,7 @@ import { downloadScreenshot } from "../../utils/screenshotCapture";
 import { captureScreenshotWithOverlay } from "../../utils/screenshotCaptureFlow";
 import { invokeCommand } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
+import { useIsActiveTab } from "../common/Tabs";
 
 export function ScreenshotTab() {
   const { t } = useI18n();
@@ -18,6 +19,7 @@ export function ScreenshotTab() {
   const [selectedScreenshot, setSelectedScreenshot] = useState<any | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const isActiveTab = useIsActiveTab();
 
   // Filter documents to show only screenshots
   const screenshots = documents.filter(
@@ -25,8 +27,8 @@ export function ScreenshotTab() {
   );
 
   useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
+    if (isActiveTab) loadDocuments();
+  }, [isActiveTab, loadDocuments]);
 
   const handleCapture = async () => {
     try {

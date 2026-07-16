@@ -74,7 +74,6 @@ export function MainLayout() {
   const { t } = useI18n();
   const toast = useToast();
   const [vimiumEnabled] = useVimiumEnabled();
-  const documentsLoadedRef = useRef(false);
   const [activePaneTabId, setActivePaneTabId] = useState<string | null>(null);
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
   const [isWorkspaceSwitcherOpen, setIsWorkspaceSwitcherOpen] = useState(false);
@@ -220,12 +219,6 @@ export function MainLayout() {
 
     void initTabs();
   }, []);
-
-  useEffect(() => {
-    if (documentsLoadedRef.current) return;
-    documentsLoadedRef.current = true;
-    void loadDocuments();
-  }, [loadDocuments]);
 
   // Background update check on startup (desktop only). Runs once, after a
   // short delay so it doesn't compete with boot. Respects the skip-version

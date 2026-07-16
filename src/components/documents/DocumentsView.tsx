@@ -70,6 +70,7 @@ import {
 import { getYouTubeThumbnail, extractYouTubeTimestamp } from "../../api/youtube";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useLongPress } from "../../hooks/useLongPress";
+import { useIsActiveTab } from "../common/Tabs";
 import { invokeCommand, isTauri, isNativeMobile } from "../../lib/tauri";
 import { renderPdfCover } from "../../lib/pdfCoverRender";
 import { DocumentFileSyncBadge } from "../sync/DocumentFileSyncBadge";
@@ -179,6 +180,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     importProgress,
     error,
     loadDocuments,
+    loadDocumentsPage,
     openFilePickerAndImport,
     importFromFiles,
     importFromFolder,
@@ -224,6 +226,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   const toast = useToast();
 
   const isMobile = useMobileShell();
+  const isActiveTab = useIsActiveTab();
   const [isInspectorOpen, setInspectorOpen] = useState(() => !isMobile);
   const [_collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
@@ -259,8 +262,17 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
+    if (!isActiveTab) return;
+    // Startup already hydrates the first page. The page loader is used when
+    // this tab is opened directly or after a collection switch; the fallback
+    // keeps lightweight test/demo stores and legacy embedders compatible.
+    if (typeof loadDocumentsPage === "function") {
+      if (documents.length > 0) return;
+      void loadDocumentsPage(1, false);
+    } else {
+      loadDocuments();
+    }
+  }, [documents.length, isActiveTab, loadDocuments, loadDocumentsPage]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {

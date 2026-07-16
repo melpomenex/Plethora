@@ -2079,6 +2079,17 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    Migration::new(
+        "061_startup_snapshot_indexes",
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_documents_collection_date_added
+            ON documents(collection_id, date_added DESC);
+        CREATE INDEX IF NOT EXISTS idx_documents_collection_modified
+            ON documents(collection_id, date_modified DESC);
+        CREATE INDEX IF NOT EXISTS idx_learning_items_collection_due_suspended
+            ON learning_items(collection_id, due_date, is_suspended);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

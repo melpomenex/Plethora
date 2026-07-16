@@ -368,6 +368,44 @@ impl PositionService {
             .collect())
     }
 
+    /// Startup-safe variant scoped to the resolved active collection.
+    pub async fn get_documents_with_progress_for_collection(
+        &self,
+        limit: Option<u32>,
+        collection_id: &str,
+    ) -> Result<Vec<(String, f32, String, i32)>> {
+        let limit_val = i64::from(limit.unwrap_or(10).min(50));
+        let rows = sqlx::query_as::<_, (String, f64, String, i64)>(
+            r#"
+            SELECT id, COALESCE(progress_percent, 0) AS progress, title,
+                   CAST(strftime('%s', date_modified) AS INTEGER) AS date_modified
+            FROM documents
+            WHERE collection_id = ?1
+              AND is_archived = 0
+              AND (progress_percent IS NULL OR progress_percent < 100)
+            ORDER BY date_modified DESC
+            LIMIT ?2
+            "#,
+        )
+        .bind(collection_id)
+        .bind(limit_val)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            IncrementumError::Internal(format!(
+                "Failed to get collection documents with progress: {}",
+                e
+            ))
+        })?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(id, progress, title, date_modified)| {
+                (id, progress as f32, title, date_modified as i32)
+            })
+            .collect())
+    }
+
     /// Get daily reading stats for streak calculation
     pub async fn get_daily_stats(&self, days: u32) -> Result<Vec<(String, u32, u32)>> {
         let rows = sqlx::query_as::<_, (String, u32, u32)>(

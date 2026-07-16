@@ -1,6 +1,12 @@
 export type SyncPhase =
   | "first-paint"
   | "local-usable"
+  | "backend-ready"
+  | "startup-command"
+  | "collections-ready"
+  | "first-document-data"
+  | "first-queue-data"
+  | "background-hydration"
   | "indexeddb-replay"
   | "provider-setup"
   | "migration"
@@ -14,6 +20,9 @@ export interface SyncPhaseSample {
   outcome?: "ok" | "error" | "timeout";
   bytes?: number;
   records?: number;
+  hasMore?: boolean;
+  request?: string;
+  surface?: string;
   memoryBytes?: number;
 }
 
@@ -31,6 +40,7 @@ export function recordSyncWorkSize(bytes: number, records = 1): void {
 }
 
 const samples: SyncPhaseSample[] = [];
+const startupRequestCounts = new Map<string, number>();
 let longTaskObserver: PerformanceObserver | null = null;
 
 function now(): number {
@@ -46,13 +56,22 @@ function usedMemoryBytes(): number | undefined {
   }
 }
 
-export function markSyncPhaseStart(phase: SyncPhase): () => void {
+export interface SyncPhaseDetails {
+  bytes?: number;
+  records?: number;
+  hasMore?: boolean;
+  request?: string;
+  surface?: string;
+}
+
+export function markSyncPhaseStart(phase: SyncPhase): (details?: SyncPhaseDetails) => void {
   const sample: SyncPhaseSample = { phase, startedAt: now() };
   samples.push(sample);
-  return () => {
+  return (details) => {
     if (sample.durationMs !== undefined) return;
     sample.durationMs = Math.max(0, now() - sample.startedAt);
     sample.outcome = "ok";
+    if (details) Object.assign(sample, details);
     sample.memoryBytes = usedMemoryBytes();
   };
 }
@@ -77,8 +96,19 @@ export function getSyncTelemetry(): readonly SyncPhaseSample[] {
   return samples.slice();
 }
 
+/** Record a bounded startup request label without retaining its payload. */
+export function recordStartupRequest(request: string): void {
+  if (!request) return;
+  startupRequestCounts.set(request, (startupRequestCounts.get(request) ?? 0) + 1);
+}
+
+export function getStartupRequestCounts(): Readonly<Record<string, number>> {
+  return Object.fromEntries(startupRequestCounts.entries());
+}
+
 export function clearSyncTelemetry(): void {
   samples.length = 0;
+  startupRequestCounts.clear();
 }
 
 /** Install once; long tasks are diagnostic only and never alter sync behavior. */

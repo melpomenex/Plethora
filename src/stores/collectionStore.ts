@@ -20,6 +20,7 @@ interface CollectionState {
   loaded: boolean;
 
   loadCollections: () => Promise<void>;
+  hydrateStartup: (collections: Collection[], activeCollectionId: string, dueCount: number) => void;
   createCollection: (name: string, icon?: string, color?: string) => Promise<Collection>;
   renameCollection: (id: string, name: string) => Promise<void>;
   deleteCollection: (id: string) => Promise<void>;
@@ -49,6 +50,17 @@ export const useCollectionStore = create<CollectionState>()((set, get) => ({
       set({ loaded: true });
     }
   },
+
+  hydrateStartup: (collections, activeCollectionId, dueCount) =>
+    set((state) => ({
+      collections,
+      activeCollectionId: activeCollectionId || DEFAULT_COLLECTION_ID,
+      dueCounts: {
+        ...state.dueCounts,
+        [activeCollectionId || DEFAULT_COLLECTION_ID]: dueCount,
+      },
+      loaded: true,
+    })),
 
   createCollection: async (name, icon, color) => {
     const collection = await apiCreateCollection(name, icon, color);

@@ -182,7 +182,10 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('React error:', error, errorInfo);
+    // Error objects stringify to `{}` in the Android log bridge. Include the
+    // useful fields explicitly so release builds expose the actual render
+    // failure instead of only the generic fallback screen.
+    console.error('React error:', error?.message, error?.stack, errorInfo);
   }
 
   render() {
@@ -210,9 +213,6 @@ void installConsoleLogcatBridge();
 
 // Initialize PWA (works in both Tauri and Web)
 initializePWA();
-
-import { useCollectionStore } from "./stores/collectionStore";
-useCollectionStore.getState().loadCollections();
 
 // Dynamically load only the user's selected font from bundled @fontsource packages.
 // Inter is imported statically as the critical default (see utils/fonts.ts).

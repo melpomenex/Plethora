@@ -10,6 +10,7 @@ import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { emitFeedback } from "../lib/feedback";
 import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
+import { markSyncPhaseStart } from "../lib/sync/syncTelemetry";
 
 let fileSyncModPromise: Promise<typeof import("../lib/fileSyncRegistration")> | null = null;
 let docReplicationModPromise: Promise<typeof import("../lib/documentReplication")> | null = null;
@@ -43,6 +44,10 @@ function runDeferredSyncSetup(task: () => void): void {
   type IdleWindow = Window & {
     requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
   };
+  if (typeof window === "undefined") {
+    setTimeout(task, 0);
+    return;
+  }
   const win = window as IdleWindow;
   if (typeof win.requestIdleCallback === "function") {
     win.requestIdleCallback(task, { timeout: 5000 });
@@ -137,6 +142,8 @@ interface DocumentState {
 
   // Actions
   loadDocuments: () => Promise<void>;
+  hydrateStartupDocuments: (documents: Document[]) => void;
+  loadDocumentsPage: (page?: number, append?: boolean) => Promise<void>;
   setDocuments: (documents: Document[]) => void;
   setCurrentDocument: (document: Document | null) => void;
   addDocument: (document: Document) => void;
@@ -196,6 +203,51 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to load documents",
+        isLoading: false,
+      });
+    }
+  },
+
+  hydrateStartupDocuments: (documents) => {
+    set({ documents, isLoading: false, error: null });
+    // File manifests and local binary registration can be large on mobile;
+    // the first render only needs the metadata projection above.
+    runDeferredSyncSetup(() => {
+      const endHydration = markSyncPhaseStart("background-hydration");
+      void registerExistingFilesSyncLazy(documents).finally(() => {
+        endHydration({ records: documents.length, surface: "startup" });
+      });
+    });
+  },
+
+  loadDocumentsPage: async (page = 1, append = false) => {
+    set({ isLoading: true, error: null });
+    try {
+      const requestCollectionId = useCollectionStore.getState().activeCollectionId;
+      const { getStartupSnapshot } = await import("../api/startup");
+      const snapshot = await getStartupSnapshot({
+        surface: "dashboard",
+        includeQueue: false,
+        documentOffset: Math.max(0, page - 1) * 50,
+      });
+      if (useCollectionStore.getState().activeCollectionId !== snapshot.activeCollectionId ||
+          requestCollectionId !== snapshot.activeCollectionId) {
+        set({ isLoading: false });
+        return;
+      }
+      const nextDocuments = append ? [...get().documents, ...snapshot.documents.items] : snapshot.documents.items;
+      set({
+        documents: nextDocuments,
+        isLoading: false,
+        currentPage: page,
+        totalPages: Math.max(1, Math.ceil(snapshot.documents.total / 50)),
+      });
+      runDeferredSyncSetup(() => {
+        void registerExistingFilesSyncLazy(snapshot.documents.items);
+      });
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : "Failed to load document page",
         isLoading: false,
       });
     }

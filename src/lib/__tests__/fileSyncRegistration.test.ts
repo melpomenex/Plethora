@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   invokeCommand: vi.fn(),
   getYjsSync: vi.fn().mockResolvedValue({}),
   getSyncRoomId: vi.fn().mockReturnValue("room-test-123"),
+  isYjsSyncEnabled: vi.fn().mockReturnValue(true),
   ensureFileSyncReady: vi.fn().mockResolvedValue(undefined),
   getFileManifest: vi.fn(),
   getFileTransferManager: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock("../tauri", () => ({
 vi.mock("../yjsSync", () => ({
   getYjsSync: mocks.getYjsSync,
   getSyncRoomId: mocks.getSyncRoomId,
+  isYjsSyncEnabled: mocks.isYjsSyncEnabled,
 }));
 
 vi.mock("../documentReplication", () => ({
@@ -117,6 +119,7 @@ function makeTransferManagerMock() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.isYjsSyncEnabled.mockReturnValue(true);
 });
 
 describe("registerImportedFileSync", () => {
@@ -217,6 +220,16 @@ describe("registerImportedFileSync", () => {
 });
 
 describe("registerExistingFilesSync", () => {
+  it("skips file registration when Yjs sync is disabled", async () => {
+    mocks.isYjsSyncEnabled.mockReturnValue(false);
+
+    await registerExistingFilesSync([makeDoc({ fileId: "file-1" })]);
+
+    expect(mocks.getYjsSync).not.toHaveBeenCalled();
+    expect(mocks.invokeCommand).not.toHaveBeenCalled();
+    expect(mocks.getFileManifest).not.toHaveBeenCalled();
+  });
+
   it("registers existing documents with fileId with the transfer manager", async () => {
     mocks.invokeCommand.mockResolvedValue(["abc123hash", 1024] as [string, number]);
     const manifest = makeManifestMock();

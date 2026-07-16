@@ -5,8 +5,7 @@
  * navigating routes.
  */
 
-import { useEffect, useMemo, useState, lazy } from "react";
-import { getDocumentsWithProgress } from "../../api/position";
+import { useEffect, useMemo, lazy } from "react";
 import {
   type DocumentWithProgress,
   getProgressGroup,
@@ -16,6 +15,10 @@ import {
 import { useTabsStore } from "../../stores";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useI18n } from "../../lib/i18n";
+import { useIsActiveTab } from "../common/Tabs";
+import { useStartupStore } from "../../stores/startupStore";
+import { useCollectionStore } from "../../stores/collectionStore";
+import type { StartupProgressItem } from "../../types/startup";
 
 const DocumentViewer = lazy(() =>
   import("../viewer/DocumentViewerWrapper").then((m) => ({ default: m.DocumentViewer }))
@@ -36,32 +39,26 @@ function formatTimeAgo(timestamp: number) {
   return `${Math.floor(seconds / 604800)}w ago`;
 }
 
+const EMPTY_STARTUP_PROGRESS: StartupProgressItem[] = [];
+
 export function ContinueReadingTab() {
   const addTab = useTabsStore((state) => state.addTab);
   const { t } = useI18n();
   const documentsInStore = useDocumentStore((state) => state.documents);
+  const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
 
-  const [documents, setDocuments] = useState<DocumentWithProgress[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const isActiveTab = useIsActiveTab();
+  const ensureStartup = useStartupStore((state) => state.ensureStartup);
+  const startupStatus = useStartupStore((state) => state.status);
+  const startupError = useStartupStore((state) => state.error);
+  const documents = useStartupStore((state) => state.snapshot?.continueReading ?? EMPTY_STARTUP_PROGRESS)
+    .filter((doc) => doc.progress < 100);
+  const loading = isActiveTab && (startupStatus === "idle" || startupStatus === "loading");
+  const error = startupStatus === "error" ? startupError : null;
 
   useEffect(() => {
-    void (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const docs = await getDocumentsWithProgress(50);
-        // Show all non-archived documents that are not completed
-        // Include documents with no progress (not started) so users can start reading anything
-        setDocuments(docs.filter((d) => d.progress < 100));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load documents");
-        console.error("Failed to load continue reading:", err);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+    if (isActiveTab) void ensureStartup("continue-reading");
+  }, [activeCollectionId, ensureStartup, isActiveTab]);
 
   const groups: GroupedDocuments[] = useMemo(() => {
     const grouped = documents.reduce<Record<ProgressGroup, DocumentWithProgress[]>>((acc, doc) => {

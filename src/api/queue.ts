@@ -32,7 +32,7 @@ export interface QueueExportItem {
 }
 
 // Internal type matching Rust backend (snake_case)
-interface RustQueueItem {
+export interface RustQueueItem {
   id: string;
   document_id: string;
   document_title: string;
@@ -61,7 +61,7 @@ interface RustQueueItem {
 }
 
 // Convert from Rust snake_case to TypeScript camelCase
-function convertQueueItem(item: RustQueueItem): QueueItem {
+export function convertQueueItem(item: RustQueueItem): QueueItem {
   if (!Array.isArray(item.tags)) {
     console.warn("[queue] Normalizing null tags for item", item.id);
   }

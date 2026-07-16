@@ -20,7 +20,7 @@
 
 import type { Document } from "../types";
 import { invokeCommand, isTauri } from "./tauri";
-import { getYjsSync, getSyncRoomId } from "./yjsSync";
+import { getYjsSync, getSyncRoomId, isYjsSyncEnabled } from "./yjsSync";
 import { FileManifestEntry, getDeviceId } from "./file-manifest";
 import { getFileManifest, getFileTransferManager, ensureFileSyncReady } from "./useFileSync";
 import { deleteCachedFile } from "./file-transfer";
@@ -45,6 +45,7 @@ export async function registerImportedFileSync(
   // Only meaningful inside Tauri (desktop + mobile). The web/PWA path has no
   // native file to hash.
   if (!isTauri()) return null;
+  if (!isYjsSyncEnabled()) return null;
 
   // Skip audio and video files. These are large media files (podcast episodes,
   // audiobooks, etc.) that should not be synced via the WebRTC / file-service
@@ -142,6 +143,12 @@ export async function registerImportedFileSync(
 export async function registerExistingFilesSync(docs: Document[]): Promise<void> {
   if (!isTauri()) return;
   if (docs.length === 0) return;
+  if (!isYjsSyncEnabled()) {
+    // File registration also starts background uploads. When the user has
+    // disabled Yjs sync, doing that work is both unnecessary and expensive on
+    // mobile because each upload reads a full local document into memory.
+    return;
+  }
 
   try {
     await getYjsSync();

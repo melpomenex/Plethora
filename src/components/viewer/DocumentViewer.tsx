@@ -888,10 +888,11 @@ export function DocumentViewer({
   const { extracts, loadExtracts } = useExtractStore();
 
   useEffect(() => {
+    if (!isTabActive) return;
     if (currentDocument?.id) {
       loadExtracts(currentDocument.id);
     }
-  }, [currentDocument?.id, loadExtracts]);
+  }, [currentDocument?.id, isTabActive, loadExtracts]);
 
   // Cross-device sync: when an extract arrives from another device, reload this
   // document's extracts so the minimap / highlights / extract count update live
@@ -902,6 +903,7 @@ export function DocumentViewer({
   currentDocumentIdRef.current = currentDocument?.id;
   useEffect(() => {
     const handler = () => {
+      if (!isTabActive) return;
       const docId = currentDocumentIdRef.current;
       if (docId) loadExtracts(docId);
     };
@@ -911,7 +913,7 @@ export function DocumentViewer({
       window.removeEventListener("incrementum:synced-extract", handler);
       window.removeEventListener("incrementum:synced-extract-deleted", handler);
     };
-  }, [loadExtracts]);
+  }, [isTabActive, loadExtracts]);
   
   const minimapSegments: MinimapSegment[] = useMemo(() => {
     const segments: MinimapSegment[] = [];
@@ -1972,6 +1974,7 @@ export function DocumentViewer({
   }, []);
 
   useEffect(() => {
+    if (!isTabActive) return;
     if (!documentId) return;
 
     setOcrContextText(null);
@@ -2063,7 +2066,7 @@ export function DocumentViewer({
           .catch((error) => console.warn("Failed to save unified position on cleanup:", error));
       }
     };
-  }, [documentId, setCurrentDocument, loadDocumentData, docType]);
+  }, [documentId, isTabActive, setCurrentDocument, loadDocumentData, docType]);
 
   // Re-load the open document's file bytes when its filePath arrives after the
   // viewer was already mounted — i.e. the post-sync-download case. The main load
@@ -2082,6 +2085,7 @@ export function DocumentViewer({
       ? currentDocument.filePath
       : undefined;
   useEffect(() => {
+    if (!isTabActive) return;
     if (!documentId || !openFilePath) return;
     // Only file-based types (pdf/epub) need a reload; audio/video/markdown/etc.
     // resolve their source through a different path.
@@ -2094,7 +2098,7 @@ export function DocumentViewer({
     if (currentDocument) {
       void loadDocumentData(currentDocument);
     }
-  }, [openFilePath, documentId, currentDocument, fileData, epubUrl, loadDocumentData]);
+  }, [openFilePath, documentId, currentDocument, fileData, epubUrl, isTabActive, loadDocumentData]);
 
   useEffect(() => {
     if (initialViewMode) {

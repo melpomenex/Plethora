@@ -1055,6 +1055,7 @@ pub fn run() {
             commands::end_reading_session,
             commands::get_active_session,
             commands::get_documents_with_progress,
+            commands::get_startup_snapshot,
             commands::get_daily_reading_stats,
             commands::import_document,
             commands::import_documents,

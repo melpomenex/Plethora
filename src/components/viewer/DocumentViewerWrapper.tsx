@@ -10,6 +10,7 @@ import * as documentsApi from "../../api/documents";
 import { trimToTokenWindow } from "../../utils/tokenizer";
 import { useFormFactor } from "../../hooks/useFormFactor";
 import { isPWA } from "../../lib/pwa";
+import { useIsActiveTab } from "../common/Tabs";
 import {
   getAssistantContextErrorMessage,
   resolveGenericAssistantContext,
@@ -39,6 +40,7 @@ export function DocumentViewer({
   focusedExtractId,
   extractSourceContext,
 }: DocumentViewerWithAssistantProps) {
+  const isActiveTab = useIsActiveTab();
   const [selection, setSelection] = useState("");
   const [scrollState, setScrollState] = useState<{ pageNumber?: number; scrollPercent?: number }>({});
   const [debouncedScrollPercent, setDebouncedScrollPercent] = useState<number | undefined>(undefined);
@@ -120,6 +122,7 @@ export function DocumentViewer({
   }, [currentDoc]);
 
   useEffect(() => {
+    if (!isActiveTab) return;
     let isActive = true;
     setPdfContextText(undefined);
     setPdfOcrContextText(null);
@@ -150,7 +153,7 @@ export function DocumentViewer({
     return () => {
       isActive = false;
     };
-  }, [documentId]);
+  }, [documentId, isActiveTab]);
 
   useEffect(() => {
     let isActive = true;

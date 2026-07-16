@@ -6,7 +6,7 @@ use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
 use crate::models::{
     Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
     ItemType, LearningItem, TranscriptionJobStatus, TranscriptionQueueEntry,
-    TranscriptionQueueEntryWithDoc, VideoExtract,
+    TranscriptionQueueEntryWithDoc, VideoExtract, StartupDocumentSummary,
 };
 use chrono::Utc;
 use sqlx::{sqlite::SqliteRow, Pool, Row, Sqlite};
@@ -958,6 +958,88 @@ impl Repository {
         Ok(docs)
     }
 
+    /// Return a bounded, content-free document page for the startup snapshot.
+    pub async fn list_startup_document_summaries(
+        &self,
+        collection_id: &str,
+        limit: u32,
+        offset: u32,
+    ) -> Result<(Vec<StartupDocumentSummary>, i64)> {
+        let limit = i64::from(limit);
+        let offset = i64::from(offset);
+        let total: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM documents WHERE collection_id = ?1",
+        )
+        .bind(collection_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let rows = sqlx::query(
+            "SELECT id, collection_id, title, file_path, file_type, total_pages,
+                    current_page, current_scroll_percent, current_cfi, current_view_state,
+                    position_json, progress_percent, category, tags, date_added, date_modified,
+                    date_last_reviewed, extract_count, learning_item_count, priority_rating,
+                    priority_slider, priority_score, is_archived, is_favorite, is_dismissed,
+                    next_reading_date, reading_count, stability, difficulty, reps,
+                    total_time_spent, consecutive_count
+             FROM documents
+             WHERE collection_id = ?1
+             ORDER BY date_added DESC
+             LIMIT ?2 OFFSET ?3",
+        )
+        .bind(collection_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let summaries = rows
+            .into_iter()
+            .map(|row| {
+                let file_type: String = row.get("file_type");
+                let tags_json: String = row.get("tags");
+                StartupDocumentSummary {
+                    id: row.get("id"),
+                    collection_id: row
+                        .try_get("collection_id")
+                        .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                    title: row.get("title"),
+                    file_path: row.get("file_path"),
+                    file_type: Self::parse_file_type(&file_type),
+                    total_pages: row.try_get("total_pages").ok(),
+                    current_page: row.try_get("current_page").ok(),
+                    current_scroll_percent: row.try_get("current_scroll_percent").ok(),
+                    current_cfi: row.try_get("current_cfi").ok(),
+                    current_view_state: row.try_get("current_view_state").ok(),
+                    position_json: row.try_get("position_json").ok(),
+                    progress_percent: row.try_get("progress_percent").ok(),
+                    category: row.try_get("category").ok(),
+                    tags: serde_json::from_str(&tags_json).unwrap_or_default(),
+                    date_added: row.get("date_added"),
+                    date_modified: row.get("date_modified"),
+                    date_last_reviewed: row.try_get("date_last_reviewed").ok(),
+                    extract_count: row.try_get("extract_count").unwrap_or(0),
+                    learning_item_count: row.try_get("learning_item_count").unwrap_or(0),
+                    priority_rating: row.try_get("priority_rating").unwrap_or(0),
+                    priority_slider: row.try_get("priority_slider").unwrap_or(0),
+                    priority_score: row.try_get("priority_score").unwrap_or(0.0),
+                    is_archived: row.try_get("is_archived").unwrap_or(false),
+                    is_favorite: row.try_get("is_favorite").unwrap_or(false),
+                    is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                    next_reading_date: row.try_get("next_reading_date").ok(),
+                    reading_count: row.try_get("reading_count").unwrap_or(0),
+                    stability: row.try_get("stability").ok(),
+                    difficulty: row.try_get("difficulty").ok(),
+                    reps: row.try_get("reps").ok(),
+                    total_time_spent: row.try_get("total_time_spent").ok(),
+                    consecutive_count: row.try_get("consecutive_count").ok(),
+                }
+            })
+            .collect();
+
+        Ok((summaries, total.0))
+    }
+
     pub async fn list_documents_for_queue(&self) -> Result<Vec<Document>> {
         let rows = sqlx::query(
             "SELECT id, title, file_path, file_type, content_hash, total_pages, current_page, \
@@ -1033,11 +1115,11 @@ impl Repository {
         before: &chrono::DateTime<chrono::Utc>,
         collection_id: Option<&str>,
     ) -> Result<Vec<Document>> {
-        let columns = "id, title, file_path, file_type, content_hash, total_pages, current_page, \
+        let columns = "id, title, file_path, file_type, total_pages, current_page, \
              current_scroll_percent, current_cfi, current_view_state, position_json, \
              progress_percent, category, tags, date_added, date_modified, date_last_reviewed, \
              extract_count, learning_item_count, priority_rating, priority_slider, priority_score, \
-             is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source, \
+             is_archived, is_favorite, is_dismissed, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, \
              collection_id";
 
@@ -1075,10 +1157,6 @@ impl Repository {
             let tags_json: String = row.get("tags");
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-            let metadata_json: Option<String> = row.try_get("metadata")?;
-            let metadata: Option<DocumentMetadata> =
-                metadata_json.and_then(|json| serde_json::from_str(&json).ok());
-
             docs.push(Document {
                 id: row.get("id"),
                 collection_id: row
@@ -1088,7 +1166,7 @@ impl Repository {
                 file_path: row.get("file_path"),
                 file_type: Self::parse_file_type(&file_type),
                 content: None,
-                content_hash: row.get("content_hash"),
+                content_hash: None,
                 total_pages: row.get("total_pages"),
                 current_page: row.get("current_page"),
                 current_scroll_percent: row.try_get("current_scroll_percent").ok(),
@@ -1109,9 +1187,9 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
-                metadata,
-                cover_image_url: row.try_get("cover_image_url").ok(),
-                cover_image_source: row.try_get("cover_image_source").ok(),
+                metadata: None,
+                cover_image_url: None,
+                cover_image_source: None,
                 next_reading_date: row.try_get("next_reading_date").ok(),
                 reading_count: row.try_get("reading_count").unwrap_or(0),
                 stability: row.try_get("stability").ok(),
@@ -6673,6 +6751,54 @@ mod tests {
             .await
             .expect("delete");
         assert!(!deleted);
+    }
+
+    #[tokio::test]
+    async fn startup_document_summaries_are_bounded_and_use_collection_index() {
+        let repo = setup_repo().await;
+        for index in 0..3 {
+            let mut document = Document::new(
+                format!("startup-{index}"),
+                format!("/tmp/startup-{index}.pdf"),
+                FileType::Pdf,
+            );
+            document.content = Some("large document body".repeat(100));
+            repo.create_document(&document).await.expect("document");
+        }
+
+        let (page, total) = repo
+            .list_startup_document_summaries(DEFAULT_COLLECTION_ID, 2, 0)
+            .await
+            .expect("startup page");
+        assert_eq!(page.len(), 2);
+        assert_eq!(total, 3);
+        assert_eq!(page[0].collection_id, DEFAULT_COLLECTION_ID);
+
+        let plans = sqlx::query(
+            "EXPLAIN QUERY PLAN SELECT id, title, date_added FROM documents
+             WHERE collection_id = ?1 ORDER BY date_added DESC LIMIT ?2",
+        )
+        .bind(DEFAULT_COLLECTION_ID)
+        .bind(2_i64)
+        .fetch_all(repo.pool())
+        .await
+        .expect("query plan");
+        let details = plans
+            .iter()
+            .filter_map(|row| row.try_get::<String, _>("detail").ok())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            details.contains("idx_documents_collection_date_added"),
+            "startup query should use the collection/date index: {details}"
+        );
+
+        let (empty_page, empty_total) = repo
+            .list_startup_document_summaries("empty-collection", 50, 0)
+            .await
+            .expect("empty startup page");
+        assert!(empty_page.is_empty());
+        assert_eq!(empty_total, 0);
     }
 
     #[tokio::test]

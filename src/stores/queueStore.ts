@@ -117,6 +117,7 @@ interface QueueState {
   setQueueFilterMode: (mode: QueueFilterMode) => void;
   loadStats: () => Promise<void>;
   setItems: (items: QueueItem[]) => void;
+  hydrateStartupQueue: (items: QueueItem[]) => void;
   setSelected: (id: string, selected: boolean) => void;
   selectAll: () => void;
   clearSelection: () => void;
@@ -285,6 +286,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       items,
       filteredItems: items,
     }),
+
+  hydrateStartupQueue: (items) => {
+    set({ items, filteredItems: items, isLoading: false, error: null });
+    get().applyFilters();
+  },
 
   setSelected: (id, selected) =>
     set((state) => {

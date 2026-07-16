@@ -42,6 +42,7 @@ import { MobileScheduleView } from "../schedule/MobileScheduleView";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { orderQueueItems, type OrderedQueueItem, type PriorityPreset } from "../../utils/reviewUx";
 import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
+import { useStartupStore } from "../../stores/startupStore";
 
 interface MobileQueueViewProps {
   onStartReview?: (itemId?: string) => void;
@@ -113,6 +114,7 @@ export function MobileQueueView({
   const savedScrollRef = useRef(0);
   const scrollAnchorRef = useRef<{ id: string; offset: number } | null>(null);
   const isActiveTab = useIsActiveTab();
+  const ensureStartup = useStartupStore((state) => state.ensureStartup);
   const wasActiveRef = useRef(isActiveTab);
 
   // Persist scroll continuously so a remount (e.g. after scroll mode) can also
@@ -190,10 +192,11 @@ export function MobileQueueView({
   // don't poll.
   useEffect(() => {
     if (!isActiveTab) return;
+    if (quickFilter === "today") {
+      void ensureStartup("queue", { queueMode: "due-today" });
+      return;
+    }
     switch (quickFilter) {
-      case "today":
-        setQueueFilterMode("due-today");
-        break;
       case "all":
         setQueueFilterMode("all-items");
         break;
@@ -201,7 +204,7 @@ export function MobileQueueView({
         setQueueFilterMode("new-only");
         break;
     }
-  }, [quickFilter, isActiveTab, setQueueFilterMode]);
+  }, [quickFilter, ensureStartup, isActiveTab, setQueueFilterMode]);
 
   // Filter items
   const filteredItems = useMemo(() => {

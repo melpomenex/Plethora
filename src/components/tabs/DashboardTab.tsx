@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTabsStore } from "../../stores";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useCollectionStore } from "../../stores/collectionStore";
 import type { TabType } from "../../stores/tabsStore";
 import { useI18n } from "../../lib/i18n";
 import { usePresentationMode } from "../../contexts/PresentationContext";
+import { useIsActiveTab } from "../common/Tabs";
+import { useStartupStore } from "../../stores/startupStore";
 import { type DocumentWithProgress } from "../../types/position";
+import type { StartupProgressItem } from "../../types/startup";
 import {
   QueueTab,
   ReviewTab,
@@ -18,7 +21,6 @@ import {
   AudiobooksTab,
 } from "./TabRegistry";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
-import { getDocumentsWithProgress } from "../../api/position";
 import { QuickReviewWidget } from "../review/QuickReviewWidget";
 import { ActionButton, FocusPanel, SummarySection } from "../common/UI";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
@@ -50,6 +52,11 @@ interface QuickAction {
   primary?: boolean;
 }
 
+// Zustand selectors must return a stable fallback while the startup snapshot
+// is loading. A new `[]` on every getSnapshot call makes React think the store
+// changed continuously and triggers React error #185 on slower WebViews.
+const EMPTY_STARTUP_PROGRESS: StartupProgressItem[] = [];
+
 export function DashboardTab() {
   const { t } = useI18n();
   const { addTab } = useTabsStore();
@@ -59,23 +66,30 @@ export function DashboardTab() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hasResumableReading, setHasResumableReading] = useState(false);
-  const [resumableDocs, setResumableDocs] = useState<DocumentWithProgress[]>([]);
+  const isActiveTab = useIsActiveTab();
+  const ensureStartup = useStartupStore((state) => state.ensureStartup);
+  const startupLoadedForCollection = useRef<string | null>(null);
+  const startupProgress = useStartupStore(
+    (state) => state.snapshot?.continueReading ?? EMPTY_STARTUP_PROGRESS,
+  );
+  const resumableDocs = useMemo(
+    () => startupProgress.filter((item) => item.progress > 0 && item.progress < 100).slice(0, 3),
+    [startupProgress],
+  );
+  const hasResumableReading = resumableDocs.length > 0;
 
   useEffect(() => {
-    loadStats();
-    void getDocumentsWithProgress(10)
-      .then((items) => {
-        const filtered = items.filter((item) => item.progress > 0 && item.progress < 100);
-        setResumableDocs(filtered.slice(0, 3));
-        setHasResumableReading(filtered.length > 0);
-      })
-      .catch((err) => {
-        console.error("Failed to load documents with progress on dashboard:", err);
-        setResumableDocs([]);
-        setHasResumableReading(false);
-      });
-  }, [activeCollectionId]);
+    if (!isActiveTab) return;
+    // The tab can remain mounted while its parent/store updates. Keep the
+    // startup effect one-shot per collection so loading stats cannot create a
+    // render/effect feedback loop on slower WebViews.
+    const startupKey = activeCollectionId || "default";
+    if (startupLoadedForCollection.current === startupKey) return;
+    startupLoadedForCollection.current = startupKey;
+    void ensureStartup("dashboard").finally(() => {
+      if (isActiveTab) void loadStats();
+    });
+  }, [activeCollectionId, ensureStartup, isActiveTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
    
 

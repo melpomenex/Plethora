@@ -609,6 +609,120 @@ function readBrowserSyncConfig(): { host: string; port: number; autoStart: boole
  * Command handlers mapping - mirrors Tauri commands
  */
 const commandHandlers: Record<string, CommandHandler> = {
+    // Bounded equivalent of the native startup snapshot. Browser mode has no
+    // collection table, so it exposes the same stable default collection and
+    // applies the projection locally without returning content or covers.
+    get_startup_snapshot: async (args) => {
+        const documentLimit = Math.min(Math.max(Number(args.documentLimit) || 50, 1), 50);
+        const documentOffset = Math.max(Number(args.documentOffset) || 0, 0);
+        const progressLimit = Math.min(Math.max(Number(args.progressLimit) || 10, 1), 10);
+        const queueLimit = Math.min(Math.max(Number(args.queueLimit) || 50, 1), 50);
+        const includeQueue = Boolean(args.includeQueue);
+        const activeCollectionId = '00000000-0000-0000-0000-000000000001';
+        const allDocs = await db.getDocuments();
+        const docs = allDocs
+            .filter((doc) => {
+                const collectionId = (doc as any).collection_id;
+                return !collectionId || collectionId === activeCollectionId;
+            })
+            .sort((a, b) => String(b.date_added).localeCompare(String(a.date_added)));
+        const toStartupDocument = (doc: any) => ({
+            id: doc.id,
+            collectionId: doc.collection_id || activeCollectionId,
+            title: doc.title || 'Untitled',
+            filePath: doc.file_path || '',
+            fileType: doc.file_type || 'other',
+            totalPages: doc.total_pages ?? null,
+            currentPage: doc.current_page ?? null,
+            currentScrollPercent: doc.current_scroll_percent ?? null,
+            currentCfi: doc.current_cfi ?? null,
+            currentViewState: doc.current_view_state ?? null,
+            positionJson: doc.position_json ?? null,
+            progressPercent: doc.progress_percent ?? 0,
+            category: doc.category ?? null,
+            tags: Array.isArray(doc.tags) ? doc.tags : [],
+            dateAdded: doc.date_added,
+            dateModified: doc.date_modified,
+            dateLastReviewed: doc.date_last_reviewed ?? null,
+            extractCount: doc.extract_count ?? 0,
+            learningItemCount: doc.learning_item_count ?? 0,
+            priorityRating: doc.priority_rating ?? 0,
+            prioritySlider: doc.priority_slider ?? 0,
+            priorityScore: doc.priority_score ?? 0,
+            isArchived: Boolean(doc.is_archived),
+            isFavorite: Boolean(doc.is_favorite),
+            isDismissed: Boolean(doc.is_dismissed),
+            nextReadingDate: doc.next_reading_date ?? null,
+            readingCount: doc.reading_count ?? 0,
+            stability: doc.stability ?? null,
+            difficulty: doc.difficulty ?? null,
+            reps: doc.reps ?? null,
+            totalTimeSpent: doc.total_time_spent ?? null,
+            consecutiveCount: doc.consecutive_count ?? null,
+        });
+        const startupDocs = docs.map(toStartupDocument);
+        const progressDocs = startupDocs
+            .filter((doc: any) => !doc.isArchived && (doc.progressPercent ?? 0) < 100)
+            .sort((a: any, b: any) => String(b.dateModified).localeCompare(String(a.dateModified)))
+            .slice(0, progressLimit)
+            .map((doc: any) => ({
+                id: doc.id,
+                progress: doc.progressPercent ?? 0,
+                title: doc.title,
+                dateModified: Math.floor(new Date(doc.dateModified).getTime() / 1000),
+            }));
+        const dueDocs = startupDocs.filter((doc: any) =>
+            !doc.isArchived && !doc.isDismissed &&
+            (!doc.nextReadingDate || doc.nextReadingDate <= new Date().toISOString())
+        );
+        const [dueExtracts, dueLearningItems] = await Promise.all([
+            db.getDueExtracts(),
+            db.getDueLearningItems(),
+        ]);
+        const dueCount = dueDocs.length + dueExtracts.filter((item) =>
+            startupDocs.some((doc: any) => doc.id === item.document_id)
+        ).length + dueLearningItems.filter((item) =>
+            !item.document_id || startupDocs.some((doc: any) => doc.id === item.document_id)
+        ).length;
+        let queue: any[] = [];
+        let queueTotal = 0;
+        if (includeQueue) {
+            const allQueue = await (args.queueMode === 'due-today'
+                ? commandHandlers.get_due_documents_only({})
+                : commandHandlers.get_due_queue_items({})) as any[];
+            queueTotal = Array.isArray(allQueue) ? allQueue.length : 0;
+            queue = Array.isArray(allQueue) ? allQueue.slice(0, queueLimit) : [];
+        }
+        const hasMoreDocuments = docs.length > documentOffset + documentLimit;
+        const hasMoreQueue = queueTotal > queueLimit;
+        return {
+            version: 1,
+            collections: [{
+                id: activeCollectionId,
+                name: 'Personal',
+                icon: null,
+                color: null,
+                isDefault: true,
+                createdAt: new Date(0).toISOString(),
+                updatedAt: new Date().toISOString(),
+            }],
+            activeCollectionId,
+            documents: {
+                items: startupDocs.slice(documentOffset, documentOffset + documentLimit),
+                total: docs.length,
+                hasMore: hasMoreDocuments,
+                nextOffset: hasMoreDocuments ? documentOffset + documentLimit : null,
+            },
+            queue: {
+                items: queue,
+                total: queueTotal,
+                hasMore: hasMoreQueue,
+                nextOffset: hasMoreQueue ? queueLimit : null,
+            },
+            continueReading: progressDocs,
+            dueCount,
+        };
+    },
     // Document commands
     get_documents: async (args) => {
         let docs = await db.getDocuments();

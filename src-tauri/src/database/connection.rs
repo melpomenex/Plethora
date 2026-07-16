@@ -111,12 +111,17 @@ impl Database {
             // NORMAL synchronous with WAL gives good durability/performance trade-off
             .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
 
-        // Create connection pool — increased to 20 to handle concurrent
-        // user operations (e.g. bulk delete) alongside sync processes (Yjs
-        // CRDT sync, localStorage sync, file sync) without exhausting the
-        // pool and causing "pool timed out" errors on heavy workloads.
+        // SQLite serializes writes, so a large pool mostly adds connection
+        // startup and lock contention on low-power Android devices. Keep a
+        // smaller mobile pool while retaining headroom on desktop; deferred
+        // sync work no longer needs twenty connections during first render.
+        let max_connections = if cfg!(any(target_os = "android", target_os = "ios")) {
+            4
+        } else {
+            12
+        };
         let pool = PoolOptions::<Sqlite>::new()
-            .max_connections(20)
+            .max_connections(max_connections)
             .acquire_timeout(Duration::from_secs(60))
             .connect_with(options)
             .await.map_err(|e| {

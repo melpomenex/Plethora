@@ -34,7 +34,7 @@ function isSyncDebugEnabled(): boolean {
 
 /** Read the user's preference for Yjs CRDT sync from the settings store.
  *  Defaults to false if the setting is missing or the store isn't ready yet. */
-function isYjsSyncEnabled(): boolean {
+export function isYjsSyncEnabled(): boolean {
   try {
     const state = useSettingsStore.getState();
     return state?.settings?.sync?.yjs?.enabled ?? false;

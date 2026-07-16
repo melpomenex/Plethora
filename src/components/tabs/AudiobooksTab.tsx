@@ -19,6 +19,7 @@ import { AudiobookImportDialog } from "../import/AudiobookImportDialog";
 import { DocumentViewer } from "./TabRegistry";
 import { cn } from "../../utils";
 import { formatDuration } from "../../api/audiobooks";
+import { useIsActiveTab } from "../common/Tabs";
 
 export function AudiobooksTab() {
   const { documents, loadDocuments, deleteDocument } = useDocumentStore();
@@ -27,12 +28,14 @@ export function AudiobooksTab() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "not_started" | "in_progress" | "finished" | "dnf">("all");
   const [sortBy, setSortBy] = useState<"dateAdded" | "title" | "author" | "duration" | "progress">("dateAdded");
+  const isActiveTab = useIsActiveTab();
 
   // Local storage keys for status overrides & listening stats
   const [dnfList, setDnfList] = useState<string[]>([]);
   const [listeningStats, setListeningStats] = useState({ today: 0, week: 0 });
 
   useEffect(() => {
+    if (!isActiveTab) return;
     loadDocuments();
     // Load DNF list
     const dnf = localStorage.getItem("audiobook-dnf-list");
@@ -53,7 +56,7 @@ export function AudiobooksTab() {
         // ignore
       }
     }
-  }, [loadDocuments]);
+  }, [isActiveTab, loadDocuments]);
 
   // Filter documents to get audiobooks
   const audiobooks = useMemo(() => {

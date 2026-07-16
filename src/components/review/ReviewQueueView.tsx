@@ -66,6 +66,9 @@ import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
 import { getSessionStats, clearQueueSession } from "../../lib/queueSession";
 import { useI18n } from "../../lib/i18n";
 import { ScheduleView } from "../schedule/ScheduleView";
+import { useIsActiveTab } from "../common/Tabs";
+import { useStartupStore } from "../../stores/startupStore";
+import { useCollectionStore } from "../../stores/collectionStore";
 
 type QueueMode = "reading" | "review" | "schedule";
 
@@ -85,6 +88,9 @@ const PRESET_DESC_KEYS: Record<PriorityPreset, string> = {
 
 export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMode }: ReviewQueueViewProps) {
   const { locale, t } = useI18n();
+  const isActiveTab = useIsActiveTab();
+  const ensureStartup = useStartupStore((state) => state.ensureStartup);
+  const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
   const {
     items,
     isLoading,
@@ -255,6 +261,13 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   }, [queueMode, onOpenScrollMode]);
 
   useEffect(() => {
+    if (!isActiveTab) return;
+    if (queueMode === "reading" && queueFilterMode === "due-all" && !sessionCustomization.semanticStudy?.enabled) {
+      void ensureStartup("queue").finally(() => {
+        if (isActiveTab) void loadStats();
+      });
+      return;
+    }
     // If a semantic study focus is active, load the entire database/collection
     // so we can query all matching items in the library.
     if (sessionCustomization.semanticStudy?.enabled && sessionCustomization.semanticStudy?.focalTopic) {
@@ -287,6 +300,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   }, [
     queueMode,
     queueFilterMode,
+    isActiveTab,
+    ensureStartup,
+    activeCollectionId,
     // loadQueue/loadDueDocumentsOnly/loadDueQueueItems/loadStats are stable
     // Zustand actions — deliberately omitted from deps to avoid spurious
     // reloads (they previously caused repeated get_queue_items fetches when

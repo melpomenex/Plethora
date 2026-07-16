@@ -28,6 +28,7 @@ import { useI18n } from "../../lib/i18n";
 import { ActionButton, ActionMenu, FocusPanel } from "../common/UI";
 import { getReviewHomeAction } from "./reviewFocus";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
+import { useIsActiveTab } from "../common/Tabs";
 
 interface ReviewHomeProps {
   onStartReview: () => Promise<void>;
@@ -91,6 +92,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   const [isAnkiImporting, setIsAnkiImporting] = useState(false);
   const toast = useToast();
   const { t } = useI18n();
+  const isActiveTab = useIsActiveTab();
 
   const activeDeck = useMemo(
     () => {
@@ -102,8 +104,8 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   );
 
   useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
+    if (isActiveTab) loadDocuments();
+  }, [isActiveTab, loadDocuments]);
 
   useEffect(() => {
     if (documents.length > 0) {
@@ -126,8 +128,8 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   };
 
   useEffect(() => {
-    loadStats();
-  }, [activeCollectionId]);
+    if (isActiveTab) loadStats();
+  }, [activeCollectionId, isActiveTab]);
 
   useEffect(() => {
     const handler = () => setIsFlashcardStudioOpen(true);
