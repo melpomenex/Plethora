@@ -202,6 +202,20 @@ export function DashboardTab() {
   ];
 
   const openTab = (action: QuickAction) => {
+    if (action.tabType === "queue") {
+      // "Queue" can mean either the list view or Scroll Mode — reactivate
+      // whichever was more recently active instead of always the list.
+      const { getMostRecentTabOfTypes, findPaneContainingTab, setActiveTab } = useTabsStore.getState();
+      const recentQueueTab = getMostRecentTabOfTypes(["queue", "queue-scroll"]);
+      if (recentQueueTab) {
+        const pane = findPaneContainingTab(recentQueueTab.id);
+        if (pane) {
+          setActiveTab(pane.id, recentQueueTab.id);
+          return;
+        }
+      }
+    }
+
     addTab({
       title: action.tabTitle,
       

@@ -288,6 +288,20 @@ export function MobileNavigation({
   }, [showMoreMenu]);
 
   const openTab = (item: NavItem) => {
+    if (item.tabType === "queue") {
+      // "Queue" can mean either the list view or Scroll Mode — reactivate
+      // whichever was more recently active instead of always the list.
+      const { getMostRecentTabOfTypes, findPaneContainingTab: findPane, setActiveTab: activateTab } = useTabsStore.getState();
+      const recentQueueTab = getMostRecentTabOfTypes(["queue", "queue-scroll"]);
+      if (recentQueueTab) {
+        const pane = findPane(recentQueueTab.id);
+        if (pane) {
+          activateTab(pane.id, recentQueueTab.id);
+          return;
+        }
+      }
+    }
+
     const existing = tabs.find((tab) => tab.type === item.tabType);
     if (existing) {
       // Find the pane containing this tab and activate it

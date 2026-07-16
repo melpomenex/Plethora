@@ -176,6 +176,9 @@ export interface TabsState {
   getAllPaneIds: () => string[];
   getTabPaneIds: () => string[];
   getWorkspaceTabs: () => WorkspaceTabInfo[];
+  // Returns the most recently active open tab whose type is in `types`,
+  // based on activeTabHistory order, or undefined if none is currently open.
+  getMostRecentTabOfTypes: (types: TabType[]) => Tab | undefined;
 
   // Persistence
   saveTabs: () => void;
@@ -1268,6 +1271,17 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     const pane = findPaneContainingTabRecursive(get().rootPane, tab.id);
     return { tab, paneId: pane?.id ?? null, isActive: pane?.activeTabId === tab.id };
   }),
+
+  getMostRecentTabOfTypes: (types) => {
+    const state = get();
+    for (let index = state.activeTabHistory.length - 1; index >= 0; index--) {
+      const tab = state.tabs.find((t) => t.id === state.activeTabHistory[index]);
+      if (tab && types.includes(tab.type)) {
+        return tab;
+      }
+    }
+    return undefined;
+  },
 
   saveTabs: () => {
     try {

@@ -534,6 +534,20 @@ export function MainLayout() {
       notebooklm: { title: "NotebookLM", content: NotebookLMTab, closable: true },
       "image-registry": { title: "Images", content: ImageRegistryTab, closable: true },
     };
+    if (type === "queue") {
+      // "Queue" can mean either the list view or Scroll Mode — reactivate
+      // whichever was more recently active instead of always the list.
+      const { getMostRecentTabOfTypes, findPaneContainingTab, setActiveTab: activateTab } = useTabsStore.getState();
+      const recentQueueTab = getMostRecentTabOfTypes(["queue", "queue-scroll"]);
+      if (recentQueueTab) {
+        const pane = findPaneContainingTab(recentQueueTab.id);
+        if (pane) {
+          activateTab(pane.id, recentQueueTab.id);
+          return;
+        }
+      }
+    }
+
     const config = tabConfig[type];
     if (!config) return;
     addTab({

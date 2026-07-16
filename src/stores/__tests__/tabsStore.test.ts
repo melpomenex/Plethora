@@ -207,6 +207,36 @@ describe("tabsStore activeTabHistory and MRU close behavior", () => {
 
     window.removeEventListener("navigate", navigate);
   });
+
+  it("getMostRecentTabOfTypes returns the most recently active tab among the given types", () => {
+    const queueId = useTabsStore.getState().addTab({ title: "Queue", icon: null, type: "queue", content: DummyComponent, closable: true });
+    const scrollId = useTabsStore.getState().addTab({ title: "Scroll Mode", icon: null, type: "queue-scroll", content: DummyComponent, closable: true });
+    useTabsStore.getState().addTab({ title: "Documents", icon: null, type: "documents", content: DummyComponent, closable: true });
+    const paneId = useTabsStore.getState().rootPane.id;
+    useTabsStore.getState().setActiveTab(paneId, queueId);
+
+    expect(useTabsStore.getState().getMostRecentTabOfTypes(["queue", "queue-scroll"])?.id).toBe(queueId);
+
+    useTabsStore.getState().setActiveTab(paneId, scrollId);
+    expect(useTabsStore.getState().getMostRecentTabOfTypes(["queue", "queue-scroll"])?.id).toBe(scrollId);
+  });
+
+  it("getMostRecentTabOfTypes skips stale ids and closed tabs", () => {
+    const queueId = useTabsStore.getState().addTab({ title: "Queue", icon: null, type: "queue", content: DummyComponent, closable: true });
+    const scrollId = useTabsStore.getState().addTab({ title: "Scroll Mode", icon: null, type: "queue-scroll", content: DummyComponent, closable: true });
+    useTabsStore.getState().closeTab(scrollId);
+    useTabsStore.setState({
+      activeTabHistory: [queueId, "missing-tab", scrollId],
+    });
+
+    expect(useTabsStore.getState().getMostRecentTabOfTypes(["queue", "queue-scroll"])?.id).toBe(queueId);
+  });
+
+  it("getMostRecentTabOfTypes returns undefined when no open tab matches", () => {
+    useTabsStore.getState().addTab({ title: "Documents", icon: null, type: "documents", content: DummyComponent, closable: true });
+
+    expect(useTabsStore.getState().getMostRecentTabOfTypes(["queue", "queue-scroll"])).toBeUndefined();
+  });
 });
 
 describe("pane normalization", () => {
