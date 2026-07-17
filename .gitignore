@@ -11,6 +11,9 @@ lerna-debug.log*
 # NOTE: .agents/ is intentionally NOT ignored — it holds shared, tracked
 # agent skills (e.g. cut-release). Only personal/session state stays ignored.
 .zcode/
+
+# Local scratch/scratchpad scripts — not part of the app.
+scratch/
 handoff.md
 .claude/launch.json
 
