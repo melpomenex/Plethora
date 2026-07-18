@@ -1,9 +1,10 @@
 import { readDocumentFile } from "../../api/documents";
 import { getBrowserFile } from "../../lib/browser-file-store";
 import { convertFileSrc, isTauri, isNativeMobile, invokeCommand } from "../../lib/tauri";
+import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 
 export type LocalMediaType = "video" | "audio";
-export type LocalMediaSourceStrategy = "tauri-asset" | "browser-object-url" | "backend-blob";
+export type LocalMediaSourceStrategy = "tauri-asset" | "local-media-server" | "browser-object-url" | "backend-blob";
 
 export interface LocalMediaResolutionAttempt {
   strategy: LocalMediaSourceStrategy;
@@ -45,6 +46,24 @@ const AUDIO_MIME_TYPES: Record<string, string> = {
   opus: "audio/opus",
   mp3: "audio/mpeg",
 };
+
+export const MOBILE_SOURCE_RESOLUTION_TIMEOUT_MS = 10_000;
+
+export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        globalThis.clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        globalThis.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
 
 export function inferMimeType(filePath: string, mediaType: LocalMediaType): string {
   const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
@@ -155,17 +174,36 @@ export async function resolveLocalMediaSource(
       // Use the local streaming HTTP server with Range request support.
       // The Tauri asset protocol (convertFileSrc) buffers the entire file
       // into memory on Android, causing OOM crashes for large audiobooks.
-      const streamUrl = await invokeCommand<string>("get_media_stream_url", { filePath });
+      const streamUrl = await withTimeout(
+        invokeCommand<string>("get_media_stream_url", { filePath }),
+        MOBILE_SOURCE_RESOLUTION_TIMEOUT_MS,
+        "Timed out while resolving the local mobile media stream.",
+      );
+      if (!streamUrl?.startsWith("http://127.0.0.1:")) {
+        throw new Error("The local mobile media stream returned an invalid URL.");
+      }
+      logAudiobookDiagnostic("source_resolution", {
+        filePath,
+        strategy: "local-media-server",
+        status: "success",
+        mimeType,
+      });
       return {
         src: streamUrl,
         mimeType,
         mediaType,
         originalPath: filePath,
-        strategy: "tauri-asset",
+        strategy: "local-media-server",
         revokeSrcOnDispose: false,
-        attempts: [{ strategy: "tauri-asset", status: "success", detail: "Using local streaming HTTP server on mobile." }],
+        attempts: [{ strategy: "local-media-server", status: "success", detail: "Using local streaming HTTP server on mobile." }],
       };
     } catch (error) {
+      logAudiobookDiagnostic("source_resolution", {
+        filePath,
+        strategy: "local-media-server",
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      }, "error");
       throw new Error(`Failed to resolve media source on mobile: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

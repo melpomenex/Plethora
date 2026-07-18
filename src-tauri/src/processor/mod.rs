@@ -1,5 +1,6 @@
 //! Document processing and content extraction
 
+pub mod audio;
 pub mod epub;
 pub mod html;
 pub mod markdown;

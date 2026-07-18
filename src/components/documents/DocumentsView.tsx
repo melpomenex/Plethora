@@ -385,6 +385,14 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
         // them here the way non-PDF fallbacks are skipped.
         return true;
       }
+      if (doc.fileType === "audio") {
+        // Audiobooks previously resolved to "fallback" also get a second
+        // chance: the backend's ffmpeg-free cover extractor (lofty) was added
+        // after these docs were imported, so re-resolving gives them a shot
+        // at the newly-available embedded-cover path. See the
+        // `fix-audiobook-cover-extraction` change.
+        return true;
+      }
       if (doc.coverImageSource === "fallback") return false;
       return true;
     });

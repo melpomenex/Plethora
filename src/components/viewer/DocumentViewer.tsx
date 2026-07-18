@@ -111,6 +111,7 @@ import { normalizePdfHighlightColor } from "../../utils/highlightColors";
 import { applyAnchoredTextHighlights, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
 import { FlashcardStudioModal } from "../review/FlashcardStudioModal";
 import { resolveLocalMediaSource, type ResolvedLocalMediaSource } from "./localMediaSource";
+import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import type { EpubVimRuntime, PdfVimRuntime } from "../../utils/vim/readerRuntimes";
 
 const READER_FOCUS_EVENT = "incrementum-reader-focus-mode-change";
@@ -1818,6 +1819,7 @@ export function DocumentViewer({
     }
     mediaSourceRef.current = null;
     setMediaSource(null);
+    setMediaError(null);
     setPdfUrl(null);
     setUseNativePdfRange(false);
     setEpubUrl(null);
@@ -1889,9 +1891,21 @@ export function DocumentViewer({
         const resolvedSource = await resolveLocalMediaSource(doc.filePath, "audio");
         mediaSourceRef.current = resolvedSource;
         setMediaSource(resolvedSource);
+        logAudiobookDiagnostic("source_resolution", {
+          documentId: doc.id,
+          filePath: doc.filePath,
+          strategy: resolvedSource.strategy,
+          status: "success",
+        });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error("[DocumentViewer] Failed to resolve audio source:", error);
+        logAudiobookDiagnostic("source_resolution", {
+          documentId: doc.id,
+          filePath: doc.filePath,
+          status: "failed",
+          message: errorMessage,
+        }, "error");
         setMediaError(errorMessage);
       } finally {
         setIsLoading(false);
@@ -1993,17 +2007,24 @@ export function DocumentViewer({
       // Mark as viewed in session (for smart queue filtering)
       markItemViewed(documentId, false);
 
-      // Startup/library rows are intentionally content-free projections. Always
-      // hydrate the full row before the reader consumes document content.
       hydrateDocument(documentId)
         .then((fetched) => {
-          if (cancelled || !fetched) return;
+          if (cancelled) return;
+          if (!fetched) {
+            setIsLoading(false);
+            setMediaError("Document not found in database.");
+            return;
+          }
           setCurrentDocument(fetched);
           loadDocumentData(fetched);
           lastLoadedDocumentIdRef.current = documentId;
         })
         .catch((error) => {
-          if (!cancelled) console.error("Failed to hydrate document by id:", error);
+          if (!cancelled) {
+            console.error("Failed to hydrate document by id:", error);
+            setIsLoading(false);
+            setMediaError(error instanceof Error ? error.message : String(error));
+          }
         });
     }
 
@@ -6170,6 +6191,13 @@ export function DocumentViewer({
                 <p className="text-sm text-muted-foreground">
                   {t("viewer.fileRemovedOrReimport")}
                 </p>
+                <button
+                  type="button"
+                  className="mt-2 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+                  onClick={() => currentDocument && void loadDocumentData(currentDocument)}
+                >
+                  Retry playback
+                </button>
                 {currentDocument && <ReaderFileDownload doc={currentDocument} />}
               </div>
             </div>

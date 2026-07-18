@@ -105,6 +105,17 @@ async fn resolve_cover_for_document(
                 return Ok((Some(url), Some("embedded".to_string())));
             }
         }
+        FileType::Audio => {
+            // In-process, ffmpeg-free extraction (lofty). Works on Android,
+            // where no ffmpeg sidecar is bundled. Returns `None` for files
+            // with no embedded cover (e.g. WAV, or MP3 without APIC), which
+            // then falls through to the online lookup below.
+            if let Ok(Some((url, _mime))) =
+                processor::audio::extract_audio_cover_data_url(&doc.file_path)
+            {
+                return Ok((Some(url), Some("embedded".to_string())));
+            }
+        }
         FileType::Youtube => {
             if let Some(video_id) = youtube::extract_video_id(&doc.file_path) {
                 return Ok((
@@ -119,7 +130,12 @@ async fn resolve_cover_for_document(
     if allow_anna
         && matches!(
             doc.file_type,
-            FileType::Pdf | FileType::Epub | FileType::Markdown | FileType::Html | FileType::Other
+            FileType::Pdf
+                | FileType::Epub
+                | FileType::Audio
+                | FileType::Markdown
+                | FileType::Html
+                | FileType::Other
         )
     {
         let author = doc.metadata.as_ref().and_then(|meta| meta.author.clone());

@@ -522,8 +522,17 @@ pub async fn prepare_audiobook_playback(
     }
 
     let output_str = output_path.to_string_lossy().to_string();
-    let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(&app_handle)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get ffmpeg command: {}", e)))?
+    // If ffmpeg isn't available (Android has no sidecar; desktop may lack it),
+    // fall back to the original m4b path instead of erroring. The local media
+    // server + the platform <audio> element can decode m4b (AAC-LC in MP4)
+    // directly, so transcoding to mp3 is an optimization, not a requirement.
+    // Without this fallback, opening an m4b audiobook on Android left the
+    // player with no source and the "Loading document" overlay stuck.
+    let ffmpeg_cmd = match crate::utils::ffmpeg::ffmpeg_command(&app_handle) {
+        Ok(cmd) => cmd,
+        Err(_) => return Ok(file_path),
+    };
+    let (mut rx, _) = ffmpeg_cmd
         .args([
             "-y",
             "-i",
@@ -575,15 +584,21 @@ pub async fn extract_audio_sample(
     Ok(String::new())
 }
 
-/// Extract embedded cover art from an audio file using ffmpeg sidecar.
-/// Returns a data:image URL (base64-encoded) or None if no cover is found.
+/// Extract embedded cover art from an audio file.
+///
+/// Primary path: the in-process [`crate::processor::audio`] extractor (lofty),
+/// which works on every platform including Android, where no ffmpeg sidecar is
+/// available. If lofty finds no cover (rare edge case — e.g. an unusual
+/// container lofty can't parse), fall back to the ffmpeg-based extractor on
+/// desktop only. On Android the fallback is a no-op (`ffmpeg_command` returns
+/// `Err` when no binary is available), so mobile simply returns `None`.
+///
+/// Returns a `data:image/...;base64,...` URL, or `None` if no cover is found.
 #[tauri::command]
 pub async fn extract_audio_cover_art(
     app_handle: AppHandle,
     file_path: String,
 ) -> Result<Option<String>> {
-    use base64::{engine::general_purpose, Engine as _};
-
     let path = Path::new(&file_path);
     if !path.exists() {
         return Err(IncrementumError::NotFound(format!(
@@ -591,6 +606,27 @@ pub async fn extract_audio_cover_art(
             file_path
         )));
     }
+
+    // Primary: in-process extractor (ffmpeg-free).
+    if let Ok(Some((url, _mime))) =
+        crate::processor::audio::extract_audio_cover_data_url(&file_path)
+    {
+        return Ok(Some(url));
+    }
+
+    // Fallback: ffmpeg sidecar (desktop only — on Android resolve_ffmpeg_path
+    // returns None and ffmpeg_command surfaces that as an error). This preserves
+    // the previous behavior for any container lofty can't handle.
+    extract_audio_cover_art_via_ffmpeg(&app_handle, &file_path).await
+}
+
+/// ffmpeg-backed cover extraction — the legacy implementation, kept as a
+/// desktop-only fallback for files the in-process extractor can't parse.
+async fn extract_audio_cover_art_via_ffmpeg(
+    app_handle: &AppHandle,
+    file_path: &str,
+) -> Result<Option<String>> {
+    use base64::{engine::general_purpose, Engine as _};
 
     let temp_dir = app_handle
         .path()
@@ -607,11 +643,11 @@ pub async fn extract_audio_cover_art(
     let cover_path = temp_dir.join(&cover_filename);
 
     // Use ffmpeg to extract embedded cover art
-    let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(&app_handle)
+    let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(app_handle)
         .map_err(|e| IncrementumError::Internal(format!("Failed to get ffmpeg command: {}", e)))?
         .args([
             "-i",
-            &file_path,
+            file_path,
             "-an", // no audio
             "-vcodec",
             "copy", // copy the video stream (cover art)
