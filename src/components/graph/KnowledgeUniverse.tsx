@@ -15,6 +15,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useI18n } from "../../lib/i18n";
 import { useIsActiveTab } from "../common/Tabs/TabContent";
 import { GraphNodeType, type GraphNode } from "./KnowledgeGraph";
+import { useMobileShell } from "../../hooks/useMobileShell";
 import { ObsidianSphere } from "./ObsidianSphere";
 import { NodeDetailPanel } from "./NodeDetailPanel";
 import { UniverseEngine, WebGLUnavailableError } from "./universe/engine";
@@ -51,12 +52,14 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
     onNodeDelete,
     onNodeSave,
     showHeader = true,
+    selectedNodeId: propsSelectedNodeId,
   } = props;
 
   const { t } = useI18n();
   const { theme } = useTheme();
   const isDark = theme.variant === "dark";
   const isActiveTab = useIsActiveTab();
+  const isMobile = useMobileShell();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -64,7 +67,7 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
 
   const [webglFailed, setWebglFailed] = useState(false);
   const [focus, setFocus] = useState<FocusState>({ level: "universe" });
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(props.selectedNodeId ?? null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -200,6 +203,23 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
   useEffect(() => {
     engineRef.current?.setAmbientEnabled(ambientOn);
   }, [ambientOn]);
+
+  useEffect(() => {
+    if (propsSelectedNodeId !== undefined) {
+      setSelectedNodeId(propsSelectedNodeId);
+      engineRef.current?.setSelected(propsSelectedNodeId);
+    }
+  }, [propsSelectedNodeId]);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (selectedNodeId && !isMobile) {
+      engine.setViewportOffset(180);
+    } else {
+      engine.setViewportOffset(0);
+    }
+  }, [selectedNodeId, isMobile]);
 
   // ------------------------------------------------------------- navigation
 
@@ -492,6 +512,7 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
       <canvas
         ref={canvasRef}
         className="absolute inset-0 cursor-grab active:cursor-grabbing"
+        style={{ touchAction: "none" }}
         onClick={handleCanvasClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}

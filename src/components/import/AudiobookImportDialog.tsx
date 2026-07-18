@@ -56,6 +56,7 @@ import {
 } from "../../api/audiobooks";
 import { downloadTranscriptionModel, getTranscriptionProfiles } from "../../api/transcription";
 import { isTauri, isNativeMobile } from "../../lib/tauri";
+import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import type { Document } from "../../types/document";
 
@@ -113,6 +114,7 @@ export function AudiobookImportDialog({
   // Multi-part book state
   const [multiPartBook, setMultiPartBook] = useState<MultiPartAudiobook | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [showAllParts, setShowAllParts] = useState(false);
 
 
   
@@ -145,6 +147,7 @@ export function AudiobookImportDialog({
       setBatchItems([]);
       setMultiPartBook(null);
       setSelectedFiles([]);
+      setShowAllParts(false);
 
       setError(null);
       setSearchQuery("");
@@ -211,7 +214,7 @@ export function AudiobookImportDialog({
           });
 
           const [embeddedCover, covers, metaResults] = await Promise.all([
-            (onMobile ? Promise.resolve(null) : extractAudioCoverArt(files[0])),
+            extractAudioCoverArt(files[0]),
             searchAudiobookCover(detectedMultiPart.title, detectedMultiPart.author),
             searchAudiobookMetadata(detectedMultiPart.title, detectedMultiPart.author),
           ]);
@@ -388,9 +391,11 @@ export function AudiobookImportDialog({
           parsed = await parseAudiobookMetadata(item.filePath);
         }
 
-        // Extract embedded cover (desktop only) and search for online covers in parallel
+        // Extract embedded cover and search for online covers in parallel.
+        // Extraction is ffmpeg-free (in-process lofty), so it runs on every
+        // platform including Android.
         const [embeddedCover, covers, metaResults] = await Promise.all([
-          onMobile ? Promise.resolve(null) : extractAudioCoverArt(item.filePath),
+          extractAudioCoverArt(item.filePath),
           searchAudiobookCover(parsed.title, parsed.author),
           searchAudiobookMetadata(parsed.title, parsed.author),
         ]);
@@ -456,10 +461,12 @@ export function AudiobookImportDialog({
       setMetadata(parsed);
       setChapters(parsed.chapters || []);
 
-      // Extract embedded cover (desktop only — mobile file isn't staged yet)
-      // and search for online covers in parallel.
+      // Extract embedded cover and search for online covers in parallel.
+      // Extraction is ffmpeg-free (in-process lofty) and runs on every
+      // platform, including Android where the file has already been staged
+      // into app-private storage by the folder-import plugin before this runs.
       const [embeddedCover, covers, metaResults] = await Promise.all([
-        onMobile ? Promise.resolve(null) : extractAudioCoverArt(path),
+        extractAudioCoverArt(path),
         searchAudiobookCover(parsed.title, parsed.author),
         searchAudiobookMetadata(parsed.title, parsed.author),
       ]);
@@ -492,6 +499,10 @@ export function AudiobookImportDialog({
     if (!searchQuery.trim()) return;
     
     setIsLoading(true);
+    logAudiobookDiagnostic("import", {
+      filePath: filePath || selectedFiles[0],
+      status: "started",
+    });
     try {
       const [covers, metaResults] = await Promise.all([
         searchAudiobookCover(searchQuery, metadata.author),
@@ -739,6 +750,11 @@ export function AudiobookImportDialog({
       }
       
       await loadDocuments();
+      logAudiobookDiagnostic("import", {
+        documentId: doc.id,
+        filePath: doc.filePath,
+        status: "success",
+      });
       showSuccess("Audiobook imported", `"${metadata.title}" has been added to your library`);
       
       setTimeout(() => {
@@ -748,6 +764,11 @@ export function AudiobookImportDialog({
         }
       }, 800);
     } catch (err) {
+      logAudiobookDiagnostic("import", {
+        filePath: filePath || selectedFiles[0],
+        status: "failed",
+        message: err instanceof Error ? err.message : String(err),
+      }, "error");
       showError("Import failed", err instanceof Error ? err.message : "Unknown error");
     } finally {
       setIsLoading(false);
@@ -776,6 +797,10 @@ export function AudiobookImportDialog({
       setImportProgress({ current: i + 1, total: readyItems.length });
       
       try {
+        logAudiobookDiagnostic("import", {
+          filePath: item.filePath,
+          status: "started",
+        });
         const imported = await importFromFiles([item.filePath]);
 
         if (imported.length === 0) {
@@ -811,8 +836,18 @@ export function AudiobookImportDialog({
           document: doc,
           metadata: item.metadata || {},
         });
+        logAudiobookDiagnostic("import", {
+          documentId: doc.id,
+          filePath: doc.filePath,
+          status: "success",
+        });
         
       } catch (err) {
+        logAudiobookDiagnostic("import", {
+          filePath: item.filePath,
+          status: "failed",
+          message: err instanceof Error ? err.message : "Import failed",
+        }, "error");
         results.failed.push({
           filePath: item.filePath,
           error: err instanceof Error ? err.message : "Import failed",
@@ -1587,12 +1622,21 @@ export function AudiobookImportDialog({
                       {multiPartBook && (
                         <div className="mt-2 text-xs text-muted-foreground">
                           <p className="font-medium mb-1">Parts:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {multiPartBook.parts.map((part) => (
+                          <div className="flex flex-wrap gap-1 items-center">
+                            {(showAllParts ? multiPartBook.parts : multiPartBook.parts.slice(0, 12)).map((part) => (
                               <span key={part.partNumber} className="bg-muted px-1.5 py-0.5 rounded">
                                 Part {part.partNumber}
                               </span>
                             ))}
+                            {multiPartBook.parts.length > 12 && (
+                              <button
+                                type="button"
+                                onClick={() => setShowAllParts(!showAllParts)}
+                                className="text-primary font-medium hover:underline px-1.5 py-0.5 transition-colors"
+                              >
+                                {showAllParts ? "Show less" : `+ ${multiPartBook.parts.length - 12} more`}
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}

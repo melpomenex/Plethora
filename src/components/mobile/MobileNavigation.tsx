@@ -24,6 +24,7 @@ import {
   MagnifyingGlass,
   Microphone,
   Newspaper,
+  Planet,
   Rss,
   TextT,
   X,
@@ -45,6 +46,7 @@ import {
   NewsletterDirectoryTab,
   PodcastTab,
   AudiobooksTab,
+  KnowledgeSphereTab,
 } from "../tabs/TabRegistry";
 
 interface NavItem {
@@ -178,6 +180,16 @@ const allNavItems: NavItem[] = [
     tabTitle: "toolbar.audiobooks",
     tabIcon: "🎧",
     tabContent: AudiobooksTab,
+    closable: true,
+  },
+  {
+    id: "knowledge-sphere",
+    label: "universe.title",
+    icon: Planet,
+    tabType: "knowledge-sphere",
+    tabTitle: "universe.title",
+    tabIcon: "🌐",
+    tabContent: KnowledgeSphereTab,
     closable: true,
   },
 ];

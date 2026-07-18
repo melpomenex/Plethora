@@ -162,6 +162,13 @@ export class UniverseEngine {
   private inertiaActive = false;
   private lastHoverPickAt = 0;
 
+  // Touch / Pan variables
+  private activePointers = new Map<number, { x: number; y: number }>();
+  private viewportOffset = 0;
+  private lastPinchDist = 0;
+  private lastPinchCenter = { x: 0, y: 0 };
+  private isPanningMode = false;
+
   // Debug counters (exposed for the performance verification pass)
   public framesRendered = 0;
 
@@ -230,13 +237,27 @@ export class UniverseEngine {
   };
 
   private handlePointerDown = (ev: PointerEvent) => {
-    if (ev.button !== 0) return;
-    this.pointerDown = true;
-    this.dragging = false;
-    this.inertiaActive = false;
-    this.lastPointer = { x: ev.clientX, y: ev.clientY };
-    this.velocity = { theta: 0, phi: 0 };
+    this.activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     this.touch();
+
+    // Check if it's right-click or middle-click or shift/ctrl-left-click for panning
+    const isPanButton = ev.button === 2 || ev.button === 1 || (ev.button === 0 && (ev.shiftKey || ev.ctrlKey));
+
+    if (this.activePointers.size > 1) {
+      // Multi-touch: disable normal single-pointer drag rotation and velocity
+      this.pointerDown = false;
+      this.dragging = false;
+      this.velocity = { theta: 0, phi: 0 };
+    } else {
+      if (ev.button !== 0 && ev.button !== 2) return;
+      this.pointerDown = true;
+      this.dragging = false;
+      this.inertiaActive = false;
+      this.lastPointer = { x: ev.clientX, y: ev.clientY };
+      this.velocity = { theta: 0, phi: 0 };
+      this.isPanningMode = isPanButton;
+    }
+
     try {
       this.canvas.setPointerCapture(ev.pointerId);
     } catch {
@@ -244,52 +265,115 @@ export class UniverseEngine {
     }
   };
 
+  private panCameraTarget(dx: number, dy: number) {
+    if (dx === 0 && dy === 0) return;
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    const scale = this.orbit.dist * 0.0016;
+    this.orbit.target.addScaledVector(right, -dx * scale);
+    this.orbit.target.addScaledVector(up, dy * scale);
+    this.invalidate();
+  }
+
   private handlePointerMove = (ev: PointerEvent) => {
     this.touch();
-    if (this.pointerDown) {
+
+    if (this.activePointers.has(ev.pointerId)) {
+      this.activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    } else {
+      const now = performance.now();
+      if (now - this.lastHoverPickAt < HOVER_THROTTLE_MS) return;
+      this.lastHoverPickAt = now;
+      const id = this.pickAt(ev.clientX, ev.clientY);
+      if (id !== this.hoveredId) {
+        this.setHovered(id);
+        this.callbacks.onHoverChange?.(id);
+        this.canvas.style.cursor = id ? "pointer" : "grab";
+      }
+      return;
+    }
+
+    if (this.activePointers.size === 2) {
+      const entries = Array.from(this.activePointers.entries());
+      const [, pos1] = entries[0];
+      const [, pos2] = entries[1];
+
+      const currDist = Math.hypot(pos1.x - pos2.x, pos1.y - pos2.y);
+      const currCenter = { x: (pos1.x + pos2.x) / 2, y: (pos1.y + pos2.y) / 2 };
+
+      if (this.lastPinchDist > 0 && currDist > 0) {
+        const zoomFactor = this.lastPinchDist / currDist;
+        this.orbit.dist = THREE.MathUtils.clamp(
+          this.orbit.dist * zoomFactor,
+          this.minDist,
+          this.maxDist
+        );
+
+        const dx = currCenter.x - this.lastPinchCenter.x;
+        const dy = currCenter.y - this.lastPinchCenter.y;
+        this.panCameraTarget(dx, dy);
+
+        this.invalidate();
+      }
+
+      this.lastPinchDist = currDist;
+      this.lastPinchCenter = currCenter;
+      return;
+    }
+
+    if (this.pointerDown && this.activePointers.size === 1) {
       const dx = ev.clientX - this.lastPointer.x;
       const dy = ev.clientY - this.lastPointer.y;
       if (!this.dragging && Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) this.dragging = true;
       if (this.dragging) {
-        const dTheta = -dx * 0.005;
-        const dPhi = -dy * 0.005;
-        this.orbit.theta += dTheta;
-        this.orbit.phi = THREE.MathUtils.clamp(this.orbit.phi + dPhi, 0.15, Math.PI - 0.15);
-        this.velocity = { theta: dTheta, phi: dPhi };
+        if (this.isPanningMode) {
+          this.panCameraTarget(dx, dy);
+        } else {
+          const dTheta = -dx * 0.005;
+          const dPhi = -dy * 0.005;
+          this.orbit.theta += dTheta;
+          this.orbit.phi = THREE.MathUtils.clamp(this.orbit.phi + dPhi, 0.15, Math.PI - 0.15);
+          this.velocity = { theta: dTheta, phi: dPhi };
+        }
         this.lastPointer = { x: ev.clientX, y: ev.clientY };
         this.invalidate();
       }
       return;
     }
-    // Hover picking — event-driven, throttled; never runs per animation frame.
-    const now = performance.now();
-    if (now - this.lastHoverPickAt < HOVER_THROTTLE_MS) return;
-    this.lastHoverPickAt = now;
-    const id = this.pickAt(ev.clientX, ev.clientY);
-    if (id !== this.hoveredId) {
-      this.setHovered(id);
-      this.callbacks.onHoverChange?.(id);
-      this.canvas.style.cursor = id ? "pointer" : "grab";
-    }
   };
 
   private handlePointerUp = (ev: PointerEvent) => {
-    if (!this.pointerDown) return;
-    this.pointerDown = false;
-    if (this.dragging) {
-      this.suppressClick = true;
-      this.dragging = false;
-      if (Math.hypot(this.velocity.theta, this.velocity.phi) > 0.0005) {
-        this.inertiaActive = true;
-        this.invalidate();
-      }
-    } else {
-      this.suppressClick = false;
+    this.activePointers.delete(ev.pointerId);
+
+    if (this.activePointers.size < 2) {
+      this.lastPinchDist = 0;
+      this.lastPinchCenter = { x: 0, y: 0 };
     }
-    try {
-      this.canvas.releasePointerCapture(ev.pointerId);
-    } catch {
-      /* not critical */
+
+    if (this.activePointers.size === 0) {
+      if (!this.pointerDown) return;
+      this.pointerDown = false;
+      if (this.dragging) {
+        this.suppressClick = true;
+        this.dragging = false;
+        if (!this.isPanningMode && Math.hypot(this.velocity.theta, this.velocity.phi) > 0.0005) {
+          this.inertiaActive = true;
+          this.invalidate();
+        }
+      } else {
+        this.suppressClick = false;
+      }
+      try {
+        this.canvas.releasePointerCapture(ev.pointerId);
+      } catch {
+        /* not critical */
+      }
+    } else if (this.activePointers.size === 1) {
+      const [, pos] = Array.from(this.activePointers.entries())[0];
+      this.pointerDown = true;
+      this.dragging = false;
+      this.lastPointer = { x: pos.x, y: pos.y };
+      this.isPanningMode = false;
     }
   };
 
@@ -452,8 +536,33 @@ export class UniverseEngine {
     if (this.disposed || width <= 0 || height <= 0) return;
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
+    this.updateProjection();
     this.invalidate();
+  }
+
+  setViewportOffset(offset: number) {
+    this.viewportOffset = offset;
+    this.updateProjection();
+    this.invalidate();
+  }
+
+  private updateProjection() {
+    const width = this.canvas.clientWidth || this.canvas.width || 800;
+    const height = this.canvas.clientHeight || this.canvas.height || 600;
+
+    if (this.viewportOffset !== 0) {
+      this.camera.setViewOffset(
+        width,
+        height,
+        this.viewportOffset,
+        0,
+        width,
+        height
+      );
+    } else {
+      this.camera.clearViewOffset();
+    }
+    this.camera.updateProjectionMatrix();
   }
 
   setActive(active: boolean) {

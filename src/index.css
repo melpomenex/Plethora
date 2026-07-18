@@ -675,7 +675,9 @@
   }
 
   :root[data-presentation="phone"] .adaptive-shell-root,
-  :root[data-presentation="tablet"] .adaptive-shell-root {
+  :root[data-presentation="tablet"] .adaptive-shell-root,
+  :root[data-platform="android"] .adaptive-shell-root,
+  :root[data-platform="ios"] .adaptive-shell-root {
     --shell-safe-top: env(safe-area-inset-top, 0px);
     --shell-safe-right: env(safe-area-inset-right, 0px);
     --shell-safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -684,6 +686,11 @@
     padding-top: var(--shell-safe-top);
     padding-right: var(--shell-safe-right);
     padding-left: var(--shell-safe-left);
+  }
+
+  :root[data-platform="android"][data-presentation="desktop"] .adaptive-shell-root,
+  :root[data-platform="ios"][data-presentation="desktop"] .adaptive-shell-root {
+    padding-bottom: var(--shell-safe-bottom);
   }
 
   .app-shell {

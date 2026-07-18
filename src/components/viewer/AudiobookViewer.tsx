@@ -64,6 +64,47 @@ import { readDocumentFile, updateDocument as updateDocumentApi, updateDocumentPr
 import { getDocumentPosition, saveDocumentPosition, timePosition } from "../../api/position";
 import { getEpisodePosition, updateEpisodePosition, markEpisodePlayed, downloadEpisodeAudio, getDownloadedEpisodePath, getPodcastTranscript, transcribePodcastEpisode, transcribePodcastEpisodeWithGroq } from "../../api/podcast";
 import { isNativeMobile } from "../../lib/tauri";
+import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
+import { resolveLocalMediaSource } from "./localMediaSource";
+
+export type AudiobookPlaybackErrorKind = "source" | "codec";
+
+export interface AudiobookPlaybackErrorState {
+  kind: AudiobookPlaybackErrorKind;
+  message: string;
+}
+
+export function classifyAudiobookPlaybackError(code?: number): AudiobookPlaybackErrorKind {
+  return code === 3 || code === 4 ? "codec" : "source";
+}
+
+export function AudiobookPlaybackErrorNotice({
+  error,
+  retryLabel,
+  onRetry,
+}: {
+  error: AudiobookPlaybackErrorState | null;
+  retryLabel: string;
+  onRetry: () => void;
+}) {
+  if (!error) return null;
+
+  return (
+    <div
+      role="alert"
+      className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
+    >
+      <span className="text-muted-foreground">{error.message}</span>
+      <button
+        type="button"
+        className="shrink-0 rounded-md border border-border px-3 py-1.5 font-medium hover:bg-muted"
+        onClick={onRetry}
+      >
+        {retryLabel}
+      </button>
+    </div>
+  );
+}
 
 interface AudiobookViewerProps {
   document: Document;
@@ -324,6 +365,7 @@ export function AudiobookViewer({
   const [localCoverUrl, setLocalCoverUrl] = useState<string | undefined>(document.coverImageUrl);
   const [preparedPlaybackPath, setPreparedPlaybackPath] = useState<string | null>(null);
   const [preparedPlaybackSrc, setPreparedPlaybackSrc] = useState<string | null>(null);
+  const [playbackError, setPlaybackError] = useState<AudiobookPlaybackErrorState | null>(null);
   const [podcastLocalSrc, setPodcastLocalSrc] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -377,7 +419,15 @@ export function AudiobookViewer({
   const lastSavedGlobalTimeRef = useRef(0);
   const pendingSeekTimeRef = useRef<number | null>(null);
   const pendingAutoplayAfterFallbackRef = useRef(false);
+  const fallbackAttemptedRef = useRef(false);
   const appliedInitialSeekRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    fallbackAttemptedRef.current = false;
+    setHasTriedFallback(false);
+    setPlaybackError(null);
+    setFallbackSrc(null);
+  }, [document.id]);
 
   // Auto-fetch cover if document has none
   useEffect(() => {
@@ -529,6 +579,29 @@ export function AudiobookViewer({
     let cancelled = false;
     void (async () => {
       try {
+        if (isNativeMobile()) {
+          // DocumentViewer already resolves the canonical app-managed path to
+          // the loopback media server. Reuse that URL instead of resolving a
+          // second source and briefly mounting an empty <audio> element.
+          const resolved = fileContent
+            ? {
+              src: fileContent,
+              strategy: "local-media-server",
+            }
+            : await resolveLocalMediaSource(document.filePath, "audio");
+          if (!cancelled) {
+            setPreparedPlaybackPath(document.filePath);
+            setPreparedPlaybackSrc(resolved.src);
+            logAudiobookDiagnostic("source_resolution", {
+              documentId: document.id,
+              filePath: document.filePath,
+              strategy: resolved.strategy,
+              status: "success",
+            });
+          }
+          return;
+        }
+
         // On native mobile, resolve a URL through the local streaming media
         // server (get_media_stream_url) instead of the Tauri asset protocol
         // (convertFileSrc). On Android the asset protocol buffers the entire
@@ -542,24 +615,47 @@ export function AudiobookViewer({
           return convertFileSrc(path);
         };
 
-        // m4b files need transcoding via prepareAudiobookPlayback
-        if (ext === "m4b") {
+        // m4b transcoding via prepareAudiobookPlayback (ffmpeg) is desktop-only:
+        // Android has no ffmpeg sidecar, so the transcode throws and leaves the
+        // player without a source. Android's <audio> element decodes m4b
+        // (AAC-LC in MP4) natively, and the local media server already serves
+        // the file with HTTP Range support, so on mobile we stream the original
+        // m4b directly — same path mp3/etc. already take below.
+        if (ext === "m4b" && !isNativeMobile()) {
           const preparedPath = await audiobookApi.prepareAudiobookPlayback(document.filePath);
           const preparedUrl = await resolvePlaybackUrl(preparedPath);
           if (!cancelled) {
             setPreparedPlaybackPath(preparedPath);
             setPreparedPlaybackSrc(preparedUrl);
+            logAudiobookDiagnostic("source_resolution", {
+              documentId: document.id,
+              filePath: preparedPath,
+              strategy: "tauri-asset",
+              status: "success",
+            });
           }
         } else {
-          // Other audio formats (mp3, etc.) can play directly
+          // Other audio formats (mp3, m4b on mobile, etc.) can play directly
           const url = await resolvePlaybackUrl(document.filePath);
           if (!cancelled) {
             setPreparedPlaybackPath(document.filePath);
             setPreparedPlaybackSrc(url);
+            logAudiobookDiagnostic("source_resolution", {
+              documentId: document.id,
+              filePath: document.filePath,
+              strategy: "tauri-asset",
+              status: "success",
+            });
           }
         }
       } catch (error) {
         console.error("[AudiobookViewer] Failed to prepare playback:", error);
+        logAudiobookDiagnostic("source_resolution", {
+          documentId: document.id,
+          filePath: document.filePath,
+          status: "failed",
+          message: error instanceof Error ? error.message : String(error),
+        }, "error");
         if (!cancelled) {
           setPreparedPlaybackPath(null);
           setPreparedPlaybackSrc(null);
@@ -1097,6 +1193,13 @@ export function AudiobookViewer({
     if (audioRef.current) {
       setDuration(audioRef.current.duration);
       durationRef.current = audioRef.current.duration;
+      setPlaybackError(null);
+      logAudiobookDiagnostic("playback", {
+        documentId: document.id,
+        filePath: document.filePath,
+        status: "metadata",
+        elapsedMs: Math.round(audioRef.current.duration * 1000),
+      });
       attemptPendingSeek();
 
       if (
@@ -1109,6 +1212,23 @@ export function AudiobookViewer({
         });
       }
     }
+  };
+
+  const handleCanPlay = () => {
+    setPlaybackError(null);
+    logAudiobookDiagnostic("playback", {
+      documentId: document.id,
+      filePath: document.filePath,
+      status: "canplay",
+    });
+  };
+
+  const handleStalled = () => {
+    logAudiobookDiagnostic("playback", {
+      documentId: document.id,
+      filePath: document.filePath,
+      status: "stalled",
+    }, "warn");
   };
   
   const handleProgress = () => {
@@ -1350,10 +1470,16 @@ export function AudiobookViewer({
             String(err).includes("NotSupportedError");
 
           if (isNotSupportedError) {
+            if (fallbackAttemptedRef.current) {
+              setPlaybackError({ kind: "codec", message: t("viewer.audioFormatNotSupported") });
+              return;
+            }
+            fallbackAttemptedRef.current = true;
             pendingAutoplayAfterFallbackRef.current = true;
             const loadedFallback = await loadFallbackAudioSource();
             if (!loadedFallback) {
               pendingAutoplayAfterFallbackRef.current = false;
+              setPlaybackError({ kind: "codec", message: t("viewer.audioFormatNotSupported") });
             }
             return;
           }
@@ -1371,13 +1497,52 @@ export function AudiobookViewer({
   const handleAudioError = async () => {
     const error = audioRef.current?.error;
     const src = audioRef.current?.currentSrc || audioRef.current?.src;
-    console.error("[AudiobookViewer] Audio error:", { code: error?.code, message: error?.message, src });
+    const kind = classifyAudiobookPlaybackError(error?.code);
+    const message = kind === "codec"
+      ? t("viewer.audioFormatNotSupported")
+      : t("viewer.unableToLoadAudio");
+    console.error("[AudiobookViewer] Audio error:", { code: error?.code, message: error?.message, src, kind });
+    logAudiobookDiagnostic("playback", {
+      documentId: document.id,
+      filePath: document.filePath,
+      status: "error",
+      mediaErrorCode: error?.code ?? "unknown",
+      message: error?.message || message,
+    }, "error");
+
+    // A failed fallback can emit the same error again. Keep this finite so a
+    // broken local stream cannot leave the viewer retrying forever while the
+    // user sees an apparently permanent loading state.
+    if (fallbackAttemptedRef.current) {
+      setIsPlaying(false);
+      setPlaybackError({ kind, message });
+      pendingAutoplayAfterFallbackRef.current = false;
+      return;
+    }
+
+    fallbackAttemptedRef.current = true;
     pendingAutoplayAfterFallbackRef.current = true;
     const loadedFallback = await loadFallbackAudioSource();
     if (!loadedFallback) {
       pendingAutoplayAfterFallbackRef.current = false;
+      setPlaybackError({ kind, message });
     }
   };
+
+  const retryPlayback = useCallback(() => {
+    fallbackAttemptedRef.current = false;
+    setHasTriedFallback(false);
+    setPlaybackError(null);
+    setFallbackSrc(null);
+    window.setTimeout(() => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      audio.load();
+      void audio.play().catch((error) => {
+        console.warn("[AudiobookViewer] Retry playback failed:", error);
+      });
+    }, 0);
+  }, [audioRef]);
 
   useEffect(() => {
     if (typeof initialSeekTime !== "number" || !Number.isFinite(initialSeekTime)) return;
@@ -2390,11 +2555,19 @@ export function AudiobookViewer({
         src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || preparedPlaybackSrc || fileContent || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
+        onCanPlay={handleCanPlay}
         onProgress={handleProgress}
+        onStalled={handleStalled}
         onEnded={handleEnded}
         onPlay={() => setIsPlaying(true)}
         onPause={handlePause}
         onError={handleAudioError}
+      />
+
+      <AudiobookPlaybackErrorNotice
+        error={playbackError}
+        retryLabel={t("viewer.retryPlay")}
+        onRetry={retryPlayback}
       />
       
       {/* Main content area */}
@@ -2420,23 +2593,21 @@ export function AudiobookViewer({
             {/* Part selector for multi-part books */}
             {showChapters && multiPartInfo && (
               <div className="border-b border-border bg-muted/30 p-3">
-                <p className="text-xs text-muted-foreground mb-2">{t("viewer.selectPart")}</p>
-                <div className="grid grid-cols-5 gap-1">
-                  {multiPartInfo.partFiles.map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => goToPart(idx)}
-                      className={cn(
-                        "px-2 py-1.5 text-xs rounded transition-colors",
-                        currentPartIndex === idx
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted hover:bg-muted/80"
-                      )}
-                    >
-                      {idx + 1}
-                    </button>
-                  ))}
-                </div>
+                <p className="text-xs text-muted-foreground mb-1.5">{t("viewer.selectPart")}</p>
+                <select
+                  value={currentPartIndex}
+                  onChange={(e) => goToPart(Number(e.target.value))}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all text-foreground cursor-pointer"
+                >
+                  {multiPartInfo.partFiles.map((part, idx) => {
+                    const fileName = part.split(/[/\\]/).pop() || `Part ${idx + 1}`;
+                    return (
+                      <option key={idx} value={idx}>
+                        Part {idx + 1}: {fileName}
+                      </option>
+                    );
+                  })}
+                </select>
               </div>
             )}
             

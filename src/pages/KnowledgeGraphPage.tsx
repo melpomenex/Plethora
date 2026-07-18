@@ -630,6 +630,7 @@ export function KnowledgeGraphPage() {
             <KnowledgeUniverseLazy
               nodes={filteredData.nodes}
               edges={filteredData.edges}
+              selectedNodeId={selectedNode}
               onNodeClick={handleNodeClick}
               onNodeDoubleClick={handleNodeDoubleClick}
               onNodeContextMenu={handleNodeContextMenu}

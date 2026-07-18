@@ -22,6 +22,7 @@ export interface KnowledgeUniverseProps {
     updates: { label?: string; description?: string; category?: string; tags?: string[] }
   ) => Promise<void> | void;
   showHeader?: boolean;
+  selectedNodeId?: string | null;
 }
 
 /** Semantic zoom focus levels. */
