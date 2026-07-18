@@ -33,6 +33,11 @@ import {
   X,
 } from "@phosphor-icons/react";
 
+/** Touch-only: how long an empty-space tap waits for a possible double-tap. */
+const EMPTY_TAP_DEFER_MS = 275;
+/** Zoom-step factors for double-tap (in) — two-finger tap zoom-out lives in the engine. */
+const DOUBLE_TAP_ZOOM_FACTOR = 0.55;
+
 interface OverlayAnchor {
   key: string;
   kind: "cluster" | "star" | "hover";
@@ -71,6 +76,7 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [ambientOn, setAmbientOn] = useState(true);
 
@@ -86,6 +92,20 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
   selectedRef.current = selectedNodeId;
   const propsRef = useRef(props);
   propsRef.current = props;
+
+  // Touch tap disambiguation: empty-space taps defer briefly so a double-tap
+  // can turn into a zoom instead of a back-navigation.
+  const lastPointerTypeRef = useRef<string>("mouse");
+  const pendingEmptyTapRef = useRef<number | null>(null);
+
+  const clearPendingEmptyTap = useCallback(() => {
+    if (pendingEmptyTapRef.current !== null) {
+      window.clearTimeout(pendingEmptyTapRef.current);
+      pendingEmptyTapRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearPendingEmptyTap, [clearPendingEmptyTap]);
 
   // ---------------------------------------------------------- overlay labels
 
@@ -256,10 +276,28 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
       const id = engine.pickAt(e.clientX, e.clientY);
       if (!id) {
         // Click on empty space: clear selection first, then pop one level.
-        if (selectedRef.current) selectNode(null);
-        else popFocus();
+        const popOrClear = () => {
+          if (selectedRef.current) selectNode(null);
+          else popFocus();
+        };
+        if (lastPointerTypeRef.current === "touch") {
+          if (pendingEmptyTapRef.current !== null) {
+            // Second tap within the window — double-tap zoom, not back-nav.
+            clearPendingEmptyTap();
+            engine.zoomToward(e.clientX, e.clientY, DOUBLE_TAP_ZOOM_FACTOR, { animated: true });
+          } else {
+            pendingEmptyTapRef.current = window.setTimeout(() => {
+              pendingEmptyTapRef.current = null;
+              popOrClear();
+            }, EMPTY_TAP_DEFER_MS);
+          }
+          return;
+        }
+        popOrClear();
         return;
       }
+      // A node tap cancels any pending empty-space back-navigation.
+      clearPendingEmptyTap();
       const node = nodeMap.get(id);
       if (!node) return;
       onNodeClick?.(node);
@@ -280,7 +318,7 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
         selectNode(id); // tag / category / belt orphan: select in place
       }
     },
-    [nodeMap, onNodeClick, applyFocus, popFocus, selectNode]
+    [nodeMap, onNodeClick, applyFocus, popFocus, selectNode, clearPendingEmptyTap]
   );
 
   const handleDoubleClick = useCallback(
@@ -513,6 +551,9 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
         ref={canvasRef}
         className="absolute inset-0 cursor-grab active:cursor-grabbing"
         style={{ touchAction: "none" }}
+        onPointerDown={(e) => {
+          lastPointerTypeRef.current = e.pointerType;
+        }}
         onClick={handleCanvasClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
@@ -558,9 +599,15 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
         ))}
       </div>
 
-      {/* Top bar: header + breadcrumb + search */}
-      <div className="absolute top-4 left-6 right-6 flex items-start justify-between gap-4 pointer-events-none">
-        {showHeader ? (
+      {/* Top bar: header + search (compact icon row on the mobile shell) */}
+      <div
+        className={
+          isMobile
+            ? "absolute top-3 left-3 right-3 flex items-start justify-end gap-2 pointer-events-none z-10"
+            : "absolute top-4 left-6 right-6 flex items-start justify-between gap-4 pointer-events-none"
+        }
+      >
+        {showHeader && !isMobile ? (
           <div className="pointer-events-auto">
             <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
               <Planet className="w-5 h-5 text-primary" />
@@ -574,12 +621,22 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
           <div />
         )}
 
-        <div className="flex items-center gap-2 pointer-events-auto">
-          {/* Search */}
-          <div className="relative">
+        <div className={`flex items-center gap-2 pointer-events-auto ${isMobile ? "flex-1 justify-end" : ""}`}>
+          {/* Search — collapses to an icon on the mobile shell */}
+          {isMobile && !mobileSearchOpen ? (
+            <button
+              onClick={() => setMobileSearchOpen(true)}
+              className="w-10 h-10 flex items-center justify-center bg-card/90 backdrop-blur border border-border rounded-xl shadow-lg hover:bg-muted transition-all"
+              title={t("universe.searchPlaceholder")}
+            >
+              <MagnifyingGlass className="w-5 h-5" />
+            </button>
+          ) : (
+          <div className={isMobile ? "relative flex-1 min-w-0" : "relative"}>
             <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
+              autoFocus={isMobile}
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -587,13 +644,14 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
               }}
               onFocus={() => searchQuery && setSearchOpen(true)}
               placeholder={t("universe.searchPlaceholder")}
-              className="w-56 pl-9 pr-8 py-2 bg-card/90 backdrop-blur border border-border rounded-xl shadow-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+              className={`${isMobile ? "w-full" : "w-56"} pl-9 pr-8 py-2 bg-card/90 backdrop-blur border border-border rounded-xl shadow-lg text-sm focus:outline-none focus:ring-1 focus:ring-primary`}
             />
-            {searchQuery && (
+            {(searchQuery || isMobile) && (
               <button
                 onClick={() => {
                   setSearchQuery("");
                   setSearchOpen(false);
+                  setMobileSearchOpen(false);
                 }}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
@@ -601,7 +659,7 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
               </button>
             )}
             {searchOpen && searchQuery.trim() && (
-              <div className="absolute top-full mt-2 right-0 w-72 bg-card/95 backdrop-blur-xl border border-border rounded-xl shadow-2xl overflow-hidden z-20">
+              <div className={`absolute top-full mt-2 ${isMobile ? "left-0 right-0" : "right-0 w-72"} bg-card/95 backdrop-blur-xl border border-border rounded-xl shadow-2xl overflow-hidden z-20`}>
                 {searchMatches.length === 0 ? (
                   <div className="px-3 py-2.5 text-sm text-muted-foreground">{t("universe.noResults")}</div>
                 ) : (
@@ -625,6 +683,7 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
               </div>
             )}
           </div>
+          )}
 
           <button
             onClick={() => setShowInfo(!showInfo)}
@@ -635,9 +694,19 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
         </div>
       </div>
 
-      {/* Breadcrumb trail */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto">
-        <div className="flex items-center gap-1 px-3 py-1.5 bg-card/80 backdrop-blur border border-border rounded-xl shadow-lg max-w-[42rem]">
+      {/* Breadcrumb trail — own scrollable row under the top bar on mobile */}
+      <div
+        className={
+          isMobile
+            ? "absolute top-16 left-3 right-3 pointer-events-auto overflow-x-auto"
+            : "absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto"
+        }
+      >
+        <div
+          className={`flex items-center gap-1 px-3 py-1.5 bg-card/80 backdrop-blur border border-border rounded-xl shadow-lg ${
+            isMobile ? "w-max" : "max-w-[42rem]"
+          }`}
+        >
           {breadcrumb.map((crumb, i) => (
             <div key={crumb.key} className="flex items-center gap-1 min-w-0">
               {i > 0 && <CaretRight className="w-3 h-3 text-muted-foreground flex-shrink-0" />}
@@ -658,7 +727,11 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
 
       {/* Info panel */}
       {showInfo && (
-        <div className="absolute top-20 left-6 w-72 bg-card/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl p-5 pointer-events-auto z-10">
+        <div
+          className={`absolute bg-card/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl p-5 pointer-events-auto z-10 ${
+            isMobile ? "top-28 left-3 right-3" : "top-20 left-6 w-72"
+          }`}
+        >
           <h3 className="font-semibold mb-3">{t("universe.about")}</h3>
           <p className="text-sm text-muted-foreground mb-4">{t("universe.aboutDescription")}</p>
           <div className="space-y-2">
@@ -720,8 +793,11 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
         />
       )}
 
-      {/* Floating controls */}
-      <div className="absolute bottom-6 right-6 flex flex-col gap-2 pointer-events-auto">
+      {/* Floating controls — inset above gesture bars on mobile */}
+      <div
+        className={`absolute flex flex-col gap-2 pointer-events-auto ${isMobile ? "right-4" : "bottom-6 right-6"}`}
+        style={isMobile ? { bottom: "calc(1.5rem + env(safe-area-inset-bottom))" } : undefined}
+      >
         <button
           onClick={() => setAmbientOn(!ambientOn)}
           className={`w-10 h-10 flex items-center justify-center bg-card/90 backdrop-blur border border-border rounded-xl shadow-lg hover:bg-muted transition-all ${ambientOn ? "text-primary" : ""}`}

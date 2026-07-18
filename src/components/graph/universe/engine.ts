@@ -24,6 +24,13 @@ import {
   STAR_FRAGMENT,
 } from "./shaders";
 import { rand01 } from "./layout";
+import { anchorShift, computeCameraRange } from "./cameraFit";
+import {
+  TWIST_ENGAGE_RAD,
+  isTwoFingerTap,
+  pinchZoomFactor,
+  twistDelta,
+} from "./gestureMath";
 import {
   NODE_VISUALS,
   NodeClass,
@@ -43,6 +50,8 @@ const FOCUS_TWEEN_MS = 600;
 const WARP_TWEEN_MS = 950;
 const HOVER_THROTTLE_MS = 33;
 const DRAG_THRESHOLD_PX = 5;
+const TAP_ZOOM_TWEEN_MS = 380;
+const CLICK_SUPPRESS_WINDOW_MS = 400;
 
 export class WebGLUnavailableError extends Error {
   constructor(cause?: unknown) {
@@ -138,6 +147,8 @@ export class UniverseEngine {
   private minDist = 14;
   private maxDist = 1200;
   private baseFov = 55;
+  private layoutBounds = 0;
+  private layoutCoreBounds = 0;
 
   // Frame loop
   private frameRequested = false;
@@ -156,7 +167,7 @@ export class UniverseEngine {
   // Drag / inertia
   private pointerDown = false;
   private dragging = false;
-  private suppressClick = false;
+  private suppressClickUntil = 0;
   private lastPointer = { x: 0, y: 0 };
   private velocity = { theta: 0, phi: 0 };
   private inertiaActive = false;
@@ -167,7 +178,16 @@ export class UniverseEngine {
   private viewportOffset = 0;
   private lastPinchDist = 0;
   private lastPinchCenter = { x: 0, y: 0 };
+  private lastPinchAngle: number | null = null;
   private isPanningMode = false;
+  private gestureHadMultiTouch = false;
+  private twistAccum = 0;
+  private twistEngaged = false;
+  private twoFingerStartAt = 0;
+  private twoFingerMovement = 0;
+  private zoomVelocity = 1;
+  private zoomInertia = 1;
+  private zoomInertiaActive = false;
 
   // Debug counters (exposed for the performance verification pass)
   public framesRendered = 0;
@@ -248,6 +268,21 @@ export class UniverseEngine {
       this.pointerDown = false;
       this.dragging = false;
       this.velocity = { theta: 0, phi: 0 };
+      this.inertiaActive = false;
+      this.zoomInertiaActive = false;
+      this.gestureHadMultiTouch = true;
+      this.lastPinchDist = 0;
+      this.lastPinchCenter = { x: 0, y: 0 };
+      this.lastPinchAngle = null;
+      this.twistAccum = 0;
+      this.twistEngaged = false;
+      this.zoomVelocity = 1;
+      if (this.activePointers.size === 2) {
+        this.twoFingerStartAt = performance.now();
+        this.twoFingerMovement = 0;
+      } else {
+        this.twoFingerStartAt = 0;
+      }
     } else {
       if (ev.button !== 0 && ev.button !== 2) return;
       this.pointerDown = true;
@@ -300,24 +335,39 @@ export class UniverseEngine {
 
       const currDist = Math.hypot(pos1.x - pos2.x, pos1.y - pos2.y);
       const currCenter = { x: (pos1.x + pos2.x) / 2, y: (pos1.y + pos2.y) / 2 };
+      const currAngle = Math.atan2(pos2.y - pos1.y, pos2.x - pos1.x);
 
       if (this.lastPinchDist > 0 && currDist > 0) {
-        const zoomFactor = this.lastPinchDist / currDist;
-        this.orbit.dist = THREE.MathUtils.clamp(
-          this.orbit.dist * zoomFactor,
-          this.minDist,
-          this.maxDist
-        );
+        const zoomFactor = pinchZoomFactor(this.lastPinchDist, currDist);
+        // Focal-point zoom: the world point under the gesture center stays put.
+        this.zoomToward(currCenter.x, currCenter.y, zoomFactor);
+        this.zoomVelocity = this.zoomVelocity * 0.7 + zoomFactor * 0.3;
 
         const dx = currCenter.x - this.lastPinchCenter.x;
         const dy = currCenter.y - this.lastPinchCenter.y;
         this.panCameraTarget(dx, dy);
+
+        if (this.lastPinchAngle !== null) {
+          const dTwist = twistDelta(this.lastPinchAngle, currAngle);
+          this.twistAccum += dTwist;
+          // Dead-zone so a pure pinch doesn't jitter the heading.
+          if (!this.twistEngaged && Math.abs(this.twistAccum) > TWIST_ENGAGE_RAD) {
+            this.twistEngaged = true;
+          }
+          // Sign: scene follows the fingers (verified empirically — camera
+          // azimuth must decrease for a clockwise screen twist).
+          if (this.twistEngaged) this.orbit.theta -= dTwist;
+        }
+
+        this.twoFingerMovement +=
+          Math.hypot(dx, dy) + Math.abs(currDist - this.lastPinchDist);
 
         this.invalidate();
       }
 
       this.lastPinchDist = currDist;
       this.lastPinchCenter = currCenter;
+      this.lastPinchAngle = currAngle;
       return;
     }
 
@@ -343,30 +393,52 @@ export class UniverseEngine {
   };
 
   private handlePointerUp = (ev: PointerEvent) => {
+    const prevSize = this.activePointers.size;
     this.activePointers.delete(ev.pointerId);
 
     if (this.activePointers.size < 2) {
       this.lastPinchDist = 0;
       this.lastPinchCenter = { x: 0, y: 0 };
+      this.lastPinchAngle = null;
+    }
+
+    // Pinch just ended (2 → 1): classify a two-finger tap or hand off momentum.
+    if (prevSize === 2 && this.activePointers.size === 1 && this.twoFingerStartAt > 0) {
+      const elapsed = performance.now() - this.twoFingerStartAt;
+      this.twoFingerStartAt = 0;
+      if (ev.type !== "pointercancel" && isTwoFingerTap(elapsed, this.twoFingerMovement)) {
+        this.zoomBy(1.9, { animated: true });
+      } else if (!this.reducedMotion && Math.abs(this.zoomVelocity - 1) > 0.006) {
+        this.zoomInertia = THREE.MathUtils.clamp(this.zoomVelocity, 0.9, 1.1);
+        this.zoomInertiaActive = true;
+        this.invalidate();
+      }
+      this.zoomVelocity = 1;
     }
 
     if (this.activePointers.size === 0) {
-      if (!this.pointerDown) return;
-      this.pointerDown = false;
-      if (this.dragging) {
-        this.suppressClick = true;
-        this.dragging = false;
-        if (!this.isPanningMode && Math.hypot(this.velocity.theta, this.velocity.phi) > 0.0005) {
-          this.inertiaActive = true;
-          this.invalidate();
-        }
-      } else {
-        this.suppressClick = false;
+      const hadMultiTouch = this.gestureHadMultiTouch;
+      this.gestureHadMultiTouch = false;
+      if (hadMultiTouch) {
+        // Lifting off a multi-touch gesture must never read as a tap.
+        this.suppressClickUntil = performance.now() + CLICK_SUPPRESS_WINDOW_MS;
       }
       try {
         this.canvas.releasePointerCapture(ev.pointerId);
       } catch {
         /* not critical */
+      }
+      if (!this.pointerDown) return;
+      this.pointerDown = false;
+      if (this.dragging) {
+        this.suppressClickUntil = performance.now() + CLICK_SUPPRESS_WINDOW_MS;
+        this.dragging = false;
+        if (!this.isPanningMode && Math.hypot(this.velocity.theta, this.velocity.phi) > 0.0005) {
+          this.inertiaActive = true;
+          this.invalidate();
+        }
+      } else if (!hadMultiTouch) {
+        this.suppressClickUntil = 0;
       }
     } else if (this.activePointers.size === 1) {
       const [, pos] = Array.from(this.activePointers.entries())[0];
@@ -393,10 +465,15 @@ export class UniverseEngine {
     this.invalidate();
   };
 
-  /** True when the click event that follows pointerup came from a drag. */
+  /**
+   * True when the click event that follows pointerup came from a drag or a
+   * multi-touch gesture. Time-boxed because touch browsers often skip the
+   * synthesized click entirely — a stale flag must not swallow the next
+   * genuine tap.
+   */
   consumeClickSuppression(): boolean {
-    const s = this.suppressClick;
-    this.suppressClick = false;
+    const s = performance.now() < this.suppressClickUntil;
+    this.suppressClickUntil = 0;
     return s;
   }
 
@@ -441,7 +518,11 @@ export class UniverseEngine {
     const ambientActive =
       this.ambientEnabled && !this.reducedMotion && t - this.lastInteractionAt < AMBIENT_TIMEOUT_MS;
     const hasWork =
-      this.tweens.length > 0 || this.dragging || this.inertiaActive || this.pointerDown;
+      this.tweens.length > 0 ||
+      this.dragging ||
+      this.inertiaActive ||
+      this.zoomInertiaActive ||
+      this.pointerDown;
 
     if (!hasWork && ambientActive && t - this.lastRenderAt < AMBIENT_FRAME_MS) {
       // Ambient-only frames are capped at 30 fps: keep the loop alive but
@@ -479,6 +560,23 @@ export class UniverseEngine {
       if (Math.hypot(this.velocity.theta, this.velocity.phi) < 0.0002) this.inertiaActive = false;
     }
 
+    // Pinch-zoom momentum — decays like rotate inertia; never under reduced motion.
+    if (this.zoomInertiaActive) {
+      this.orbit.dist = THREE.MathUtils.clamp(
+        this.orbit.dist * this.zoomInertia,
+        this.minDist,
+        this.maxDist
+      );
+      this.zoomInertia = 1 + (this.zoomInertia - 1) * 0.92;
+      if (
+        Math.abs(this.zoomInertia - 1) < 0.0015 ||
+        this.orbit.dist === this.minDist ||
+        this.orbit.dist === this.maxDist
+      ) {
+        this.zoomInertiaActive = false;
+      }
+    }
+
     // Ambient drift — barely-perceptible parallax
     if (ambientActive && !this.dragging && this.tweens.length === 0) {
       this.orbit.theta += 0.0000225 * dt;
@@ -486,7 +584,12 @@ export class UniverseEngine {
 
     this.render();
 
-    const keepAlive = this.tweens.length > 0 || this.dragging || this.inertiaActive || ambientActive;
+    const keepAlive =
+      this.tweens.length > 0 ||
+      this.dragging ||
+      this.inertiaActive ||
+      this.zoomInertiaActive ||
+      ambientActive;
     if (keepAlive) {
       this.frameRequested = true;
       requestAnimationFrame(this.frame);
@@ -536,8 +639,24 @@ export class UniverseEngine {
     if (this.disposed || width <= 0 || height <= 0) return;
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
+    this.updateCameraRange();
     this.updateProjection();
     this.invalidate();
+  }
+
+  /** Derive zoom limits from the layout size and the current viewport aspect. */
+  private updateCameraRange() {
+    if (this.layoutBounds <= 0) return;
+    const range = computeCameraRange(
+      this.layoutBounds,
+      this.layoutCoreBounds,
+      this.baseFov,
+      this.camera.aspect
+    );
+    this.homeDist = range.homeDist;
+    this.maxDist = range.maxDist;
+    this.orbit.dist = THREE.MathUtils.clamp(this.orbit.dist, this.minDist, this.maxDist);
+    this.repositionStarfield(this.layoutBounds);
   }
 
   setViewportOffset(offset: number) {
@@ -701,10 +820,11 @@ export class UniverseEngine {
 
     this.buildEdges(layout, edges);
 
-    // Camera bounds: frame the cluster core, not the outer belt/halo.
-    this.homeDist = Math.max(layout.coreBounds * 2.2, 140);
-    this.maxDist = Math.max(layout.bounds * 2.6, this.homeDist * 1.6);
-    this.orbit.dist = THREE.MathUtils.clamp(this.orbit.dist, this.minDist, this.maxDist);
+    // Camera bounds: aspect-aware so the whole universe fits at max zoom-out
+    // on any orientation (recomputed again on every resize).
+    this.layoutBounds = layout.bounds;
+    this.layoutCoreBounds = layout.coreBounds;
+    this.updateCameraRange();
     if (this.focus.level === "universe") {
       this.orbit.target.set(0, 0, 0);
       this.orbit.dist = this.homeDist;
@@ -713,7 +833,6 @@ export class UniverseEngine {
     // Restore transient visual state onto the fresh buffers
     this.refreshStates();
     this.rebuildNebulae();
-    this.repositionStarfield(layout.bounds);
     this.invalidate();
   }
 
@@ -819,8 +938,10 @@ export class UniverseEngine {
   }
 
   private repositionStarfield(bounds: number) {
-    // The unit sphere of stars scales to wrap the whole galaxy.
-    this.starField?.scale.setScalar(bounds * 5 + 800);
+    // The unit sphere of stars wraps the whole galaxy — and always stays
+    // outside the zoom-out limit (narrow viewports push maxDist far beyond
+    // the bounds-based shell).
+    this.starField?.scale.setScalar(Math.max(bounds * 5 + 800, this.maxDist * 1.25));
   }
 
   private buildRings() {
@@ -1254,9 +1375,56 @@ export class UniverseEngine {
     return this.renderer.info.render.calls;
   }
 
-  zoomBy(factor: number) {
+  zoomBy(factor: number, opts: { animated?: boolean } = {}) {
     this.touch();
-    this.orbit.dist = THREE.MathUtils.clamp(this.orbit.dist * factor, this.minDist, this.maxDist);
-    this.invalidate();
+    const dist = THREE.MathUtils.clamp(this.orbit.dist * factor, this.minDist, this.maxDist);
+    if (opts.animated) {
+      this.tweenTo({ dist }, TAP_ZOOM_TWEEN_MS);
+    } else {
+      this.orbit.dist = dist;
+      this.invalidate();
+    }
+  }
+
+  /**
+   * Focal-point zoom: scale the orbit distance while keeping the world point
+   * under the given screen position visually anchored (pinch center,
+   * double-tap point).
+   */
+  zoomToward(clientX: number, clientY: number, factor: number, opts: { animated?: boolean } = {}) {
+    this.touch();
+    const newDist = THREE.MathUtils.clamp(this.orbit.dist * factor, this.minDist, this.maxDist);
+    if (newDist === this.orbit.dist) return;
+    const anchor = this.anchorOnTargetPlane(clientX, clientY);
+    let target = this.orbit.target;
+    if (anchor) {
+      const shifted = anchorShift(anchor, this.orbit.target, this.orbit.dist, newDist);
+      target = new THREE.Vector3(shifted.x, shifted.y, shifted.z);
+    }
+    if (opts.animated) {
+      this.tweenTo({ target: target.clone(), dist: newDist }, TAP_ZOOM_TWEEN_MS);
+    } else {
+      this.orbit.target.copy(target);
+      this.orbit.dist = newDist;
+      this.invalidate();
+    }
+  }
+
+  /** Intersect the pointer ray with the plane through the orbit target that is
+   * perpendicular to the view direction (the anchor plane for focal zoom). */
+  private anchorOnTargetPlane(clientX: number, clientY: number): THREE.Vector3 | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    this.applyCamera();
+    const ndc = new THREE.Vector3(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -(((clientY - rect.top) / rect.height) * 2 - 1),
+      0.5
+    );
+    const dir = ndc.unproject(this.camera).sub(this.camera.position).normalize();
+    const viewDir = this.orbit.target.clone().sub(this.camera.position).normalize();
+    const denom = dir.dot(viewDir);
+    if (denom < 1e-4) return null;
+    return this.camera.position.clone().addScaledVector(dir, this.orbit.dist / denom);
   }
 }
