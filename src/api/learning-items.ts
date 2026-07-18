@@ -37,6 +37,7 @@ export interface CreateLearningItemInput {
   question: string;
   answer?: string;
   cloze_text?: string;
+  extract_id?: string;
   document_id?: string;
   prerequisite_item_ids?: string[];
   tags?: string[];
@@ -101,6 +102,7 @@ export async function createLearningItem(input: CreateLearningItemInput): Promis
     question: input.question,
     answer: input.answer,
     clozeText: input.cloze_text,
+    extractId: input.extract_id,
     documentId: input.document_id,
     prerequisiteItemIds: input.prerequisite_item_ids,
     tags: input.tags,

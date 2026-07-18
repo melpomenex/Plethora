@@ -116,6 +116,8 @@ interface DraftCard {
   createdAt: number;
   isEditing?: boolean;
   tags: string[];
+  /** Parent extract retained when a draft is created from an extract. */
+  extractId?: string;
   /** If true, this card was already persisted to the DB (e.g. via generateLearningItemsFromExtract)
    *  and should NOT be re-created by handleSaveSelected. */
   alreadyPersisted?: boolean;
@@ -147,6 +149,8 @@ interface FlashcardStudioSeed {
   autoEditDraft?: boolean;
   /** If set, auto-generate flashcards from this extract when the modal opens */
   extractId?: string;
+  /** If set, manually saved cards retain this extract as their parent. */
+  linkedExtractId?: string;
   /** Tag applied to the next created flashcard (e.g. from `:deck <name>`). */
   deckTag?: string;
 }
@@ -2917,6 +2921,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const [isImageRegistryOpen, setIsImageRegistryOpen] = useState(false);
   const appliedSeedKeyRef = useRef<string | null>(null);
   const seededDocumentIdRef = useRef<string | null>(null);
+  const seededExtractIdRef = useRef<string | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -3398,6 +3403,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   useEffect(() => {
     if (!isOpen) {
       appliedSeedKeyRef.current = null;
+      seededExtractIdRef.current = null;
       return;
     }
     if (!seed?.key || appliedSeedKeyRef.current === seed.key) {
@@ -3405,6 +3411,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     }
 
     appliedSeedKeyRef.current = seed.key;
+    seededExtractIdRef.current = seed.linkedExtractId ?? null;
 
     if (seed.documentId !== undefined) {
       seededDocumentIdRef.current = seed.documentId;
@@ -3424,6 +3431,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       if ((seed.draftCardType || "qa") === "cloze" && seed.excerpt?.trim()) {
         nextCard.text = seed.excerpt.trim();
       }
+      nextCard.extractId = seed.linkedExtractId;
       // Apply a transient deck tag (e.g. from `:deck <name>`) to the new card.
       if (seed.deckTag?.trim()) {
         nextCard.tags = [...(nextCard.tags ?? []), seed.deckTag.trim()];
@@ -3828,7 +3836,8 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                   ? ((card.multipleChoiceOptions || []).find((option) => option.id === card.multipleChoiceCorrectOptionId)?.text || "").trim()
                   : (card.answer || "").trim(),
               cloze_text: card.type === "cloze" ? (card.text || "").trim() : undefined,
-              document_id: selectedDocument?.id,
+              extract_id: card.extractId ?? seededExtractIdRef.current ?? seed?.linkedExtractId,
+              document_id: selectedDocument?.id ?? seed?.documentId ?? undefined,
               tags: [...deckTags, ...card.tags],
               image_asset_ids:
                 card.type === "image-occlusion"
@@ -3930,6 +3939,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       type: "qa",
       question: extract.content.trim(),
       answer: "",
+      extractId: extract.id,
       selected: true,
       createdAt: Date.now(),
       tags: [],

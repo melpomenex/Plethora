@@ -136,6 +136,7 @@ export function ExtractsList({
   const [manualStudioSeed, setManualStudioSeed] = useState<{
     key: string;
     documentId: string;
+    linkedExtractId: string;
     excerpt: string;
     draftCardType: "qa";
     resetDraftCards: true;
@@ -214,6 +215,7 @@ export function ExtractsList({
     setManualStudioSeed({
       key: `${extract.id}-${Date.now()}`,
       documentId: extract.document_id,
+      linkedExtractId: extract.id,
       excerpt: extract.content,
       draftCardType: "qa",
       resetDraftCards: true,

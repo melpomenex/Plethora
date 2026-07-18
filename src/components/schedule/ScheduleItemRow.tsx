@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, memo } from "react";
+import { createPortal } from "react-dom";
 import {
   BookOpen,
   Brain,
@@ -483,8 +484,10 @@ export const ScheduleItemRow = memo(function ScheduleItemRow({
         )}
       </div>
 
-      {/* Context menu */}
-      {ctxPos && (
+      {/* Context menu — portaled to body so ancestors with transform/will-change
+          (e.g. the virtualized scroll container) can't become the containing
+          block for this fixed-position element */}
+      {ctxPos && createPortal(
         <>
           {/* Backdrop to close on click */}
           <div className="fixed inset-0 z-[9998]" />
@@ -596,7 +599,8 @@ export const ScheduleItemRow = memo(function ScheduleItemRow({
               </>
             )}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </>
   );

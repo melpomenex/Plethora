@@ -1409,12 +1409,12 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         const item = await db.createLearningItem({
-            extract_id: args.extractId as string | undefined,
-            document_id: args.documentId as string | undefined,
-            item_type: args.itemType as string,
+            extract_id: (args.extractId ?? args.extract_id) as string | undefined,
+            document_id: (args.documentId ?? args.document_id) as string | undefined,
+            item_type: (args.itemType ?? args.item_type) as string,
             question,
             answer: args.answer as string | undefined,
-            cloze_text: args.clozeText as string | undefined,
+            cloze_text: (args.clozeText ?? args.cloze_text) as string | undefined,
             tags: (args.tags ?? args.tag_list) as string[] | undefined,
             image_asset_ids: (args.imageAssetIds ?? args.image_asset_ids) as string[] | undefined,
             interaction_metadata: (args.interactionMetadata ?? args.interaction_metadata) as Record<string, unknown> | undefined,
@@ -1543,7 +1543,7 @@ const commandHandlers: Record<string, CommandHandler> = {
     },
 
     delete_learning_item: async (args) => {
-        const id = args.id as string;
+        const id = (args.itemId ?? args.id) as string;
         await db.deleteLearningItem(id);
         return null;
     },

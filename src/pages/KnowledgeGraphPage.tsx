@@ -6,7 +6,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { invokeCommand } from "../lib/tauri";
 import { ObsidianGraph, type ObsidianGraphHandle } from "../components/graph/ObsidianGraph";
-import { ObsidianSphere } from "../components/graph/ObsidianSphere";
+import { KnowledgeUniverseLazy } from "../components/graph/KnowledgeUniverseLazy";
 import { GraphFilterControls, applyGraphFilters, extractGraphMetadata } from "../components/graph/GraphFilters";
 import { NodeDetailView } from "../components/graph/NodeDetailView";
 import { GraphNodeType, type GraphNode, type GraphEdge, type GraphData, LayoutAlgorithm } from "../components/graph/KnowledgeGraph";
@@ -39,7 +39,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 
-type ViewMode = "graph" | "sphere";
+type ViewMode = "graph" | "universe";
 
 export function KnowledgeGraphPage() {
   const { t } = useI18n();
@@ -518,15 +518,15 @@ export function KnowledgeGraphPage() {
               {t("knowledgeGraph.graph")}
             </button>
             <button
-              onClick={() => setViewMode("sphere")}
+              onClick={() => setViewMode("universe")}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                viewMode === "sphere"
+                viewMode === "universe"
                   ? "glass-panel-heavy text-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-glass-100"
               }`}
             >
               <Sparkle className="w-4 h-4" />
-              {t("knowledgeGraph.sphere")}
+              {t("knowledgeGraph.universe")}
             </button>
           </div>
         </div>
@@ -627,7 +627,7 @@ export function KnowledgeGraphPage() {
               nodeScale={graphNodeScale}
             />
           ) : (
-            <ObsidianSphere
+            <KnowledgeUniverseLazy
               nodes={filteredData.nodes}
               edges={filteredData.edges}
               onNodeClick={handleNodeClick}

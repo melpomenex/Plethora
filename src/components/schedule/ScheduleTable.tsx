@@ -1,4 +1,5 @@
 import { Fragment, useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   BookOpen,
   Brain,
@@ -107,7 +108,7 @@ function retCell(r: number | undefined | null) {
 
 function progCell(p: number) {
   if (p <= 0) return <span className="text-[11px] text-muted-foreground">—</span>;
-  const pct = Math.round(p * 100);
+  const pct = Math.round(p);
   const c = pct >= 100 ? "text-green-500" : pct >= 50 ? "text-blue-500" : "text-muted-foreground";
   return <span className={cn("text-[11px] font-mono tabular-nums", c)}>{pct}%</span>;
 }
@@ -258,7 +259,9 @@ function Row({ item, idx, isExpanded, onToggleExpand, onPostpone, onOpen, onSusp
           </td>
         ) : <td className="w-24" />}
       </tr>
-      {ctx && (
+      {/* Portaled to body: keeps fixed positioning viewport-relative and avoids
+          rendering divs directly inside the table structure */}
+      {ctx && createPortal(
         <>
           <div className="fixed inset-0 z-[9998]" />
           <div ref={ref} className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[220px] animate-in fade-in-0 zoom-in-95 duration-100"
@@ -291,7 +294,8 @@ function Row({ item, idx, isExpanded, onToggleExpand, onPostpone, onOpen, onSusp
               </button>
             </>)}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </>
   );

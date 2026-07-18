@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { ObsidianSphere } from "../../graph/ObsidianSphere";
+import { KnowledgeUniverseLazy } from "../../graph/KnowledgeUniverseLazy";
 import { GraphNodeType, type GraphNode, type GraphEdge } from "../../graph/KnowledgeGraph";
 import { invokeCommand } from "../../../lib/tauri";
 import { useCollectionStore } from "../../../stores/collectionStore";
@@ -16,20 +16,19 @@ import { useContextMenu, ContextMenu, ContextMenuItemType } from "../../common/C
 import { ConfirmDialog, useConfirmDialog } from "../../common/ConfirmDialog";
 import { getDocument, updateDocument, deleteDocument } from "../../../api/documents";
 import { updateExtract, deleteExtract } from "../../../api/extracts";
+import { useI18n } from "../../../lib/i18n";
 import {
   ArrowSquareOut,
   ArrowsClockwise,
   Brain,
-  Info,
-  PencilSimple,
+  Planet,
   Quotes,
-  Sparkle,
-  Target,
   TextT,
   Trash,
 } from "@phosphor-icons/react";
 
 export function KnowledgeSphereTab() {
+  const { t } = useI18n();
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,7 +52,7 @@ export function KnowledgeSphereTab() {
         if (!activeCollectionId) return true;
         if (!documentId) return true;
         const doc = documents.find((d: any) => d.id === documentId);
-        return doc ? doc.collectionId === activeCollectionId : true;
+        return doc ? !doc.collectionId || doc.collectionId === activeCollectionId : true;
       };
 
       const graphNodes: GraphNode[] = [];
@@ -65,10 +64,12 @@ export function KnowledgeSphereTab() {
           id: `doc-${doc.id}`,
           type: GraphNodeType.Document,
           label: doc.title || "Untitled",
+          description: doc.description,
           x: 0,
           y: 0,
           color: "#3b82f6",
           category: doc.category,
+          tags: doc.tags,
         });
       });
 
@@ -77,10 +78,17 @@ export function KnowledgeSphereTab() {
         graphNodes.push({
           id: `extract-${extract.id}`,
           type: GraphNodeType.Extract,
-          label: extract.content?.substring(0, 30) + "..." || "Extract",
+          label: extract.content ? `${extract.content.substring(0, 30)}...` : "Extract",
+          description: extract.note,
           x: 0,
           y: 0,
           color: "#22c55e",
+          category: extract.category,
+          tags: extract.tags,
+          metadata: {
+            documentId: extract.documentId,
+            pageNumber: extract.pageNumber,
+          },
         });
 
         graphEdges.push({
@@ -96,10 +104,16 @@ export function KnowledgeSphereTab() {
         graphNodes.push({
           id: `card-${item.id}`,
           type: GraphNodeType.Flashcard,
-          label: item.question?.substring(0, 20) + "..." || "Card",
+          label: item.question ? `${item.question.substring(0, 20)}...` : "Card",
+          description: item.answer,
           x: 0,
           y: 0,
           color: "#a855f7",
+          tags: item.tags,
+          metadata: {
+            documentId: item.documentId,
+            extractId: item.extractId,
+          },
         });
 
         if (item.extractId) {
@@ -133,7 +147,12 @@ export function KnowledgeSphereTab() {
           data: { documentId: node.id.replace("doc-", "") },
         });
         break;
-      case GraphNodeType.Extract:
+      case GraphNodeType.Extract: {
+        const parentDocumentId = String(
+          node.metadata?.documentId ||
+          edges.find((edge) => edge.target === node.id && edge.source.startsWith("doc-"))?.source ||
+          ""
+        ).replace("doc-", "");
         addTab({
           title: node.label.substring(0, 30),
           icon: <Quotes className="w-4 h-4 text-muted-foreground" />,
@@ -141,11 +160,12 @@ export function KnowledgeSphereTab() {
           content: DocumentViewer,
           closable: true,
           data: {
-            documentId: String(node.metadata?.documentId || "").replace("doc-", ""),
+            documentId: parentDocumentId,
             initialViewMode: "extracts",
           },
         });
         break;
+      }
       case GraphNodeType.Flashcard:
         addTab({
           title: "Review",
@@ -157,7 +177,7 @@ export function KnowledgeSphereTab() {
         void useReviewStore.getState().startReviewAtItem(node.id.replace("card-", ""));
         break;
     }
-  }, [addTab]);
+  }, [addTab, edges]);
 
   const handleNodeDelete = useCallback((nodeId: string) => {
     const node = nodes.find((n) => n.id === nodeId);
@@ -278,13 +298,11 @@ export function KnowledgeSphereTab() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Sparkle className="w-5 h-5 text-primary" />
+                <Planet className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold">Knowledge Sphere</h2>
-                <p className="text-sm text-muted-foreground">
-                  3D visualization of your knowledge universe
-                </p>
+                <h2 className="text-xl font-semibold">{t("universe.title")}</h2>
+                <p className="text-sm text-muted-foreground">{t("universe.tagline")}</p>
               </div>
             </div>
           </div>
@@ -295,7 +313,7 @@ export function KnowledgeSphereTab() {
               <div className="absolute inset-0 border-4 border-primary/20 rounded-full" />
               <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
-            <p className="text-muted-foreground">Loading knowledge sphere...</p>
+            <p className="text-muted-foreground">{t("universe.loading")}</p>
           </div>
         </div>
       </div>
@@ -308,12 +326,12 @@ export function KnowledgeSphereTab() {
       <div className="p-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-            <Sparkle className="w-5 h-5 text-primary" />
+            <Planet className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h2 className="text-xl font-semibold">Knowledge Sphere</h2>
+            <h2 className="text-xl font-semibold">{t("universe.title")}</h2>
             <p className="text-sm text-muted-foreground">
-              {nodes.length} nodes orbiting your knowledge universe
+              {t("universe.subtitle", { count: nodes.length })}
             </p>
           </div>
         </div>
@@ -323,13 +341,13 @@ export function KnowledgeSphereTab() {
           className="flex items-center gap-2 px-3 py-2 hover:bg-muted rounded-xl text-sm font-medium transition-colors"
         >
           <ArrowsClockwise className="w-4 h-4" />
-          Refresh
+          {t("universe.refresh")}
         </button>
       </div>
 
-      {/* 3D Sphere */}
+      {/* Universe */}
       <div className="flex-1 relative">
-        <ObsidianSphere
+        <KnowledgeUniverseLazy
           nodes={nodes}
           edges={edges}
           showHeader={false}
@@ -340,50 +358,34 @@ export function KnowledgeSphereTab() {
         />
 
         {/* Quick stats overlay */}
-        <div className="absolute bottom-6 left-6 bg-card/90 backdrop-blur border border-border rounded-xl shadow-lg p-4">
+        <div className="absolute bottom-6 left-6 bg-card/90 backdrop-blur border border-border rounded-xl shadow-lg p-4 pointer-events-none">
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm">
               <div className="w-3 h-3 rounded-full bg-blue-500" />
-              <span className="text-muted-foreground">Documents:</span>
+              <span className="text-muted-foreground">{t("graph.documents")}:</span>
               <span className="font-medium">
                 {nodes.filter((n) => n.type === GraphNodeType.Document).length}
               </span>
             </div>
             <div className="flex items-center gap-2 text-sm">
               <div className="w-3 h-3 rounded-full bg-green-500" />
-              <span className="text-muted-foreground">Extracts:</span>
+              <span className="text-muted-foreground">{t("graph.extracts")}:</span>
               <span className="font-medium">
                 {nodes.filter((n) => n.type === GraphNodeType.Extract).length}
               </span>
             </div>
             <div className="flex items-center gap-2 text-sm">
               <div className="w-3 h-3 rounded-full bg-purple-500" />
-              <span className="text-muted-foreground">Flashcards:</span>
+              <span className="text-muted-foreground">{t("graph.flashcards")}:</span>
               <span className="font-medium">
                 {nodes.filter((n) => n.type === GraphNodeType.Flashcard).length}
               </span>
             </div>
             <div className="pt-2 border-t border-border mt-2">
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">Connections:</span>
+                <span className="text-muted-foreground">{t("universe.connections")}:</span>
                 <span className="font-medium">{edges.length}</span>
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Help tip */}
-        <div className="absolute bottom-6 right-6 bg-card/90 backdrop-blur border border-border rounded-xl shadow-lg p-4 max-w-xs">
-          <div className="flex items-start gap-3">
-            <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-muted-foreground">
-              <p className="font-medium text-foreground mb-1">Navigation Tips</p>
-              <ul className="space-y-1">
-                <li>• Drag to rotate the sphere</li>
-                <li>• Scroll to zoom in/out</li>
-                <li>• Click a node to focus</li>
-                <li>• Toggle grid & connections</li>
-              </ul>
             </div>
           </div>
         </div>

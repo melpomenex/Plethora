@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../database", () => ({
   getExtract: vi.fn(),
+  getAllLearningItems: vi.fn(async () => []),
   createLearningItem: vi.fn(async (item: any) => ({
     id: `li-${Math.random().toString(36).slice(2)}`,
     ...item,
@@ -123,5 +124,20 @@ describe("browser backend generate_learning_items_from_extract", () => {
 
     expect(items).toEqual([]);
     expect(db.createLearningItem).not.toHaveBeenCalled();
+  });
+
+  it("persists manual cards with their source extract relationship", async () => {
+    await browserInvoke("create_learning_item", {
+      itemType: "qa",
+      question: "How are the nodes linked?",
+      answer: "By their source relationships.",
+      extractId: "e3",
+      documentId: "d3",
+    });
+
+    expect(db.createLearningItem).toHaveBeenCalledWith(expect.objectContaining({
+      extract_id: "e3",
+      document_id: "d3",
+    }));
   });
 });

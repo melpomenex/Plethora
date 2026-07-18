@@ -40,6 +40,7 @@ const mockBook = {
     generate: vi.fn().mockResolvedValue([]),
     percentageFromCfi: vi.fn().mockReturnValue(0),
   },
+  destroy: vi.fn(),
 };
 
 vi.mock("epubjs", () => ({
@@ -142,6 +143,7 @@ global.ResizeObserver = class ResizeObserver {
 describe("EPUBViewer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockBook.ready = Promise.resolve();
     HTMLDivElement.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
       width: 100,
       height: 100,
@@ -179,6 +181,31 @@ describe("EPUBViewer", () => {
 
     expect(screen.getAllByText("TOC")).toHaveLength(1);
     expect(screen.getAllByText("Aa")).toHaveLength(1);
+  });
+
+  it("defers book destruction when unmounted before epub.js finishes loading", async () => {
+    let resolveReady!: () => void;
+    mockBook.ready = new Promise<void>((resolve) => {
+      resolveReady = resolve;
+    });
+
+    const { unmount } = render(
+      <EPUBViewer
+        embedded
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+      />
+    );
+
+    await waitFor(() => expect(ePub).toHaveBeenCalled());
+    unmount();
+
+    expect(mockBook.destroy).not.toHaveBeenCalled();
+
+    resolveReady();
+    await waitFor(() => expect(mockBook.destroy).toHaveBeenCalledTimes(1));
   });
 
   it("renders EPUB highlights using the shared translucent palette via epub.js annotations", async () => {

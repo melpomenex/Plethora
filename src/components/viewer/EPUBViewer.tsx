@@ -700,9 +700,18 @@ export function EPUBViewer({
     let mounted = true;
     let bookInstance: any = null;
     let renditionInstance: any = null;
+    let bookReadySettled = false;
+    let destroyBookWhenReady = false;
+    let bookDestroyed = false;
     let savePositionTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
     const maxRetries = 10;
+
+    const destroyBookInstance = () => {
+      if (!bookInstance || bookDestroyed) return;
+      bookDestroyed = true;
+      try { bookInstance.destroy(); } catch { /* ignore */ }
+    };
 
     const loadEPUB = async () => {
       setIsLoading(true);
@@ -722,8 +731,16 @@ export function EPUBViewer({
         bookInstance = epubBook;
         setBook(epubBook);
 
-        // Wait for book to be ready
-        await epubBook.ready;
+        // epub.js mutates `loading` to undefined in Book.destroy(). Destroying
+        // while its asynchronous unpack/navigation work is still pending makes
+        // that work reject at `this.loading.navigation`. Defer destruction until
+        // `ready` settles when the viewer unmounts during startup.
+        try {
+          await epubBook.ready;
+        } finally {
+          bookReadySettled = true;
+          if (destroyBookWhenReady) destroyBookInstance();
+        }
 
         if (!mounted) return;
 
@@ -775,6 +792,7 @@ export function EPUBViewer({
         }
 
         const initializeRendition = async (): Promise<boolean> => {
+          if (!mounted) return false;
 
           if (!viewerRef.current) {
             if (retryCount < maxRetries) {
@@ -1341,8 +1359,8 @@ export function EPUBViewer({
 
         await initializeRendition();
       } catch (err) {
-        console.error("EPUBViewer: Error loading EPUB:", err);
         if (!mounted) return;
+        console.error("EPUBViewer: Error loading EPUB:", err);
         setError(err instanceof Error ? err.message : "Failed to load EPUB");
       } finally {
         if (mounted) {
@@ -1370,7 +1388,8 @@ export function EPUBViewer({
       }
       onVimRuntimeChange?.(null);
       if (bookInstance) {
-        try { bookInstance.destroy(); } catch { /* ignore */ }
+        if (bookReadySettled) destroyBookInstance();
+        else destroyBookWhenReady = true;
       }
     };
     // Note: onLoad, onContextTextChange, onSelectionChange, and onProgressChange are

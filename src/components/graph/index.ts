@@ -13,6 +13,11 @@ export type { ObsidianGraphProps, ObsidianGraphHandle } from "./ObsidianGraph";
 export { ObsidianSphere } from "./ObsidianSphere";
 export type { ObsidianSphereProps } from "./ObsidianSphere";
 
+// Knowledge Universe (WebGL galaxy; ObsidianSphere is its no-WebGL fallback)
+export { KnowledgeUniverseLazy } from "./KnowledgeUniverseLazy";
+export type { KnowledgeUniverseProps } from "./universe/types";
+export { NodeDetailPanel } from "./NodeDetailPanel";
+
 // Legacy sphere (for backwards compatibility)
 export { KnowledgeSphere, useSphereThemess } from "./KnowledgeSphere";
 export type { KnowledgeSphereProps } from "./KnowledgeSphere";

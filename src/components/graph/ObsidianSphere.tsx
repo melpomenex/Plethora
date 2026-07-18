@@ -7,25 +7,15 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useI18n } from "../../lib/i18n";
 import { GraphNodeType, type GraphNode, type GraphEdge } from "./KnowledgeGraph";
+import { NodeDetailPanel } from "./NodeDetailPanel";
 import {
   ArrowCounterClockwise,
-  ArrowSquareOut,
-  Brain,
-  Check,
-  Folder,
   GridNine,
   Hand,
   Info,
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
-  PencilSimple,
-  Quotes,
   Sparkle,
-  Tag,
-  Target,
-  TextT,
-  Trash,
-  X,
 } from "@phosphor-icons/react";
 
 export interface ObsidianSphereProps {
@@ -81,51 +71,6 @@ const NODE_CONFIG = {
   },
 };
 
-const NODE_DETAIL_STYLES = {
-  [GraphNodeType.Document]: {
-    icon: TextT,
-    bgColor: "bg-blue-500/10",
-    borderColor: "border-blue-500/20",
-    textColor: "text-blue-400",
-    labelKey: "graph.document",
-  },
-  [GraphNodeType.Extract]: {
-    icon: Quotes,
-    bgColor: "bg-green-500/10",
-    borderColor: "border-green-500/20",
-    textColor: "text-green-400",
-    labelKey: "graph.extract",
-  },
-  [GraphNodeType.Flashcard]: {
-    icon: Brain,
-    bgColor: "bg-purple-500/10",
-    borderColor: "border-purple-500/20",
-    textColor: "text-purple-400",
-    labelKey: "graph.flashcard",
-  },
-  [GraphNodeType.Category]: {
-    icon: Folder,
-    bgColor: "bg-amber-500/10",
-    borderColor: "border-amber-500/20",
-    textColor: "text-amber-400",
-    labelKey: "graph.categorySingular",
-  },
-  [GraphNodeType.Tag]: {
-    icon: Tag,
-    bgColor: "bg-cyan-500/10",
-    borderColor: "border-cyan-500/20",
-    textColor: "text-cyan-400",
-    labelKey: "graph.tag",
-  },
-  [GraphNodeType.Rss]: {
-    icon: Sparkle,
-    bgColor: "bg-orange-500/10",
-    borderColor: "border-orange-500/20",
-    textColor: "text-orange-400",
-    labelKey: "graph.rss",
-  },
-};
-
 export function ObsidianSphere({
   nodes,
   edges = [],
@@ -160,35 +105,6 @@ export function ObsidianSphere({
   const [showConstellations, setShowConstellations] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
 
-  // Inline edit state for selected node details
-  const [isEditing, setIsEditing] = useState(false);
-  const [editLabel, setEditLabel] = useState("");
-  const [editCategory, setEditCategory] = useState("");
-  const [editTags, setEditTags] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (selectedNode) {
-      const node = nodes.find((n) => n.id === selectedNode);
-      if (node) {
-        setEditLabel(node.label || "");
-        setEditCategory(node.category || "");
-        setEditTags((node.tags || []).join(", "));
-        setEditDescription(node.description || "");
-      }
-    } else {
-      setEditLabel("");
-      setEditCategory("");
-      setEditTags("");
-      setEditDescription("");
-    }
-    setIsEditing(false);
-    setIsSaving(false);
-    setSaveError(null);
-  }, [selectedNode, nodes]);
-
   // Sync state values to refs to avoid closure stale state
   useEffect(() => {
     zoomRef.current = zoom;
@@ -216,19 +132,6 @@ export function ObsidianSphere({
     });
     return counts;
   }, [nodes, edges]);
-
-  // Calculate connection counts by relationship type for the selected node
-  const connectionCountsByType = useMemo(() => {
-    if (!selectedNode || !edges) return {};
-    const counts: Record<string, number> = {};
-    edges.forEach((edge) => {
-      if (edge.source === selectedNode || edge.target === selectedNode) {
-        const type = edge.type || "related";
-        counts[type] = (counts[type] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [selectedNode, edges]);
 
   // Distribute nodes on sphere using Fibonacci sphere algorithm
   const sphereNodes = useMemo<SphereNode[]>(() => {
@@ -739,32 +642,6 @@ export function ObsidianSphere({
     setAutoRotate(true);
   }, []);
 
-  const handleSave = async () => {
-    if (!selectedNode || !onNodeSave) return;
-    setIsSaving(true);
-    setSaveError(null);
-    try {
-      const updates = {
-        label: editLabel,
-        category: editCategory || undefined,
-        tags: editTags ? editTags.split(",").map((t) => t.trim()).filter(Boolean) : [],
-        description: editDescription || undefined,
-      };
-      await onNodeSave(selectedNode, updates);
-      setIsEditing(false);
-    } catch (err: any) {
-      setSaveError(err.message || "Failed to save details");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleDeleteClick = () => {
-    if (selectedNode && onNodeDelete) {
-      onNodeDelete(selectedNode);
-    }
-  };
-
   return (
     <div ref={containerRef} className="relative w-full h-full overflow-hidden">
       <canvas
@@ -843,208 +720,22 @@ export function ObsidianSphere({
       )}
 
       {/* Selected node info */}
-      {selectedNode && (
-        <div className="absolute top-20 right-6 w-80 bg-card/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl p-5 pointer-events-auto flex flex-col gap-4 max-h-[calc(100vh-220px)] overflow-y-auto z-10 animate-glass-scale-in">
-          {(() => {
-            const node = sphereNodes.find((n) => n.id === selectedNode);
-            if (!node) return null;
-            const config = NODE_CONFIG[node.type];
-            const detailConfig = NODE_DETAIL_STYLES[node.type] || {
-              icon: Sparkle,
-              bgColor: "bg-primary/10",
-              borderColor: "border-primary/20",
-              textColor: "text-primary",
-              labelKey: "graph.node",
-            };
-            const IconComponent = detailConfig.icon;
+      {selectedNode && (() => {
+        const node = sphereNodes.find((n) => n.id === selectedNode);
+        if (!node) return null;
+        return (
+          <NodeDetailPanel
+            node={node}
+            edges={edges}
+            onClose={() => setSelectedNode(null)}
+            onFocus={focusOnNode}
+            onOpen={onNodeDoubleClick}
+            onSave={onNodeSave}
+            onDelete={onNodeDelete}
+          />
+        );
+      })()}
 
-            if (isEditing) {
-              return (
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-border">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase">Edit Node Details</span>
-                    <button
-                      onClick={() => setIsEditing(false)}
-                      className="text-muted-foreground hover:text-foreground p-1 hover:bg-muted rounded-lg transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-muted-foreground">Label</label>
-                    <input
-                      type="text"
-                      value={editLabel}
-                      onChange={(e) => setEditLabel(e.target.value)}
-                      className="glass-input rounded-xl px-3 py-1.5 text-sm w-full bg-background/50 border border-border focus:ring-1 focus:ring-primary focus:outline-none"
-                    />
-                  </div>
-                  {node.type === GraphNodeType.Document && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-muted-foreground">Category</label>
-                      <input
-                        type="text"
-                        value={editCategory}
-                        onChange={(e) => setEditCategory(e.target.value)}
-                        className="glass-input rounded-xl px-3 py-1.5 text-sm w-full bg-background/50 border border-border focus:ring-1 focus:ring-primary focus:outline-none"
-                      />
-                    </div>
-                  )}
-                  {(node.type === GraphNodeType.Document || node.type === GraphNodeType.Extract || node.type === GraphNodeType.Flashcard) && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-muted-foreground">Tags (comma separated)</label>
-                      <input
-                        type="text"
-                        value={editTags}
-                        onChange={(e) => setEditTags(e.target.value)}
-                        className="glass-input rounded-xl px-3 py-1.5 text-sm w-full bg-background/50 border border-border focus:ring-1 focus:ring-primary focus:outline-none"
-                      />
-                    </div>
-                  )}
-                  {node.type !== GraphNodeType.Flashcard && (
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-muted-foreground">Description / Content</label>
-                      <textarea
-                        value={editDescription}
-                        onChange={(e) => setEditDescription(e.target.value)}
-                        rows={3}
-                        className="glass-input rounded-xl px-3 py-1.5 text-sm w-full bg-background/50 border border-border focus:ring-1 focus:ring-primary focus:outline-none resize-none"
-                      />
-                    </div>
-                  )}
-                  {saveError && (
-                    <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg p-2 mt-1">
-                      {saveError}
-                    </div>
-                  )}
-                  <div className="flex gap-2 mt-2 pt-2 border-t border-border">
-                    <button
-                      onClick={handleSave}
-                      disabled={isSaving}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
-                    >
-                      <Check className="w-4 h-4" />
-                      {isSaving ? "Saving..." : "Save"}
-                    </button>
-                    <button
-                      onClick={() => setIsEditing(false)}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-semibold hover:bg-muted/80 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <div className="flex flex-col gap-3">
-                {/* Header */}
-                <div className="flex items-center gap-3 pb-2 border-b border-border">
-                  <div
-                    className={`w-10 h-10 rounded-xl flex items-center justify-center ${detailConfig.bgColor} border ${detailConfig.borderColor}`}
-                  >
-                    <IconComponent className={`w-5 h-5 ${detailConfig.textColor}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-sm line-clamp-2 text-foreground">{node.label}</h3>
-                    <p className="text-xs text-muted-foreground capitalize">{node.type}</p>
-                  </div>
-                  <button
-                    onClick={() => setSelectedNode(null)}
-                    className="text-muted-foreground hover:text-foreground p-1 hover:bg-muted rounded-lg transition-colors align-self-start"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* Description */}
-                {(node.description || node.metadata?.description) && (
-                  <div className="text-xs text-muted-foreground bg-muted/30 p-2.5 rounded-xl border border-border/40 line-clamp-4">
-                    {node.description || String(node.metadata?.description || "")}
-                  </div>
-                )}
-
-                {/* Metadata tags */}
-                <div className="flex flex-wrap gap-1.5">
-                  {node.category && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                      <Folder className="w-3.5 h-3.5" />
-                      {node.category}
-                    </span>
-                  )}
-                  {node.tags && node.tags.map((tag) => (
-                    <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-500 border border-cyan-500/20">
-                      <Tag className="w-3.5 h-3.5" />
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Connection Stats */}
-                <div className="bg-muted/20 border border-border/30 rounded-xl p-3 flex flex-col gap-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Connections Breakdown</span>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mt-1">
-                    {Object.entries(connectionCountsByType).map(([type, count]) => (
-                      <div key={type} className="flex justify-between items-center text-xs">
-                        <span className="text-muted-foreground capitalize">{type}:</span>
-                        <span className="font-semibold text-foreground">{count}</span>
-                      </div>
-                    ))}
-                    {Object.keys(connectionCountsByType).length === 0 && (
-                      <div className="text-xs text-muted-foreground italic col-span-2">No active connections</div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Action buttons */}
-                <div className="flex flex-col gap-2 pt-2 border-t border-border mt-1">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={focusOnNode}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-primary/10 text-primary rounded-xl text-sm font-semibold hover:bg-primary/20 transition-colors"
-                      title={t("graph.focusView")}
-                    >
-                      <Target className="w-4.5 h-4.5" />
-                      Focus
-                    </button>
-                    {onNodeDoubleClick && (
-                      <button
-                        onClick={() => onNodeDoubleClick(node)}
-                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-muted text-foreground rounded-xl text-sm font-semibold hover:bg-muted/80 transition-colors"
-                      >
-                        <ArrowSquareOut className="w-4.5 h-4.5 text-muted-foreground" />
-                        Open
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    {onNodeSave && (node.type === GraphNodeType.Document || node.type === GraphNodeType.Extract || node.type === GraphNodeType.Flashcard) && (
-                      <button
-                        onClick={() => setIsEditing(true)}
-                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-muted text-muted-foreground rounded-xl text-sm font-semibold hover:bg-muted/80 transition-colors"
-                      >
-                        <PencilSimple className="w-4.5 h-4.5" />
-                        Edit
-                      </button>
-                    )}
-                    {onNodeDelete && (node.type === GraphNodeType.Document || node.type === GraphNodeType.Extract || node.type === GraphNodeType.Flashcard) && (
-                      <button
-                        onClick={handleDeleteClick}
-                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-destructive/10 text-destructive rounded-xl text-sm font-semibold hover:bg-destructive/20 transition-colors"
-                      >
-                        <Trash className="w-4.5 h-4.5" />
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
 
       {/* Floating controls */}
       <div className="absolute bottom-6 right-6 flex flex-col gap-2 pointer-events-auto">
