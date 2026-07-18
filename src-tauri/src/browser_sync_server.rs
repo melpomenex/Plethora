@@ -369,6 +369,25 @@ pub struct AutomationSubmitReviewRequest {
 /// Global server handle for shutdown
 static SERVER_HANDLE: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::const_new(None);
 
+pub static ACTIVE_THEME: once_cell::sync::Lazy<std::sync::Mutex<(String, Option<serde_json::Value>)>> =
+    once_cell::sync::Lazy::new(|| {
+        std::sync::Mutex::new(("super-game-bro".to_string(), None))
+    });
+
+pub fn set_active_theme(theme_id: String, colors: Option<serde_json::Value>) {
+    if let Ok(mut theme) = ACTIVE_THEME.lock() {
+        *theme = (theme_id, colors);
+    }
+}
+
+pub fn get_active_theme() -> (String, Option<serde_json::Value>) {
+    if let Ok(theme) = ACTIVE_THEME.lock() {
+        theme.clone()
+    } else {
+        ("super-game-bro".to_string(), None)
+    }
+}
+
 /// Start the HTTP server for browser extension
 pub async fn start_server(
     config: BrowserSyncConfig,
@@ -402,6 +421,7 @@ pub async fn start_server(
         .route("/", post(handle_extension_request))
         .route("/ai/process", post(handle_ai_request))
         .route("/ai/status", get(handle_ai_status))
+        .route("/api/theme", get(handle_get_theme))
         .route(
             "/api/rss/feeds",
             post(handle_create_feed).get(handle_list_feeds),
@@ -798,6 +818,29 @@ fn normalize_browser_source_url(raw: &str) -> String {
     url.to_string()
 }
 
+/// Resolve the collection id that browser-extension imports should land in.
+///
+/// The extension saves into whatever collection the user currently has active
+/// in the desktop app (tracked in the `active_collection_id` setting), so the
+/// imported document is immediately visible in the library they're looking at.
+/// Falls back to the default collection when the setting is missing or points
+/// at a collection that no longer exists.
+async fn resolve_browser_import_collection_id(repo: &Repository) -> String {
+    if let Ok(Some(id)) = repo.get_setting("active_collection_id").await {
+        let trimmed = id.trim();
+        if !trimmed.is_empty() && trimmed != crate::models::collection::DEFAULT_COLLECTION_ID {
+            // Validate the stored id still refers to an existing collection,
+            // otherwise the document would be orphaned and never displayed.
+            if let Ok(collections) = repo.get_collections().await {
+                if collections.iter().any(|c| c.id == trimmed) {
+                    return trimmed.to_string();
+                }
+            }
+        }
+    }
+    crate::models::collection::DEFAULT_COLLECTION_ID.to_string()
+}
+
 fn select_extension_document_text(payload: &ExtensionRequest) -> String {
     if !payload.text.trim().is_empty() {
         payload.text.trim().to_string()
@@ -926,6 +969,7 @@ async fn handle_import_request(
     payload: &ExtensionRequest,
     file_type: FileType,
 ) -> Result<ExtensionResponse, AppError> {
+    let collection_id = resolve_browser_import_collection_id(&state.repo).await;
     let payload_has_article_html = payload
         .html_content
         .as_ref()
@@ -1019,7 +1063,7 @@ async fn handle_import_request(
     let mut author = None;
 
     if matches!(file_type, FileType::Youtube) {
-        let collection_id = crate::models::collection::DEFAULT_COLLECTION_ID.to_string();
+        let collection_id = resolve_browser_import_collection_id(&state.repo).await;
         info!("Importing YouTube video from URL: {}", payload.url);
         match crate::youtube::import_youtube_video_internal(
             &payload.url,
@@ -1175,7 +1219,7 @@ async fn handle_import_request(
 
     let document = Document {
         id: uuid::Uuid::new_v4().to_string(),
-        collection_id: crate::models::collection::DEFAULT_COLLECTION_ID.to_string(),
+        collection_id: collection_id.clone(),
         title,
         file_path: normalized_url,
         file_type,
@@ -1318,6 +1362,9 @@ async fn handle_extract_request(
     state: &ServerState,
     payload: &ExtensionRequest,
 ) -> Result<ExtensionResponse, AppError> {
+    // Extracts attach to a document; land both in the user's active collection
+    // so they're visible in the library they're looking at.
+    let collection_id = resolve_browser_import_collection_id(&state.repo).await;
     // Find or create document for this URL
     let normalized_url = normalize_browser_source_url(&payload.url);
     let existing = match state.repo.find_document_by_url(&normalized_url).await {
@@ -1341,7 +1388,7 @@ async fn handle_extract_request(
         };
         let document = Document {
             id: uuid::Uuid::new_v4().to_string(),
-            collection_id: crate::models::collection::DEFAULT_COLLECTION_ID.to_string(),
+            collection_id: collection_id.clone(),
             title: payload.title.clone(),
             file_path: normalized_url,
             file_type: inferred_file_type,
@@ -1393,7 +1440,7 @@ async fn handle_extract_request(
 
     let extract = Extract {
         id: uuid::Uuid::new_v4().to_string(),
-        collection_id: crate::models::collection::DEFAULT_COLLECTION_ID.to_string(),
+        collection_id: collection_id.clone(),
         document_id: document_id.clone(),
         content: payload.text.clone(),
         html_content: payload.html_content.clone(),
@@ -2063,6 +2110,20 @@ async fn handle_ai_status(State(state): State<ServerState>) -> Response {
     };
 
     (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Handle active theme query from browser extension
+async fn handle_get_theme() -> Response {
+    let (theme_id, colors) = get_active_theme();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "themeId": theme_id,
+            "colors": colors
+        })),
+    )
+        .into_response()
 }
 
 /// ============================================================================

@@ -263,16 +263,8 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
 
   useEffect(() => {
     if (!isActiveTab) return;
-    // Startup already hydrates the first page. The page loader is used when
-    // this tab is opened directly or after a collection switch; the fallback
-    // keeps lightweight test/demo stores and legacy embedders compatible.
-    if (typeof loadDocumentsPage === "function") {
-      if (documents.length > 0) return;
-      void loadDocumentsPage(1, false);
-    } else {
-      loadDocuments();
-    }
-  }, [documents.length, isActiveTab, loadDocuments, loadDocumentsPage]);
+    void loadDocuments();
+  }, [isActiveTab, loadDocuments]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {

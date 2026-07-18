@@ -111,11 +111,19 @@ function createIframeDocument(htmlContent: string, theme: ThemeColors): string {
       padding: 8px;
     }
     /* Strip cosmetic inline styles so theme tokens cascade */
-    body * {
+    body *:not(.incrementum-highlight) {
       color: inherit !important;
       background-color: transparent !important;
       font-family: inherit !important;
       font-size: inherit !important;
+    }
+    /* Render highlights */
+    .incrementum-highlight {
+      background-color: #ffd3a5;
+      color: #1a1a1a !important;
+      border-radius: 3px;
+      padding: 2px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     /* Ensure images are responsive */
     img {

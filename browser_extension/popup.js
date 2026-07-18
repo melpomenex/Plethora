@@ -17,6 +17,7 @@ class PopupController {
     await this.loadStatus();
     await this.loadStats();
     await this.checkExtractMode();
+    await this.loadTheme();
   }
 
   setupEventListeners() {
@@ -47,29 +48,6 @@ class PopupController {
     document.getElementById('options-link').addEventListener('click', (e) => {
       e.preventDefault();
       chrome.runtime.openOptionsPage();
-    });
-
-    document.getElementById('generate-summary').addEventListener('click', () => {
-      this.generateAISummary();
-    });
-
-    document.getElementById('modal-close').addEventListener('click', () => {
-      this.closeModal();
-    });
-
-    document.getElementById('ai-save-extract').addEventListener('click', () => {
-      this.saveAIExtract();
-    });
-
-    document.getElementById('ai-regenerate').addEventListener('click', () => {
-      this.generateAISummary();
-    });
-
-    // Close modal on overlay click
-    document.getElementById('ai-modal').addEventListener('click', (e) => {
-      if (e.target.id === 'ai-modal') {
-        this.closeModal();
-      }
     });
   }
 
@@ -122,7 +100,16 @@ class PopupController {
       button.disabled = true;
       this.setButtonLoading(button, true);
 
-      const response = await this.sendMessage({ action: 'saveCurrentTab' });
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab || this.isInternalUrl(tab.url)) {
+        this.showNotification('Cannot save internal browser pages', 'error');
+        return;
+      }
+
+      const response = await this.sendMessage({
+        action: 'saveCurrentTab',
+        tab: { id: tab.id, url: tab.url, title: tab.title }
+      });
 
       if (response && response.success) {
         this.showNotification('Current tab saved successfully!', 'success');
@@ -176,6 +163,8 @@ class PopupController {
       if (response && response.connected) {
         this.showNotification('Connection successful!', 'success');
         this.updateConnectionStatus(true);
+        // Theme could have loaded on connection success
+        await this.loadTheme();
       } else {
         this.showNotification('Connection failed. Check if Incrementum is running.', 'error');
         this.updateConnectionStatus(false);
@@ -230,7 +219,6 @@ class PopupController {
       if (text) text.innerHTML = 'Processing...';
     } else {
       if (icon) icon.style.display = 'block';
-      // Reset text when needed
     }
   }
 
@@ -277,49 +265,32 @@ class PopupController {
 
   // Quick extract from selection
   async quickExtract() {
-    try {
-      const button = document.getElementById('quick-extract');
+    const button = document.getElementById('quick-extract');
+    const originalContent = button.innerHTML;
 
+    try {
       button.disabled = true;
-      this.setButtonLoading(button, true);
+      button.innerHTML = 'Processing...';
 
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab && tab.id && !this.isInternalUrl(tab.url)) {
-        const response = await chrome.tabs.sendMessage(tab.id, { action: 'getSelection' });
+        const response = await chrome.tabs.sendMessage(tab.id, { action: 'createQuickExtract' });
 
-        if (response && response.success && response.text) {
-          const result = await this.sendMessage({
-            action: 'createExtract',
-            data: {
-              text: response.text,
-              url: tab.url,
-              title: tab.title
-            }
-          });
-
-          if (result && result.success) {
-            this.showNotification(
-              result.queued
-                ? (result.message || 'Extract cached locally and will sync when Incrementum launches.')
-                : 'Extract created successfully!',
-              result.queued ? 'info' : 'success'
-            );
-            await this.loadStats(); // Refresh stats
-          } else {
-            this.showNotification(result?.error || 'Failed to create extract', 'error');
-          }
+        if (response && response.success) {
+          this.showNotification('Extract created successfully!', 'success');
+          await this.loadStats(); // Refresh stats
         } else {
-          this.showNotification('No text selected. Please select some text first.', 'info');
+          this.showNotification(response?.error || 'No text selected. Please select some text first.', 'info');
         }
       } else {
         this.showNotification('Extract mode not available on this page.', 'info');
       }
     } catch (error) {
-      this.handleContentScriptError(error, 'Error creating extract');
+      console.error('Error creating quick extract:', error);
+      this.showNotification('Error creating extract', 'error');
     } finally {
-      const button = document.getElementById('quick-extract');
       button.disabled = false;
-      button.innerHTML = button.innerHTML.replace('Processing...', 'Quick Extract');
+      button.innerHTML = originalContent;
     }
   }
 
@@ -417,258 +388,60 @@ class PopupController {
     }, 20000);
   }
 
-  // Store current AI response for saving
-  currentAIResponse = null;
-  currentPageContent = null;
-  currentPageInfo = null;
-
-  buildAISummaryExtractPayload() {
-    if (!this.currentAIResponse || !this.currentPageInfo) {
-      return null;
-    }
-
-    const sections = [];
-    const summary = (this.currentAIResponse.summary || '').trim();
-    const keyPoints = Array.isArray(this.currentAIResponse.key_points) ? this.currentAIResponse.key_points : [];
-    const questions = Array.isArray(this.currentAIResponse.questions) ? this.currentAIResponse.questions : [];
-
-    if (summary) {
-      sections.push(`Summary\n${summary}`);
-    }
-
-    if (keyPoints.length > 0) {
-      sections.push(`Key Points\n${keyPoints.map((point) => `- ${point}`).join('\n')}`);
-    }
-
-    if (questions.length > 0) {
-      sections.push(`Questions\n${questions.map((question) => `- ${question}`).join('\n')}`);
-    }
-
-    const text = sections.join('\n\n').trim();
-    if (!text) {
-      return null;
-    }
-
-    return {
-      text,
-      url: this.currentPageInfo.url,
-      title: `${this.currentPageInfo.title} - AI Summary`,
-      context: this.currentPageContent || null,
-      analysis: this.currentAIResponse,
-      tags: ['ai-summary']
-    };
-  }
-
-  async persistAISummaryExtract({ closeModalOnSuccess = false } = {}) {
-    const extract = this.buildAISummaryExtractPayload();
-    if (!extract) {
-      throw new Error('No AI summary available to save');
-    }
-
-    const result = await this.sendMessage({
-      action: 'saveExtract',
-      extract
-    });
-
-    if (!result?.success) {
-      throw new Error(result?.error || 'Failed to save AI summary extract');
-    }
-
-    this.showNotification(
-      result.queued
-        ? (result.message || 'AI summary cached locally and will sync when Incrementum launches.')
-        : 'AI summary saved to Incrementum!',
-      result.queued ? 'info' : 'success'
-    );
-
-    if (closeModalOnSuccess) {
-      this.closeModal();
-    }
-
-    return result;
-  }
-
-  async generateAISummary() {
-    const modal = document.getElementById('ai-modal');
-    const modalContent = document.getElementById('ai-modal-content');
-
-    // Show modal with loading state
-    modal.classList.remove('hidden');
-    modalContent.innerHTML = `
-      <div class="ai-loading">
-        <div class="ai-loading-spinner"></div>
-        <div class="ai-loading-text">Analyzing content with AI...</div>
-      </div>
-    `;
-
+  async loadTheme() {
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab || this.isInternalUrl(tab.url)) {
-        throw new Error('Cannot analyze internal browser pages');
-      }
-
-      this.currentPageInfo = { url: tab.url, title: tab.title };
-
-      // Try to get selected text first, then fall back to page content
-      let content = '';
-      try {
-        const selectionResponse = await chrome.tabs.sendMessage(tab.id, { action: 'getSelection' });
-        if (selectionResponse?.success && selectionResponse.text?.trim()) {
-          content = selectionResponse.text;
-        }
-      } catch (e) {
-        console.warn('[Popup] Could not get selection text from content script:', e?.message);
-      }
-
-      if (!content) {
-        try {
-          const contentResponse = await chrome.tabs.sendMessage(tab.id, { action: 'getPageContent' });
-          if (contentResponse?.success && contentResponse.content) {
-            content = contentResponse.content.slice(0, 10000); // Limit content size
-          }
-        } catch (e) {
-          console.warn('[Popup] Could not get page content from content script:', e?.message);
+      const response = await fetch('http://127.0.0.1:8766/api/theme');
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.success && data.colors) {
+          this.applyTheme(data.colors);
         }
       }
-
-      if (!content) {
-        throw new Error('Could not extract content from this page');
-      }
-
-      this.currentPageContent = content;
-
-      // Send to AI endpoint
-      const response = await this.sendMessage({
-        action: 'generateAISummary',
-        data: {
-          content,
-          operation: 'all', // Get summary, key points, and questions
-          url: tab.url,
-          title: tab.title
-        }
-      });
-
-      if (!response || !response.success) {
-        throw new Error(response?.error || 'AI analysis failed');
-      }
-
-      this.currentAIResponse = response;
-      await this.persistAISummaryExtract();
-
-      this.renderAIResults(response);
-
     } catch (error) {
-      console.error('AI Summary error:', error);
-      modalContent.innerHTML = `
-        <div class="ai-error">
-          <div style="font-size: 32px; margin-bottom: 12px;">⚠️</div>
-          <p>${error.message}</p>
-          <p style="font-size: 12px; color: var(--text-secondary); margin-top: 8px;">
-            Make sure AI is configured in the desktop app settings.
-          </p>
-        </div>
-      `;
+      console.warn('[Popup] Could not load theme from desktop app:', error.message);
     }
   }
 
-  renderAIResults(response) {
-    const modalContent = document.getElementById('ai-modal-content');
+  applyTheme(colors) {
+    if (!colors) return;
+    const root = document.documentElement;
 
-    let html = '';
-
-    if (response.reading_time_minutes || response.word_count || response.complexity_score) {
-      html += `
-        <div class="ai-section">
-          <div class="ai-stats-row">
-            <div class="ai-stat">
-              <div class="ai-stat-value">${response.word_count || '—'}</div>
-              <div class="ai-stat-label">Words</div>
-            </div>
-            <div class="ai-stat">
-              <div class="ai-stat-value">${response.reading_time_minutes || '—'}m</div>
-              <div class="ai-stat-label">Read Time</div>
-            </div>
-            <div class="ai-stat">
-              <div class="ai-stat-value">${response.complexity_score || '—'}/10</div>
-              <div class="ai-stat-label">Complexity</div>
-            </div>
-          </div>
-        </div>
-      `;
+    if (colors.primary) {
+      root.style.setProperty('--primary', colors.primary);
+      root.style.setProperty('--primary-dark', this.adjustColor(colors.primary, -10));
     }
-
-    if (response.summary) {
-      html += `
-        <div class="ai-section">
-          <div class="ai-section-title">📝 Summary</div>
-          <div class="ai-summary">${this.escapeHtml(response.summary)}</div>
-        </div>
-      `;
+    if (colors.success) root.style.setProperty('--success', colors.success);
+    if (colors.warning) root.style.setProperty('--warning', colors.warning);
+    if (colors.error) root.style.setProperty('--danger', colors.error);
+    if (colors.background) {
+      root.style.setProperty('--bg-dark', colors.background);
+      document.body.style.background = `linear-gradient(135deg, ${colors.background} 0%, ${this.adjustColor(colors.background, 10)} 100%)`;
     }
-
-    if (response.key_points && response.key_points.length > 0) {
-      html += `
-        <div class="ai-section">
-          <div class="ai-section-title">🎯 Key Points</div>
-          <ul class="ai-key-points">
-            ${response.key_points.map(point => `<li>${this.escapeHtml(point)}</li>`).join('')}
-          </ul>
-        </div>
-      `;
+    if (colors.surfaceVariant || colors.surface) {
+      root.style.setProperty('--bg-card', colors.surfaceVariant || colors.surface);
     }
-
-    if (response.questions && response.questions.length > 0) {
-      html += `
-        <div class="ai-section">
-          <div class="ai-section-title">❓ Questions to Consider</div>
-          <ul class="questions-list">
-            ${response.questions.map(q => `<li>${this.escapeHtml(q)}</li>`).join('')}
-          </ul>
-        </div>
-      `;
+    if (colors.text || colors.onBackground) {
+      root.style.setProperty('--text-primary', colors.text || colors.onBackground);
     }
-
-    if (response.flashcards && response.flashcards.length > 0) {
-      html += `
-        <div class="ai-section">
-          <div class="ai-section-title">🎴 Generated Flashcards</div>
-          ${response.flashcards.slice(0, 3).map(card => `
-            <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px; padding: 12px; margin-bottom: 8px;">
-              <div style="font-weight: 600; margin-bottom: 6px;">Q: ${this.escapeHtml(card.question)}</div>
-              <div style="color: var(--text-secondary); font-size: 13px;">A: ${this.escapeHtml(card.answer)}</div>
-            </div>
-          `).join('')}
-        </div>
-      `;
+    if (colors.textSecondary) {
+      root.style.setProperty('--text-secondary', colors.textSecondary);
     }
-
-    if (!html) {
-      html = '<div class="ai-error">No analysis results returned</div>';
-    }
-
-    modalContent.innerHTML = html;
-  }
-
-  async saveAIExtract() {
-    if (!this.currentPageInfo || !this.currentAIResponse) {
-      this.showNotification('No content to save', 'error');
-      return;
-    }
-
-    try {
-      await this.persistAISummaryExtract({ closeModalOnSuccess: true });
-    } catch (error) {
-      console.error('Save error:', error);
-      this.showNotification(error.message || 'Failed to save extract', 'error');
+    if (colors.border || colors.outline) {
+      root.style.setProperty('--border', colors.border || colors.outline);
     }
   }
 
-  // Close modal
-  closeModal() {
-    document.getElementById('ai-modal').classList.add('hidden');
+  adjustColor(color, percent) {
+    const num = parseInt(color.replace('#', ''), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) + amt;
+    const G = (num >> 8 & 0x00FF) + amt;
+    const B = (num & 0x0000FF) + amt;
+    return '#' + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+      (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+      (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1);
   }
 
-  // Helper to escape HTML
   escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;

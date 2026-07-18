@@ -12,8 +12,8 @@ class OptionsController {
             enableNotifications: true,
             enableHighlights: true,
             enableAutoSync: false,
-            saveHistory: true,
-            saveBookmarks: true,
+            saveHistory: false,
+            saveBookmarks: false,
             syncFrequency: 'manual'
         };
 
@@ -175,6 +175,10 @@ class OptionsController {
         try {
             await chrome.storage.sync.clear();
             await this.loadSettings();
+            
+            // Notify background script of settings reset to defaults
+            chrome.runtime.sendMessage({ action: 'settingsChanged', settings: this.defaultSettings });
+            
             this.showNotification('Settings reset to defaults', 'info');
         } catch (error) {
             console.error('Error resetting settings:', error);

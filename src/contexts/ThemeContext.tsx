@@ -295,7 +295,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     saveLastThemeId(currentThemeId);
 
     // Apply native platform vibrancy if supported
-    invokeCommand<boolean>("apply_theme_vibrancy", { themeId: currentThemeId })
+    invokeCommand<boolean>("apply_theme_vibrancy", { themeId: currentThemeId, colors: currentTheme.colors })
       .then((success) => {
         const root = document.documentElement;
         if (success) {

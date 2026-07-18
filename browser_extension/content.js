@@ -150,46 +150,88 @@
   /**
    * Capture HTML content with computed styles from selection
    */
-  function captureSelectionHTML() {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return null;
+  function captureSelectionHTML(customRange) {
+    let range = customRange;
+    if (!range) {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return null;
+      range = selection.getRangeAt(0);
+    }
 
     try {
-      const range = selection.getRangeAt(0);
       const fragment = range.cloneContents();
 
       const tempDiv = document.createElement('div');
       tempDiv.appendChild(fragment.cloneNode(true));
 
       // Inline computed styles for visual fidelity
-      const elements = tempDiv.querySelectorAll('*');
-      elements.forEach((el) => {
-        if (el instanceof HTMLElement) {
-          // Find original element to get computed styles
-          const originalEl = document.body.contains(el) ? el : null;
-          if (!originalEl) return;
-
-          const computed = window.getComputedStyle(originalEl);
-          // Structural properties only — cosmetic properties are handled
-          // by the app's theme system at render time
-          const essentialStyles = [
-            'display', 'margin', 'padding', 'border', 'border-radius',
-            'list-style-type', 'white-space', 'overflow-x'
-          ];
-
-          const inlineStyles = essentialStyles
-            .map((prop) => {
-              const value = computed.getPropertyValue(prop);
-              if (value && value !== 'none' && value !== 'normal' && value !== '0px') {
-                return `${prop}: ${value}`;
+      const clonedElements = Array.from(tempDiv.querySelectorAll('*'));
+      
+      // Get all elements that intersect the range to retrieve original computed styles
+      const originalElements = [];
+      const container = range.commonAncestorContainer;
+      const rootNode = container.nodeType === Node.ELEMENT_NODE ? container : container.parentElement;
+      if (rootNode) {
+        const walker = document.createTreeWalker(
+          rootNode,
+          NodeFilter.SHOW_ELEMENT,
+          {
+            acceptNode: (node) => {
+              if (range.intersectsNode(node)) {
+                return NodeFilter.FILTER_ACCEPT;
               }
-              return null;
-            })
-            .filter(Boolean)
-            .join('; ');
+              return NodeFilter.FILTER_REJECT;
+            }
+          }
+        );
+        
+        let node = walker.currentNode;
+        if (node && node.nodeType === Node.ELEMENT_NODE && range.intersectsNode(node)) {
+          originalElements.push(node);
+        }
+        while ((node = walker.nextNode())) {
+          originalElements.push(node);
+        }
+      }
 
-          if (inlineStyles) {
-            el.setAttribute('style', inlineStyles);
+      clonedElements.forEach((clonedEl, i) => {
+        if (clonedEl instanceof HTMLElement) {
+          // Find matching original element
+          let originalEl = null;
+          for (let j = 0; j < originalElements.length; j++) {
+            const candidate = originalElements[j];
+            if (candidate.tagName === clonedEl.tagName && candidate.textContent.trim() === clonedEl.textContent.trim()) {
+              originalEl = candidate;
+              originalElements.splice(j, 1);
+              break;
+            }
+          }
+
+          if (!originalEl && originalElements.length > i) {
+            originalEl = originalElements[i];
+          }
+
+          if (originalEl) {
+            const computed = window.getComputedStyle(originalEl);
+            const essentialStyles = [
+              'display', 'margin', 'padding', 'border', 'border-radius',
+              'list-style-type', 'white-space', 'overflow-x'
+            ];
+
+            const inlineStyles = essentialStyles
+              .map((prop) => {
+                const value = computed.getPropertyValue(prop);
+                if (value && value !== 'none' && value !== 'normal' && value !== '0px') {
+                  return `${prop}: ${value}`;
+                }
+                return null;
+              })
+              .filter(Boolean)
+              .join('; ');
+
+            if (inlineStyles) {
+              clonedEl.setAttribute('style', inlineStyles);
+            }
           }
         }
       });
@@ -543,7 +585,7 @@
     let calculatedPriority = calculateExtractPriority(text, analysis, options.priority);
 
     // Capture HTML content with computed styles for visual fidelity
-    const html_content = captureSelectionHTML();
+    const html_content = captureSelectionHTML(range);
 
     const extractData = {
       id: generateExtractId(),
@@ -583,7 +625,11 @@
       extract: extractData
     }).then((response) => {
       if (response && response.success) {
-        highlightText(range, extractData.id, getPriorityColor(calculatedPriority));
+        chrome.storage.sync.get(['enableHighlights'], (settings) => {
+          if (settings && settings.enableHighlights !== false) {
+            highlightText(range, extractData.id, getPriorityColor(calculatedPriority));
+          }
+        });
         showSaveIndicator(`Extract queued (Priority: ${calculatedPriority}): "${text.substring(0, 50)}..."`);
       } else if (response?.error && response.error.includes('Extension context invalidated')) {
         showSaveIndicator('Extension reloaded. Reopen the page and try again.');
@@ -1218,8 +1264,13 @@
     const selectedText = selection.toString().trim();
 
     if (selectedText.length > 0) {
-      // Show priority selection dialog instead of immediately creating extract
-      showPrioritySelectionDialog(selectedText, selection);
+      chrome.storage.sync.get(['autoExtract'], (settings) => {
+        if (settings && settings.autoExtract) {
+          createExtract(selectedText, selection);
+        } else {
+          showPrioritySelectionDialog(selectedText, selection);
+        }
+      });
     }
   }
 
@@ -1229,7 +1280,7 @@
     const context = container.textContent || container.innerText || '';
 
     // Capture HTML content with computed styles for visual fidelity
-    const html_content = captureSelectionHTML();
+    const html_content = captureSelectionHTML(range);
 
     const extractData = {
       id: generateExtractId(),
@@ -1259,7 +1310,11 @@
       extract: extractData
     }, (response) => {
       if (response && response.success) {
-        highlightText(range, extractData.id);
+        chrome.storage.sync.get(['enableHighlights'], (settings) => {
+          if (settings && settings.enableHighlights !== false) {
+            highlightText(range, extractData.id);
+          }
+        });
         showSaveIndicator(`Extract saved: "${text.substring(0, 50)}..."`);
       } else {
         showSaveIndicator('Failed to save extract');
@@ -1494,20 +1549,22 @@
     return { success: true };
   }
 
-  function getElementSelector(element) {
-    // Simple selector generation - could be enhanced
+  function getElementSelector(node) {
+    const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!element) return '';
     if (element.id) {
       return `#${element.id}`;
     }
     
-    if (element.className) {
+    if (element.className && typeof element.className === 'string') {
       return `.${element.className.split(' ')[0]}`;
     }
     
-    return element.tagName.toLowerCase();
+    return element.tagName ? element.tagName.toLowerCase() : '';
   }
 
-  function getElementPath(element) {
+  function getElementPath(node) {
+    let element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
     const path = [];
     while (element && element.nodeType === Node.ELEMENT_NODE) {
       let selector = element.tagName.toLowerCase();
@@ -1570,9 +1627,13 @@
       if (stored) {
         pageExtracts = JSON.parse(stored);
         
-        // Restore highlights for existing extracts
-        pageExtracts.forEach(extract => {
-          restoreHighlight(extract);
+        // Restore highlights for existing extracts if enabled
+        chrome.storage.sync.get(['enableHighlights'], (settings) => {
+          if (settings && settings.enableHighlights !== false) {
+            pageExtracts.forEach(extract => {
+              restoreHighlight(extract);
+            });
+          }
         });
       }
     } catch (error) {

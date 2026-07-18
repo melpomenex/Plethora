@@ -5,6 +5,11 @@
 let INCREMENTUM_BASE_URL = 'http://127.0.0.1:8766';
 let ENABLE_CONTEXT_MENU = true;
 let ENABLE_NOTIFICATIONS = true;
+let AUTO_SAVE = false;
+let SAVE_BOOKMARKS = true;
+let SAVE_HISTORY = true;
+let ENABLE_AUTO_SYNC = false;
+let SYNC_FREQUENCY = 'manual';
 let keepAliveCount = 0;
 const PENDING_EXTRACTS_KEY = 'pendingExtracts';
 let flushInProgress = false;
@@ -161,7 +166,17 @@ async function flushQueuedExtractsIfPossible() {
 
 async function loadSettings() {
   try {
-    const settings = await chrome.storage.sync.get(['serverUrl', 'browserSyncPort', 'enableContextMenu', 'enableNotifications']);
+    const settings = await chrome.storage.sync.get([
+      'serverUrl',
+      'browserSyncPort',
+      'enableContextMenu',
+      'enableNotifications',
+      'autoSave',
+      'saveBookmarks',
+      'saveHistory',
+      'enableAutoSync',
+      'syncFrequency'
+    ]);
 
     let serverUrl = settings.serverUrl || '127.0.0.1';
     let port = settings.browserSyncPort || 8766;
@@ -181,11 +196,27 @@ async function loadSettings() {
 
     ENABLE_CONTEXT_MENU = settings.enableContextMenu !== false;
     ENABLE_NOTIFICATIONS = settings.enableNotifications !== false;
+    AUTO_SAVE = settings.autoSave === true;
+    // History/bookmarks sync default OFF — they fire on every page visit /
+    // bookmark creation and would otherwise silently flood the user's
+    // library with one document per browsed page. Users who want this must
+    // opt in from the options page.
+    SAVE_BOOKMARKS = settings.saveBookmarks === true;
+    SAVE_HISTORY = settings.saveHistory === true;
+    ENABLE_AUTO_SYNC = settings.enableAutoSync === true;
+    SYNC_FREQUENCY = settings.syncFrequency || 'manual';
+
+    setupAutoSyncAlarm();
   } catch (error) {
     console.error('[DEBUG] Error loading settings:', error);
     INCREMENTUM_BASE_URL = 'http://127.0.0.1:8766'; // Fallback
     ENABLE_CONTEXT_MENU = true;
     ENABLE_NOTIFICATIONS = true;
+    AUTO_SAVE = false;
+    SAVE_BOOKMARKS = false;
+    SAVE_HISTORY = false;
+    ENABLE_AUTO_SYNC = false;
+    SYNC_FREQUENCY = 'manual';
   }
 }
 
@@ -281,7 +312,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case 'saveCurrentTab': {
           try {
-            const saveResponse = await saveCurrentTab();
+            const tab = message.tab || sender.tab;
+            const saveResponse = await saveCurrentTab(tab);
             sendResponse(saveResponse);
           } catch (error) {
             console.error('[DEBUG] Error in saveCurrentTab handler:', error);
@@ -477,17 +509,20 @@ async function testConnection() {
   }
 }
 
-async function saveCurrentTab() {
+async function saveCurrentTab(passedTab) {
   try {
-
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    let tab = passedTab;
+    if (!tab) {
+      const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      tab = activeTab;
+    }
 
     if (!tab || isInternalUrl(tab.url)) {
       console.error('[DEBUG] Cannot save - internal URL or no tab');
       return { success: false, error: 'Cannot save internal browser pages' };
     }
 
-    const result = await savePage(tab.url, tab.title);
+    const result = await savePage(tab.url, tab.title, tab.id);
 
     if (result.success) {
       await sendInPageToast(tab.id, result.success, 'Page saved to Incrementum!');
@@ -607,18 +642,24 @@ async function saveLink(url, sourceTabId, linkText) {
   }
 }
 
-async function savePage(url, title) {
+async function savePage(url, title, tabId = null) {
   try {
-    // Try to extract page content using the content script
-    const tabs = await chrome.tabs.query({ url: url });
+    let resolvedTabId = tabId;
+    if (!resolvedTabId) {
+      const tabs = await chrome.tabs.query({ url: url });
+      if (tabs.length > 0) {
+        resolvedTabId = tabs[0].id;
+      }
+    }
+
     let pageContent = '';
     let pageHtml = undefined;
     let extractedImages = undefined;
 
-    if (tabs.length > 0 && tabs[0].id) {
+    if (resolvedTabId) {
       try {
         // Request content from the content script
-        const response = await chrome.tabs.sendMessage(tabs[0].id, {
+        const response = await chrome.tabs.sendMessage(resolvedTabId, {
           action: 'getPageContent'
         });
         if (response && response.success) {
@@ -631,18 +672,21 @@ async function savePage(url, title) {
       }
     }
 
-    // If we couldn't get content from the content script, return at least URL and title
+    // Whole-page save: always a "page", never an "extract" (extracts are
+    // text selections/highlights). Without this, sendToIncrementum's
+    // heuristic would classify the non-empty page text as an extract.
     return await sendToIncrementum({
       url,
       title,
       text: pageContent,
       html_content: pageHtml,
-      extracted_images: extractedImages
+      extracted_images: extractedImages,
+      type: 'page'
     });
   } catch (error) {
     console.error('[DEBUG] Error in savePage:', error);
     // Fallback to basic save without content
-    return await sendToIncrementum({ url, title, text: '' });
+    return await sendToIncrementum({ url, title, text: '', type: 'page' });
   }
 }
 
@@ -845,3 +889,74 @@ async function checkAIStatus() {
     return { configured: false, error: error.message };
   }
 }
+
+// Setup alarm for auto sync
+function setupAutoSyncAlarm() {
+  if (!chrome.alarms) return;
+  chrome.alarms.clear('autoSyncAlarm', () => {
+    if (ENABLE_AUTO_SYNC) {
+      let minutes = 15;
+      if (SYNC_FREQUENCY === 'realtime') minutes = 1;
+      else if (SYNC_FREQUENCY === 'hourly') minutes = 60;
+      else if (SYNC_FREQUENCY === 'daily') minutes = 1440;
+      
+      chrome.alarms.create('autoSyncAlarm', { periodInMinutes: minutes });
+    }
+  });
+}
+
+if (chrome.alarms) {
+  chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name === 'autoSyncAlarm') {
+      await flushQueuedExtractsIfPossible();
+    }
+  });
+}
+
+// Bookmarks sync listener
+if (chrome.bookmarks) {
+  chrome.bookmarks.onCreated.addListener(async (id, bookmark) => {
+    if (SAVE_BOOKMARKS && bookmark.url) {
+      await savePage(bookmark.url, bookmark.title);
+    }
+  });
+}
+
+// Helper to check if a URL is an internal browser page
+function isInternalUrl(url) {
+  if (!url) return true;
+  const internalPrefixes = [
+    'chrome://',
+    'chrome-extension://',
+    'moz-extension://',
+    'about:',
+    'edge://',
+    'opera://',
+    'brave://'
+  ];
+  return internalPrefixes.some(prefix => url.startsWith(prefix));
+}
+
+// History sync listener
+if (chrome.history) {
+  chrome.history.onVisited.addListener(async (historyItem) => {
+    if (SAVE_HISTORY && historyItem.url && !isInternalUrl(historyItem.url)) {
+      await sendToIncrementum({
+        url: historyItem.url,
+        title: historyItem.title || 'Visited Page',
+        text: '',
+        type: 'page',
+        source: 'browser_history'
+      });
+    }
+  });
+}
+
+// Auto-save pages navigation listener
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url && !isInternalUrl(tab.url)) {
+    if (AUTO_SAVE) {
+      await savePage(tab.url, tab.title);
+    }
+  }
+});
