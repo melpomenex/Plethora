@@ -38,6 +38,7 @@ import { useDocumentStore } from "../stores/documentStore";
 import { getDocument, getDocuments } from "../api/documents";
 import { writeTombstone, isTombstone } from "./sync/tombstone";
 import { getDeviceId } from "./file-manifest";
+import { syncClockCache } from "./sync/clockCache";
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
@@ -107,7 +108,14 @@ export async function ensureDocumentReplicationReady(): Promise<void> {
         });
         // Process anything already in the map (e.g. docs published before this
         // device joined the room).
-        documentsMap.forEach((_value, key) => {
+        documentsMap.forEach((value, key) => {
+          const remoteClock = value.dateModified || value.dateAdded;
+          if (remoteClock) {
+            const clockStr = typeof remoteClock === "string" ? remoteClock : new Date(remoteClock).toISOString();
+            if (!syncClockCache.isStale("documents", key, clockStr)) {
+              return; // Local SQLite is already up-to-date!
+            }
+          }
           getProgressiveSyncScheduler().enqueue({
             id: `documents:replay:${key}`,
             lane: "P1",
@@ -155,6 +163,11 @@ export async function publishDocument(doc: Document): Promise<void> {
       ...lightweight
     } = doc;
     documentsMap.set(doc.id, lightweight as Document);
+    const clock = doc.dateModified || doc.dateAdded;
+    if (clock) {
+      const clockStr = typeof clock === "string" ? clock : new Date(clock).toISOString();
+      syncClockCache.updateClock("documents", doc.id, clockStr);
+    }
   } catch (err) {
     console.warn("[documentReplication] publish failed", doc.id, err);
   }
@@ -387,6 +400,11 @@ async function handleRemoteDocument(docId: string): Promise<void> {
     }
 
     await invokeCommand("upsert_synced_document", { document: docToUpsert });
+    const clock = docToUpsert.dateModified || docToUpsert.dateAdded;
+    if (clock) {
+      const clockStr = typeof clock === "string" ? clock : new Date(clock).toISOString();
+      syncClockCache.updateClock("documents", docToUpsert.id, clockStr);
+    }
     // Coalesce the in-memory library refresh: reload once after the burst
     // settles, not once per row. Each incoming row previously triggered its own
     // loadDocuments() (full SQLite read + React re-render + registerExisting-

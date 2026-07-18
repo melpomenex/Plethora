@@ -874,3 +874,89 @@ pub async fn get_synced_collection(
     let row = repo.get_collection(&id).await?;
     Ok(row)
 }
+
+/// Retrieve the clocks (updated_at) for all learning items in the database in bulk.
+/// Used by the frontend to populate its startup clock cache.
+#[tauri::command]
+pub async fn get_all_learning_item_clocks(
+    repo: State<'_, Repository>,
+) -> Result<std::collections::HashMap<String, String>> {
+    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT id, updated_at FROM learning_items"
+    )
+    .fetch_all(repo.pool())
+    .await?;
+
+    let mut map = std::collections::HashMap::new();
+    for (id, updated_at) in rows {
+        if let Some(ua) = updated_at {
+            map.insert(id, ua);
+        }
+    }
+    Ok(map)
+}
+
+/// Retrieve the clocks (date_modified) for all documents in the database in bulk.
+/// Used by the frontend to populate its startup clock cache.
+#[tauri::command]
+pub async fn get_all_document_clocks(
+    repo: State<'_, Repository>,
+) -> Result<std::collections::HashMap<String, String>> {
+    let rows: Vec<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT id, date_modified FROM documents"
+    )
+    .fetch_all(repo.pool())
+    .await?;
+
+    let mut map = std::collections::HashMap::new();
+    for (id, date_modified) in rows {
+        if let Some(dm) = date_modified {
+            map.insert(id, dm.to_rfc3339());
+        }
+    }
+    Ok(map)
+}
+
+/// Insert a batch of review events received from another device, idempotently
+/// within a single SQLite transaction to optimize disk fsync overhead.
+#[tauri::command]
+pub async fn upsert_synced_review_results_batch(
+    reviews: Vec<SyncedReviewResult>,
+    repo: State<'_, Repository>,
+) -> Result<()> {
+    if reviews.is_empty() {
+        return Ok(());
+    }
+
+    let mut tx = repo.pool().begin().await?;
+
+    for review in reviews {
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO review_results (
+                id, collection_id, session_id, item_id, rating, time_taken,
+                new_due_date, new_interval, new_ease_factor, timestamp,
+                reviewed_at_ms, device_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            "#,
+        )
+        .bind(&review.id)
+        .bind(&review.collection_id)
+        .bind(&review.session_id)
+        .bind(&review.item_id)
+        .bind(review.rating)
+        .bind(review.time_taken)
+        .bind(review.new_due_date)
+        .bind(review.new_interval)
+        .bind(review.new_ease_factor)
+        .bind(review.timestamp)
+        .bind(review.reviewed_at_ms)
+        .bind(&review.device_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+

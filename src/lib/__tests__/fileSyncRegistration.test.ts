@@ -30,6 +30,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../tauri", () => ({
   isTauri: () => true,
   invokeCommand: mocks.invokeCommand,
+  isNativeMobile: () => false,
+  getPlatform: () => "linux",
 }));
 
 vi.mock("../yjsSync", () => ({
@@ -287,9 +289,9 @@ describe("registerExistingFilesSync", () => {
       makeDoc({ id: "doc-local", filePath: "/data/book.epub", fileType: "epub" }),
     ]);
 
-    // Only the local-path doc is hashed; URL-backed docs are skipped entirely.
-    expect(mocks.invokeCommand).toHaveBeenCalledTimes(1);
-    expect(mocks.invokeCommand.mock.calls[0][0]).toBe("hash_document_file");
+    const hashCalls = mocks.invokeCommand.mock.calls.filter(c => c[0] === "hash_document_file");
+    expect(hashCalls).toHaveLength(1);
+    expect(hashCalls[0][1]).toEqual({ filePath: "/data/book.epub" });
     expect(transferManager.registerLocalFileLoader).toHaveBeenCalledTimes(1);
   });
 

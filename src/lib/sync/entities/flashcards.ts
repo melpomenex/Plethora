@@ -174,6 +174,10 @@ function getReviewsMap(): ReplicatedMap<SyncedReviewResult & { updatedAt: string
       apply: async (_key, row) => {
         await invokeCommand("upsert_synced_review_result", { review: row });
       },
+      applyBatch: async (entries) => {
+        const rows = entries.map(([_, row]) => row);
+        await invokeCommand("upsert_synced_review_results_batch", { reviews: rows });
+      },
       // Reviews are never deleted in normal use (they're an immutable log); no
       // applyDelete.
     });

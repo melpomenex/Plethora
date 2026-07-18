@@ -48,6 +48,7 @@ import {
   writeTombstone as writeTombstoneHelper,
   type Tombstoned,
 } from "./tombstone";
+import { syncClockCache } from "./clockCache";
 
 export type MergeMode = "row-lww" | "append-only" | "field-lww";
 
@@ -86,6 +87,8 @@ export interface ReplicatedMapConfig<T extends { updatedAt: string }> {
    * was published. Implementations invoke a `upsert_synced_*` Tauri command.
    */
   apply: (key: string, row: T, ctx: ApplyContext) => Promise<void>;
+  /** Apply a batch of remote rows to local SQLite. Implementations invoke a bulk Tauri command. */
+  applyBatch?: (rows: Array<[string, T]>) => Promise<void>;
   /** Apply a delete (tombstone) to local SQLite. Optional. */
   applyDelete?: (key: string, ctx: ApplyContext) => Promise<void>;
   /**
@@ -145,6 +148,53 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
     ? (...a: unknown[]) => console.debug(`[replicatedMap:${config.label}]`, ...a)
     : () => {};
 
+  const batchQueue: Array<{ key: string; row: T; clock: string; journalId: string | null }> = [];
+  let batchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function enqueueBatch(key: string, row: T, clock: string, journalId: string | null): Promise<void> {
+    const prev = state.appliedClocks.get(key);
+    if (prev && compareClock(clock, prev) <= 0) {
+      return;
+    }
+    batchQueue.push({ key, row, clock, journalId });
+    if (!batchTimer) {
+      batchTimer = setTimeout(flushBatch, 50);
+    }
+  }
+
+  async function flushBatch(): Promise<void> {
+    batchTimer = null;
+    const items = [...batchQueue];
+    batchQueue.length = 0;
+    if (items.length === 0) return;
+
+    if (config.applyBatch) {
+      try {
+        const rows = items.map(item => [item.key, item.row] as [string, T]);
+        await measureSyncPhase("projection-batch", () => config.applyBatch!(rows));
+        for (const item of items) {
+          state.appliedClocks.set(item.key, item.clock);
+          if (config.name === "learningItems" || config.name === "documents") {
+            syncClockCache.updateClock(config.name, item.key, item.clock);
+          }
+          if (item.journalId) {
+            await markIncomingApplied({ operationId: item.journalId, domain: config.name, entityKey: item.key });
+          }
+          log("applied (batch)", item.key);
+        }
+      } catch (err) {
+        console.warn(`[replicatedMap:${config.label}] applyBatch failed, falling back to individual writes`, err);
+        for (const item of items) {
+          await runApply(item.key, item.row, item.clock, item.journalId);
+        }
+      }
+    } else {
+      for (const item of items) {
+        await runApply(item.key, item.row, item.clock, item.journalId);
+      }
+    }
+  }
+
   const state: InternalState<T> = {
     map: null,
     initialized: false,
@@ -198,7 +248,13 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
             }
           });
           // Replay existing entries (e.g. rows published before this device joined).
-          map.forEach((_value, key) => {
+          map.forEach((value, key) => {
+            if (config.name === "learningItems" || config.name === "documents") {
+              const remoteClock = String((value as any)?.[clockField] ?? "");
+              if (remoteClock && !syncClockCache.isStale(config.name, key, remoteClock)) {
+                return; // Local SQLite is already up-to-date!
+              }
+            }
             scheduler.enqueue({
               id: `${config.label}:replay:${key}`,
               lane: replayLane,
@@ -253,6 +309,10 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
         });
       }
       state.map.set(key, wire);
+      const clock = String(row[clockField] ?? "");
+      if (clock && (config.name === "learningItems" || config.name === "documents")) {
+        syncClockCache.updateClock(config.name, key, clock);
+      }
       log("published", key);
     } catch (err) {
       console.warn(`[replicatedMap:${config.label}] publish failed`, key, err);
@@ -369,7 +429,11 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
 
     if (mode === "append-only") {
       // Reviews: always upsert by deterministic id; INSERT OR IGNORE dedupes.
-      await runApply(key, remote, remoteClock, journalId);
+      if (config.applyBatch) {
+        await enqueueBatch(key, remote, remoteClock, journalId);
+      } else {
+        await runApply(key, remote, remoteClock, journalId);
+      }
       return;
     }
 
@@ -377,7 +441,11 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       // Fetch local once, then decide per-field.
       const local = config.getLocal ? await safeGetLocal(key) : null;
       const merged = local ? mergeFieldLww(local, remote, config.fieldClocks ?? []) : remote;
-      await runApply(key, merged, remoteClock, journalId);
+      if (config.applyBatch) {
+        await enqueueBatch(key, merged, remoteClock, journalId);
+      } else {
+        await runApply(key, merged, remoteClock, journalId);
+      }
       return;
     }
 
@@ -389,7 +457,11 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
         return; // local is at least as new — don't clobber (echo guard lives here too)
       }
     }
-    await runApply(key, remote, remoteClock, journalId);
+    if (config.applyBatch) {
+      await enqueueBatch(key, remote, remoteClock, journalId);
+    } else {
+      await runApply(key, remote, remoteClock, journalId);
+    }
   }
 
   async function runApply(key: string, row: T, clock: string, journalId: string | null = null): Promise<void> {
@@ -406,6 +478,9 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       }
       await measureSyncPhase("projection", () => config.apply(key, row, {}));
       state.appliedClocks.set(key, clock);
+      if (config.name === "learningItems" || config.name === "documents") {
+        syncClockCache.updateClock(config.name, key, clock);
+      }
       if (journalId) {
         await markIncomingApplied({ operationId: journalId, domain: config.name, entityKey: key });
       }

@@ -11,7 +11,9 @@ export type SyncPhase =
   | "provider-setup"
   | "migration"
   | "map-ready"
-  | "projection";
+  | "projection"
+  | "clock-cache-init"
+  | "projection-batch";
 
 export interface SyncPhaseSample {
   phase: SyncPhase;
@@ -111,16 +113,22 @@ export function clearSyncTelemetry(): void {
   startupRequestCounts.clear();
 }
 
+let lastWarnTime = 0;
+
 /** Install once; long tasks are diagnostic only and never alter sync behavior. */
 export function installSyncLongTaskObserver(): () => void {
   if (longTaskObserver || typeof PerformanceObserver === "undefined") return () => {};
   try {
     longTaskObserver = new PerformanceObserver((entries) => {
+      const nowMs = Date.now();
+      if (nowMs - lastWarnTime < 2000) return; // Throttle to max once per 2 seconds
       for (const entry of entries.getEntries()) {
         console.warn("[progressive-sync] long task observed", {
           durationMs: entry.duration,
           startTime: entry.startTime,
         });
+        lastWarnTime = nowMs;
+        break; // Only log one warning per batch to prevent backpressure
       }
     });
     longTaskObserver.observe({ entryTypes: ["longtask"] });

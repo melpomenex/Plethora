@@ -64,6 +64,14 @@ export function startSyncSubsystems(): Promise<void> {
       return;
     }
 
+    // Warm up the clock cache before replaying entity maps
+    try {
+      const { syncClockCache } = await import("./sync/clockCache");
+      await measureSyncPhase("clock-cache-init", () => syncClockCache.initialize());
+    } catch (err) {
+      console.warn("[startSyncSubsystems] clock cache warmup failed (non-fatal):", err);
+    }
+
     // 2. Prepare all entity init modules in parallel (dynamic imports).
     const [
       { ensureFileSyncReady },

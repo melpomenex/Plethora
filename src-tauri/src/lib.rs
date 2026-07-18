@@ -367,7 +367,8 @@ fn apply_platform_vibrancy(_window: &tauri::WebviewWindow, _theme_id: &str) -> b
 }
 
 #[tauri::command]
-fn apply_theme_vibrancy(window: tauri::WebviewWindow, theme_id: String) -> bool {
+fn apply_theme_vibrancy(window: tauri::WebviewWindow, theme_id: String, colors: Option<serde_json::Value>) -> bool {
+    crate::browser_sync_server::set_active_theme(theme_id.clone(), colors);
     apply_platform_vibrancy(&window, &theme_id)
 }
 
@@ -1008,7 +1009,10 @@ pub fn run() {
             commands::upsert_synced_learning_item,
             commands::delete_synced_learning_item,
             commands::upsert_synced_review_result,
+            commands::upsert_synced_review_results_batch,
             commands::get_synced_learning_item,
+            commands::get_all_learning_item_clocks,
+            commands::get_all_document_clocks,
             commands::count_review_results,
             commands::upsert_synced_rss_feed,
             commands::upsert_synced_rss_article_state,
