@@ -3,6 +3,7 @@ import {
   MIN_HOME_DIST,
   anchorShift,
   computeCameraRange,
+  computeUsableViewportOffset,
   fitDistance,
   minHalfFov,
 } from "../cameraFit";
@@ -59,6 +60,24 @@ describe("computeCameraRange", () => {
     }
   });
 
+  it.each([
+    ["portrait phone", 390 / 844],
+    ["portrait tablet", 834 / 1194],
+    ["landscape tablet", 1194 / 834],
+    ["compact desktop", 1024 / 768],
+    ["wide desktop", 1920 / 1080],
+  ])("frames centered bounds on a %s viewport", (_name, aspect) => {
+    const center = { x: 187, y: -42, z: 93 };
+    const { homeDist, maxDist } = computeCameraRange(bounds, core, FOV, aspect);
+    const homeHalfExtent = homeDist * Math.tan(minHalfFov(FOV, aspect));
+    const maxHalfExtent = maxDist * Math.tan(minHalfFov(FOV, aspect));
+
+    // Camera distance depends on extent and aspect, not the world's origin.
+    expect(homeHalfExtent).toBeGreaterThanOrEqual(core);
+    expect(maxHalfExtent).toBeGreaterThanOrEqual(bounds);
+    expect(center).toEqual({ x: 187, y: -42, z: 93 });
+  });
+
   it("keeps sane floors for degenerate layouts", () => {
     const { homeDist, maxDist } = computeCameraRange(0, 0, FOV, 0.5);
     expect(homeDist).toBe(MIN_HOME_DIST);
@@ -100,6 +119,28 @@ describe("anchorShift", () => {
     expect(anchorShift(t, t, 100, 50)).toEqual(t);
     expect(anchorShift({ x: 9, y: 9, z: 9 }, t, 80, 80)).toEqual(t);
     expect(anchorShift({ x: 9, y: 9, z: 9 }, t, 0, 40)).toEqual(t);
+  });
+});
+
+describe("computeUsableViewportOffset", () => {
+  it("uses zero offset when no panel consumes canvas space", () => {
+    expect(computeUsableViewportOffset(1200, 856, false)).toBe(0);
+    expect(computeUsableViewportOffset(1200, 1200, true)).toBe(0);
+  });
+
+  it("projects the target to the center of the unobscured left region", () => {
+    const viewportWidth = 1200;
+    const obstructionLeft = 856; // 320px panel plus a 24px right inset
+    const offset = computeUsableViewportOffset(viewportWidth, obstructionLeft, true);
+
+    expect(offset).toBe(172);
+    expect(viewportWidth / 2 - offset).toBe(obstructionLeft / 2);
+  });
+
+  it("clamps obstruction geometry to the viewport", () => {
+    expect(computeUsableViewportOffset(800, -50, true)).toBe(400);
+    expect(computeUsableViewportOffset(800, 900, true)).toBe(0);
+    expect(computeUsableViewportOffset(0, 200, true)).toBe(0);
   });
 });
 

@@ -1467,6 +1467,11 @@ pub fn run() {
             kindle_clippings::parse_kindle_clippings_file,
             kindle_clippings::validate_kindle_clippings,
             kindle_clippings::import_kindle_clippings_file,
+            // Mobile (bytes) variants — receive file contents over IPC because
+            // the Tauri dialog returns unreadable content:// URIs on Android.
+            kindle_clippings::parse_kindle_clippings_file_bytes,
+            kindle_clippings::validate_kindle_clippings_bytes,
+            kindle_clippings::import_kindle_clippings_file_bytes,
             kindle_clippings::backfill_kindle_imports,
             demo::import_demo_content_manually,
             demo::get_demo_content_status,

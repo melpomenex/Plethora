@@ -143,6 +143,7 @@ export class UniverseEngine {
 
   // Camera
   private orbit: OrbitCamera = { target: new THREE.Vector3(), theta: 0.6, phi: 1.05, dist: 320 };
+  private homeTarget = new THREE.Vector3();
   private homeDist = 320;
   private minDist = 14;
   private maxDist = 1200;
@@ -637,11 +638,22 @@ export class UniverseEngine {
 
   resize(width: number, height: number) {
     if (this.disposed || width <= 0 || height <= 0) return;
+    const wasAtHome = this.isAtHomeView();
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.updateCameraRange();
+    if (wasAtHome) this.orbit.dist = this.homeDist;
     this.updateProjection();
     this.invalidate();
+  }
+
+  private isAtHomeView(): boolean {
+    if (this.focus.level !== "universe") return false;
+    const distanceTolerance = Math.max(0.01, this.homeDist * 0.0001);
+    return (
+      this.orbit.target.distanceToSquared(this.homeTarget) <= 0.0001 &&
+      Math.abs(this.orbit.dist - this.homeDist) <= distanceTolerance
+    );
   }
 
   /** Derive zoom limits from the layout size and the current viewport aspect. */
@@ -745,6 +757,9 @@ export class UniverseEngine {
   // ------------------------------------------------------------------ data
 
   setData(layout: UniverseLayout, nodes: GraphNode[], edges: GraphEdge[]) {
+    // Detect this before replacing the layout/home values. A camera that is
+    // zoomed, panned, or focused must not be reset merely because data changed.
+    const followUpdatedHome = this.layout === null || this.isAtHomeView();
     this.disposeData();
     this.layout = layout;
     this.nodesById = new Map(nodes.map((n) => [n.id, n]));
@@ -797,7 +812,10 @@ export class UniverseEngine {
     this.stateAttr.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("aState", this.stateAttr);
     geo.setAttribute("aSeed", new THREE.BufferAttribute(seeds, 1));
-    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), layout.bounds * 2);
+    geo.boundingSphere = new THREE.Sphere(
+      new THREE.Vector3(layout.center.x, layout.center.y, layout.center.z),
+      layout.bounds * 2
+    );
 
     this.nodeMaterial = new THREE.ShaderMaterial({
       vertexShader: NODE_VERTEX,
@@ -824,9 +842,10 @@ export class UniverseEngine {
     // on any orientation (recomputed again on every resize).
     this.layoutBounds = layout.bounds;
     this.layoutCoreBounds = layout.coreBounds;
+    this.homeTarget.set(layout.center.x, layout.center.y, layout.center.z);
     this.updateCameraRange();
-    if (this.focus.level === "universe") {
-      this.orbit.target.set(0, 0, 0);
+    if (this.focus.level === "universe" && followUpdatedHome) {
+      this.orbit.target.copy(this.homeTarget);
       this.orbit.dist = this.homeDist;
     }
 
@@ -1223,7 +1242,7 @@ export class UniverseEngine {
     if (focus.level === "universe") {
       // Collapse orbits, fly home; clear the focused system once collapsed.
       this.tweenTo(
-        { target: new THREE.Vector3(0, 0, 0), dist: this.homeDist, phi: 1.05, expansion: 0 },
+        { target: this.homeTarget.clone(), dist: this.homeDist, phi: 1.05, expansion: 0 },
         duration,
         {
           onDone: () => {

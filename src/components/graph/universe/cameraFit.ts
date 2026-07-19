@@ -58,6 +58,25 @@ export function computeCameraRange(
 }
 
 /**
+ * Projection shift that places the camera target at the midpoint of the
+ * unobscured region to the left of a right-side panel.
+ *
+ * `obstructionLeft` is measured in viewport-local CSS pixels. Three.js's
+ * positive view offset moves the projected target left by the same amount.
+ */
+export function computeUsableViewportOffset(
+  viewportWidth: number,
+  obstructionLeft: number,
+  obstructionConsumesSpace: boolean
+): number {
+  if (!obstructionConsumesSpace || !Number.isFinite(viewportWidth) || viewportWidth <= 0) {
+    return 0;
+  }
+  const visibleRight = Math.min(Math.max(obstructionLeft, 0), viewportWidth);
+  return (viewportWidth - visibleRight) / 2;
+}
+
+/**
  * Focal-point zoom: the orbit target that keeps `anchor` (a point on the plane
  * through `target` perpendicular to the view axis) at the same screen position
  * when the orbit distance changes from `distOld` to `distNew`.

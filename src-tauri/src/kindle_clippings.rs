@@ -150,18 +150,27 @@ fn kindle_file_path(normalized_title: &str) -> String {
     format!("kindle://{}", hex_sha256(normalized_title))
 }
 
+/// Decode raw bytes to text, trying UTF-8 first and falling back to Latin-1.
+///
+/// Shared between the path-based reader (`read_file_bytes`) and the
+/// `*_bytes` Tauri commands used on mobile, where the file arrives as a
+/// `Vec<u8>` from the in-browser File store (the Tauri dialog returns
+/// unreadable `content://` URIs on Android, so mobile routes File objects
+/// through the browser-file store and sends their bytes over IPC instead).
+fn decode_clippings_bytes(bytes: &[u8]) -> String {
+    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+        return text;
+    }
+
+    // Fall back to Latin-1 (ISO-8859-1) — always valid
+    bytes.iter().map(|&b| b as char).collect::<String>()
+}
+
 /// Read a file trying UTF-8 first, falling back to Latin-1.
 fn read_file_bytes(path: &str) -> Result<String> {
     let bytes = fs::read(path)
         .map_err(|e| IncrementumError::NotFound(format!("Cannot read file '{}': {}", path, e)))?;
-
-    if let Ok(text) = String::from_utf8(bytes.clone()) {
-        return Ok(text);
-    }
-
-    // Fall back to Latin-1 (ISO-8859-1) — always valid
-    let text = bytes.iter().map(|&b| b as char).collect::<String>();
-    Ok(text)
+    Ok(decode_clippings_bytes(&bytes))
 }
 
 /// Parse the Kindle date format:
@@ -271,13 +280,24 @@ fn parse_metadata_line(
 }
 
 /// Internal: parse a clippings file into raw clippings and warnings.
+///
+/// Reads the file from `path` then delegates to [`parse_clippings_raw_from_text`].
 fn parse_clippings_raw(path: &str) -> Result<(Vec<KindleClipping>, Vec<String>)> {
     let text = read_file_bytes(path)?;
+    parse_clippings_raw_from_text(&text)
+}
 
+/// Internal: parse already-decoded clippings text into raw clippings and warnings.
+///
+/// This is the pure-in-memory parse path shared by the path-based commands
+/// (which read the file first) and the `*_bytes` Tauri commands used on mobile
+/// (which receive the file contents over IPC as `Vec<u8>` because the Tauri
+/// dialog returns unreadable `content://` URIs on Android).
+fn parse_clippings_raw_from_text(text: &str) -> Result<(Vec<KindleClipping>, Vec<String>)> {
     // Strip BOM
-    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
 
-    // Normalize line endings
+    // Normalize line endings (owned String so we can split borrow below)
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
 
     // Split on separator
@@ -423,14 +443,30 @@ fn group_clippings(clippings: &[KindleClipping]) -> Vec<KindleBookGroup> {
 }
 
 /// Parse a `My Clippings.txt` file and return a validation result.
+///
+/// Reads the file from `path` then delegates to [`parse_kindle_clippings_from_text`].
 pub fn parse_kindle_clippings(path: &str) -> Result<KindleValidationResult> {
-    let (clippings, mut warnings) = parse_clippings_raw(path)?;
-    let books = group_clippings(&clippings);
-
     let file_mtime: Option<DateTime<Utc>> = fs::metadata(path)
         .ok()
         .and_then(|m| m.modified().ok())
         .map(|t| DateTime::<Utc>::from(t));
+
+    let text = read_file_bytes(path)?;
+    parse_kindle_clippings_from_text(&text, file_mtime)
+}
+
+/// Parse already-decoded clippings text and return a validation result.
+///
+/// `file_mtime` is used only as a fallback for clippings whose date Added line
+/// is unparseable; pass `None` to use "current time" in the warning text. The
+/// `*_bytes` Tauri commands (mobile path) call this with `None` because the
+/// in-browser File store exposes no file mtime.
+pub fn parse_kindle_clippings_from_text(
+    text: &str,
+    file_mtime: Option<DateTime<Utc>>,
+) -> Result<KindleValidationResult> {
+    let (clippings, mut warnings) = parse_clippings_raw_from_text(text)?;
+    let books = group_clippings(&clippings);
 
     let importable_books: Vec<&KindleBookGroup> = books
         .iter()
@@ -472,11 +508,26 @@ pub fn parse_kindle_clippings(path: &str) -> Result<KindleValidationResult> {
 }
 
 /// Validate a clippings file against the existing database.
+///
+/// Reads the file from `path` then delegates to [`validate_kindle_clippings_preview_from_text`].
 pub async fn validate_kindle_clippings_preview(
     path: &str,
     repo: &Repository,
 ) -> Result<KindlePreviewResult> {
-    let (clippings, warnings) = parse_clippings_raw(path)?;
+    let text = read_file_bytes(path)?;
+    validate_kindle_clippings_preview_from_text(&text, repo).await
+}
+
+/// Validate already-decoded clippings text against the existing database.
+///
+/// Used by both the path-based command and the `*_bytes` Tauri command (mobile),
+/// which receives the file contents over IPC because the Tauri dialog returns
+/// unreadable `content://` URIs on Android.
+pub async fn validate_kindle_clippings_preview_from_text(
+    text: &str,
+    repo: &Repository,
+) -> Result<KindlePreviewResult> {
+    let (clippings, warnings) = parse_clippings_raw_from_text(text)?;
 
     // Group clippings by normalized title for processing
     let mut book_clippings: HashMap<String, Vec<&KindleClipping>> = HashMap::new();
@@ -571,6 +622,8 @@ pub async fn validate_kindle_clippings_preview(
 }
 
 /// Import a `My Clippings.txt` file into the database.
+///
+/// Reads the file from `path` then delegates to [`do_import_kindle_clippings_from_text`].
 pub async fn do_import_kindle_clippings(
     path: &str,
     repo: &Repository,
@@ -581,7 +634,23 @@ pub async fn do_import_kindle_clippings(
         .and_then(|m| m.modified().ok())
         .map(|t| DateTime::<Utc>::from(t));
 
-    let (clippings, warnings) = parse_clippings_raw(path)?;
+    let text = read_file_bytes(path)?;
+    do_import_kindle_clippings_from_text(&text, repo, collection_id, file_mtime).await
+}
+
+/// Import already-decoded clippings text into the database.
+///
+/// Used by both the path-based command and the `*_bytes` Tauri command (mobile).
+/// `file_mtime` is used only as a fallback for clippings with unparseable dates;
+/// pass `None` to fall back to the current time (the mobile `*_bytes` path,
+/// which has no file mtime available from the in-browser File store).
+pub async fn do_import_kindle_clippings_from_text(
+    text: &str,
+    repo: &Repository,
+    collection_id: Option<String>,
+    file_mtime: Option<DateTime<Utc>>,
+) -> Result<KindleImportResult> {
+    let (clippings, warnings) = parse_clippings_raw_from_text(text)?;
     let now = Utc::now();
 
     // Group by normalized title
@@ -893,6 +962,43 @@ pub async fn import_kindle_clippings_file(
     repo: State<'_, Repository>,
 ) -> Result<KindleImportResult> {
     do_import_kindle_clippings(&file_path, &repo, collection_id).await
+}
+
+// --- Mobile (bytes) variants ---
+//
+// On native mobile the Tauri dialog plugin returns unreadable `content://`
+// URIs, so the frontend routes the picked File through the in-browser File
+// store and sends its raw bytes over IPC instead. These commands mirror the
+// path-based ones above but accept `Vec<u8>`; they decode the bytes to text
+// and delegate to the same `*_from_text` internals, so behavior is identical
+// to the desktop path. See src/utils/kindleClippingsImport.ts for the
+// isNativeMobile() fork that selects these commands.
+
+#[tauri::command]
+pub fn parse_kindle_clippings_file_bytes(
+    file_bytes: Vec<u8>,
+) -> Result<KindleValidationResult> {
+    let text = decode_clippings_bytes(&file_bytes);
+    parse_kindle_clippings_from_text(&text, None)
+}
+
+#[tauri::command]
+pub async fn validate_kindle_clippings_bytes(
+    file_bytes: Vec<u8>,
+    repo: State<'_, Repository>,
+) -> Result<KindlePreviewResult> {
+    let text = decode_clippings_bytes(&file_bytes);
+    validate_kindle_clippings_preview_from_text(&text, &repo).await
+}
+
+#[tauri::command]
+pub async fn import_kindle_clippings_file_bytes(
+    file_bytes: Vec<u8>,
+    collection_id: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<KindleImportResult> {
+    let text = decode_clippings_bytes(&file_bytes);
+    do_import_kindle_clippings_from_text(&text, &repo, collection_id, None).await
 }
 
 #[tauri::command]

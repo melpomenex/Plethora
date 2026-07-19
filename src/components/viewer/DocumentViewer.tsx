@@ -77,7 +77,7 @@ import { recordReadingSession } from "../../utils/readingSpeed";
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
 import type { DocumentSearchState } from "../../types/searchHit";
 import { ReaderTTSControls } from "../common/ReaderTTSControls";
-import { usePaneId } from "../common/Tabs/TabContent";
+import { useIsActiveTab, usePaneId } from "../common/Tabs/TabContent";
 import { generateShareUrl, copyShareLink, DocumentState, parseStateFromUrl } from "../../lib/shareLink";
 import { usePdfUrlState } from "../../hooks/usePdfUrlState";
 import { dispatchCommandPaletteOpen, isCommandPaletteOpenShortcut } from "../../utils/commandPaletteShortcut";
@@ -332,25 +332,21 @@ export function DocumentViewer({
   // Use local document lookup by documentId prop instead of global currentDocument
   // This allows multiple DocumentViewers to show different documents in split panes
   const localDocument = documents.find((d) => d.id === documentId);
-  const currentDocument = localDocument || globalCurrentDocument;
+  // A tab may render while another document is still the store's shared
+  // currentDocument. Never let that unrelated document determine this
+  // viewer's type or loading state; the tab must stay keyed to its own id.
+  const currentDocument =
+    localDocument || (globalCurrentDocument?.id === documentId ? globalCurrentDocument : undefined);
   const { closeTab, tabs, updateTab, setActiveTab, findPaneContainingTab } = useTabsStore();
   const { items: queueItems, loadQueue } = useQueueStore();
   const { settings, updateSettings } = useSettingsStore();
 
   const paneId = usePaneId();
-  const isTabActive = useTabsStore((state) => {
-    if (embedded) return true;
-    if (!paneId) {
-      const currentTab = state.tabs.find((t) => t.data?.documentId === documentId);
-      if (!currentTab) return false;
-      const pane = state.findPaneContainingTab(currentTab.id);
-      return pane?.activeTabId === currentTab.id;
-    }
-    const pane = state.findPaneById(paneId);
-    if (!pane || pane.type !== "tabs") return false;
-    const activeTab = state.tabs.find((t) => t.id === pane.activeTabId);
-    return activeTab?.data?.documentId === documentId;
-  });
+  // TabContent already tracks the active tab for the current pane. Using that
+  // context avoids a startup race where the tab store has not yet rebuilt its
+  // pane indexes, which otherwise prevents the active viewer from hydrating.
+  const tabContextIsActive = useIsActiveTab();
+  const isTabActive = tabContextIsActive;
 
   const [pageNumber, setPageNumber] = useState(1);
   const [totalPages, setTotalPages] = useState<number>(0);
@@ -363,6 +359,7 @@ export function DocumentViewer({
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
   const [mediaSource, setMediaSource] = useState<ResolvedLocalMediaSource | null>(null);
   const mediaSourceRef = useRef<ResolvedLocalMediaSource | null>(null);
+  const mediaSourceRequestRef = useRef(0);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [, setPagesRendered] = useState(false);
@@ -600,6 +597,12 @@ export function DocumentViewer({
     const ext = doc.filePath?.split(".").pop()?.toLowerCase();
     const inferred = normalizeDocumentType(ext);
     if (inferred) return inferred;
+    if (doc.tags?.some((tag) => {
+      const normalizedTag = tag.toLowerCase();
+      return normalizedTag === "audiobook" || normalizedTag === "audio";
+    })) {
+      return "audio";
+    }
     if (doc.filePath?.includes("youtube.com") ||
       doc.filePath?.includes("youtu.be") ||
       doc.fileType === "youtube") {
@@ -1817,6 +1820,7 @@ export function DocumentViewer({
     if (mediaSourceRef.current?.revokeSrcOnDispose) {
       URL.revokeObjectURL(mediaSourceRef.current.src);
     }
+    mediaSourceRequestRef.current += 1;
     mediaSourceRef.current = null;
     setMediaSource(null);
     setMediaError(null);
@@ -1882,32 +1886,44 @@ export function DocumentViewer({
         setIsLoading(false);
       }
     } else if (inferredType === "audio") {
-      try {
-        setMediaError(null);
-        if (!doc.filePath) {
-          throw new Error("Audio document is missing a file path.");
-        }
-
-        const resolvedSource = await resolveLocalMediaSource(doc.filePath, "audio");
-        mediaSourceRef.current = resolvedSource;
-        setMediaSource(resolvedSource);
-        logAudiobookDiagnostic("source_resolution", {
-          documentId: doc.id,
-          filePath: doc.filePath,
-          strategy: resolvedSource.strategy,
-          status: "success",
-        });
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error("[DocumentViewer] Failed to resolve audio source:", error);
-        logAudiobookDiagnostic("source_resolution", {
-          documentId: doc.id,
-          filePath: doc.filePath,
-          status: "failed",
-          message: errorMessage,
-        }, "error");
-        setMediaError(errorMessage);
-      } finally {
+      setMediaError(null);
+      if (!doc.filePath) {
+        setMediaError("Audio document is missing a file path.");
+        setIsLoading(false);
+      } else if (isTauri()) {
+        // AudiobookViewer owns the native Tauri source lifecycle, including
+        // m4b preparation, mobile range streaming, and playback fallbacks.
+        // Let it mount immediately instead of waiting for a second native
+        // source request here.
+        setIsLoading(false);
+      } else {
+        // The browser player cannot resolve browser-file:// paths itself, so
+        // retain the browser object-URL resolution as a non-blocking setup step.
+        const sourceRequest = mediaSourceRequestRef.current;
+        void resolveLocalMediaSource(doc.filePath, "audio")
+          .then((resolvedSource) => {
+            if (sourceRequest !== mediaSourceRequestRef.current) return;
+            mediaSourceRef.current = resolvedSource;
+            setMediaSource(resolvedSource);
+            logAudiobookDiagnostic("source_resolution", {
+              documentId: doc.id,
+              filePath: doc.filePath,
+              strategy: resolvedSource.strategy,
+              status: "success",
+            });
+          })
+          .catch((error) => {
+            if (sourceRequest !== mediaSourceRequestRef.current) return;
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error("[DocumentViewer] Failed to resolve audio source:", error);
+            logAudiobookDiagnostic("source_resolution", {
+              documentId: doc.id,
+              filePath: doc.filePath,
+              status: "failed",
+              message: errorMessage,
+            }, "error");
+            setMediaError(errorMessage);
+          });
         setIsLoading(false);
       }
     } else if (inferredType === "video") {
@@ -2007,25 +2023,38 @@ export function DocumentViewer({
       // Mark as viewed in session (for smart queue filtering)
       markItemViewed(documentId, false);
 
-      hydrateDocument(documentId)
-        .then((fetched) => {
-          if (cancelled) return;
-          if (!fetched) {
-            setIsLoading(false);
-            setMediaError("Document not found in database.");
-            return;
-          }
-          setCurrentDocument(fetched);
-          loadDocumentData(fetched);
-          lastLoadedDocumentIdRef.current = documentId;
-        })
-        .catch((error) => {
-          if (!cancelled) {
-            console.error("Failed to hydrate document by id:", error);
-            setIsLoading(false);
-            setMediaError(error instanceof Error ? error.message : String(error));
-          }
-        });
+      // A document can briefly fail to resolve right after import (e.g. the
+      // backend write hasn't settled yet), so retry a couple of times before
+      // treating it as genuinely missing.
+      const attemptHydrate = (attemptsLeft: number) => {
+        hydrateDocument(documentId)
+          .then((fetched) => {
+            if (cancelled) return;
+            if (!fetched) {
+              if (attemptsLeft > 0) {
+                setTimeout(() => {
+                  if (!cancelled) attemptHydrate(attemptsLeft - 1);
+                }, 400);
+                return;
+              }
+              setIsLoading(false);
+              setMediaError("Document not found in database.");
+              return;
+            }
+            setCurrentDocument(fetched);
+            loadDocumentData(fetched);
+            lastLoadedDocumentIdRef.current = documentId;
+          })
+          .catch((error) => {
+            if (!cancelled) {
+              console.error("Failed to hydrate document by id:", error);
+              setIsLoading(false);
+              setMediaError(error instanceof Error ? error.message : String(error));
+            }
+          });
+      };
+
+      attemptHydrate(2);
     }
 
     return () => {
@@ -5084,6 +5113,10 @@ export function DocumentViewer({
   }, [isHtmlViewer, viewMode, captureHtmlScrollState, handleScrollPositionChange, currentDocument?.id]);
 
   if (!currentDocument) {
+    // Some embedded surfaces can mount briefly without a document id while
+    // their parent is restoring its queue item. Do not let that placeholder
+    // cover a valid document viewer in the same webview.
+    if (!documentId) return null;
     return (
       <div ref={containerRef} className="flex items-center justify-center h-full">
         <div className="text-muted-foreground">{t("viewer.documentNotFound")}</div>
@@ -5092,6 +5125,10 @@ export function DocumentViewer({
   }
 
   const hasPageNavigation = docType === "pdf" || docType === "epub";
+  // AudiobookViewer resolves native/mobile media sources independently. Once
+  // the document identity is known, don't let DocumentViewer's hydration gate
+  // hide that player behind a permanent "Loading document..." state.
+  const canRenderAudioViewer = docType === "audio";
 
   return (
     <div ref={containerRef} className="flex flex-col h-full min-h-0 overflow-hidden">
@@ -5924,7 +5961,7 @@ export function DocumentViewer({
           }
         }}
       >
-        {isLoading ? (
+        {isLoading && !canRenderAudioViewer ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-muted-foreground">{t("viewer.loadingDocument")}</div>
           </div>
@@ -6158,27 +6195,7 @@ export function DocumentViewer({
             onVimRuntimeChange={setEpubVimRuntime}
           />
         ) : docType === "audio" ? (
-          mediaSource ? (
-            <AudiobookViewer
-              document={currentDocument}
-              fileContent={mediaSource.src}
-              remoteAudioUrl={(currentDocument.filePath.startsWith("http://") || currentDocument.filePath.startsWith("https://") || currentDocument.filePath.startsWith("data:")) ? currentDocument.filePath : undefined}
-              // Recover the podcast episode id from metadata.source ("podcast:<id>")
-              // so the transcript panel loads the podcast's Groq transcript (keyed by
-              // episode id). Without this, AudiobookViewer sees a non-podcast audio
-              // doc and shows the generic empty transcribe state.
-              episodeId={(currentDocument.metadata?.source?.startsWith("podcast:"))
-                ? currentDocument.metadata.source.slice("podcast:".length)
-                : undefined}
-              episodeTitle={currentDocument.title}
-              initialSeekTime={initialJump?.kind === "audio" ? initialJump.timeSeconds : undefined}
-              initialTranscriptSegmentId={initialJump?.kind === "audio" ? initialJump.segmentId : undefined}
-              autoPlayOnOpen={!!autoPlay && initialJump?.kind === "audio"}
-              onEpisodeEnded={onEnded}
-              onBack={handleBack}
-              hideTitleHeader={true}
-            />
-          ) : mediaError ? (
+          mediaError && !mediaSource ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center max-w-md px-4">
                 <div className="text-6xl mb-4">🎧</div>
@@ -6202,17 +6219,31 @@ export function DocumentViewer({
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="text-6xl mb-4">🎧</div>
-                <h3 className="text-xl font-semibold text-foreground mb-2">
-                  {t("viewer.loadingAudiobook")}
-                </h3>
-                <p className="text-muted-foreground">
-                  {t("viewer.pleaseWaitWhileAudioLoads")}
-                </p>
-              </div>
-            </div>
+            <AudiobookViewer
+              document={currentDocument}
+              // AudiobookViewer resolves local sources itself (including the
+              // mobile range-enabled media server). Do not hold the player
+              // behind DocumentViewer's separate source-resolution request;
+              // that request can be delayed during import and otherwise leaves
+              // the tab stuck on the loading screen even though the player can
+              // continue resolving its own source.
+              fileContent={mediaSource?.src}
+              remoteAudioUrl={(currentDocument.filePath.startsWith("http://") || currentDocument.filePath.startsWith("https://") || currentDocument.filePath.startsWith("data:")) ? currentDocument.filePath : undefined}
+              // Recover the podcast episode id from metadata.source ("podcast:<id>")
+              // so the transcript panel loads the podcast's Groq transcript (keyed by
+              // episode id). Without this, AudiobookViewer sees a non-podcast audio
+              // doc and shows the generic empty transcribe state.
+              episodeId={(currentDocument.metadata?.source?.startsWith("podcast:"))
+                ? currentDocument.metadata.source.slice("podcast:".length)
+                : undefined}
+              episodeTitle={currentDocument.title}
+              initialSeekTime={initialJump?.kind === "audio" ? initialJump.timeSeconds : undefined}
+              initialTranscriptSegmentId={initialJump?.kind === "audio" ? initialJump.segmentId : undefined}
+              autoPlayOnOpen={!!autoPlay && initialJump?.kind === "audio"}
+              onEpisodeEnded={onEnded}
+              onBack={handleBack}
+              hideTitleHeader={true}
+            />
           )
         ) : docType === "video" ? (
           mediaSource ? (

@@ -199,7 +199,19 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     try {
       const collectionId = useCollectionStore.getState().activeCollectionId;
       const docs = await documentsApi.getDocuments(collectionId);
-      set({ documents: docs, isLoading: false });
+      set((state) => {
+        // Merge rather than replace: a concurrent loadDocuments()/loadDocumentsPage()
+        // call scoped to a different collection must not wipe out documents that
+        // this fetch's scope simply doesn't cover. Reconcile deletions only among
+        // entries that fall within the scope we just queried.
+        const fetchedIds = new Set(docs.map((d) => d.id));
+        const retained = state.documents.filter((d) => {
+          if (fetchedIds.has(d.id)) return false; // superseded by fresh copy below
+          if (collectionId == null) return false; // full-scope fetch is authoritative
+          return d.collectionId !== collectionId; // outside this fetch's scope, keep as-is
+        });
+        return { documents: [...retained, ...docs], isLoading: false };
+      });
       void registerExistingFilesSyncLazy(docs);
     } catch (error) {
       set({

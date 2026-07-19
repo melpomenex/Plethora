@@ -25,7 +25,7 @@ import { importAnkiPackageFromPicker } from "../../utils/ankiImport";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
-import { ActionButton, ActionMenu, FocusPanel } from "../common/UI";
+import { ActionButton, FocusPanel } from "../common/UI";
 import { getReviewHomeAction } from "./reviewFocus";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
 import { useIsActiveTab } from "../common/Tabs";
@@ -293,19 +293,14 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                 </ActionButton>
               )
             }
-            secondaryActions={
-              <ActionMenu
-                label={t("reviewHome.viewDecks")}
-                items={[
-                  { label: t("reviewHome.viewDecks"), icon: Stack, onSelect: () => setIsDecksModalOpen(true) },
-                  { label: t("common.refresh"), icon: ArrowsClockwise, onSelect: loadStats },
-                  { label: t("extracts.createFlashcards"), icon: Sparkle, onSelect: () => setIsFlashcardStudioOpen(true) },
-                  { label: isAnkiImporting ? t("review.importing") : t("review.importDeck"), icon: Upload, onSelect: handleImportDeck, disabled: isAnkiImporting },
-                  ...(onOpenDeckManager ? [{ label: t("review.deckManager.title"), icon: FolderPlus, onSelect: onOpenDeckManager }] : []),
-                  { label: t("review.preview"), icon: Lightning, onSelect: () => setIsReviewPreviewOpen(true), disabled: isLoading },
-                ]}
-              />
-            }
+            overflowActions={[
+              { id: "view-decks", label: t("reviewHome.viewDecks"), icon: <Stack className="h-4 w-4" />, onSelect: () => setIsDecksModalOpen(true) },
+              { id: "refresh", label: t("common.refresh"), icon: <ArrowsClockwise className="h-4 w-4" />, onSelect: loadStats },
+              { id: "create-flashcards", label: t("extracts.createFlashcards"), icon: <Sparkle className="h-4 w-4" />, onSelect: () => setIsFlashcardStudioOpen(true) },
+              { id: "import-deck", label: isAnkiImporting ? t("review.importing") : t("review.importDeck"), icon: <Upload className="h-4 w-4" />, onSelect: handleImportDeck, disabled: isAnkiImporting },
+              ...(onOpenDeckManager ? [{ id: "deck-manager", label: t("review.deckManager.title"), icon: <FolderPlus className="h-4 w-4" />, onSelect: onOpenDeckManager }] : []),
+              { id: "review-preview", label: t("review.preview"), icon: <Lightning className="h-4 w-4" />, onSelect: () => setIsReviewPreviewOpen(true), disabled: isLoading },
+            ]}
           />
           <p className="text-xs text-muted-foreground">
             {t("reviewHome.inSessionTools")} <kbd className="px-1 py-0.5 rounded bg-muted">Ctrl/⌘+I</kbd> {t("reviewHome.fsrsInspector")},{" "}

@@ -19,6 +19,7 @@ import {
   Bookmark,
   BookmarkSimple,
   CaretLeft,
+  CaretRight,
   CircleNotch,
   Clock,
   Headphones,
@@ -66,6 +67,7 @@ import { getEpisodePosition, updateEpisodePosition, markEpisodePlayed, downloadE
 import { isNativeMobile } from "../../lib/tauri";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import { resolveLocalMediaSource } from "./localMediaSource";
+import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
 
 export type AudiobookPlaybackErrorKind = "source" | "codec";
 
@@ -352,6 +354,12 @@ export function AudiobookViewer({
   
   // UI state
   const [showChapters, setShowChapters] = useState(false);
+  // Adaptive (bottom-sheet on mobile / dialog on desktop) chapters picker.
+  // Backs the chapter chip above the progress bar and the chapters button in
+  // the control cluster, so chapter navigation works everywhere AudiobookViewer
+  // is mounted (Audiobooks tab, Queue, PodcastManager, EPUB sync) — including
+  // mobile, where the desktop-only left sidebar is unreachable.
+  const [showChaptersSheet, setShowChaptersSheet] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [showBookmarks, setShowBookmarks] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
@@ -421,6 +429,16 @@ export function AudiobookViewer({
   const pendingAutoplayAfterFallbackRef = useRef(false);
   const fallbackAttemptedRef = useRef(false);
   const appliedInitialSeekRef = useRef<string | null>(null);
+  // Tracks whether the mount-time position/volume/rate restore has already run
+  // for the current playback session. Without this, the restore effect re-fires
+  // every time `document.currentPage` updates (the 5s auto-save mutates it),
+  // which re-seeks the audio element backward and creates a "play 6s, jump back
+  // 2s, repeat" feedback loop. Keyed by the session identity, not by progress.
+  const restoredSessionRef = useRef<string | null>(null);
+  // Always-latest reference to loadSavedPosition so the once-per-session restore
+  // effect can invoke it without depending on the callback's identity (which
+  // also changes on every `document.currentPage` update).
+  const loadSavedPositionRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     fallbackAttemptedRef.current = false;
@@ -925,15 +943,37 @@ export function AudiobookViewer({
     }
   }, [currentPartIndex, document.currentPage, document.id, fromGlobalSeconds, multiPartInfo]);
 
+  // Keep a ref to the latest loadSavedPosition so the once-per-session restore
+  // effect (below) can call it without re-running every time this callback is
+  // recreated. The callback is recreated whenever document.currentPage changes
+  // (its dep), and re-running the restore on every progress write is what drove
+  // the save -> restore -> seek-back playback loop.
+  loadSavedPositionRef.current = loadSavedPosition;
+
   // Reset seek retry count and last saved global time on episode/document change
   useEffect(() => {
     seekRetryCountRef.current = 0;
     lastSavedGlobalTimeRef.current = 0;
   }, [document.id, episodeId]);
 
+  // Mount-time restore: seek to the saved playback position (or the podcast
+  // episode position) and apply the persisted volume/playback rate. This must
+  // run ONCE per playback session — it is intentionally NOT reactive to
+  // `document.currentPage` or `loadSavedPosition`'s identity.
+  //
+  // Why: the 5s auto-save interval calls persistPosition -> updateDocumentProgressAuto,
+  // which mutates document.currentPage in the store. If this effect depended on
+  // document.currentPage (it previously did), every save would re-trigger the
+  // restore, re-seeking the audio element BACKWARD to the just-saved position
+  // ~1s later (the async DB round-trip latency). That produced a visible
+  // "play ~6s, jump back ~2s, repeat forever" loop during playback.
   useEffect(() => {
+    const sessionKey = `${document.id}:${episodeId ?? ""}:${remoteAudioUrl ?? ""}`;
+    if (restoredSessionRef.current === sessionKey) return;
+    restoredSessionRef.current = sessionKey;
+
     if (typeof initialSeekTime !== "number" || !Number.isFinite(initialSeekTime)) {
-      void loadSavedPosition();
+      void loadSavedPositionRef.current();
     }
 
     // For podcast episodes, restore saved position
@@ -957,7 +997,7 @@ export function AudiobookViewer({
         }
       })();
     }
-    
+
     const savedVolume = localStorage.getItem("audiobook-volume");
     if (savedVolume) {
       setVolume(parseFloat(savedVolume));
@@ -965,7 +1005,7 @@ export function AudiobookViewer({
         audioRef.current.volume = parseFloat(savedVolume);
       }
     }
-    
+
     const savedRate = localStorage.getItem("audiobook-rate");
     if (savedRate) {
       setPlaybackRate(parseFloat(savedRate));
@@ -973,13 +1013,14 @@ export function AudiobookViewer({
         audioRef.current.playbackRate = parseFloat(savedRate);
       }
     }
+    // Deliberately minimal: only re-run when the actual playback session
+    // identity changes (different document / episode / source). Progress writes
+    // and callback identity changes must NOT re-trigger the restore.
   }, [
     document.id,
-    document.currentPage,
-    initialSeekTime,
-    loadSavedPosition,
     episodeId,
     remoteAudioUrl,
+    initialSeekTime,
     currentPartIndex,
     toGlobalSeconds,
   ]);
@@ -1653,6 +1694,7 @@ export function AudiobookViewer({
   const goToChapter = (chapter: AudiobookChapter) => {
     seek(chapter.startTime);
     setShowChapters(false);
+    setShowChaptersSheet(false);
   };
   
   // Volume controls
@@ -2444,7 +2486,13 @@ export function AudiobookViewer({
           break;
         case "c":
           e.preventDefault();
-          setShowChapters(prev => !prev);
+          // On mobile the desktop left sidebar is unreachable, so toggle the
+          // adaptive chapters sheet instead. On desktop, toggle the sidebar.
+          if (isMobile) {
+            setShowChaptersSheet(prev => !prev);
+          } else {
+            setShowChapters(prev => !prev);
+          }
           break;
         case "f":
           e.preventDefault();
@@ -2782,6 +2830,26 @@ export function AudiobookViewer({
             "border-t border-border bg-card p-4",
             isMobile && "pb-[calc(5rem+env(safe-area-inset-bottom))]"
           )}>
+            {/* Mobile chapter chip — tappable "now playing" chapter that opens
+                the chapters sheet. Mirrors the Spotify/Apple Podcasts pattern:
+                surfaces the current chapter at a glance and keeps the control
+                row uncluttered. Only shown when there is more than one real
+                chapter (the parser synthesizes a dummy "Chapter 1" otherwise). */}
+            {isMobile && chapters.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setShowChaptersSheet(true)}
+                className="mx-auto mb-3 flex max-w-full items-center gap-2 rounded-full bg-muted/60 px-3.5 py-1.5 text-sm text-foreground transition-colors hover:bg-muted active:scale-[0.98]"
+                aria-label={t("viewer.chapters")}
+              >
+                <List className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate font-medium">
+                  {currentChapter?.title || t("viewer.chapters")}
+                </span>
+                <CaretRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </button>
+            )}
+
             {/* Progress bar */}
             <div className="mb-4">
               <div 
@@ -3011,6 +3079,26 @@ export function AudiobookViewer({
                     className="w-20 h-1 bg-muted rounded-full appearance-none cursor-pointer"
                   />
                 </div>
+                )}
+
+                {/* Chapters — opens the adaptive chapters sheet. Visible on both
+                    mobile and desktop so chapter navigation is reachable in every
+                    mount context (notably the Queue, where the title header — and
+                    thus the desktop-only left-cluster button — is hidden). The
+                    existing desktop left-cluster button is preserved for muscle
+                    memory; both toggle the same sheet. */}
+                {chapters.length > 0 && (
+                <button
+                  onClick={() => setShowChaptersSheet(true)}
+                  className={cn(
+                    "p-2 rounded-lg transition-colors",
+                    showChaptersSheet ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                  )}
+                  title={t("viewer.chapters")}
+                  aria-label={t("viewer.chapters")}
+                >
+                  <List className="h-5 w-5" />
+                </button>
                 )}
 
                 {/* Transcript toggle */}
@@ -3311,6 +3399,96 @@ export function AudiobookViewer({
         selectedText={selectedText}
         pageNumber={Math.floor(currentTime)} // Use time as "page" for audio
       />
+
+      {/* Chapters sheet — adaptive (bottom sheet on mobile / dialog on desktop).
+          Backs the chapter chip above the progress bar and the chapters button in
+          the control cluster. Reuses the same chapters data, goToChapter seek
+          logic, multi-part selector, and active-chapter highlight as the desktop
+          left sidebar. Rendered via portal so it overlays correctly even inside
+          the Queue's paged container. */}
+      <ResponsiveDialogSheet
+        open={showChaptersSheet}
+        onClose={() => setShowChaptersSheet(false)}
+        title={t("viewer.chapters")}
+        description={
+          currentChapter
+            ? `${currentChapter.title} · ${audiobookApi.formatDuration(currentChapter.startTime)}`
+            : undefined
+        }
+        closeLabel={t("viewer.chapters")}
+        presentation="auto"
+        className="max-w-lg"
+      >
+        {/* Part selector for multi-part books (mirrors the desktop sidebar) */}
+        {multiPartInfo && (
+          <div className="mb-3 rounded-xl border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground mb-1.5">{t("viewer.selectPart")}</p>
+            <select
+              value={currentPartIndex}
+              onChange={(e) => goToPart(Number(e.target.value))}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all text-foreground cursor-pointer"
+            >
+              {multiPartInfo.partFiles.map((part, idx) => {
+                const fileName = part.split(/[/\\]/).pop() || `Part ${idx + 1}`;
+                return (
+                  <option key={idx} value={idx}>
+                    Part {idx + 1}: {fileName}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        )}
+
+        <div className="-mx-1 max-h-[60vh] overflow-y-auto">
+          {chapters.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {t("viewer.chapters")}
+            </div>
+          ) : (
+            chapters.map((chapter) => {
+              const isActive = currentChapter?.id === chapter.id;
+              return (
+                <button
+                  key={chapter.id}
+                  type="button"
+                  onClick={() => goToChapter(chapter)}
+                  className={cn(
+                    "w-full min-h-[48px] rounded-xl px-3 py-2.5 text-left transition-colors flex items-center gap-3",
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-foreground hover:bg-muted active:bg-muted"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {chapter.id}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {chapter.title}
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "shrink-0 text-xs tabular-nums",
+                      isActive ? "text-primary/80" : "text-muted-foreground"
+                    )}
+                  >
+                    {audiobookApi.formatDuration(chapter.startTime)}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </ResponsiveDialogSheet>
     </div>
   );
 }

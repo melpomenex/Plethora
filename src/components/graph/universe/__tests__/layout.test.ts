@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { GraphNodeType, type GraphNode, type GraphEdge } from "../../KnowledgeGraph";
-import { computeUniverseLayout, hashId, rand01, MAX_ORBITS, MAX_MOONS } from "../layout";
+import {
+  computeLayoutEnvelope,
+  computeUniverseLayout,
+  hashId,
+  rand01,
+  MAX_ORBITS,
+  MAX_MOONS,
+} from "../layout";
 import { NodeClass } from "../types";
 
 function makeCollection(opts?: { docs?: number; extractsPerDoc?: number; cardsPerExtract?: number }) {
@@ -66,6 +73,34 @@ describe("hash primitives", () => {
   });
 });
 
+describe("computeLayoutEnvelope", () => {
+  it("uses the geometric extent midpoint instead of a density-weighted centroid", () => {
+    const envelope = computeLayoutEnvelope([
+      { center: { x: -20, y: -4, z: 10 }, radius: 5 },
+      { center: { x: 80, y: 16, z: 30 }, radius: 10 },
+      // Repeated dense points do not move the envelope center.
+      ...Array.from({ length: 40 }, () => ({ center: { x: 80, y: 16, z: 30 } })),
+    ]);
+
+    expect(envelope.center).toEqual({ x: 32.5, y: 8.5, z: 22.5 });
+    expect(envelope.bounds).toBeGreaterThan(0);
+  });
+
+  it("supports a fixed center and stable empty-layout fallback", () => {
+    const fixed = computeLayoutEnvelope(
+      [{ center: { x: 10, y: 0, z: 0 } }],
+      { x: 2, y: 0, z: 0 }
+    );
+    expect(fixed.center).toEqual({ x: 2, y: 0, z: 0 });
+    expect(fixed.bounds).toBeGreaterThanOrEqual(8);
+
+    expect(computeLayoutEnvelope([])).toEqual({
+      center: { x: 0, y: 0, z: 0 },
+      bounds: 60,
+    });
+  });
+});
+
 describe("computeUniverseLayout", () => {
   it("produces identical positions across runs (session stability)", () => {
     const { nodes, edges } = makeCollection();
@@ -78,6 +113,46 @@ describe("computeUniverseLayout", () => {
       expect(pa.position).toEqual(pb.position);
       expect(pa.origin).toEqual(pb.origin);
       expect(pa.systemIndex).toBe(pb.systemIndex);
+    }
+    expect(a.center).toEqual(b.center);
+    expect(a.bounds).toBe(b.bounds);
+  });
+
+  it("centers an asymmetric visible layout and encloses every visible placement", () => {
+    const { nodes, edges } = makeCollection({ docs: 7, extractsPerDoc: 3, cardsPerExtract: 5 });
+    nodes.push({
+      id: "tag-distant",
+      type: GraphNodeType.Tag,
+      label: "distant",
+      x: 0,
+      y: 0,
+    });
+    const layout = computeUniverseLayout(nodes, edges);
+    const extents = [
+      ...layout.clusters.map((cluster) => ({ center: cluster.center, radius: cluster.radius })),
+      ...[...layout.placements.values()]
+        .filter((placement) => !placement.paged)
+        .map((placement) => ({ center: placement.position, radius: 0 })),
+    ];
+
+    const minX = Math.min(...extents.map((extent) => extent.center.x - extent.radius));
+    const maxX = Math.max(...extents.map((extent) => extent.center.x + extent.radius));
+    const minY = Math.min(...extents.map((extent) => extent.center.y - extent.radius));
+    const maxY = Math.max(...extents.map((extent) => extent.center.y + extent.radius));
+    const minZ = Math.min(...extents.map((extent) => extent.center.z - extent.radius));
+    const maxZ = Math.max(...extents.map((extent) => extent.center.z + extent.radius));
+
+    expect(layout.center.x).toBeCloseTo((minX + maxX) / 2, 10);
+    expect(layout.center.y).toBeCloseTo((minY + maxY) / 2, 10);
+    expect(layout.center.z).toBeCloseTo((minZ + maxZ) / 2, 10);
+    expect(layout.center).not.toEqual({ x: 0, y: 0, z: 0 });
+    for (const extent of extents) {
+      const distance = Math.hypot(
+        extent.center.x - layout.center.x,
+        extent.center.y - layout.center.y,
+        extent.center.z - layout.center.z
+      );
+      expect(distance + extent.radius).toBeLessThanOrEqual(layout.bounds + 1e-8);
     }
   });
 
@@ -180,6 +255,7 @@ describe("computeUniverseLayout", () => {
     const layout = computeUniverseLayout([], []);
     expect(layout.placements.size).toBe(0);
     expect(layout.clusters.length).toBe(0);
+    expect(layout.center).toEqual({ x: 0, y: 0, z: 0 });
     expect(layout.bounds).toBeGreaterThan(0);
   });
 });

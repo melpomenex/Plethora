@@ -129,6 +129,8 @@ export interface UniverseLayout {
   systemList: UniverseSystem[];
   /** Child → parent node id (extract → doc, card → extract). */
   parentOf: Map<string, string>;
+  /** Geometric midpoint of the visible layout envelope; canonical home target. */
+  center: Vec3;
   /** Radius that encloses the whole galaxy (for camera framing). */
   bounds: number;
   /** Radius of the cluster core only (belt/halo excluded) — home view frames this. */

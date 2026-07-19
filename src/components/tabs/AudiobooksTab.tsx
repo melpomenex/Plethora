@@ -20,11 +20,12 @@ import { DocumentViewer } from "./TabRegistry";
 import { cn } from "../../utils";
 import { formatDuration } from "../../api/audiobooks";
 import { isAudiobookDocument } from "./audiobookClassification";
-import { useIsActiveTab } from "../common/Tabs";
+import { useIsActiveTab, usePaneId } from "../common/Tabs";
 
 export function AudiobooksTab() {
   const { documents, loadDocuments, deleteDocument } = useDocumentStore();
   const { addTab } = useTabsStore();
+  const paneId = usePaneId();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "not_started" | "in_progress" | "finished" | "dnf">("all");
@@ -150,7 +151,7 @@ export function AudiobooksTab() {
       content: DocumentViewer,
       closable: true,
       data: { documentId: book.id },
-    });
+    }, paneId);
   };
 
   const handleToggleDnf = (id: string, isCurrentlyDnf: boolean) => {

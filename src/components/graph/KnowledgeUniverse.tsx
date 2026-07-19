@@ -19,6 +19,7 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { ObsidianSphere } from "./ObsidianSphere";
 import { NodeDetailPanel } from "./NodeDetailPanel";
 import { UniverseEngine, WebGLUnavailableError } from "./universe/engine";
+import { computeUsableViewportOffset } from "./universe/cameraFit";
 import { computeUniverseLayout } from "./universe/layout";
 import type { FocusState, KnowledgeUniverseProps, Vec3 } from "./universe/types";
 import {
@@ -68,6 +69,7 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const detailPanelHostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<UniverseEngine | null>(null);
 
   const [webglFailed, setWebglFailed] = useState(false);
@@ -233,12 +235,34 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
 
   useEffect(() => {
     const engine = engineRef.current;
-    if (!engine) return;
-    if (selectedNodeId && !isMobile) {
-      engine.setViewportOffset(180);
-    } else {
-      engine.setViewportOffset(0);
-    }
+    const container = containerRef.current;
+    if (!engine || !container) return;
+
+    const updateOffset = () => {
+      const panel = detailPanelHostRef.current?.firstElementChild;
+      if (!selectedNodeId || isMobile || !(panel instanceof HTMLElement)) {
+        engine.setViewportOffset(0);
+        return;
+      }
+
+      const containerRect = container.getBoundingClientRect();
+      const panelRect = panel.getBoundingClientRect();
+      engine.setViewportOffset(
+        computeUsableViewportOffset(
+          containerRect.width,
+          panelRect.left - containerRect.left,
+          true
+        )
+      );
+    };
+
+    updateOffset();
+    const resizeObserver = new ResizeObserver(updateOffset);
+    resizeObserver.observe(container);
+    const panel = detailPanelHostRef.current?.firstElementChild;
+    if (panel instanceof HTMLElement) resizeObserver.observe(panel);
+
+    return () => resizeObserver.disconnect();
   }, [selectedNodeId, isMobile]);
 
   // ------------------------------------------------------------- navigation
@@ -764,33 +788,35 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
 
       {/* Selected node detail panel */}
       {selectedNode && (
-        <NodeDetailPanel
-          node={selectedNode}
-          edges={edges}
-          onClose={() => selectNode(null)}
-          onFocus={() => {
-            const placement = layout.placements.get(selectedNode.id);
-            if (!placement) return;
-            if (placement.systemIndex >= 0) {
-              const docId = layout.systemList[placement.systemIndex].docId;
-              applyFocus(
-                docId === selectedNode.id
-                  ? { level: "system", docId }
-                  : { level: "node", docId, nodeId: selectedNode.id }
-              );
-            } else {
-              engineRef.current?.flyToPoint(
-                placement.position.x,
-                placement.position.y,
-                placement.position.z,
-                70
-              );
-            }
-          }}
-          onOpen={onNodeDoubleClick}
-          onSave={onNodeSave}
-          onDelete={onNodeDelete}
-        />
+        <div ref={detailPanelHostRef} className="contents">
+          <NodeDetailPanel
+            node={selectedNode}
+            edges={edges}
+            onClose={() => selectNode(null)}
+            onFocus={() => {
+              const placement = layout.placements.get(selectedNode.id);
+              if (!placement) return;
+              if (placement.systemIndex >= 0) {
+                const docId = layout.systemList[placement.systemIndex].docId;
+                applyFocus(
+                  docId === selectedNode.id
+                    ? { level: "system", docId }
+                    : { level: "node", docId, nodeId: selectedNode.id }
+                );
+              } else {
+                engineRef.current?.flyToPoint(
+                  placement.position.x,
+                  placement.position.y,
+                  placement.position.z,
+                  70
+                );
+              }
+            }}
+            onOpen={onNodeDoubleClick}
+            onSave={onNodeSave}
+            onDelete={onNodeDelete}
+          />
+        </div>
       )}
 
       {/* Floating controls — inset above gesture bars on mobile */}
