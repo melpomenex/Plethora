@@ -4,7 +4,7 @@
 //! with a weighted blend of **five competing algorithms** — the "Algorithm
 //! Arena" feature. The binary persists the five weights as per-user settings
 //! (`[Algorithm] PA2/PA15/PA19/PA20/PAF`, loader `d7f350`, saver `d71070`)
-//! with compile-time defaults at `DAT_00d81ab8`:
+//! with compile-time defaults written at unit-init by `FUN_00af4580`:
 //!
 //! ```text
 //! blend    = (w₁·SM2 + w₂·SM15 + w₃·SM19 + w₄·SM20 + w₅·FSRS) / Σw
@@ -14,8 +14,9 @@
 //! ```
 //!
 //! All 5 competitors, the blend, retention adjustment, dispersal, post-lapse,
-//! and finalization are decoded and live-validated against the running
-//! `sm20.exe` binary via Frida injection.
+//! finalization, and the runtime weight adaptation (`FUN_00af40d0`) are
+//! decoded and live-validated against the running `sm20.exe` binary via
+//! Frida injection.
 //!
 //! ## The five competitors (slot order = item struct offsets)
 //!
@@ -27,10 +28,13 @@
 //! | M4 (+0x83) | `PA20` | 25% | `af9420` | **SM-20 proper** (35-param theory-based kernel, no matrices) |
 //! | M5 (+0x8b) | `PAF` | 10% | `ce6c70`→`ce71b0` | **FSRS** (19/81 power curve, near-default weights) |
 //!
-//! This port adds the Arena's adaptive layer (see [`arena`]): weights update
-//! per committed review via multiplicative weights over per-model log-loss,
-//! and both trainable competitors can be fitted to the user's own review log
-//! (see [`optimize`] for SM-20/M4, and the fsrs crate integration for M5).
+//! The Arena weights adapt to the user's own review history via the decoded
+//! `FUN_00af40d0` (see [`arena`]): on every committed review past the first,
+//! the per-review stats orchestrator `FUN_00ce4470` computes each model's
+//! signed prediction error `(outcome - R_i)` and nudges the weights toward
+//! models that predicted the outcome better. Both trainable competitors can
+//! additionally be fitted to the user's own review log (see [`optimize`] for
+//! SM-20/M4, and the fsrs crate integration for M5).
 //!
 //! Evidence: `[C]` = decompiled C, `[ASM]` = assembly, `[BIN]` = binary extraction
 

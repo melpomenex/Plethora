@@ -1,44 +1,99 @@
-//! Algorithm Arena — adaptive per-user weighting of the five competitors.
+//! Algorithm Arena — decoded weight adaptation (`FUN_00af40d0`).
 //!
-//! SuperMemo 20's "Algorithm Arena" runs five spaced-repetition algorithms in
-//! parallel (SM-2, SM-15, SM-19, SM-20, FSRS — the binary persists their
-//! weights as `[Algorithm] PA2/PA15/PA19/PA20/PAF` with compile-time defaults
-//! 6/14/45/25/10) and lets predictive performance on the user's own reviews
-//! decide the blend.
+//! SuperMemo 20's "Algorithm Arena" runs five spaced-repetition algorithms
+//! in parallel (SM-2, SM-15, SM-19, SM-20, FSRS) and blends them with a
+//! weighted average. The weights have three layers in the real binary:
 //!
-//! **Weight update routine:** `FUN_00af40d0` (decompiled from `sm20.exe`).
-//! Called from `FUN_00ce4470` which computes per-model prediction errors,
-//! then `af40d0` applies a multiplicative update:
-//!   `mean_error = sum(errors) / 5`
-//!   `adjustment_i = clamp(mean_error - error_i, -0.5, 0.5)`
-//!   `factor_i = exp(adjustment_i * 0.0317)`   (learning rate)
-//!   `weight_i *= factor_i; clamp(lo_i, hi_i)`
-//!   renormalize to sum = 100
+//! 1. **Compile-time defaults** written at unit-init (`FUN_00af4580`):
+//!    `[6.0, 14.0, 45.0, 25.0, 10.0]` — slot order SM-2/SM-15/SM-19/SM-20/
+//!    FSRS, confirmed by static disassembly and by a live memory read.
+//! 2. **User ini-override** via `[Algorithm] PA2/PA15/PA19/PA20/PAF` in
+//!    `collection.ini` (loader `FUN_00d7f350`, saver `FUN_00d71070`). If
+//!    present, these replace the defaults at load time.
+//! 3. **Runtime adaptation** on every committed review where M3 produced a
+//!    retrievability prediction: the per-review stats orchestrator
+//!    `FUN_00ce4470` holds the outcome and each model's pre-review
+//!    retrievability, computes the per-model signed prediction error
+//!    `e_i = outcome - R_i`, and calls `FUN_00af40d0` to nudge the weights
+//!    toward models that predicted the outcome better. The updated weights
+//!    are persisted back to `collection.ini` on shutdown — which is why a
+//!    user observes the `PA*` keys shifting over time.
 //!
-//! The R-Metric mirrors SuperMemo's statistic: relative log-loss improvement
-//! of the weighted blend over Algorithm SM-19 alone, over an exponentially
-//! decayed window.
+//! # The decoded update — `FUN_00af40d0`
+//!
+//! All constants below are byte-extracted from the binary (image base
+//! `0x400000`, `.data` section); the addresses in backticks are the
+//! Ghidra VA labels. The caller `FUN_00ce4470` passes the five signed
+//! errors as the value parameters and the five weight globals
+//! (`PA2/PA15/PA19/PA20/PAF`) as the pointer parameters — the function
+//! mutates the weights in place:
+//!
+//! ```text
+//! mean        = (e₁ + e₂ + e₃ + e₄ + e₅) / 5.0          // af44b0
+//! adjustment  = clamp(mean - e_i, -0.5, 0.5)             // af44b8 / af44c0
+//! weight_i   *= exp(adjustment * 0.0317)                 // af44c8
+//! weight_i    = clamp(weight_i, lo_i, hi_i)              // af44d0..af4510
+//! renormalize all weights to sum = 100                   // af4518
+//! ```
+//!
+//! Per-weight clamps `(lo, hi)`, one per slot:
+//!
+//! ```text
+//! M1 (PA2):  (0.1, 30.0)     M2 (PA15): (2.0, 50.0)
+//! M3 (PA19): (25.0, 99.9)    M4 (PA20): (15.0, 95.0)
+//! M5 (PAF):  (0.1, 45.0)
+//! ```
+//!
+//! The adaptation branch in the caller is gated by two `1e-8` thresholds
+//! (`DAT_00ce5c58`): the item must have a prior repetition, and M3 must
+//! have produced a retrievability prediction. Both are sanity guards that
+//! hold in normal operation past the first review.
+//!
+//! # Diagnostics (NOT decoded — Incrementum additions)
+//!
+//! The `decayed_loss`, `decayed_blend_loss`, `decayed_sm19_loss`,
+//! `decayed_count`, and `total_scored` fields, plus the `mean_losses()`
+//! and `r_metric()` accessors, are **not** binary behavior. They are
+//! Incrementum's own rolling-performance diagnostics for the UI, kept
+//! opt-in and strictly separate from the decoded update rule above — the
+//! update runs whether or not anyone reads the diagnostics.
+//!
+//! # Note on prior revisions
+//!
+//! An earlier version of this module documented the Arena weights as
+//! "fixed, compile-time only, never recomputed by the binary," based on a
+//! static search plus a live memory-watch stress test. That conclusion was
+//! wrong: `FUN_00af40d0` exists (exactly one caller, `FUN_00ce4470`), its
+//! dataflow is unambiguous, and every constant here has been byte-extracted
+//! from the binary. The prior stress test most likely armed its memory
+//! watch on the wrong globals, or ran the live binary along a code path
+//! that skipped the adaptation branch.
 
 use serde::{Deserialize, Serialize};
 
 use super::helpers::clamp;
 
-/// Fresh-install weights — the binary's compile-time defaults.
+/// Compile-time defaults written by `FUN_00af4580` [ASM][BIN]. These are the
+/// fresh-install `PA2/PA15/PA19/PA20/PAF` values; the binary then adapts
+/// them via `FUN_00af40d0` on every committed review.
 pub const ARENA_DEFAULT_WEIGHTS: [f64; 5] = [6.0, 14.0, 45.0, 25.0, 10.0];
 
 /// The five competitors, in item-struct slot order (+0x73/+0x77/+0x7b/+0x83/+0x8b).
 pub const ARENA_MODEL_NAMES: [&str; 5] = ["SM-2", "SM-15", "SM-19", "SM-20", "FSRS"];
 
-// Weight adaptation constants — FUN_00af40d0 [BIN]
-/// Learning rate for weight adaptation (0.0317, extracted from `af44c8`).
+// === `FUN_00af40d0` constants — all [BIN], byte-extracted ===
+/// Learning rate (`_DAT_00af44c8`). Multiplied into the clamped adjustment
+/// inside the `exp()`; small value → very gradual adaptation.
 const ADAPT_LEARNING_RATE: f64 = 0.0317;
-/// Clamp for the adjustment term (`af44b8`).
+/// Lower clamp for the mean-centered adjustment (`DAT_00af44b8`).
 const ADAPT_CLAMP_LO: f64 = -0.5;
-/// Clamp for the adjustment term (`af44c0`).
+/// Upper clamp for the mean-centered adjustment (`DAT_00af44c0`).
 const ADAPT_CLAMP_HI: f64 = 0.5;
-/// Target sum after normalization (`af4518`).
+/// Post-clamp renormalization target (`_DAT_00af4518`): weights sum to 100.
 const ADAPT_TARGET_SUM: f64 = 100.0;
-/// Per-weight clamps (lo, hi) from `af44d0`..`af4510`.
+/// Per-weight `(lo, hi)` clamps applied after the multiplicative update but
+/// before renormalization (`DAT_00af44d0`..`DAT_00af4510`). Slot order
+/// matches `ARENA_MODEL_NAMES`.
 const ADAPT_WEIGHT_CLAMPS: [(f64, f64); 5] = [
     (0.1, 30.0),   // W1/PA2  (M1/SM-2)
     (2.0, 50.0),   // W2/PA15 (M2/SM-15)
@@ -47,11 +102,12 @@ const ADAPT_WEIGHT_CLAMPS: [(f64, f64); 5] = [
     (0.1, 45.0),   // W5/PAF  (M5/FSRS)
 ];
 
+// === Diagnostics constants (NOT decoded — Incrementum additions) ===
 /// Exponential decay for the R-Metric loss window (half-life ≈ 140 reviews).
 const METRIC_DECAY: f64 = 0.995;
 
 /// Predictions are clamped into this band so a single review can contribute
-/// at most −ln(0.01) ≈ 4.6 nats of loss.
+/// at most −ln(0.01) ≈ 4.6 nats of loss to the R-Metric diagnostic.
 const PRED_LO: f64 = 0.01;
 const PRED_HI: f64 = 0.99;
 
@@ -59,24 +115,30 @@ const PRED_HI: f64 = 0.99;
 /// stabilities (every model predicts R ≈ 1) — they are not scored.
 pub const MIN_SCORING_ELAPSED_DAYS: f64 = 1.0;
 
-/// Minimum decayed sample size before the R-Metric is reported.
+/// Minimum decayed sample size before the R-Metric diagnostic is reported.
 const MIN_METRIC_COUNT: f64 = 10.0;
 
-/// Collection-wide Arena state: the live weights plus decayed loss
-/// accumulators for the R-Metric.
+/// Collection-wide Arena state.
+///
+/// `weights` is the canonical decoded state — the live `PA2/PA15/PA19/PA20/
+/// PAF` globals, mutated by `FUN_00af40d0` on every committed review past
+/// the first. The remaining fields are **Incrementum diagnostics**, not
+/// decoded binary state; they track a rolling log-loss window so the UI can
+/// show how the blend is performing relative to SM-19 alone.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ArenaState {
     /// Live blend weights (sum 100), slot order SM-2/SM-15/SM-19/SM-20/FSRS.
+    /// Mutated by [`ArenaState::observe`] via the decoded `FUN_00af40d0`.
     pub weights: [f64; 5],
-    /// Exponentially decayed summed log-loss per model.
+    /// Diagnostic: exponentially decayed summed log-loss per model.
     pub decayed_loss: [f64; 5],
-    /// Decayed summed log-loss of the weighted blend prediction.
+    /// Diagnostic: decayed summed log-loss of the weighted blend prediction.
     pub decayed_blend_loss: f64,
-    /// Decayed summed log-loss of SM-19 alone (the R-Metric baseline).
+    /// Diagnostic: decayed summed log-loss of SM-19 alone (R-Metric baseline).
     pub decayed_sm19_loss: f64,
-    /// Decayed count of scored reviews (the window size).
+    /// Diagnostic: decayed count of scored reviews (the window size).
     pub decayed_count: f64,
-    /// Lifetime number of scored reviews.
+    /// Diagnostic: lifetime number of scored reviews.
     pub total_scored: u64,
 }
 
@@ -93,7 +155,12 @@ impl Default for ArenaState {
     }
 }
 
-/// `R = 0.9^(elapsed/S)`, clamped to the scoring band.
+/// `R = 0.9^(elapsed/S)`, clamped to the diagnostic band. **Diagnostic
+/// only** — used to feed the R-Metric window, not the decoded update rule.
+/// The binary itself reads each model's pre-review retrievability directly
+/// from that model's own forgetting-curve output; we reconstruct it here
+/// from the persisted stability because the per-model R values aren't kept
+/// across reviews in our state.
 pub fn recall_prediction(stability: f64, elapsed_days: f64) -> f64 {
     let s = stability.max(0.01);
     let r = 0.9f64.powf(elapsed_days.max(0.0) / s);
@@ -101,6 +168,7 @@ pub fn recall_prediction(stability: f64, elapsed_days: f64) -> f64 {
 }
 
 /// Binary log-loss of prediction `p` against outcome `recalled`.
+/// Diagnostic only — feeds the R-Metric, not the decoded weight update.
 fn log_loss(p: f64, recalled: bool) -> f64 {
     if recalled {
         -p.ln()
@@ -111,6 +179,11 @@ fn log_loss(p: f64, recalled: bool) -> f64 {
 
 impl ArenaState {
     /// Sanitize state loaded from storage (older builds / corrupt rows).
+    ///
+    /// Restores the weights to compile-time defaults if they are non-finite
+    /// or sum to zero, and clears the diagnostic accumulators if they are
+    /// non-finite. Used at load time to defend against truncated/corrupt
+    /// `collection.ini` values.
     pub fn sanitized(mut self) -> Self {
         let finite = self.weights.iter().all(|w| w.is_finite() && *w >= 0.0);
         let sum: f64 = self.weights.iter().sum();
@@ -128,13 +201,28 @@ impl ArenaState {
         self
     }
 
-    /// Score one committed review against every model's previous stability
-    /// estimate and update the weights using the binary's `FUN_00af40d0`.
+    /// Score one committed review and adapt the weights (the binary's path).
     ///
-    /// `slot_stabilities` are the five models' stability outputs persisted at
-    /// the item's previous review; `elapsed_days` is the time since then;
-    /// `recalled` is the observed outcome (grade ≥ 3). Reviews under
-    /// [`MIN_SCORING_ELAPSED_DAYS`] are ignored.
+    /// Mirrors the contract of the binary's caller `FUN_00ce4470`:
+    ///
+    /// - `slot_stabilities` — the five models' stability outputs persisted
+    ///   at the item's *previous* review (the ones the scheduler used). Each
+    ///   model's pre-review retrievability is reconstructed from its
+    ///   stability via [`recall_prediction`].
+    /// - `elapsed_days` — time since that previous review.
+    /// - `recalled` — observed outcome (`grade >= 3`).
+    ///
+    /// The adaptation uses the *decoded* [`FUN_00af40d0`] update rule
+    /// (multiplicative, mean-centered, clamped), not the multiplicative-
+    /// weights Hedge algorithm that earlier revisions of this module used.
+    ///
+    /// Reviews under [`MIN_SCORING_ELAPSED_DAYS`] are ignored (sanity guard).
+    /// The binary's caller has additional branch guards on the item's
+    /// repetition count and M3's retrievability; those are enforced upstream
+    /// in [`crate::algorithms::sm20::review`] by only calling `observe` on
+    /// committed reviews past the first.
+    ///
+    /// [`FUN_00af40d0`]: self
     pub fn observe(&mut self, slot_stabilities: &[f64; 5], elapsed_days: f64, recalled: bool) {
         if elapsed_days < MIN_SCORING_ELAPSED_DAYS {
             return;
@@ -146,9 +234,11 @@ impl ArenaState {
         // Each model's retrievability prediction based on its previous stability.
         let preds: [f64; 5] =
             std::array::from_fn(|i| recall_prediction(slot_stabilities[i], elapsed_days));
-        let losses: [f64; 5] = std::array::from_fn(|i| log_loss(preds[i], recalled));
 
-        // Blend prediction with current weights (for R-Metric).
+        // --- Diagnostic accumulators (NOT decoded — Incrementum addition) ---
+        // Computed BEFORE the weight update so the blend loss reflects the
+        // weights that actually scheduled this review.
+        let losses: [f64; 5] = std::array::from_fn(|i| log_loss(preds[i], recalled));
         let w_sum: f64 = self.weights.iter().sum();
         let blend_pred = if w_sum > 0.0 {
             let p: f64 = (0..5).map(|i| self.weights[i] * preds[i]).sum::<f64>() / w_sum;
@@ -156,8 +246,6 @@ impl ArenaState {
         } else {
             preds[2]
         };
-
-        // R-Metric accumulators (decayed window).
         for i in 0..5 {
             self.decayed_loss[i] = self.decayed_loss[i] * METRIC_DECAY + losses[i];
         }
@@ -167,16 +255,20 @@ impl ArenaState {
         self.decayed_count = self.decayed_count * METRIC_DECAY + 1.0;
         self.total_scored = self.total_scored.saturating_add(1);
 
-        // Binary's weight adaptation: FUN_00af40d0 [C][BIN]
-        // Per-model error = actual_outcome - predicted_retrievability
+        // --- Decoded weight update: FUN_00af40d0 [C][BIN] ---
+        // Per-model signed prediction error: outcome - R_i. Matches the
+        // caller FUN_00ce4470's computation at lines 267-273.
         let outcome = if recalled { 1.0 } else { 0.0 };
         let errors: [f64; 5] = std::array::from_fn(|i| outcome - preds[i]);
-        let mean_error: f64 = errors.iter().sum::<f64>() / 5.0;
+        let mean_error: f64 = errors.iter().sum::<f64>() / 5.0; // / _DAT_00af44b0 (=5.0)
 
         for i in 0..5 {
+            // adjustment = clamp(mean - e_i, -0.5, 0.5)  [FUN_00af40b0 clamp]
             let adjustment = clamp(mean_error - errors[i], ADAPT_CLAMP_LO, ADAPT_CLAMP_HI);
+            // factor = exp(adjustment * LR)             [FUN_0040b0e0 exp]
             let factor = (adjustment * ADAPT_LEARNING_RATE).exp();
             self.weights[i] *= factor;
+            // Second clamp pass: per-slot (lo, hi) [DAT_00af44d0..af4510].
             let (lo, hi) = ADAPT_WEIGHT_CLAMPS[i];
             self.weights[i] = clamp(self.weights[i], lo, hi);
         }
@@ -184,6 +276,11 @@ impl ArenaState {
     }
 
     /// Renormalize weights to sum = 100 (matching the binary's `af4518`).
+    ///
+    /// Note: in the decoded `FUN_00af40d0` the per-weight clamps run BEFORE
+    /// this step, so a clamped value can drift slightly outside its `[lo, hi]`
+    /// after renormalization. That is actual binary behavior, not a bug in
+    /// our port.
     fn renormalize(&mut self) {
         for w in self.weights.iter_mut() {
             if !w.is_finite() || *w < 0.0 {
@@ -200,7 +297,9 @@ impl ArenaState {
         }
     }
 
-    /// Mean decayed log-loss per model over the metric window, if enough data.
+    /// Diagnostic: mean decayed log-loss per model over the rolling window.
+    /// Returns `None` until enough data has accumulated. NOT decoded binary
+    /// behavior — Incrementum addition for the UI.
     pub fn mean_losses(&self) -> Option<[f64; 5]> {
         if self.decayed_count < MIN_METRIC_COUNT {
             return None;
@@ -208,8 +307,10 @@ impl ArenaState {
         Some(std::array::from_fn(|i| self.decayed_loss[i] / self.decayed_count))
     }
 
-    /// The R-Metric: percentage log-loss improvement of the weighted blend
-    /// over Algorithm SM-19 alone. Positive means the Arena beats SM-19.
+    /// Diagnostic: the R-Metric — percentage log-loss improvement of the
+    /// weighted blend over Algorithm SM-19 alone. Positive means the blend
+    /// is beating SM-19. NOT decoded binary behavior — Incrementum addition
+    /// for the UI.
     pub fn r_metric(&self) -> Option<f64> {
         if self.decayed_count < MIN_METRIC_COUNT || self.decayed_sm19_loss <= 0.0 {
             return None;
