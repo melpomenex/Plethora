@@ -17,14 +17,25 @@ use super::helpers::*;
 // CONSTANTS — all [BIN] unless noted
 // =============================================================================
 
-// Ensemble weights — immediates in FUN_00af4580 [ASM]
-pub const W1: f64 = 6.0;
-pub const W2: f64 = 14.0;
-pub const W3: f64 = 45.0;
-pub const W4: f64 = 25.0;
-pub const W5: f64 = 10.0;
-pub const W_SUM: f64 = 100.0;
+// Ensemble weights — default values from FUN_00af4580 [ASM].
+// These are ADAPTIVE: the binary updates them via FUN_00af40d0 based on
+// per-model prediction accuracy. Current weights persist in collection.ini.
+pub const DEFAULT_WEIGHTS: [f64; 5] = [6.0, 14.0, 45.0, 25.0, 10.0];
 const ENSEMBLE_THRESHOLD: f64 = 0.0;
+
+// Weight adaptation constants — FUN_00af40d0 [BIN]
+const ADAPT_LEARNING_RATE: f64 = 0.0317; // _DAT_00af44c8
+const ADAPT_CLAMP_LO: f64 = -0.5; // DAT_00af44b8
+const ADAPT_CLAMP_HI: f64 = 0.5; // DAT_00af44c0
+const ADAPT_TARGET_SUM: f64 = 100.0; // _DAT_00af4518
+// Per-weight clamps: (lo, hi) from af44d0..af4510
+const ADAPT_WEIGHT_CLAMPS: [(f64, f64); 5] = [
+    (0.1, 30.0),   // W1/PA2  (M1 legacy)
+    (2.0, 50.0),   // W2/PA15 (M2 classic)
+    (25.0, 99.9),  // W3/PA19 (M3 matrix)
+    (15.0, 95.0),  // W4/PA20 (M4 FSRS)
+    (0.1, 45.0),   // W5/PAF  (M5 analytic)
+];
 
 // Finalization — FUN_00cf5b50
 const FI_ONE: f64 = 1.0;
@@ -88,7 +99,58 @@ pub fn ensemble_stability_weighted(
 
 /// Weighted average at the binary's fresh-install default weights.
 pub fn ensemble_stability(m1: f64, m2: f64, m3: f64, m4: f64, m5: f64) -> f64 {
-    ensemble_stability_weighted(&[W1, W2, W3, W4, W5], m1, m2, m3, m4, m5)
+    ensemble_stability_weighted(&DEFAULT_WEIGHTS, m1, m2, m3, m4, m5)
+}
+
+// =============================================================================
+// WEIGHT ADAPTATION — FUN_00af40d0 [C][BIN]
+// =============================================================================
+
+/// `FUN_00af40d0`: adapt ensemble weights based on per-model prediction errors.
+///
+/// `weights` are modified in place. `model_errors` are signed prediction errors
+/// (actual_outcome - predicted_retrievability for each model).
+///
+/// Formula (all constants [BIN] from af44b0-af4518):
+/// ```text
+/// mean_error = sum(errors) / 5
+/// adjustment_i = clamp(mean_error - error_i, -0.5, 0.5)
+/// factor_i = exp(adjustment_i * 0.0317)
+/// weight_i *= factor_i
+/// weight_i = clamp(weight_i, lo_i, hi_i)
+/// renormalize all weights to sum = 100
+/// ```
+pub fn adapt_weights(weights: &mut [f64; 5], model_errors: &[f64; 5]) {
+    let mean: f64 = model_errors.iter().sum::<f64>() / 5.0;
+    for i in 0..5 {
+        let adjustment = clamp(mean - model_errors[i], ADAPT_CLAMP_LO, ADAPT_CLAMP_HI);
+        let factor = (adjustment * ADAPT_LEARNING_RATE).exp();
+        weights[i] *= factor;
+        let (lo, hi) = ADAPT_WEIGHT_CLAMPS[i];
+        weights[i] = clamp(weights[i], lo, hi);
+    }
+    let total: f64 = weights.iter().sum();
+    for i in 0..5 {
+        weights[i] = (weights[i] / total) * ADAPT_TARGET_SUM;
+    }
+}
+
+/// Compute per-model prediction errors for weight adaptation.
+///
+/// Each model's error = actual_outcome - predicted_retrievability.
+/// `recalled` = true if the user recalled the item (grade >= 3).
+pub fn compute_model_errors(
+    predictions: [f64; 5],
+    recalled: bool,
+) -> [f64; 5] {
+    let outcome = if recalled { 1.0 } else { 0.0 };
+    [
+        outcome - predictions[0],
+        outcome - predictions[1],
+        outcome - predictions[2],
+        outcome - predictions[3],
+        outcome - predictions[4],
+    ]
 }
 
 // =============================================================================
