@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.88.0] - 2026-07-19
+
+### Added
+
+- **Kindle Clippings import on Android** — Importing a `My Clippings.txt` file from the Kindle clippings dialog now works on mobile. The Tauri file dialog returns unreadable `content://` URIs on Android, so the picked file's bytes are now streamed over IPC through new `*_bytes` Rust commands (shared decode/parse path with the desktop file-reader). Desktop import is unchanged.
+
+### Fixed & Improved
+
+- **Review tab actions reachable on mobile** — On phones, the Review home's secondary action menu (containing **Import Deck**, View Decks, Create Flashcards, Deck Manager, and Review Preview) was hidden by a `display: none` rule with no mobile override, making deck import impossible from the mobile UI. These actions now route through `AdaptiveContentHeader`'s mobile-aware overflow (⋮) button, so they render as a tappable 44×44 control on every form factor.
+- **Audiobooks tab no longer shows "Document not found"** — Tapping an audiobook in the mobile Audiobooks tab opened a viewer that immediately rendered "Document not found," even though the same book played fine from the Queue. `DocumentViewer`'s hydration effect no longer skips loading when the new tab isn't yet active, a failed/skipped hydration is now retried (instead of being a terminal state), `loadDocuments()` merges rather than clobbers the shared documents array (so concurrent collection-scoped fetches can't drop a just-opened audiobook), and `AudiobooksTab.handleOpenBook` now passes the same `paneId` argument as `QueueTab.handleOpenDocument`.
+- **Audiobook chapter navigation on mobile** — Chapter picking is now reachable on phones via an adaptive bottom sheet (and a tappable "now playing" chapter chip) instead of the desktop-only left sidebar; chapter controls stay consistent across mobile and desktop.
+- **Knowledge Universe centers on every viewport** — The galaxy home view assumed the world origin `{0,0,0}` was its visual center, which left the cluster layout bunched in a corner on tablets and landscape phones. The home center and framing bounds are now derived from the measured layout and recomputed on resize/orientation change, with the selected-node detail panel framing the unobscured canvas area without applying a stale offset after the panel closes. New deterministic layout/camera tests cover asymmetric datasets across portrait, landscape, tablet, and desktop aspect ratios.
+
 ## [1.87.0] - 2026-07-18
 
 ### Added
