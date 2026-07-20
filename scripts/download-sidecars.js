@@ -260,17 +260,30 @@ function commandExists(cmd) {
 }
 
 function shellQuote(value) {
+  // Node's execSync shells through cmd.exe on Windows, where single quotes are
+  // LITERAL characters — wrapping a URL as `'https://...'` makes curl parse the
+  // stray quotes and reject it with "Port number was not a decimal number
+  // between 0 and 65535". Use double quotes on Windows (correct for cmd.exe
+  // and pwsh); keep single quotes on Unix (where they suppress all shell
+  // expansion). Our quoted values are URLs/paths and never contain `"`, so the
+  // escape branch is a safe no-op there.
+  if (process.platform === 'win32') {
+    return `"${String(value).replace(/"/g, '\\"')}"`;
+  }
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-function downloadFile(urls, outputPath) {
+function downloadFile(urls, outputPath, options = {}) {
   const failures = [];
+  // Large archives (e.g. the 168 MB Windows FFmpeg zip) can exceed the default
+  // 180s budget on a slow run; callers may opt into a longer max-time.
+  const maxTime = options.maxTime || 180;
 
   for (const url of urls) {
     try {
       console.log(`Downloading ${url}...`);
       execSync(
-        `curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 180 ${shellQuote(url)} -o ${shellQuote(outputPath)}`,
+        `curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time ${maxTime} ${shellQuote(url)} -o ${shellQuote(outputPath)}`,
         { stdio: 'inherit' },
       );
       return;
@@ -1114,7 +1127,7 @@ async function main() {
       'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip',
       'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
     ];
-    downloadFile(ffmpegUrls, ffmpegArchive);
+    downloadFile(ffmpegUrls, ffmpegArchive, { maxTime: 600 });
     // Sanity-check: a real FFmpeg build is > 50 MB. A few-KB file means the
     // CDN handed us an error page that 7z can't open (the v1.88.1 failure).
     const archiveSize = fs.statSync(ffmpegArchive).size;
