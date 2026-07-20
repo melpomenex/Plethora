@@ -114,6 +114,16 @@ pub struct SM20State {
     pub lapses: u32,
     pub interval: f64,
 
+    // --- Post-lapse scheduling markers (binary item[+0xb7] / [+0xb9]) ---
+    // Written by the binary's interval_dispatch (FUN_00ce7380) and read by
+    // the finalizer (FUN_00cf5b50:28) to select the post-lapse path
+    // (FUN_00ce2fe0) over the normal dispersal path (FUN_00cf5100). The
+    // trigger is: post_lapse_family == 1 AND lapse_ordinal != 0.
+    #[serde(default)]
+    pub post_lapse_family: u32,
+    #[serde(default)]
+    pub lapse_ordinal: u32,
+
     // --- Deprecated fields (kept for backward-compatible deserialization) ---
     #[serde(default)]
     pub version: u8,
@@ -169,6 +179,8 @@ impl Default for SM20State {
             repetition: 0,
             lapses: 0,
             interval: 1.0,
+            post_lapse_family: 0,
+            lapse_ordinal: 0,
             version: 4,
             last_quality: 0.75,
             algorithm_branch: 0,
@@ -420,14 +432,14 @@ pub fn review(
         ensemble_stability_weighted(&collection.arena.weights, m1, m2, m3, m4, m5)
     };
 
-    // --- Determine post-lapse mode ---
-    // In the binary: item[+0xb9] != 0 && item[+0xb7] == 1
-    // This means: the item is in relearning (b9 = lapse count from last review)
-    // AND this is the first repetition after the lapse (b7 == 1).
-    // We approximate this: post-lapse only when the item has 0 repetitions
-    // (i.e., it was just lapsed and is being re-reviewed for the first time).
-    // A fail grade (0-2) on an established item does NOT trigger post-lapse.
-    let post_lapse_mode = grade < 3 && state.repetition == 0;
+    // --- Determine post-lapse mode (FUN_00cf5b50:28) ---
+    // The binary takes the post-lapse path (FUN_00ce2fe0) when
+    // item[+0xb9] (lapse_ordinal) != 0 AND item[+0xb7]
+    // (post_lapse_family) == 1. These are written by interval_dispatch
+    // (FUN_00ce7380): +0xb7==1 marks the post-lapse branch (a subsequent
+    // post-lapse re-review, not the first repetition), and +0xb9 is 0 only
+    // on the very first repetition of an item.
+    let post_lapse_mode = state.lapse_ordinal != 0 && state.post_lapse_family == 1;
 
     // --- Finalize ---
     // Only hand the rng to finalization on the stochastic (committed) path.
@@ -474,20 +486,43 @@ pub fn review(
     // --- Assemble new state ---
     // The DSR state (stability, difficulty) is taken from M4 (the kernel),
     // which is the canonical DSR state in the binary.
+    let new_repetition: u32 = if grade >= 3 {
+        state.repetition.saturating_add(1)
+    } else {
+        0
+    };
+    // Post-lapse scheduling markers (FUN_00ce7380 writes item[+0xb7]/[+0xb9]).
+    // +0xb7 (post_lapse_family) == 1 marks the post-lapse branch; other values
+    // are repetition_count+1. +0xb9 (lapse_ordinal) is 0 only on the very first
+    // repetition. The post-lapse path fires on a lapse (grade<3) that is NOT the
+    // item's first repetition; otherwise the normal dispersal branch runs.
+    let (post_lapse_family, lapse_ordinal) = if grade < 3 && state.repetition != 0 {
+        (1, state.repetition.saturating_add(1).min(65535))
+    } else {
+        let family = if new_repetition > 0 {
+            (new_repetition + 1).min(65535)
+        } else {
+            0
+        };
+        let ordinal = if state.repetition == 0 {
+            0
+        } else {
+            state.repetition.saturating_add(1).min(65535)
+        };
+        (family, ordinal)
+    };
     let new_state = SM20State {
         stability: m4_result.s_new,
         difficulty: m4_result.d_new,
-        repetition: if grade >= 3 {
-            state.repetition.saturating_add(1)
-        } else {
-            0
-        },
+        repetition: new_repetition,
         lapses: if grade < 3 {
             state.lapses.saturating_add(1)
         } else {
             state.lapses
         },
         interval: final_interval as f64,
+        post_lapse_family,
+        lapse_ordinal,
         // Deprecated fields — carry forward
         version: state.version,
         last_quality: state.last_quality,
@@ -572,5 +607,71 @@ pub fn init_item(grade: i32) -> SM20State {
         stability: s,
         difficulty: d,
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    fn rng() -> StdRng {
+        StdRng::seed_from_u64(0)
+    }
+
+    /// The post-lapse path (FUN_00ce2fe0) fires only on a lapse that is NOT
+    /// the item's first repetition. The binary trigger (FUN_00cf5b50:28) is
+    /// `item[+0xb9] (lapse_ordinal) != 0 AND item[+0xb7]
+    /// (post_lapse_family) == 1`. The prior Rust code used the inverted
+    /// heuristic `grade < 3 && repetition == 0` (first-repetition lapses),
+    /// which is essentially backwards. Verified against the Python canonical
+    /// package (sm20/pipeline.py:287-328).
+    #[test]
+    fn post_lapse_fires_on_subsequent_lapse_not_first_repetition() {
+        let mut coll = SM20CollectionState::default();
+
+        // First review of a fresh item (repetition=0), grade=1 (lapse).
+        // This is the item's FIRST repetition -> NOT post-lapse, even though
+        // it's a lapse. post_lapse_family should be set, but lapse_ordinal
+        // stays 0 (the binary: +0xb9 is 0 only on the very first repetition).
+        let fresh = SM20State::default();
+        let r1 = review(&fresh, 1, 0.0, 10, &mut coll, 0, true, false, &mut rng(), false);
+        // After a first-repetition lapse: ordinal stays 0, so trigger is false.
+        assert_eq!(
+            r1.state.post_lapse_family, 0,
+            "first-repetition lapse: family should be 0 (repetition was 0)"
+        );
+        assert_eq!(
+            r1.state.lapse_ordinal, 0,
+            "first-repetition lapse: ordinal should be 0"
+        );
+
+        // Now take an established item (repetition=3, so prior reviews exist)
+        // and lapse it. This is a SUBSEQUENT lapse -> post-lapse markers set.
+        let established = SM20State {
+            stability: 30.0,
+            difficulty: 0.4,
+            repetition: 3,
+            lapses: 0,
+            interval: 30.0,
+            ..Default::default()
+        };
+        let r2 = review(&established, 1, 30.0, 10, &mut coll, 30, true, false, &mut rng(), false);
+        assert_eq!(
+            r2.state.post_lapse_family, 1,
+            "subsequent lapse: family must be 1 (post-lapse branch)"
+        );
+        assert_eq!(
+            r2.state.lapse_ordinal, 4,
+            "subsequent lapse: ordinal = prior repetition + 1"
+        );
+
+        // A recall (grade>=3) on an established item does NOT set post-lapse.
+        let r3 = review(&established, 4, 30.0, 10, &mut coll, 30, true, false, &mut rng(), false);
+        assert_ne!(
+            r3.state.post_lapse_family, 1,
+            "recall must not set the post-lapse branch"
+        );
     }
 }

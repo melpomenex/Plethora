@@ -72,10 +72,19 @@ fn adjust_factor_for_grade(factor: f64, grade: i32) -> f64 {
 pub fn model_1(item: &M1ItemState, today: i32, grade: i32, history: Option<&M1HistoryPoint>) -> M1ReviewResult {
     assert!((0..=5).contains(&grade), "grade must be in 0..=5");
 
-    let used = if item.last_review_day < 0 {
-        0
+    // Used interval. `FUN_00a62080` GetUsedInterval: `today - last_review_day`,
+    // floored at 1 (the binary NEVER returns 0; values <= 0 become 1). Only
+    // computed when `previous_interval != 0`; otherwise the binary leaves the
+    // caller's pre-loaded value, which we mirror as 1. [C][ASM]
+    let used = if item.previous_interval != 0 {
+        let raw = today - item.last_review_day;
+        if raw < -1 {
+            // Binary: fatal "UsedInterval is less than 1". We panic to match.
+            panic!("UsedInterval < -1 (today={}, last_review_day={})", today, item.last_review_day);
+        }
+        if raw < 1 { 1 } else { raw }
     } else {
-        (today - item.last_review_day).max(0)
+        1
     };
 
     let factor = if let Some(h) = history {
@@ -145,5 +154,43 @@ pub fn model_1(item: &M1ItemState, today: i32, grade: i32, history: Option<&M1Hi
             factor: adjusted_factor,
             stability: interval as f64, // pipeline overwrites with final interval
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `FUN_00a62080` GetUsedInterval NEVER returns 0 — values `<= 0` become 1.
+    /// The binary only calls it when `previous_interval != 0`; otherwise the
+    /// caller's pre-loaded value is used, which we mirror as 1. Verified
+    /// against the Python canonical package (40/40 live vectors).
+    #[test]
+    fn used_interval_floors_at_one() {
+        // previous_interval == 0: used = 1 regardless of dates (binary skips
+        // GetUsedInterval and leaves the pre-loaded 1).
+        let item = M1ItemState { last_review_day: 100, previous_interval: 0, repetitions: 0, lapses: 0 };
+        let r = model_1(&item, 100, 4, None);
+        assert_eq!(r.used_interval, 1, "prev_interval=0 should give used=1");
+
+        // previous_interval != 0 but today == last_review_day: raw delta is 0,
+        // floored to 1 (binary never returns 0).
+        let item = M1ItemState { last_review_day: 100, previous_interval: 5, repetitions: 3, lapses: 0 };
+        let r = model_1(&item, 100, 4, None);
+        assert_eq!(r.used_interval, 1, "today==last_review_day should floor to 1");
+
+        // Normal case: delta is 7, returned as-is.
+        let r = model_1(&item, 107, 4, None);
+        assert_eq!(r.used_interval, 7, "normal delta should pass through");
+    }
+
+    /// `raw < -1` (today before last_review_day by more than 1) is a fatal
+    /// error in the binary ("UsedInterval is less than 1"). We panic to match.
+    #[test]
+    #[should_panic(expected = "UsedInterval < -1")]
+    fn used_interval_negative_delta_panics() {
+        let item = M1ItemState { last_review_day: 100, previous_interval: 5, repetitions: 3, lapses: 0 };
+        // today=98 -> raw = 98-100 = -2 < -1 -> panic
+        model_1(&item, 98, 4, None);
     }
 }
