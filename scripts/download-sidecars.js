@@ -1102,20 +1102,42 @@ async function main() {
   } else if (platform === 'win32') {
     // Windows FFmpeg
     console.log('Downloading FFmpeg (Windows)...');
-    // Using gyan.dev release
-    const ffmpegUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
-    // Powershell download/extract is implied if running in standard win environment, 
-    // but here we are in node.
-    // We can use curl if available (Win 10+ has it) or the node helper above.
-    // For simplicity in this script, let's assume `curl` and `tar` (git bash) might NOT be present.
-    // But GitHub Actions Windows runner HAS `curl`, `7z`.
-    
-    execSync(`curl -L ${ffmpegUrl} -o ffmpeg.zip`);
-    execSync('7z x ffmpeg.zip');
-    // Move from extracted folder
-    const folder = fs.readdirSync('.').find(f => f.startsWith('ffmpeg-') && fs.statSync(f).isDirectory());
-    fs.copyFileSync(path.join(folder, 'bin', 'ffmpeg.exe'), path.join(BIN_DIR, ffmpegName));
-    execSync(`rm -rf ffmpeg.zip ${folder}`);
+    // gyan.dev intermittently serves a tiny HTML block page (a 303 redirect
+    // whose body is a few KB of error HTML) to GitHub Actions runner IPs, which
+    // 7z then rejects with "Is not archive". BtbN is hosted on GitHub release
+    // assets and is reliable from GH runners, so prefer it; fall back to gyan.dev
+    // for redundancy. The BtbN zip extracts to ffmpeg-master-latest-win64-gpl/
+    // while gyan.dev uses ffmpeg-<ver>-essentials_build/, so locate ffmpeg.exe
+    // recursively instead of assuming a fixed top-level folder name.
+    const ffmpegArchive = 'ffmpeg.zip';
+    const ffmpegUrls = [
+      'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip',
+      'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
+    ];
+    downloadFile(ffmpegUrls, ffmpegArchive);
+    // Sanity-check: a real FFmpeg build is > 50 MB. A few-KB file means the
+    // CDN handed us an error page that 7z can't open (the v1.88.1 failure).
+    const archiveSize = fs.statSync(ffmpegArchive).size;
+    if (archiveSize < 50 * 1024 * 1024) {
+      fs.unlinkSync(ffmpegArchive);
+      throw new Error(
+        `Downloaded FFmpeg archive was only ${archiveSize} bytes (expected >50 MB); ` +
+        `all Windows FFmpeg sources returned an error page.`
+      );
+    }
+    execSync(`7z x ${shellQuote(ffmpegArchive)} -y`);
+    const ffmpegExe = findFileRecursive('.', 'ffmpeg.exe');
+    if (!ffmpegExe) {
+      throw new Error('Downloaded Windows FFmpeg archive did not contain ffmpeg.exe.');
+    }
+    fs.copyFileSync(ffmpegExe, path.join(BIN_DIR, ffmpegName));
+    // Clean up the archive and every extracted top-level folder.
+    fs.rmSync(ffmpegArchive, { force: true });
+    for (const entry of fs.readdirSync('.', { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.startsWith('ffmpeg-')) {
+        fs.rmSync(entry.name, { recursive: true, force: true });
+      }
+    }
 
     // Windows Whisper (build from source via CMake)
     if (!fs.existsSync(path.join(BIN_DIR, whisperName))) {
