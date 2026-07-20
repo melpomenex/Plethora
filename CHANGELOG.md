@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.88.1] - 2026-07-20
+
+### Fixed & Improved
+
+- **SM-20 scheduler decoded-formula sync** — Three formulas that had drifted from the canonical sm20 Python package (verified against live-captured sm20.exe vectors) are now byte-accurate with the binary. M5's "forgot" branch now uses the *new* difficulty `D_new` as the `^-0.11` power base instead of the stale prior value (S=500 produced 4.57 instead of the correct 9.02); M1's `GetUsedInterval` now floors at 1 and honors the `previous_interval != 0` guard, matching `FUN_00a62080`; and the post-lapse trigger now fires on a *subsequent* lapse (`lapse_ordinal != 0 && post_lapse_family == 1`) instead of the inverted first-repetition heuristic. Two binary marker fields are added to `SM20State` with `#[serde(default)]` for backward compatibility. Four new parity tests pin the divergence (317 lib tests pass).
+- **SM-20 post-lapse timing, growth guard, and rounding** — A full line-by-line audit against the decompiled binary corrected the scheduler's post-lapse curve, added a previously-missing minimum-growth guard, and fixed ties-to-even rounding. The post-lapse curve now shortens the lapsed review's *own* interval instead of clamping the following pass to ≤11 days; the new growth guard floors pass-review intervals under the binary's `max(1.7·used^-0.1, 1.1)` / 1.1 / none thresholds (constants byte-extracted from sm20.exe); and `delphi_round` and the model/ensemble round paths now use ties-to-even (`FUN_0040c5d0`) rather than half-away-from-zero, with the `LOG2_09` literal corrected by 1 ulp. New tests cover the rounding tie cases, the guard, marker semantics, and three end-to-end intervals against the Python reference.
+
 ## [1.88.0] - 2026-07-19
 
 ### Added
