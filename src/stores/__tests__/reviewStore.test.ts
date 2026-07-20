@@ -1,15 +1,25 @@
 import { beforeEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-const { submitReviewMock, restoreLearningItemStateMock } = vi.hoisted(() => ({
+const { submitReviewMock, restoreLearningItemStateMock, previewReviewIntervalsMock, settingsState } = vi.hoisted(() => ({
   submitReviewMock: vi.fn(),
   restoreLearningItemStateMock: vi.fn(),
+  previewReviewIntervalsMock: vi.fn(),
+  settingsState: {
+    learning: {
+      algorithm: "fsrs",
+      sm20PureM4: false,
+      sm20ArenaReviewMode: "choose" as "automatic" | "choose",
+      fsrsParams: { desiredRetention: 0.9, maximumInterval: 36500 },
+      scopedFsrsOverrides: [],
+    },
+  },
 }));
 
 vi.mock("../../api/review", () => ({
   getDueItems: vi.fn().mockResolvedValue([]),
   submitReview: submitReviewMock,
   restoreLearningItemState: restoreLearningItemStateMock,
-  previewReviewIntervals: vi.fn().mockResolvedValue({ again: 1, hard: 2, good: 3, easy: 4 }),
+  previewReviewIntervals: previewReviewIntervalsMock,
   getReviewStreak: vi.fn().mockResolvedValue({
     current_streak: 0,
     longest_streak: 0,
@@ -39,12 +49,7 @@ vi.mock("../studyDeckStore", () => ({
 vi.mock("../settingsStore", () => ({
   useSettingsStore: {
     getState: () => ({
-      settings: {
-        learning: {
-          fsrsParams: { desiredRetention: 0.9, maximumInterval: 36500 },
-          scopedFsrsOverrides: [],
-        },
-      },
+      settings: settingsState,
     }),
   },
 }));
@@ -96,11 +101,39 @@ const makeLearningCard = (overrides: Partial<any> = {}) => ({
   ...overrides,
 });
 
+const makeArenaPreview = (previewId = "preview-store") => ({
+  schema_version: 1,
+  preview_id: previewId,
+  item_revision: `item-${previewId}`,
+  arena_revision: `arena-${previewId}`,
+  generated_at: new Date().toISOString(),
+  model_order: ["sm2", "sm15", "sm19", "sm20", "fsrs"],
+  grades: Array.from({ length: 6 }, (_, grade) => ({
+    grade,
+    recommendation: { interval_days: grade + 10, due_at: new Date().toISOString() },
+    candidates: ["sm2", "sm15", "sm19", "sm20", "fsrs"].map((model_id, index) => ({
+      model_id,
+      label: model_id.toUpperCase(),
+      interval_days: grade + index + 1,
+      due_at: new Date().toISOString(),
+      weight_percent: [6, 14, 45, 25, 10][index],
+      personalized: false,
+    })),
+    range: { min_days: 1, max_days: 20 },
+    custom_bounds: { min_days: 1 / 1_440, max_days: 44_530 },
+  })),
+});
+
 describe("reviewStore Wave 1 behavior", () => {
   beforeEach(() => {
     submitReviewMock.mockReset();
     restoreLearningItemStateMock.mockReset();
     vi.mocked(getDueItems).mockReset();
+    previewReviewIntervalsMock.mockReset();
+    previewReviewIntervalsMock.mockResolvedValue({ again: 1, hard: 2, good: 3, easy: 4 });
+    settingsState.learning.algorithm = "fsrs";
+    settingsState.learning.sm20PureM4 = false;
+    settingsState.learning.sm20ArenaReviewMode = "choose";
     window.localStorage.clear();
     useReviewStore.getState().resetSession();
   });
@@ -222,5 +255,275 @@ describe("reviewStore Wave 1 behavior", () => {
       "s1",
       expect.objectContaining({ noScheduleUpdate: false })
     );
+  });
+
+  it("holds an eligible SM-20 grade until the Arena choice commits", async () => {
+    settingsState.learning.algorithm = "sm20";
+    const card = makeLearningCard({ algorithm_type: "sm20", algorithm_state: '{"interval":2}' });
+    const arena = {
+      schema_version: 1,
+      preview_id: "preview-1",
+      item_revision: "item-rev",
+      arena_revision: "arena-rev",
+      generated_at: new Date().toISOString(),
+      model_order: ["sm2", "sm15", "sm19", "sm20", "fsrs"],
+      grades: Array.from({ length: 6 }, (_, grade) => ({
+        grade,
+        recommendation: { interval_days: grade + 10, due_at: new Date().toISOString() },
+        candidates: ["sm2", "sm15", "sm19", "sm20", "fsrs"].map((model_id, index) => ({
+          model_id,
+          label: model_id.toUpperCase(),
+          interval_days: grade + index + 1,
+          due_at: new Date().toISOString(),
+          weight_percent: [6, 14, 45, 25, 10][index],
+          personalized: false,
+        })),
+        range: { min_days: 1, max_days: 20 },
+        custom_bounds: { min_days: 1 / 1440, max_days: 44530 },
+      })),
+    };
+    useReviewStore.setState({
+      queue: [card],
+      currentCard: card,
+      currentIndex: 0,
+      reviewMode: "normal",
+      sessionStartTime: Date.now() - 1000,
+      sessionId: "s1",
+      previewIntervals: { again: 1, hard: 2, good: 3, easy: 4, arena } as any,
+      isAnswerShown: true,
+    });
+
+    await useReviewStore.getState().submitRating(3, 4);
+
+    expect(submitReviewMock).not.toHaveBeenCalled();
+    expect(useReviewStore.getState().currentCard?.id).toBe("card-1");
+    expect(useReviewStore.getState().reviewsCompleted).toBe(0);
+    expect(useReviewStore.getState().reviewPhase).toBe("arena-ready");
+
+    submitReviewMock.mockResolvedValue({});
+    useReviewStore.getState().selectArenaChoice({ source: "model", modelId: "fsrs" });
+    await useReviewStore.getState().confirmArenaSelection();
+
+    expect(submitReviewMock).toHaveBeenCalledWith(
+      "card-1",
+      3,
+      expect.any(Number),
+      "s1",
+      expect.objectContaining({
+        arenaSelection: expect.objectContaining({
+          source: "model",
+          model_id: "fsrs",
+          preview_id: "preview-1",
+        }),
+      }),
+    );
+    expect(useReviewStore.getState().currentCard).toBeNull();
+    expect(useReviewStore.getState().reviewsCompleted).toBe(1);
+
+    const committedSelection = submitReviewMock.mock.calls[0][4].arenaSelection;
+    await useReviewStore.getState().undoLastReview();
+    expect(restoreLearningItemStateMock).toHaveBeenCalledWith(
+      "card-1",
+      expect.objectContaining({
+        algorithmType: "sm20",
+        algorithmState: '{"interval":2}',
+        arenaCommitId: committedSelection.commit_id,
+      }),
+    );
+    expect(useReviewStore.getState().currentCard?.id).toBe("card-1");
+    expect(useReviewStore.getState().reviewsCompleted).toBe(0);
+  });
+
+  it("keeps the pending grade, selection, queue, and counters after an Arena commit error", async () => {
+    settingsState.learning.algorithm = "sm20";
+    submitReviewMock.mockRejectedValue(new Error("network offline"));
+    const card = makeLearningCard({ algorithm_type: "sm20" });
+    const gradePreview = {
+      grade: 4,
+      recommendation: { interval_days: 12, due_at: new Date().toISOString() },
+      candidates: ["sm2", "sm15", "sm19", "sm20", "fsrs"].map((model_id, index) => ({
+        model_id,
+        label: model_id,
+        interval_days: index + 4,
+        due_at: new Date().toISOString(),
+        weight_percent: 20,
+        personalized: false,
+      })),
+      range: { min_days: 4, max_days: 12 },
+      custom_bounds: { min_days: 1 / 1440, max_days: 44530 },
+    };
+    useReviewStore.setState({
+      queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
+      sessionStartTime: Date.now(), sessionId: "s1", isAnswerShown: true,
+      previewIntervals: {
+        again: 1, hard: 2, good: 3, easy: 4,
+        arena: {
+          schema_version: 1, preview_id: "p", item_revision: "i", arena_revision: "a",
+          generated_at: new Date().toISOString(), model_order: ["sm2", "sm15", "sm19", "sm20", "fsrs"],
+          grades: [gradePreview, gradePreview, gradePreview, gradePreview, gradePreview, gradePreview],
+        },
+      } as any,
+    });
+
+    await useReviewStore.getState().submitRating(3, 4);
+    useReviewStore.getState().selectArenaChoice({ source: "custom", intervalDays: 9 });
+    await useReviewStore.getState().confirmArenaSelection();
+
+    const state = useReviewStore.getState();
+    expect(state.currentCard?.id).toBe("card-1");
+    expect(state.queue).toHaveLength(1);
+    expect(state.reviewsCompleted).toBe(0);
+    expect(state.pendingArenaReview?.selection).toEqual({ source: "custom", intervalDays: 9 });
+    expect(state.reviewPhase).toBe("arena-error");
+
+    submitReviewMock.mockResolvedValue({});
+    await useReviewStore.getState().confirmArenaSelection();
+    expect(useReviewStore.getState().currentCard).toBeNull();
+    expect(useReviewStore.getState().reviewsCompleted).toBe(1);
+  });
+
+  it("discards a confirmed pending grade on session exit without scheduling it", async () => {
+    settingsState.learning.algorithm = "sm20";
+    const card = makeLearningCard({ algorithm_type: "sm20" });
+    useReviewStore.setState({
+      queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
+      sessionStartTime: Date.now(), sessionId: "exit", isAnswerShown: true,
+      previewIntervals: { again: 1, hard: 2, good: 3, easy: 4, arena: makeArenaPreview() } as any,
+    });
+
+    await useReviewStore.getState().submitRating(3, 4);
+    expect(useReviewStore.getState().pendingArenaReview).not.toBeNull();
+    useReviewStore.getState().cancelArenaDecision();
+    useReviewStore.getState().resetSession();
+
+    expect(submitReviewMock).not.toHaveBeenCalled();
+    expect(useReviewStore.getState().pendingArenaReview).toBeNull();
+    expect(useReviewStore.getState().queue).toEqual([]);
+    expect(useReviewStore.getState().reviewsCompleted).toBe(0);
+  });
+
+  it("keeps Pure M4 and non-SM-20 reviews on the direct scheduler path", async () => {
+    submitReviewMock.mockResolvedValue({});
+    for (const [algorithm, pureM4] of [["fsrs", false], ["sm20", true]] as const) {
+      settingsState.learning.algorithm = algorithm;
+      settingsState.learning.sm20PureM4 = pureM4;
+      const card = makeLearningCard({ id: `card-${algorithm}-${pureM4}`, algorithm_type: algorithm });
+      useReviewStore.setState({
+        queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
+        sessionStartTime: Date.now(), sessionId: "direct", isAnswerShown: true,
+        previewIntervals: { again: 1, hard: 2, good: 3, easy: 4, arena: makeArenaPreview() } as any,
+      });
+
+      await useReviewStore.getState().submitRating(3, 4);
+
+      expect(useReviewStore.getState().pendingArenaReview).toBeNull();
+      expect(submitReviewMock).toHaveBeenCalledTimes(1);
+      submitReviewMock.mockClear();
+    }
+  });
+
+  it("commits Arena Pick immediately in the default automatic mode", async () => {
+    settingsState.learning.algorithm = "sm20";
+    settingsState.learning.sm20ArenaReviewMode = "automatic";
+    submitReviewMock.mockResolvedValue({});
+    const card = makeLearningCard({ algorithm_type: "sm20", extract_id: "automatic" });
+    const arena = makeArenaPreview("automatic");
+    useReviewStore.setState({
+      queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
+      sessionStartTime: Date.now(), sessionId: "automatic", isAnswerShown: true,
+      previewIntervals: { again: 1, hard: 2, good: 3, easy: 4, arena } as any,
+    });
+
+    await useReviewStore.getState().submitRating(3, 4);
+
+    expect(useReviewStore.getState().pendingArenaReview).toBeNull();
+    expect(useReviewStore.getState().reviewsCompleted).toBe(1);
+    expect(submitReviewMock).toHaveBeenCalledWith(
+      "card-1",
+      3,
+      expect.any(Number),
+      "automatic",
+      expect.objectContaining({
+        arenaSelection: expect.objectContaining({
+          preview_id: "automatic-fallback",
+          source: "arena",
+          decision_time_ms: 0,
+        }),
+        arenaProvenance: expect.objectContaining({ schedule_source: "arena" }),
+      }),
+    );
+  });
+
+  it("uses the authoritative automatic fallback when preview is not ready", async () => {
+    settingsState.learning.algorithm = "sm20";
+    settingsState.learning.sm20ArenaReviewMode = "automatic";
+    submitReviewMock.mockResolvedValue({});
+    const card = makeLearningCard({ algorithm_type: "sm20", extract_id: "fallback" });
+    useReviewStore.setState({
+      queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
+      sessionStartTime: Date.now(), sessionId: "fallback", isAnswerShown: true,
+      previewIntervals: { again: 1, hard: 2, good: 3, easy: 4 } as any,
+    });
+
+    await useReviewStore.getState().submitRating(3, 4);
+
+    expect(submitReviewMock.mock.calls[0][4].arenaSelection).toMatchObject({
+      preview_id: "automatic-fallback",
+      source: "arena",
+      decision_time_ms: 0,
+    });
+    expect(useReviewStore.getState().pendingArenaReview).toBeNull();
+  });
+
+  it("locks queue navigation until Back to rating discards the pending grade", async () => {
+    settingsState.learning.algorithm = "sm20";
+    const first = makeLearningCard({ id: "card-1", extract_id: "one" });
+    const second = makeLearningCard({ id: "card-2", extract_id: "two" });
+    useReviewStore.setState({
+      queue: [first, second], currentCard: first, currentIndex: 0, reviewMode: "normal",
+      sessionStartTime: Date.now(), sessionId: "locked", isAnswerShown: true,
+      previewIntervals: { again: 1, hard: 2, good: 3, easy: 4, arena: makeArenaPreview() } as any,
+    });
+    await useReviewStore.getState().submitRating(3, 4);
+
+    useReviewStore.getState().nextCard();
+    useReviewStore.getState().goToIndex(1);
+    expect(useReviewStore.getState().currentCard?.id).toBe("card-1");
+    expect(useReviewStore.getState().currentIndex).toBe(0);
+
+    useReviewStore.getState().cancelArenaDecision();
+    expect(useReviewStore.getState().reviewPhase).toBe("answer");
+    expect(useReviewStore.getState().isAnswerShown).toBe(true);
+    useReviewStore.getState().goToIndex(1);
+    expect(useReviewStore.getState().currentCard?.id).toBe("card-2");
+  });
+
+  it("refreshes a stale preview while preserving the uncommitted selection", async () => {
+    settingsState.learning.algorithm = "sm20";
+    const card = makeLearningCard({ algorithm_type: "sm20", extract_id: "stale" });
+    const initialArena = makeArenaPreview("initial");
+    const refreshedArena = makeArenaPreview("refreshed");
+    previewReviewIntervalsMock.mockResolvedValue({
+      again: 1, hard: 2, good: 3, easy: 4, arena: refreshedArena,
+    });
+    submitReviewMock.mockRejectedValue(new Error("arena_preview_stale: collection changed"));
+    useReviewStore.setState({
+      queue: [card], currentCard: card, currentIndex: 0, reviewMode: "normal",
+      sessionStartTime: Date.now(), sessionId: "stale", isAnswerShown: true,
+      previewIntervals: { again: 1, hard: 2, good: 3, easy: 4, arena: initialArena } as any,
+    });
+    await useReviewStore.getState().submitRating(3, 4);
+    useReviewStore.getState().selectArenaChoice({ source: "model", modelId: "sm19" });
+    await useReviewStore.getState().confirmArenaSelection();
+
+    await vi.waitFor(() => {
+      expect(useReviewStore.getState().previewIntervals?.arena?.preview_id).toBe("refreshed");
+    });
+    expect(useReviewStore.getState().pendingArenaReview?.selection).toEqual({
+      source: "model",
+      modelId: "sm19",
+    });
+    expect(useReviewStore.getState().reviewPhase).toBe("arena-ready");
+    expect(useReviewStore.getState().reviewsCompleted).toBe(0);
   });
 });

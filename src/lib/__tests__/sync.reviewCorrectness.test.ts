@@ -17,6 +17,7 @@
  */
 import { describe, expect, it, beforeEach } from "vitest";
 import {
+  __flashcardsSyncTest,
   deterministicReviewId,
 } from "../sync/entities/flashcards";
 import {
@@ -61,6 +62,69 @@ describe("deterministicReviewId — multi-device review merge", () => {
     // Either the full 40-char SHA-1 hex (WebCrypto) or the 16-char fallback.
     expect(id.length === 40 || id.length === 16).toBe(true);
     expect(/^[0-9a-f]+$/.test(id)).toBe(true);
+  });
+});
+
+describe("Arena review sync provenance", () => {
+  const base = {
+    itemId: "card-1",
+    collectionId: "collection-1",
+    rating: 3,
+    timeTaken: 8,
+    resultDueDate: "2026-08-01T00:00:00.000Z",
+    resultInterval: 12,
+    resultEase: 2.5,
+  };
+  const identity = {
+    id: "review-1",
+    deviceId: "device-a",
+    reviewedAtMs: 1_700_000_000_000,
+    updatedAt: "1700000000000-0000-device-a",
+  };
+
+  it.each([
+    ["arena", undefined, undefined],
+    ["model", "sm19", undefined],
+    ["custom", undefined, 21],
+  ] as const)("round-trips %s selection metadata into the wire event", (source, modelId, intervalDays) => {
+    const review = __flashcardsSyncTest.buildSyncedReviewPayload({
+      ...base,
+      arena: {
+        commit_id: `commit-${source}`,
+        preview_id: "preview",
+        item_revision: "item-revision",
+        arena_revision: "arena-revision",
+        source,
+        model_id: modelId,
+        interval_days: intervalDays,
+        decision_time_ms: 321,
+      },
+      arenaProvenance: {
+        schedule_source: source,
+        schedule_model_id: modelId ?? null,
+        arena_commit_id: `commit-${source}`,
+        arena_recommended_interval: 12,
+        arena_decision_time_ms: 321,
+        arena_snapshot: JSON.stringify({ version: 1, source }),
+      },
+    }, identity);
+
+    expect(review).toMatchObject({
+      schedule_source: source,
+      schedule_model_id: modelId ?? null,
+      arena_commit_id: `commit-${source}`,
+      arena_recommended_interval: 12,
+      arena_decision_time_ms: 321,
+    });
+    expect(JSON.parse(review.arena_snapshot!)).toEqual({ version: 1, source });
+  });
+
+  it("keeps legacy review events backward compatible", () => {
+    const review = __flashcardsSyncTest.buildSyncedReviewPayload(base, identity);
+    expect(review.schedule_source).toBeNull();
+    expect(review.schedule_model_id).toBeNull();
+    expect(review.arena_commit_id).toBeNull();
+    expect(review.arena_snapshot).toBeNull();
   });
 });
 

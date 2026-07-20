@@ -15,6 +15,7 @@ import {
 } from "../../api/review";
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
 import { NumericInput } from "../common";
+import { AlgorithmArenaModeControl } from "../review/AlgorithmArenaModeControl";
 
 export function LearningSettings() {
   const { t } = useI18n();
@@ -91,6 +92,8 @@ export function LearningSettings() {
                   SM-20 and FSRS can additionally be fitted to your review history below.
                 </p>
               </div>
+
+              {!settings.learning.sm20PureM4 && <AlgorithmArenaModeControl />}
 
               <div className="border-t border-border pt-3">
                 <SettingToggle

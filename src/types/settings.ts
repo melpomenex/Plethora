@@ -83,6 +83,7 @@ export interface AudioReviewModeSettings {
   autoFlip: boolean;
   autoFlipDelayMs: number;
   defaultRating: 1 | 2 | 3 | 4;
+  algorithmArenaCoachCompleted?: boolean;
 }
 
 /** Embedding provider/model for whole-library RAG chat. */

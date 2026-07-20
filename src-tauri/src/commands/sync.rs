@@ -249,6 +249,18 @@ pub struct SyncedReviewResult {
     pub timestamp: DateTime<Utc>,
     pub reviewed_at_ms: i64,
     pub device_id: String,
+    #[serde(default)]
+    pub schedule_source: Option<String>,
+    #[serde(default)]
+    pub schedule_model_id: Option<String>,
+    #[serde(default)]
+    pub arena_commit_id: Option<String>,
+    #[serde(default)]
+    pub arena_recommended_interval: Option<f64>,
+    #[serde(default)]
+    pub arena_decision_time_ms: Option<i64>,
+    #[serde(default)]
+    pub arena_snapshot: Option<String>,
 }
 
 /// Insert a review event received from another device, idempotently. Uses
@@ -266,8 +278,13 @@ pub async fn upsert_synced_review_result(
         INSERT OR IGNORE INTO review_results (
             id, collection_id, session_id, item_id, rating, time_taken,
             new_due_date, new_interval, new_ease_factor, timestamp,
-            reviewed_at_ms, device_id
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            reviewed_at_ms, device_id, schedule_source, schedule_model_id,
+            arena_commit_id, arena_recommended_interval,
+            arena_decision_time_ms, arena_snapshot
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+            ?13, ?14, ?15, ?16, ?17, ?18
+        )
         "#,
     )
     .bind(&review.id)
@@ -282,6 +299,12 @@ pub async fn upsert_synced_review_result(
     .bind(review.timestamp)
     .bind(review.reviewed_at_ms)
     .bind(&review.device_id)
+    .bind(&review.schedule_source)
+    .bind(&review.schedule_model_id)
+    .bind(&review.arena_commit_id)
+    .bind(review.arena_recommended_interval)
+    .bind(review.arena_decision_time_ms)
+    .bind(&review.arena_snapshot)
     .execute(repo.pool())
     .await?;
     Ok(())
@@ -936,8 +959,13 @@ pub async fn upsert_synced_review_results_batch(
             INSERT OR IGNORE INTO review_results (
                 id, collection_id, session_id, item_id, rating, time_taken,
                 new_due_date, new_interval, new_ease_factor, timestamp,
-                reviewed_at_ms, device_id
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                reviewed_at_ms, device_id, schedule_source, schedule_model_id,
+                arena_commit_id, arena_recommended_interval,
+                arena_decision_time_ms, arena_snapshot
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                ?13, ?14, ?15, ?16, ?17, ?18
+            )
             "#,
         )
         .bind(&review.id)
@@ -952,6 +980,12 @@ pub async fn upsert_synced_review_results_batch(
         .bind(review.timestamp)
         .bind(review.reviewed_at_ms)
         .bind(&review.device_id)
+        .bind(&review.schedule_source)
+        .bind(&review.schedule_model_id)
+        .bind(&review.arena_commit_id)
+        .bind(review.arena_recommended_interval)
+        .bind(review.arena_decision_time_ms)
+        .bind(&review.arena_snapshot)
         .execute(&mut *tx)
         .await?;
     }
@@ -960,3 +994,60 @@ pub async fn upsert_synced_review_results_batch(
     Ok(())
 }
 
+#[cfg(test)]
+mod arena_sync_tests {
+    use super::SyncedReviewResult;
+    use serde_json::json;
+
+    fn base_review() -> serde_json::Value {
+        json!({
+            "id": "review-1",
+            "collection_id": "collection-1",
+            "session_id": null,
+            "item_id": "card-1",
+            "rating": 3,
+            "time_taken": 8,
+            "new_due_date": "2026-08-01T00:00:00Z",
+            "new_interval": 12.0,
+            "new_ease_factor": 2.5,
+            "timestamp": "2026-07-20T00:00:00Z",
+            "reviewed_at_ms": 1784505600000i64,
+            "device_id": "device-a"
+        })
+    }
+
+    #[test]
+    fn arena_review_wire_fields_round_trip_and_legacy_events_remain_valid() {
+        for (source, model_id) in [
+            ("arena", None),
+            ("model", Some("sm19")),
+            ("custom", None),
+        ] {
+            let mut value = base_review();
+            let object = value.as_object_mut().unwrap();
+            object.insert("schedule_source".into(), json!(source));
+            object.insert("schedule_model_id".into(), json!(model_id));
+            object.insert("arena_commit_id".into(), json!(format!("commit-{source}")));
+            object.insert("arena_recommended_interval".into(), json!(12.0));
+            object.insert("arena_decision_time_ms".into(), json!(321));
+            object.insert(
+                "arena_snapshot".into(),
+                json!(format!(r#"{{"version":1,"source":"{source}"}}"#)),
+            );
+
+            let review: SyncedReviewResult = serde_json::from_value(value).unwrap();
+            assert_eq!(review.schedule_source.as_deref(), Some(source));
+            assert_eq!(review.schedule_model_id.as_deref(), model_id);
+            let encoded = serde_json::to_value(review).unwrap();
+            assert_eq!(encoded["schedule_source"], source);
+            assert_eq!(encoded["schedule_model_id"], json!(model_id));
+            assert_eq!(encoded["arena_decision_time_ms"], 321);
+        }
+
+        let legacy: SyncedReviewResult = serde_json::from_value(base_review()).unwrap();
+        assert!(legacy.schedule_source.is_none());
+        assert!(legacy.schedule_model_id.is_none());
+        assert!(legacy.arena_commit_id.is_none());
+        assert!(legacy.arena_snapshot.is_none());
+    }
+}

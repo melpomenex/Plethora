@@ -768,6 +768,127 @@ export async function setSyncState(key: string, value: unknown): Promise<void> {
     await put(STORES.syncState, { key, value });
 }
 
+export async function deleteSyncState(key: string): Promise<void> {
+    await deleteById(STORES.syncState, key);
+}
+
+/** Atomically persist a normal browser SM-20 review and its collection learner. */
+export async function commitBrowserSm20Review(
+    item: LearningItem,
+    collectionState: unknown,
+): Promise<void> {
+    await withRetry((database) => new Promise<void>((resolve, reject) => {
+        const tx = database.transaction([STORES.learningItems, STORES.syncState], 'readwrite');
+        tx.objectStore(STORES.learningItems).put(item);
+        tx.objectStore(STORES.syncState).put({ key: 'sm20_collection_state', value: collectionState });
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => reject(tx.error ?? new Error('SM-20 transaction aborted'));
+        tx.onerror = () => reject(tx.error ?? new Error('SM-20 transaction failed'));
+    }));
+}
+
+/** Atomically persist a browser/PWA Arena review and its idempotency record. */
+export async function commitBrowserArenaReview(
+    item: LearningItem,
+    commitKey: string,
+    provenance: Record<string, unknown>,
+    collectionState: unknown,
+    previousCollectionState: unknown,
+): Promise<boolean> {
+    return withRetry((database) => new Promise((resolve, reject) => {
+        const tx = database.transaction([STORES.learningItems, STORES.syncState], 'readwrite');
+        const itemStore = tx.objectStore(STORES.learningItems);
+        const syncStore = tx.objectStore(STORES.syncState);
+        let committed = false;
+        let operationError: Error | null = null;
+
+        const commitRequest = syncStore.get(commitKey);
+        commitRequest.onerror = () => {
+            operationError = commitRequest.error ?? new Error('Failed to check Arena commit');
+            tx.abort();
+        };
+        commitRequest.onsuccess = () => {
+            const existing = commitRequest.result?.value as { item_id?: string } | undefined;
+            if (existing) {
+                if (existing.item_id && existing.item_id !== item.id) {
+                    operationError = new Error('arena_already_committed: commit belongs to another item');
+                    tx.abort();
+                }
+                return;
+            }
+
+            const reviewsRequest = syncStore.get('browser_review_results');
+            reviewsRequest.onerror = () => {
+                operationError = reviewsRequest.error ?? new Error('Failed to read browser review results');
+                tx.abort();
+            };
+            reviewsRequest.onsuccess = () => {
+                const reviews = (reviewsRequest.result?.value as unknown[] | undefined) ?? [];
+                itemStore.put(item);
+                syncStore.put({ key: 'sm20_collection_state', value: collectionState });
+                syncStore.put({ key: 'browser_review_results', value: [...reviews, provenance] });
+                syncStore.put({
+                    key: commitKey,
+                    value: { item_id: item.id, provenance, previous_collection_state: previousCollectionState },
+                });
+                committed = true;
+            };
+        };
+
+        tx.oncomplete = () => resolve(committed);
+        tx.onabort = () => reject(operationError ?? tx.error ?? new Error('Arena transaction aborted'));
+        tx.onerror = () => {
+            operationError ??= tx.error ?? new Error('Arena transaction failed');
+        };
+    }));
+}
+
+/** Atomically restore a browser/PWA item and remove one Arena review event. */
+export async function undoBrowserArenaReview(
+    item: LearningItem,
+    commitKey: string,
+    commitId: string,
+): Promise<void> {
+    return withRetry((database) => new Promise((resolve, reject) => {
+        const tx = database.transaction([STORES.learningItems, STORES.syncState], 'readwrite');
+        const itemStore = tx.objectStore(STORES.learningItems);
+        const syncStore = tx.objectStore(STORES.syncState);
+        let operationError: Error | null = null;
+
+        const commitRequest = syncStore.get(commitKey);
+        commitRequest.onerror = () => {
+            operationError = commitRequest.error ?? new Error('Failed to read Arena collection snapshot');
+            tx.abort();
+        };
+        commitRequest.onsuccess = () => {
+            const previousCollectionState = commitRequest.result?.value?.previous_collection_state;
+            const reviewsRequest = syncStore.get('browser_review_results');
+            reviewsRequest.onerror = () => {
+                operationError = reviewsRequest.error ?? new Error('Failed to read browser review results');
+                tx.abort();
+            };
+            reviewsRequest.onsuccess = () => {
+                const reviews = (reviewsRequest.result?.value as Array<Record<string, unknown>> | undefined) ?? [];
+                itemStore.put(item);
+                if (previousCollectionState !== undefined) {
+                    syncStore.put({ key: 'sm20_collection_state', value: previousCollectionState });
+                }
+                syncStore.put({
+                    key: 'browser_review_results',
+                    value: reviews.filter((result) => result.arena_commit_id !== commitId),
+                });
+                syncStore.delete(commitKey);
+            };
+        };
+
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => reject(operationError ?? tx.error ?? new Error('Arena undo transaction aborted'));
+        tx.onerror = () => {
+            operationError ??= tx.error ?? new Error('Arena undo transaction failed');
+        };
+    }));
+}
+
 export async function getChangedDocuments(sinceSyncVersion: number): Promise<Document[]> {
     const all = await getAll<Document>(STORES.documents);
     return all.filter(d => (d.sync_version || 0) > sinceSyncVersion);

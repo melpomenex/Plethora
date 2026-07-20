@@ -44,3 +44,22 @@ describe("settingsStore notification persistence", () => {
   });
 });
 
+describe("settingsStore Arena review mode", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: cloneDefaults() });
+  });
+
+  it("defaults to automatic Arena scheduling", () => {
+    expect(defaultSettings.learning.sm20ArenaReviewMode).toBe("automatic");
+  });
+
+  it("round-trips the explicit chooser preference", () => {
+    useSettingsStore.getState().updateSettingsCategory("learning", {
+      sm20ArenaReviewMode: "choose",
+    });
+
+    const stored = JSON.parse(localStorage.getItem("incrementum-settings") || "{}");
+    expect(stored.state.settings.learning.sm20ArenaReviewMode).toBe("choose");
+  });
+});

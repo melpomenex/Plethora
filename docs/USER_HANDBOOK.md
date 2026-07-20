@@ -293,6 +293,35 @@ Incrementum's **SM-20** option is the **Algorithm Arena** — a reverse-engineer
 - FSRS-6 is a single, mature, production scheduler and remains the recommended default.
 - SM-20 is an experimental ensemble that pits five algorithms against each other and lets your own data pick the blend. It is more complex and needs more reviews to personalize, but can outperform any single model once it has enough of your history to learn from.
 
+#### Choosing a Memory Horizon after an SM-20 review
+
+Under **Settings → Learning → Algorithm Arena → After each rating**, choose how much scheduling detail you want:
+
+- **Keep the flow (recommended)** commits Arena's weighted pick immediately and moves to the next card. This is the default.
+- **Show the Arena** pauses after an eligible rating and opens the **Memory Horizon**, with your answer still visible while the five models show where they would place the next review.
+
+The same compact choice appears below the six SM-20 rating controls, so the next rating can use a different mode without leaving the review. Both modes run and train the same five collection models; this setting changes only whether you make the final interval choice. The decision step remains limited to normal SM-20 flashcard reviews; document reading, cram mode, other algorithms, and **Pure SM-20 Mode** keep their existing direct scheduling flow.
+
+- **Arena Pick** is selected by default. It is the weighted recommendation and is usually the best choice when you want the Arena to decide.
+- **SM-2, SM-15, SM-19, SM-20, and FSRS** let you deliberately follow one model's exact proposal for this review. Choosing one does not give that model extra voting weight; future weights continue to learn only from prediction accuracy.
+- **Custom** accepts an amount and unit or a position on the logarithmic time lens. The displayed bounds protect against invalid schedules, and the exact due date updates before you confirm.
+- **Why this interval** expands the proposals, current weights, and the Arena range. The range is the earliest-to-latest interval proposed by the five models, not an uncertainty or confidence interval.
+
+Nothing is committed until you press **Schedule for …**. If the preview becomes stale or a save fails, the card remains in place with your grade and selection preserved so you can retry safely. **Back to rating** discards the pending grade and lets you choose again.
+
+Keyboard controls while the Memory Horizon is open:
+
+| Key | Action |
+|-----|--------|
+| `←` / `→` | Explore proposals in time order |
+| `1`–`5` | Select SM-2, SM-15, SM-19, SM-20, or FSRS |
+| `A` | Select Arena Pick |
+| `M` | Select Custom |
+| `Enter` or `Space` | Confirm the displayed schedule |
+| `Escape` | Return to rating |
+
+In hands-free audio review, Incrementum automatically confirms Arena Pick so playback can continue, even when **Show the Arena** is selected for visual reviews. The review remains recoverable if that automatic commit fails.
+
 ### Document Reading Schedule (Incremental Reading)
 
 The algorithms above (FSRS-6, SM-18, SM-20) are **flashcard** schedulers — they train on Q&A, cloze, and basic cards, where the goal is long-term recall. **Documents** (the articles, papers, and passages you read via Incremental Reading) are scheduled by a **separate** scheduler with a different goal: keeping content in regular rotation rather than maximizing long-term retention of a single fact.

@@ -112,6 +112,7 @@ export function RatingButtons({
             return (
               <button
                 key={entry.grade}
+                data-review-rating={entry.grade}
                 onClick={() => onSelectRating(entry.rating, entry.grade)}
                 disabled={disabled}
                 aria-keyshortcuts={String(entry.grade)}
@@ -220,6 +221,7 @@ export function RatingButtons({
           return (
             <button
               key={rating.value}
+              data-review-rating={rating.value}
               onClick={() => onSelectRating(rating.value)}
               disabled={disabled}
               aria-keyshortcuts={String(rating.value)}

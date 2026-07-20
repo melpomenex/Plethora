@@ -2090,6 +2090,21 @@ pub const MIGRATIONS: &[Migration] = &[
             ON learning_items(collection_id, due_date, is_suspended);
         "#,
     ),
+    Migration::new(
+        "062_add_review_algorithm_arena_provenance",
+        r#"
+        ALTER TABLE review_results ADD COLUMN schedule_source TEXT;
+        ALTER TABLE review_results ADD COLUMN schedule_model_id TEXT;
+        ALTER TABLE review_results ADD COLUMN arena_commit_id TEXT;
+        ALTER TABLE review_results ADD COLUMN arena_recommended_interval REAL;
+        ALTER TABLE review_results ADD COLUMN arena_decision_time_ms INTEGER;
+        ALTER TABLE review_results ADD COLUMN arena_snapshot TEXT;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_review_results_arena_commit_id
+            ON review_results(arena_commit_id)
+            WHERE arena_commit_id IS NOT NULL;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

@@ -24,6 +24,21 @@ pub enum IncrementumError {
     #[error("Validation error: {0}")]
     Validation(String),
 
+    #[error("Algorithm Arena preview is stale: {0}")]
+    ArenaPreviewStale(String),
+
+    #[error("Algorithm Arena custom interval is invalid: {0}")]
+    ArenaInvalidInterval(String),
+
+    #[error("Algorithm Arena is unavailable: {0}")]
+    ArenaUnsupported(String),
+
+    #[error("Algorithm Arena model selection is invalid: {0}")]
+    ArenaInvalidModel(String),
+
+    #[error("Algorithm Arena review was already committed: {0}")]
+    ArenaAlreadyCommitted(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 
@@ -80,6 +95,11 @@ impl serde::Serialize for IncrementumError {
             Self::NotFound(msg) => ("not_found", msg.clone()),
             Self::InvalidInput(msg) => ("invalid_input", msg.clone()),
             Self::Validation(msg) => ("validation", msg.clone()),
+            Self::ArenaPreviewStale(msg) => ("arena_preview_stale", msg.clone()),
+            Self::ArenaInvalidInterval(msg) => ("arena_invalid_interval", msg.clone()),
+            Self::ArenaUnsupported(msg) => ("arena_unsupported", msg.clone()),
+            Self::ArenaInvalidModel(msg) => ("arena_invalid_model", msg.clone()),
+            Self::ArenaAlreadyCommitted(msg) => ("arena_already_committed", msg.clone()),
             Self::Internal(msg) => ("internal", msg.clone()),
             Self::IntegrationError(msg) => ("integration_error", msg.clone()),
             Self::SyncError(msg) => ("sync_error", msg.clone()),

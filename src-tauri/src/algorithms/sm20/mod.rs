@@ -66,6 +66,58 @@ use model2::{model_2, ClassicM2Optimizer, M2ItemState};
 use model3::{model_3_stateful, M3ItemState, M3MatrixState};
 use model5::model_5;
 
+/// Stable public identifiers for the five Algorithm Arena competitors.
+/// The order is part of the preview and persisted-provenance contract.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum ArenaModelId {
+    Sm2,
+    Sm15,
+    Sm19,
+    Sm20,
+    Fsrs,
+}
+
+pub const ARENA_MODEL_IDS: [ArenaModelId; 5] = [
+    ArenaModelId::Sm2,
+    ArenaModelId::Sm15,
+    ArenaModelId::Sm19,
+    ArenaModelId::Sm20,
+    ArenaModelId::Fsrs,
+];
+
+impl ArenaModelId {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sm2 => "sm2",
+            Self::Sm15 => "sm15",
+            Self::Sm19 => "sm19",
+            Self::Sm20 => "sm20",
+            Self::Fsrs => "fsrs",
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Sm2 => "SM-2",
+            Self::Sm15 => "SM-15",
+            Self::Sm19 => "SM-19",
+            Self::Sm20 => "SM-20",
+            Self::Fsrs => "FSRS",
+        }
+    }
+
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Sm2 => 0,
+            Self::Sm15 => 1,
+            Self::Sm19 => 2,
+            Self::Sm20 => 3,
+            Self::Fsrs => 4,
+        }
+    }
+}
+
 // Re-export index mappers for backward compatibility with the old sm20.rs API
 pub use model3::{d_index as difficulty_to_index, r_index};
 pub use kernel::init_new_item as init_kernel_item;
@@ -211,6 +263,10 @@ pub struct SM20ReviewResult {
     pub state: SM20State,
     pub interval_days: f64,
     pub retrievability: f64,
+    /// Deterministically finalized intervals for SM-2/SM-15/SM-19/SM-20/FSRS.
+    /// These are diagnostics and choices; the adaptive weights are still
+    /// trained only from recall outcomes.
+    pub model_intervals: [f64; 5],
 }
 
 /// Preview intervals for each rating button.
@@ -498,6 +554,21 @@ pub fn review(
         post_lapse_family > 1,
     );
 
+    let slot_stabilities = [m1, m2, m3, m4, m5];
+    let model_intervals = slot_stabilities.map(|slot| {
+        finalize(
+            slot,
+            fi,
+            post_lapse_mode,
+            post_lapse_x,
+            false,
+            None::<&mut rand::rngs::StdRng>,
+            m1_review.used_interval,
+            post_lapse_family > 1,
+        )
+        .interval as f64
+    });
+
     // --- Algorithm Arena: score the five competitors on this outcome ---
     // Uses the slot stabilities persisted at the item's PREVIOUS review, so
     // each model is judged on the prediction it actually made. Runs after the
@@ -564,7 +635,7 @@ pub fn review(
         m3_state: next_m3_item,
         // Arena: persist each competitor's stability so its recall
         // prediction can be scored at the next review.
-        slot_stabilities: Some([m1, m2, m3, m4, m5]),
+        slot_stabilities: Some(slot_stabilities),
         m5_memory: next_m5_memory,
     };
 
@@ -572,6 +643,7 @@ pub fn review(
         state: new_state,
         interval_days: final_interval as f64,
         retrievability: m4_result.a,
+        model_intervals,
     }
 }
 
@@ -614,6 +686,33 @@ pub fn preview_grades(
     pure_m4: bool,
     post_lapse_x: f64,
 ) -> [f64; 6] {
+    preview_grade_results(
+        state,
+        elapsed_days,
+        fi,
+        collection,
+        today,
+        rng,
+        pure_m4,
+        post_lapse_x,
+    )
+    .map(|result| result.interval_days)
+}
+
+/// Preview the complete deterministic ensemble output for every native grade.
+/// This is the Arena data source: it uses the same scratch pass as the legacy
+/// interval preview and never mutates the caller's collection state.
+#[allow(clippy::too_many_arguments)]
+pub fn preview_grade_results(
+    state: &SM20State,
+    elapsed_days: f64,
+    fi: u8,
+    collection: &SM20CollectionState,
+    today: i32,
+    rng: &mut impl rand::Rng,
+    pure_m4: bool,
+    post_lapse_x: f64,
+) -> [SM20ReviewResult; 6] {
     // Clone collection state so we don't mutate it during preview
     let mut coll = SM20CollectionState {
         m2_optimizer: collection.m2_optimizer.clone(),
@@ -623,11 +722,10 @@ pub fn preview_grades(
         m4_params: collection.m4_params.clone(),
     };
 
-    let mut out = [0.0f64; 6];
-    for grade in 0..6 {
-        out[grade as usize] = review(
+    std::array::from_fn(|grade| {
+        review(
             state,
-            grade,
+            grade as i32,
             elapsed_days,
             fi,
             &mut coll,
@@ -638,9 +736,7 @@ pub fn preview_grades(
             pure_m4,
             post_lapse_x,
         )
-        .interval_days;
-    }
-    out
+    })
 }
 
 /// Initialize a new SM-20 item for the given grade. `[C][BIN]`
@@ -805,5 +901,217 @@ mod tests {
             r.interval_days,
             min_interval
         );
+    }
+
+    #[test]
+    fn arena_preview_is_deterministic_complete_and_non_mutating() {
+        let collection = SM20CollectionState::default();
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../src/shared/sm20ArenaParityFixture.json"
+        ))
+        .expect("shared Arena parity fixture");
+        let state: SM20State = serde_json::from_value(fixture["state"].clone())
+            .expect("shared fixture state");
+        let elapsed_days = fixture["elapsed_days"].as_f64().expect("elapsed days");
+        let before = serde_json::to_vec(&(
+            &collection.m2_optimizer,
+            &collection.m3_matrices,
+            &collection.arena,
+            &collection.fsrs_params,
+            &collection.m4_params,
+        ))
+        .unwrap();
+
+        let first = preview_grade_results(
+            &state,
+            elapsed_days,
+            DEFAULT_FI,
+            &collection,
+            30,
+            &mut StdRng::seed_from_u64(0),
+            false,
+            0.0,
+        );
+        let second = preview_grade_results(
+            &state,
+            elapsed_days,
+            DEFAULT_FI,
+            &collection,
+            30,
+            &mut StdRng::seed_from_u64(0),
+            false,
+            0.0,
+        );
+
+        assert_eq!(first.len(), 6);
+        let fixture_model_order: Vec<&str> = fixture["model_order"]
+            .as_array()
+            .expect("model order")
+            .iter()
+            .map(|value| value.as_str().expect("model id"))
+            .collect();
+        assert_eq!(
+            ARENA_MODEL_IDS.map(ArenaModelId::as_str).as_slice(),
+            fixture_model_order.as_slice(),
+        );
+        assert_eq!(
+            ARENA_MODEL_IDS,
+            [
+                ArenaModelId::Sm2,
+                ArenaModelId::Sm15,
+                ArenaModelId::Sm19,
+                ArenaModelId::Sm20,
+                ArenaModelId::Fsrs,
+            ],
+            "the persisted Arena slots are a public compatibility contract",
+        );
+        for result in &first {
+            assert!(result.interval_days.is_finite() && result.interval_days >= 1.0);
+            assert!(result.state.slot_stabilities.is_some(), "raw model slots stay available for later scoring");
+            assert!(result
+                .model_intervals
+                .iter()
+                .all(|interval| interval.is_finite() && *interval >= 1.0));
+        }
+        let fixture_grades = fixture["grades"].as_array().expect("fixture grades");
+        let mut expected_intervals = [0.0; 6];
+        for (index, (expected, repeated)) in fixture_grades.iter().zip(&second).enumerate() {
+            let interval = expected["recommendation"].as_f64().expect("recommendation");
+            let slots: [f64; 5] = serde_json::from_value(expected["candidates"].clone())
+                .expect("candidate fixture");
+            let range: [f64; 2] = serde_json::from_value(expected["range"].clone())
+                .expect("range fixture");
+            expected_intervals[index] = interval;
+            assert_eq!(first[index].interval_days, interval, "grade {index} ensemble fixture");
+            assert_eq!(first[index].model_intervals, slots, "grade {index} candidate fixture");
+            assert_eq!(slots.iter().copied().fold(f64::INFINITY, f64::min), range[0]);
+            assert_eq!(slots.iter().copied().fold(f64::NEG_INFINITY, f64::max), range[1]);
+            assert_eq!(first[index].interval_days, repeated.interval_days);
+            assert_eq!(first[index].model_intervals, repeated.model_intervals);
+            assert_eq!(first[index].state.slot_stabilities, repeated.state.slot_stabilities);
+        }
+        let fixture_weights: [f64; 5] = serde_json::from_value(fixture["weights"].clone())
+            .expect("weight fixture");
+        assert_eq!(collection.arena.weights, fixture_weights);
+        assert_eq!(
+            fixture["custom_bounds"]["min_days"].as_f64().unwrap(),
+            1.0 / 1_440.0,
+        );
+        assert_eq!(
+            fixture["custom_bounds"]["max_days"].as_f64().unwrap(),
+            STABILITY_MAX,
+        );
+
+        let legacy = preview_grades(
+            &state,
+            elapsed_days,
+            DEFAULT_FI,
+            &collection,
+            30,
+            &mut StdRng::seed_from_u64(0),
+            false,
+            0.0,
+        );
+        assert_eq!(legacy, expected_intervals);
+
+        let committed_grade = fixture["committed_grade"].as_i64().unwrap() as i32;
+        let mut commit_collection = SM20CollectionState {
+            m2_optimizer: collection.m2_optimizer.clone(),
+            m3_matrices: collection.m3_matrices.clone(),
+            arena: collection.arena.clone(),
+            fsrs_params: collection.fsrs_params.clone(),
+            m4_params: collection.m4_params.clone(),
+        };
+        let committed = review(
+            &state,
+            committed_grade,
+            elapsed_days,
+            DEFAULT_FI,
+            &mut commit_collection,
+            elapsed_days as i32,
+            true,
+            false,
+            &mut StdRng::seed_from_u64(0),
+            false,
+            0.0,
+        );
+        assert_eq!(
+            committed.interval_days,
+            fixture["committed_interval"].as_f64().unwrap(),
+        );
+        assert_eq!(
+            serde_json::json!({
+                "stability": committed.state.stability,
+                "difficulty": committed.state.difficulty,
+                "m1_state": committed.state.m1_state,
+                "m2_state": committed.state.m2_state,
+                "m3_state": committed.state.m3_state,
+                "slot_stabilities": committed.state.slot_stabilities,
+            }),
+            fixture["committed_state"],
+        );
+        assert_eq!(
+            commit_collection.m2_optimizer.cell_cases.iter().flatten().sum::<u32>(),
+            fixture["committed_collection"]["m2_case_count"].as_u64().unwrap() as u32,
+        );
+        assert_eq!(
+            commit_collection.m3_matrices.outcome_count.iter().sum::<u32>(),
+            fixture["committed_collection"]["m3_outcome_count"].as_u64().unwrap() as u32,
+        );
+        let expected_arena: ArenaState = serde_json::from_value(
+            fixture["committed_collection"]["arena"].clone(),
+        ).unwrap();
+        for index in 0..5 {
+            assert!((commit_collection.arena.weights[index] - expected_arena.weights[index]).abs() < 1e-14);
+            assert!((commit_collection.arena.decayed_loss[index] - expected_arena.decayed_loss[index]).abs() < 1e-14);
+        }
+        assert!((commit_collection.arena.decayed_blend_loss - expected_arena.decayed_blend_loss).abs() < 1e-14);
+        assert!((commit_collection.arena.decayed_sm19_loss - expected_arena.decayed_sm19_loss).abs() < 1e-14);
+        assert_eq!(commit_collection.arena.total_scored, expected_arena.total_scored);
+        let learned_preview = preview_grade_results(
+            &committed.state,
+            fixture["post_commit_elapsed_days"].as_f64().unwrap(),
+            DEFAULT_FI,
+            &commit_collection,
+            fixture["post_commit_today"].as_i64().unwrap() as i32,
+            &mut StdRng::seed_from_u64(0),
+            false,
+            0.0,
+        );
+        for (result, expected) in learned_preview.iter().zip(
+            fixture["post_commit_grades"].as_array().unwrap(),
+        ) {
+            assert_eq!(result.interval_days, expected["recommendation"].as_f64().unwrap());
+            let expected_candidates: [f64; 5] = serde_json::from_value(
+                expected["candidates"].clone(),
+            ).unwrap();
+            assert_eq!(result.model_intervals, expected_candidates);
+        }
+        let mut personalized_collection = SM20CollectionState::default();
+        personalized_collection.fsrs_params = Some(serde_json::from_value(
+            fixture["personalized_fsrs"]["parameters"].clone(),
+        ).unwrap());
+        let personalized = preview_grade_results(
+            &state, elapsed_days, DEFAULT_FI, &personalized_collection, 30,
+            &mut StdRng::seed_from_u64(0), false, 0.0,
+        );
+        for (result, expected) in personalized.iter().zip(
+            fixture["personalized_fsrs"]["grades"].as_array().unwrap(),
+        ) {
+            assert_eq!(result.model_intervals[4], expected["interval"].as_f64().unwrap());
+            let actual = result.state.m5_memory.expect("personalized M5 memory");
+            assert!((actual.stability - expected["memory"]["stability"].as_f64().unwrap()).abs() < 1e-7);
+            assert!((actual.difficulty - expected["memory"]["difficulty"].as_f64().unwrap()).abs() < 1e-7);
+        }
+
+        let after = serde_json::to_vec(&(
+            &collection.m2_optimizer,
+            &collection.m3_matrices,
+            &collection.arena,
+            &collection.fsrs_params,
+            &collection.m4_params,
+        ))
+        .unwrap();
+        assert_eq!(before, after, "preview must not mutate collection state");
     }
 }

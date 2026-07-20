@@ -2,6 +2,76 @@ import { invokeCommand } from "../lib/tauri";
 import type { LearningItemInteractionMetadata } from "../types/learningItemInteractions";
 import type { LearningSettings } from "../stores/settingsStore";
 
+export const SM20_ARENA_SCHEMA_VERSION = 1 as const;
+
+export const SM20_ARENA_MODEL_ORDER = [
+  "sm2",
+  "sm15",
+  "sm19",
+  "sm20",
+  "fsrs",
+] as const;
+
+export type SM20ArenaModelId = (typeof SM20_ARENA_MODEL_ORDER)[number];
+export type SM20NativeGrade = 0 | 1 | 2 | 3 | 4 | 5;
+export type ArenaSelectionSource = "arena" | "model" | "custom";
+
+export interface ArenaIntervalChoice {
+  interval_days: number;
+  due_at: string;
+}
+
+export interface ArenaModelCandidate extends ArenaIntervalChoice {
+  model_id: SM20ArenaModelId;
+  label: string;
+  weight_percent: number;
+  personalized: boolean;
+}
+
+export interface ArenaIntervalRange {
+  min_days: number;
+  max_days: number;
+}
+
+export interface SM20ArenaGradePreview {
+  grade: SM20NativeGrade;
+  recommendation: ArenaIntervalChoice;
+  candidates: ArenaModelCandidate[];
+  range: ArenaIntervalRange;
+  custom_bounds: ArenaIntervalRange;
+}
+
+export interface SM20ArenaPreviewSet {
+  schema_version: typeof SM20_ARENA_SCHEMA_VERSION;
+  preview_id: string;
+  item_revision: string;
+  arena_revision: string;
+  generated_at: string;
+  model_order: SM20ArenaModelId[];
+  grades: SM20ArenaGradePreview[];
+}
+
+export interface ArenaSelection {
+  commit_id: string;
+  preview_id: string;
+  item_revision: string;
+  arena_revision: string;
+  source: ArenaSelectionSource;
+  model_id?: SM20ArenaModelId;
+  /** Required for custom selections and ignored for model selections. */
+  interval_days?: number;
+  decision_time_ms: number;
+}
+
+export interface ArenaReviewProvenance {
+  schedule_source?: ArenaSelectionSource | null;
+  schedule_model_id?: SM20ArenaModelId | null;
+  arena_commit_id?: string | null;
+  arena_recommended_interval?: number | null;
+  arena_decision_time_ms?: number | null;
+  arena_snapshot?: string | null;
+}
+
 export interface PreviewIntervals {
   again: number;
   hard: number;
@@ -10,6 +80,8 @@ export interface PreviewIntervals {
   /** Native per-grade intervals (index = grade 0-5). Present only for
    * algorithms with a native grade scale (currently SM-20). */
   grade_intervals?: number[];
+  /** Full Algorithm Arena decision data. Present only for SM-20 Arena mode. */
+  arena?: SM20ArenaPreviewSet;
 }
 
 export interface ReviewStreak {
@@ -37,6 +109,9 @@ export async function submitReview(
      * grade directly instead of mapping the 4-button rating. */
     grade?: number;
     sm20PureM4?: boolean;
+    arenaSelection?: ArenaSelection;
+    /** Sync-only copy. Native persistence uses an authoritative recomputation. */
+    arenaProvenance?: ArenaReviewProvenance;
   }
 ): Promise<LearningItem> {
   const normalizedSessionId = sessionId?.trim() ? sessionId : undefined;
@@ -58,6 +133,8 @@ export async function submitReview(
     grade: options?.grade,
     sm20_pure_m4: options?.sm20PureM4,
     sm20PureM4: options?.sm20PureM4,
+    arena_selection: options?.arenaSelection,
+    arenaSelection: options?.arenaSelection,
   });
 
   // Replicate the review to other devices. Fire-and-forget — never blocks the
@@ -84,6 +161,8 @@ export async function submitReview(
             resultInterval: synced.interval,
             resultEase: synced.ease_factor,
             sessionId: normalizedSessionId,
+            arena: options?.arenaSelection,
+            arenaProvenance: options?.arenaProvenance,
           }),
         ]);
       } catch (err) {
@@ -107,6 +186,9 @@ export async function restoreLearningItemState(
     state: string;
     memoryState?: { stability: number; difficulty: number } | null;
     difficulty: number;
+    algorithmType?: string;
+    algorithmState?: string;
+    arenaCommitId?: string;
   }
 ): Promise<LearningItem> {
   return await invokeCommand<LearningItem>("restore_learning_item_state", {
@@ -126,6 +208,12 @@ export async function restoreLearningItemState(
     memory_state: previousState.memoryState ?? null,
     memoryState: previousState.memoryState ?? null,
     difficulty: previousState.difficulty,
+    algorithm_type: previousState.algorithmType,
+    algorithmType: previousState.algorithmType,
+    algorithm_state: previousState.algorithmState,
+    algorithmState: previousState.algorithmState,
+    arena_commit_id: previousState.arenaCommitId,
+    arenaCommitId: previousState.arenaCommitId,
   });
 }
 

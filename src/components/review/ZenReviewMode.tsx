@@ -30,6 +30,7 @@ import { useSwipeGesture } from "../../hooks/useSwipeGesture";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { RatingJoystick } from "./RatingJoystick";
 import { X } from "@phosphor-icons/react";
+import { AlgorithmArenaDecision } from "./AlgorithmArenaDecision";
 
 interface ZenReviewModeProps {
   onExit: () => void;
@@ -300,10 +301,11 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
     error,
     currentIndex,
     previewIntervals,
+    pendingArenaReview,
     showAnswer,
     submitRating,
-    nextCard,
     sessionStartTime,
+    cancelArenaDecision,
   } = useReviewStore();
 
   const [contextPeekVisible, setContextPeekVisible] = useState(false);
@@ -363,7 +365,7 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
   const ratingCbRef = useRef<(rating: ReviewRating, grade?: number) => Promise<void>>(
     async () => {},
   );
-  answerShownRef.current = isAnswerShown;
+  answerShownRef.current = isAnswerShown && !pendingArenaReview;
   submittingRef.current = isSubmitting;
 
   const {
@@ -411,6 +413,14 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
         return;
       }
       
+      if (pendingArenaReview) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          cancelArenaDecision();
+        }
+        return;
+      }
+
       if (e.key === "Escape") {
         onExit();
         return;
@@ -452,7 +462,7 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [isAnswerShown, currentCard, isSubmitting, justRated, onExit, showAnswer, useNativeGrades]);
+  }, [isAnswerShown, currentCard, isSubmitting, justRated, onExit, showAnswer, useNativeGrades, pendingArenaReview, cancelArenaDecision]);
   
   const handleRating = useCallback(async (rating: ReviewRating, grade?: number) => {
     if (justRated || isSubmitting) return;
@@ -462,18 +472,16 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
     const beforeId = currentCard?.id;
     await submitRating(rating, grade);
     if (!beforeId) return;
-
-    // `submitRating` already advances the queue; only step again if it didn't
-    // (mirrors ReviewSession's guard so we never skip a card).
-    const afterId = useReviewStore.getState().currentCard?.id;
-    if (afterId === beforeId) {
-      nextCard();
+    const committedState = useReviewStore.getState();
+    if (committedState.pendingArenaReview || committedState.error) {
+      setJustRated(false);
+      return;
     }
     // Instant transition - no animation delay
     setTimeout(() => {
       setJustRated(false);
     }, 50);
-  }, [justRated, isSubmitting, submitRating, nextCard, currentCard?.id, haptic]);
+  }, [justRated, isSubmitting, submitRating, currentCard?.id, haptic]);
   // Keep the gesture-hook ref pointed at the latest rating handler.
   ratingCbRef.current = handleRating;
 
@@ -485,7 +493,7 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
     );
   }
   
-  if (error) {
+  if (error && !pendingArenaReview) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
@@ -566,28 +574,34 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
       <div
         ref={gestureRef}
         className={cn(
-          "w-full flex-1 flex items-center justify-center touch-pan-y",
-          justRated && "opacity-0"
+          "w-full min-h-0 flex-1 flex items-center justify-center touch-pan-y",
+          justRated && !pendingArenaReview && "opacity-0"
         )}
       >
-        <ZenCard
-          item={currentCard}
-          showAnswer={isAnswerShown}
-          onShowAnswer={showAnswer}
-          t={t}
-        />
+        {pendingArenaReview ? (
+          <div className="flex h-full min-h-0 w-full flex-col overflow-hidden py-12">
+            <AlgorithmArenaDecision compact />
+          </div>
+        ) : (
+          <ZenCard
+            item={currentCard}
+            showAnswer={isAnswerShown}
+            onShowAnswer={showAnswer}
+            t={t}
+          />
+        )}
       </div>
 
       {/* Subtle hint at bottom — reflects the active grading scheme. The
           touch joystick/swipe show their own hint while active, so this is a
           cue for keyboard/hardware-keyboard users. */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs text-muted-foreground/20">
+      {!pendingArenaReview && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 text-xs text-muted-foreground/20">
         {isAnswerShown ? (
           <span className="tracking-widest">{useNativeGrades ? "0 1 2 3 4 5" : "1 2 3 4"}</span>
         ) : (
           <span className="tracking-wide">Space</span>
         )}
-      </div>
+      </div>}
 
       {/* Algorithm Metadata */}
       <AlgorithmMetadata

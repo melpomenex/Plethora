@@ -57,6 +57,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
 
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const settlePlaybackRef = useRef<(() => void) | null>(null);
 
   const hasSpeechSynthesis = typeof window !== "undefined" && "speechSynthesis" in window;
   const hasAudioPlayback = typeof window !== "undefined" && typeof Audio !== "undefined";
@@ -82,6 +83,12 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         : Boolean(directKey));
 
   const stop = useCallback(() => {
+    // Resolve the active `speak` promise before cancelling the underlying
+    // engine. This makes stop a deliberate "skip this utterance" operation
+    // for sequenced flows such as hands-free review.
+    settlePlaybackRef.current?.();
+    settlePlaybackRef.current = null;
+
     if (hasSpeechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -120,8 +127,8 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
     };
   }, [hasSpeechSynthesis, lang, selectedVoice]);
 
-  const speakWithWebSpeech = useCallback((text: string) => {
-    if (!hasSpeechSynthesis) return;
+  const speakWithWebSpeech = useCallback((text: string): Promise<void> => {
+    if (!hasSpeechSynthesis) return Promise.resolve();
 
     window.speechSynthesis.cancel();
 
@@ -135,23 +142,38 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       utterance.voice = selectedVoice;
     }
 
-    utterance.onstart = () => {
-      setLastError(null);
-      setIsSpeaking(true);
-      setIsPaused(false);
-    };
-    utterance.onend = () => {
-      setIsSpeaking(false);
-      setIsPaused(false);
-    };
-    utterance.onerror = () => {
-      setLastError("Web Speech API failed to read this text.");
-      setIsSpeaking(false);
-      setIsPaused(false);
-    };
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (settlePlaybackRef.current === finish) {
+          settlePlaybackRef.current = null;
+        }
+        resolve();
+      };
+      settlePlaybackRef.current = finish;
 
-    utteranceRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
+      utterance.onstart = () => {
+        setLastError(null);
+        setIsSpeaking(true);
+        setIsPaused(false);
+      };
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        setIsPaused(false);
+        finish();
+      };
+      utterance.onerror = () => {
+        setLastError("Web Speech API failed to read this text.");
+        setIsSpeaking(false);
+        setIsPaused(false);
+        finish();
+      };
+
+      utteranceRef.current = utterance;
+      window.speechSynthesis.speak(utterance);
+    });
   }, [hasSpeechSynthesis, rate, pitch, volume, lang, selectedVoice]);
 
   const speakWithFal = useCallback(async (text: string, overrides?: SpeakOverrides) => {
@@ -172,29 +194,54 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
     audio.playbackRate = rate;
     audioRef.current = audio;
 
-    audio.onplay = () => {
-      setIsGenerating(false);
-      setIsSpeaking(true);
-      setIsPaused(false);
-    };
-    audio.onpause = () => {
-      if (audio.ended) return;
-      setIsPaused(true);
-      setIsSpeaking(false);
-    };
-    audio.onended = () => {
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setIsGenerating(false);
-    };
-    audio.onerror = () => {
-      setIsGenerating(false);
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setLastError("Failed to play generated audio.");
-    };
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (settlePlaybackRef.current === finish) {
+          settlePlaybackRef.current = null;
+        }
+        resolve();
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        if (settlePlaybackRef.current === finish) {
+          settlePlaybackRef.current = null;
+        }
+        reject(error);
+      };
+      settlePlaybackRef.current = finish;
 
-    await audio.play();
+      audio.onplay = () => {
+        setIsGenerating(false);
+        setIsSpeaking(true);
+        setIsPaused(false);
+      };
+      audio.onpause = () => {
+        if (audio.ended) return;
+        setIsPaused(true);
+        setIsSpeaking(false);
+      };
+      audio.onended = () => {
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setIsGenerating(false);
+        finish();
+      };
+      audio.onerror = () => {
+        setIsGenerating(false);
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setLastError("Failed to play generated audio.");
+        fail(new Error("Failed to play generated audio."));
+      };
+
+      void audio.play().catch((error: unknown) => {
+        fail(error instanceof Error ? error : new Error("Failed to start generated audio."));
+      });
+    });
   }, [settings, hasAudioPlayback, rate]);
 
   const speak = useCallback(async (text: string, overrides?: SpeakOverrides) => {
@@ -207,7 +254,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
     try {
       // System TTS synthesizes directly via the device engine (no audio URL).
       if (isSystemProvider && hasSpeechSynthesis) {
-        speakWithWebSpeech(normalizedText);
+        await speakWithWebSpeech(normalizedText);
         return;
       }
 
@@ -216,7 +263,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         return;
       }
 
-      speakWithWebSpeech(normalizedText);
+      await speakWithWebSpeech(normalizedText);
     } catch (error) {
       setIsGenerating(false);
       setIsSpeaking(false);
@@ -224,7 +271,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       setLastError(error instanceof Error ? error.message : "TTS generation failed.");
 
       if (hasSpeechSynthesis) {
-        speakWithWebSpeech(normalizedText);
+        await speakWithWebSpeech(normalizedText);
       }
     }
   }, [isSupported, stop, providerConfigured, isSystemProvider, hasSpeechSynthesis, speakWithFal, speakWithWebSpeech]);

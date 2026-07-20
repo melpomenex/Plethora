@@ -30,6 +30,16 @@ pub struct SM20OptimizerProfileRow {
     pub last_optimized_at: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ArenaReviewProvenance<'a> {
+    pub schedule_source: &'a str,
+    pub schedule_model_id: Option<&'a str>,
+    pub arena_commit_id: &'a str,
+    pub recommended_interval: f64,
+    pub decision_time_ms: u64,
+    pub snapshot: &'a str,
+}
+
 #[derive(Clone)]
 pub struct Repository {
     pool: Pool<Sqlite>,
@@ -2433,7 +2443,7 @@ impl Repository {
                 last_review_date = ?7, date_modified = ?8,
                 memory_state_stability = ?9, memory_state_difficulty = ?10,
                 interaction_metadata = ?12, algorithm_type = ?13, algorithm_state = ?14,
-                updated_at = COALESCE(?15, updated_at), tags = ?16
+                updated_at = COALESCE(?15, updated_at), tags = ?16, difficulty = ?17
             WHERE id = ?11
             "#,
         )
@@ -2453,6 +2463,7 @@ impl Repository {
         .bind(&item.algorithm_state)
         .bind(&item.updated_at)
         .bind(&tags_json)
+        .bind(item.difficulty)
         .execute(&self.pool)
         .await?;
 
@@ -2765,11 +2776,50 @@ impl Repository {
         new_interval: f64,
         new_ease_factor: f64,
     ) -> Result<()> {
+        self.create_review_result_with_arena(
+            id,
+            collection_id,
+            session_id,
+            item_id,
+            rating,
+            time_taken,
+            new_due_date,
+            new_interval,
+            new_ease_factor,
+            None,
+        )
+        .await
+    }
+
+    /// Create a review result with optional Algorithm Arena decision provenance.
+    /// Legacy/direct reviews use `None` and remain byte-for-byte compatible.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_review_result_with_arena(
+        &self,
+        id: &str,
+        collection_id: &str,
+        session_id: Option<&str>,
+        item_id: &str,
+        rating: i32,
+        time_taken: i32,
+        new_due_date: &chrono::DateTime<chrono::Utc>,
+        new_interval: f64,
+        new_ease_factor: f64,
+        arena: Option<&ArenaReviewProvenance<'_>>,
+    ) -> Result<()> {
         let now = Utc::now();
         sqlx::query(
             r#"
-            INSERT INTO review_results (id, collection_id, session_id, item_id, rating, time_taken, new_due_date, new_interval, new_ease_factor, timestamp)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            INSERT INTO review_results (
+                id, collection_id, session_id, item_id, rating, time_taken,
+                new_due_date, new_interval, new_ease_factor, timestamp,
+                schedule_source, schedule_model_id, arena_commit_id,
+                arena_recommended_interval, arena_decision_time_ms, arena_snapshot
+            )
+            VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                ?11, ?12, ?13, ?14, ?15, ?16
+            )
             "#,
         )
         .bind(id)
@@ -2782,10 +2832,486 @@ impl Repository {
         .bind(new_interval)
         .bind(new_ease_factor)
         .bind(now)
+        .bind(arena.map(|value| value.schedule_source))
+        .bind(arena.and_then(|value| value.schedule_model_id))
+        .bind(arena.map(|value| value.arena_commit_id))
+        .bind(arena.map(|value| value.recommended_interval))
+        .bind(arena.map(|value| value.decision_time_ms as i64))
+        .bind(arena.map(|value| value.snapshot))
         .execute(&self.pool)
         .await?;
 
         Ok(())
+    }
+
+    pub async fn get_review_item_by_arena_commit_id(
+        &self,
+        arena_commit_id: &str,
+    ) -> Result<Option<String>> {
+        Ok(sqlx::query_scalar::<_, String>(
+            "SELECT item_id FROM review_results WHERE arena_commit_id = ?1 LIMIT 1",
+        )
+        .bind(arena_commit_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    /// Reconcile the append-only event and collection-wide learning side
+    /// effects when the user immediately undoes an Arena review.
+    pub async fn undo_arena_review_by_commit_id(
+        &self,
+        arena_commit_id: &str,
+    ) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct UndoCollection {
+            m2_optimizer: crate::algorithms::sm20::model2::ClassicM2Optimizer,
+            m3_matrices: crate::algorithms::sm20::model3::M3MatrixState,
+            arena: crate::algorithms::sm20::arena::ArenaState,
+        }
+        #[derive(serde::Deserialize)]
+        struct UndoSnapshot {
+            grade: i32,
+            #[serde(default)]
+            prior_item_state: String,
+            #[serde(default)]
+            undo_collection: Option<UndoCollection>,
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT arena_snapshot, session_id, timestamp, time_taken
+             FROM review_results WHERE arena_commit_id = ?1 LIMIT 1",
+        )
+        .bind(arena_commit_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(row) = row else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+
+        let snapshot_json: Option<String> = row.try_get("arena_snapshot").ok();
+        let snapshot = snapshot_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<UndoSnapshot>(json).ok());
+        let session_id: Option<String> = row.try_get("session_id").ok().flatten();
+        let timestamp: chrono::DateTime<Utc> = row.try_get("timestamp")?;
+        let time_taken: i32 = row.try_get("time_taken")?;
+
+        if let Some(collection) = snapshot.as_ref().and_then(|value| value.undo_collection.as_ref()) {
+            let now_text = Utc::now().to_rfc3339();
+            sqlx::query(
+                "INSERT INTO sm20_m2_optimizer (id, optimizer_state, date_modified)
+                 VALUES ('global', ?1, ?2)
+                 ON CONFLICT(id) DO UPDATE SET optimizer_state = excluded.optimizer_state, date_modified = excluded.date_modified",
+            )
+            .bind(serde_json::to_vec(&collection.m2_optimizer)?)
+            .bind(&now_text)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "INSERT INTO sm20_m3_matrices
+                 (id, outcome_count, outcome_success, smoothing_count, smoothing_value,
+                  lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered, date_modified)
+                 VALUES ('global', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(id) DO UPDATE SET
+                    outcome_count = excluded.outcome_count,
+                    outcome_success = excluded.outcome_success,
+                    smoothing_count = excluded.smoothing_count,
+                    smoothing_value = excluded.smoothing_value,
+                    lapse_observed = excluded.lapse_observed,
+                    lapse_remembered = excluded.lapse_remembered,
+                    first_stage_observed = excluded.first_stage_observed,
+                    first_stage_remembered = excluded.first_stage_remembered,
+                    date_modified = excluded.date_modified",
+            )
+            .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.outcome_count))
+            .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.outcome_success))
+            .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.smoothing_count))
+            .bind(Self::f64_slice_to_bytes(&collection.m3_matrices.smoothing_value))
+            .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.lapse_observed))
+            .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.lapse_remembered))
+            .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.first_stage_observed))
+            .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.first_stage_remembered))
+            .bind(&now_text)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "INSERT INTO sm20_arena (id, state, date_modified)
+                 VALUES ('global', ?1, ?2)
+                 ON CONFLICT(id) DO UPDATE SET state = excluded.state, date_modified = excluded.date_modified",
+            )
+            .bind(serde_json::to_string(&collection.arena)?)
+            .bind(&now_text)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let grade = snapshot.as_ref().map(|value| value.grade).unwrap_or(0);
+        let prior_state = snapshot
+            .as_ref()
+            .map(|value| value.prior_item_state.as_str())
+            .unwrap_or("");
+        let (new_cards, learning_cards, review_cards) = match prior_state {
+            "new" => (1, 0, 0),
+            "learning" | "relearning" => (0, 1, 0),
+            "review" => (0, 0, 1),
+            _ => (0, 0, 0),
+        };
+        let statistics_date = timestamp.format("%Y-%m-%d").to_string();
+        sqlx::query(
+            "UPDATE study_statistics SET
+                cards_reviewed = MAX(0, cards_reviewed - 1),
+                correct_reviews = MAX(0, correct_reviews - ?1),
+                total_study_time = MAX(0, total_study_time - ?2),
+                new_cards = MAX(0, new_cards - ?3),
+                learning_cards = MAX(0, learning_cards - ?4),
+                review_cards = MAX(0, review_cards - ?5)
+             WHERE date = ?6",
+        )
+        .bind(if grade >= 3 { 1 } else { 0 })
+        .bind(time_taken)
+        .bind(new_cards)
+        .bind(learning_cards)
+        .bind(review_cards)
+        .bind(&statistics_date)
+        .execute(&mut *tx)
+        .await?;
+        if let Some(session_id) = session_id.as_deref() {
+            sqlx::query(
+                "UPDATE review_sessions SET
+                    items_reviewed = MAX(0, items_reviewed - 1),
+                    correct_answers = MAX(0, correct_answers - ?1),
+                    total_time = MAX(0, total_time - ?2)
+                 WHERE id = ?3",
+            )
+            .bind(if grade >= 3 { 1 } else { 0 })
+            .bind(time_taken)
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        sqlx::query("DELETE FROM review_results WHERE arena_commit_id = ?1")
+            .bind(arena_commit_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    async fn load_sm20_collection_in_transaction(
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
+    ) -> Result<crate::algorithms::sm20::SM20CollectionState> {
+        use crate::algorithms::sm20::{arena::ArenaState, model3::M3MatrixState, SM20CollectionState};
+        use crate::algorithms::sm20::model3::{LAPSE_CELLS, OUTCOME_CELLS};
+        const FIRST_STAGE_DIM: usize = 36;
+
+        let m2_optimizer = sqlx::query_scalar::<_, Vec<u8>>(
+            "SELECT optimizer_state FROM sm20_m2_optimizer WHERE id = 'global'",
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_else(crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh);
+
+        let m3_row: Option<(
+            Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>,
+        )> = sqlx::query_as(
+            "SELECT outcome_count, outcome_success, smoothing_count, smoothing_value,
+                    lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered
+             FROM sm20_m3_matrices WHERE id = 'global'",
+        )
+        .fetch_optional(&mut **tx)
+        .await?;
+        let m3_matrices = m3_row
+            .map(|(oc, os, sc, sv, lo, lr, fso, fsr)| M3MatrixState {
+                outcome_count: Self::bytes_to_u32_vec(&oc, OUTCOME_CELLS),
+                outcome_success: Self::bytes_to_u32_vec(&os, OUTCOME_CELLS),
+                smoothing_count: Self::bytes_to_u32_vec(&sc, OUTCOME_CELLS),
+                smoothing_value: Self::bytes_to_f64_vec(&sv, OUTCOME_CELLS),
+                lapse_observed: Self::bytes_to_u32_vec(&lo, LAPSE_CELLS),
+                lapse_remembered: Self::bytes_to_u32_vec(&lr, LAPSE_CELLS),
+                first_stage_observed: Self::bytes_to_u32_vec(&fso, FIRST_STAGE_DIM),
+                first_stage_remembered: Self::bytes_to_u32_vec(&fsr, FIRST_STAGE_DIM),
+            })
+            .unwrap_or_default();
+
+        let arena = sqlx::query_scalar::<_, String>(
+            "SELECT state FROM sm20_arena WHERE id = 'global'",
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .and_then(|json| serde_json::from_str::<ArenaState>(&json).ok())
+        .unwrap_or_default()
+        .sanitized();
+
+        let fsrs_params = sqlx::query_scalar::<_, String>(
+            "SELECT params FROM sm20_model_params WHERE id = 'fsrs'",
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .and_then(|json| serde_json::from_str::<Vec<f32>>(&json).ok())
+        .filter(|params| !params.is_empty() && params.iter().all(|value| value.is_finite()));
+        let m4_params = sqlx::query_scalar::<_, String>(
+            "SELECT params FROM sm20_model_params WHERE id = 'm4'",
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .and_then(|json| serde_json::from_str::<Vec<f64>>(&json).ok())
+        .filter(|params| params.len() == 35 && params.iter().all(|value| value.is_finite()));
+
+        Ok(SM20CollectionState {
+            m2_optimizer,
+            m3_matrices,
+            arena,
+            fsrs_params,
+            m4_params,
+        })
+    }
+
+    /// Commit an Algorithm Arena review as one SQLite unit. The review row is
+    /// inserted first to acquire SQLite's write reservation; item and Arena
+    /// revisions are then rechecked under that reservation before any durable
+    /// scheduler state is replaced. Any error rolls every write back.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn commit_sm20_arena_review(
+        &self,
+        item: &LearningItem,
+        collection: &crate::algorithms::sm20::SM20CollectionState,
+        review_result_id: &str,
+        session_id: Option<&str>,
+        rating: i32,
+        time_taken: i32,
+        provenance: &ArenaReviewProvenance<'_>,
+        expected_item_revision: &str,
+        expected_arena_revision: &str,
+        statistics_date: &str,
+        correct_reviews: i32,
+        new_cards: i32,
+        learning_cards: i32,
+        review_cards: i32,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+
+        if let Some(existing_item_id) = sqlx::query_scalar::<_, String>(
+            "SELECT item_id FROM review_results WHERE arena_commit_id = ?1 LIMIT 1",
+        )
+        .bind(provenance.arena_commit_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        {
+            tx.rollback().await?;
+            if existing_item_id == item.id {
+                return Ok(false);
+            }
+            return Err(IncrementumError::ArenaAlreadyCommitted(
+                "commit_id belongs to another learning item".to_string(),
+            ));
+        }
+
+        // This first write reserves the database for the rest of the commit.
+        // It remains invisible and is removed automatically if validation or
+        // any later write fails.
+        let inserted = sqlx::query(
+            r#"
+            INSERT INTO review_results (
+                id, collection_id, session_id, item_id, rating, time_taken,
+                new_due_date, new_interval, new_ease_factor, timestamp,
+                schedule_source, schedule_model_id, arena_commit_id,
+                arena_recommended_interval, arena_decision_time_ms, arena_snapshot
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                ?11, ?12, ?13, ?14, ?15, ?16
+            )
+            "#,
+        )
+        .bind(review_result_id)
+        .bind(&item.collection_id)
+        .bind(session_id)
+        .bind(&item.id)
+        .bind(rating)
+        .bind(time_taken)
+        .bind(item.due_date)
+        .bind(item.interval)
+        .bind(item.ease_factor)
+        .bind(Utc::now())
+        .bind(provenance.schedule_source)
+        .bind(provenance.schedule_model_id)
+        .bind(provenance.arena_commit_id)
+        .bind(provenance.recommended_interval)
+        .bind(provenance.decision_time_ms as i64)
+        .bind(provenance.snapshot)
+        .execute(&mut *tx)
+        .await;
+        if let Err(error) = inserted {
+            let duplicate = error
+                .as_database_error()
+                .is_some_and(|database_error| database_error.is_unique_violation());
+            tx.rollback().await?;
+            if duplicate {
+                return Ok(false);
+            }
+            return Err(error.into());
+        }
+
+        let current_item_row = sqlx::query("SELECT * FROM learning_items WHERE id = ?1 LIMIT 1")
+            .bind(&item.id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item.id)))?;
+        let current_item = Self::row_to_learning_item(&current_item_row)?;
+        let current_item_revision = crate::commands::review::sm20_item_revision(&current_item)?;
+        if current_item_revision != expected_item_revision {
+            tx.rollback().await?;
+            return Err(IncrementumError::ArenaPreviewStale(
+                "the card changed before the Arena decision was committed".to_string(),
+            ));
+        }
+
+        let current_collection = Self::load_sm20_collection_in_transaction(&mut tx).await?;
+        let current_arena_revision = crate::commands::review::sm20_arena_revision(&current_collection)?;
+        if current_arena_revision != expected_arena_revision {
+            tx.rollback().await?;
+            return Err(IncrementumError::ArenaPreviewStale(
+                "the Algorithm Arena changed before the decision was committed".to_string(),
+            ));
+        }
+
+        let state_str = format!("{:?}", item.state).to_lowercase();
+        let tags_json = serde_json::to_string(&item.tags)?;
+        let interaction_metadata_json = item
+            .interaction_metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        let (stability, memory_difficulty) = item
+            .memory_state
+            .as_ref()
+            .map(|state| (Some(state.stability), Some(state.difficulty)))
+            .unwrap_or((None, None));
+        sqlx::query(
+            r#"
+            UPDATE learning_items SET
+                due_date = ?1, interval = ?2, ease_factor = ?3,
+                state = ?4, review_count = ?5, lapses = ?6,
+                last_review_date = ?7, date_modified = ?8,
+                memory_state_stability = ?9, memory_state_difficulty = ?10,
+                interaction_metadata = ?12, algorithm_type = ?13, algorithm_state = ?14,
+                updated_at = COALESCE(?15, updated_at), tags = ?16, difficulty = ?17
+            WHERE id = ?11
+            "#,
+        )
+        .bind(item.due_date)
+        .bind(item.interval)
+        .bind(item.ease_factor)
+        .bind(&state_str)
+        .bind(item.review_count)
+        .bind(item.lapses)
+        .bind(item.last_review_date)
+        .bind(item.date_modified)
+        .bind(stability)
+        .bind(memory_difficulty)
+        .bind(&item.id)
+        .bind(&interaction_metadata_json)
+        .bind(&item.algorithm_type)
+        .bind(&item.algorithm_state)
+        .bind(&item.updated_at)
+        .bind(&tags_json)
+        .bind(item.difficulty)
+        .execute(&mut *tx)
+        .await?;
+
+        let now_text = Utc::now().to_rfc3339();
+        let m2_bytes = serde_json::to_vec(&collection.m2_optimizer)?;
+        sqlx::query(
+            "INSERT INTO sm20_m2_optimizer (id, optimizer_state, date_modified)
+             VALUES ('global', ?1, ?2)
+             ON CONFLICT(id) DO UPDATE SET optimizer_state = excluded.optimizer_state, date_modified = excluded.date_modified",
+        )
+        .bind(m2_bytes)
+        .bind(&now_text)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO sm20_m3_matrices
+             (id, outcome_count, outcome_success, smoothing_count, smoothing_value,
+              lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered, date_modified)
+             VALUES ('global', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(id) DO UPDATE SET
+                outcome_count = excluded.outcome_count,
+                outcome_success = excluded.outcome_success,
+                smoothing_count = excluded.smoothing_count,
+                smoothing_value = excluded.smoothing_value,
+                lapse_observed = excluded.lapse_observed,
+                lapse_remembered = excluded.lapse_remembered,
+                first_stage_observed = excluded.first_stage_observed,
+                first_stage_remembered = excluded.first_stage_remembered,
+                date_modified = excluded.date_modified",
+        )
+        .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.outcome_count))
+        .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.outcome_success))
+        .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.smoothing_count))
+        .bind(Self::f64_slice_to_bytes(&collection.m3_matrices.smoothing_value))
+        .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.lapse_observed))
+        .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.lapse_remembered))
+        .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.first_stage_observed))
+        .bind(Self::u32_slice_to_bytes(&collection.m3_matrices.first_stage_remembered))
+        .bind(&now_text)
+        .execute(&mut *tx)
+        .await?;
+        let arena_json = serde_json::to_string(&collection.arena)?;
+        sqlx::query(
+            "INSERT INTO sm20_arena (id, state, date_modified)
+             VALUES ('global', ?1, ?2)
+             ON CONFLICT(id) DO UPDATE SET state = excluded.state, date_modified = excluded.date_modified",
+        )
+        .bind(arena_json)
+        .bind(&now_text)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO study_statistics (
+                id, date, cards_reviewed, correct_reviews, total_study_time,
+                new_cards, learning_cards, review_cards
+            ) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(date) DO UPDATE SET
+                cards_reviewed = cards_reviewed + 1,
+                correct_reviews = correct_reviews + excluded.correct_reviews,
+                total_study_time = total_study_time + excluded.total_study_time,
+                new_cards = new_cards + excluded.new_cards,
+                learning_cards = learning_cards + excluded.learning_cards,
+                review_cards = review_cards + excluded.review_cards
+            "#,
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(statistics_date)
+        .bind(correct_reviews)
+        .bind(time_taken)
+        .bind(new_cards)
+        .bind(learning_cards)
+        .bind(review_cards)
+        .execute(&mut *tx)
+        .await?;
+
+        if let Some(session_id) = session_id {
+            sqlx::query(
+                "UPDATE review_sessions SET
+                    items_reviewed = items_reviewed + 1,
+                    correct_answers = correct_answers + ?1,
+                    total_time = total_time + ?2
+                 WHERE id = ?3",
+            )
+            .bind(correct_reviews)
+            .bind(time_taken)
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(true)
     }
 
     /// Batch-insert review log entries (used for Anki revlog import).
@@ -6727,6 +7253,343 @@ mod tests {
         let mut hasher = Sha256::new();
         hasher.update(bytes);
         format!("{:x}", hasher.finalize())
+    }
+
+    #[tokio::test]
+    async fn arena_review_provenance_round_trips_and_commit_ids_are_unique() {
+        let repo = setup_repo().await;
+        let item = LearningItem::new(ItemType::Flashcard, "Arena prompt".to_string());
+        repo.create_learning_item(&item).await.expect("learning item");
+        let due = Utc::now();
+
+        for (index, (source, model)) in [
+            ("arena", None),
+            ("model", Some("sm19")),
+            ("custom", None),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let result_id = format!("arena-result-{index}");
+            let commit_id = format!("arena-commit-{index}");
+            let snapshot = format!(r#"{{"version":1,"source":"{source}"}}"#);
+            let provenance = ArenaReviewProvenance {
+                schedule_source: source,
+                schedule_model_id: model,
+                arena_commit_id: &commit_id,
+                recommended_interval: 4.25 + index as f64,
+                decision_time_ms: 900 + index as u64,
+                snapshot: &snapshot,
+            };
+
+            repo.create_review_result_with_arena(
+                &result_id,
+                &item.collection_id,
+                None,
+                &item.id,
+                3,
+                12,
+                &due,
+                5.0 + index as f64,
+                2.5,
+                Some(&provenance),
+            )
+            .await
+            .expect("create Arena review result");
+
+            let row = sqlx::query(
+                "SELECT schedule_source, schedule_model_id, arena_commit_id, \
+                        arena_recommended_interval, arena_decision_time_ms, arena_snapshot \
+                 FROM review_results WHERE id = ?1",
+            )
+            .bind(&result_id)
+            .fetch_one(repo.pool())
+            .await
+            .expect("read Arena provenance");
+            assert_eq!(row.get::<String, _>("schedule_source"), source);
+            assert_eq!(row.get::<Option<String>, _>("schedule_model_id").as_deref(), model);
+            assert_eq!(row.get::<String, _>("arena_commit_id"), commit_id);
+            assert_eq!(row.get::<i64, _>("arena_decision_time_ms"), 900 + index as i64);
+            assert_eq!(row.get::<String, _>("arena_snapshot"), snapshot);
+            assert_eq!(
+                repo.get_review_item_by_arena_commit_id(&commit_id)
+                    .await
+                    .expect("commit lookup")
+                    .as_deref(),
+                Some(item.id.as_str()),
+            );
+        }
+
+        let duplicate_snapshot = "{}";
+        let duplicate = ArenaReviewProvenance {
+            schedule_source: "arena",
+            schedule_model_id: None,
+            arena_commit_id: "arena-commit-0",
+            recommended_interval: 4.25,
+            decision_time_ms: 1,
+            snapshot: duplicate_snapshot,
+        };
+        let duplicate_result = repo
+            .create_review_result_with_arena(
+                "duplicate-arena-result",
+                &item.collection_id,
+                None,
+                &item.id,
+                3,
+                1,
+                &due,
+                4.25,
+                2.5,
+                Some(&duplicate),
+            )
+            .await;
+        assert!(duplicate_result.is_err(), "unique partial index must reject duplicate commit IDs");
+        assert!(repo
+            .undo_arena_review_by_commit_id("arena-commit-0")
+            .await
+            .expect("delete Arena review event"));
+        assert!(repo
+            .get_review_item_by_arena_commit_id("arena-commit-0")
+            .await
+            .expect("deleted commit lookup")
+            .is_none());
+
+        repo.create_review_result(
+            "legacy-result",
+            &item.collection_id,
+            None,
+            &item.id,
+            3,
+            4,
+            &due,
+            3.0,
+            2.5,
+        )
+        .await
+        .expect("legacy result remains writable");
+        let legacy_source: Option<String> = sqlx::query_scalar(
+            "SELECT schedule_source FROM review_results WHERE id = 'legacy-result'",
+        )
+        .fetch_one(repo.pool())
+        .await
+        .expect("legacy result remains readable");
+        assert!(legacy_source.is_none());
+    }
+
+    #[tokio::test]
+    async fn arena_commit_is_atomic_stale_safe_and_idempotent() {
+        let repo = setup_repo().await;
+        let original = LearningItem::new(ItemType::Flashcard, "Atomic Arena prompt".to_string());
+        repo.create_learning_item(&original).await.expect("learning item");
+        let original = repo
+            .get_learning_item_by_id(&original.id)
+            .await
+            .expect("stored item read")
+            .expect("stored item");
+        let expected_item_revision = crate::commands::review::sm20_item_revision(&original)
+            .expect("item revision");
+        let collection = crate::algorithms::sm20::SM20CollectionState::default();
+        let expected_arena_revision = crate::commands::review::sm20_arena_revision(&collection)
+            .expect("Arena revision");
+
+        let mut scheduled = original.clone();
+        scheduled.interval = 12.0;
+        scheduled.due_date = Utc::now() + chrono::Duration::days(12);
+        scheduled.review_count += 1;
+        scheduled.last_review_date = Some(Utc::now());
+        scheduled.state = ItemState::Review;
+        scheduled.algorithm_type = "sm20".to_string();
+        scheduled.algorithm_state = Some(r#"{"interval":12}"#.to_string());
+        let provenance_snapshot = serde_json::to_string(&serde_json::json!({
+            "version": 1,
+            "grade": 4,
+            "prior_item_state": "new",
+            "undo_collection": {
+                "m2_optimizer": &collection.m2_optimizer,
+                "m3_matrices": &collection.m3_matrices,
+                "arena": &collection.arena,
+            },
+        }))
+        .expect("provenance snapshot");
+        let provenance = ArenaReviewProvenance {
+            schedule_source: "arena",
+            schedule_model_id: None,
+            arena_commit_id: "atomic-arena-commit",
+            recommended_interval: 12.0,
+            decision_time_ms: 1_250,
+            snapshot: &provenance_snapshot,
+        };
+        let statistics_date = Utc::now().format("%Y-%m-%d").to_string();
+
+        let stale = repo
+            .commit_sm20_arena_review(
+                &scheduled,
+                &collection,
+                "atomic-stale-result",
+                None,
+                3,
+                8,
+                &provenance,
+                "stale-item-revision",
+                &expected_arena_revision,
+                &statistics_date,
+                1,
+                1,
+                0,
+                0,
+            )
+            .await;
+        assert!(matches!(stale, Err(IncrementumError::ArenaPreviewStale(_))));
+        let rolled_back_result_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM review_results WHERE arena_commit_id = 'atomic-arena-commit'",
+        )
+        .fetch_one(repo.pool())
+        .await
+        .expect("rollback result count");
+        assert_eq!(rolled_back_result_count, 0);
+        assert_eq!(
+            repo.get_learning_item_by_id(&original.id)
+                .await
+                .expect("item read")
+                .expect("item")
+                .interval,
+            original.interval,
+            "stale transaction must not change the item",
+        );
+
+        sqlx::query(&format!(
+            "CREATE TRIGGER inject_arena_failure BEFORE UPDATE ON learning_items \
+             WHEN NEW.id = '{}' BEGIN SELECT RAISE(ABORT, 'injected Arena failure'); END",
+            original.id,
+        ))
+        .execute(repo.pool())
+        .await
+        .expect("failure trigger");
+        let injected_failure = repo
+            .commit_sm20_arena_review(
+                &scheduled,
+                &collection,
+                "atomic-injected-failure-result",
+                None,
+                3,
+                8,
+                &provenance,
+                &expected_item_revision,
+                &expected_arena_revision,
+                &statistics_date,
+                1,
+                1,
+                0,
+                0,
+            )
+            .await;
+        assert!(injected_failure.is_err());
+        sqlx::query("DROP TRIGGER inject_arena_failure")
+            .execute(repo.pool())
+            .await
+            .expect("drop failure trigger");
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM review_results WHERE arena_commit_id = 'atomic-arena-commit'",
+            )
+            .fetch_one(repo.pool())
+            .await
+            .expect("injected rollback result count"),
+            0,
+        );
+        assert_eq!(
+            repo.get_learning_item_by_id(&original.id)
+                .await
+                .expect("item read after injected failure")
+                .expect("item after injected failure")
+                .interval,
+            original.interval,
+            "an injected mid-transaction failure must roll the item back",
+        );
+
+        let committed = repo
+            .commit_sm20_arena_review(
+                &scheduled,
+                &collection,
+                "atomic-valid-result",
+                None,
+                3,
+                8,
+                &provenance,
+                &expected_item_revision,
+                &expected_arena_revision,
+                &statistics_date,
+                1,
+                1,
+                0,
+                0,
+            )
+            .await
+            .expect("valid Arena commit");
+        assert!(committed);
+        assert_eq!(
+            repo.get_learning_item_by_id(&original.id)
+                .await
+                .expect("item read")
+                .expect("item")
+                .interval,
+            12.0,
+        );
+        let statistics: (i64, i64, i64) = sqlx::query_as(
+            "SELECT cards_reviewed, correct_reviews, new_cards FROM study_statistics WHERE date = ?1",
+        )
+        .bind(&statistics_date)
+        .fetch_one(repo.pool())
+        .await
+        .expect("statistics");
+        assert_eq!(statistics, (1, 1, 1));
+
+        let repeated = repo
+            .commit_sm20_arena_review(
+                &scheduled,
+                &collection,
+                "atomic-retry-result",
+                None,
+                3,
+                8,
+                &provenance,
+                &expected_item_revision,
+                &expected_arena_revision,
+                &statistics_date,
+                1,
+                1,
+                0,
+                0,
+            )
+            .await
+            .expect("idempotent retry");
+        assert!(!repeated);
+        let unchanged_statistics: i64 = sqlx::query_scalar(
+            "SELECT cards_reviewed FROM study_statistics WHERE date = ?1",
+        )
+        .bind(&statistics_date)
+        .fetch_one(repo.pool())
+        .await
+        .expect("statistics after retry");
+        assert_eq!(unchanged_statistics, 1);
+
+        assert!(repo
+            .undo_arena_review_by_commit_id("atomic-arena-commit")
+            .await
+            .expect("undo Arena review event"));
+        let reconciled_statistics: (i64, i64, i64) = sqlx::query_as(
+            "SELECT cards_reviewed, correct_reviews, new_cards FROM study_statistics WHERE date = ?1",
+        )
+        .bind(&statistics_date)
+        .fetch_one(repo.pool())
+        .await
+        .expect("statistics after undo");
+        assert_eq!(reconciled_statistics, (0, 0, 0));
+        assert!(repo
+            .get_review_item_by_arena_commit_id("atomic-arena-commit")
+            .await
+            .expect("commit lookup after undo")
+            .is_none());
     }
 
     #[tokio::test]

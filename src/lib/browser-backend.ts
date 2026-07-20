@@ -19,7 +19,21 @@ import { useLLMProvidersStore } from '../stores/llmProvidersStore';
 import { resolveFsrsParamsForScope } from '../utils/fsrsScope';
 import { getDefaultFsrsParameters, normalizeFsrsParameters } from '../utils/fsrsParameters';
 import { parseSm18State, sm18Review, ratingToSm18Grade } from './sm18';
-import { parseSm20State, sm20PreviewIntervals, sm20Review } from './sm20';
+import {
+    parseSm20State,
+    sm20PreviewIntervals,
+    sm20PreviewGradeResults,
+    sm20Review,
+    STABILITY_MAX,
+    currentDayFromCe,
+    type SM20CollectionState,
+} from './sm20';
+import { parseSm20CollectionState } from './sm20Collection';
+import {
+    SM20_ARENA_MODEL_ORDER,
+    type ArenaSelection,
+    type SM20ArenaPreviewSet,
+} from '../api/review';
 import { v4 as uuidv4 } from 'uuid';
 import { getPositionProgress, type DocumentPosition } from '../types/position';
 import {
@@ -343,7 +357,109 @@ async function applySm18ReviewBrowser(item: db.LearningItem, rating: number, alg
     });
 }
 
-async function applySm20ReviewBrowser(item: db.LearningItem, rating: number, algorithmType?: string, pureM4?: boolean): Promise<db.LearningItem> {
+const BROWSER_ARENA_LABELS = ['SM-2', 'SM-15', 'SM-19', 'SM-20', 'FSRS'];
+
+async function loadBrowserSm20Collection(): Promise<SM20CollectionState> {
+    return parseSm20CollectionState(await db.getSyncState('sm20_collection_state'));
+}
+
+async function browserArenaHash(value: unknown): Promise<string> {
+    const text = JSON.stringify(value);
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+        return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return `fallback-${(hash >>> 0).toString(16)}`;
+}
+
+async function browserArenaRevisions(
+    item: db.LearningItem,
+    collection: SM20CollectionState,
+): Promise<{ itemRevision: string; arenaRevision: string }> {
+    const [itemRevision, arenaRevision] = await Promise.all([
+        browserArenaHash({
+            id: item.id,
+            interval: item.interval,
+            ease_factor: item.ease_factor,
+            due_date: item.due_date,
+            last_review_date: item.last_review_date,
+            review_count: item.review_count,
+            lapses: item.lapses,
+            state: item.state,
+            memory_state: item.memory_state,
+            algorithm_state: item.algorithm_state,
+        }),
+        browserArenaHash(collection),
+    ]);
+    return { itemRevision, arenaRevision };
+}
+
+async function buildBrowserArenaPreview(
+    item: db.LearningItem,
+    elapsedDays: number,
+    loadedCollection?: SM20CollectionState,
+): Promise<SM20ArenaPreviewSet> {
+    const now = new Date();
+    const collection = loadedCollection ?? await loadBrowserSm20Collection();
+    const results = sm20PreviewGradeResults(
+        parseSm20State(item.algorithm_state),
+        elapsedDays,
+        false,
+        collection,
+        currentDayFromCe(now),
+    );
+    const { itemRevision, arenaRevision } = await browserArenaRevisions(item, collection);
+    return {
+        schema_version: 1,
+        preview_id: uuidv4(),
+        item_revision: itemRevision,
+        arena_revision: arenaRevision,
+        generated_at: now.toISOString(),
+        model_order: [...SM20_ARENA_MODEL_ORDER],
+        grades: results.map((result, grade) => {
+            const candidates = SM20_ARENA_MODEL_ORDER.map((modelId, index) => {
+                const intervalDays = result.model_intervals[index];
+                return {
+                    model_id: modelId,
+                    label: BROWSER_ARENA_LABELS[index],
+                    interval_days: intervalDays,
+                    due_at: new Date(now.getTime() + intervalDays * 86_400_000).toISOString(),
+                    weight_percent: collection.arena.weights[index],
+                    personalized: index === 3
+                        ? collection.m4_params?.length === 35
+                        : index === 4 ? Boolean(collection.fsrs_params?.length) : false,
+                };
+            });
+            const intervals = [result.interval_days, ...candidates.map((candidate) => candidate.interval_days)];
+            return {
+                grade: grade as 0 | 1 | 2 | 3 | 4 | 5,
+                recommendation: {
+                    interval_days: result.interval_days,
+                    due_at: new Date(now.getTime() + result.interval_days * 86_400_000).toISOString(),
+                },
+                candidates,
+                range: { min_days: Math.min(...intervals), max_days: Math.max(...intervals) },
+                custom_bounds: { min_days: 1 / 1_440, max_days: STABILITY_MAX },
+            };
+        }),
+    };
+}
+
+async function applySm20ReviewBrowser(
+    item: db.LearningItem,
+    rating: number,
+    algorithmType?: string,
+    pureM4?: boolean,
+    nativeGrade?: number,
+    chosenInterval?: number,
+    persist = true,
+    loadedCollection?: SM20CollectionState,
+): Promise<db.LearningItem> {
     const state = parseSm20State(item.algorithm_state);
     const now = new Date();
 
@@ -352,15 +468,40 @@ async function applySm20ReviewBrowser(item: db.LearningItem, rating: number, alg
         elapsedDays = (now.getTime() - new Date(item.last_review_date).getTime()) / (86400 * 1000);
     }
 
-    const result = sm20Review(state, rating, elapsedDays, undefined, undefined, pureM4);
+    const collection = loadedCollection ?? await loadBrowserSm20Collection();
+    const result = sm20Review(
+        state,
+        rating,
+        elapsedDays,
+        undefined,
+        undefined,
+        pureM4,
+        nativeGrade,
+        chosenInterval != null,
+        {
+            collection,
+            today: currentDayFromCe(now),
+            commit: true,
+        },
+    );
+    if (chosenInterval != null) {
+        const roundedDays = Math.max(1, Math.round(chosenInterval));
+        result.interval_days = chosenInterval;
+        result.state.interval = chosenInterval;
+        if (result.state.m1_state) result.state.m1_state.previous_interval = roundedDays;
+        if (result.state.m1_history) result.state.m1_history.stability = chosenInterval;
+        if (result.state.m2_state) result.state.m2_state.previous_interval = roundedDays;
+        if (result.state.m3_state) result.state.m3_state.previous_interval = roundedDays;
+    }
     const intervalMs = result.interval_days * 86400 * 1000;
     const nextDue = new Date(now.getTime() + intervalMs);
-    const failed = rating <= 1;
+    const effectiveGrade = nativeGrade ?? (rating === 1 ? 0 : rating === 2 ? 3 : rating === 3 ? 4 : 5);
+    const failed = effectiveGrade < 3;
     const nextState = failed ? 'relearning'
         : result.interval_days >= 1.0 ? 'review'
         : item.state === 'new' ? 'learning' : item.state;
 
-    return db.updateLearningItem(item.id, {
+    const updates: Partial<db.LearningItem> = {
         due_date: nextDue.toISOString(),
         interval: result.interval_days,
         last_review_date: now.toISOString(),
@@ -374,7 +515,12 @@ async function applySm20ReviewBrowser(item: db.LearningItem, rating: number, alg
         difficulty: result.state.difficulty * 10.0,
         algorithm_state: JSON.stringify(result.state),
         algorithm_type: algorithmType || 'sm20',
-    });
+    };
+    const updated = { ...item, ...updates, id: item.id, date_modified: now.toISOString() };
+    if (persist) {
+        await db.commitBrowserSm20Review(updated, collection);
+    }
+    return updated;
 }
 
 function tokenizeForSimilarity(text: string): Set<string> {
@@ -1815,6 +1961,44 @@ const commandHandlers: Record<string, CommandHandler> = {
         return uuidv4();
     },
 
+    restore_learning_item_state: async (args) => {
+        const itemId = (args.item_id as string) || (args.itemId as string);
+        const item = await db.getLearningItem(itemId);
+        if (!item) throw new Error(`Learning item ${itemId} not found`);
+
+        const updates: Partial<db.LearningItem> = {
+            due_date: (args.due_date ?? args.dueDate) as string,
+            interval: Number(args.interval),
+            ease_factor: Number(args.ease_factor ?? args.easeFactor),
+            last_review_date: (args.last_review_date ?? args.lastReviewDate) as string | undefined,
+            review_count: Number(args.review_count ?? args.reviewCount),
+            lapses: Number(args.lapses),
+            state: args.state as db.LearningItem['state'],
+            memory_state: (args.memory_state ?? args.memoryState) as db.LearningItem['memory_state'],
+            difficulty: Number(args.difficulty),
+        };
+        const algorithmType = args.algorithm_type ?? args.algorithmType;
+        const algorithmState = args.algorithm_state ?? args.algorithmState;
+        if (typeof algorithmType === 'string') updates.algorithm_type = algorithmType;
+        if (typeof algorithmState === 'string' || algorithmState === null) {
+            updates.algorithm_state = typeof algorithmState === 'string' ? algorithmState : undefined;
+        }
+
+        const commitId = args.arena_commit_id ?? args.arenaCommitId;
+        if (typeof commitId === 'string' && commitId) {
+            const restored: db.LearningItem = {
+                ...item,
+                ...updates,
+                id: itemId,
+                date_modified: new Date().toISOString(),
+            };
+            await db.undoBrowserArenaReview(restored, `arena-commit:${commitId}`, commitId);
+            return toCamelCase(restored);
+        }
+        const updated = await db.updateLearningItem(itemId, updates);
+        return toCamelCase(updated);
+    },
+
     submit_review: async (args) => {
         const itemId = (args.item_id as string) || (args.itemId as string);
         const rating = args.rating as number;
@@ -1840,7 +2024,118 @@ const commandHandlers: Record<string, CommandHandler> = {
 
         if (algorithmType === 'sm20') {
             const pureM4 = Boolean(args.sm20_pure_m4 ?? args.sm20PureM4);
-            return toCamelCase(await applySm20ReviewBrowser(item, rating, algorithmType, pureM4));
+            const nativeGradeRaw = args.grade;
+            const nativeGrade = typeof nativeGradeRaw === 'number'
+                ? Math.max(0, Math.min(5, nativeGradeRaw))
+                : undefined;
+            const selection = (args.arena_selection ?? args.arenaSelection) as ArenaSelection | undefined;
+
+            if (!selection) {
+                return toCamelCase(await applySm20ReviewBrowser(
+                    item,
+                    rating,
+                    algorithmType,
+                    pureM4,
+                    nativeGrade,
+                ));
+            }
+            if (pureM4) throw new Error('arena_unsupported: Pure M4 has no Arena choices');
+            if (!selection.commit_id) throw new Error('invalid_input: Arena commit_id is required');
+
+            const commitKey = `arena-commit:${selection.commit_id}`;
+            const existingCommit = await db.getSyncState(commitKey) as { item_id?: string } | undefined;
+            if (existingCommit) {
+                if (existingCommit.item_id && existingCommit.item_id !== item.id) {
+                    throw new Error('arena_already_committed: commit belongs to another item');
+                }
+                const committedItem = await db.getLearningItem(item.id);
+                return toCamelCase(committedItem ?? item);
+            }
+
+            const elapsedDays = item.last_review_date
+                ? Math.max(0, (Date.now() - new Date(item.last_review_date).getTime()) / 86_400_000)
+                : 0;
+            const collection = await loadBrowserSm20Collection();
+            const preview = await buildBrowserArenaPreview(item, elapsedDays, collection);
+            const automaticFallback = selection.preview_id === 'automatic-fallback';
+            if (!automaticFallback && (selection.item_revision !== preview.item_revision
+                || selection.arena_revision !== preview.arena_revision)) {
+                throw new Error('arena_preview_stale: card or Arena state changed');
+            }
+            const grade = nativeGrade ?? (rating === 1 ? 0 : rating === 2 ? 3 : rating === 3 ? 4 : 5);
+            const gradePreview = preview.grades[grade];
+            let chosenInterval: number;
+            if (selection.source === 'arena') {
+                chosenInterval = gradePreview.recommendation.interval_days;
+            } else if (selection.source === 'model') {
+                const candidate = gradePreview.candidates.find((entry) => entry.model_id === selection.model_id);
+                if (!candidate) throw new Error('arena_invalid_model: unknown or missing model_id');
+                chosenInterval = candidate.interval_days;
+            } else if (selection.source === 'custom') {
+                chosenInterval = Number(selection.interval_days);
+                if (!Number.isFinite(chosenInterval)
+                    || chosenInterval < gradePreview.custom_bounds.min_days
+                    || chosenInterval > gradePreview.custom_bounds.max_days) {
+                    throw new Error(`arena_invalid_interval: choose between ${gradePreview.custom_bounds.min_days} and ${gradePreview.custom_bounds.max_days} days`);
+                }
+            } else {
+                throw new Error('arena_invalid_model: unsupported selection source');
+            }
+
+            const previousCollection = structuredClone(collection);
+            const updated = await applySm20ReviewBrowser(
+                item,
+                rating,
+                algorithmType,
+                false,
+                grade,
+                chosenInterval,
+                false,
+                collection,
+            );
+            const snapshot = {
+                version: 1,
+                preview_schema_version: preview.schema_version,
+                preview_id: selection.preview_id,
+                item_revision: preview.item_revision,
+                arena_revision: preview.arena_revision,
+                grade,
+                model_order: preview.model_order,
+                recommendation: gradePreview.recommendation,
+                candidates: gradePreview.candidates,
+                custom_bounds: gradePreview.custom_bounds,
+                selection_source: selection.source,
+                selection_model_id: selection.model_id ?? null,
+                chosen_interval_days: chosenInterval,
+                automatic_fallback: automaticFallback,
+            };
+            const provenance = {
+                id: selection.commit_id,
+                item_id: item.id,
+                rating,
+                grade,
+                new_due_date: updated.due_date,
+                new_interval: chosenInterval,
+                timestamp: new Date().toISOString(),
+                schedule_source: selection.source,
+                schedule_model_id: selection.model_id ?? null,
+                arena_commit_id: selection.commit_id,
+                arena_recommended_interval: gradePreview.recommendation.interval_days,
+                arena_decision_time_ms: selection.decision_time_ms,
+                arena_snapshot: JSON.stringify(snapshot),
+            };
+            const committed = await db.commitBrowserArenaReview(
+                updated,
+                commitKey,
+                provenance,
+                collection,
+                previousCollection,
+            );
+            if (!committed) {
+                const committedItem = await db.getLearningItem(item.id);
+                return toCamelCase(committedItem ?? item);
+            }
+            return toCamelCase(updated);
         }
 
         // FSRS-6 (default)
@@ -1906,7 +2201,16 @@ const commandHandlers: Record<string, CommandHandler> = {
                 elapsedDays = (now.getTime() - new Date(item.last_review_date).getTime()) / (86400 * 1000);
             }
             const pureM4 = Boolean(args.sm20_pure_m4 ?? args.sm20PureM4);
-            return sm20PreviewIntervals(parseSm20State(item.algorithm_state), elapsedDays, pureM4);
+            const collection = await loadBrowserSm20Collection();
+            const today = currentDayFromCe(now);
+            const state = parseSm20State(item.algorithm_state);
+            const intervals = sm20PreviewIntervals(state, elapsedDays, pureM4, collection, today);
+            const gradeResults = sm20PreviewGradeResults(state, elapsedDays, pureM4, collection, today);
+            return {
+                ...intervals,
+                grade_intervals: gradeResults.map((result) => result.interval_days),
+                arena: pureM4 ? undefined : await buildBrowserArenaPreview(item, elapsedDays, collection),
+            };
         }
 
         const now = new Date();

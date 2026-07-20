@@ -18,7 +18,8 @@ export type AudioReviewStatus =
   | "speaking-question"
   | "awaiting-flip"
   | "speaking-answer"
-  | "advancing";
+  | "advancing"
+  | "announcing-schedule";
 
 export interface AudioReviewModeOptions {
   /** Card identifier currently in view (used to trigger the flow on card change). */
@@ -31,8 +32,12 @@ export interface AudioReviewModeOptions {
   isAnswerShown: boolean;
   /** Triggered when the flow wants to flip the card. */
   onFlip: () => void;
-  /** Triggered when the flow wants to advance to the next card. */
-  onAdvance: () => void;
+  /**
+   * Triggered when the flow wants to advance to the next card. Returning text
+   * lets a scheduling flow announce its committed interval before the next
+   * question begins.
+   */
+  onAdvance: () => string | void | Promise<string | void>;
 }
 
 export interface AudioReviewModeReturn {
@@ -65,6 +70,7 @@ export function useAudioReviewMode(opts: AudioReviewModeOptions): AudioReviewMod
 
   // Refs so the TTS callbacks always see fresh values without re-subscribing.
   const stateRef = useRef({
+    cardId,
     questionText,
     answerText,
     isAnswerShown,
@@ -74,6 +80,7 @@ export function useAudioReviewMode(opts: AudioReviewModeOptions): AudioReviewMod
     onAdvance,
   });
   stateRef.current = {
+    cardId,
     questionText,
     answerText,
     isAnswerShown,
@@ -84,6 +91,9 @@ export function useAudioReviewMode(opts: AudioReviewModeOptions): AudioReviewMod
   };
 
   const advanceStepRef = useRef<(() => void) | null>(null);
+  const flowGenerationRef = useRef(0);
+  const isAdvancingRef = useRef(false);
+  const startQuestionRef = useRef<() => void>(() => {});
 
   const enable = useCallback(() => {
     setIsEnabled(true);
@@ -91,6 +101,9 @@ export function useAudioReviewMode(opts: AudioReviewModeOptions): AudioReviewMod
   }, [audioConfig, updateSettings]);
 
   const disable = useCallback(() => {
+    flowGenerationRef.current += 1;
+    isAdvancingRef.current = false;
+    advanceStepRef.current = null;
     setIsEnabled(false);
     setStatus("idle");
     tts.stop();
@@ -106,81 +119,121 @@ export function useAudioReviewMode(opts: AudioReviewModeOptions): AudioReviewMod
    * Speak the question, then transition based on autoFlip setting.
    * Bound as the active step so user-advance can short-circuit it.
    */
-  const speakQuestion = useCallback(() => {
-    if (!stateRef.current.questionText.trim()) {
-      // Nothing to speak — proceed straight to flip logic.
-      handleQuestionEnd();
-      return;
-    }
-    setStatus("speaking-question");
-    advanceStepRef.current = () => {
-      tts.stop();
-      handleQuestionEnd();
-    };
-    tts.speak(stateRef.current.questionText).finally(() => {
-      // useTTS fires onend internally; if it never fires (e.g. very short),
-      // the user-advance path is the fallback. We don't auto-proceed here.
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tts]);
+  const speakQuestion = useCallback(async () => {
+    const generation = flowGenerationRef.current;
+    const question = stateRef.current.questionText.trim();
 
-  const handleQuestionEnd = useCallback(() => {
+    if (question) {
+      setStatus("speaking-question");
+      advanceStepRef.current = tts.stop;
+      await tts.speak(question);
+      if (generation !== flowGenerationRef.current) return;
+    }
+
     const { autoFlip, autoFlipDelayMs, onFlip } = stateRef.current;
-    if (autoFlip) {
-      setStatus("awaiting-flip");
-      window.setTimeout(() => {
-        onFlip();
-      }, Math.max(0, autoFlipDelayMs));
-    } else {
-      setStatus("awaiting-flip");
-    }
-  }, []);
-
-  const speakAnswer = useCallback(() => {
-    const { answerText, onAdvance } = stateRef.current;
-    if (!answerText.trim()) {
-      // No answer — advance directly.
-      handleAnswerEnd();
+    setStatus("awaiting-flip");
+    if (!autoFlip) {
+      advanceStepRef.current = onFlip;
       return;
     }
-    setStatus("speaking-answer");
-    advanceStepRef.current = () => {
-      tts.stop();
-      handleAnswerEnd();
-    };
-    tts.speak(answerText);
-    function handleAnswerEnd() {
-      setStatus("advancing");
-      advanceStepRef.current = null;
-      // Small pause before advancing for natural pacing.
-      window.setTimeout(() => {
-        onAdvance();
-      }, 400);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    await new Promise<void>((resolve) => {
+      const timer = window.setTimeout(resolve, Math.max(0, autoFlipDelayMs));
+      advanceStepRef.current = () => {
+        window.clearTimeout(timer);
+        resolve();
+      };
+    });
+    if (generation !== flowGenerationRef.current) return;
+    advanceStepRef.current = null;
+    onFlip();
   }, [tts]);
+
+  const speakAnswer = useCallback(async () => {
+    const generation = flowGenerationRef.current;
+    const startingCardId = stateRef.current.cardId;
+    const answer = stateRef.current.answerText.trim();
+
+    if (answer) {
+      setStatus("speaking-answer");
+      advanceStepRef.current = tts.stop;
+      await tts.speak(answer);
+      if (generation !== flowGenerationRef.current) return;
+    }
+
+    setStatus("advancing");
+    advanceStepRef.current = null;
+    isAdvancingRef.current = true;
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 400));
+    if (generation !== flowGenerationRef.current) {
+      isAdvancingRef.current = false;
+      return;
+    }
+
+    try {
+      const announcement = await stateRef.current.onAdvance();
+      if (generation !== flowGenerationRef.current) return;
+      if (typeof announcement === "string" && announcement.trim()) {
+        setStatus("announcing-schedule");
+        advanceStepRef.current = tts.stop;
+        await tts.speak(announcement);
+      }
+    } catch {
+      if (generation === flowGenerationRef.current) setStatus("idle");
+      return;
+    } finally {
+      isAdvancingRef.current = false;
+      advanceStepRef.current = null;
+    }
+
+    if (generation !== flowGenerationRef.current) return;
+    const nextCardId = stateRef.current.cardId;
+    if (nextCardId && nextCardId !== startingCardId) {
+      flowGenerationRef.current += 1;
+      startQuestionRef.current();
+    } else {
+      setStatus("idle");
+    }
+  }, [tts]);
+
+  startQuestionRef.current = () => {
+    void speakQuestion();
+  };
 
   const onUserAdvance = useCallback(() => {
     const step = advanceStepRef.current;
     if (step) {
+      advanceStepRef.current = null;
       step();
-    } else {
-      // No active step — just advance to the next card.
-      stateRef.current.onAdvance();
     }
   }, []);
 
   // Drive the flow: (re)start with the question whenever the card changes.
   useEffect(() => {
     if (!isEnabled || !cardId) {
+      if (!isAdvancingRef.current) {
+        flowGenerationRef.current += 1;
+        advanceStepRef.current = null;
+        tts.stop();
+      }
       setStatus("idle");
       return;
     }
+    // Committing an Arena decision changes the card while the interval
+    // announcement is still pending. The advancing flow owns that handoff and
+    // starts the next question only after the announcement completes.
+    if (isAdvancingRef.current) return;
+
+    flowGenerationRef.current += 1;
     tts.stop();
     advanceStepRef.current = null;
-    speakQuestion();
+    startQuestionRef.current();
     return () => {
-      tts.stop();
+      if (!isAdvancingRef.current) {
+        flowGenerationRef.current += 1;
+        advanceStepRef.current = null;
+        tts.stop();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardId, isEnabled]);
@@ -197,6 +250,9 @@ export function useAudioReviewMode(opts: AudioReviewModeOptions): AudioReviewMod
   // Cleanup on unmount.
   useEffect(() => {
     return () => {
+      flowGenerationRef.current += 1;
+      isAdvancingRef.current = false;
+      advanceStepRef.current = null;
       tts.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

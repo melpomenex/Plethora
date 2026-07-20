@@ -83,6 +83,8 @@ export interface LearningSettings {
   timezone: string;
   postpone: PostponeSettings;
   sm20PureM4: boolean;
+  /** Whether SM-20 commits Arena Pick immediately or opens the post-grade chooser. */
+  sm20ArenaReviewMode: "automatic" | "choose";
 }
 
 /**
@@ -93,6 +95,7 @@ export interface AudioReviewModeSettings {
   autoFlip: boolean;
   autoFlipDelayMs: number;
   defaultRating: 1 | 2 | 3 | 4;
+  algorithmArenaCoachCompleted?: boolean;
 }
 
 /**
@@ -576,6 +579,7 @@ export const defaultSettings: Settings = {
       autoPostponeEnabled: false,
     },
     sm20PureM4: false,
+    sm20ArenaReviewMode: "automatic",
   },
   documents: {
     defaultCategory: "Uncategorized",
@@ -781,6 +785,7 @@ export const defaultSettings: Settings = {
     autoFlip: true,
     autoFlipDelayMs: 1500,
     defaultRating: 3,
+    algorithmArenaCoachCompleted: false,
   },
   embedding: {
     provider: "openai",
@@ -897,6 +902,10 @@ export const useSettingsStore = create<SettingsState>()(
             },
             scopedFsrsOverrides: normalizedScopedOverrides,
             sm20PureM4: persisted.learning?.sm20PureM4 ?? defaultSettings.learning.sm20PureM4,
+            sm20ArenaReviewMode:
+              persisted.learning?.sm20ArenaReviewMode === "choose"
+                ? "choose"
+                : defaultSettings.learning.sm20ArenaReviewMode,
           },
           documents: {
             ...defaultSettings.documents,

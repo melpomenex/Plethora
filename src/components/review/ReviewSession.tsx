@@ -38,6 +38,10 @@ import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { renderAnkiHtmlWithLatex } from "../../utils/ankiLatex";
 import { useI18n } from "../../lib/i18n";
 import { setActiveReviewSession } from "../../lib/feedback";
+import { AlgorithmArenaDecision } from "./AlgorithmArenaDecision";
+import { formatArenaInterval } from "./arenaFormatters";
+import { AlgorithmArenaModeControl } from "./AlgorithmArenaModeControl";
+import { featureFlags } from "../../lib/featureFlags";
 
 interface ReviewSessionProps {
   onExit: () => void;
@@ -78,12 +82,13 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     currentIndex,
     streak,
     previewIntervals,
+    pendingArenaReview,
     getEstimatedTimeRemaining,
     loadQueue,
     showAnswer,
     submitRating,
-    nextCard,
     goToIndex,
+    cancelArenaDecision,
   } = useReviewStore();
   const [isQueueListOpen, setIsQueueListOpen] = useState(false);
   const queueListRef = useRef<HTMLDivElement | null>(null);
@@ -94,7 +99,25 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     selectedOptionId?: string;
     selectedOptionText?: string;
   } | null>(null);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const requestExit = () => {
+    if (useReviewStore.getState().pendingArenaReview) {
+      const discard = window.confirm(t("algorithmArena.discardConfirm"));
+      if (!discard) return;
+      useReviewStore.getState().cancelArenaDecision();
+    }
+    onExit();
+  };
+
+  useEffect(() => {
+    if (!pendingArenaReview) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [pendingArenaReview]);
 
   useEffect(() => {
     setActiveReviewSession(true);
@@ -121,6 +144,12 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       state.settings.learning.algorithm === "sm20" ||
       state.settings.learning.algorithm === "sm18",
   );
+  const canChooseArenaMode = useSettingsStore(
+    (state) =>
+      featureFlags.reviewAlgorithmArena &&
+      state.settings.learning.algorithm === "sm20" &&
+      !state.settings.learning.sm20PureM4,
+  );
   // The H-pattern joystick is a touch-only affordance; desktop uses the
   // tappable grid + keyboard 0-5.
   const formFactor = useFormFactor();
@@ -144,7 +173,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   const ratingCbRef = useRef<(rating: ReviewRating, grade?: number) => Promise<void>>(
     async () => {},
   );
-  answerShownRef.current = isAnswerShown;
+  answerShownRef.current = isAnswerShown && !pendingArenaReview;
   submittingRef.current = isSubmitting;
 
   const {
@@ -197,10 +226,21 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     answerText: audioAnswerText,
     isAnswerShown,
     onFlip: () => showAnswer(),
-    onAdvance: () => {
+    onAdvance: async () => {
       const cfg = useSettingsStore.getState().settings.audioReviewMode;
       const rating = (cfg?.defaultRating ?? 3) as ReviewRating;
-      void handleRating(rating);
+      await handleRating(rating);
+      const pending = useReviewStore.getState().pendingArenaReview;
+      if (!pending) return;
+
+      const committedInterval = pending.preview?.recommendation.interval_days;
+      await useReviewStore.getState().confirmArenaSelection();
+      const committedState = useReviewStore.getState();
+      if (committedState.pendingArenaReview || committedState.error || !committedInterval) return;
+
+      return t("algorithmArena.audioScheduled", {
+        interval: formatArenaInterval(committedInterval, locale),
+      });
     },
   });
 
@@ -220,6 +260,8 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
 
     await submitRating(rating, grade);
     if (!beforeId) return;
+    const committedState = useReviewStore.getState();
+    if (committedState.pendingArenaReview || committedState.error) return;
 
     // Show feedback for milestones
     if (willComplete) {
@@ -230,9 +272,15 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       haptic.streak();
     }
 
-    const afterId = useReviewStore.getState().currentCard?.id;
-    if (afterId === beforeId) {
-      nextCard();
+  };
+  const handleArenaCommitted = () => {
+    const committedState = useReviewStore.getState();
+    if (!committedState.currentCard) {
+      setFeedback({ type: "complete" });
+      haptic.complete();
+    } else if (streak?.current_streak && streak.current_streak > 0 && streak.current_streak % 10 === 0) {
+      setFeedback({ type: "streak", value: streak.current_streak });
+      haptic.streak();
     }
   };
   // Keep the gesture-hook ref pointed at the latest rating handler.
@@ -406,6 +454,16 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       const mod = e.metaKey || e.ctrlKey;
       const lowerKey = e.key.toLowerCase();
 
+      if (pendingArenaReview) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          cancelArenaDecision();
+        }
+        // AlgorithmArenaDecision owns all chooser shortcuts while a grade is
+        // pending so session-level rating/navigation cannot skip the card.
+        return;
+      }
+
       if (mod && lowerKey === "i") {
         e.preventDefault();
         setIsInspectorOpen((prev) => !prev);
@@ -424,7 +482,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         // would also leave the whole session.
         if (isZenMode) return;
         e.preventDefault();
-        onExit();
+        requestExit();
         return;
       }
 
@@ -484,7 +542,6 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     isSubmitting,
     showAnswer,
     submitRating,
-    nextCard,
     onExit,
     toast,
     handleDeleteCurrent,
@@ -494,6 +551,8 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     currentIndex,
     useNativeGrades,
     isZenMode,
+    pendingArenaReview,
+    cancelArenaDecision,
   ]);
 
   if (isLoading) {
@@ -504,7 +563,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     );
   }
 
-  if (error) {
+  if (error && !pendingArenaReview) {
     return (
       <div ref={containerRef} className="flex items-center justify-center h-full">
         <div className="text-center max-w-md">
@@ -514,7 +573,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           </h2>
           <p className="text-muted-foreground mb-4">{error}</p>
           <button
-            onClick={onExit}
+            onClick={requestExit}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90"
           >
             {t("review.backToHome")}
@@ -545,7 +604,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           </button>
           <br />
           <button
-            onClick={onExit}
+            onClick={requestExit}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90"
           >
             {t("review.backToHome")}
@@ -565,7 +624,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           streak={streak || undefined}
         />
         <button
-          onClick={onExit}
+          onClick={requestExit}
           className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90"
         >
           {t("review.backToHome")}
@@ -593,7 +652,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       <div className="mb-4 md:mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
         <div className="flex items-center gap-3 w-full md:w-auto">
           <button
-            onClick={onExit}
+            onClick={requestExit}
             className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground min-h-[44px] md:min-h-0"
           >
             <ArrowLeft className="h-4 w-4 md:h-3 md:w-3" />
@@ -711,7 +770,21 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_320px] gap-4 md:gap-6 md:flex-1 md:min-h-0">
+      {pendingArenaReview && (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+          <div className="max-h-[28dvh] shrink-0 overflow-y-auto rounded-2xl border border-border/70 bg-card/55 p-1 sm:max-h-[32dvh]">
+            <ReviewCard
+              card={currentCard}
+              showAnswer={true}
+              onShowAnswer={() => {}}
+              onInteractionResultChange={setInteractionResult}
+            />
+          </div>
+          <AlgorithmArenaDecision onCommitted={handleArenaCommitted} />
+        </div>
+      )}
+
+      <div className={`${pendingArenaReview ? "hidden" : "grid"} grid-cols-1 md:grid-cols-[1fr_320px] gap-4 md:gap-6 md:flex-1 md:min-h-0`}>
         <div className="flex flex-col gap-4 md:gap-6 md:min-h-0">
           <div className="hidden md:flex bg-card border border-border rounded-lg p-4 flex-wrap gap-4 text-sm text-muted-foreground">
             <div>
@@ -792,6 +865,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                     previewIntervals={previewIntervals}
                     gradeScale={useNativeGrades}
                   />
+                  {canChooseArenaMode && <AlgorithmArenaModeControl compact />}
                   {/* Hint for mobile */}
                   <div className="mt-3 text-center text-xs text-muted-foreground md:hidden">
                     <span className="inline-flex items-center gap-1">
@@ -839,10 +913,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         <div className="audio-review-pill fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-card border border-border shadow-lg flex items-center gap-2 text-sm">
           <SpeakerHigh className="w-4 h-4 text-primary animate-pulse" />
           <span className="text-foreground">
-            {audioReview.status === "speaking-question" && "Reading question…"}
-            {audioReview.status === "awaiting-flip" && "Tap to reveal answer"}
-            {audioReview.status === "speaking-answer" && "Reading answer…"}
-            {audioReview.status === "advancing" && "Next card…"}
+            {audioReview.status === "speaking-question" && t("algorithmArena.audioReadingQuestion")}
+            {audioReview.status === "awaiting-flip" && t("algorithmArena.audioRevealAnswer")}
+            {audioReview.status === "speaking-answer" && t("algorithmArena.audioReadingAnswer")}
+            {audioReview.status === "advancing" && t("algorithmArena.audioNextCard")}
+            {audioReview.status === "announcing-schedule" && t("algorithmArena.audioReviewScheduled")}
           </span>
           {audioReview.lastError && (
             <span className="text-xs text-destructive ml-2">{audioReview.lastError}</span>

@@ -350,6 +350,46 @@ struct MergePayload {
     categories: Option<Vec<serde_json::Value>>,
 }
 
+#[derive(Debug, PartialEq)]
+struct ImportedArenaFields {
+    schedule_source: Option<String>,
+    schedule_model_id: Option<String>,
+    arena_commit_id: Option<String>,
+    arena_recommended_interval: Option<f64>,
+    arena_decision_time_ms: Option<i64>,
+    arena_snapshot: Option<String>,
+}
+
+fn imported_arena_fields(result: &serde_json::Value) -> ImportedArenaFields {
+    ImportedArenaFields {
+        schedule_source: result
+            .get("scheduleSource")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+        schedule_model_id: result
+            .get("scheduleModelId")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+        // Archive merge remaps commit IDs just like entity IDs: the original
+        // value remains inside the audit snapshot, while the live uniqueness
+        // key must not collide with a review already present on this device.
+        arena_commit_id: result
+            .get("arenaCommitId")
+            .and_then(|value| value.as_str())
+            .map(|_| Uuid::new_v4().to_string()),
+        arena_recommended_interval: result
+            .get("arenaRecommendedInterval")
+            .and_then(|value| value.as_f64()),
+        arena_decision_time_ms: result
+            .get("arenaDecisionTimeMs")
+            .and_then(|value| value.as_i64()),
+        arena_snapshot: result
+            .get("arenaSnapshot")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
+    }
+}
+
 /// Import a collection archive alongside existing data (non-destructive).
 /// All entity IDs are remapped to new UUIDs to prevent collisions.
 #[tauri::command]
@@ -672,9 +712,17 @@ pub async fn import_collection_archive_merge(
         let old_item_id = result.get("itemId").and_then(|v| v.as_str()).unwrap_or("");
         let new_item_id = item_id_map.get(old_item_id);
 
+        let arena = imported_arena_fields(result);
         sqlx::query(
-            r#"INSERT INTO review_results (id, collection_id, session_id, item_id, rating, time_taken, new_due_date, new_interval, new_ease_factor, timestamp)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#
+            r#"INSERT INTO review_results (
+                   id, collection_id, session_id, item_id, rating, time_taken,
+                   new_due_date, new_interval, new_ease_factor, timestamp,
+                   schedule_source, schedule_model_id, arena_commit_id,
+                   arena_recommended_interval, arena_decision_time_ms, arena_snapshot
+               ) VALUES (
+                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                   ?11, ?12, ?13, ?14, ?15, ?16
+               )"#
         )
         .bind(&new_id)
         .bind(&new_collection_id)
@@ -686,6 +734,12 @@ pub async fn import_collection_archive_merge(
         .bind(result.get("newInterval").and_then(|v| v.as_f64()).unwrap_or(0.0))
         .bind(result.get("newEaseFactor").and_then(|v| v.as_f64()).unwrap_or(0.0))
         .bind(result.get("timestamp").and_then(|v| v.as_str()))
+        .bind(arena.schedule_source)
+        .bind(arena.schedule_model_id)
+        .bind(arena.arena_commit_id)
+        .bind(arena.arena_recommended_interval)
+        .bind(arena.arena_decision_time_ms)
+        .bind(arena.arena_snapshot)
         .execute(&mut *tx)
         .await?;
     }
@@ -700,4 +754,45 @@ pub async fn import_collection_archive_merge(
         payload.learning_items.len(),
         Utc::now().to_rfc3339()
     ))
+}
+
+#[cfg(test)]
+mod arena_archive_tests {
+    use super::imported_arena_fields;
+    use serde_json::json;
+
+    #[test]
+    fn arena_archive_fields_support_all_sources_and_legacy_rows() {
+        for (source, model_id) in [
+            ("arena", None),
+            ("model", Some("sm20")),
+            ("custom", None),
+        ] {
+            let value = json!({
+                "scheduleSource": source,
+                "scheduleModelId": model_id,
+                "arenaCommitId": format!("original-{source}"),
+                "arenaRecommendedInterval": 18.0,
+                "arenaDecisionTimeMs": 420,
+                "arenaSnapshot": format!(r#"{{"version":1,"source":"{source}"}}"#)
+            });
+            let fields = imported_arena_fields(&value);
+            assert_eq!(fields.schedule_source.as_deref(), Some(source));
+            assert_eq!(fields.schedule_model_id.as_deref(), model_id);
+            assert!(fields.arena_commit_id.is_some());
+            assert_ne!(
+                fields.arena_commit_id.as_deref(),
+                Some(format!("original-{source}").as_str()),
+            );
+            assert_eq!(fields.arena_recommended_interval, Some(18.0));
+            assert_eq!(fields.arena_decision_time_ms, Some(420));
+            assert!(fields.arena_snapshot.as_deref().unwrap().contains(source));
+        }
+
+        let legacy = imported_arena_fields(&json!({ "rating": 3 }));
+        assert_eq!(legacy.schedule_source, None);
+        assert_eq!(legacy.schedule_model_id, None);
+        assert_eq!(legacy.arena_commit_id, None);
+        assert_eq!(legacy.arena_snapshot, None);
+    }
 }

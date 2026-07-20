@@ -276,6 +276,7 @@ tags: [incrementum]
     autoFlip: true,
     autoFlipDelayMs: 1500,
     defaultRating: 3,
+    algorithmArenaCoachCompleted: false,
   },
   embedding: {
     provider: "openai",

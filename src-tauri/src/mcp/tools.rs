@@ -976,6 +976,7 @@ impl MCPToolRegistry {
             None,
             None,
             false,
+            None,
         )
         .await
         {

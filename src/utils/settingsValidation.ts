@@ -314,6 +314,7 @@ export const AudioReviewModeSettingsSchema = z.object({
   autoFlip: z.boolean().default(true),
   autoFlipDelayMs: z.number().min(0).max(10000).default(1500),
   defaultRating: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).default(3),
+  algorithmArenaCoachCompleted: z.boolean().default(false),
 });
 
 export const EmbeddingSettingsSchema = z.object({

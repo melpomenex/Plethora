@@ -1,12 +1,13 @@
 //! Review commands using FSRS algorithm
 
-use crate::algorithms::sm20::{self, SM20State};
+use crate::algorithms::sm20::{self, ArenaModelId, SM20State, ARENA_MODEL_IDS};
 use crate::algorithms::AlgorithmType;
 use crate::database::Repository;
 use crate::error::Result;
 use crate::models::{ItemState, LearningItem, MemoryState, ReviewRating};
 use chrono::{Duration, Utc};
 use rand::SeedableRng;
+use sha2::{Digest, Sha256};
 use sqlx::Row;
 use tauri::State;
 
@@ -20,6 +21,91 @@ const MIN_AGAIN_INTERVAL_DAYS: f64 = 10.0 / 1440.0; // 10 minutes
 const MIN_HARD_INTERVAL_DAYS: f64 = 0.5; // 12 hours
 const MIN_GOOD_INTERVAL_DAYS: f64 = 1.0; // 1 day
 const MIN_EASY_INTERVAL_DAYS: f64 = 2.0; // 2 days
+const SM20_ARENA_SCHEMA_VERSION: u8 = 1;
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ArenaSelectionSource {
+    Arena,
+    Model,
+    Custom,
+}
+
+impl ArenaSelectionSource {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Arena => "arena",
+            Self::Model => "model",
+            Self::Custom => "custom",
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct ArenaSelection {
+    pub commit_id: String,
+    pub preview_id: String,
+    pub item_revision: String,
+    pub arena_revision: String,
+    pub source: ArenaSelectionSource,
+    #[serde(default)]
+    pub model_id: Option<ArenaModelId>,
+    #[serde(default)]
+    pub interval_days: Option<f64>,
+    #[serde(default)]
+    pub decision_time_ms: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct ArenaIntervalChoice {
+    pub interval_days: f64,
+    pub due_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct ArenaModelCandidate {
+    pub model_id: ArenaModelId,
+    pub label: String,
+    pub interval_days: f64,
+    pub due_at: String,
+    pub weight_percent: f64,
+    pub personalized: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct ArenaIntervalRange {
+    pub min_days: f64,
+    pub max_days: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct SM20ArenaGradePreview {
+    pub grade: u8,
+    pub recommendation: ArenaIntervalChoice,
+    pub candidates: Vec<ArenaModelCandidate>,
+    pub range: ArenaIntervalRange,
+    pub custom_bounds: ArenaIntervalRange,
+}
+
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+pub struct SM20ArenaPreviewSet {
+    pub schema_version: u8,
+    pub preview_id: String,
+    pub item_revision: String,
+    pub arena_revision: String,
+    pub generated_at: String,
+    pub model_order: Vec<ArenaModelId>,
+    pub grades: Vec<SM20ArenaGradePreview>,
+}
+
+struct AppliedArenaDecision {
+    selection: ArenaSelection,
+    recommended_interval: f64,
+    snapshot: String,
+    collection: crate::algorithms::sm20::SM20CollectionState,
+    expected_item_revision: String,
+    expected_arena_revision: String,
+}
 
 #[derive(Clone, serde::Serialize)]
 pub struct ReviewStreak {
@@ -234,6 +320,7 @@ pub async fn submit_review(
     no_schedule_update: Option<bool>,
     grade: Option<i32>,
     sm20_pure_m4: Option<bool>,
+    arena_selection: Option<ArenaSelection>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
     tracing::info!(
@@ -258,6 +345,7 @@ pub async fn submit_review(
         algorithm.as_deref(),
         grade,
         sm20_pure_m4.unwrap_or(false),
+        arena_selection.as_ref(),
     )
     .await
 }
@@ -281,10 +369,34 @@ pub async fn apply_review(
     algorithm: Option<&str>,
     native_grade: Option<i32>,
     sm20_pure_m4: bool,
+    arena_selection: Option<&ArenaSelection>,
 ) -> Result<LearningItem> {
     let mut item = repo.get_learning_item(item_id).await?.ok_or_else(|| {
         crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
     })?;
+    let prior_state = item.state.clone();
+
+    // A transport retry uses the same logical commit id. Once its review row
+    // exists, return the already-updated item without touching scheduler state,
+    // counters, or history a second time.
+    if let Some(selection) = arena_selection {
+        if selection.commit_id.trim().is_empty() {
+            return Err(crate::error::IncrementumError::InvalidInput(
+                "Arena commit_id must not be empty".to_string(),
+            ));
+        }
+        if let Some(committed_item_id) = repo
+            .get_review_item_by_arena_commit_id(&selection.commit_id)
+            .await?
+        {
+            if committed_item_id != item_id {
+                return Err(crate::error::IncrementumError::ArenaAlreadyCommitted(
+                    "commit_id belongs to another learning item".to_string(),
+                ));
+            }
+            return Ok(item);
+        }
+    }
 
     let review_rating = ReviewRating::from(rating);
 
@@ -298,10 +410,16 @@ pub async fn apply_review(
     let effective_algorithm = algorithm.unwrap_or(&item.algorithm_type);
     let algo = AlgorithmType::from_str_lossy(effective_algorithm);
 
+    if arena_selection.is_some() && (algo != AlgorithmType::Sm20 || sm20_pure_m4) {
+        return Err(crate::error::IncrementumError::ArenaUnsupported(
+            "Arena choices require a normal SM-20 ensemble review".to_string(),
+        ));
+    }
+
     // Update the item's algorithm_type to match the effective algorithm
     item.algorithm_type = effective_algorithm.to_string();
 
-    match algo {
+    let arena_decision = match algo {
         AlgorithmType::Fsrs => {
             apply_fsrs_review_inner(
                 &mut item,
@@ -310,28 +428,41 @@ pub async fn apply_review(
                 fsrs_weights,
                 now,
             )?;
+            None
         }
         AlgorithmType::Sm2 => {
             apply_sm2_review(&mut item, review_rating, now)?;
+            None
         }
         AlgorithmType::Sm5 => {
             apply_sm5_review(&mut item, review_rating, now)?;
+            None
         }
         AlgorithmType::Sm8 => {
             apply_sm8_review(&mut item, review_rating, now)?;
+            None
         }
         AlgorithmType::Sm15 => {
             apply_sm15_review(&mut item, review_rating, desired_retention, now)?;
+            None
         }
         AlgorithmType::Sm18 => {
             apply_sm18_review(&mut item, review_rating, now)?;
+            None
         }
         AlgorithmType::Sm20 => {
-            apply_sm20_review(&mut item, review_rating, native_grade, now, sm20_pure_m4, repo).await?;
+            apply_sm20_review(
+                &mut item,
+                review_rating,
+                native_grade,
+                now,
+                sm20_pure_m4,
+                arena_selection,
+                repo,
+            )
+            .await?
         }
-    }
-
-    repo.update_learning_item(&item).await?;
+    };
 
     // Track review statistics. With a native SM-20 grade, pass = grade >= 3;
     // otherwise keep the 4-button convention (Good/Easy are correct).
@@ -341,6 +472,48 @@ pub async fn apply_review(
     };
 
     let review_result_id = uuid::Uuid::new_v4().to_string();
+    let today = now.format("%Y-%m-%d").to_string();
+    let (new_cards, learning_cards, review_cards) = match prior_state {
+        ItemState::New => (1, 0, 0),
+        ItemState::Learning | ItemState::Relearning => (0, 1, 0),
+        ItemState::Review => (0, 0, 1),
+    };
+
+    if let Some(decision) = arena_decision {
+        let provenance = crate::database::repository::ArenaReviewProvenance {
+            schedule_source: decision.selection.source.as_str(),
+            schedule_model_id: decision.selection.model_id.map(ArenaModelId::as_str),
+            arena_commit_id: &decision.selection.commit_id,
+            recommended_interval: decision.recommended_interval,
+            decision_time_ms: decision.selection.decision_time_ms,
+            snapshot: &decision.snapshot,
+        };
+        let committed = repo.commit_sm20_arena_review(
+            &item,
+            &decision.collection,
+            &review_result_id,
+            session_id,
+            rating,
+            time_taken,
+            &provenance,
+            &decision.expected_item_revision,
+            &decision.expected_arena_revision,
+            &today,
+            if was_correct { 1 } else { 0 },
+            new_cards,
+            learning_cards,
+            review_cards,
+        )
+        .await?;
+        if !committed {
+            return repo.get_learning_item(item_id).await?.ok_or_else(|| {
+                crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
+            });
+        }
+        return Ok(item);
+    }
+
+    repo.update_learning_item(&item).await?;
     repo.create_review_result(
         &review_result_id,
         &item.collection_id,
@@ -353,16 +526,6 @@ pub async fn apply_review(
         item.ease_factor,
     )
     .await?;
-
-    let today = now.format("%Y-%m-%d").to_string();
-    let old_state = item.state.clone(); // Clone state to avoid partial move
-
-    // Determine card type for statistics
-    let (new_cards, learning_cards, review_cards) = match old_state {
-        ItemState::New => (1, 0, 0),
-        ItemState::Learning | ItemState::Relearning => (0, 1, 0),
-        ItemState::Review => (0, 0, 1),
-    };
 
     repo.update_study_statistics(
         &today,
@@ -831,14 +994,126 @@ async fn load_sm20_collection(
     })
 }
 
+fn sha256_json<T: serde::Serialize>(value: &T) -> Result<String> {
+    let encoded = serde_json::to_vec(value)?;
+    let mut hasher = Sha256::new();
+    hasher.update(encoded);
+    Ok(hex::encode(hasher.finalize()))
+}
+
+pub(crate) fn sm20_item_revision(item: &LearningItem) -> Result<String> {
+    // Hash only scheduling inputs. Presentation-only edits must not invalidate
+    // a decision that is already visible to the learner.
+    sha256_json(&(
+        &item.id,
+        item.interval,
+        item.ease_factor,
+        item.due_date,
+        item.last_review_date,
+        item.review_count,
+        item.lapses,
+        &item.state,
+        &item.memory_state,
+        &item.algorithm_state,
+    ))
+}
+
+pub(crate) fn sm20_arena_revision(
+    collection: &crate::algorithms::sm20::SM20CollectionState,
+) -> Result<String> {
+    sha256_json(&(
+        &collection.m2_optimizer,
+        &collection.m3_matrices,
+        &collection.arena,
+        &collection.fsrs_params,
+        &collection.m4_params,
+    ))
+}
+
+fn arena_due_at(now: chrono::DateTime<Utc>, interval_days: f64) -> String {
+    let seconds = (interval_days.max(0.0) * 86_400.0).round() as i64;
+    (now + Duration::seconds(seconds)).to_rfc3339()
+}
+
+fn build_sm20_arena_preview(
+    item: &LearningItem,
+    collection: &crate::algorithms::sm20::SM20CollectionState,
+    results: &[sm20::SM20ReviewResult; 6],
+    now: chrono::DateTime<Utc>,
+) -> Result<SM20ArenaPreviewSet> {
+    let item_revision = sm20_item_revision(item)?;
+    let arena_revision = sm20_arena_revision(collection)?;
+    let grades = results
+        .iter()
+        .enumerate()
+        .map(|(grade, result)| {
+            let candidates: Vec<ArenaModelCandidate> = ARENA_MODEL_IDS
+                .iter()
+                .enumerate()
+                .map(|(index, model_id)| {
+                    let interval_days = result.model_intervals[index];
+                    ArenaModelCandidate {
+                        model_id: *model_id,
+                        label: model_id.label().to_string(),
+                        interval_days,
+                        due_at: arena_due_at(now, interval_days),
+                        weight_percent: collection.arena.weights[index],
+                        personalized: match model_id {
+                            ArenaModelId::Sm20 => collection.m4_params.is_some(),
+                            ArenaModelId::Fsrs => collection.fsrs_params.is_some(),
+                            _ => false,
+                        },
+                    }
+                })
+                .collect();
+            let (min_days, max_days) = candidates.iter().fold(
+                (result.interval_days, result.interval_days),
+                |(min_days, max_days), candidate| {
+                    (
+                        min_days.min(candidate.interval_days),
+                        max_days.max(candidate.interval_days),
+                    )
+                },
+            );
+            SM20ArenaGradePreview {
+                grade: grade as u8,
+                recommendation: ArenaIntervalChoice {
+                    interval_days: result.interval_days,
+                    due_at: arena_due_at(now, result.interval_days),
+                },
+                candidates,
+                range: ArenaIntervalRange {
+                    min_days,
+                    max_days,
+                },
+                custom_bounds: ArenaIntervalRange {
+                    min_days: 1.0 / 1_440.0,
+                    max_days: sm20::STABILITY_MAX,
+                },
+            }
+        })
+        .collect();
+
+    Ok(SM20ArenaPreviewSet {
+        schema_version: SM20_ARENA_SCHEMA_VERSION,
+        preview_id: uuid::Uuid::new_v4().to_string(),
+        item_revision,
+        arena_revision,
+        generated_at: now.to_rfc3339(),
+        model_order: ARENA_MODEL_IDS.to_vec(),
+        grades,
+    })
+}
+
 async fn apply_sm20_review(
     item: &mut LearningItem,
     review_rating: ReviewRating,
     native_grade: Option<i32>,
     now: chrono::DateTime<Utc>,
     sm20_pure_m4: bool,
+    arena_selection: Option<&ArenaSelection>,
     repo: &Repository,
-) -> Result<()> {
+) -> Result<Option<AppliedArenaDecision>> {
     use crate::algorithms::sm20::DEFAULT_FI;
 
     // Native SM-20 grade (0-5) when the UI offers the native scale; otherwise
@@ -859,10 +1134,119 @@ async fn apply_sm20_review(
     let mut collection = load_sm20_collection(repo).await?;
 
     let today = now.timestamp() as i32 / 86400;
-    let mut rng = rand::rngs::StdRng::from_entropy();
     let fi = DEFAULT_FI; // 10% forgetting index → 90% retention
 
-    let response = sm20::review(
+    let arena_context = if let Some(selection) = arena_selection {
+        if sm20_pure_m4 {
+            return Err(crate::error::IncrementumError::ArenaUnsupported(
+                "Pure M4 reviews do not expose Algorithm Arena choices".to_string(),
+            ));
+        }
+        if selection.preview_id.trim().is_empty() {
+            return Err(crate::error::IncrementumError::ArenaPreviewStale(
+                "preview_id is missing".to_string(),
+            ));
+        }
+
+        let automatic_fallback = selection.preview_id == "automatic-fallback";
+        let current_item_revision = sm20_item_revision(item)?;
+        let current_arena_revision = sm20_arena_revision(&collection)?;
+        if !automatic_fallback
+            && (selection.item_revision != current_item_revision
+                || selection.arena_revision != current_arena_revision)
+        {
+            return Err(crate::error::IncrementumError::ArenaPreviewStale(
+                "the card or scheduler changed after this preview was generated".to_string(),
+            ));
+        }
+
+        // Recompute from current authoritative state. Client interval numbers
+        // are never trusted for model or Arena selections.
+        let mut preview_rng = rand::rngs::StdRng::seed_from_u64(0);
+        let preview_results = sm20::preview_grade_results(
+            &state,
+            elapsed_days,
+            fi,
+            &collection,
+            today,
+            &mut preview_rng,
+            false,
+            0.0,
+        );
+        let result = &preview_results[grade as usize];
+        let authoritative_preview =
+            build_sm20_arena_preview(item, &collection, &preview_results, now)?;
+        let grade_preview = authoritative_preview.grades[grade as usize].clone();
+
+        let chosen_interval = match selection.source {
+            ArenaSelectionSource::Arena => result.interval_days,
+            ArenaSelectionSource::Model => {
+                let model_id = selection.model_id.ok_or_else(|| {
+                    crate::error::IncrementumError::ArenaInvalidModel(
+                        "model source requires model_id".to_string(),
+                    )
+                })?;
+                result.model_intervals[model_id.index()]
+            }
+            ArenaSelectionSource::Custom => {
+                let interval = selection.interval_days.ok_or_else(|| {
+                    crate::error::IncrementumError::ArenaInvalidInterval(
+                        "custom source requires interval_days".to_string(),
+                    )
+                })?;
+                let bounds = &grade_preview.custom_bounds;
+                if !interval.is_finite()
+                    || interval < bounds.min_days
+                    || interval > bounds.max_days
+                {
+                    return Err(crate::error::IncrementumError::ArenaInvalidInterval(
+                        format!(
+                            "interval must be between {} and {} days",
+                            bounds.min_days, bounds.max_days
+                        ),
+                    ));
+                }
+                interval
+            }
+        };
+
+        let snapshot = serde_json::to_string(&serde_json::json!({
+            "version": 1,
+            "preview_schema_version": authoritative_preview.schema_version,
+            "preview_id": selection.preview_id,
+            "item_revision": current_item_revision,
+            "arena_revision": current_arena_revision,
+            "grade": grade,
+            "model_order": authoritative_preview.model_order,
+            "recommendation": grade_preview.recommendation,
+            "candidates": grade_preview.candidates,
+            "custom_bounds": grade_preview.custom_bounds,
+            "selection_source": selection.source,
+            "selection_model_id": selection.model_id,
+            "chosen_interval_days": chosen_interval,
+            "automatic_fallback": automatic_fallback,
+            "prior_item_state": format!("{:?}", item.state).to_lowercase(),
+            "undo_collection": {
+                "m2_optimizer": &collection.m2_optimizer,
+                "m3_matrices": &collection.m3_matrices,
+                "arena": &collection.arena,
+            },
+        }))?;
+
+        Some((
+            chosen_interval,
+            result.interval_days,
+            snapshot,
+            current_item_revision,
+            current_arena_revision,
+        ))
+    } else {
+        None
+    };
+
+    let mut rng = rand::rngs::StdRng::from_entropy();
+
+    let mut response = sm20::review(
         &state,
         grade,
         elapsed_days,
@@ -870,7 +1254,7 @@ async fn apply_sm20_review(
         &mut collection,
         today,
         true,    // commit — mutate M2/M3 state
-        true,    // disperse — stochastic day-spread (production behavior)
+        arena_selection.is_none(), // exact shown interval for Arena decisions
         &mut rng,
         sm20_pure_m4,
         // post_lapse_x = element priority percent (binary item[+0x16]).
@@ -879,13 +1263,31 @@ async fn apply_sm20_review(
         0.0,
     );
 
-    // Persist collection-wide state (M2 optimizer + M3 matrices + Arena).
-    if let Ok(m2_bytes) = serde_json::to_vec(&collection.m2_optimizer) {
-        let _ = repo.save_sm20_m2_optimizer(&m2_bytes).await;
+    // The models learn normally, but fields representing the schedule that was
+    // actually assigned follow the learner's explicit choice. Raw slot
+    // stabilities remain untouched for fair loss scoring at the next recall.
+    if let Some((chosen_interval, _, _, _, _)) = arena_context.as_ref() {
+        let rounded_days = chosen_interval.round().max(1.0) as i32;
+        response.interval_days = *chosen_interval;
+        response.state.interval = *chosen_interval;
+        response.state.m1_state.previous_interval = rounded_days;
+        if let Some(history) = response.state.m1_history.as_mut() {
+            history.stability = *chosen_interval;
+        }
+        response.state.m2_state.previous_interval = rounded_days;
+        response.state.m3_state.previous_interval = rounded_days;
     }
-    let _ = repo.save_sm20_m3_matrices(&collection.m3_matrices).await;
-    if let Ok(arena_json) = serde_json::to_string(&collection.arena) {
-        let _ = repo.save_sm20_arena(&arena_json).await;
+
+    // Direct/Pure-M4 reviews keep the legacy persistence path. Arena commits
+    // hand the mutated collection to one database transaction below.
+    if arena_context.is_none() {
+        if let Ok(m2_bytes) = serde_json::to_vec(&collection.m2_optimizer) {
+            let _ = repo.save_sm20_m2_optimizer(&m2_bytes).await;
+        }
+        let _ = repo.save_sm20_m3_matrices(&collection.m3_matrices).await;
+        if let Ok(arena_json) = serde_json::to_string(&collection.arena) {
+            let _ = repo.save_sm20_arena(&arena_json).await;
+        }
     }
 
     let interval_seconds = (response.interval_days * 86400.0).round().max(60.0) as i64;
@@ -915,7 +1317,16 @@ async fn apply_sm20_review(
         };
     }
 
-    Ok(())
+    Ok(arena_context.map(
+        |(_, recommended_interval, snapshot, expected_item_revision, expected_arena_revision)| AppliedArenaDecision {
+            selection: arena_selection.expect("Arena context requires selection").clone(),
+            recommended_interval,
+            snapshot,
+            collection,
+            expected_item_revision,
+            expected_arena_revision,
+        },
+    ))
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -930,6 +1341,12 @@ pub struct RestoreLearningItemStateRequest {
     pub state: String,
     pub memory_state: Option<MemoryState>,
     pub difficulty: i32,
+    #[serde(default)]
+    pub algorithm_type: Option<String>,
+    #[serde(default)]
+    pub algorithm_state: Option<String>,
+    #[serde(default)]
+    pub arena_commit_id: Option<String>,
 }
 
 fn parse_item_state(value: &str) -> ItemState {
@@ -962,9 +1379,16 @@ pub async fn restore_learning_item_state(
     item.state = parse_item_state(&request.state);
     item.memory_state = request.memory_state;
     item.difficulty = request.difficulty;
+    if let Some(algorithm_type) = request.algorithm_type {
+        item.algorithm_type = algorithm_type;
+    }
+    item.algorithm_state = request.algorithm_state;
     item.date_modified = Utc::now();
 
     repo.update_learning_item(&item).await?;
+    if let Some(commit_id) = request.arena_commit_id.as_deref() {
+        repo.undo_arena_review_by_commit_id(commit_id).await?;
+    }
     Ok(item)
 }
 
@@ -1038,7 +1462,7 @@ pub async fn preview_review_intervals(
         // (finalization is deterministic in preview) — mirrors the reference
         // implementation's seeded default.
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
-        let grades = sm20::preview_grades(
+        let grade_results = sm20::preview_grade_results(
             &state, elapsed_days, crate::algorithms::sm20::DEFAULT_FI,
             &collection, today, &mut rng,
             sm20_pure_m4.unwrap_or(false),
@@ -1047,6 +1471,18 @@ pub async fn preview_review_intervals(
             // keeps the short post-lapse interval.
             0.0,
         );
+        let grades: [f64; 6] =
+            std::array::from_fn(|index| grade_results[index].interval_days);
+        let arena = if sm20_pure_m4.unwrap_or(false) {
+            None
+        } else {
+            Some(build_sm20_arena_preview(
+                &item,
+                &collection,
+                &grade_results,
+                now,
+            )?)
+        };
 
         return Ok(PreviewIntervals {
             again: grades[sm20::rating_to_grade(1) as usize],
@@ -1055,6 +1491,7 @@ pub async fn preview_review_intervals(
             easy: grades[sm20::rating_to_grade(4) as usize],
             // Native 0-5 grade previews — lets the UI render SM-20's own scale.
             grade_intervals: Some(grades.to_vec()),
+            arena,
         });
     }
 
@@ -1105,6 +1542,7 @@ pub async fn preview_review_intervals(
             good: grade_intervals[4],
             easy: grade_intervals[5],
             grade_intervals: Some(grade_intervals),
+            arena: None,
         });
     }
 
@@ -1161,6 +1599,7 @@ pub async fn preview_review_intervals(
         good: normalize(next_states.good.interval as f64, ReviewRating::Good),
         easy: normalize(next_states.easy.interval as f64, ReviewRating::Easy),
         grade_intervals: None,
+        arena: None,
     })
 }
 
@@ -1175,6 +1614,10 @@ pub struct PreviewIntervals {
     /// algorithms with a native grade scale (currently SM-20).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grade_intervals: Option<Vec<f64>>,
+    /// Full deterministic Algorithm Arena choice set. Only available for the
+    /// normal SM-20 ensemble; Pure M4 and every other scheduler omit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arena: Option<SM20ArenaPreviewSet>,
 }
 
 // =============================================================================
@@ -1409,7 +1852,9 @@ pub async fn get_review_sessions_by_collection(
 pub async fn get_all_review_results(repo: State<'_, Repository>) -> Result<Vec<serde_json::Value>> {
     let rows = sqlx::query(
         r#"SELECT id, collection_id, session_id, item_id, rating, time_taken,
-                  new_due_date, new_interval, new_ease_factor, timestamp
+                  new_due_date, new_interval, new_ease_factor, timestamp,
+                  schedule_source, schedule_model_id, arena_commit_id,
+                  arena_recommended_interval, arena_decision_time_ms, arena_snapshot
            FROM review_results"#,
     )
     .fetch_all(repo.pool())
@@ -1430,6 +1875,12 @@ pub async fn get_all_review_results(repo: State<'_, Repository>) -> Result<Vec<s
                 "newInterval": row.get::<f64, _>("new_interval"),
                 "newEaseFactor": row.get::<f64, _>("new_ease_factor"),
                 "timestamp": row.get::<String, _>("timestamp"),
+                "scheduleSource": row.get::<Option<String>, _>("schedule_source"),
+                "scheduleModelId": row.get::<Option<String>, _>("schedule_model_id"),
+                "arenaCommitId": row.get::<Option<String>, _>("arena_commit_id"),
+                "arenaRecommendedInterval": row.get::<Option<f64>, _>("arena_recommended_interval"),
+                "arenaDecisionTimeMs": row.get::<Option<i64>, _>("arena_decision_time_ms"),
+                "arenaSnapshot": row.get::<Option<String>, _>("arena_snapshot"),
             })
         })
         .collect())
@@ -1474,7 +1925,9 @@ pub async fn get_review_results_by_sessions(
             .collect();
         let sql = format!(
             r#"SELECT id, collection_id, session_id, item_id, rating, time_taken,
-                      new_due_date, new_interval, new_ease_factor, timestamp
+                      new_due_date, new_interval, new_ease_factor, timestamp,
+                      schedule_source, schedule_model_id, arena_commit_id,
+                      arena_recommended_interval, arena_decision_time_ms, arena_snapshot
                FROM review_results WHERE session_id IN ({})"#,
             placeholders.join(",")
         );
@@ -1501,6 +1954,12 @@ pub async fn get_review_results_by_sessions(
                 "newInterval": row.get::<f64, _>("new_interval"),
                 "newEaseFactor": row.get::<f64, _>("new_ease_factor"),
                 "timestamp": row.get::<String, _>("timestamp"),
+                "scheduleSource": row.get::<Option<String>, _>("schedule_source"),
+                "scheduleModelId": row.get::<Option<String>, _>("schedule_model_id"),
+                "arenaCommitId": row.get::<Option<String>, _>("arena_commit_id"),
+                "arenaRecommendedInterval": row.get::<Option<f64>, _>("arena_recommended_interval"),
+                "arenaDecisionTimeMs": row.get::<Option<i64>, _>("arena_decision_time_ms"),
+                "arenaSnapshot": row.get::<Option<String>, _>("arena_snapshot"),
             }));
         }
     }
@@ -1541,6 +2000,39 @@ pub async fn get_categories_by_collection(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::connection::Database;
+    use crate::error::IncrementumError;
+    use crate::models::ItemType;
+    use rand::SeedableRng;
+    use std::path::PathBuf;
+
+    async fn setup_review_repo() -> Repository {
+        let database = Database::new(PathBuf::from(":memory:"))
+            .await
+            .expect("database");
+        database.migrate().await.expect("migrations");
+        Repository::new(database.pool().clone())
+    }
+
+    async fn preview_item_arena(
+        repo: &Repository,
+        item: &LearningItem,
+    ) -> SM20ArenaPreviewSet {
+        let collection = load_sm20_collection(repo).await.expect("SM-20 collection");
+        let state = parse_sm20_state(item);
+        let now = Utc::now();
+        let results = sm20::preview_grade_results(
+            &state,
+            0.0,
+            sm20::DEFAULT_FI,
+            &collection,
+            now.timestamp() as i32 / 86_400,
+            &mut rand::rngs::StdRng::seed_from_u64(0),
+            false,
+            0.0,
+        );
+        build_sm20_arena_preview(item, &collection, &results, now).expect("Arena preview")
+    }
 
     #[test]
     fn test_review_rating_from_valid_values() {
@@ -1566,6 +2058,249 @@ mod tests {
     fn test_algorithm_type_unknown_defaults_to_fsrs() {
         let algo = AlgorithmType::from_str_lossy("unknown_algo");
         assert_eq!(algo.as_str(), "fsrs");
+    }
+
+    #[tokio::test]
+    async fn arena_choices_are_authoritative_validated_and_idempotent() {
+        let repo = setup_review_repo().await;
+
+        for model_id in ARENA_MODEL_IDS {
+            let mut item = LearningItem::new(
+                ItemType::Flashcard,
+                format!("Arena model {:?}", model_id),
+            );
+            item.algorithm_type = "sm20".to_string();
+            repo.create_learning_item(&item).await.expect("model item");
+            let item = repo
+                .get_learning_item_by_id(&item.id)
+                .await
+                .expect("item read")
+                .expect("item");
+            let preview = preview_item_arena(&repo, &item).await;
+            let grade_preview = &preview.grades[4];
+            let expected = grade_preview.candidates[model_id.index()].interval_days;
+            let selection = ArenaSelection {
+                commit_id: format!("model-commit-{}", model_id.as_str()),
+                preview_id: preview.preview_id,
+                item_revision: preview.item_revision,
+                arena_revision: preview.arena_revision,
+                source: ArenaSelectionSource::Model,
+                model_id: Some(model_id),
+                interval_days: Some(44_000.0), // spoofed client value must be ignored
+                decision_time_ms: 120,
+            };
+
+            let committed = apply_review(
+                &repo,
+                &item.id,
+                3,
+                7,
+                None,
+                DEFAULT_DESIRED_RETENTION,
+                None,
+                false,
+                Some("sm20"),
+                Some(4),
+                false,
+                Some(&selection),
+            )
+            .await
+            .expect("model commit");
+            assert_eq!(committed.interval, expected, "model interval is authoritative");
+
+            let repeated = apply_review(
+                &repo,
+                &item.id,
+                3,
+                7,
+                None,
+                DEFAULT_DESIRED_RETENTION,
+                None,
+                false,
+                Some("sm20"),
+                Some(4),
+                false,
+                Some(&selection),
+            )
+            .await
+            .expect("idempotent retry");
+            assert_eq!(repeated.review_count, 1);
+            let event_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM review_results WHERE arena_commit_id = ?1",
+            )
+            .bind(&selection.commit_id)
+            .fetch_one(repo.pool())
+            .await
+            .expect("event count");
+            assert_eq!(event_count, 1);
+        }
+        let arena_after_model_choices = load_sm20_collection(&repo)
+            .await
+            .expect("Arena after model choices")
+            .arena;
+        assert_eq!(
+            arena_after_model_choices.weights,
+            crate::algorithms::sm20::arena::ARENA_DEFAULT_WEIGHTS,
+            "choosing a model must not reward it; weights learn only from scored recall loss",
+        );
+
+        let mut arena_item = LearningItem::new(ItemType::Flashcard, "Arena Pick".to_string());
+        arena_item.algorithm_type = "sm20".to_string();
+        repo.create_learning_item(&arena_item)
+            .await
+            .expect("Arena Pick item");
+        let arena_item = repo
+            .get_learning_item_by_id(&arena_item.id)
+            .await
+            .expect("Arena Pick item read")
+            .expect("Arena Pick item");
+        let arena_preview = preview_item_arena(&repo, &arena_item).await;
+        let arena_expected = arena_preview.grades[4].recommendation.interval_days;
+        let arena_selection = ArenaSelection {
+            commit_id: "arena-pick-commit".to_string(),
+            preview_id: arena_preview.preview_id,
+            item_revision: arena_preview.item_revision,
+            arena_revision: arena_preview.arena_revision,
+            source: ArenaSelectionSource::Arena,
+            model_id: None,
+            interval_days: Some(44_000.0), // recommendation is also server-authoritative
+            decision_time_ms: 80,
+        };
+        let arena_committed = apply_review(
+            &repo,
+            &arena_item.id,
+            3,
+            5,
+            None,
+            DEFAULT_DESIRED_RETENTION,
+            None,
+            false,
+            Some("sm20"),
+            Some(4),
+            false,
+            Some(&arena_selection),
+        )
+        .await
+        .expect("Arena Pick commit");
+        assert_eq!(
+            arena_committed.interval, arena_expected,
+            "Arena Pick interval is authoritative",
+        );
+
+        let mut custom_item = LearningItem::new(ItemType::Flashcard, "Valid custom".to_string());
+        custom_item.algorithm_type = "sm20".to_string();
+        repo.create_learning_item(&custom_item).await.expect("custom item");
+        let custom_item = repo
+            .get_learning_item_by_id(&custom_item.id)
+            .await
+            .expect("custom item read")
+            .expect("custom item");
+        let custom_preview = preview_item_arena(&repo, &custom_item).await;
+        let custom_selection = ArenaSelection {
+            commit_id: "valid-custom-commit".to_string(),
+            preview_id: custom_preview.preview_id,
+            item_revision: custom_preview.item_revision,
+            arena_revision: custom_preview.arena_revision,
+            source: ArenaSelectionSource::Custom,
+            model_id: None,
+            interval_days: Some(9.5),
+            decision_time_ms: 500,
+        };
+        let custom_committed = apply_review(
+            &repo,
+            &custom_item.id,
+            3,
+            5,
+            None,
+            DEFAULT_DESIRED_RETENTION,
+            None,
+            false,
+            Some("sm20"),
+            Some(4),
+            false,
+            Some(&custom_selection),
+        )
+        .await
+        .expect("custom commit");
+        assert_eq!(custom_committed.interval, 9.5);
+        assert_eq!(
+            load_sm20_collection(&repo)
+                .await
+                .expect("Arena after Custom choice")
+                .arena
+                .weights,
+            crate::algorithms::sm20::arena::ARENA_DEFAULT_WEIGHTS,
+            "choosing Custom must not reward any model",
+        );
+
+        for (label, mutate_selection, expected_error) in [
+            (
+                "invalid custom",
+                Box::new(|preview: &SM20ArenaPreviewSet| ArenaSelection {
+                    commit_id: "invalid-custom-commit".to_string(),
+                    preview_id: preview.preview_id.clone(),
+                    item_revision: preview.item_revision.clone(),
+                    arena_revision: preview.arena_revision.clone(),
+                    source: ArenaSelectionSource::Custom,
+                    model_id: None,
+                    interval_days: Some(sm20::STABILITY_MAX + 1.0),
+                    decision_time_ms: 1,
+                }) as Box<dyn Fn(&SM20ArenaPreviewSet) -> ArenaSelection>,
+                "interval",
+            ),
+            (
+                "stale preview",
+                Box::new(|preview: &SM20ArenaPreviewSet| ArenaSelection {
+                    commit_id: "stale-preview-commit".to_string(),
+                    preview_id: preview.preview_id.clone(),
+                    item_revision: "stale".to_string(),
+                    arena_revision: preview.arena_revision.clone(),
+                    source: ArenaSelectionSource::Arena,
+                    model_id: None,
+                    interval_days: None,
+                    decision_time_ms: 1,
+                }),
+                "stale",
+            ),
+        ] {
+            let mut item = LearningItem::new(ItemType::Flashcard, label.to_string());
+            item.algorithm_type = "sm20".to_string();
+            repo.create_learning_item(&item).await.expect("validation item");
+            let item = repo
+                .get_learning_item_by_id(&item.id)
+                .await
+                .expect("validation item read")
+                .expect("validation item");
+            let preview = preview_item_arena(&repo, &item).await;
+            let selection = mutate_selection(&preview);
+            let result = apply_review(
+                &repo,
+                &item.id,
+                3,
+                5,
+                None,
+                DEFAULT_DESIRED_RETENTION,
+                None,
+                false,
+                Some("sm20"),
+                Some(4),
+                false,
+                Some(&selection),
+            )
+            .await;
+            match expected_error {
+                "interval" => assert!(matches!(result, Err(IncrementumError::ArenaInvalidInterval(_)))),
+                _ => assert!(matches!(result, Err(IncrementumError::ArenaPreviewStale(_)))),
+            }
+            assert_eq!(
+                repo.get_learning_item_by_id(&item.id)
+                    .await
+                    .expect("validation item after failure")
+                    .expect("validation item")
+                    .review_count,
+                0,
+            );
+        }
     }
 
     /// An imported .apkg card lands with a zeroed FSRS memory_state

@@ -37,7 +37,13 @@ export function ReviewTab() {
 
   useEffect(() => {
     return () => {
-      resetSession();
+      // Responsive shell changes can remount the active tab at the desktop /
+      // mobile boundary. A pending Arena grade is deliberately transactional,
+      // so preserve it across that remount instead of silently discarding the
+      // user's recall decision. Explicit exits still go through handleExit.
+      if (!useReviewStore.getState().pendingArenaReview) {
+        resetSession();
+      }
     };
   }, [resetSession]);
 

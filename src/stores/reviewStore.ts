@@ -10,6 +10,11 @@ import {
   ReviewRating,
   PreviewIntervals,
   ReviewStreak,
+  ArenaSelection,
+  ArenaSelectionSource,
+  SM20ArenaModelId,
+  ArenaReviewProvenance,
+  SM20ArenaGradePreview,
 } from "../api/review";
 import { getLearningItems } from "../api/learning-items";
 import { useCollectionStore } from "./collectionStore";
@@ -18,6 +23,7 @@ import { useStudyDeckStore } from "./studyDeckStore";
 import { getUser } from "../lib/sync-client";
 import { resolveFsrsParamsForScope } from "../utils/fsrsScope";
 import { filterByDecks } from "../utils/studyDecks";
+import { featureFlags } from "../lib/featureFlags";
 
 interface StoredReviewSession {
   reviewedIds: string[];
@@ -57,12 +63,41 @@ const clearStoredSession = () => {
 // (documents) are reviewed in the Queue / Optimal Queue tab, never here.
 export type ReviewSessionItem = LearningItem;
 
+export type ReviewPhase =
+  | "question"
+  | "answer"
+  | "arena-loading"
+  | "arena-ready"
+  | "arena-committing"
+  | "arena-error";
+
+export interface ArenaSelectionDraft {
+  source: ArenaSelectionSource;
+  modelId?: SM20ArenaModelId;
+  intervalDays?: number;
+}
+
+export interface PendingArenaReview {
+  itemId: string;
+  rating: ReviewRating;
+  grade: number;
+  commitId: string;
+  gradedAt: number;
+  recallTimeTaken: number;
+  selection: ArenaSelectionDraft;
+  preview?: SM20ArenaGradePreview;
+  error?: string;
+}
+
 interface ReviewState {
   // Data
   queue: ReviewSessionItem[];
   currentIndex: number;
   currentCard: ReviewSessionItem | null;
   previewIntervals: PreviewIntervals | null;
+  reviewPhase: ReviewPhase;
+  pendingArenaReview: PendingArenaReview | null;
+  arenaPreviewError: string | null;
 
   // UI State
   isLoading: boolean;
@@ -116,7 +151,12 @@ interface ReviewState {
   hideAnswer: () => void;
   /** Submit a review. `grade` is the native SM-20 grade (0-5) when the native
    * grading scale is active; the rating is still passed for stats/history. */
-  submitRating: (rating: ReviewRating, grade?: number) => Promise<void>;
+  submitRating: (rating: ReviewRating, grade?: number, arenaSelection?: ArenaSelection) => Promise<void>;
+  selectArenaChoice: (selection: ArenaSelectionDraft) => void;
+  confirmArenaSelection: () => Promise<void>;
+  cancelArenaDecision: () => void;
+  retryArenaPreview: () => Promise<void>;
+  scheduleArenaAutomatically: () => Promise<void>;
   loadPreviewIntervals: () => Promise<void>;
   nextCard: () => void;
   goToIndex: (index: number) => void;
@@ -156,10 +196,27 @@ type ReviewUndoSnapshot = {
     state: string;
     memoryState?: { stability: number; difficulty: number } | null;
     difficulty: number;
+    algorithmType?: string;
+    algorithmState?: string;
+    arenaCommitId?: string;
   };
 };
 
 let lastUndoSnapshot: ReviewUndoSnapshot | null = null;
+
+const ratingToSm20Grade = (rating: ReviewRating): number => {
+  if (rating === 1) return 0;
+  if (rating === 2) return 3;
+  if (rating === 3) return 4;
+  return 5;
+};
+
+const newArenaCommitId = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `arena-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
 
 export const useReviewStore = create<ReviewState>((set, get) => ({
   // Initial State
@@ -167,6 +224,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   currentIndex: 0,
   currentCard: null,
   previewIntervals: null,
+  reviewPhase: "question",
+  pendingArenaReview: null,
+  arenaPreviewError: null,
   isLoading: false,
   isAnswerShown: false,
   isSubmitting: false,
@@ -238,6 +298,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         averageTimePerCard: 0,
         isAnswerShown: false,
         previewIntervals: null,
+        reviewPhase: "question",
+        pendingArenaReview: null,
+        arenaPreviewError: null,
         canUndoLastReview: false,
         lastUndoError: null,
       });
@@ -278,118 +341,109 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   },
 
   showAnswer: () => {
-    set({ isAnswerShown: true });
+    set({ isAnswerShown: true, reviewPhase: "answer" });
   },
 
   hideAnswer: () => {
-    set({ isAnswerShown: false });
+    set({ isAnswerShown: false, reviewPhase: "question" });
   },
 
-  submitRating: async (rating: ReviewRating, grade?: number) => {
-    const {
-      currentCard,
-      reviewsCompleted,
-      correctCount,
-      sessionStartTime,
-      sessionId,
-      reviewMode,
-    } = get();
+  submitRating: async (rating: ReviewRating, grade?: number, arenaSelection?: ArenaSelection) => {
+    const state = get();
+    const { currentCard, reviewMode } = state;
     if (!currentCard) return;
 
-    const timeTaken = Math.floor((Date.now() - sessionStartTime) / 1000); // seconds since session start
-    const pendingReviewMetadata = get().pendingReviewMetadata;
-    set({ isSubmitting: true, error: null });
+    const settings = useSettingsStore.getState().settings;
+    const arenaEligible =
+      featureFlags.reviewAlgorithmArena &&
+      reviewMode === "normal" &&
+      settings.learning.algorithm === "sm20" &&
+      !settings.learning.sm20PureM4;
+    const effectiveGrade = Math.max(0, Math.min(5, grade ?? ratingToSm20Grade(rating)));
+    const arenaReviewMode = settings.learning.sm20ArenaReviewMode ?? "automatic";
 
-    // Optimistically advance to keep the review flow moving.
-    // With a native grade, pass = grade >= 3 (SM 0-5 scale).
+    // Automatic is still an Arena review: commit the authoritative weighted
+    // pick (and provenance) immediately. The fallback token deliberately asks
+    // the backend to recompute from current collection state, so a background
+    // sync cannot turn the zero-friction path into a stale-preview interruption.
+    if (arenaEligible && arenaReviewMode === "automatic" && !arenaSelection) {
+      arenaSelection = {
+        commit_id: newArenaCommitId(),
+        preview_id: "automatic-fallback",
+        item_revision: "",
+        arena_revision: "",
+        source: "arena",
+        decision_time_ms: 0,
+      };
+    }
+
+    // Grading is intentionally non-mutating for Arena reviews. The same card,
+    // answer, and queue remain on screen until an interval is confirmed.
+    if (arenaEligible && arenaReviewMode === "choose" && !arenaSelection) {
+      const hasGradePreview = Boolean(state.previewIntervals?.arena?.grades[effectiveGrade]);
+      set({
+        pendingArenaReview: {
+          itemId: currentCard.id,
+          rating,
+          grade: effectiveGrade,
+          commitId: newArenaCommitId(),
+          gradedAt: Date.now(),
+          recallTimeTaken: Math.floor((Date.now() - state.sessionStartTime) / 1000),
+          selection: { source: "arena" },
+          preview: state.previewIntervals?.arena?.grades[effectiveGrade],
+        },
+        reviewPhase: hasGradePreview ? "arena-ready" : "arena-loading",
+        arenaPreviewError: null,
+        isSubmitting: false,
+        error: null,
+      });
+      if (!hasGradePreview) void get().loadPreviewIntervals();
+      return;
+    }
+
+    const pending = state.pendingArenaReview;
+    const timeTaken = pending?.recallTimeTaken
+      ?? Math.floor((Date.now() - state.sessionStartTime) / 1000);
+    const pendingReviewMetadata = state.pendingReviewMetadata;
     const wasCorrect = grade != null ? grade >= 3 : rating >= 3;
-    const newCorrectCount = wasCorrect ? correctCount + 1 : correctCount;
-    const newReviewsCompleted = reviewsCompleted + 1;
-    const newAverageTime = (reviewsCompleted * (get().averageTimePerCard || 0) + timeTaken) / (reviewsCompleted + 1);
-      const { queue, currentIndex } = get();
     const learningCard = currentCard as LearningItem;
-    const buryExtractId = learningCard.extract_id;
-    const remainingQueue = queue.filter((item) => {
-      if (item.id === currentCard.id) return false;
-      if (!buryExtractId) return true;
-      return (item as LearningItem).extract_id !== buryExtractId;
-    });
     const storedSession = loadStoredSession();
     const reviewedIdsBefore = [...(storedSession?.reviewedIds ?? [])];
-    const reviewedIds = new Set(reviewedIdsBefore);
-    reviewedIds.add(currentCard.id);
-
     const snapshot: ReviewUndoSnapshot = {
-      queue,
-      currentIndex,
+      queue: state.queue,
+      currentIndex: state.currentIndex,
       currentCard,
-      isAnswerShown: get().isAnswerShown,
-      reviewsCompleted,
-      correctCount,
-      averageTimePerCard: get().averageTimePerCard,
-      sessionStartTime,
+      isAnswerShown: state.isAnswerShown,
+      reviewsCompleted: state.reviewsCompleted,
+      correctCount: state.correctCount,
+      averageTimePerCard: state.averageTimePerCard,
+      sessionStartTime: state.sessionStartTime,
       reviewedIdsBefore,
+      learningItemState: {
+        itemId: learningCard.id,
+        dueDate: learningCard.due_date,
+        interval: learningCard.interval,
+        easeFactor: learningCard.ease_factor,
+        lastReviewDate: learningCard.last_review_date,
+        reviewCount: learningCard.review_count,
+        lapses: learningCard.lapses,
+        state: learningCard.state,
+        memoryState: learningCard.memory_state ?? null,
+        difficulty: learningCard.difficulty,
+        algorithmType: learningCard.algorithm_type,
+        algorithmState: learningCard.algorithm_state,
+        arenaCommitId: arenaSelection?.commit_id,
+      },
     };
 
-    snapshot.learningItemState = {
-      itemId: learningCard.id,
-      dueDate: learningCard.due_date,
-      interval: learningCard.interval,
-      easeFactor: learningCard.ease_factor,
-      lastReviewDate: learningCard.last_review_date,
-      reviewCount: learningCard.review_count,
-      lapses: learningCard.lapses,
-      state: learningCard.state,
-      memoryState: learningCard.memory_state ?? null,
-      difficulty: learningCard.difficulty,
-    };
-
-    if (remainingQueue.length === 0) {
-      set({
-        queue: [],
-        currentCard: null,
-        currentIndex: 0,
-        isAnswerShown: false,
-        isSubmitting: false,
-        previewIntervals: null,
-        reviewsCompleted: newReviewsCompleted,
-        correctCount: newCorrectCount,
-        averageTimePerCard: newAverageTime,
-        sessionStartTime: Date.now(),
-        pendingReviewMetadata: null,
-      });
-      clearStoredSession();
-    } else {
-      const nextIndex = Math.min(currentIndex, remainingQueue.length - 1);
-      const nextItem = remainingQueue[nextIndex];
-      set({
-        queue: remainingQueue,
-        currentIndex: nextIndex,
-        currentCard: nextItem,
-        isAnswerShown: false,
-        isSubmitting: false,
-        previewIntervals: null,
-        reviewsCompleted: newReviewsCompleted,
-        correctCount: newCorrectCount,
-        averageTimePerCard: newAverageTime,
-        sessionStartTime: Date.now(),
-        pendingReviewMetadata: null,
-      });
-      saveStoredSession({
-        reviewedIds: Array.from(reviewedIds),
-        sessionId,
-        updatedAt: Date.now(),
-      });
-
-      setTimeout(() => {
-        get().loadPreviewIntervals();
-      }, 100);
-    }
+    set({
+      isSubmitting: true,
+      reviewPhase: arenaSelection ? "arena-committing" : state.reviewPhase,
+      error: null,
+    });
 
     try {
       if (reviewMode === "normal") {
-        const learningCard = currentCard as LearningItem;
-        const settings = useSettingsStore.getState().settings;
         const studyDeckState = useStudyDeckStore.getState();
         const activeDeckId = studyDeckState.activeDeckIds[0] ?? null;
         const fsrsParams = resolveFsrsParamsForScope({
@@ -397,22 +451,83 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
           activeDeckId,
           tags: learningCard.tags ?? [],
         });
-        await submitReview(currentCard.id, rating, timeTaken, sessionId, {
+        let arenaProvenance: ArenaReviewProvenance | undefined;
+        if (arenaSelection && state.previewIntervals?.arena) {
+          const arena = state.previewIntervals.arena;
+          const gradePreview = arena.grades[effectiveGrade];
+          if (gradePreview) {
+            arenaProvenance = {
+              schedule_source: arenaSelection.source,
+              schedule_model_id: arenaSelection.model_id ?? null,
+              arena_commit_id: arenaSelection.commit_id,
+              arena_recommended_interval: gradePreview.recommendation.interval_days,
+              arena_decision_time_ms: arenaSelection.decision_time_ms,
+              arena_snapshot: JSON.stringify({
+                version: 1,
+                preview_schema_version: arena.schema_version,
+                preview_id: arena.preview_id,
+                item_revision: arena.item_revision,
+                arena_revision: arena.arena_revision,
+                grade: effectiveGrade,
+                model_order: arena.model_order,
+                recommendation: gradePreview.recommendation,
+                candidates: gradePreview.candidates,
+                custom_bounds: gradePreview.custom_bounds,
+                selection_source: arenaSelection.source,
+                selection_model_id: arenaSelection.model_id ?? null,
+              }),
+            };
+          }
+        }
+        await submitReview(currentCard.id, rating, timeTaken, state.sessionId, {
           desiredRetention: fsrsParams.desiredRetention,
           fsrsWeights: fsrsParams.personalizedWeights,
           algorithm: settings.learning.algorithm,
           noScheduleUpdate: false,
           grade,
           sm20PureM4: settings.learning.sm20PureM4,
+          arenaSelection,
+          arenaProvenance,
         });
       }
+
+      // Only now may visible session state advance.
+      const newReviewsCompleted = state.reviewsCompleted + 1;
+      const newCorrectCount = wasCorrect ? state.correctCount + 1 : state.correctCount;
+      const newAverageTime =
+        (state.reviewsCompleted * (state.averageTimePerCard || 0) + timeTaken)
+        / newReviewsCompleted;
+      const buryExtractId = learningCard.extract_id;
+      const remainingQueue = state.queue.filter((item) => {
+        if (item.id === currentCard.id) return false;
+        return !buryExtractId || item.extract_id !== buryExtractId;
+      });
+      const reviewedIds = new Set(reviewedIdsBefore);
+      reviewedIds.add(currentCard.id);
+      const nextIndex = remainingQueue.length > 0
+        ? Math.min(state.currentIndex, remainingQueue.length - 1)
+        : 0;
+
       lastUndoSnapshot = snapshot;
-      set((state) => ({
+      set((latest) => ({
+        queue: remainingQueue,
+        currentIndex: nextIndex,
+        currentCard: remainingQueue[nextIndex] ?? null,
+        isAnswerShown: false,
+        isSubmitting: false,
+        previewIntervals: null,
+        reviewsCompleted: newReviewsCompleted,
+        correctCount: newCorrectCount,
+        averageTimePerCard: newAverageTime,
+        sessionStartTime: Date.now(),
+        pendingReviewMetadata: null,
+        pendingArenaReview: null,
+        reviewPhase: "question",
+        arenaPreviewError: null,
         canUndoLastReview: true,
         lastUndoError: null,
-        pendingReviewMetadata: null,
         reviewEventLog: [
-          ...state.reviewEventLog,
+          ...latest.reviewEventLog,
           {
             itemId: currentCard.id,
             rating,
@@ -421,11 +536,103 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
           },
         ],
       }));
+
+      if (remainingQueue.length === 0) {
+        clearStoredSession();
+      } else {
+        saveStoredSession({
+          reviewedIds: Array.from(reviewedIds),
+          sessionId: state.sessionId,
+          updatedAt: Date.now(),
+        });
+        setTimeout(() => void get().loadPreviewIntervals(), 100);
+      }
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to submit review";
       set({
-        error: error instanceof Error ? error.message : "Failed to submit review",
+        error: message,
+        isSubmitting: false,
+        reviewPhase: arenaSelection ? "arena-error" : state.reviewPhase,
+        pendingArenaReview: arenaSelection && get().pendingArenaReview
+          ? { ...get().pendingArenaReview!, error: message }
+          : get().pendingArenaReview,
       });
+      if (arenaSelection && message.includes("arena_preview_stale")) {
+        void get().retryArenaPreview();
+      }
     }
+  },
+
+  selectArenaChoice: (selection) => {
+    const pending = get().pendingArenaReview;
+    if (!pending) return;
+    set({ pendingArenaReview: { ...pending, selection }, error: null });
+  },
+
+  confirmArenaSelection: async () => {
+    const { pendingArenaReview: pending, previewIntervals, currentCard } = get();
+    const arena = previewIntervals?.arena;
+    if (!pending || !arena || currentCard?.id !== pending.itemId) return;
+    const gradePreview = arena.grades[pending.grade];
+    if (!gradePreview) return;
+    if (pending.selection.source === "custom") {
+      const interval = pending.selection.intervalDays;
+      if (interval == null
+        || !Number.isFinite(interval)
+        || interval < gradePreview.custom_bounds.min_days
+        || interval > gradePreview.custom_bounds.max_days) {
+        set({
+          error: `Choose an interval between ${gradePreview.custom_bounds.min_days} and ${gradePreview.custom_bounds.max_days} days`,
+          pendingArenaReview: {
+            ...pending,
+            error: "Custom interval is outside the allowed range",
+          },
+        });
+        return;
+      }
+    }
+
+    const selection: ArenaSelection = {
+      commit_id: pending.commitId,
+      preview_id: arena.preview_id,
+      item_revision: arena.item_revision,
+      arena_revision: arena.arena_revision,
+      source: pending.selection.source,
+      model_id: pending.selection.modelId,
+      interval_days: pending.selection.source === "custom"
+        ? pending.selection.intervalDays
+        : undefined,
+      decision_time_ms: Math.max(0, Date.now() - pending.gradedAt),
+    };
+    await get().submitRating(pending.rating, pending.grade, selection);
+  },
+
+  cancelArenaDecision: () => {
+    set({
+      pendingArenaReview: null,
+      reviewPhase: "answer",
+      arenaPreviewError: null,
+      isSubmitting: false,
+      error: null,
+    });
+  },
+
+  retryArenaPreview: async () => {
+    set({ reviewPhase: "arena-loading", arenaPreviewError: null, error: null });
+    await get().loadPreviewIntervals();
+  },
+
+  scheduleArenaAutomatically: async () => {
+    const pending = get().pendingArenaReview;
+    if (!pending) return;
+    await get().submitRating(pending.rating, pending.grade, {
+      commit_id: pending.commitId,
+      preview_id: "automatic-fallback",
+      item_revision: "",
+      arena_revision: "",
+      source: "arena",
+      decision_time_ms: Math.max(0, Date.now() - pending.gradedAt),
+    });
   },
 
   loadPreviewIntervals: async () => {
@@ -439,14 +646,38 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         settings.learning.algorithm,
         settings.learning.sm20PureM4
       );
-      set({ previewIntervals: intervals });
+      const pending = get().pendingArenaReview;
+      set({
+        previewIntervals: intervals,
+        arenaPreviewError: null,
+        pendingArenaReview: pending
+          ? { ...pending, preview: intervals.arena?.grades[pending.grade], error: undefined }
+          : null,
+        reviewPhase: pending
+          ? (intervals.arena?.grades[pending.grade] ? "arena-ready" : "arena-error")
+          : get().reviewPhase,
+      });
     } catch (error) {
-      // Non-critical, just log but don't set error
       console.error("Failed to load preview intervals:", error);
+      if (get().pendingArenaReview) {
+        set({
+          reviewPhase: "arena-error",
+          arenaPreviewError: error instanceof Error
+            ? error.message
+            : "Could not load Algorithm Arena",
+          pendingArenaReview: get().pendingArenaReview
+            ? {
+                ...get().pendingArenaReview!,
+                error: error instanceof Error ? error.message : "Could not load Algorithm Arena",
+              }
+            : null,
+        });
+      }
     }
   },
 
   nextCard: () => {
+    if (get().pendingArenaReview) return;
     const { queue, currentIndex } = get();
     const nextIndex = currentIndex + 1;
 
@@ -457,6 +688,8 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         isAnswerShown: false,
         isSubmitting: false,
         previewIntervals: null,
+        reviewPhase: "question",
+        pendingArenaReview: null,
         sessionStartTime: Date.now(), // Reset for next card
       });
     } else {
@@ -467,6 +700,8 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         isAnswerShown: false,
         isSubmitting: false,
         previewIntervals: null,
+        reviewPhase: "question",
+        pendingArenaReview: null,
         sessionStartTime: Date.now(), // Reset for next card
       });
 
@@ -477,6 +712,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   },
 
   goToIndex: (index: number) => {
+    if (get().pendingArenaReview) return;
     const { queue } = get();
     if (queue.length === 0) {
       set({
@@ -485,6 +721,8 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         isAnswerShown: false,
         isSubmitting: false,
         previewIntervals: null,
+        reviewPhase: "question",
+        pendingArenaReview: null,
         sessionStartTime: Date.now(),
       });
       return;
@@ -498,6 +736,8 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       isAnswerShown: false,
       isSubmitting: false,
       previewIntervals: null,
+      reviewPhase: "question",
+      pendingArenaReview: null,
       sessionStartTime: Date.now(),
     });
 
@@ -513,6 +753,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       currentIndex: 0,
       currentCard: null,
       previewIntervals: null,
+      reviewPhase: "question",
+      pendingArenaReview: null,
+      arenaPreviewError: null,
       isAnswerShown: false,
       isSubmitting: false,
       error: null,
@@ -545,6 +788,8 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       isAnswerShown: false,
       isSubmitting: false,
       previewIntervals: null,
+      reviewPhase: "question",
+      pendingArenaReview: null,
       sessionStartTime: Date.now(),
     });
     setTimeout(() => {
@@ -575,6 +820,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         sessionStartTime: Date.now(),
         isSubmitting: false,
         previewIntervals: null,
+        reviewPhase: "question",
+        pendingArenaReview: null,
+        arenaPreviewError: null,
       });
     } catch (error) {
       set({ isLoading: false, error: error instanceof Error ? error.message : "Failed to load cards" });
@@ -617,6 +865,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
           state: snapshot.learningItemState.state,
           memoryState: snapshot.learningItemState.memoryState,
           difficulty: snapshot.learningItemState.difficulty,
+          algorithmType: snapshot.learningItemState.algorithmType,
+          algorithmState: snapshot.learningItemState.algorithmState,
+          arenaCommitId: snapshot.learningItemState.arenaCommitId,
         });
       }
 

@@ -23,6 +23,7 @@
 import { createReplicatedMap, type ReplicatedMap } from "../replicatedMap";
 import { nowHLC, getDeviceId } from "../syncClock";
 import { invokeCommand } from "../../tauri";
+import type { ArenaReviewProvenance, ArenaSelection } from "../../../api/review";
 
 // --- wire types -------------------------------------------------------------
 // Normalized shapes for the wire. We don't import the multiple divergent
@@ -84,6 +85,12 @@ export interface SyncedReviewResult {
   timestamp: string;
   reviewed_at_ms: number;
   device_id: string;
+  schedule_source?: string | null;
+  schedule_model_id?: string | null;
+  arena_commit_id?: string | null;
+  arena_recommended_interval?: number | null;
+  arena_decision_time_ms?: number | null;
+  arena_snapshot?: string | null;
 }
 
 // --- singletons (lazily initialized) ---------------------------------------
@@ -356,7 +363,7 @@ export async function publishRecentlyModifiedCards(sinceHlc: string): Promise<vo
  * @param resultEase    resulting ease factor
  * @param sessionId     optional review session id
  */
-export async function publishReview(args: {
+export interface PublishReviewArgs {
   itemId: string;
   collectionId: string;
   rating: number;
@@ -365,12 +372,16 @@ export async function publishReview(args: {
   resultInterval: number;
   resultEase: number;
   sessionId?: string;
-}): Promise<void> {
-  const deviceId = await getDeviceId();
-  const reviewedAtMs = Date.now();
-  const id = await deterministicReviewId(args.itemId, reviewedAtMs, deviceId);
-  const review: SyncedReviewResult & { updatedAt: string } = {
-    id,
+  arena?: ArenaSelection;
+  arenaProvenance?: ArenaReviewProvenance;
+}
+
+function buildSyncedReviewPayload(
+  args: PublishReviewArgs,
+  identity: { id: string; deviceId: string; reviewedAtMs: number; updatedAt: string },
+): SyncedReviewResult & { updatedAt: string } {
+  return {
+    id: identity.id,
     collection_id: args.collectionId,
     session_id: args.sessionId ?? null,
     item_id: args.itemId,
@@ -379,11 +390,37 @@ export async function publishReview(args: {
     new_due_date: args.resultDueDate,
     new_interval: args.resultInterval,
     new_ease_factor: args.resultEase,
-    timestamp: new Date(reviewedAtMs).toISOString(),
-    reviewed_at_ms: reviewedAtMs,
-    device_id: deviceId,
-    updatedAt: nowHLC(),
+    timestamp: new Date(identity.reviewedAtMs).toISOString(),
+    reviewed_at_ms: identity.reviewedAtMs,
+    device_id: identity.deviceId,
+    schedule_source: args.arenaProvenance?.schedule_source
+      ?? args.arena?.source
+      ?? null,
+    schedule_model_id: args.arenaProvenance?.schedule_model_id
+      ?? args.arena?.model_id
+      ?? null,
+    arena_commit_id: args.arenaProvenance?.arena_commit_id
+      ?? args.arena?.commit_id
+      ?? null,
+    arena_recommended_interval: args.arenaProvenance?.arena_recommended_interval ?? null,
+    arena_decision_time_ms: args.arenaProvenance?.arena_decision_time_ms
+      ?? args.arena?.decision_time_ms
+      ?? null,
+    arena_snapshot: args.arenaProvenance?.arena_snapshot ?? null,
+    updatedAt: identity.updatedAt,
   };
+}
+
+export async function publishReview(args: PublishReviewArgs): Promise<void> {
+  const deviceId = await getDeviceId();
+  const reviewedAtMs = Date.now();
+  const id = await deterministicReviewId(args.itemId, reviewedAtMs, deviceId);
+  const review = buildSyncedReviewPayload(args, {
+    id,
+    deviceId,
+    reviewedAtMs,
+    updatedAt: nowHLC(),
+  });
   await getReviewsMap().publish(id, review);
 }
 
@@ -400,4 +437,5 @@ export const __flashcardsSyncTest = {
     reviewsMap = null;
   },
   deterministicReviewId,
+  buildSyncedReviewPayload,
 };
