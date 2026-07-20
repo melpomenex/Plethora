@@ -131,9 +131,11 @@ pub const LAPSE_CELLS: usize = LAPSE_R_DIM * LAPSE_STAGE_DIM * LAPSE_INTERVAL_DI
 // HELPERS
 // =============================================================================
 
+/// `FUN_0040c5d0` = Delphi Round = ties-to-even (name kept for parity with
+/// the Python reference's `round_half_up`, which also rounds ties to even).
 #[inline]
 fn round_half_up(x: f64) -> i64 {
-    x.round() as i64
+    x.round_ties_even() as i64
 }
 
 #[inline]

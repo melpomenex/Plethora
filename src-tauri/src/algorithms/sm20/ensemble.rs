@@ -30,11 +30,11 @@ const ADAPT_CLAMP_HI: f64 = 0.5; // DAT_00af44c0
 const ADAPT_TARGET_SUM: f64 = 100.0; // _DAT_00af4518
 // Per-weight clamps: (lo, hi) from af44d0..af4510
 const ADAPT_WEIGHT_CLAMPS: [(f64, f64); 5] = [
-    (0.1, 30.0),   // W1/PA2  (M1 legacy)
-    (2.0, 50.0),   // W2/PA15 (M2 classic)
-    (25.0, 99.9),  // W3/PA19 (M3 matrix)
-    (15.0, 95.0),  // W4/PA20 (M4 FSRS)
-    (0.1, 45.0),   // W5/PAF  (M5 analytic)
+    (0.1, 30.0),   // W1/PA2  (M1/SM-2 legacy)
+    (2.0, 50.0),   // W2/PA15 (M2/SM-15 classic)
+    (25.0, 99.9),  // W3/PA19 (M3/SM-19 matrix)
+    (15.0, 95.0),  // W4/PA20 (M4/SM-20 kernel)
+    (0.1, 45.0),   // W5/PAF  (M5/FSRS analytic)
 ];
 
 // Finalization — FUN_00cf5b50
@@ -63,6 +63,17 @@ const PL_JITTER: f64 = 0.2;
 const PL_LO: f64 = 1.0;
 const PL_HI: f64 = 11.0;
 
+// Minimum-growth guard — FUN_00cf4b90 [C][BIN]. Constants byte-extracted
+// 2026-07-20: DAT_00cf4cb0=-0.1, _DAT_00cf4cb8=1.7, DAT_00cf4cc0=1.1,
+// _DAT_00cf4cc8=0.5; the 0x46 (70) and 0x5b5 (1461) thresholds are code
+// immediates.
+const MG_USED_MAX: i32 = 1461;
+const MG_POW_USED_MAX: i32 = 70;
+const MG_POW_EXP: f64 = -0.1;
+const MG_POW_MULT: f64 = 1.7;
+const MG_FLOOR: f64 = 1.1;
+const MG_ROUND_ADD: f64 = 0.5;
+
 pub const DEFAULT_FI: u8 = 10;
 
 // =============================================================================
@@ -89,8 +100,10 @@ pub fn ensemble_stability_weighted(
     if total <= ENSEMBLE_THRESHOLD {
         return m3; // default = slot +0x7b (SM-19)
     }
-    let num = weights[0] * (m1.round() as i64 as f64)
-        + weights[1] * (m2.round() as i64 as f64)
+    // int32 store rounding = FUN_0040c5d0 = ties-to-even (no-op in the
+    // pipeline, where m1/m2 arrive integer-valued).
+    let num = weights[0] * (m1.round_ties_even() as i64 as f64)
+        + weights[1] * (m2.round_ties_even() as i64 as f64)
         + weights[2] * m3
         + weights[3] * m4
         + weights[4] * m5;
@@ -195,6 +208,39 @@ pub fn post_lapse(adjusted: f64, x: f64, rng: Option<&mut impl rand::Rng>) -> f6
     clamp(base, PL_LO, PL_HI)
 }
 
+/// `FUN_00cf4b90`: minimum interval-growth ratio for pass reviews. `[C][BIN]`
+///
+/// The finalizer calls this (`FUN_00cf5b50:53-62`) only when `item[+0xb7] > 1`
+/// — i.e. the current review's dispatch classified it as a **pass with at
+/// least one prior repetition**. Enforces `interval/used >= floor`:
+///
+/// ```text
+/// used < 70:    floor = max(1.7 * used^-0.1, 1.1)
+/// used < 1461:  floor = 1.1
+/// used >= 1461: no guard
+/// ```
+///
+/// On violation: `interval = Round(used * floor + 0.5)` (Delphi Round),
+/// re-clamped to `INT_HI` by the caller.
+pub fn min_growth_guard(interval: i32, used_interval: i32) -> i32 {
+    let used = used_interval.max(1); // FUN_00cf5b50:54 floors +0x2a at 1
+    if used >= MG_USED_MAX {
+        return interval;
+    }
+    let mut floor_ratio = MG_FLOOR;
+    if used < MG_POW_USED_MAX {
+        floor_ratio = delphi_pow(used as f64, MG_POW_EXP) * MG_POW_MULT;
+    }
+    if floor_ratio < MG_FLOOR {
+        floor_ratio = MG_FLOOR;
+    }
+    if (interval as f64) / (used as f64) < floor_ratio {
+        let bumped = delphi_round(used as f64 * floor_ratio + MG_ROUND_ADD) as i32;
+        return bumped.min(INT_HI); // caller re-clamp (FUN_00cf5b50:60)
+    }
+    interval
+}
+
 /// Result of the finalization pipeline.
 #[derive(Debug, Clone)]
 pub struct FinalizeResult {
@@ -204,6 +250,14 @@ pub struct FinalizeResult {
 }
 
 /// `FUN_00cf5b50`: ensemble stability → integer due-date interval. `[C][BIN]`
+///
+/// `post_lapse_mode` is the binary trigger `item[+0xb9]!=0 && item[+0xb7]==1`
+/// — with the markers written by the *same* review's dispatch this means
+/// "the current review is a lapse on an item with a prior repetition".
+/// `post_lapse_x` is the element priority percent (`item[+0x16]`).
+/// `min_growth` mirrors `item[+0xb7] > 1` (a pass with a prior repetition)
+/// and applies [`min_growth_guard`] with `used_interval` (`item[+0x2a]`).
+#[allow(clippy::too_many_arguments)]
 pub fn finalize(
     ensemble_val: f64,
     fi: u8,
@@ -211,6 +265,8 @@ pub fn finalize(
     post_lapse_x: f64,
     disperse: bool,
     rng: Option<&mut impl rand::Rng>,
+    used_interval: i32,
+    min_growth: bool,
 ) -> FinalizeResult {
     let adjusted = retention_factor(fi) * ensemble_val;
 
@@ -226,11 +282,43 @@ pub fn finalize(
     };
 
     let raw = clamp(raw, CLAMP_LO, CLAMP_HI);
-    let interval = (delphi_round(raw) as i32).clamp(INT_LO, INT_HI);
+    let mut interval = (delphi_round(raw) as i32).clamp(INT_LO, INT_HI);
+    if min_growth {
+        interval = min_growth_guard(interval, used_interval);
+    }
 
     FinalizeResult {
         adjusted,
         raw,
         interval,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `FUN_0040c5d0` decompiles to `(longlong)ROUND(x)` — ties-to-even.
+    #[test]
+    fn delphi_round_ties_to_even() {
+        assert_eq!(delphi_round(12.5), 12);
+        assert_eq!(delphi_round(13.5), 14);
+        assert_eq!(delphi_round(12.4), 12);
+        assert_eq!(delphi_round(-0.5), 0);
+    }
+
+    /// `FUN_00cf4b90` with byte-extracted constants (2026-07-20):
+    /// floor = max(1.7·used^-0.1, 1.1) for used < 70, flat 1.1 for
+    /// used < 1461, unguarded beyond.
+    #[test]
+    fn min_growth_guard_matches_cf4b90() {
+        let expected10 = delphi_round(10.0 * delphi_pow(10.0, -0.1) * 1.7 + 0.5) as i32;
+        assert_eq!(min_growth_guard(10, 10), expected10);
+        // Ratio already above the floor: unchanged.
+        assert_eq!(min_growth_guard(20, 10), 20);
+        // 70 <= used < 1461: flat 1.1 floor.
+        assert_eq!(min_growth_guard(100, 100), delphi_round(100.0 * 1.1 + 0.5) as i32);
+        // used >= 1461: no guard.
+        assert_eq!(min_growth_guard(1461, 1461), 1461);
     }
 }

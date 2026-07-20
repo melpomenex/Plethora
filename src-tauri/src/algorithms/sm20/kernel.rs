@@ -71,8 +71,11 @@ const DAT_ONE_SHIFT: f64 = 1.0;
 const DAT_DECAY: f64 = 0.10536051565782628; // = ln(10/9) = -ln(0.9)
 
 // Derived constants
+#[allow(dead_code)]
 const LN_2: f64 = 0.6931471805599453; // ln(2)
-const LOG2_09: f64 = -0.15200309344505; // ln(0.9)/ln(2)
+/// ln(0.9)/ln(2), as the f64 the binary computes at runtime (the previous
+/// literal `-0.15200309344505` parsed to the neighboring f64, 1 ulp off).
+const LOG2_09: f64 = -0.15200309344504997;
 
 // =============================================================================
 // EXPERT FUNCTIONS

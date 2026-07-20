@@ -1,4 +1,4 @@
-//! Model 1 — legacy SM-15 scheduler (6% ensemble weight).
+//! Model 1 — legacy SM-2 scheduler (6% ensemble weight).
 //!
 //! `FUN_00d43e00`. A deterministic legacy multiplier with two history fields.
 //! Live-validated: 40/40 vectors match exactly.
@@ -128,8 +128,10 @@ pub fn model_1(item: &M1ItemState, today: i32, grade: i32, history: Option<&M1Hi
     } else if repetitions == 2 {
         used.max(6)
     } else {
+        // Rounded via FUN_0040c5d0 = Delphi Round = ties-to-even (e.g.
+        // used=5 × factor=2.5 → 12.5 → 12, not 13).
         let base = (used as f64).max(used as f64 * factor);
-        base.round() as i32
+        base.round_ties_even() as i32
     };
 
     let adjusted_factor = adjust_factor_for_grade(factor, grade);
@@ -192,5 +194,17 @@ mod tests {
         let item = M1ItemState { last_review_day: 100, previous_interval: 5, repetitions: 3, lapses: 0 };
         // today=98 -> raw = 98-100 = -2 < -1 -> panic
         model_1(&item, 98, 4, None);
+    }
+
+    /// `FUN_0040c5d0` (Delphi Round) rounds ties to even: used=5 × factor=2.5
+    /// = 12.5 must give 12, not 13. Confirmed against the Python reference
+    /// (banker's `round()`); the old `.round()` (ties away from zero) gave 13.
+    #[test]
+    fn interval_rounds_ties_to_even() {
+        let item = M1ItemState { last_review_day: 0, previous_interval: 5, repetitions: 3, lapses: 0 };
+        let history = M1HistoryPoint { factor: 2.5, stability: 5.0 };
+        let r = model_1(&item, 5, 5, Some(&history));
+        assert_eq!(r.used_interval, 5);
+        assert_eq!(r.interval, 12, "12.5 rounds to even (12), matching the binary");
     }
 }

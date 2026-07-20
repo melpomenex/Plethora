@@ -873,6 +873,10 @@ async fn apply_sm20_review(
         true,    // disperse — stochastic day-spread (production behavior)
         &mut rng,
         sm20_pure_m4,
+        // post_lapse_x = element priority percent (binary item[+0x16]).
+        // Learning items have no priority concept yet; 0 = top priority
+        // keeps the short post-lapse interval.
+        0.0,
     );
 
     // Persist collection-wide state (M2 optimizer + M3 matrices + Arena).
@@ -1038,6 +1042,10 @@ pub async fn preview_review_intervals(
             &state, elapsed_days, crate::algorithms::sm20::DEFAULT_FI,
             &collection, today, &mut rng,
             sm20_pure_m4.unwrap_or(false),
+            // post_lapse_x = element priority percent (binary item[+0x16]).
+            // Learning items have no priority concept yet; 0 = top priority
+            // keeps the short post-lapse interval.
+            0.0,
         );
 
         return Ok(PreviewIntervals {

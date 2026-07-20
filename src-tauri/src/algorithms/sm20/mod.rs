@@ -9,9 +9,17 @@
 //! ```text
 //! blend    = (w₁·SM2 + w₂·SM15 + w₃·SM19 + w₄·SM20 + w₅·FSRS) / Σw
 //! adjusted = ln(1 - FI/100) / ln(0.9) · blend
-//! interval = clamp(round(clamp(adjusted, 0.7, 44530)), 1, 44530)
+//! raw      = dispersal(adjusted)              (normal path,    cf5100)
+//!          | post_lapse(adjusted, priority%)  (lapse w/ prior rep, ce2fe0)
+//! interval = clamp(round(clamp(raw, 0.7, 44530)), 1, 44530)
+//! interval = min_growth_guard(interval, used) (pass w/ prior rep, cf4b90)
 //! defaults : w = [6, 14, 45, 25, 10]
 //! ```
+//!
+//! The post-lapse/normal choice is made per review from THIS review's grade
+//! and the pre-review counters (`FUN_00ce7380` markers are same-pass
+//! scratch — see `review()`); post-lapse therefore shortens the lapsed
+//! review's own interval, never the following pass.
 //!
 //! All 5 competitors, the blend, retention adjustment, dispersal, post-lapse,
 //! finalization, and the runtime weight adaptation (`FUN_00af40d0`) are
@@ -353,14 +361,25 @@ fn fsrs_m5(
 /// 3. Computes M2 (classic) using the collection optimizer (mutated if `commit`)
 /// 4. Computes M3 (matrix) using the collection matrices (mutated if `commit`)
 /// 5. Blends all 5 via the ensemble weighted average
-/// 6. Applies retention adjustment, dispersal/post-lapse, clamping
+/// 6. Applies retention adjustment, then dispersal — or, when THIS review is
+///    a lapse on an item with a prior repetition, the post-lapse curve
+///    (`FUN_00ce2fe0`; the markers are same-pass scratch, see below) — then
+///    clamping, and on passes with a prior repetition the minimum-growth
+///    guard (`FUN_00cf4b90`)
 /// 7. Writes back `previous_interval` for M1/M2/M3 state
+///
+/// `post_lapse_x` is the element's priority percent (0-100) — the binary's
+/// `item[+0x16]`, loaded from the priority queue (`FUN_00cb0400`). It only
+/// affects the post-lapse curve: 0 (top priority) keeps the short adjusted
+/// interval, 100 pulls it toward the 9-day target. Pass 0.0 when the host
+/// has no priority concept.
 ///
 /// For `preview()` (showing the user what each button will give), use
 /// `commit=false` — this runs all models in scratch mode without mutating
 /// collection state. When `disperse` is false the result is fully
 /// deterministic: the rng is withheld from finalization so neither dispersal
 /// nor the post-lapse jitter fires (previews must not re-roll on every fetch).
+#[allow(clippy::too_many_arguments)]
 pub fn review(
     state: &SM20State,
     grade: i32,
@@ -372,6 +391,7 @@ pub fn review(
     disperse: bool,
     rng: &mut impl rand::Rng,
     pure_m4: bool,
+    post_lapse_x: f64,
 ) -> SM20ReviewResult {
     let grade = grade.clamp(0, 5);
     let t = elapsed_days;
@@ -414,7 +434,7 @@ pub fn review(
     );
     let m2 = m2_review.stability as f64;
 
-    // --- M3: SM-15 raw matrix scheduler (45%) ---
+    // --- M3: SM-19 raw matrix scheduler (45%) ---
     let m3_review = model_3_stateful(
         &state.m3_state,
         &mut collection.m3_matrices,
@@ -432,14 +452,36 @@ pub fn review(
         ensemble_stability_weighted(&collection.arena.weights, m1, m2, m3, m4, m5)
     };
 
-    // --- Determine post-lapse mode (FUN_00cf5b50:28) ---
-    // The binary takes the post-lapse path (FUN_00ce2fe0) when
-    // item[+0xb9] (lapse_ordinal) != 0 AND item[+0xb7]
-    // (post_lapse_family) == 1. These are written by interval_dispatch
-    // (FUN_00ce7380): +0xb7==1 marks the post-lapse branch (a subsequent
-    // post-lapse re-review, not the first repetition), and +0xb9 is 0 only
-    // on the very first repetition of an item.
-    let post_lapse_mode = state.lapse_ordinal != 0 && state.post_lapse_family == 1;
+    // --- Scheduling-family markers (FUN_00ce7380, decoded 2026-07-20) ---
+    // The binary rewrites item[+0xb7]/[+0xb9] on EVERY review — from the
+    // current grade and the PRE-review repetition/lapse counters — before
+    // computing the M4 slot, and the finalizer (FUN_00cf5b50:28) reads them
+    // later in the SAME pass (the record builder FUN_00d88ef0 never
+    // initializes them, so a cross-review read would see garbage). They are
+    // per-review scratch, NOT cross-review state:
+    //   lapse: family = 1, ordinal = 0 if pre_reps == 0 else pre_lapses + 1
+    //   pass:  family = pre_reps + 1, ordinal = pre_lapses
+    // Post-lapse trigger: ordinal != 0 && family == 1 — i.e. THIS review is
+    // a lapse on an item with a prior repetition; the curve applies to the
+    // lapsed review's own interval. The min-growth guard (FUN_00cf4b90 via
+    // FUN_00cf5b50:53) fires when family > 1 — a pass with a prior
+    // repetition. Pre-review counters = the binary's item[+0x22]/[+0x24];
+    // m3_state tracks exactly those semantics (as does m1_state).
+    let pre_reps = state.m3_state.repetitions;
+    let pre_lapses = state.m3_state.lapses;
+    let (post_lapse_family, lapse_ordinal) = if grade < 3 {
+        (
+            1u32,
+            if pre_reps == 0 {
+                0
+            } else {
+                pre_lapses.saturating_add(1).min(65535)
+            },
+        )
+    } else {
+        (pre_reps.saturating_add(1).min(65535), pre_lapses.min(65535))
+    };
+    let post_lapse_mode = lapse_ordinal != 0 && post_lapse_family == 1;
 
     // --- Finalize ---
     // Only hand the rng to finalization on the stochastic (committed) path.
@@ -449,9 +491,11 @@ pub fn review(
         ensemble_val,
         fi,
         post_lapse_mode,
-        0.0,
+        post_lapse_x,
         disperse,
         if disperse { Some(rng) } else { None },
+        m1_review.used_interval,
+        post_lapse_family > 1,
     );
 
     // --- Algorithm Arena: score the five competitors on this outcome ---
@@ -491,26 +535,9 @@ pub fn review(
     } else {
         0
     };
-    // Post-lapse scheduling markers (FUN_00ce7380 writes item[+0xb7]/[+0xb9]).
-    // +0xb7 (post_lapse_family) == 1 marks the post-lapse branch; other values
-    // are repetition_count+1. +0xb9 (lapse_ordinal) is 0 only on the very first
-    // repetition. The post-lapse path fires on a lapse (grade<3) that is NOT the
-    // item's first repetition; otherwise the normal dispersal branch runs.
-    let (post_lapse_family, lapse_ordinal) = if grade < 3 && state.repetition != 0 {
-        (1, state.repetition.saturating_add(1).min(65535))
-    } else {
-        let family = if new_repetition > 0 {
-            (new_repetition + 1).min(65535)
-        } else {
-            0
-        };
-        let ordinal = if state.repetition == 0 {
-            0
-        } else {
-            state.repetition.saturating_add(1).min(65535)
-        };
-        (family, ordinal)
-    };
+    // The dispatch markers computed above are persisted (the binary keeps
+    // them in the item record) but are never read back for scheduling — the
+    // next review recomputes them from its own grade + pre-review counters.
     let new_state = SM20State {
         stability: m4_result.s_new,
         difficulty: m4_result.d_new,
@@ -551,6 +578,7 @@ pub fn review(
 /// Preview intervals for each rating button (deterministic — no dispersal).
 ///
 /// Runs the full ensemble in scratch mode (`commit=false`) for each rating.
+/// `post_lapse_x` = element priority percent (see [`review`]).
 pub fn preview(
     state: &SM20State,
     elapsed_days: f64,
@@ -559,8 +587,10 @@ pub fn preview(
     today: i32,
     rng: &mut impl rand::Rng,
     pure_m4: bool,
+    post_lapse_x: f64,
 ) -> SM20PreviewIntervals {
-    let grades = preview_grades(state, elapsed_days, fi, collection, today, rng, pure_m4);
+    let grades =
+        preview_grades(state, elapsed_days, fi, collection, today, rng, pure_m4, post_lapse_x);
     SM20PreviewIntervals {
         again: grades[rating_to_grade(1) as usize],
         hard: grades[rating_to_grade(2) as usize],
@@ -573,6 +603,7 @@ pub fn preview(
 ///
 /// Returns `[interval_for_grade_0, ..., interval_for_grade_5]` in days. Runs
 /// the full ensemble in scratch mode (`commit=false`) for each grade.
+#[allow(clippy::too_many_arguments)]
 pub fn preview_grades(
     state: &SM20State,
     elapsed_days: f64,
@@ -581,6 +612,7 @@ pub fn preview_grades(
     today: i32,
     rng: &mut impl rand::Rng,
     pure_m4: bool,
+    post_lapse_x: f64,
 ) -> [f64; 6] {
     // Clone collection state so we don't mutate it during preview
     let mut coll = SM20CollectionState {
@@ -593,9 +625,20 @@ pub fn preview_grades(
 
     let mut out = [0.0f64; 6];
     for grade in 0..6 {
-        out[grade as usize] =
-            review(state, grade, elapsed_days, fi, &mut coll, today, false, false, rng, pure_m4)
-                .interval_days;
+        out[grade as usize] = review(
+            state,
+            grade,
+            elapsed_days,
+            fi,
+            &mut coll,
+            today,
+            false,
+            false,
+            rng,
+            pure_m4,
+            post_lapse_x,
+        )
+        .interval_days;
     }
     out
 }
@@ -620,58 +663,147 @@ mod tests {
         StdRng::seed_from_u64(0)
     }
 
-    /// The post-lapse path (FUN_00ce2fe0) fires only on a lapse that is NOT
-    /// the item's first repetition. The binary trigger (FUN_00cf5b50:28) is
-    /// `item[+0xb9] (lapse_ordinal) != 0 AND item[+0xb7]
-    /// (post_lapse_family) == 1`. The prior Rust code used the inverted
-    /// heuristic `grade < 3 && repetition == 0` (first-repetition lapses),
-    /// which is essentially backwards. Verified against the Python canonical
-    /// package (sm20/pipeline.py:287-328).
-    #[test]
-    fn post_lapse_fires_on_subsequent_lapse_not_first_repetition() {
-        let mut coll = SM20CollectionState::default();
-
-        // First review of a fresh item (repetition=0), grade=1 (lapse).
-        // This is the item's FIRST repetition -> NOT post-lapse, even though
-        // it's a lapse. post_lapse_family should be set, but lapse_ordinal
-        // stays 0 (the binary: +0xb9 is 0 only on the very first repetition).
-        let fresh = SM20State::default();
-        let r1 = review(&fresh, 1, 0.0, 10, &mut coll, 0, true, false, &mut rng(), false);
-        // After a first-repetition lapse: ordinal stays 0, so trigger is false.
-        assert_eq!(
-            r1.state.post_lapse_family, 0,
-            "first-repetition lapse: family should be 0 (repetition was 0)"
-        );
-        assert_eq!(
-            r1.state.lapse_ordinal, 0,
-            "first-repetition lapse: ordinal should be 0"
-        );
-
-        // Now take an established item (repetition=3, so prior reviews exist)
-        // and lapse it. This is a SUBSEQUENT lapse -> post-lapse markers set.
-        let established = SM20State {
+    fn established_item() -> SM20State {
+        SM20State {
             stability: 30.0,
             difficulty: 0.4,
             repetition: 3,
             lapses: 0,
             interval: 30.0,
+            m1_state: model1::M1ItemState {
+                last_review_day: 0,
+                previous_interval: 30,
+                repetitions: 3,
+                lapses: 0,
+            },
+            m2_state: model2::M2ItemState {
+                last_review_day: 0,
+                previous_interval: 30,
+                repetitions: 3,
+                lapses: 0,
+                a_factor: 3.0,
+                u_factor: 1.0,
+            },
+            m3_state: model3::M3ItemState {
+                last_review_day: 0,
+                previous_interval: 30,
+                repetitions: 3,
+                lapses: 0,
+                stability: 30.0,
+                difficulty: 0.4,
+                ..Default::default()
+            },
             ..Default::default()
-        };
-        let r2 = review(&established, 1, 30.0, 10, &mut coll, 30, true, false, &mut rng(), false);
-        assert_eq!(
-            r2.state.post_lapse_family, 1,
-            "subsequent lapse: family must be 1 (post-lapse branch)"
-        );
-        assert_eq!(
-            r2.state.lapse_ordinal, 4,
-            "subsequent lapse: ordinal = prior repetition + 1"
-        );
+        }
+    }
 
-        // A recall (grade>=3) on an established item does NOT set post-lapse.
-        let r3 = review(&established, 4, 30.0, 10, &mut coll, 30, true, false, &mut rng(), false);
-        assert_ne!(
-            r3.state.post_lapse_family, 1,
-            "recall must not set the post-lapse branch"
+    /// Post-lapse timing + trigger, per the DECOMPILES (func_000000ce7380.c /
+    /// func_000000cf5b50.c — NOT the Python package, which encoded the wrong
+    /// deferred semantics until 2026-07-20): `FUN_00ce7380` rewrites
+    /// `item[+0xb7]/[+0xb9]` on EVERY review from the current grade and the
+    /// PRE-review counters, and `FUN_00cf5b50:28` reads them in the SAME
+    /// pass. So the post-lapse curve applies to the lapsed review's own
+    /// interval, and a first-review lapse (pre-reps == 0 → ordinal = 0)
+    /// stays on the normal path.
+    #[test]
+    fn post_lapse_applies_to_the_lapsed_review_itself() {
+        let mut coll = SM20CollectionState::default();
+
+        // Fresh item, first review is a lapse: pre-review reps == 0 →
+        // family = 1 but ordinal = 0 → NORMAL path. Markers stored exactly
+        // as the binary writes them: (1, 0).
+        let fresh = SM20State::default();
+        let r1 = review(&fresh, 1, 0.0, 10, &mut coll, 0, true, false, &mut rng(), false, 0.0);
+        assert_eq!(r1.state.post_lapse_family, 1, "lapse dispatch always writes family = 1");
+        assert_eq!(r1.state.lapse_ordinal, 0, "first-review lapse: ordinal = 0 (pre-reps 0)");
+
+        // Established item (pre-review m3 reps = 3), lapse: the post-lapse
+        // curve fires for THIS review → interval lands in [1, 11].
+        // Markers: family = 1, ordinal = pre-review lapses + 1 = 1.
+        let r2 = review(&established_item(), 1, 30.0, 10, &mut coll, 30, true, false, &mut rng(), false, 0.0);
+        assert!(
+            (1.0..=11.0).contains(&r2.interval_days),
+            "lapse on an established item must take the post-lapse path: {}",
+            r2.interval_days
+        );
+        assert_eq!(r2.state.post_lapse_family, 1);
+        assert_eq!(r2.state.lapse_ordinal, 1, "ordinal = pre-review lapses + 1");
+
+        // A pass on the established item: normal path (family = pre_reps+1,
+        // ordinal = pre_lapses) + the min-growth guard.
+        let r3 = review(&established_item(), 4, 30.0, 10, &mut coll, 30, true, false, &mut rng(), false, 0.0);
+        assert_eq!(r3.state.post_lapse_family, 4);
+        assert_eq!(r3.state.lapse_ordinal, 0);
+    }
+
+    /// The persisted markers are per-review scratch — two states differing
+    /// ONLY in the stored `+0xb7`/`+0xb9` values must schedule identically.
+    /// (The prior build read them across reviews and applied post-lapse one
+    /// review late, clamping the pass AFTER a lapse to ≤ 11 days — which
+    /// the binary never does.)
+    #[test]
+    fn persisted_markers_do_not_drive_scheduling() {
+        let mut coll = SM20CollectionState::default();
+        let base = established_item();
+        let armed = SM20State {
+            post_lapse_family: 1,
+            lapse_ordinal: 4,
+            ..base.clone()
+        };
+        let ra = review(&armed, 4, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
+        let rb = review(&base, 4, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
+        assert_eq!(ra.interval_days, rb.interval_days, "stored markers must not affect scheduling");
+    }
+
+    /// End-to-end differential pins against the Python reference package
+    /// (`sm20/pipeline.py`, generated 2026-07-20 after the same-review
+    /// post-lapse, min-growth, and arena-input fixes landed on both sides).
+    /// Deterministic: commit=false + disperse=false, and none of these
+    /// inputs reach M2's probabilistic tail-fix, so the rng is never drawn.
+    ///
+    /// Python values: established pass → 49; established lapse → 4;
+    /// fresh lapse → 2. The lapse pin here is 3, not 4, because the
+    /// reference's rng-less finalize still applies the deterministic
+    /// seed-0 Delphi-LCG jitter (~×1.53) on the post-lapse path, while this
+    /// port deliberately withholds jitter from previews (the un-jittered
+    /// curve value: adjusted 2.7956 → round → 3). Production commits pass
+    /// `disperse=true` with a live rng, so committed post-lapse intervals
+    /// jitter in both implementations.
+    #[test]
+    fn pipeline_matches_python_reference_end_to_end() {
+        // A: established pass (grade 4, elapsed 30) → 49 (exact match).
+        let mut coll = SM20CollectionState::default();
+        let a = review(&established_item(), 4, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
+        assert_eq!(a.interval_days, 49.0, "established pass must match the reference");
+
+        // B: established lapse (grade 1) → post-lapse path, no-jitter → 3.
+        let b = review(&established_item(), 1, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
+        assert_eq!(b.interval_days, 3.0, "established lapse (post-lapse curve, no preview jitter)");
+
+        // C: fresh-item lapse (grade 1, elapsed 0; top-level difficulty 0.5 =
+        // the reference's default) → normal path → 2 (exact match).
+        let fresh = SM20State { difficulty: 0.5, ..Default::default() };
+        let c = review(&fresh, 1, 0.0, 10, &mut coll, 0, false, false, &mut rng(), false, 0.0);
+        assert_eq!(c.interval_days, 2.0, "fresh lapse must match the reference");
+    }
+
+    /// The minimum-growth guard (`FUN_00cf4b90`) applies to passes with a
+    /// prior repetition: the final interval can never fall below
+    /// `round(used * floor + 0.5)` where floor = max(1.7·used^-0.1, 1.1)
+    /// for used < 70.
+    #[test]
+    fn pass_reviews_enforce_minimum_growth() {
+        let mut coll = SM20CollectionState::default();
+        // Reviewed 30 days after the last review: floor = 1.7 * 30^-0.1 ≈ 1.209,
+        // so the interval must be ≥ round(30 * 1.209 + 0.5) = 37.
+        let r = review(&established_item(), 4, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
+        let floor = 1.7 * (30f64).powf(-0.1);
+        let min_interval = (30.0 * floor + 0.5).round_ties_even();
+        assert!(
+            r.interval_days >= min_interval,
+            "pass interval {} must respect the min-growth floor {}",
+            r.interval_days,
+            min_interval
         );
     }
 }

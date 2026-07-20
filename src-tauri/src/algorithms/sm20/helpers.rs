@@ -68,8 +68,12 @@ pub fn sign_flip(value: f64) -> f64 {
     -value
 }
 
-/// Round half away from zero (Delphi `Round`). `FUN_0040c5d0`.
+/// Delphi `Round` = round half to even (banker's rounding). `FUN_0040c5d0`
+/// decompiles to `(longlong)ROUND(param_1)` — the SSE2 convert under the
+/// default MXCSR mode, i.e. ties-to-even. (An earlier build used
+/// `f64::round()`, which rounds ties away from zero: 12.5 → 13 instead of
+/// the binary's 12.)
 #[inline]
 pub fn delphi_round(v: f64) -> i64 {
-    v.round() as i64
+    v.round_ties_even() as i64
 }
