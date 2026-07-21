@@ -25,7 +25,7 @@ import { getClipboardWatcherEnabled, setClipboardWatcherEnabled } from "../commo
 import { importReferenceItems, parseMendeleyItems, parseZoteroItems } from "../../utils/referenceImport";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { KindleImportDialog } from "../import/KindleImportDialog";
+import { openKindleImportDialog } from "../../stores/kindleImportDialogStore";
 
 /**
  * Export options
@@ -447,6 +447,10 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
       filters: [{ name: "Kindle Clippings", extensions: ["txt"] }],
     });
     if (selected && selected.length > 0) {
+      // Route through the global dialog host so the dialog is mounted once at
+      // the app root and reachable from every entry point (drag & drop, paste,
+      // folder import) via the same store. The host owns the fallback button.
+      openKindleImportDialog(selected[0]);
       setKindleFilePath(selected[0]);
     }
   };
@@ -1024,13 +1028,6 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
           </div>
         </div>
       </SettingsSection>
-
-      {kindleFilePath && (
-        <KindleImportDialog
-          filePath={kindleFilePath}
-          onClose={() => setKindleFilePath(null)}
-        />
-      )}
     </>
   );
 }

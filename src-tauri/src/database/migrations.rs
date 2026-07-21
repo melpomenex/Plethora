@@ -2105,6 +2105,28 @@ pub const MIGRATIONS: &[Migration] = &[
             WHERE arena_commit_id IS NOT NULL;
         "#,
     ),
+    Migration::new(
+        "063_add_youtube_transcript_word_timings",
+        r#"
+        ALTER TABLE youtube_transcripts ADD COLUMN word_timings_version INTEGER NOT NULL DEFAULT 0;
+        "#,
+    ),
+    Migration::new(
+        "064_kindle_clippings_docs_are_markdown",
+        r#"
+        -- Kindle clippings documents are built from markdown content
+        -- (highlights as blockquotes, notes as bold-prefixed paragraphs) and
+        -- were historically stored with file_type = 'other'. That made the
+        -- viewer fall through to the "preview not available" wall whenever
+        -- the doc's `content` column was stripped (e.g. by the library list
+        -- endpoint) and labeled them "other" in every UI surface. Re-type
+        -- them as markdown so they preview correctly. They're identified by
+        -- the synthetic `kindle://<sha>` file_path assigned at import time.
+        UPDATE documents
+        SET file_type = 'markdown'
+        WHERE file_path LIKE 'kindle://%' AND file_type = 'other';
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

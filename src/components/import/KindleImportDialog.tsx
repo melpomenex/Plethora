@@ -14,6 +14,7 @@ import {
   Check,
   CircleNotch,
   Download,
+  DownloadSimple,
   Highlighter,
   Note,
   TextT,
@@ -38,12 +39,45 @@ interface KindleImportDialogProps {
   filePath: string | null;
   onClose: () => void;
   onImportComplete?: (result: KindleImportResult) => void;
+  /**
+   * Optional fallback hook: when validation rejects the file (it doesn't look
+   * like a Kindle clippings file), the dialog shows a "this isn't a Kindle
+   * file" message and, if this callback is provided, an "Import as plain
+   * text" button that hands the file back to the caller's generic import
+   * path. Used by the global dialog host for drag/drop, paste, etc.
+   */
+  onFallbackToGenericImport?: () => void;
+  /** Copy shown in the error state when the file fails validation. */
+  notKindleFileMessage?: string;
+  /** Label for the "Import as plain text" fallback button. */
+  importAsPlainTextLabel?: string;
+}
+
+/**
+ * Detects the common "this isn't actually a Kindle clippings file" error
+ * message coming from the Rust validator so we can offer the plain-text
+ * fallback button. The Rust parser raises `InvalidInput` with one of these
+ * substrings when the content sniff fails. Kept loose on purpose: we want a
+ * false-positive (offering the fallback when we didn't need to) to be
+ * harmless, while a false-negative strands the user.
+ */
+function looksLikeNotKindleFormat(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("does not appear to be a kindle clippings file") ||
+    lower.includes("no importable clippings") ||
+    lower.includes("no entries found") ||
+    lower.includes("unrecognized metadata format")
+  );
 }
 
 export function KindleImportDialog({
   filePath,
   onClose,
   onImportComplete,
+  onFallbackToGenericImport,
+  notKindleFileMessage,
+  importAsPlainTextLabel,
 }: KindleImportDialogProps) {
   const { t } = useI18n();
 
@@ -136,6 +170,7 @@ export function KindleImportDialog({
   }
 
   if (state === "error") {
+    const isNotKindleFormat = !!error && looksLikeNotKindleFormat(error);
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
         <div className="bg-card rounded-xl border border-border shadow-2xl p-6 max-w-md w-full mx-4 space-y-4">
@@ -143,8 +178,26 @@ export function KindleImportDialog({
             <WarningCircle className="h-5 w-5 text-destructive" />
             <h3 className="font-semibold text-foreground">{t("kindleImport.errorTitle")}</h3>
           </div>
-          <p className="text-sm text-muted-foreground">{error}</p>
-          <div className="flex justify-end">
+          <p className="text-sm text-muted-foreground">
+            {isNotKindleFormat && notKindleFileMessage
+              ? notKindleFileMessage
+              : error}
+          </p>
+          {isNotKindleFormat && error && notKindleFileMessage && (
+            // Show the underlying validator message under the friendly copy
+            // so power users can still see exactly what failed.
+            <p className="text-xs text-muted-foreground/80 italic">{error}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            {isNotKindleFormat && onFallbackToGenericImport && (
+              <button
+                onClick={onFallbackToGenericImport}
+                className="flex items-center gap-2 px-4 py-2 border border-border rounded-lg text-sm hover:bg-muted transition-colors"
+              >
+                <DownloadSimple className="h-4 w-4" />
+                {importAsPlainTextLabel ?? "Import as plain text"}
+              </button>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:opacity-90 transition-opacity"

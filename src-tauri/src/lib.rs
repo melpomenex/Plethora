@@ -197,9 +197,7 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-async fn wait_for_backend_ready(
-    state: tauri::State<'_, BackendReadyState>,
-) -> Result<(), String> {
+async fn wait_for_backend_ready(state: tauri::State<'_, BackendReadyState>) -> Result<(), String> {
     state.wait().await;
     Ok(())
 }
@@ -367,7 +365,11 @@ fn apply_platform_vibrancy(_window: &tauri::WebviewWindow, _theme_id: &str) -> b
 }
 
 #[tauri::command]
-fn apply_theme_vibrancy(window: tauri::WebviewWindow, theme_id: String, colors: Option<serde_json::Value>) -> bool {
+fn apply_theme_vibrancy(
+    window: tauri::WebviewWindow,
+    theme_id: String,
+    colors: Option<serde_json::Value>,
+) -> bool {
     crate::browser_sync_server::set_active_theme(theme_id.clone(), colors);
     apply_platform_vibrancy(&window, &theme_id)
 }
@@ -471,16 +473,16 @@ pub fn run() {
     ))]
     {
         let clear_requested = std::env::args().any(|arg| {
-            arg == "--clear-window-state"
-                || arg == "--reset-window-state"
-                || arg == "-c"
+            arg == "--clear-window-state" || arg == "--reset-window-state" || arg == "-c"
         });
 
         if clear_requested {
             let mut state_file = None;
             if cfg!(target_os = "macos") {
                 if let Some(data_dir) = dirs::data_dir() {
-                    state_file = Some(data_dir.join("Application Support/com.incrementum.app/.window-state.json"));
+                    state_file = Some(
+                        data_dir.join("Application Support/com.incrementum.app/.window-state.json"),
+                    );
                 }
             } else {
                 if let Some(config_dir) = dirs::config_dir() {
@@ -1064,6 +1066,7 @@ pub fn run() {
             commands::import_document,
             commands::import_documents,
             commands::import_document_from_bytes,
+            commands::import_document_multi,
             commands::stage_import_file_start,
             commands::append_import_file_chunk,
             commands::import_pdf_highlights_as_extracts,

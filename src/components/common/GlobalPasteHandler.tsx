@@ -10,6 +10,8 @@ import {
 } from "@phosphor-icons/react";
 import { createLearningItem } from "../../api/learning-items";
 import { importDocument } from "../../api/documents";
+import { isKindleClippingsFilename } from "../../utils/kindleClippingsImport";
+import { openKindleImportDialog } from "../../stores/kindleImportDialogStore";
 import { isTauri } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "./Toast";
@@ -396,8 +398,26 @@ export function GlobalPasteHandler() {
         }
 
         if (isImage || isPdf || SUPPORTED_EXTENSIONS.includes(ext)) {
-          await importDocument(filePath);
-          toast.success(t("globalPaste.imported"), t("globalPaste.imageImportedDesc", { name: file.name }));
+          // Kindle `My Clippings.txt` is a multi-document source: route to the
+          // dedicated preview/import dialog instead of importing it as a single
+          // unreadable `.txt` blob. The dialog's fallback returns the file to
+          // the generic single-doc import if the content sniff rejects it.
+          if (isKindleClippingsFilename(filePath)) {
+            openKindleImportDialog(filePath, {
+              onFallbackToGenericImport: (fallbackPath) => {
+                void importDocument(fallbackPath).catch((e) => {
+                  console.warn("[GlobalPasteHandler] plain-text fallback import failed", e);
+                });
+              },
+            });
+            toast.success(
+              t("globalPaste.imported"),
+              t("globalPaste.imageImportedDesc", { name: file.name }),
+            );
+          } else {
+            await importDocument(filePath);
+            toast.success(t("globalPaste.imported"), t("globalPaste.imageImportedDesc", { name: file.name }));
+          }
         } else {
           toast.error(t("globalPaste.unsupportedType"), t("globalPaste.unsupportedTypeDesc"));
         }

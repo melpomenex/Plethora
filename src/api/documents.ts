@@ -171,6 +171,32 @@ export async function importDocuments(filePaths: string[], collectionId?: string
   return mapDocuments(result);
 }
 
+/**
+ * Import a file as one or more documents. The only current multi-document
+ * source is a Kindle `My Clippings.txt`, which yields one Document per book.
+ * For non-Kindle files this returns a single-element array (delegating to the
+ * standard `import_document` path on the backend).
+ *
+ * Used by code paths that need the full per-book document set after a Kindle
+ * import (the dialog itself uses the dedicated `import_kindle_clippings_file`
+ * command which has a richer result struct).
+ */
+export async function importDocumentMulti(
+  filePath: string,
+  collectionId?: string,
+): Promise<Document[]> {
+  const result = isWebMode()
+    ? await browserInvoke<Document[]>("import_document_multi", {
+        filePath,
+        collectionId: collectionId ?? null,
+      })
+    : await invokeCommand<Document[]>("import_document_multi", {
+        filePath,
+        collectionId: collectionId ?? null,
+      });
+  return mapDocuments(result);
+}
+
 export async function importPdfHighlightsAsExtracts(documentId: string): Promise<number> {
   return await invokeCommand<number>("import_pdf_highlights_as_extracts", {
     documentId,

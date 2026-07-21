@@ -594,6 +594,19 @@ export function DocumentViewer({
       const normalized = normalizeDocumentType(doc.fileType);
       if (normalized) return normalized;
     }
+    // Kindle clippings documents use the synthetic `kindle://<sha>` path and
+    // have `metadata.source === "kindle-clippings"`. Their body is markdown
+    // (highlights as blockquotes, notes as bold paragraphs). Recognize them
+    // before the content check below so they render via MarkdownViewer even
+    // when the doc came through a list endpoint that NULLed `content` (the
+    // library summary endpoint strips content to keep the payload small).
+    // Without this, the gap between opening the doc and its full hydrate
+    // completing — or any path that opens the viewer without re-hydrating —
+    // would hit the "preview not available" wall.
+    if (doc.filePath?.startsWith("kindle://") ||
+      doc.metadata?.source === "kindle-clippings") {
+      return "markdown";
+    }
     // Fallback: infer from file extension
     const ext = doc.filePath?.split(".").pop()?.toLowerCase();
     const inferred = normalizeDocumentType(ext);
@@ -5956,8 +5969,8 @@ export function DocumentViewer({
           // Toggle controls/fullscreen on click/tap if not clicking interactive elements
           const isMobile = window.matchMedia("(max-width: 768px)").matches;
           if (isMobile && !(e.target as HTMLElement).closest('button, input, textarea, a, .interactive, [data-extract-button]')) {
-            // For EPUB, the viewer handles its own taps. For PDF/others, we handle it here.
-            if (docType !== 'epub') {
+            // For EPUB and YouTube, the viewer handles its own taps. For PDF/others, we handle it here.
+            if (docType !== 'epub' && docType !== 'youtube') {
               toggleFullscreen();
             }
           }

@@ -49,6 +49,46 @@ export interface KindleImportResult {
   newExtracts: number;
   updatedDocuments: number;
   warnings: string[];
+  /**
+   * IDs of all documents (newly created or pre-existing) touched by this
+   * import. One per book. Populated by the Rust side; older builds omit it.
+   */
+  documentIds?: string[];
+}
+
+/**
+ * Filename sniff for Kindle `My Clippings.txt`. Returns true iff the file's
+ * basename (without extension) normalizes to `my clippings` —
+ * case-insensitive, with runs of whitespace, `_`, and `-` collapsed to a
+ * single space, so `my_clippings.txt`, `My-Clippings.txt`, and
+ * `MY  CLIPPINGS.txt` all match.
+ *
+ * Filename-only sniff is acceptable here because the authoritative content
+ * sniff happens in the Rust detector (`is_kindle_clippings_path`) before any
+ * documents are written. If the file turns out not to be Kindle clippings,
+ * the import dialog reports that and the caller can fall back to the generic
+ * plain-text import.
+ */
+export function isKindleClippingsFilename(path: string): boolean {
+  // Handle both POSIX (`/`) and Windows (`\`) path separators, plus the
+  // bare filename case (no separators).
+  const baseWithExt = path.split(/[\\/]/).pop() ?? path;
+  // Require a `.txt` extension — the canonical Kindle filename is
+  // `My Clippings.txt`, and matching a dot-less file (e.g. literally
+  // "My Clippings") would produce false positives. The Rust detector
+  // gates the same way via the `file_stem` basename check.
+  const dot = baseWithExt.lastIndexOf(".");
+  if (dot <= 0) return false;
+  const ext = baseWithExt.slice(dot + 1).toLowerCase();
+  if (ext !== "txt") return false;
+  const stem = baseWithExt.slice(0, dot);
+  const normalized = stem
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ");
+  return normalized === "my clippings";
 }
 
 /**

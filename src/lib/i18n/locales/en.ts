@@ -2881,6 +2881,8 @@ export const en: Dict = {
   "kindleImport.bookmarksSkipped": "bookmarks skipped",
   "kindleImport.existing": "existing",
   "kindleImport.backfill": "Fix existing imports",
+  "kindleImport.notKindleFile": "This file doesn't look like a Kindle clippings file.",
+  "kindleImport.importAsPlainText": "Import as plain text",
   "backupRestore.createBackup": "Create Backup",
   "backupRestore.fullBackup": "Full Backup",
   "backupRestore.fullBackupDesc": "Database, documents, and settings",

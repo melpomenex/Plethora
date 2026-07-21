@@ -89,6 +89,10 @@ pub struct KindleImportResult {
     pub new_extracts: usize,
     pub updated_documents: usize,
     pub warnings: Vec<String>,
+    /// IDs of all documents created or updated by this import. Used by the
+    /// generic import path to return a representative document and by
+    /// `import_document_multi` to return the full set.
+    pub document_ids: Vec<String>,
 }
 
 fn hex_sha256(text: &str) -> String {
@@ -157,6 +161,11 @@ fn kindle_file_path(normalized_title: &str) -> String {
 /// `Vec<u8>` from the in-browser File store (the Tauri dialog returns
 /// unreadable `content://` URIs on Android, so mobile routes File objects
 /// through the browser-file store and sends their bytes over IPC instead).
+/// Decode raw bytes to text, trying UTF-8 first and falling back to Latin-1.
+///
+/// Public so the generic document import path
+/// (`commands::document::import_kindle_clippings_from_disk`) can decode a
+/// detected `My Clippings.txt` exactly the way this module does.
 fn decode_clippings_bytes(bytes: &[u8]) -> String {
     if let Ok(text) = String::from_utf8(bytes.to_vec()) {
         return text;
@@ -171,6 +180,89 @@ fn read_file_bytes(path: &str) -> Result<String> {
     let bytes = fs::read(path)
         .map_err(|e| IncrementumError::NotFound(format!("Cannot read file '{}': {}", path, e)))?;
     Ok(decode_clippings_bytes(&bytes))
+}
+
+/// Read and decode a `My Clippings.txt` file from disk. Public so the generic
+/// document import path can decode a detected clippings file with the exact
+/// same UTF-8 → Latin-1 fallback this module uses internally. Returns
+/// [`IncrementumError::NotFound`] on read failure.
+pub fn read_kindle_text(path: &std::path::Path) -> Result<String> {
+    let bytes = fs::read(path).map_err(|e| {
+        IncrementumError::NotFound(format!("Cannot read file '{}': {}", path.display(), e))
+    })?;
+    Ok(decode_clippings_bytes(&bytes))
+}
+
+/// Returns true iff a file's basename looks like Kindle `My Clippings.txt`.
+///
+/// Case-insensitive, and collapses runs of whitespace, `_`, and `-` to a
+/// single space so variants like `my_clippings.txt`, `My-Clippings.txt`,
+/// and `my  clippings.txt` all match. Used as the fast-path filename gate
+/// before the more expensive content sniff.
+fn basename_is_kindle_clippings(path: &std::path::Path) -> bool {
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        return false;
+    };
+    let normalized: String = stem
+        .to_lowercase()
+        .chars()
+        .map(|c| match c {
+            '_' | '-' => ' ',
+            other => other,
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    normalized == "my clippings"
+}
+
+/// Pure content sniff: does this decoded text look like a Kindle clippings
+/// file? Returns true iff it contains at least two `==========` separator
+/// lines AND at least one metadata line matching `- Your (Highlight|Note|Bookmark)`.
+///
+/// No I/O. Used by both [`is_kindle_clippings_path`] and
+/// [`is_kindle_clippings_bytes`].
+pub fn is_kindle_clippings_text(text: &str) -> bool {
+    let separator_count = text
+        .lines()
+        .map(|line| line.trim())
+        .filter(|line| *line == "==========")
+        .count();
+    if separator_count < 2 {
+        return false;
+    }
+
+    let metadata_re =
+        Regex::new(r"(?i)^[ \t]*- Your (Highlight|Note|Bookmark)\b").expect("valid regex");
+    text.lines()
+        .any(|line| metadata_re.is_match(line.trim_start()))
+}
+
+/// Path-based detector: returns true iff the file's basename matches
+/// `My Clippings.txt` (case/separator-insensitive) AND its decoded content
+/// passes [`is_kindle_clippings_text`]. Returns false on any I/O or decode
+/// error so callers fall through to the generic `.txt` import path.
+pub fn is_kindle_clippings_path(path: &std::path::Path) -> bool {
+    if !basename_is_kindle_clippings(path) {
+        return false;
+    }
+    let bytes = match fs::read(path) {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+    is_kindle_clippings_text(&decode_clippings_bytes(&bytes))
+}
+
+/// Bytes-based detector for the mobile import path: same logic as
+/// [`is_kindle_clippings_path`] but takes a pre-decoded filename plus raw
+/// bytes (the mobile path gets File objects through the in-browser store
+/// rather than readable filesystem paths).
+pub fn is_kindle_clippings_bytes(file_name: &str, bytes: &[u8]) -> bool {
+    if !basename_is_kindle_clippings(std::path::Path::new(file_name)) {
+        return false;
+    }
+    is_kindle_clippings_text(&decode_clippings_bytes(bytes))
 }
 
 /// Parse the Kindle date format:
@@ -663,6 +755,7 @@ pub async fn do_import_kindle_clippings_from_text(
     let mut new_documents = 0usize;
     let mut new_extracts = 0usize;
     let mut updated_documents = 0usize;
+    let mut document_ids: Vec<String> = Vec::new();
 
     for (normalized_title, book_clips) in &book_clippings {
         let has_importable = book_clips.iter().any(|c| {
@@ -708,7 +801,13 @@ pub async fn do_import_kindle_clippings_from_text(
             let mut new_doc = Document::with_collection(
                 title,
                 synthetic_path,
-                FileType::Other,
+                // The document body is markdown (highlights as blockquotes,
+                // notes as bold-prefixed paragraphs), so mark it as such.
+                // Previously this was `FileType::Other`, which made the viewer
+                // fall through to the "preview not available" wall whenever
+                // the doc's `content` field was stripped (e.g. by the library
+                // list endpoint) and labeled the doc "other" in every UI.
+                FileType::Markdown,
                 collection_id.clone(),
             );
             new_doc.category = Some("Kindle".to_string());
@@ -737,6 +836,9 @@ pub async fn do_import_kindle_clippings_from_text(
             doc_id = new_doc.id.clone();
             new_documents += 1;
         }
+        // Record the affected document (whether newly created or pre-existing)
+        // so callers can surface the per-book document set from this import.
+        document_ids.push(doc_id.clone());
 
         // Collect existing hashes for dedup
         let existing_extracts = repo.list_extracts_by_document(&doc_id).await?;
@@ -787,6 +889,7 @@ pub async fn do_import_kindle_clippings_from_text(
         new_extracts,
         updated_documents,
         warnings,
+        document_ids,
     })
 }
 
@@ -975,9 +1078,7 @@ pub async fn import_kindle_clippings_file(
 // isNativeMobile() fork that selects these commands.
 
 #[tauri::command]
-pub fn parse_kindle_clippings_file_bytes(
-    file_bytes: Vec<u8>,
-) -> Result<KindleValidationResult> {
+pub fn parse_kindle_clippings_file_bytes(file_bytes: Vec<u8>) -> Result<KindleValidationResult> {
     let text = decode_clippings_bytes(&file_bytes);
     parse_kindle_clippings_from_text(&text, None)
 }
@@ -1009,14 +1110,25 @@ pub async fn backfill_kindle_imports(repo: State<'_, Repository>) -> Result<Kind
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::{Database, Repository};
     use chrono::{Datelike, Timelike};
     use std::io::Write;
+    use std::path::PathBuf;
     use tempfile::NamedTempFile;
 
     fn write_temp(content: &str) -> NamedTempFile {
         let mut f = NamedTempFile::new().expect("temp file");
         write!(f, "{}", content).expect("write");
         f
+    }
+
+    /// Mirror of the in-tree test helper at `database/repository.rs:7282`.
+    /// In-memory SQLite + full migration, so each integration test runs in
+    /// isolation. Used by the import-integration tests below.
+    async fn setup_repo() -> Repository {
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+        db.migrate().await.expect("migrate");
+        Repository::new(db.pool().clone())
     }
 
     fn sample_clipping_file() -> String {
@@ -1180,5 +1292,400 @@ Nonexistent Book
         let p2 = kindle_file_path("atomic habits");
         assert_eq!(p1, p2);
         assert!(p1.starts_with("kindle://"));
+    }
+
+    // --- Detector tests (is_kindle_clippings_text / is_kindle_clippings_path) ---
+
+    #[test]
+    fn test_detector_real_kindle_sample() {
+        assert!(is_kindle_clippings_text(&sample_clipping_file()));
+    }
+
+    #[test]
+    fn test_detector_requires_at_least_two_separators() {
+        // Only one separator line → not a Kindle file.
+        let single = "Book (Author)\n- Your Highlight on page 1 | Location 1 | Added on Sunday, January 1, 2024 12:00:00 PM\n\nhighlight\n==========\n";
+        assert!(!is_kindle_clippings_text(single));
+    }
+
+    #[test]
+    fn test_detector_requires_metadata_line() {
+        // Has separators but no Kindle metadata line → not Kindle.
+        let no_meta = "==========\n==========\n==========\n";
+        assert!(!is_kindle_clippings_text(no_meta));
+    }
+
+    #[test]
+    fn test_detector_empty_or_whitespace_file() {
+        assert!(!is_kindle_clippings_text(""));
+        assert!(!is_kindle_clippings_text("   \n\t\n   "));
+    }
+
+    #[test]
+    fn test_detector_path_basename_mismatch() {
+        // Correct Kindle content but wrong filename → false via basename gate.
+        let f = write_temp(&sample_clipping_file());
+        // NamedTempFile uses a random basename (no "my clippings" stem), so
+        // the path-based detector must reject it on filename alone.
+        assert!(!is_kindle_clippings_path(f.path()));
+    }
+
+    #[test]
+    fn test_detector_path_correct_filename_and_content() {
+        // Correct Kindle content AND correct filename → true.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("My Clippings.txt");
+        std::fs::write(&path, sample_clipping_file()).expect("write");
+        assert!(is_kindle_clippings_path(&path));
+    }
+
+    #[test]
+    fn test_detector_path_correct_filename_non_kindle_content() {
+        // Correct filename but non-Kindle content → false via content sniff.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("My Clippings.txt");
+        std::fs::write(&path, "just some notes\nnot a kindle file\n").expect("write");
+        assert!(!is_kindle_clippings_path(&path));
+    }
+
+    #[test]
+    fn test_detector_path_filename_variants_match() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let content = sample_clipping_file();
+        for name in [
+            "my clippings.txt",
+            "My Clippings.txt",
+            "MY CLIPPINGS.txt",
+            "my_clippings.txt",
+            "my-clippings.txt",
+            "My  Clippings.txt", // double space
+        ] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, &content).expect("write");
+            assert!(
+                basename_is_kindle_clippings(&path),
+                "basename should match for {name}"
+            );
+            assert!(is_kindle_clippings_path(&path), "should detect {name}");
+        }
+    }
+
+    #[test]
+    fn test_detector_path_unrelated_txt_filename() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("notes.txt");
+        // Even with Kindle content, the basename gate rejects unrelated names.
+        std::fs::write(&path, sample_clipping_file()).expect("write");
+        assert!(!basename_is_kindle_clippings(&path));
+        assert!(!is_kindle_clippings_path(&path));
+    }
+
+    #[test]
+    fn test_detector_latin1_encoded_real_sample() {
+        // Build a small Kindle sample that contains a non-ASCII character
+        // (U+00E9 é, which is 0xE9 in Latin-1 and 0xC3 0xA9 in UTF-8). Encode
+        // it as Latin-1 so the UTF-8 decoder rejects it, then confirm the
+        // bytes-based detector still recognises it via the Latin-1 fallback.
+        let text = "Café Notes (Author)\n\
+                    - Your Highlight on page 1 | Location 1 | Added on Sunday, January 1, 2024 12:00:00 PM\n\
+                    \n\
+                    Sample résumé highlight\n\
+                    \n\
+                    ==========\n\
+                    Second Book (Other)\n\
+                    - Your Note on page 2 | Location 2 | Added on Monday, February 5, 2024 9:00:00 AM\n\
+                    \n\
+                    Another note\n\
+                    \n\
+                    ==========\n";
+        let latin1_bytes: Vec<u8> = text
+            .chars()
+            .map(|c| {
+                let cp = c as u32;
+                if cp <= 0xFF {
+                    cp as u8
+                } else {
+                    // Outside Latin-1 range — substitute '?' to keep the test
+                    // well-defined (none of the chars above exceed U+00FF).
+                    b'?'
+                }
+            })
+            .collect();
+        // Sanity: the UTF-8 decoder must reject this, or we're not exercising
+        // the fallback path at all.
+        assert!(
+            String::from_utf8(latin1_bytes.clone()).is_err(),
+            "sample must be invalid UTF-8 to exercise the Latin-1 fallback"
+        );
+        assert!(is_kindle_clippings_bytes("My Clippings.txt", &latin1_bytes));
+    }
+
+    #[test]
+    fn test_detector_bytes_filename_gate() {
+        // Wrong filename with Kindle content → false via basename gate.
+        let bytes = sample_clipping_file().into_bytes();
+        assert!(!is_kindle_clippings_bytes("random.txt", &bytes));
+    }
+
+    // --- Integration tests for the import path (covers tasks 7.2 / 7.3) ---
+    //
+    // These exercise `do_import_kindle_clippings_from_text` (the shared
+    // delegate used by the dedicated Kindle flow, the mobile bytes flow, AND
+    // the generic document import path's `import_kindle_clippings_from_disk`)
+    // against an in-memory SQLite Repository, so they verify the metadata the
+    // generic path relies on (`kindle://<sha256>` file_path, `category =
+    // "Kindle"`, `tags = ["kindle-import"]`, `metadata.source =
+    // "kindle-clippings"`, content-hash dedup).
+
+    fn multi_book_sample() -> String {
+        // Two books, three importable clippings (2 highlights + 1 note) plus
+        // a bookmark that should be skipped.
+        r#"Atomic Habits (James Clear)
+- Your Highlight on page 42 | Location 678-680 | Added on Sunday, January 15, 2024 3:45:22 PM
+
+Highlight one from atomic habits.
+
+==========
+Deep Work (Cal Newport)
+- Your Highlight on page 15 | Location 234-235 | Added on Monday, February 5, 2024 10:30:00 AM
+
+Highlight two from deep work.
+
+==========
+Deep Work (Cal Newport)
+- Your Note on page 50 | Location 800 | Added on Tuesday, February 6, 2024 2:15:00 PM
+
+Note one on deep work.
+
+==========
+Deep Work (Cal Newport)
+- Your Bookmark on page 100 | Location 1500 | Added on Wednesday, March 1, 2024 9:00:00 AM
+
+==========
+"#
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn test_import_creates_per_book_documents_with_correct_metadata() {
+        // Task 7.2: importing a multi-book clippings file produces one
+        // document per book with the metadata the generic import path relies
+        // on for dedup and backfill.
+        let repo = setup_repo().await;
+        let result = do_import_kindle_clippings_from_text(
+            &multi_book_sample(),
+            &repo,
+            None,
+            None,
+        )
+        .await
+        .expect("import");
+
+        // Two distinct books → two documents.
+        assert_eq!(result.new_documents, 2, "one document per book");
+        assert_eq!(result.document_ids.len(), 2);
+        assert!(result.new_extracts >= 3, "highlights + notes become extracts");
+
+        for id in &result.document_ids {
+            let doc = repo
+                .get_document(id)
+                .await
+                .expect("db")
+                .expect("document exists");
+            assert!(
+                doc.file_path.starts_with("kindle://"),
+                "synthetic kindle:// path, got {}",
+                doc.file_path
+            );
+            // Pin the file_type fix: Kindle docs must be markdown so the
+            // viewer doesn't fall through to the "preview not available" wall
+            // when `content` is stripped by the library list endpoint.
+            assert_eq!(
+                doc.file_type,
+                FileType::Markdown,
+                "Kindle docs must be typed as markdown, got {:?}",
+                doc.file_type
+            );
+            assert_eq!(doc.category.as_deref(), Some("Kindle"));
+            assert!(doc.tags.iter().any(|t| t == "kindle-import"));
+            assert_eq!(
+                doc.metadata.as_ref().and_then(|m| m.source.as_deref()),
+                Some("kindle-clippings"),
+                "metadata.source must be kindle-clippings for backfill to find it"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_import_is_idempotent_under_reimport() {
+        // Task 7.2: re-importing the same file must not duplicate documents
+        // or extracts. The content-hash dedup is what makes the generic import
+        // path safe: users can drop the same `My Clippings.txt` again after
+        // adding new highlights without polluting the library.
+        let repo = setup_repo().await;
+        let text = multi_book_sample();
+
+        let first = do_import_kindle_clippings_from_text(&text, &repo, None, None)
+            .await
+            .expect("first import");
+        let second = do_import_kindle_clippings_from_text(&text, &repo, None, None)
+            .await
+            .expect("re-import");
+
+        // Second pass finds zero new docs and zero new extracts.
+        assert_eq!(second.new_documents, 0, "no new docs on re-import");
+        assert_eq!(second.new_extracts, 0, "no new extracts on re-import");
+        // But it still reports the same affected document ids.
+        assert_eq!(first.document_ids.len(), second.document_ids.len());
+        // And the persisted extract count for each book didn't double.
+        for id in &second.document_ids {
+            let extracts = repo.list_extracts_by_document(id).await.expect("db");
+            assert!(
+                extracts.len() <= first.new_extracts,
+                "re-import must not duplicate extracts; got {}",
+                extracts.len()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_import_only_new_clippings_on_partial_reimport() {
+        // Simulate a user who imported the file once, then added a new
+        // highlight to the file on their Kindle and re-imported. Only the new
+        // clipping should produce a new extract.
+        let repo = setup_repo().await;
+
+        let original = r#"Atomic Habits (James Clear)
+- Your Highlight on page 42 | Location 678-680 | Added on Sunday, January 15, 2024 3:45:22 PM
+
+Original highlight.
+
+==========
+Deep Work (Cal Newport)
+- Your Highlight on page 15 | Location 234-235 | Added on Monday, February 5, 2024 10:30:00 AM
+
+Another original highlight.
+
+==========
+"#
+        .to_string();
+        let _first = do_import_kindle_clippings_from_text(&original, &repo, None, None)
+            .await
+            .expect("first");
+
+        let updated = format!(
+            "{original}==========\nDeep Work (Cal Newport)\n- Your Highlight on page 99 | Location 999-1000 | Added on Thursday, March 14, 2024 1:00:00 PM\n\nA brand new highlight added later.\n\n==========\n"
+        );
+        let second =
+            do_import_kindle_clippings_from_text(&updated, &repo, None, None)
+                .await
+                .expect("second");
+
+        assert_eq!(second.new_documents, 0, "no new books on partial re-import");
+        assert_eq!(
+            second.new_extracts, 1,
+            "exactly the one new highlight should be added"
+        );
+    }
+
+    #[test]
+    fn test_non_kindle_txt_falls_through_to_generic_path() {
+        // Task 7.3 regression: a normal .txt file must NOT be detected as
+        // Kindle clippings, so it falls through to the generic `.txt` import
+        // path. (We test the detector here rather than `import_from_path`
+        // because the latter needs a Tauri AppHandle; the detector is the
+        // decision point that protects the generic path.)
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("notes.txt");
+        std::fs::write(&path, "just some plain text notes\nline two\n").expect("write");
+        assert!(
+            !is_kindle_clippings_path(&path),
+            "plain .txt must not be mistaken for Kindle clippings"
+        );
+        // Even with the Kindle filename, non-Kindle content is rejected.
+        let path2 = dir.path().join("My Clippings.txt");
+        std::fs::write(&path2, "plain text masquerading under the Kindle name\n").expect("write");
+        assert!(
+            !is_kindle_clippings_path(&path2),
+            "filename alone must not trigger Kindle import — content sniff gates it"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_migration_repairs_existing_kindle_docs_to_markdown() {
+        // Migration 064_kindle_clippings_docs_are_markdown repairs Kindle docs
+        // that were imported before this fix and stored with file_type =
+        // 'other'. We simulate the real-world sequence: run migrations up to
+        // (but not including) 064, insert a legacy Kindle doc, then run 064
+        // and confirm it flips the row to 'markdown' while leaving a
+        // genuinely-other-typed control doc untouched.
+        use crate::database::{Database, Repository};
+        use sqlx::Row;
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+
+        // Run all migrations EXCEPT 064 by deleting the migration from the
+        // tracking set after applying 000-063. Easiest: apply everything,
+        // then un-record 064 so the next run_migrations call will re-run it.
+        // (Migrations are idempotent in schema terms — 064 is a pure UPDATE,
+        // so re-running it on a freshly-migrated DB is safe.)
+        db.migrate().await.expect("migrate through 063");
+        let pool = db.pool();
+        sqlx::query("DELETE FROM _schema_migrations WHERE name = '064_kindle_clippings_docs_are_markdown'")
+            .execute(pool)
+            .await
+            .expect("un-record 064");
+        let repo = Repository::new(pool.clone());
+
+        // Insert a legacy Kindle doc with the pre-fix file_type = 'other'.
+        let legacy_id = "legacy-kindle-doc-1";
+        sqlx::query(
+            r#"INSERT INTO documents (id, title, file_path, file_type, content, content_hash,
+                                      date_added, date_modified, is_archived, is_favorite)
+               VALUES (?1, ?2, ?3, 'other', ?4, ?5, ?6, ?6, 0, 0)"#,
+        )
+        .bind(legacy_id)
+        .bind("Legacy Kindle Book")
+        .bind("kindle://legacy-hash-abc")
+        .bind("> a highlight")
+        .bind("legacy-hash")
+        .bind(chrono::Utc::now().to_rfc3339())
+        .execute(pool)
+        .await
+        .expect("insert legacy doc");
+
+        // Control: a genuinely-other-typed doc with a real file path (NOT a
+        // kindle:// path). The migration must leave this one alone.
+        let control_id = "control-other-doc";
+        sqlx::query(
+            r#"INSERT INTO documents (id, title, file_path, file_type, content, content_hash,
+                                      date_added, date_modified, is_archived, is_favorite)
+               VALUES (?1, ?2, ?3, 'other', NULL, NULL, ?4, ?4, 0, 0)"#,
+        )
+        .bind(control_id)
+        .bind("Some Other Doc")
+        .bind("/tmp/real-file.dat")
+        .bind(chrono::Utc::now().to_rfc3339())
+        .execute(pool)
+        .await
+        .expect("insert control doc");
+
+        // Now run pending migrations — only 064 is un-recorded, so it fires.
+        crate::database::migrations::run_migrations(pool)
+            .await
+            .expect("run_migrations");
+
+        let legacy = repo.get_document(legacy_id).await.expect("db").expect("doc");
+        assert_eq!(
+            legacy.file_type,
+            FileType::Markdown,
+            "migration 064 must re-type legacy Kindle docs as markdown"
+        );
+
+        let control = repo.get_document(control_id).await.expect("db").expect("doc");
+        assert_eq!(
+            control.file_type,
+            FileType::Other,
+            "migration 064 must NOT touch non-Kindle other-typed docs"
+        );
     }
 }

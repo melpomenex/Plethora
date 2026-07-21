@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { Document, Extract } from "../types";
 import * as documentsApi from "../api/documents";
 import * as segmentationApi from "../api/segmentation";
+import { isKindleClippingsFilename } from "../utils/kindleClippingsImport";
+import { openKindleImportDialog } from "./kindleImportDialogStore";
 
 import { useSettingsStore } from "./settingsStore";
 import { useCollectionStore } from "./collectionStore";
@@ -156,6 +158,14 @@ interface DocumentState {
   bulkDelete: (ids: string[]) => Promise<{ succeeded: string[]; failed: string[]; errors: string[] }>;
   importFromFile: (filePath: string) => Promise<Document>;
   importFromFiles: (filePaths: string[]) => Promise<Document[]>;
+  /**
+   * Private escape-hatch around the Kindle-detection routing in
+   * {@link importFromFile} / {@link importFromFiles}. Used by the Kindle
+   * dialog's "Import as plain text" fallback so the fallback doesn't re-fire
+   * the filename sniff and recurse. Not intended for external callers.
+   */
+  importGenericFile: (filePath: string) => Promise<Document>;
+  importGenericFiles: (filePaths: string[]) => Promise<Document[]>;
   importFromFolder: () => Promise<Document[]>;
   importFromUrl: (url: string) => Promise<Document>;
   importFromArxiv: (arxivIdOrUrl: string, format?: 'pdf' | 'html') => Promise<Document>;
@@ -484,6 +494,29 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
 
   importFromFile: async (filePath) => {
+    // Route Kindle clippings files to the dedicated dialog (see importFromFiles
+    // for the rationale). The fallback the dialog triggers re-enters via the
+    // private `importGenericFile` helper below so it bypasses detection
+    // (otherwise the filename sniff would re-fire and we'd recurse forever).
+    if (isKindleClippingsFilename(filePath)) {
+      openKindleImportDialog(filePath, {
+        onFallbackToGenericImport: (fallbackPath) => {
+          void get()
+            .importGenericFile(fallbackPath)
+            .catch((e) => {
+              console.warn("[documentStore] plain-text fallback import failed", e);
+            });
+        },
+      });
+      throw new Error("KINDLE_DIALOG_OPENED");
+    }
+    return get().importGenericFile(filePath);
+  },
+
+  // Private generic single-doc import (no Kindle detection). Exposed on the
+  // store object so the dialog fallback can call it via `get()` without
+  // duplicating the body. Not part of the public DocumentStore interface.
+  importGenericFile: async (filePath) => {
     set({ isImporting: true, error: null });
     try {
       const collectionId = useCollectionStore.getState().activeCollectionId;
@@ -529,6 +562,42 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
 
   importFromFiles: async (filePaths) => {
+    // Partition Kindle clippings files out of the generic import loop. A
+    // dropped/picked `My Clippings.txt` is a multi-document source that the
+    // generic single-doc pipeline can't represent — and historically it got
+    // stored as an unreadable `.txt` blob. Route each Kindle file to the
+    // dedicated preview/import dialog instead. The fallback hook hands the
+    // file back to the generic loop (via importGenericFiles) if the content
+    // sniff says "not Kindle".
+    const kindlePaths: string[] = [];
+    const otherPaths: string[] = [];
+    for (const p of filePaths) {
+      if (isKindleClippingsFilename(p)) kindlePaths.push(p);
+      else otherPaths.push(p);
+    }
+    for (const kp of kindlePaths) {
+      openKindleImportDialog(kp, {
+        onFallbackToGenericImport: (fallbackPath) => {
+          // Fire-and-forget — the dialog has already closed at this point.
+          // Use the detection-bypassing helper so the filename sniff doesn't
+          // re-fire and recurse.
+          void get().importGenericFiles([fallbackPath]).catch((e) => {
+            console.warn("[documentStore] plain-text fallback import failed", e);
+          });
+        },
+      });
+    }
+    // If every incoming file was Kindle, the dialog takes over and there's
+    // nothing for the generic loop to do. Bail out without flipping import
+    // state (avoids a spurious "no documents could be imported" toast).
+    if (otherPaths.length === 0) {
+      return [];
+    }
+    return get().importGenericFiles(otherPaths);
+  },
+
+  // Private generic multi-doc import (no Kindle detection). See importGenericFile.
+  importGenericFiles: async (filePaths) => {
     set({ isImporting: true, error: null, importProgress: { current: 0, total: filePaths.length } });
     const imported: Document[] = [];
     const settings = useSettingsStore.getState().settings;

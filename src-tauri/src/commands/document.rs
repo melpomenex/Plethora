@@ -4,6 +4,7 @@ use crate::algorithms::calculate_document_priority_score;
 use crate::commands::anna_archive::AnnaArchiveClient;
 use crate::database::Repository;
 use crate::error::{IncrementumError, Result};
+use crate::kindle_clippings;
 use crate::models::{Document, DocumentMetadata, Extract, FileType};
 use crate::processor;
 use crate::youtube;
@@ -209,6 +210,11 @@ pub async fn import_document(
 /// and `import_document_from_bytes` (bytes-based, mobile). Given a readable
 /// file on disk at `disk_path` plus the original `file_name` (for type/title
 /// detection), extract content and persist the document.
+///
+/// If the file is detected as a Kindle `My Clippings.txt` (by filename + content
+/// sniff), this delegates to the dedicated Kindle parser and returns one
+/// (representative) document. Callers that need all the per-book documents
+/// (one per book) should use [`import_document_multi`] instead.
 async fn import_from_path(
     disk_path: String,
     file_name: &str,
@@ -217,6 +223,22 @@ async fn import_from_path(
     repo: &Repository,
 ) -> Result<Document> {
     let path = Path::new(&disk_path);
+
+    // Kindle `My Clippings.txt` produces many documents (one per book); the
+    // generic single-doc path can't represent that. Detect it here and delegate
+    // to the dedicated parser, so a `My Clippings.txt` dropped onto the Library
+    // no longer lands as a single unreadable `.txt` blob. See
+    // `import_document_multi` for the multi-doc-returning variant.
+    if kindle_clippings::is_kindle_clippings_path(path) {
+        let documents =
+            import_kindle_clippings_from_disk(&disk_path, collection_id.clone(), repo).await?;
+        if let Some(first) = documents.into_iter().next() {
+            return Ok(first);
+        }
+        // Detection fired but parsing produced no documents (e.g. file had
+        // only bookmarks). Fall back to the generic text-import path so the
+        // user still gets a document they can open, rather than an error.
+    }
 
     // Determine file type from extension
     let file_type = match path
@@ -299,6 +321,80 @@ async fn import_from_path(
     let created = repo.create_document(&doc).await?;
 
     Ok(created)
+}
+
+/// Shared Kindle-clippings delegation used by both the generic
+/// [`import_from_path`] (which returns the first document) and the multi-doc
+/// [`import_document_multi`] command. Reads the file once, parses it via the
+/// dedicated Kindle pipeline (`do_import_kindle_clippings_from_text`), then
+/// fetches the resulting per-book `Document` rows by ID. Returns an empty vec
+/// if no importable books were found — callers decide how to surface that.
+///
+/// The resulting documents use the same synthetic `kindle://<sha256>` path,
+/// `category = "Kindle"`, `tags = ["kindle-import"]`, `metadata.source =
+/// "kindle-clippings"`, and content-hash dedup as the dedicated Settings →
+/// Import/Export Kindle flow, so re-imports and backfill behave identically.
+async fn import_kindle_clippings_from_disk(
+    disk_path: &str,
+    collection_id: Option<String>,
+    repo: &Repository,
+) -> Result<Vec<Document>> {
+    let path = Path::new(disk_path);
+    let file_mtime: Option<chrono::DateTime<chrono::Utc>> = std::fs::metadata(disk_path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .map(chrono::DateTime::<chrono::Utc>::from);
+
+    let text = kindle_clippings::read_kindle_text(path)?;
+
+    let result = kindle_clippings::do_import_kindle_clippings_from_text(
+        &text,
+        repo,
+        collection_id,
+        file_mtime,
+    )
+    .await?;
+
+    let mut documents = Vec::with_capacity(result.document_ids.len());
+    for id in &result.document_ids {
+        if let Some(doc) = repo.get_document(id).await? {
+            documents.push(doc);
+        }
+    }
+    Ok(documents)
+}
+
+/// Import a file as one or more documents. Used by the frontend Kindle import
+/// flow when a `My Clippings.txt` is detected via a generic entry point (drag &
+/// drop, main file picker, folder import, paste). Returns one `Document` per
+/// book found in the clippings file. For non-Kindle files this returns a single
+/// document (delegating to the standard `import_document` path).
+#[tauri::command]
+pub async fn import_document_multi(
+    file_path: String,
+    collection_id: Option<String>,
+    app: tauri::AppHandle,
+    repo: State<'_, Repository>,
+) -> Result<Vec<Document>> {
+    let path = PathBuf::from(&file_path);
+    if !path.exists() {
+        return Err(IncrementumError::NotFound(format!(
+            "File not found: {}",
+            file_path
+        )));
+    }
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
+    let disk_path = canonical.to_string_lossy().to_string();
+
+    if kindle_clippings::is_kindle_clippings_path(&canonical) {
+        return import_kindle_clippings_from_disk(&disk_path, collection_id, &repo).await;
+    }
+
+    // Non-Kindle file: reuse the single-doc path and wrap as a one-element vec
+    // so callers can treat the return shape uniformly.
+    let doc = import_from_path(disk_path, &file_path, collection_id, &app, &repo).await?;
+    Ok(vec![doc])
 }
 
 /// Import a document from raw bytes (mobile path). On Android/iOS the WebView's
@@ -942,6 +1038,7 @@ pub async fn extract_document_text(
                             &video_id,
                             &transcript,
                             &segments_json,
+                            crate::youtube::YOUTUBE_WORD_TIMINGS_VERSION,
                         )
                         .await;
                     (transcript, segments_json)
