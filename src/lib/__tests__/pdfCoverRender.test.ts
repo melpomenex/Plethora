@@ -60,7 +60,7 @@ const stubContext = {
 } as unknown as CanvasRenderingContext2D;
 
 beforeEach(() => {
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(stubContext);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(stubContext as any);
   vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
     "data:image/jpeg;base64,MockEncodedBytes",
   );

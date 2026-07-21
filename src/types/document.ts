@@ -66,6 +66,8 @@ export interface DocumentMetadata {
   fileId?: string;
   // Web import metadata
   source?: string;
+  url?: string;
+  originalUrl?: string;
   fetchedAt?: string;
   siteName?: string;
   image?: string;

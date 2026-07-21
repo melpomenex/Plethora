@@ -66,7 +66,7 @@ import { createDocument, updateDocumentContent, updateDocumentPriority, dismissD
 import { trimToTokenWindow } from "../utils/tokenizer";
 import { fetchYouTubeTranscript } from "../api/youtube";
 import { ReaderTTSControls } from "../components/common/ReaderTTSControls";
-import { usePaneId } from "../components/common/Tabs/TabContent";
+import { usePaneId, useIsActiveTab } from "../components/common/Tabs/TabContent";
 import { DocumentViewer as DocumentViewerTab } from "../components/tabs/TabRegistry";
 import { ScrollQueueSettings } from "../components/queue/ScrollQueueSettings";
 import { ScrollOverlayControls } from "../components/queue/ScrollOverlayControls";
@@ -213,20 +213,39 @@ export function QueueScrollPage() {
   })));
   const paneId = usePaneId();
 
+  const isActiveTab = useIsActiveTab();
+
+  // The tab this scroll view lives in. Resolve it from *our own* pane, and only
+  // while we are the active tab — the previous version read the first pane's
+  // activeTabId, i.e. whatever tab was globally active. Because the position
+  // effect below re-fires whenever that id changes, switching to any other tab
+  // made this component write its scroll position into *that* tab's data,
+  // wiping fields it did not own (a document-viewer's documentId, for one,
+  // which left it rendering nothing at all).
   const activeTabId = useMemo(() => {
-    const findFirstTabPane = (pane: typeof rootPane): TabPane | null => {
-      if (pane.type === "tabs") return pane;
+    if (!isActiveTab) return null;
+    const findPane = (pane: typeof rootPane): TabPane | null => {
+      if (pane.type === "tabs") return pane.id === paneId ? pane : null;
       if (pane.type === "split") {
         for (const child of pane.children) {
-          const found = findFirstTabPane(child);
+          const found = findPane(child);
           if (found) return found;
         }
       }
       return null;
     };
-    const firstPane = findFirstTabPane(rootPane);
-    return firstPane?.activeTabId ?? null;
-  }, [rootPane]);
+    return findPane(rootPane)?.activeTabId ?? null;
+  }, [rootPane, paneId, isActiveTab]);
+
+  // Merge into the tab's existing data. `updateTab` spreads at the Tab level, so
+  // passing `data` wholesale replaces it and silently drops any key we didn't set.
+  const patchTabData = useCallback(
+    (tabId: string, patch: Record<string, unknown>) => {
+      const existing = useTabsStore.getState().tabs.find((t) => t.id === tabId)?.data ?? {};
+      updateTab(tabId, { data: { ...existing, ...patch } });
+    },
+    [updateTab]
+  );
   const toast = useToast();
   const contextWindowTokens = settings.ai.maxTokens;
   const aiModel = settings.ai.model;
@@ -655,12 +674,10 @@ export function QueueScrollPage() {
         setRenderedIndex(startPos);
 
         if (activeTabId) {
-          updateTab(activeTabId, {
-            data: {
-              currentIndex: startPos,
-              renderedIndex: startPos,
-              sessionTimestamp: Date.now(),
-            },
+          patchTabData(activeTabId, {
+            currentIndex: startPos,
+            renderedIndex: startPos,
+            sessionTimestamp: Date.now(),
           });
         }
 
@@ -670,20 +687,15 @@ export function QueueScrollPage() {
         }
       }
     });
-  }, [scrollItems.length, currentIndex, calculateSmartStart, activeTabId, updateTab, toast, tabs]);
+  }, [scrollItems.length, currentIndex, calculateSmartStart, activeTabId, patchTabData, toast, tabs]);
 
   useEffect(() => {
     sessionStorage.setItem(SESSION_KEYS.LAST_POSITION, String(currentIndex));
 
     if (activeTabId) {
-      updateTab(activeTabId, {
-        data: {
-          currentIndex,
-          renderedIndex,
-        },
-      });
+      patchTabData(activeTabId, { currentIndex, renderedIndex });
     }
-  }, [currentIndex, renderedIndex, activeTabId, updateTab]);
+  }, [currentIndex, renderedIndex, activeTabId, patchTabData]);
 
   // Load/fetch full content for the active RSS item in the queue
   useEffect(() => {

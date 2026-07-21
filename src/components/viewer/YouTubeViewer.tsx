@@ -42,7 +42,7 @@ import {
   SponsorBlockSegment, 
   getCategoryDisplayName
 } from "../../api/sponsorblock";
-import { extractYouTubeVideoId } from "../../utils/youtubeEmbed";
+import { extractYouTubeVideoId, resolveEmbedHost, type YouTubeEmbedHost } from "../../utils/youtubeEmbed";
 import { isNetworkDebugEnabled } from "../../debug/networkDebug";
 import type { WordTiming } from "../../utils/wordTimings";
 
@@ -186,14 +186,7 @@ export function YouTubeViewer({
   const [isArchiving, setIsArchiving] = useState(false);
   const [hasEnded, setHasEnded] = useState(false);
   const [playerError, setPlayerError] = useState<{ code: number; message: string } | null>(null);
-  const [embedHost, setEmbedHost] = useState<"https://www.youtube-nocookie.com" | "https://www.youtube.com">(
-    () => {
-      // WebKitGTK, Android WebView, and Tauri local schemes block CORS/iframe on youtube-nocookie.com.
-      // Use youtube.com host directly for reliable playback across all native/mobile platforms.
-      if (isTauri() || isNativeMobile() || getPlatform() === 'linux') return "https://www.youtube.com";
-      return "https://www.youtube-nocookie.com";
-    }
-  );
+  const [embedHost, setEmbedHost] = useState<YouTubeEmbedHost>(resolveEmbedHost);
   const [inlinePlaybackLikelyUnsupported, setInlinePlaybackLikelyUnsupported] = useState(false);
   const [forceInlinePlayback, setForceInlinePlayback] = useState(false);
   const extractedVideoId = useMemo(() => extractYouTubeVideoId(videoId) ?? "", [videoId]);
@@ -312,7 +305,10 @@ export function YouTubeViewer({
     setShowInlinePlayer(false);
     setForceInlinePlayback(false);
     setPlayerError(null);
-    setEmbedHost(getPlatform() === 'linux' ? "https://www.youtube.com" : "https://www.youtube-nocookie.com");
+    // Re-derive from the platform rather than hardcoding a host: hardcoding here
+    // reverted Tauri/native-mobile to youtube-nocookie.com on every document open,
+    // which those WebViews block, leaving a blank player.
+    setEmbedHost(resolveEmbedHost());
   }, [documentId, videoId]);
 
   useEffect(() => {
@@ -1190,18 +1186,12 @@ export function YouTubeViewer({
     // to advance, matching every other item type. The split is draggable
     // (mobileVideoHeightPct); no effect on desktop.
     if (isCompactMobile) {
-      // Publish the video height as a CSS var so the content area below can
-      // compute its own height against the viewport (see the content wrapper's
-      // style below). On Android WebView the flex chain from .adaptive-shell-root
-      // down to the transcript scroller doesn't reliably constrain height, so the
-      // scroller grows to content size and becomes non-scrollable. Bypassing the
-      // chain with an explicit viewport-derived height (mirroring this video
-      // container's approach) fixes it without touching desktop/iOS.
+      // Fixed share of the viewport; the content area below is flex:1 and takes the
+      // remainder, so dragging this taller or shorter resizes the transcript to match.
       return {
         height: `${mobileVideoHeightPct}vh`,
         maxHeight: `${mobileVideoHeightPct}vh`,
         flex: "none",
-        ["--mobile-video-height" as string]: `${mobileVideoHeightPct}vh`,
       };
     }
     if (transcriptLayout === 'side' && showTranscript) {
@@ -1525,14 +1515,15 @@ export function YouTubeViewer({
       )}
 
       {/* Content area with transcript toggle */}
-      <div 
-        className={cn(
-          "flex flex-col min-h-0 overflow-hidden",
-          isCompactMobile && "pb-[calc(76px+env(safe-area-inset-bottom,0px))]"
-        )}
+      <div
+        className="flex flex-col min-h-0 overflow-hidden"
         style={
           isCompactMobile
-            ? { height: "calc(var(--app-viewport-height, 100dvh) - var(--mobile-video-height, 58vh))", flex: "none" }
+            // Fill whatever the video leaves. `.mobile-main-content` is already
+            // bounded to `100% - var(--shell-mobile-nav-height)`, so it stops exactly
+            // at the bottom nav — no viewport arithmetic and no bottom padding needed
+            // here. Doing either double-counts the nav and leaves a dead strip above it.
+            ? { flex: 1, minHeight: 0 }
             : transcriptLayout === 'side' && showTranscript
               ? { width: transcriptWidth }
               : { flex: 1 }

@@ -1343,6 +1343,17 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       const rehydratedTabs: Tab[] = [];
       for (const serialized of data.tabs) {
         try {
+          // A document viewer is driven entirely by `data.documentId` (TabWrapper
+          // spreads `data` as props). Without it the viewer renders nothing, so the
+          // tab would restore as a permanently blank pane. Drop it instead.
+          if (
+            (serialized.type === "document-viewer" ||
+              serialized.type === "audiobook-epub-sync") &&
+            !serialized.data?.documentId
+          ) {
+            console.warn("Dropping document tab with no documentId:", serialized.id);
+            continue;
+          }
           const tab = rehydrateTab(serialized);
           rehydratedTabs.push(tab);
           validTabIds.add(tab.id);

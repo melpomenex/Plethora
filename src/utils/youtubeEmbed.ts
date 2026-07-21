@@ -1,4 +1,25 @@
+import { isTauri, isNativeMobile, getPlatform } from "../lib/tauri";
+
 const YOUTUBE_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/;
+
+export type YouTubeEmbedHost = "https://www.youtube-nocookie.com" | "https://www.youtube.com";
+
+/**
+ * Pick the iframe host for the YouTube player.
+ *
+ * WebKitGTK, Android WebView, and iOS WKWebView block CORS/postMessage against
+ * youtube-nocookie.com, which renders as a blank player. Those platforms must use
+ * the youtube.com host directly. Everywhere else we keep the privacy-preserving host.
+ *
+ * This is the single source of truth: the player's initial state and any reset on
+ * document switch both read from here, so the two can't drift apart.
+ */
+export function resolveEmbedHost(): YouTubeEmbedHost {
+  if (isTauri() || isNativeMobile() || getPlatform() === "linux") {
+    return "https://www.youtube.com";
+  }
+  return "https://www.youtube-nocookie.com";
+}
 const YOUTUBE_HOSTS = new Set([
   "youtube.com",
   "www.youtube.com",

@@ -93,7 +93,10 @@ async function resolveTranscriptInternal(
         "On-device transcript fetch timed out (15s)"
       );
 
-      const isOk = result && (result.kind === "Ok" || result.status === "ok" || (Array.isArray(result.segments) && result.segments.length > 0));
+      // `status` is the serde tag ("ok" | "err"); the segments check is a defensive
+      // fallback for any unexpected shape. Testing `kind === "Ok"` was dead code —
+      // on the error variant `kind` holds the failure reason, never "Ok".
+      const isOk = !!result && (result.status === "ok" || (Array.isArray(result.segments) && result.segments.length > 0));
       if (isOk) {
         console.log(`[sourceChain] On-device fetch succeeded for video: ${videoId}`);
         

@@ -15,41 +15,53 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 describe("NotebookLM workflow integration", () => {
   beforeEach(() => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
     mockInvoke.mockReset();
   });
 
   it("runs source ingestion -> artifact generation -> preview -> deck sync", async () => {
-    mockInvoke
-      .mockResolvedValueOnce({
-        id: "src_1",
-        title: "Sample source",
-        kind: "url",
-        status: "ready",
-      })
-      .mockResolvedValueOnce({
-        id: "job_1",
-        notebookId: "nb_1",
-        artifactType: "flashcards",
-        status: "succeeded",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        payload: { flashcards: [], quizItems: [] },
-      })
-      .mockResolvedValueOnce([
-        {
-          question: "Q1",
-          answer: "A1",
-          tags: ["notebooklm"],
-          sourceNotebookId: "nb_1",
-          sourceArtifactId: "art_1",
-        },
-      ])
-      .mockResolvedValueOnce({
-        created: 1,
-        updated: 0,
-        skipped: 0,
-        itemIds: ["li_1"],
-      });
+    mockInvoke.mockImplementation(async (cmd) => {
+      if (cmd === "wait_for_backend_ready") return null;
+      if (cmd === "notebooklm_add_source") {
+        return {
+          id: "src_1",
+          title: "Sample source",
+          kind: "url",
+          status: "ready",
+        };
+      }
+      if (cmd === "notebooklm_generate_artifact") {
+        return {
+          id: "job_1",
+          notebookId: "nb_1",
+          artifactType: "flashcards",
+          status: "succeeded",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          payload: { flashcards: [], quizItems: [] },
+        };
+      }
+      if (cmd === "notebooklm_preview_flashcards") {
+        return [
+          {
+            question: "Q1",
+            answer: "A1",
+            tags: ["notebooklm"],
+            sourceNotebookId: "nb_1",
+            sourceArtifactId: "art_1",
+          },
+        ];
+      }
+      if (cmd === "notebooklm_sync_preview_items") {
+        return {
+          created: 1,
+          updated: 0,
+          skipped: 0,
+          itemIds: ["li_1"],
+        };
+      }
+      return null;
+    });
 
     await notebooklmAddSource({
       notebookId: "nb_1",

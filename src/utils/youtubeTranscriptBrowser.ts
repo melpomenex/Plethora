@@ -566,15 +566,19 @@ export async function fetchYouTubeTranscript(
         documentId: null,
       }).catch(() => null);
 
+      // The Rust enum is #[serde(tag = "status")], so the discriminant is `status`
+      // ("ok" | "err") — not `kind`. On the error variant `kind` carries the failure
+      // reason ("NoCaptions", "PoTokenRequired", ...), so it never equals "Ok"/"Err"
+      // and the old checks here could never match.
       if (onDeviceRes) {
-        if (onDeviceRes.kind === "Ok" && Array.isArray(onDeviceRes.segments) && onDeviceRes.segments.length > 0) {
+        if (onDeviceRes.status === "ok" && Array.isArray(onDeviceRes.segments) && onDeviceRes.segments.length > 0) {
           return {
             segments: onDeviceRes.segments,
             videoId,
             language: onDeviceRes.language || language || "en",
           };
         }
-        if (onDeviceRes.kind === "Err" && onDeviceRes.detail) {
+        if (onDeviceRes.status === "err" && onDeviceRes.detail) {
           console.warn("[YouTubeTranscript] On-device Rust fetch error:", onDeviceRes.kind, onDeviceRes.detail);
         }
       }
