@@ -617,9 +617,15 @@ export function DocumentViewer({
     })) {
       return "audio";
     }
-    if (doc.filePath?.includes("youtube.com") ||
+    if (
+      doc.fileType === "youtube" ||
+      doc.filePath?.includes("youtube.com") ||
       doc.filePath?.includes("youtu.be") ||
-      doc.fileType === "youtube") {
+      doc.metadata?.url?.includes("youtube.com") ||
+      doc.metadata?.url?.includes("youtu.be") ||
+      doc.metadata?.originalUrl?.includes("youtube.com") ||
+      doc.metadata?.originalUrl?.includes("youtu.be")
+    ) {
       return "youtube";
     }
     // If document has content, treat as markdown

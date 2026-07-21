@@ -1212,8 +1212,9 @@ export function YouTubeViewer({
       };
     }
     return {
-      paddingBottom: showTranscript ? "40%" : "56.25%",
-      minHeight: showTranscript ? "300px" : "auto",
+      width: "100%",
+      aspectRatio: "16 / 9",
+      flex: "none",
     };
   };
 
@@ -1277,8 +1278,8 @@ export function YouTubeViewer({
               onStateChange={onPlayerStateChange}
               onPlaybackRateChange={onPlaybackRateChange}
               onError={onPlayerError}
-              className="w-full h-full"
-              iframeClassName="w-full h-full"
+              className="absolute inset-0 w-full h-full"
+              iframeClassName="w-full h-full border-0"
             />
             {playerError && (
               <div className="absolute inset-0 bg-black/60 flex items-center justify-center p-4">
