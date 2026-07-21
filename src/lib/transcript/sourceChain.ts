@@ -93,7 +93,8 @@ async function resolveTranscriptInternal(
         "On-device transcript fetch timed out (15s)"
       );
 
-      if (result.status === "ok") {
+      const isOk = result && (result.kind === "Ok" || result.status === "ok" || (Array.isArray(result.segments) && result.segments.length > 0));
+      if (isOk) {
         console.log(`[sourceChain] On-device fetch succeeded for video: ${videoId}`);
         
         // Warm the self-hosted cache in the background (fire-and-forget)
@@ -103,13 +104,13 @@ async function resolveTranscriptInternal(
         
         return {
           segments: result.segments,
-          language: result.language,
+          language: result.language || "en",
           source: "on-device",
         };
       } else {
-        console.warn(`[sourceChain] On-device fetch returned err: ${result.kind} - ${result.detail}`);
+        console.warn(`[sourceChain] On-device fetch returned err: ${result?.kind || result?.status} - ${result?.detail}`);
         // Terminal errors: raise immediately
-        if (result.kind === "NoCaptions" || result.kind === "VideoUnavailable") {
+        if (result?.kind === "NoCaptions" || result?.kind === "VideoUnavailable") {
           throw new TerminalError(result.detail || `YouTube error: ${result.kind}`);
         }
         // Other errors (e.g. rate limit, bot block, network): fall through
