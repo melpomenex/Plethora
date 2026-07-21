@@ -245,4 +245,27 @@ describe("TranscriptSync auto-follow", () => {
     expect(scrollTo).toBeDefined();
     vi.restoreAllMocks();
   });
+
+  it("maintains active segment through minor inter-cue silence gaps", async () => {
+    const gappedSegments: TranscriptSegment[] = [
+      { id: "s1", start: 0, end: 2.0, text: "first segment" },
+      { id: "s2", start: 2.5, end: 4.5, text: "second segment" },
+    ];
+    const { container, rerender } = render(
+      <TranscriptSync segments={gappedSegments} currentTime={1.0} showHeader={false} isPlaying />,
+    );
+    expect(container.querySelector("[aria-selected='true']")?.textContent).toContain("first");
+
+    // Advance into silence gap between 2.0 and 2.5
+    rerender(
+      <TranscriptSync segments={gappedSegments} currentTime={2.2} showHeader={false} isPlaying />,
+    );
+    expect(container.querySelector("[aria-selected='true']")?.textContent).toContain("first");
+
+    // Advance into second segment at 2.5
+    rerender(
+      <TranscriptSync segments={gappedSegments} currentTime={2.6} showHeader={false} isPlaying />,
+    );
+    expect(container.querySelector("[aria-selected='true']")?.textContent).toContain("second");
+  });
 });

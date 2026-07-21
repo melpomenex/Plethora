@@ -461,6 +461,11 @@ export function TranscriptSync({
 
   // Find active segment based on current time.
   useEffect(() => {
+    if (!safeSegments.length) {
+      if (activeIndex !== -1) setActiveIndex(-1);
+      return;
+    }
+
     const index = safeSegments.findIndex(
       (seg) => currentTime >= seg.start && currentTime < seg.end
     );
@@ -468,11 +473,26 @@ export function TranscriptSync({
       if (index !== activeIndex) setActiveIndex(index);
       return;
     }
-    // Nothing covers `currentTime`. Gaps between cues are normal (silence), and
-    // blanking the highlight there makes it blink, so the last segment stays
-    // lit. But playing/seeking to *before* its start is a genuine move away —
-    // holding the old line there would strand auto-follow on a stale segment.
-    if (activeIndex >= 0 && currentTime < (safeSegments[activeIndex]?.start ?? 0)) {
+
+    // Nothing strictly covers `currentTime`. Gaps between cues are normal (silence).
+    // If playing/seeking before active segment start, reset or re-evaluate.
+    if (activeIndex >= 0) {
+      const currentSeg = safeSegments[activeIndex];
+      const nextSeg = safeSegments[activeIndex + 1];
+      if (currentTime < (currentSeg?.start ?? 0)) {
+        // Seeked backward before current segment
+        const prevIndex = safeSegments.findIndex(
+          (seg) => currentTime >= seg.start
+        );
+        setActiveIndex(prevIndex);
+      } else if (nextSeg && currentTime >= nextSeg.start) {
+        // Advanced into or past next segment
+        const nextIndex = safeSegments.findIndex(
+          (seg) => currentTime >= seg.start && currentTime < seg.end
+        );
+        setActiveIndex(nextIndex !== -1 ? nextIndex : activeIndex + 1);
+      }
+    } else if (currentTime < safeSegments[0].start) {
       setActiveIndex(-1);
     }
   }, [currentTime, safeSegments, activeIndex]);

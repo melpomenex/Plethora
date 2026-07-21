@@ -292,14 +292,56 @@ def fetch_transcript_direct(video_id, proxy=None, cookies_header=None):
         start = event.get("tStartMs", 0) / 1000.0
         duration = event.get("dDurationMs", 0) / 1000.0
 
+        t_start_ms = event.get("tStartMs", 0)
+        d_duration_ms = event.get("dDurationMs", 0)
+        event_end_ms = t_start_ms + d_duration_ms
+
+        raw_words = []
+        for seg in event.get("segs", []):
+            raw_text = seg.get("utf8", "")
+            if not raw_text:
+                continue
+            clean_chunk = html.unescape(raw_text)
+            offset_ms = seg.get("tOffsetMs", 0)
+            seg_start_ms = t_start_ms + offset_ms
+            
+            tokens = [t for t in clean_chunk.split() if t]
+            for token in tokens:
+                raw_words.append({
+                    "word": token,
+                    "start_ms": seg_start_ms
+                })
+
         text = "".join(seg.get("utf8", "") for seg in event["segs"])
         text = html.unescape(text).strip()
 
         if text:
-            segments.append({"text": text, "start": start, "duration": duration})
+            words = []
+            if raw_words:
+                for idx_w in range(len(raw_words)):
+                    curr_w = raw_words[idx_w]
+                    st_m = curr_w["start_ms"]
+                    if idx_w < len(raw_words) - 1:
+                        next_st = raw_words[idx_w + 1]["start_ms"]
+                        en_m = next_st if next_st > st_m else st_m + 300
+                    else:
+                        en_m = max(event_end_ms, st_m + 300)
+                    words.append({
+                        "word": curr_w["word"],
+                        "start_ms": int(st_m),
+                        "end_ms": int(en_m)
+                    })
+                # Verify ordinal invariant: token count matches words count
+                norm_text = " ".join(w["word"] for w in words)
+                if len(norm_text.split()) != len(words):
+                    words = None
+            else:
+                words = None
 
-    if not segments:
-        raise Exception("No transcript segments found")
+            seg_dict = {"text": text, "start": start, "duration": duration}
+            if words:
+                seg_dict["words"] = words
+            segments.append(seg_dict)
 
     if not segments:
         raise Exception("No transcript segments found")

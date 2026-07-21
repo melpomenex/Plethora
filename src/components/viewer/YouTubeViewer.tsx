@@ -69,9 +69,9 @@ function toTranscriptSegments(raw: RawTranscriptSegment[]): TranscriptSegment[] 
     const declaredEnd = seg.start + seg.duration;
     const nextStart = raw[i + 1]?.start;
     const end =
-      nextStart !== undefined && nextStart > seg.start && nextStart < declaredEnd
+      nextStart !== undefined && nextStart > seg.start
         ? nextStart
-        : declaredEnd;
+        : Math.max(declaredEnd, seg.start + 0.5);
     return {
       id: `seg-${i}`,
       start: seg.start,
@@ -246,6 +246,7 @@ export function YouTubeViewer({
   }, []);
 
   const playerReadyRef = useRef(false);
+  const [playerReady, setPlayerReady] = useState(false);
   const desiredStartTimeRef = useRef(0);
   const initialSeekAppliedRef = useRef(false);
   const userInteractedRef = useRef(false);
@@ -874,22 +875,44 @@ export function YouTubeViewer({
   // re-read a stale value. The transcript panel interpolates between these
   // samples instead — see useKaraokeClock in TranscriptSync.
   useEffect(() => {
-    if (!isPlaying || !playerRef.current) return;
+    if (!showInlinePlayer || !playerReady || !playerRef.current) return;
     const isLinux = getPlatform() === "linux";
     const pollMs = isLinux ? 500 : 250;
     const intervalId = setInterval(async () => {
       try {
-        const time = await playerRef.current.getCurrentTime();
-        if (typeof time === "number" && Number.isFinite(time)) {
-          setCurrentTime(time);
-          onTimeUpdateRef.current?.(time);
+        const player = playerRef.current;
+        if (!player) return;
+
+        let currentState = -1;
+        try {
+          if (typeof player.getPlayerState === "function") {
+            currentState = await player.getPlayerState();
+          }
+        } catch {
+          // ignore state check error
+        }
+
+        // Sync playing state if player reports playing (1) or paused (2/0)
+        if (currentState === 1 && !isPlaying) {
+          setIsPlaying(true);
+        } else if ((currentState === 2 || currentState === 0) && isPlaying) {
+          setIsPlaying(false);
+        }
+
+        // Poll current time when playing (1), buffering (3), or isPlaying state is true
+        if (isPlaying || currentState === 1 || currentState === 3) {
+          const time = await player.getCurrentTime();
+          if (typeof time === "number" && Number.isFinite(time)) {
+            setCurrentTime(time);
+            onTimeUpdateRef.current?.(time);
+          }
         }
       } catch {
         // Ignore — player not ready or cross-origin hiccup.
       }
     }, pollMs);
     return () => clearInterval(intervalId);
-  }, [isPlaying]);
+  }, [isPlaying, playerReady, showInlinePlayer]);
 
   // Seek to time - opens video at specific timestamp
   const handleSeek = useCallback((time: number, endTime?: number) => {
@@ -1013,6 +1036,7 @@ export function YouTubeViewer({
   const onPlayerReady = (event: any) => {
     playerRef.current = event.target;
     playerReadyRef.current = true;
+    setPlayerReady(true);
     try {
       const iframe = event?.target?.getIframe?.() as HTMLIFrameElement | undefined;
       if (iframe) {
