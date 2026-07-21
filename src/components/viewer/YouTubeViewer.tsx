@@ -181,7 +181,7 @@ export function YouTubeViewer({
   });
   const [resolvedTitle, setResolvedTitle] = useState<string | undefined>(title);
   const titleFetchRef = useRef<string | null>(null);
-  const [showInlinePlayer, setShowInlinePlayer] = useState(false);
+  const [showInlinePlayer, setShowInlinePlayer] = useState(true);
   const [showArchivePrompt, setShowArchivePrompt] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
   const [hasEnded, setHasEnded] = useState(false);
