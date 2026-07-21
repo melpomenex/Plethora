@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.89.0] - 2026-07-21
+
+### Added
+
+- **Kindle `My Clippings.txt` imports from anywhere** — Drag & drop, the main Import button, folder import, and clipboard paste now detect a `My Clippings.txt` and route it to the dedicated Kindle parser, opening the same preview/dedup dialog as Settings → Import/Export. Previously these paths stored the file as an unreadable `.txt` blob that flashed in the Queue and hit the "preview not available" wall. Detection is filename + content sniff (so plain `.txt` files are untouched), and a shared Rust detector covers every backend entry point; an "Import as plain text" fallback is offered when a misnamed file fails validation. The dead, conflicting `commands/file_drop.rs` classifier was removed.
+- **Per-word karaoke transcript highlighting** — YouTube transcripts now highlight the active word during playback, matching the existing podcast/audiobook behavior. Both YouTube caption sources (InnerTube `json3` `tOffsetMs` and yt-dlp auto-sub VTT inline cues) are normalized into per-word timings via a shared `youtube/captions.rs` parser with a strict ordinal invariant (a wrong highlight degrades to plain text rather than highlighting the wrong word). The active-word lookup and karaoke renderer are extracted into shared `wordTimings.ts` / `KaraokeText.tsx` so podcasts, audiobooks, and YouTube share one implementation. A small CSP relaxation (`script-src-elem 'unsafe-inline'` for YouTube origins) lets the IFrame API script tag load.
+- **SM-20 Algorithm Arena test coverage** — The arena review path gains new parity tests (lapse family dispatch, interval bounds, post-lapse stability) and `d_index`/`r_index` are re-exported as the more descriptive `difficulty_to_index` / `r_index` for preview callers. No production behavior change.
+
+### Fixed & Improved
+
+- **Kindle documents now preview correctly** — Kindle clippings documents were stored with `fileType: "other"` and only rendered when the viewer's content-based markdown coercion fired, which it doesn't for docs loaded via the library list endpoint (content is stripped to keep the payload small) — so they showed as "other" and hit the "preview not available" wall. The import now sets `fileType: "markdown"` (matching the actual body: blockquoted highlights + bold notes), migration `064_kindle_clippings_docs_are_markdown` repairs existing Kindle docs in-place on first launch, and the viewer's `inferFileType` recognizes `kindle://` paths as a safety net so there's no flash of "preview not available" during hydrate.
+- **Tour coach mark fits narrow phone viewports** — The onboarding coach-mark placement only checked whether a side fit on its primary axis; a wide coach mark attached top/bottom to a small bottom-nav button on a phone would still overflow the left/right edge and get rejected, falling through to the clamped overlap fallback. A side is now accepted whenever it fits on its primary axis and then shifted along the cross axis into the viewport, keeping the preferred vertical side for bottom-nav anchors on mobile. Adds a placement regression test simulating a narrow phone viewport.
+- **`cargo fmt` applied across the backend** — The Rust crate had drifted from `cargo fmt`; ~25 files of pure reformatting (no semantic change) are landed so future diffs are reviewable.
+
 ## [1.88.1] - 2026-07-20
 
 ### Fixed & Improved
