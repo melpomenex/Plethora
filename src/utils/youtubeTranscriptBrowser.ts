@@ -555,27 +555,46 @@ export async function fetchYouTubeTranscript(
     throw new Error('Invalid YouTube video ID or URL');
   }
 
-  if (isTauri() && !isNativeMobile()) {
-    // Desktop Tauri build: use the backend yt-dlp transcript fetcher.
-    // (Native mobile builds fall through to the hosted API below — yt-dlp
-    // can't run on Android/iOS, so the Rust command would fail.)
-    const { invokeCommand } = await import("../lib/tauri");
-    const result = await invokeCommand<TranscriptSegment[] | null>(
-      "get_youtube_transcript_by_id",
-      { videoId }
-    );
+  if (isTauri()) {
+    try {
+      const { invokeCommand } = await import("../lib/tauri");
 
-    if (!result) {
-      throw new Error('Transcript not available via Tauri backend');
+      // 1. Try on-device Rust InnerTube transcript fetcher (bypasses browser CORS & datacenter bot checks)
+      const onDeviceRes = await invokeCommand<any>("fetch_youtube_transcript_on_device", {
+        videoId,
+        language: language || null,
+        documentId: null,
+      }).catch(() => null);
+
+      if (onDeviceRes) {
+        if (onDeviceRes.kind === "Ok" && Array.isArray(onDeviceRes.segments) && onDeviceRes.segments.length > 0) {
+          return {
+            segments: onDeviceRes.segments,
+            videoId,
+            language: onDeviceRes.language || language || "en",
+          };
+        }
+        if (onDeviceRes.kind === "Err" && onDeviceRes.detail) {
+          console.warn("[YouTubeTranscript] On-device Rust fetch error:", onDeviceRes.kind, onDeviceRes.detail);
+        }
+      }
+
+      // 2. Fallback to get_youtube_transcript_by_id
+      const backendSegments = await invokeCommand<TranscriptSegment[] | null>(
+        "get_youtube_transcript_by_id",
+        { videoId, language: language || null, documentId: null }
+      ).catch(() => null);
+
+      if (backendSegments && Array.isArray(backendSegments) && backendSegments.length > 0) {
+        return {
+          segments: backendSegments.map(item => ({ ...item })),
+          videoId,
+          language: language || 'en',
+        };
+      }
+    } catch (e) {
+      console.warn("[YouTubeTranscript] Tauri Rust backend fetch failed, falling back to web API:", e);
     }
-
-    return {
-      // Spread rather than rebuilding field-by-field: a rebuild silently drops
-      // any field the backend adds (this is how `words` used to vanish here).
-      segments: result.map(item => ({ ...item })),
-      videoId,
-      language: language || 'en',
-    };
   }
 
   const isLocalhost = typeof window !== 'undefined' &&
