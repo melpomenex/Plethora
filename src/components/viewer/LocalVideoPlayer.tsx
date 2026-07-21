@@ -1669,6 +1669,8 @@ export function LocalVideoPlayer({
                   currentTime={currentTime}
                   onSeek={handleSeek}
                   className="h-full"
+                  isPlaying={isPlaying}
+                  playbackRate={playbackRate}
                 />
               )}
             </div>

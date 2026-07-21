@@ -67,6 +67,8 @@ import { getEpisodePosition, updateEpisodePosition, markEpisodePlayed, downloadE
 import { isNativeMobile } from "../../lib/tauri";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import { resolveLocalMediaSource } from "./localMediaSource";
+import { KaraokeText } from "../media/KaraokeText";
+import { findActiveWordIndex, type WordTiming } from "../../utils/wordTimings";
 import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
 
 export type AudiobookPlaybackErrorKind = "source" | "codec";
@@ -179,58 +181,16 @@ interface MultiPartInfo {
   partDurations: number[];
 }
 
-interface PodcastWordTiming {
-  word: string;
-  start_ms: number;
-  end_ms: number;
-}
-
-/**
- * Find the index (into `wordTimings`) of the word currently being spoken at
- * `currentTimeSec`. Used by the podcast transcript panel for karaoke-style
- * word highlighting synced to audio playback.
- *
- * - Returns the word whose [start_ms, end_ms] contains the current time, with a
- *   sticky tolerance in the gap AFTER a word so the highlight doesn't flicker
- *   off between adjacent words. The tolerance is capped so it never reaches the
- *   NEXT word's start (otherwise tightly-packed words with no gap would keep the
- *   earlier word highlighted through the later one).
- * - If we're past the last word's end but still inside the segment, keeps the
- *   last word highlighted (don't blank out mid-sentence).
- * - Returns -1 when no word is active (e.g. before the first word, or no
- *   timings). Exported so it can be unit-tested in isolation.
- */
-export function findActiveWordIndex(
-  wordTimings: PodcastWordTiming[],
-  currentTimeSec: number,
-): number {
-  if (!wordTimings || wordTimings.length === 0) return -1;
-  const currentMs = currentTimeSec * 1000;
-  for (let i = 0; i < wordTimings.length; i++) {
-    const w = wordTimings[i];
-    // The sticky window extends 200ms after this word's end, but is capped just
-    // before the next word's start so we hand off cleanly when words are
-    // back-to-back (the next word's start belongs to the next word, not this one).
-    const nextStart = i + 1 < wordTimings.length ? wordTimings[i + 1].start_ms : Infinity;
-    const toleranceEnd = w.end_ms + 200;
-    // If the tolerance would reach the next word, hand off at nextStart (exclusive).
-    const windowEnd = toleranceEnd >= nextStart ? nextStart - 1 : toleranceEnd;
-    if (currentMs >= w.start_ms && currentMs <= windowEnd) {
-      return i;
-    }
-  }
-  if (currentMs > wordTimings[wordTimings.length - 1].end_ms) {
-    return wordTimings.length - 1;
-  }
-  return -1;
-}
+// Re-exported for callers that historically imported it from here; the
+// implementation now lives in utils/wordTimings so the YouTube transcript panel
+// can share the exact same active-word math.
+export { findActiveWordIndex };
 
 /**
  * Render a transcript segment's text. When per-word timings are available (Groq
  * word-level transcription) AND this segment is the active one, highlight the
  * single word currently being spoken (karaoke-style), syncing to `currentTime`.
- * Otherwise render the plain segment text. The active word gets a bold +
- * primary-colored style so it stands out as audio plays.
+ * Otherwise render the plain segment text.
  */
 function PodcastSegmentText({
   text,
@@ -239,39 +199,18 @@ function PodcastSegmentText({
   isActive,
 }: {
   text: string;
-  wordTimings?: PodcastWordTiming[];
+  wordTimings?: WordTiming[];
   currentTime: number;
   isActive: boolean;
 }) {
-  // Only do word-level highlighting on the active segment, and only when real
-  // word timings are present. Non-active segments render plain text (cheaper
-  // and lets the user read ahead without a jumble of highlights).
-  if (!isActive || !wordTimings || wordTimings.length === 0) {
-    return <p className="text-sm leading-relaxed">{text}</p>;
-  }
-
-  const activeIdx = findActiveWordIndex(wordTimings, currentTime);
-
-  // Split the segment text into tokens (words + whitespace) so we can wrap each
-  // word in a span while preserving original spacing. Match words by greedy
-  // whitespace splitting — the wordTimings word strings should align closely.
-  const tokens = text.split(/(\s+)/);
-  let wordTokenIdx = -1;
   return (
     <p className="text-sm leading-relaxed">
-      {tokens.map((token, i) => {
-        const isWord = token.trim().length > 0;
-        if (isWord) wordTokenIdx++;
-        const highlight = isWord && wordTokenIdx === activeIdx;
-        return (
-          <span
-            key={i}
-            className={highlight ? "font-bold text-primary bg-primary/10 rounded px-0.5" : undefined}
-          >
-            {token}
-          </span>
-        );
-      })}
+      <KaraokeText
+        text={text}
+        wordTimings={wordTimings}
+        currentTime={currentTime}
+        isActive={isActive}
+      />
     </p>
   );
 }

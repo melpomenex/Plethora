@@ -66,13 +66,13 @@ export interface YouTubeSearchResult {
 }
 
 /**
- * YouTube transcript segment
+ * YouTube transcript segment.
+ *
+ * Re-exported from the source chain so there is exactly one declaration — four
+ * parallel copies is how the optional `words` field gets forgotten on a hop.
  */
-export interface YouTubeTranscriptSegment {
-  text: string;
-  start: number; // in seconds
-  duration: number; // in seconds
-}
+import type { YouTubeTranscriptSegment } from "../lib/transcript/sourceChain";
+export type { YouTubeTranscriptSegment };
 
 /**
  * Extract video ID from various YouTube URL formats

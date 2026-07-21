@@ -8,6 +8,8 @@ import {
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
 
+const PROGRAMMATIC_SCROLL_LOCK_MS = 500;
+
 interface TranscriptPanelProps {
   bookId: string;
   chapterId: string;
@@ -42,6 +44,9 @@ export function TranscriptPanel({
   const userScrollingRef = useRef<boolean>(false);
   const programmaticScrollRef = useRef<boolean>(false);
   const lastProgrammaticScrollAtRef = useRef<number>(0);
+  const programmaticScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userTouchActiveRef = useRef<boolean>(false);
+  const activeWasOutsideViewportRef = useRef<boolean>(false);
 
   useEffect(() => {
     loadTranscript(bookId, chapterId);
@@ -84,6 +89,13 @@ export function TranscriptPanel({
       programmaticScrollRef.current = true;
       lastProgrammaticScrollAtRef.current = Date.now();
       container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+      if (programmaticScrollTimeoutRef.current) {
+        clearTimeout(programmaticScrollTimeoutRef.current);
+      }
+      programmaticScrollTimeoutRef.current = setTimeout(() => {
+        programmaticScrollRef.current = false;
+        programmaticScrollTimeoutRef.current = null;
+      }, PROGRAMMATIC_SCROLL_LOCK_MS);
     }, 150);
 
     return () => {
@@ -103,7 +115,12 @@ export function TranscriptPanel({
     const containerRect = container.getBoundingClientRect();
     const elementRect = element.getBoundingClientRect();
     const isVisible = elementRect.bottom > containerRect.top && elementRect.top < containerRect.bottom;
-    if (isVisible) setFollowPausedByUser(false);
+    if (!isVisible) {
+      activeWasOutsideViewportRef.current = true;
+    } else if (activeWasOutsideViewportRef.current) {
+      activeWasOutsideViewportRef.current = false;
+      setFollowPausedByUser(false);
+    }
   }, [currentTimeMs, followPausedByUser]);
 
   // Detect manual scrolling and pause follow.
@@ -111,8 +128,12 @@ export function TranscriptPanel({
     const container = scrollRef.current;
     if (!container) return;
     const handleScroll = () => {
-      if (programmaticScrollRef.current) return;
-      if (Date.now() - lastProgrammaticScrollAtRef.current < 120) return;
+      if (userTouchActiveRef.current) {
+        programmaticScrollRef.current = false;
+      } else {
+        if (programmaticScrollRef.current) return;
+        if (Date.now() - lastProgrammaticScrollAtRef.current < 120) return;
+      }
       userScrollingRef.current = true;
       if (autoScroll && !followPausedByUser) setFollowPausedByUser(true);
     };
@@ -120,11 +141,31 @@ export function TranscriptPanel({
     return () => container.removeEventListener("scroll", handleScroll);
   }, [autoScroll, followPausedByUser]);
 
+  useEffect(() => {
+    return () => {
+      if (programmaticScrollTimeoutRef.current) {
+        clearTimeout(programmaticScrollTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const toggleAutoScroll = (checked: boolean) => {
     setAutoScroll(checked);
     localStorage.setItem("transcript-autoscroll", String(checked));
     userScrollingRef.current = false;
     setFollowPausedByUser(false);
+  };
+
+  const handleTouchStart = () => {
+    userTouchActiveRef.current = true;
+    programmaticScrollRef.current = false;
+    lastProgrammaticScrollAtRef.current = 0;
+  };
+
+  const handleTouchEnd = () => {
+    requestAnimationFrame(() => {
+      userTouchActiveRef.current = false;
+    });
   };
 
   const filteredSegments = activeSegments.filter((s) =>
@@ -167,8 +208,12 @@ export function TranscriptPanel({
       {/* Content */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-4 custom-scrollbar"
+        className="flex-1 transcript-scroll-container overflow-y-auto overscroll-contain p-4 space-y-4 custom-scrollbar"
+        style={{ touchAction: "pan-y", overscrollBehaviorY: "contain" }}
         data-transcript-scroll="true"
+        onTouchStartCapture={handleTouchStart}
+        onTouchEndCapture={handleTouchEnd}
+        onTouchCancelCapture={handleTouchEnd}
       >
         {isTranscribing && (
           <div className="flex items-center justify-center p-4 bg-primary/5 rounded-lg border border-primary/20">

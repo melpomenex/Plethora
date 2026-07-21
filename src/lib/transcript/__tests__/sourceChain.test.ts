@@ -131,4 +131,77 @@ describe("Transcript Source Chain", () => {
       })
     );
   });
+
+  // Per-word timings drive the transcript panel's karaoke highlighting. They
+  // ride along on each segment as an optional `words` field, so every hop in
+  // this chain has to pass segments through rather than rebuild them — a
+  // field-by-field rebuild anywhere here silently drops the feature.
+  describe("per-word timing pass-through", () => {
+    const wordySegments = [
+      {
+        text: "Hello world",
+        start: 0,
+        duration: 1,
+        words: [
+          { word: "Hello", start_ms: 0, end_ms: 400 },
+          { word: "world", start_ms: 400, end_ms: 1000 },
+        ],
+      },
+    ];
+
+    it("returns on-device segments with their word timings intact", async () => {
+      mockInvokeCommand.mockResolvedValue({
+        status: "ok",
+        segments: wordySegments,
+        language: "en",
+      });
+
+      const result = await resolveTranscript("video123");
+
+      expect(result.segments).toEqual(wordySegments);
+    });
+
+    it("resolves normally when segments carry no word timings", async () => {
+      mockInvokeCommand.mockResolvedValue({
+        status: "ok",
+        segments: [{ text: "Hello", start: 0, duration: 1 }],
+        language: "en",
+      });
+
+      const result = await resolveTranscript("video123");
+
+      expect(result.segments[0].words).toBeUndefined();
+    });
+
+    it("round-trips word timings in the cache-warming upload body", async () => {
+      useSettingsStore.setState({
+        settings: {
+          ...originalSettings,
+          youtube: {
+            apiKey: undefined,
+            enabled: false,
+            transcriptServerUrl: "https://my-vps.com",
+            transcriptServerApiKey: "my-key",
+            transcriptOnDeviceEnabled: true,
+          },
+        },
+      });
+      mockInvokeCommand.mockResolvedValue({
+        status: "ok",
+        segments: wordySegments,
+        language: "en",
+      });
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+      globalThis.fetch = mockFetch;
+
+      await resolveTranscript("video123");
+
+      const uploadCall = mockFetch.mock.calls.find(([url]) =>
+        String(url).includes("/worker/upload")
+      );
+      expect(uploadCall).toBeDefined();
+      const body = JSON.parse(uploadCall![1].body);
+      expect(body.segments).toEqual(wordySegments);
+    });
+  });
 });

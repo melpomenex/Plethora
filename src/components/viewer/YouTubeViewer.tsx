@@ -44,6 +44,43 @@ import {
 } from "../../api/sponsorblock";
 import { extractYouTubeVideoId } from "../../utils/youtubeEmbed";
 import { isNetworkDebugEnabled } from "../../debug/networkDebug";
+import type { WordTiming } from "../../utils/wordTimings";
+
+/** Wire shape of a caption cue, from either the Tauri backend or the web API. */
+interface RawTranscriptSegment {
+  text: string;
+  start: number;
+  duration: number;
+  /** Per-word offsets, when the caption track carried them (ASR tracks do). */
+  words?: WordTiming[];
+}
+
+/**
+ * Normalize caption cues into the panel's segment shape.
+ *
+ * YouTube's auto-captions use a rolling window, so a cue's declared duration
+ * routinely runs past the next cue's start. The panel picks the active line with
+ * a first-match scan, so overlapping ranges make the highlight jump backwards
+ * mid-playback — clamping each cue to end where the next one begins keeps the
+ * ranges disjoint and the highlight monotonic.
+ */
+function toTranscriptSegments(raw: RawTranscriptSegment[]): TranscriptSegment[] {
+  return raw.map((seg, i) => {
+    const declaredEnd = seg.start + seg.duration;
+    const nextStart = raw[i + 1]?.start;
+    const end =
+      nextStart !== undefined && nextStart > seg.start && nextStart < declaredEnd
+        ? nextStart
+        : declaredEnd;
+    return {
+      id: `seg-${i}`,
+      start: seg.start,
+      end,
+      text: seg.text,
+      wordTimings: seg.words,
+    };
+  });
+}
 
 interface YouTubeViewerProps {
   videoId: string;
@@ -167,6 +204,7 @@ export function YouTubeViewer({
   // SponsorBlock state
   const [segments, setSegments] = useState<SponsorBlockSegment[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const playerRef = useRef<YouTubePlayer | null>(null);
   const _lastSkippedSegmentIdRef = useRef<string | null>(null);
 
@@ -515,7 +553,7 @@ export function YouTubeViewer({
 
       if (isTauri() && !isNativeMobile()) {
         // Use Tauri backend for desktop app
-        const transcriptData = await invoke<Array<{ text: string; start: number; duration: number }> | null>(
+        const transcriptData = await invoke<RawTranscriptSegment[] | null>(
           "get_youtube_transcript_by_id",
           { videoId: normalizedVideoId, documentId }
         );
@@ -533,23 +571,13 @@ export function YouTubeViewer({
           return;
         }
 
-        segments = transcriptData.map((seg, i) => ({
-          id: `seg-${i}`,
-          start: seg.start,
-          end: seg.start + seg.duration,
-          text: seg.text,
-        }));
+        segments = toTranscriptSegments(transcriptData);
         fetchedDuration = segments[segments.length - 1]?.end || 0;
       } else {
         // Use web API for browser app
         const result = await fetchYouTubeTranscript(normalizedVideoId);
 
-        segments = result.segments.map((seg, i) => ({
-          id: `seg-${i}`,
-          start: seg.start,
-          end: seg.start + seg.duration,
-          text: seg.text,
-        }));
+        segments = toTranscriptSegments(result.segments);
         fetchedDuration = segments[segments.length - 1]?.end || 0;
       }
 
@@ -839,6 +867,12 @@ export function YouTubeViewer({
   // (and forwards onTimeUpdate) so the transcript can follow the spoken word
   // promptly. WebKitGTK on Linux is prone to origin-mismatch errors, so it gets
   // a gentler cadence there.
+  //
+  // Word-level highlighting needs a much smoother clock than this, but polling
+  // faster wouldn't provide one: getCurrentTime() is only refreshed by the
+  // player's cross-origin messages (a few times a second), so extra calls just
+  // re-read a stale value. The transcript panel interpolates between these
+  // samples instead — see useKaraokeClock in TranscriptSync.
   useEffect(() => {
     if (!isPlaying || !playerRef.current) return;
     const isLinux = getPlatform() === "linux";
@@ -996,6 +1030,12 @@ export function YouTubeViewer({
         console.warn("[YouTubeViewer] Failed to inspect iframe element:", error);
       }
     }
+    try {
+      const rate = event?.target?.getPlaybackRate?.();
+      if (typeof rate === "number" && Number.isFinite(rate) && rate > 0) setPlaybackRate(rate);
+    } catch {
+      // Rate is a nicety for the transcript clock; default 1x is fine.
+    }
     void (async () => {
       try {
         const playerDuration = await event.target.getDuration();
@@ -1026,6 +1066,13 @@ export function YouTubeViewer({
         // Autoplay may be blocked by browser policies.
       }
     }
+  };
+
+  // Playback speed feeds the transcript's word-level highlight clock, which
+  // interpolates between the coarse getCurrentTime() samples below.
+  const onPlaybackRateChange = (event: any) => {
+    const rate = typeof event?.data === "number" ? event.data : 1;
+    if (Number.isFinite(rate) && rate > 0) setPlaybackRate(rate);
   };
 
   const onPlayerStateChange = (event: any) => {
@@ -1117,7 +1164,19 @@ export function YouTubeViewer({
     // to advance, matching every other item type. The split is draggable
     // (mobileVideoHeightPct); no effect on desktop.
     if (isCompactMobile) {
-      return { height: `${mobileVideoHeightPct}vh`, maxHeight: `${mobileVideoHeightPct}vh`, flex: "none" };
+      // Publish the video height as a CSS var so the content area below can
+      // compute its own height against the viewport (see the content wrapper's
+      // style below). On Android WebView the flex chain from .adaptive-shell-root
+      // down to the transcript scroller doesn't reliably constrain height, so the
+      // scroller grows to content size and becomes non-scrollable. Bypassing the
+      // chain with an explicit viewport-derived height (mirroring this video
+      // container's approach) fixes it without touching desktop/iOS.
+      return {
+        height: `${mobileVideoHeightPct}vh`,
+        maxHeight: `${mobileVideoHeightPct}vh`,
+        flex: "none",
+        ["--mobile-video-height" as string]: `${mobileVideoHeightPct}vh`,
+      };
     }
     if (transcriptLayout === 'side' && showTranscript) {
       return {
@@ -1190,6 +1249,7 @@ export function YouTubeViewer({
               opts={youtubeOpts}
               onReady={onPlayerReady}
               onStateChange={onPlayerStateChange}
+              onPlaybackRateChange={onPlaybackRateChange}
               onError={onPlayerError}
               className="w-full h-full"
               iframeClassName="w-full h-full"
@@ -1443,7 +1503,13 @@ export function YouTubeViewer({
           "flex flex-col min-h-0 overflow-hidden",
           isCompactMobile && "pb-[calc(76px+env(safe-area-inset-bottom,0px))]"
         )}
-        style={transcriptLayout === 'side' && showTranscript ? { width: transcriptWidth } : { flex: 1 }}
+        style={
+          isCompactMobile
+            ? { height: "calc(var(--app-viewport-height, 100dvh) - var(--mobile-video-height, 58vh))", flex: "none" }
+            : transcriptLayout === 'side' && showTranscript
+              ? { width: transcriptWidth }
+              : { flex: 1 }
+        }
       >
         {/* Video info and transcript */}
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -1581,6 +1647,8 @@ export function YouTubeViewer({
                   highlightQuery={effectiveTranscriptSearchQuery}
                   highlightedSegmentId={initialTranscriptSegmentId}
                   compact={isCompactMobile}
+                  isPlaying={isPlaying}
+                  playbackRate={playbackRate}
                 />
               )}
             </div>

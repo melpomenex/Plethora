@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Clock,
   Copy,
@@ -8,6 +8,8 @@ import {
   Play,
   Lightning,
 } from "@phosphor-icons/react";
+import { KaraokeText } from "./KaraokeText";
+import { synthesizeWordTimings, type WordTiming } from "../../utils/wordTimings";
 
 /**
  * Auto-follow tuning constants.
@@ -27,7 +29,32 @@ const FOLLOW_SAME_INDEX_MIN_MS = 400;
  * treated as user-initiated (trackpads/inertia settle well inside this window).
  */
 const USER_SCROLL_GRACE_MS = 120;
+/**
+ * Backstop for classifying our own smooth scrolls. Normally the animation is
+ * considered finished when it *arrives* at its target; this only covers an
+ * animation that gets interrupted and never arrives, so it is deliberately
+ * generous — a long smooth scroll can easily run past half a second.
+ */
+const PROGRAMMATIC_SCROLL_MAX_MS = 2000;
+/** How close to the target counts as "arrived" (sub-pixel scroll positions). */
+const SCROLL_ARRIVAL_EPSILON_PX = 2;
 const AUTOSCROLL_STORAGE_KEY = "transcript-autoscroll";
+
+/**
+ * Karaoke clock tuning.
+ *
+ * Players report `currentTime` by polling (250ms for YouTube, 500ms on
+ * WebKitGTK) — far too coarse for word-level highlighting, which would step in
+ * visible jerks. Between samples we interpolate from the last one using the
+ * wall clock, committing at most one update per `KARAOKE_MIN_STEP_S`.
+ */
+const KARAOKE_MIN_STEP_S = 0.05;
+/**
+ * Never interpolate more than this far past the last real sample. Bounds the
+ * damage when polling stalls (buffering, a backgrounded window) — the highlight
+ * pauses instead of running away from the audio.
+ */
+const KARAOKE_MAX_LEAD_S = 0.75;
 
 /**
  * Transcript segment
@@ -38,6 +65,12 @@ export interface TranscriptSegment {
   end: number; // End time in seconds
   text: string;
   speaker?: string;
+  /**
+   * MEASURED per-word timings, when the producer has them (YouTube ASR caption
+   * tracks, Groq word-level transcription). Never synthesized upstream — the
+   * panel estimates its own fallback and renders it differently.
+   */
+  wordTimings?: WordTiming[];
 }
 
 export interface TranscriptSearchState {
@@ -103,7 +136,223 @@ interface TranscriptSyncProps {
    * Render a denser touch layout for constrained mobile video/transcript splits.
    */
   compact?: boolean;
+  /**
+   * Whether media is currently playing. Only used to decide whether to
+   * interpolate between `currentTime` samples for word-level highlighting;
+   * when false the panel highlights the word at the paused position and runs
+   * no animation loop.
+   */
+  isPlaying?: boolean;
+  /** Playback speed, so the interpolated clock tracks 1.5x/2x listening. */
+  playbackRate?: number;
 }
+
+/**
+ * A smooth playback clock derived from coarse `currentTime` samples.
+ *
+ * Returns `currentTime` untouched unless we're actively playing a segment with
+ * word-level highlighting on screen; in that case it runs a rAF loop that
+ * advances the clock from the last sample using `performance.now()`, committing
+ * a new value only when it has moved by `KARAOKE_MIN_STEP_S` (~20 renders/sec
+ * worst case). rAF is suspended by the browser when the window is hidden, so an
+ * unwatched tab costs nothing.
+ */
+function useKaraokeClock(
+  currentTime: number,
+  isPlaying: boolean,
+  rate: number,
+  enabled: boolean,
+): number {
+  const [clock, setClock] = useState(currentTime);
+  const anchorTimeRef = useRef(currentTime);
+  const anchorPerfRef = useRef(0);
+  const emittedRef = useRef(currentTime);
+  const active = enabled && isPlaying;
+
+  // Re-anchor on every real sample. Resync the visible clock only when our
+  // interpolation has drifted from the truth (or the user seeked) — otherwise
+  // the sample is exactly what we already predicted and re-rendering is waste.
+  useEffect(() => {
+    anchorTimeRef.current = currentTime;
+    anchorPerfRef.current = typeof performance !== "undefined" ? performance.now() : 0;
+    if (Math.abs(currentTime - emittedRef.current) >= KARAOKE_MIN_STEP_S) {
+      emittedRef.current = currentTime;
+      setClock(currentTime);
+    }
+  }, [currentTime, isPlaying, rate]);
+
+  useEffect(() => {
+    if (!active || typeof requestAnimationFrame === "undefined") return;
+    let frame = 0;
+    const step = () => {
+      frame = requestAnimationFrame(step);
+      const elapsed = (performance.now() - anchorPerfRef.current) / 1000;
+      const lead = Math.min(elapsed * rate, KARAOKE_MAX_LEAD_S);
+      const next = anchorTimeRef.current + lead;
+      if (Math.abs(next - emittedRef.current) >= KARAOKE_MIN_STEP_S) {
+        emittedRef.current = next;
+        setClock(next);
+      }
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [active, rate]);
+
+  return active ? clock : currentTime;
+}
+
+// Format time — module-level so the memoized row doesn't take it as a prop.
+const formatTime = (time: number) => {
+  const hours = Math.floor(time / 3600);
+  const minutes = Math.floor((time % 3600) / 60);
+  const seconds = Math.floor(time % 60);
+
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  }
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+};
+
+interface TranscriptRowProps {
+  segment: TranscriptSegment;
+  isActive: boolean;
+  isExternallyHighlighted: boolean;
+  isSearchHit: boolean;
+  showTimestamps: boolean;
+  showSpeakers: boolean;
+  compact: boolean;
+  highlightQuery: string;
+  /**
+   * Playback clock for word highlighting. Non-active rows are handed a constant
+   * so `React.memo` short-circuits them — without that, every row would
+   * re-render on every clock tick.
+   */
+  wordClock: number;
+  onSelect: (segment: TranscriptSegment) => void;
+  setRef: (element: HTMLDivElement | null, isActive: boolean, isHighlighted: boolean) => void;
+}
+
+const TranscriptRow = React.memo(function TranscriptRow({
+  segment,
+  isActive,
+  isExternallyHighlighted,
+  isSearchHit,
+  showTimestamps,
+  showSpeakers,
+  compact,
+  highlightQuery,
+  wordClock,
+  onSelect,
+  setRef,
+}: TranscriptRowProps) {
+  const isParagraphStart = (segment as any).isParagraphStart;
+
+  const handleRef = useCallback(
+    (element: HTMLDivElement | null) => setRef(element, isActive, isExternallyHighlighted),
+    [setRef, isActive, isExternallyHighlighted],
+  );
+
+  // Measured timings when the producer supplied them; otherwise estimate from
+  // the segment's own span so human-authored caption tracks still get word
+  // highlighting (rendered in the muted "approximate" style). Only the spoken
+  // line needs this, and it's computed once per segment rather than per tick.
+  const { timings, approximate } = useMemo(() => {
+    if (!isActive) return { timings: undefined, approximate: false };
+    if (segment.wordTimings?.length) {
+      return { timings: segment.wordTimings, approximate: false };
+    }
+    return {
+      timings: synthesizeWordTimings(segment.text, segment.start, segment.end),
+      approximate: true,
+    };
+  }, [isActive, segment.wordTimings, segment.text, segment.start, segment.end]);
+
+  const query = highlightQuery.trim();
+  // A multi-word query can straddle a token boundary, which per-token marking
+  // can't express. Search is a transient mode, so it wins for that segment.
+  const karaokeOk = isActive && !/\s/.test(query);
+
+  return (
+    <div
+      ref={handleRef}
+      onClick={() => onSelect(segment)}
+      className={`group relative rounded-lg cursor-pointer transition-all duration-200 ${
+        isActive
+          ? "bg-primary/15 border-l-4 border-l-primary border-y border-r border-primary/20 shadow-sm"
+          : isExternallyHighlighted
+          ? "bg-amber-500/15 border-l-4 border-l-amber-500 border-y border-r border-amber-500/30 shadow-sm"
+          : isSearchHit
+          ? "bg-amber-500/10 border-l-4 border-l-amber-500 border-y border-r border-amber-500/20"
+          : "bg-transparent hover:bg-muted/40 border-l-4 border-l-transparent border-y border-r border-transparent"
+      } ${isParagraphStart ? (compact ? "mt-3 first:mt-0" : "mt-4 first:mt-0") : ""}`}
+      role="option"
+      tabIndex={0}
+      aria-selected={isActive}
+    >
+      <div className={`flex items-start ${compact ? "gap-2 p-2.5" : "gap-3 p-3"}`}>
+        {/* Timestamp with play button */}
+        {showTimestamps && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(segment);
+            }}
+            className={`flex-shrink-0 flex items-center gap-1.5 text-xs font-medium transition-all ${
+              isActive ? "text-primary" : "text-muted-foreground hover:text-primary"
+            }`}
+            title={`Jump to ${formatTime(segment.start)}`}
+          >
+            {isActive ? (
+              <Play className="w-3 h-3 fill-current" />
+            ) : (
+              <Clock className="w-3 h-3" />
+            )}
+            <span className="tabular-nums">{formatTime(segment.start)}</span>
+          </button>
+        )}
+
+        {/* Content */}
+        <div className="flex-1 min-w-0 leading-relaxed">
+          {/* Speaker */}
+          {showSpeakers && segment.speaker && (
+            <span
+              className={`text-xs font-semibold mr-2 ${
+                isActive ? "text-primary" : "text-primary/80"
+              }`}
+            >
+              {segment.speaker}
+            </span>
+          )}
+
+          {/* Text */}
+          <span
+            className={`${compact ? "text-[15px] leading-6" : "text-sm"} ${
+              isActive ? "text-foreground font-medium" : "text-foreground/90"
+            }`}
+          >
+            {karaokeOk ? (
+              <KaraokeText
+                text={segment.text}
+                wordTimings={timings}
+                currentTime={wordClock}
+                isActive
+                approximate={approximate}
+                renderToken={(token) => highlightText(token, query)}
+              />
+            ) : (
+              highlightText(segment.text, query)
+            )}
+          </span>
+        </div>
+      </div>
+
+      {/* Active indicator dot */}
+      {isActive && (
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary animate-pulse" />
+      )}
+    </div>
+  );
+});
 
 export function TranscriptSync({
   segments = [],
@@ -124,6 +373,8 @@ export function TranscriptSync({
   highlightedSegmentId,
   groupParagraphs: _groupParagraphs = true,
   compact = false,
+  isPlaying = false,
+  playbackRate = 1,
 }: TranscriptSyncProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState<number>(-1);
@@ -155,12 +406,27 @@ export function TranscriptSync({
   const userScrollingRef = useRef<boolean>(false);
   const programmaticScrollRef = useRef<boolean>(false);
   const lastProgrammaticScrollAtRef = useRef<number>(0);
+  const programmaticScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Where our in-flight smooth scroll is headed; null when none is running.
+  const programmaticTargetRef = useRef<number | null>(null);
+  const userTouchActiveRef = useRef<boolean>(false);
+  const activeWasOutsideViewportRef = useRef<boolean>(false);
   const lastDrivenMatchKeyRef = useRef<string | null>(null);
 
   const effectiveSearchQuery = controlledSearchQuery ?? searchQuery;
   const normalizedSearchQuery = effectiveSearchQuery.trim().toLowerCase();
   const hasSearchQuery = normalizedSearchQuery.length > 0;
-  const safeSegments = segments || [];
+  const safeSegments = useMemo(() => segments || [], [segments]);
+  // id → index, so each row resolves its own index in O(1). The obvious
+  // `segments.indexOf(segment)` is a linear scan *per row per render*, which on
+  // a 1000-segment transcript is a million comparisons on every clock tick.
+  const indexById = useMemo(() => {
+    const map = new Map<string, number>();
+    safeSegments.forEach((seg, i) => {
+      if (!map.has(seg.id)) map.set(seg.id, i);
+    });
+    return map;
+  }, [safeSegments]);
   const matchedSegments = hasSearchQuery
     ? safeSegments.filter((seg) => seg.text.toLowerCase().includes(normalizedSearchQuery))
     : [];
@@ -198,10 +464,34 @@ export function TranscriptSync({
     const index = safeSegments.findIndex(
       (seg) => currentTime >= seg.start && currentTime < seg.end
     );
-    if (index !== -1 && index !== activeIndex) {
-      setActiveIndex(index);
+    if (index !== -1) {
+      if (index !== activeIndex) setActiveIndex(index);
+      return;
     }
-  }, [currentTime, segments, activeIndex, autoFollow]);
+    // Nothing covers `currentTime`. Gaps between cues are normal (silence), and
+    // blanking the highlight there makes it blink, so the last segment stays
+    // lit. But playing/seeking to *before* its start is a genuine move away —
+    // holding the old line there would strand auto-follow on a stale segment.
+    if (activeIndex >= 0 && currentTime < (safeSegments[activeIndex]?.start ?? 0)) {
+      setActiveIndex(-1);
+    }
+  }, [currentTime, safeSegments, activeIndex]);
+
+  // Word-level highlighting only makes sense while a segment is on screen and
+  // the clock is a real playback position (PodcastManager passes -1 for its
+  // static reading view).
+  const karaokeEnabled = activeIndex >= 0 && currentTime >= 0;
+  const karaokeTime = useKaraokeClock(currentTime, isPlaying, playbackRate, karaokeEnabled);
+
+  /** Stop attributing incoming scroll events to our own animation. */
+  const endProgrammaticScroll = useCallback(() => {
+    programmaticScrollRef.current = false;
+    programmaticTargetRef.current = null;
+    if (programmaticScrollTimeoutRef.current) {
+      clearTimeout(programmaticScrollTimeoutRef.current);
+      programmaticScrollTimeoutRef.current = null;
+    }
+  }, []);
 
   // Helper: scroll the active segment to the comfort reading offset.
   // Container-relative (never moves the outer page). The caller decides whether
@@ -228,9 +518,26 @@ export function TranscriptSync({
       return;
     }
 
+    // Remember where the animation is headed, clamped the way the browser will
+    // clamp it, so the scroll listener can tell "my own animation is still
+    // running" from "the user grabbed the panel" by arrival rather than by a
+    // stopwatch — a long smooth scroll easily outlives any fixed timeout, and
+    // mistaking its tail for a user scroll silently kills auto-follow.
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    programmaticTargetRef.current = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
     programmaticScrollRef.current = true;
     lastProgrammaticScrollAtRef.current = Date.now();
     container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+    if (programmaticScrollTimeoutRef.current) {
+      clearTimeout(programmaticScrollTimeoutRef.current);
+    }
+    // Backstop only: if the animation is interrupted and never reaches its
+    // target, don't stay deaf to the user forever.
+    programmaticScrollTimeoutRef.current = setTimeout(() => {
+      programmaticScrollRef.current = false;
+      programmaticTargetRef.current = null;
+      programmaticScrollTimeoutRef.current = null;
+    }, PROGRAMMATIC_SCROLL_MAX_MS);
   };
 
   // Auto-follow: scroll the active segment into the reading position when it
@@ -283,7 +590,10 @@ export function TranscriptSync({
     const elementRect = element.getBoundingClientRect();
     const isVisible =
       elementRect.bottom > containerRect.top && elementRect.top < containerRect.bottom;
-    if (isVisible) {
+    if (!isVisible) {
+      activeWasOutsideViewportRef.current = true;
+    } else if (activeWasOutsideViewportRef.current) {
+      activeWasOutsideViewportRef.current = false;
       setFollowPausedByUser(false);
     }
   }, [activeIndex, followPausedByUser, currentTime]);
@@ -296,10 +606,23 @@ export function TranscriptSync({
     if (!container) return;
 
     const handleScroll = () => {
-      // Ignore scrolls we just triggered ourselves.
-      if (programmaticScrollRef.current) return;
+      // A touch gesture takes priority over playback auto-follow, even when it
+      // starts while a smooth programmatic scroll is still settling.
+      if (userTouchActiveRef.current) {
+        endProgrammaticScroll();
+      } else if (programmaticScrollRef.current) {
+        // Our own animation. It's finished once it reaches where we aimed —
+        // timing it out instead would misread the tail of a long scroll as the
+        // user taking over, which pauses auto-follow for good.
+        const target = programmaticTargetRef.current;
+        if (target !== null && Math.abs(container.scrollTop - target) <= SCROLL_ARRIVAL_EPSILON_PX) {
+          endProgrammaticScroll();
+          lastProgrammaticScrollAtRef.current = Date.now();
+        }
+        return;
+      }
       const sinceProgrammatic = Date.now() - lastProgrammaticScrollAtRef.current;
-      if (sinceProgrammatic < USER_SCROLL_GRACE_MS) return;
+      if (!userTouchActiveRef.current && sinceProgrammatic < USER_SCROLL_GRACE_MS) return;
 
       if (!userScrollingRef.current) {
         userScrollingRef.current = true;
@@ -310,9 +633,39 @@ export function TranscriptSync({
       }
     };
 
+    // Real input always wins: a programmatic animation emits no input events, so
+    // seeing one means the user is genuinely driving the panel and we should
+    // stop attributing scrolls to ourselves immediately.
+    const handleUserGesture = () => endProgrammaticScroll();
+
     container.addEventListener("scroll", handleScroll, { passive: true });
-    return () => container.removeEventListener("scroll", handleScroll);
-  }, [autoFollow, followPausedByUser]);
+    container.addEventListener("wheel", handleUserGesture, { passive: true });
+    container.addEventListener("pointerdown", handleUserGesture, { passive: true });
+    container.addEventListener("keydown", handleUserGesture);
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      container.removeEventListener("wheel", handleUserGesture);
+      container.removeEventListener("pointerdown", handleUserGesture);
+      container.removeEventListener("keydown", handleUserGesture);
+    };
+  }, [autoFollow, followPausedByUser, endProgrammaticScroll]);
+
+  // Mark touch scrolling before the queue-level gesture listener sees the
+  // event. This prevents playback follow from fighting a user's native
+  // WebView scroll gesture.
+  const handleTouchStart = () => {
+    userTouchActiveRef.current = true;
+    endProgrammaticScroll();
+    lastProgrammaticScrollAtRef.current = 0;
+  };
+
+  const handleTouchEnd = () => {
+    // Android may dispatch the final native scroll after touchend (momentum),
+    // so keep the gesture active for one frame.
+    requestAnimationFrame(() => {
+      userTouchActiveRef.current = false;
+    });
+  };
 
   // Scroll to an externally highlighted segment (jump navigation, e.g. command
   // palette or share-link deep-link). Forces the scroll and bypasses the
@@ -347,30 +700,19 @@ export function TranscriptSync({
     resolvedActiveMatchIndex,
   ]);
 
-  // Format time
-  const formatTime = (time: number) => {
-    const hours = Math.floor(time / 3600);
-    const minutes = Math.floor((time % 3600) / 60);
-    const seconds = Math.floor(time % 60);
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-    }
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-  };
-
-  const handleSegmentClick = (segment: TranscriptSegment) => {
+  // Stable across renders so the memoized rows aren't invalidated every tick.
+  const handleSegmentClick = useCallback((segment: TranscriptSegment) => {
     // Optimistically set the active index for instant visual feedback — the
     // active segment is normally derived from currentTime (which lags while the
     // new position buffers), so without this the tap looks like it did nothing.
-    const idx = safeSegments.findIndex((s) => s.id === segment.id);
-    if (idx !== -1) setActiveIndex(idx);
+    const idx = indexById.get(segment.id);
+    if (idx !== undefined) setActiveIndex(idx);
     // Seeking is an explicit navigation action: resume auto-follow immediately
     // so the panel tracks from the new position.
     userScrollingRef.current = false;
     setFollowPausedByUser(false);
     onSeek?.(segment.start);
-  };
+  }, [indexById, onSeek]);
 
   const handleSelection = () => {
     if (!onSelectionChange) return;
@@ -393,6 +735,9 @@ export function TranscriptSync({
     return () => {
       if (selectionTimeoutRef.current) {
         clearTimeout(selectionTimeoutRef.current);
+      }
+      if (programmaticScrollTimeoutRef.current) {
+        clearTimeout(programmaticScrollTimeoutRef.current);
       }
     };
   }, []);
@@ -438,14 +783,18 @@ export function TranscriptSync({
     }
   };
 
-  const setSegmentRefs = (element: HTMLDivElement | null, isActive: boolean, isHighlighted: boolean) => {
+  const setSegmentRefs = useCallback((
+    element: HTMLDivElement | null,
+    isActive: boolean,
+    isHighlighted: boolean,
+  ) => {
     if (isActive) {
       activeSegmentRef.current = element;
     }
     if (isHighlighted) {
       highlightedSegmentRef.current = element;
     }
-  };
+  }, []);
 
   return (
     <div className={`flex flex-col h-full min-h-0 bg-card border border-border overflow-hidden ${compact ? "rounded-t-lg rounded-b-none border-b-0" : "rounded-lg"}`}>
@@ -523,7 +872,11 @@ export function TranscriptSync({
       )}
 
       {/* Transcript segments */}
-      <div className="relative flex-1 min-h-0">
+      {/* Positioning context for the "auto-follow paused" chip. Must itself be a
+          flex column: callers pass `flex-1 min-h-0` as the scroller's className,
+          which only constrains height if this wrapper is a flex container.
+          Without it the scroller grows to content height and never scrolls. */}
+      <div className="relative flex-1 min-h-0 flex flex-col">
         {followPausedByUser && autoFollow && !compact && (
           <button
             onClick={resumeFollow}
@@ -536,8 +889,12 @@ export function TranscriptSync({
         )}
       <div
         ref={containerRef}
-        className={`${className} overflow-y-auto overscroll-contain ${compact ? "p-2.5 pb-4" : "p-4"} space-y-1`}
+        className={`${className} transcript-scroll-container overflow-y-auto overscroll-contain ${compact ? "p-2.5 pb-4" : "p-4"} space-y-1`}
+        style={{ touchAction: "pan-y", overscrollBehaviorY: "contain" }}
         data-transcript-scroll="true"
+        onTouchStartCapture={handleTouchStart}
+        onTouchEndCapture={handleTouchEnd}
+        onTouchCancelCapture={handleTouchEnd}
         onMouseUp={handleSelection}
         onKeyUp={handleSelection}
         tabIndex={0}
@@ -554,81 +911,32 @@ export function TranscriptSync({
           </div>
         ) : (
           filteredSegments.map((segment) => {
-            const segmentIndex = (segments || []).indexOf(segment);
+            const segmentIndex = indexById.get(segment.id) ?? -1;
             const isActive = segmentIndex === activeIndex;
-            const isHighlighted = effectiveHighlightQuery && segment.text.toLowerCase().includes(effectiveHighlightQuery.toLowerCase());
-            const isExternallyHighlighted = effectiveHighlightedSegmentId && segment.id === effectiveHighlightedSegmentId;
-            const isParagraphStart = (segment as any).isParagraphStart;
+            const isExternallyHighlighted = Boolean(
+              effectiveHighlightedSegmentId && segment.id === effectiveHighlightedSegmentId
+            );
 
             return (
-              <div
+              <TranscriptRow
                 key={segment.id}
-                ref={(element) => setSegmentRefs(element, isActive, Boolean(isExternallyHighlighted))}
-                onClick={() => handleSegmentClick(segment)}
-                className={`group relative rounded-lg cursor-pointer transition-all duration-200 ${
-                  isActive
-                    ? "bg-primary/15 border-l-4 border-l-primary border-y border-r border-primary/20 shadow-sm"
-                    : isExternallyHighlighted
-                    ? "bg-amber-500/15 border-l-4 border-l-amber-500 border-y border-r border-amber-500/30 shadow-sm"
-                    : isHighlighted
-                    ? "bg-amber-500/10 border-l-4 border-l-amber-500 border-y border-r border-amber-500/20"
-                    : "bg-transparent hover:bg-muted/40 border-l-4 border-l-transparent border-y border-r border-transparent"
-                } ${isParagraphStart ? (compact ? "mt-3 first:mt-0" : "mt-4 first:mt-0") : ""}`}
-                role="option"
-                tabIndex={0}
-                aria-selected={isActive}
-              >
-                <div className={`flex items-start ${compact ? "gap-2 p-2.5" : "gap-3 p-3"}`}>
-                  {/* Timestamp with play button */}
-                  {showTimestamps && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleSegmentClick(segment);
-                      }}
-                      className={`flex-shrink-0 flex items-center gap-1.5 text-xs font-medium transition-all ${
-                        isActive
-                          ? "text-primary"
-                          : "text-muted-foreground hover:text-primary"
-                      }`}
-                      title={`Jump to ${formatTime(segment.start)}`}
-                    >
-                      {isActive ? (
-                        <Play className="w-3 h-3 fill-current" />
-                      ) : (
-                        <Clock className="w-3 h-3" />
-                      )}
-                      <span className="tabular-nums">{formatTime(segment.start)}</span>
-                    </button>
-                  )}
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0 leading-relaxed">
-                    {/* Speaker */}
-                    {showSpeakers && segment.speaker && (
-                      <span className={`text-xs font-semibold mr-2 ${
-                        isActive ? "text-primary" : "text-primary/80"
-                      }`}>
-                        {segment.speaker}
-                      </span>
-                    )}
-
-                    {/* Text */}
-                    <span className={`${compact ? "text-[15px] leading-6" : "text-sm"} ${
-                      isActive 
-                        ? "text-foreground font-medium" 
-                        : "text-foreground/90"
-                    }`}>
-                      {highlightText(segment.text, effectiveHighlightQuery)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Active indicator dot */}
-                {isActive && (
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary animate-pulse" />
+                segment={segment}
+                isActive={isActive}
+                isExternallyHighlighted={isExternallyHighlighted}
+                isSearchHit={Boolean(
+                  effectiveHighlightQuery &&
+                    segment.text.toLowerCase().includes(effectiveHighlightQuery.toLowerCase())
                 )}
-              </div>
+                showTimestamps={showTimestamps}
+                showSpeakers={showSpeakers}
+                compact={compact}
+                highlightQuery={effectiveHighlightQuery}
+                // Inactive rows get a constant so React.memo can skip them —
+                // only the spoken line re-renders as the clock advances.
+                wordClock={isActive ? karaokeTime : 0}
+                onSelect={handleSegmentClick}
+                setRef={setSegmentRefs}
+              />
             );
           })
         )}

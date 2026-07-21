@@ -1,11 +1,19 @@
 import { isTauri, invokeCommand } from "../tauri";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { fetchYouTubeTranscript as fetchFromBrowser } from "../../utils/youtubeTranscriptBrowser";
+import type { WordTiming } from "../../utils/wordTimings";
 
 export interface YouTubeTranscriptSegment {
   text: string;
   start: number;
   duration: number;
+  /**
+   * Per-word offsets for karaoke highlighting. Present when the caption track
+   * carried them (YouTube ASR tracks do; human-authored ones generally don't),
+   * absent otherwise — every hop in this chain must pass it through untouched
+   * rather than rebuilding segments field-by-field.
+   */
+  words?: WordTiming[];
 }
 
 export interface SourceChainResult {

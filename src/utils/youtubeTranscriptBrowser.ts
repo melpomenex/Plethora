@@ -5,11 +5,17 @@
  */
 
 import { isTauri, isNativeMobile } from "../lib/tauri";
+import type { WordTiming } from "./wordTimings";
 
 export interface TranscriptSegment {
   text: string;
   start: number;
   duration: number;
+  /**
+   * Per-word offsets for karaoke highlighting, when the caption track carried
+   * them. Optional: relay/hosted sources may not supply them.
+   */
+  words?: WordTiming[];
 }
 
 interface TranscriptResponse {
@@ -313,7 +319,7 @@ export async function fetchYouTubeTranscript(
     // (Native mobile builds fall through to the hosted API below — yt-dlp
     // can't run on Android/iOS, so the Rust command would fail.)
     const { invokeCommand } = await import("../lib/tauri");
-    const result = await invokeCommand<Array<{ text: string; start: number; duration: number }> | null>(
+    const result = await invokeCommand<TranscriptSegment[] | null>(
       "get_youtube_transcript_by_id",
       { videoId }
     );
@@ -323,11 +329,9 @@ export async function fetchYouTubeTranscript(
     }
 
     return {
-      segments: result.map(item => ({
-        text: item.text,
-        start: item.start,
-        duration: item.duration,
-      })),
+      // Spread rather than rebuilding field-by-field: a rebuild silently drops
+      // any field the backend adds (this is how `words` used to vanish here).
+      segments: result.map(item => ({ ...item })),
       videoId,
       language: language || 'en',
     };

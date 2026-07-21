@@ -11,8 +11,13 @@ use tauri::{AppHandle, State};
 use crate::database::Repository;
 use crate::models::{Document, DocumentMetadata, FileType};
 
+pub mod captions;
 pub mod innertube;
 pub use innertube::{fetch_youtube_transcript_on_device_internal, OnDeviceTranscriptResult};
+
+/// Bump when the shape/quality of cached `segments_json` changes in a way that
+/// makes previously cached rows stale (e.g. word timings were not captured yet).
+pub const YOUTUBE_WORD_TIMINGS_VERSION: i32 = 1;
 
 /// YouTube video metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,12 +51,26 @@ pub struct YouTubeFormat {
     pub fps: Option<u32>,
 }
 
+/// Per-word timing for karaoke highlighting. Field names deliberately match the
+/// podcast word-timing JSON (`{word,start_ms,end_ms}`) so the frontend's shared
+/// `findActiveWordIndex` can be reused verbatim.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WordTiming {
+    pub word: String,
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
 /// YouTube transcript segment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptSegment {
     pub text: String,
     pub start: f64,
     pub duration: f64,
+    /// Measured per-word timings. Absent (never `null`) when the caption source
+    /// carried no per-word offsets, keeping legacy cached blobs byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub words: Option<Vec<WordTiming>>,
 }
 
 pub fn build_transcript_text(segments: &[TranscriptSegment]) -> String {
@@ -105,6 +124,13 @@ pub fn build_transcript_text_with_chapters(
 
 fn parse_transcript_segments(json: &str) -> Result<Vec<TranscriptSegment>, String> {
     serde_json::from_str(json).map_err(|e| format!("Failed to parse transcript cache: {}", e))
+}
+
+/// A cached transcript row may be served as-is when it was written by a build that
+/// already captured word timings, or when it is the empty "no captions" sentinel
+/// (re-fetching that one on every open would hammer the network for nothing).
+fn is_transcript_cache_fresh(segments_json: &str, version: i32) -> bool {
+    version >= YOUTUBE_WORD_TIMINGS_VERSION || segments_json.trim() == "[]"
 }
 
 /// Download options
@@ -459,20 +485,21 @@ pub async fn download_video(
         .expect("output path is valid UTF-8")
         .to_string();
     let url_for_name = url.to_string();
-    let name_output = tokio::task::spawn_blocking(move || -> Result<std::process::Output, String> {
-        let mut name_cmd = ytdlp_command()?;
-        name_cmd.args([
-            "--get-filename",
-            "-o",
-            output_path_str.as_str(),
-            url_for_name.as_str(),
-        ]);
-        name_cmd
-            .output()
-            .map_err(|e| format!("Failed to run yt-dlp to get filename: {}", e))
-    })
-    .await
-    .map_err(|e| format!("yt-dlp filename task join error: {}", e))??;
+    let name_output =
+        tokio::task::spawn_blocking(move || -> Result<std::process::Output, String> {
+            let mut name_cmd = ytdlp_command()?;
+            name_cmd.args([
+                "--get-filename",
+                "-o",
+                output_path_str.as_str(),
+                url_for_name.as_str(),
+            ]);
+            name_cmd
+                .output()
+                .map_err(|e| format!("Failed to run yt-dlp to get filename: {}", e))
+        })
+        .await
+        .map_err(|e| format!("yt-dlp filename task join error: {}", e))??;
     if !name_output.status.success() {
         let err = String::from_utf8_lossy(&name_output.stderr);
         return Err(format!("Failed to determine download filename: {}", err));
@@ -659,7 +686,7 @@ pub fn extract_transcript(
         "--sub-langs",
         lang,
         "--sub-format",
-        "vtt",
+        "json3/vtt",
         "--skip-download",
         "--no-playlist",
         "-o",
@@ -678,22 +705,16 @@ pub fn extract_transcript(
         return Ok(vec![]);
     }
 
-    // Look for subtitle files with various naming patterns
-    let subtitle_patterns = [
-        format!("{}.{lang}.vtt", video_id),
-        format!(
-            "{}.{}.vtt",
-            video_id,
-            lang.split('-').next().unwrap_or(lang)
-        ),
-        format!("{}.vtt", video_id),
-    ];
+    // Look for subtitle files with various naming patterns.
+    // `--sub-format json3/vtt` prefers json3 (it carries per-word `tOffsetMs`),
+    // so json3 candidates must be probed before the vtt ones.
+    let subtitle_patterns = subtitle_file_candidates(&video_id, lang);
 
     for pattern in &subtitle_patterns {
         let path = temp_dir.join(pattern);
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {
-                let parsed = parse_vtt(&content);
+                let parsed = parse_subtitle_file(pattern, &content);
                 let _ = std::fs::remove_file(&path); // Clean up
                 if !parsed.is_empty() {
                     return Ok(parsed);
@@ -706,23 +727,32 @@ pub fn extract_transcript(
     let subtitle_files =
         std::fs::read_dir(&temp_dir).map_err(|e| format!("Failed to read temp dir: {}", e))?;
 
+    // Collect first so the preferred (json3) extension can be tried before vtt/srt.
+    let mut candidates: Vec<(usize, PathBuf, String)> = Vec::new();
     for entry in subtitle_files.flatten() {
         let path = entry.path();
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with(&video_id) && (name.ends_with(".vtt") || name.ends_with(".srt")) {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    let parsed = if name.ends_with(".vtt") {
-                        parse_vtt(&content)
-                    } else {
-                        parse_srt(&content)
-                    };
+            if !name.starts_with(&video_id) {
+                continue;
+            }
+            if let Some(rank) = SUBTITLE_EXTENSIONS
+                .iter()
+                .position(|ext| name.ends_with(ext))
+            {
+                candidates.push((rank, path.clone(), name.to_string()));
+            }
+        }
+    }
+    candidates.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.2.cmp(&b.2)));
 
-                    let _ = std::fs::remove_file(&path);
+    for (_, path, name) in candidates {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            let parsed = parse_subtitle_file(&name, &content);
 
-                    if !parsed.is_empty() {
-                        return Ok(parsed);
-                    }
-                }
+            let _ = std::fs::remove_file(&path);
+
+            if !parsed.is_empty() {
+                return Ok(parsed);
             }
         }
     }
@@ -730,56 +760,37 @@ pub fn extract_transcript(
     Ok(vec![])
 }
 
-/// Parse WebVTT format
-fn parse_vtt(content: &str) -> Vec<TranscriptSegment> {
-    let mut segments = Vec::new();
-    let lines: Vec<&str> = content.lines().collect();
+/// Subtitle file extensions yt-dlp may produce, in order of preference.
+/// json3 first: it is the only format carrying per-word `tOffsetMs` offsets.
+const SUBTITLE_EXTENSIONS: &[&str] = &[".json3", ".json", ".vtt", ".srt"];
 
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i].trim();
-
-        // Skip header and empty lines
-        if line.is_empty() || line == "WEBVTT" {
-            i += 1;
-            continue;
+/// Candidate subtitle file names yt-dlp may have written, most preferred first.
+fn subtitle_file_candidates(video_id: &str, lang: &str) -> Vec<String> {
+    let short_lang = lang.split('-').next().unwrap_or(lang);
+    let mut candidates: Vec<String> = Vec::new();
+    for ext in SUBTITLE_EXTENSIONS {
+        candidates.push(format!("{}.{}{}", video_id, lang, ext));
+        if short_lang != lang {
+            candidates.push(format!("{}.{}{}", video_id, short_lang, ext));
         }
-
-        // Look for timestamp line: 00:00:00.000 --> 00:00:02.500
-        if let Some(timestamp_match) = parse_timestamp_line(line) {
-            let (start, end) = timestamp_match;
-
-            // Collect text until next timestamp or empty line
-            i += 1;
-            let mut text_lines = Vec::new();
-            while i < lines.len() && !lines[i].trim().is_empty() && !lines[i].contains("-->") {
-                let text_line = lines[i].trim();
-                if !text_line.starts_with("NOTE") && !text_line.starts_with("STYLE") {
-                    let clean = clean_vtt_text(text_line);
-                    if !clean.is_empty() {
-                        text_lines.push(clean);
-                    }
-                }
-                i += 1;
-            }
-
-            if !text_lines.is_empty() {
-                segments.push(TranscriptSegment {
-                    text: text_lines.join(" "),
-                    start,
-                    duration: end - start,
-                });
-            }
-        } else {
-            i += 1;
-        }
+        candidates.push(format!("{}{}", video_id, ext));
     }
+    candidates
+}
 
-    segments
+/// Dispatch a downloaded subtitle file to the right parser by extension.
+fn parse_subtitle_file(file_name: &str, content: &str) -> Vec<TranscriptSegment> {
+    if file_name.ends_with(".json3") || file_name.ends_with(".json") {
+        captions::parse_json3_captions(content)
+    } else if file_name.ends_with(".srt") {
+        parse_srt(content)
+    } else {
+        captions::parse_vtt_with_words(content)
+    }
 }
 
 /// Parse timestamp line from VTT
-fn parse_timestamp_line(line: &str) -> Option<(f64, f64)> {
+pub(crate) fn parse_timestamp_line(line: &str) -> Option<(f64, f64)> {
     let parts: Vec<&str> = line.split("-->").collect();
     if parts.len() != 2 {
         return None;
@@ -797,7 +808,7 @@ fn parse_timestamp_line(line: &str) -> Option<(f64, f64)> {
 }
 
 /// Parse VTT timestamp (HH:MM:SS.mmm or MM:SS.mmm)
-fn parse_vtt_timestamp(ts: &str) -> Option<f64> {
+pub(crate) fn parse_vtt_timestamp(ts: &str) -> Option<f64> {
     let parts: Vec<&str> = ts.split(':').collect();
     if parts.is_empty() || parts.len() > 3 {
         return None;
@@ -872,6 +883,7 @@ fn parse_srt(content: &str) -> Vec<TranscriptSegment> {
                     text,
                     start,
                     duration: end - start,
+                    words: None,
                 });
             }
         }
@@ -1169,10 +1181,13 @@ pub async fn get_youtube_transcript_internal(
     repo: &Repository,
 ) -> Result<Vec<TranscriptSegment>, String> {
     if let Some(video_id) = extract_video_id(url) {
-        if let Ok(Some((_transcript, segments_json))) =
-            repo.get_youtube_transcript_by_video_id(&video_id).await
+        if let Ok(Some((_transcript, segments_json, version))) = repo
+            .get_youtube_transcript_by_video_id_with_version(&video_id)
+            .await
         {
-            return parse_transcript_segments(&segments_json);
+            if is_transcript_cache_fresh(&segments_json, version) {
+                return parse_transcript_segments(&segments_json);
+            }
         }
     }
 
@@ -1189,9 +1204,15 @@ pub async fn get_youtube_transcript_internal(
         let transcript = build_transcript_text(&segments);
         let segments_json = serde_json::to_string(&segments)
             .map_err(|e| format!("Failed to serialize transcript: {}", e))?;
-        repo.upsert_youtube_transcript(document_id, &video_id, &transcript, &segments_json)
-            .await
-            .map_err(|e| format!("Failed to cache transcript: {}", e))?;
+        repo.upsert_youtube_transcript(
+            document_id,
+            &video_id,
+            &transcript,
+            &segments_json,
+            YOUTUBE_WORD_TIMINGS_VERSION,
+        )
+        .await
+        .map_err(|e| format!("Failed to cache transcript: {}", e))?;
     }
 
     Ok(segments)
@@ -1242,42 +1263,56 @@ pub async fn fetch_youtube_transcript_on_device(
     repo: State<'_, Repository>,
 ) -> Result<innertube::OnDeviceTranscriptResult, String> {
     // 1. Check local cache first
-    if let Ok(Some((_transcript, segments_json))) =
-        repo.get_youtube_transcript_by_video_id(&video_id).await
+    if let Ok(Some((_transcript, segments_json, version))) = repo
+        .get_youtube_transcript_by_video_id_with_version(&video_id)
+        .await
     {
-        if let Ok(segments) = serde_json::from_str::<Vec<TranscriptSegment>>(&segments_json) {
-            return Ok(innertube::OnDeviceTranscriptResult::Ok {
-                segments,
-                language: language.unwrap_or_else(|| "en".to_string()),
-            });
+        if is_transcript_cache_fresh(&segments_json, version) {
+            if let Ok(segments) = serde_json::from_str::<Vec<TranscriptSegment>>(&segments_json) {
+                return Ok(innertube::OnDeviceTranscriptResult::Ok {
+                    segments,
+                    language: language.unwrap_or_else(|| "en".to_string()),
+                });
+            }
         }
     }
 
     // 2. Perform fetch
-    let res = innertube::fetch_youtube_transcript_on_device_internal(&video_id, language.as_deref()).await;
+    let res =
+        innertube::fetch_youtube_transcript_on_device_internal(&video_id, language.as_deref())
+            .await;
 
     // 3. Cache successful results or NoCaptions
     match &res {
-        innertube::OnDeviceTranscriptResult::Ok { segments, language: _ } => {
+        innertube::OnDeviceTranscriptResult::Ok {
+            segments,
+            language: _,
+        } => {
             let transcript = build_transcript_text(segments);
             if let Ok(segments_json) = serde_json::to_string(segments) {
-                let _ = repo.upsert_youtube_transcript(
-                    document_id.as_deref(),
-                    &video_id,
-                    &transcript,
-                    &segments_json,
-                ).await;
+                let _ = repo
+                    .upsert_youtube_transcript(
+                        document_id.as_deref(),
+                        &video_id,
+                        &transcript,
+                        &segments_json,
+                        YOUTUBE_WORD_TIMINGS_VERSION,
+                    )
+                    .await;
             }
         }
         innertube::OnDeviceTranscriptResult::Err { kind, .. } => {
             if kind == "NoCaptions" {
                 // Cache empty transcript for NoCaptions to avoid retries
-                let _ = repo.upsert_youtube_transcript(
-                    document_id.as_deref(),
-                    &video_id,
-                    "",
-                    "[]",
-                ).await;
+                let _ = repo
+                    .upsert_youtube_transcript(
+                        document_id.as_deref(),
+                        &video_id,
+                        "",
+                        "[]",
+                        YOUTUBE_WORD_TIMINGS_VERSION,
+                    )
+                    .await;
             }
         }
     }
@@ -1298,9 +1333,15 @@ pub async fn on_device_transcript_available() -> Result<serde_json::Value, Strin
     let platform = "windows";
     #[cfg(target_os = "linux")]
     let platform = "linux";
-    #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "linux"
+    )))]
     let platform = "unknown";
-    
+
     Ok(serde_json::json!({
         "available": true,
         "platform": platform
@@ -1675,4 +1716,77 @@ pub async fn get_youtube_chapters(
     repo: State<'_, Repository>,
 ) -> Result<Vec<crate::commands::video::VideoChapter>, String> {
     get_youtube_chapters_internal(&url, document_id.as_deref(), repo.inner()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// yt-dlp writes `{id}.{lang}.{ext}`; if the candidate list or the extension
+    /// dispatch misses `.json3` the transcript silently comes back empty.
+    #[test]
+    fn subtitle_candidates_cover_json3_before_vtt() {
+        let candidates = subtitle_file_candidates("dQw4w9WgXcQ", "en-US");
+
+        assert!(candidates.contains(&"dQw4w9WgXcQ.en-US.json3".to_string()));
+        assert!(candidates.contains(&"dQw4w9WgXcQ.en.json3".to_string()));
+        assert!(candidates.contains(&"dQw4w9WgXcQ.json3".to_string()));
+        assert!(candidates.contains(&"dQw4w9WgXcQ.en-US.vtt".to_string()));
+        assert!(candidates.contains(&"dQw4w9WgXcQ.en.vtt".to_string()));
+        assert!(candidates.contains(&"dQw4w9WgXcQ.vtt".to_string()));
+        assert!(candidates.contains(&"dQw4w9WgXcQ.en-US.srt".to_string()));
+
+        let first_json3 = candidates
+            .iter()
+            .position(|c| c.ends_with(".json3"))
+            .unwrap();
+        let first_vtt = candidates.iter().position(|c| c.ends_with(".vtt")).unwrap();
+        assert!(first_json3 < first_vtt, "json3 must be probed before vtt");
+    }
+
+    #[test]
+    fn subtitle_candidates_do_not_duplicate_for_simple_lang() {
+        let candidates = subtitle_file_candidates("abc123", "en");
+        assert_eq!(candidates.len(), SUBTITLE_EXTENSIONS.len() * 2);
+        assert!(candidates.contains(&"abc123.en.json3".to_string()));
+    }
+
+    #[test]
+    fn parse_subtitle_file_dispatches_by_extension() {
+        let json3 = r#"{"events":[{"tStartMs":0,"dDurationMs":1000,
+            "segs":[{"utf8":"hello"},{"utf8":" world","tOffsetMs":500}]}]}"#;
+        let vtt = "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhello<00:00:00.500><c> world</c>\n";
+        let srt = "1\n00:00:00,000 --> 00:00:01,000\nhello world\n";
+
+        for name in ["vid.en.json3", "vid.json3", "vid.en.json"] {
+            let parsed = parse_subtitle_file(name, json3);
+            assert_eq!(parsed.len(), 1, "{} should parse as json3", name);
+            assert_eq!(parsed[0].text, "hello world");
+            assert_eq!(parsed[0].words.as_ref().map(|w| w.len()), Some(2));
+        }
+
+        let parsed_vtt = parse_subtitle_file("vid.en.vtt", vtt);
+        assert_eq!(parsed_vtt.len(), 1);
+        assert_eq!(parsed_vtt[0].words.as_ref().map(|w| w.len()), Some(2));
+
+        let parsed_srt = parse_subtitle_file("vid.en.srt", srt);
+        assert_eq!(parsed_srt.len(), 1);
+        assert_eq!(parsed_srt[0].text, "hello world");
+        assert!(parsed_srt[0].words.is_none());
+    }
+
+    #[test]
+    fn non_caption_json_parses_to_nothing_instead_of_panicking() {
+        // yt-dlp's `{id}.info.json` can sit in the same temp dir.
+        let info_json = r#"{"id":"abc","title":"Some video","formats":[]}"#;
+        assert!(parse_subtitle_file("abc.info.json", info_json).is_empty());
+    }
+
+    #[test]
+    fn cache_freshness_rules() {
+        assert!(!is_transcript_cache_fresh(r#"[{"text":"x"}]"#, 0));
+        assert!(is_transcript_cache_fresh(r#"[{"text":"x"}]"#, 1));
+        // The NoCaptions sentinel must never be considered stale.
+        assert!(is_transcript_cache_fresh("[]", 0));
+    }
 }

@@ -8,7 +8,7 @@
  * HTTP/network calls are exercised separately; here we prove the timing math.
  */
 import { describe, it, expect } from "vitest";
-import { findActiveWordIndex } from "../../components/viewer/AudiobookViewer";
+import { findActiveWordIndex, synthesizeWordTimings } from "../wordTimings";
 import { mapGroqResponseToSegments } from "../../api/podcast";
 
 describe("findActiveWordIndex", () => {
@@ -71,6 +71,66 @@ describe("findActiveWordIndex", () => {
     const single = [{ word: "only", start_ms: 0, end_ms: 1000 }];
     expect(findActiveWordIndex(single, 0.5)).toBe(0);
     expect(findActiveWordIndex(single, 2.0)).toBe(0); // past end → keep last
+  });
+
+  it("returns -1 for undefined timings", () => {
+    expect(findActiveWordIndex(undefined, 5.0)).toBe(-1);
+  });
+});
+
+describe("synthesizeWordTimings", () => {
+  it("spreads a segment span across its words, covering it exactly", () => {
+    // 3 words over 1.0s–4.0s: first word starts at the segment start, last word
+    // ends exactly at the segment end (no drift from rounding).
+    const words = synthesizeWordTimings("alpha beta gamma", 1, 4);
+    expect(words).toHaveLength(3);
+    expect(words[0].start_ms).toBe(1000);
+    expect(words[2].end_ms).toBe(4000);
+    expect(words.map((w) => w.word)).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  it("produces monotonic, non-overlapping spans", () => {
+    const words = synthesizeWordTimings("one two three four five", 0, 5);
+    for (let i = 0; i < words.length; i++) {
+      expect(words[i].end_ms).toBeGreaterThan(words[i].start_ms);
+      if (i > 0) expect(words[i].start_ms).toBeGreaterThanOrEqual(words[i - 1].end_ms);
+    }
+  });
+
+  it("gives longer words longer spans", () => {
+    // "a" (weight 2) vs "extraordinarily" (weight 16) over 2s.
+    const [short, long] = synthesizeWordTimings("a extraordinarily", 0, 2);
+    const shortMs = short.end_ms - short.start_ms;
+    const longMs = long.end_ms - long.start_ms;
+    expect(longMs).toBeGreaterThan(shortMs);
+  });
+
+  it("keeps starts strictly increasing when the per-word floor exceeds the span", () => {
+    // 40 words in 1s: 40 × the 60ms floor is 2400ms, far more than the 1000ms
+    // available, so the floor must degrade gracefully instead of overflowing.
+    const text = Array.from({ length: 40 }, (_, i) => `w${i}`).join(" ");
+    const words = synthesizeWordTimings(text, 0, 1);
+    expect(words).toHaveLength(40);
+    for (let i = 1; i < words.length; i++) {
+      expect(words[i].start_ms).toBeGreaterThan(words[i - 1].start_ms);
+    }
+    expect(words[39].end_ms).toBe(1000);
+  });
+
+  it("returns [] for a zero or negative span", () => {
+    expect(synthesizeWordTimings("some words", 5, 5)).toEqual([]);
+    expect(synthesizeWordTimings("some words", 5, 4)).toEqual([]);
+  });
+
+  it("returns [] for empty or whitespace-only text", () => {
+    expect(synthesizeWordTimings("", 0, 2)).toEqual([]);
+    expect(synthesizeWordTimings("   \n  ", 0, 2)).toEqual([]);
+  });
+
+  it("emits one timing per whitespace token (the renderer matches by ordinal)", () => {
+    const text = "  leading and   internal  gaps ";
+    const words = synthesizeWordTimings(text, 0, 3);
+    expect(words).toHaveLength(text.split(/\s+/).filter(Boolean).length);
   });
 });
 
