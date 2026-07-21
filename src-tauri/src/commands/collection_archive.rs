@@ -722,17 +722,32 @@ pub async fn import_collection_archive_merge(
                ) VALUES (
                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
                    ?11, ?12, ?13, ?14, ?15, ?16
-               )"#
+               )"#,
         )
         .bind(&new_id)
         .bind(&new_collection_id)
         .bind(new_session_id)
         .bind(new_item_id)
         .bind(result.get("rating").and_then(|v| v.as_i64()).unwrap_or(0) as i32)
-        .bind(result.get("timeTaken").and_then(|v| v.as_i64()).unwrap_or(0) as i32)
+        .bind(
+            result
+                .get("timeTaken")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32,
+        )
         .bind(result.get("newDueDate").and_then(|v| v.as_str()))
-        .bind(result.get("newInterval").and_then(|v| v.as_f64()).unwrap_or(0.0))
-        .bind(result.get("newEaseFactor").and_then(|v| v.as_f64()).unwrap_or(0.0))
+        .bind(
+            result
+                .get("newInterval")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
+        )
+        .bind(
+            result
+                .get("newEaseFactor")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
+        )
         .bind(result.get("timestamp").and_then(|v| v.as_str()))
         .bind(arena.schedule_source)
         .bind(arena.schedule_model_id)
@@ -763,11 +778,7 @@ mod arena_archive_tests {
 
     #[test]
     fn arena_archive_fields_support_all_sources_and_legacy_rows() {
-        for (source, model_id) in [
-            ("arena", None),
-            ("model", Some("sm20")),
-            ("custom", None),
-        ] {
+        for (source, model_id) in [("arena", None), ("model", Some("sm20")), ("custom", None)] {
             let value = json!({
                 "scheduleSource": source,
                 "scheduleModelId": model_id,

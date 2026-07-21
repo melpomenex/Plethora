@@ -248,17 +248,15 @@ async fn spawn_segment_consumer(
 ) {
     // Resolve the transcript row id once (stable for this job). If the row is
     // missing, skip DB writes but still forward events so the UI updates.
-    let transcript_id: i64 = sqlx::query_scalar(
-        "SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?",
-    )
-    .bind(&book_id)
-    .bind(&chapter_id)
-    .fetch_one(repo.pool())
-    .await
-    .unwrap_or(0);
+    let transcript_id: i64 =
+        sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
+            .bind(&book_id)
+            .bind(&chapter_id)
+            .fetch_one(repo.pool())
+            .await
+            .unwrap_or(0);
 
-    let mut buffer: Vec<TranscriptSegment> =
-        Vec::with_capacity(N_SEGMENTS_PER_BATCH);
+    let mut buffer: Vec<TranscriptSegment> = Vec::with_capacity(N_SEGMENTS_PER_BATCH);
     let mut deadline = tokio::time::Instant::now() + FLUSH_INTERVAL;
 
     loop {

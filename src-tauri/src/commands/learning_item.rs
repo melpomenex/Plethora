@@ -79,7 +79,10 @@ pub async fn get_due_items(
 
     // 1. Build the exact settings keys for every due item and fetch them all
     //    at once: `SELECT key, value FROM settings WHERE key IN (...)`.
-    let prereq_keys: Vec<String> = items.iter().map(|i| format!("card_prereq:{}", i.id)).collect();
+    let prereq_keys: Vec<String> = items
+        .iter()
+        .map(|i| format!("card_prereq:{}", i.id))
+        .collect();
     let prereqs_by_item = fetch_prerequisite_map(&prereq_keys, &repo).await?;
 
     // 2. Collect the UNIQUE set of prerequisite ids across all due items.
@@ -155,7 +158,10 @@ async fn fetch_prerequisite_map(
             .enumerate()
             .map(|(i, _)| format!("?{}", i + 1))
             .collect();
-        let sql = format!("SELECT key, value FROM settings WHERE key IN ({})", placeholders.join(","));
+        let sql = format!(
+            "SELECT key, value FROM settings WHERE key IN ({})",
+            placeholders.join(",")
+        );
         let mut query = sqlx::query(&sql);
         for k in chunk {
             query = query.bind(k);
@@ -199,7 +205,10 @@ async fn fetch_learning_items_by_ids(
             .enumerate()
             .map(|(i, _)| format!("?{}", i + 1))
             .collect();
-        let sql = format!("SELECT * FROM learning_items WHERE id IN ({})", placeholders.join(","));
+        let sql = format!(
+            "SELECT * FROM learning_items WHERE id IN ({})",
+            placeholders.join(",")
+        );
         let mut query = sqlx::query(&sql);
         for id in chunk {
             query = query.bind(id);

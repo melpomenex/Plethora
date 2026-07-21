@@ -488,23 +488,24 @@ pub async fn apply_review(
             decision_time_ms: decision.selection.decision_time_ms,
             snapshot: &decision.snapshot,
         };
-        let committed = repo.commit_sm20_arena_review(
-            &item,
-            &decision.collection,
-            &review_result_id,
-            session_id,
-            rating,
-            time_taken,
-            &provenance,
-            &decision.expected_item_revision,
-            &decision.expected_arena_revision,
-            &today,
-            if was_correct { 1 } else { 0 },
-            new_cards,
-            learning_cards,
-            review_cards,
-        )
-        .await?;
+        let committed = repo
+            .commit_sm20_arena_review(
+                &item,
+                &decision.collection,
+                &review_result_id,
+                session_id,
+                rating,
+                time_taken,
+                &provenance,
+                &decision.expected_item_revision,
+                &decision.expected_arena_revision,
+                &today,
+                if was_correct { 1 } else { 0 },
+                new_cards,
+                learning_cards,
+                review_cards,
+            )
+            .await?;
         if !committed {
             return repo.get_learning_item(item_id).await?.ok_or_else(|| {
                 crate::error::IncrementumError::NotFound(format!("Learning item {}", item_id))
@@ -832,9 +833,9 @@ fn apply_sm18_review(
     // Again: lapses += 1, item into Relearning).
     let grade = match review_rating {
         ReviewRating::Again => 0,
-        ReviewRating::Hard => 3,  // pass with serious difficulty (grade-R 0.90)
-        ReviewRating::Good => 4,  // pass after hesitation (grade-R 0.95)
-        ReviewRating::Easy => 5,  // perfect recall (grade-R 0.99)
+        ReviewRating::Hard => 3, // pass with serious difficulty (grade-R 0.90)
+        ReviewRating::Good => 4, // pass after hesitation (grade-R 0.95)
+        ReviewRating::Easy => 5, // perfect recall (grade-R 0.99)
     };
 
     let mut state: SM18State = item
@@ -1082,10 +1083,7 @@ fn build_sm20_arena_preview(
                     due_at: arena_due_at(now, result.interval_days),
                 },
                 candidates,
-                range: ArenaIntervalRange {
-                    min_days,
-                    max_days,
-                },
+                range: ArenaIntervalRange { min_days, max_days },
                 custom_bounds: ArenaIntervalRange {
                     min_days: 1.0 / 1_440.0,
                     max_days: sm20::STABILITY_MAX,
@@ -1195,9 +1193,7 @@ async fn apply_sm20_review(
                     )
                 })?;
                 let bounds = &grade_preview.custom_bounds;
-                if !interval.is_finite()
-                    || interval < bounds.min_days
-                    || interval > bounds.max_days
+                if !interval.is_finite() || interval < bounds.min_days || interval > bounds.max_days
                 {
                     return Err(crate::error::IncrementumError::ArenaInvalidInterval(
                         format!(
@@ -1253,7 +1249,7 @@ async fn apply_sm20_review(
         fi,
         &mut collection,
         today,
-        true,    // commit — mutate M2/M3 state
+        true,                      // commit — mutate M2/M3 state
         arena_selection.is_none(), // exact shown interval for Arena decisions
         &mut rng,
         sm20_pure_m4,
@@ -1318,13 +1314,17 @@ async fn apply_sm20_review(
     }
 
     Ok(arena_context.map(
-        |(_, recommended_interval, snapshot, expected_item_revision, expected_arena_revision)| AppliedArenaDecision {
-            selection: arena_selection.expect("Arena context requires selection").clone(),
-            recommended_interval,
-            snapshot,
-            collection,
-            expected_item_revision,
-            expected_arena_revision,
+        |(_, recommended_interval, snapshot, expected_item_revision, expected_arena_revision)| {
+            AppliedArenaDecision {
+                selection: arena_selection
+                    .expect("Arena context requires selection")
+                    .clone(),
+                recommended_interval,
+                snapshot,
+                collection,
+                expected_item_revision,
+                expected_arena_revision,
+            }
         },
     ))
 }
@@ -1463,16 +1463,19 @@ pub async fn preview_review_intervals(
         // implementation's seeded default.
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
         let grade_results = sm20::preview_grade_results(
-            &state, elapsed_days, crate::algorithms::sm20::DEFAULT_FI,
-            &collection, today, &mut rng,
+            &state,
+            elapsed_days,
+            crate::algorithms::sm20::DEFAULT_FI,
+            &collection,
+            today,
+            &mut rng,
             sm20_pure_m4.unwrap_or(false),
             // post_lapse_x = element priority percent (binary item[+0x16]).
             // Learning items have no priority concept yet; 0 = top priority
             // keeps the short post-lapse interval.
             0.0,
         );
-        let grades: [f64; 6] =
-            std::array::from_fn(|index| grade_results[index].interval_days);
+        let grades: [f64; 6] = std::array::from_fn(|index| grade_results[index].interval_days);
         let arena = if sm20_pure_m4.unwrap_or(false) {
             None
         } else {
@@ -1689,7 +1692,9 @@ async fn build_revlog_items(
         if current_id.as_deref() != Some(item_id.as_str()) {
             current_id = Some(item_id);
             last_ts = None;
-            items.push(RevlogItem { reviews: Vec::new() });
+            items.push(RevlogItem {
+                reviews: Vec::new(),
+            });
         }
         let elapsed = match last_ts {
             Some(prev) => ((ts - prev).num_seconds() as f64 / 86400.0).max(0.0),
@@ -2014,10 +2019,7 @@ mod tests {
         Repository::new(database.pool().clone())
     }
 
-    async fn preview_item_arena(
-        repo: &Repository,
-        item: &LearningItem,
-    ) -> SM20ArenaPreviewSet {
+    async fn preview_item_arena(repo: &Repository, item: &LearningItem) -> SM20ArenaPreviewSet {
         let collection = load_sm20_collection(repo).await.expect("SM-20 collection");
         let state = parse_sm20_state(item);
         let now = Utc::now();
@@ -2065,10 +2067,8 @@ mod tests {
         let repo = setup_review_repo().await;
 
         for model_id in ARENA_MODEL_IDS {
-            let mut item = LearningItem::new(
-                ItemType::Flashcard,
-                format!("Arena model {:?}", model_id),
-            );
+            let mut item =
+                LearningItem::new(ItemType::Flashcard, format!("Arena model {:?}", model_id));
             item.algorithm_type = "sm20".to_string();
             repo.create_learning_item(&item).await.expect("model item");
             let item = repo
@@ -2106,7 +2106,10 @@ mod tests {
             )
             .await
             .expect("model commit");
-            assert_eq!(committed.interval, expected, "model interval is authoritative");
+            assert_eq!(
+                committed.interval, expected,
+                "model interval is authoritative"
+            );
 
             let repeated = apply_review(
                 &repo,
@@ -2189,7 +2192,9 @@ mod tests {
 
         let mut custom_item = LearningItem::new(ItemType::Flashcard, "Valid custom".to_string());
         custom_item.algorithm_type = "sm20".to_string();
-        repo.create_learning_item(&custom_item).await.expect("custom item");
+        repo.create_learning_item(&custom_item)
+            .await
+            .expect("custom item");
         let custom_item = repo
             .get_learning_item_by_id(&custom_item.id)
             .await
@@ -2265,7 +2270,9 @@ mod tests {
         ] {
             let mut item = LearningItem::new(ItemType::Flashcard, label.to_string());
             item.algorithm_type = "sm20".to_string();
-            repo.create_learning_item(&item).await.expect("validation item");
+            repo.create_learning_item(&item)
+                .await
+                .expect("validation item");
             let item = repo
                 .get_learning_item_by_id(&item.id)
                 .await
@@ -2289,8 +2296,14 @@ mod tests {
             )
             .await;
             match expected_error {
-                "interval" => assert!(matches!(result, Err(IncrementumError::ArenaInvalidInterval(_)))),
-                _ => assert!(matches!(result, Err(IncrementumError::ArenaPreviewStale(_)))),
+                "interval" => assert!(matches!(
+                    result,
+                    Err(IncrementumError::ArenaInvalidInterval(_))
+                )),
+                _ => assert!(matches!(
+                    result,
+                    Err(IncrementumError::ArenaPreviewStale(_))
+                )),
             }
             assert_eq!(
                 repo.get_learning_item_by_id(&item.id)
@@ -2337,7 +2350,10 @@ mod tests {
             tags: vec![],
             image_asset_ids: vec![],
             interaction_metadata: None,
-            memory_state: Some(MemoryState { stability: 0.0, difficulty: 0.0 }),
+            memory_state: Some(MemoryState {
+                stability: 0.0,
+                difficulty: 0.0,
+            }),
             algorithm_type: "fsrs".into(),
             algorithm_state: None, // no persisted SM-20 state → fallback branch
             updated_at: None,
@@ -2357,13 +2373,19 @@ mod tests {
         );
 
         // A sane interior difficulty passes through unchanged.
-        item.memory_state = Some(MemoryState { stability: 5.0, difficulty: 0.4 });
+        item.memory_state = Some(MemoryState {
+            stability: 5.0,
+            difficulty: 0.4,
+        });
         let state = parse_sm20_state(&item);
         assert!((state.difficulty - 0.4).abs() < 1e-9);
         assert!((state.stability - 5.0).abs() < 1e-9);
 
         // D=1.0 (the other edge) is also coerced.
-        item.memory_state = Some(MemoryState { stability: 3.0, difficulty: 1.0 });
+        item.memory_state = Some(MemoryState {
+            stability: 3.0,
+            difficulty: 1.0,
+        });
         let state = parse_sm20_state(&item);
         assert!(
             (0.05..=0.95).contains(&state.difficulty),

@@ -904,11 +904,10 @@ pub async fn get_synced_collection(
 pub async fn get_all_learning_item_clocks(
     repo: State<'_, Repository>,
 ) -> Result<std::collections::HashMap<String, String>> {
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "SELECT id, updated_at FROM learning_items"
-    )
-    .fetch_all(repo.pool())
-    .await?;
+    let rows: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT id, updated_at FROM learning_items")
+            .fetch_all(repo.pool())
+            .await?;
 
     let mut map = std::collections::HashMap::new();
     for (id, updated_at) in rows {
@@ -925,11 +924,10 @@ pub async fn get_all_learning_item_clocks(
 pub async fn get_all_document_clocks(
     repo: State<'_, Repository>,
 ) -> Result<std::collections::HashMap<String, String>> {
-    let rows: Vec<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
-        "SELECT id, date_modified FROM documents"
-    )
-    .fetch_all(repo.pool())
-    .await?;
+    let rows: Vec<(String, Option<DateTime<Utc>>)> =
+        sqlx::query_as("SELECT id, date_modified FROM documents")
+            .fetch_all(repo.pool())
+            .await?;
 
     let mut map = std::collections::HashMap::new();
     for (id, date_modified) in rows {
@@ -1018,11 +1016,7 @@ mod arena_sync_tests {
 
     #[test]
     fn arena_review_wire_fields_round_trip_and_legacy_events_remain_valid() {
-        for (source, model_id) in [
-            ("arena", None),
-            ("model", Some("sm19")),
-            ("custom", None),
-        ] {
+        for (source, model_id) in [("arena", None), ("model", Some("sm19")), ("custom", None)] {
             let mut value = base_review();
             let object = value.as_object_mut().unwrap();
             object.insert("schedule_source".into(), json!(source));

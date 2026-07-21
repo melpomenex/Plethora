@@ -90,7 +90,10 @@ pub async fn enqueue_sync_outbox(
 }
 
 #[tauri::command]
-pub async fn get_sync_outbox(limit: i64, repo: State<'_, Repository>) -> Result<Vec<SyncOutboxRow>> {
+pub async fn get_sync_outbox(
+    limit: i64,
+    repo: State<'_, Repository>,
+) -> Result<Vec<SyncOutboxRow>> {
     let limit = limit.clamp(1, 500);
     Ok(sqlx::query_as::<_, SyncOutboxRow>(
         "SELECT operation_id, domain, entity_key, operation, payload, clock, payload_hash, created_at, attempts, status, last_error FROM sync_outbox WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?1",
@@ -101,8 +104,13 @@ pub async fn get_sync_outbox(limit: i64, repo: State<'_, Repository>) -> Result<
 }
 
 #[tauri::command]
-pub async fn mark_sync_outbox_sent(operation_ids: Vec<String>, repo: State<'_, Repository>) -> Result<u64> {
-    if operation_ids.is_empty() { return Ok(0); }
+pub async fn mark_sync_outbox_sent(
+    operation_ids: Vec<String>,
+    repo: State<'_, Repository>,
+) -> Result<u64> {
+    if operation_ids.is_empty() {
+        return Ok(0);
+    }
     let mut tx = repo.pool().begin().await?;
     let mut changed = 0;
     for id in operation_ids {
@@ -137,7 +145,10 @@ pub async fn record_sync_inbox(
 }
 
 #[tauri::command]
-pub async fn get_pending_sync_inbox(limit: i64, repo: State<'_, Repository>) -> Result<Vec<SyncInboxRow>> {
+pub async fn get_pending_sync_inbox(
+    limit: i64,
+    repo: State<'_, Repository>,
+) -> Result<Vec<SyncInboxRow>> {
     let limit = limit.clamp(1, 500);
     Ok(sqlx::query_as::<_, SyncInboxRow>(
         "SELECT operation_id, domain, entity_key, operation, payload, received_at, applied_at, status, last_error FROM sync_inbox WHERE status = 'pending' ORDER BY received_at ASC LIMIT ?1",
@@ -178,14 +189,25 @@ pub async fn set_sync_checkpoint(
     let updated_at = Utc::now().to_rfc3339();
     sqlx::query("INSERT INTO sync_checkpoints (domain, cursor, shard, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(domain) DO UPDATE SET cursor = excluded.cursor, shard = excluded.shard, updated_at = excluded.updated_at")
         .bind(&domain).bind(&cursor).bind(&shard).bind(&updated_at).execute(repo.pool()).await?;
-    Ok(sqlx::query_as::<_, SyncCheckpoint>("SELECT domain, cursor, shard, updated_at FROM sync_checkpoints WHERE domain = ?1")
-        .bind(domain).fetch_one(repo.pool()).await?)
+    Ok(sqlx::query_as::<_, SyncCheckpoint>(
+        "SELECT domain, cursor, shard, updated_at FROM sync_checkpoints WHERE domain = ?1",
+    )
+    .bind(domain)
+    .fetch_one(repo.pool())
+    .await?)
 }
 
 #[tauri::command]
-pub async fn get_sync_checkpoint(domain: String, repo: State<'_, Repository>) -> Result<Option<SyncCheckpoint>> {
-    Ok(sqlx::query_as::<_, SyncCheckpoint>("SELECT domain, cursor, shard, updated_at FROM sync_checkpoints WHERE domain = ?1")
-        .bind(domain).fetch_optional(repo.pool()).await?)
+pub async fn get_sync_checkpoint(
+    domain: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<SyncCheckpoint>> {
+    Ok(sqlx::query_as::<_, SyncCheckpoint>(
+        "SELECT domain, cursor, shard, updated_at FROM sync_checkpoints WHERE domain = ?1",
+    )
+    .bind(domain)
+    .fetch_optional(repo.pool())
+    .await?)
 }
 
 #[tauri::command]

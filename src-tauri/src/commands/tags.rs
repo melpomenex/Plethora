@@ -128,11 +128,19 @@ mod tests {
     #[tokio::test]
     async fn returns_empty_when_no_matches() {
         let repo = setup_repo().await;
-        let mut document = Document::new("Doc One".to_string(), "/tmp/doc1.pdf".to_string(), FileType::Pdf);
+        let mut document = Document::new(
+            "Doc One".to_string(),
+            "/tmp/doc1.pdf".to_string(),
+            FileType::Pdf,
+        );
         document.tags = vec!["other".to_string()];
-        repo.create_document(&document).await.expect("create document");
+        repo.create_document(&document)
+            .await
+            .expect("create document");
 
-        let results = get_items_by_tag_from_repo(&repo, "missing").await.expect("query");
+        let results = get_items_by_tag_from_repo(&repo, "missing")
+            .await
+            .expect("query");
         assert!(results.is_empty());
     }
 
@@ -140,9 +148,16 @@ mod tests {
     async fn matches_across_all_three_tables() {
         let repo = setup_repo().await;
 
-        let mut document = Document::new("Doc One".to_string(), "/tmp/doc1.pdf".to_string(), FileType::Pdf);
+        let mut document = Document::new(
+            "Doc One".to_string(),
+            "/tmp/doc1.pdf".to_string(),
+            FileType::Pdf,
+        );
         document.tags = vec!["shared".to_string()];
-        let document = repo.create_document(&document).await.expect("create document");
+        let document = repo
+            .create_document(&document)
+            .await
+            .expect("create document");
 
         let mut extract = Extract::new(document.id.clone(), "Some extract content".to_string());
         extract.tags = vec!["shared".to_string()];
@@ -155,7 +170,9 @@ mod tests {
             .await
             .expect("create learning item");
 
-        let results = get_items_by_tag_from_repo(&repo, "shared").await.expect("query");
+        let results = get_items_by_tag_from_repo(&repo, "shared")
+            .await
+            .expect("query");
         assert_eq!(results.len(), 3);
         assert!(results
             .iter()
@@ -171,14 +188,24 @@ mod tests {
     #[tokio::test]
     async fn tag_match_is_case_sensitive() {
         let repo = setup_repo().await;
-        let mut document = Document::new("Doc One".to_string(), "/tmp/doc1.pdf".to_string(), FileType::Pdf);
+        let mut document = Document::new(
+            "Doc One".to_string(),
+            "/tmp/doc1.pdf".to_string(),
+            FileType::Pdf,
+        );
         document.tags = vec!["Shared".to_string()];
-        repo.create_document(&document).await.expect("create document");
+        repo.create_document(&document)
+            .await
+            .expect("create document");
 
-        let lower = get_items_by_tag_from_repo(&repo, "shared").await.expect("query");
+        let lower = get_items_by_tag_from_repo(&repo, "shared")
+            .await
+            .expect("query");
         assert!(lower.is_empty());
 
-        let exact = get_items_by_tag_from_repo(&repo, "Shared").await.expect("query");
+        let exact = get_items_by_tag_from_repo(&repo, "Shared")
+            .await
+            .expect("query");
         assert_eq!(exact.len(), 1);
     }
 }

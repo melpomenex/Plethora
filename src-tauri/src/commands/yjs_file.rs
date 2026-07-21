@@ -66,11 +66,9 @@ pub async fn yjs_file_exists(url: String) -> Result<bool> {
         .map_err(|e| IncrementumError::Internal(format!("URL not allowed: {}", e)))?;
 
     let client = build_client()?;
-    let res = client
-        .head(&url)
-        .send()
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("yjs_file_exists request failed: {}", e)))?;
+    let res = client.head(&url).send().await.map_err(|e| {
+        IncrementumError::Internal(format!("yjs_file_exists request failed: {}", e))
+    })?;
     Ok(res.status().is_success())
 }
 
@@ -93,9 +91,7 @@ pub async fn yjs_file_upload(
     let part = reqwest::multipart::Part::bytes(bytes)
         .file_name(filename)
         .mime_str(&content_type)
-        .map_err(|e| {
-            IncrementumError::Internal(format!("Invalid content type: {}", e))
-        })?;
+        .map_err(|e| IncrementumError::Internal(format!("Invalid content type: {}", e)))?;
     let mut form = reqwest::multipart::Form::new().part("file", part);
     if let Some(meta) = enc_metadata {
         form = form.text("encMetadata", meta);
@@ -106,7 +102,9 @@ pub async fn yjs_file_upload(
         .multipart(form)
         .send()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("yjs_file_upload request failed: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("yjs_file_upload request failed: {}", e))
+        })?;
 
     if !res.status().is_success() {
         let status = res.status();
@@ -116,17 +114,20 @@ pub async fn yjs_file_upload(
         )));
     }
 
-    let body_bytes = res
-        .bytes()
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("yjs_file_upload body read failed: {}", e)))?;
+    let body_bytes = res.bytes().await.map_err(|e| {
+        IncrementumError::Internal(format!("yjs_file_upload body read failed: {}", e))
+    })?;
 
     match serde_json::from_slice::<YjsFileMeta>(&body_bytes) {
         Ok(meta) => Ok(meta),
         Err(e) => {
             let body_preview = String::from_utf8_lossy(&body_bytes);
             let preview = if body_preview.len() > 500 {
-                format!("{}...[truncated {} bytes]", &body_preview[..500], body_bytes.len())
+                format!(
+                    "{}...[truncated {} bytes]",
+                    &body_preview[..500],
+                    body_bytes.len()
+                )
             } else {
                 body_preview.to_string()
             };
@@ -153,11 +154,9 @@ pub async fn yjs_file_download(url: String) -> Result<YjsFileDownload> {
         .map_err(|e| IncrementumError::Internal(format!("URL not allowed: {}", e)))?;
 
     let client = build_client()?;
-    let res = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("yjs_file_download request failed: {}", e)))?;
+    let res = client.get(&url).send().await.map_err(|e| {
+        IncrementumError::Internal(format!("yjs_file_download request failed: {}", e))
+    })?;
 
     if !res.status().is_success() {
         let status = res.status();

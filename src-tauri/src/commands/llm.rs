@@ -750,12 +750,7 @@ async fn stream_anthropic(
                                 if last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
                                     || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
                                 {
-                                    flush_stream_chunk(
-                                        app,
-                                        &mut chunk_buf,
-                                        &mut last_flush,
-                                        false,
-                                    );
+                                    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
                                 }
                             }
                         }
@@ -909,8 +904,8 @@ pub async fn llm_get_models(
 ) -> Result<Vec<ModelInfo>, String> {
     match provider.as_str() {
         "gemini" => {
-            let api_key = normalize_api_key(api_key)
-                .ok_or_else(|| "API key is required".to_string())?;
+            let api_key =
+                normalize_api_key(api_key).ok_or_else(|| "API key is required".to_string())?;
             let client = Client::new();
             let url = normalize_base_url(base_url, "gemini");
             fetch_openai_compatible_models(&client, &url, Some(&api_key)).await

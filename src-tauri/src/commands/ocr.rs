@@ -378,7 +378,10 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
 
     let use_direct_pdf = matches!(
         provider_type,
-        OCRProviderType::Marker | OCRProviderType::Nougat | OCRProviderType::Glmocr | OCRProviderType::Mistral
+        OCRProviderType::Marker
+            | OCRProviderType::Nougat
+            | OCRProviderType::Glmocr
+            | OCRProviderType::Mistral
     );
 
     if use_direct_pdf {
@@ -417,12 +420,10 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
         // the extracted image Vec is dropped at the end of each iteration.
         for page_num in 1..=page_count {
             let page_id = ordered_page_ids.get(page_num - 1).copied();
-            let page_image =
-                page_id.and_then(|id| extract_pdf_page_image(&doc, page_num, id));
+            let page_image = page_id.and_then(|id| extract_pdf_page_image(&doc, page_num, id));
 
             if let Some(page_image) = page_image {
-                let temp_file =
-                    write_temp_image(&page_image.bytes, &page_image.extension).await?;
+                let temp_file = write_temp_image(&page_image.bytes, &page_image.extension).await?;
                 let result = provider.process_image(&temp_file).await;
                 let _ = tokio::fs::remove_file(&temp_file).await;
                 // Drop the page image bytes before OCR result handling so peak

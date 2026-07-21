@@ -303,11 +303,7 @@ impl EngagingScheduler {
         for item in items {
             let avg_time_so_far = sum_est_time / count_est_time.max(1) as f64;
             let recent_topic_count = topic_history_counts
-                .get(
-                    item.category
-                        .as_deref()
-                        .unwrap_or("uncategorized"),
-                )
+                .get(item.category.as_deref().unwrap_or("uncategorized"))
                 .copied()
                 .unwrap_or(0) as i32;
 

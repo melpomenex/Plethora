@@ -341,10 +341,7 @@ pub struct RssArticleInput {
 /// Core upsert logic for a single RSS article (check by guid, then url, then
 /// insert). Shared by `create_rss_article` and `bulk_create_rss_articles` so
 /// behavior is identical between the single-item and batch paths.
-async fn upsert_rss_article(
-    pool: &sqlx::SqlitePool,
-    input: RssArticleInput,
-) -> Result<RssArticle> {
+async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> Result<RssArticle> {
     let now = Utc::now().to_rfc3339();
     let RssArticleInput {
         feed_id,
@@ -581,7 +578,6 @@ pub async fn bulk_create_rss_articles(
     }
     Ok(out)
 }
-
 
 /// Get articles for a feed
 #[tauri::command]

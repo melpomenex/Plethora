@@ -21,7 +21,9 @@ fn cache_root(app: &AppHandle) -> Result<PathBuf> {
     app.path()
         .app_cache_dir()
         .map(|path| path.join("incrementum").join("pdf-reflow-v1"))
-        .map_err(|error| IncrementumError::Internal(format!("Failed to resolve PDF cache: {error}")))
+        .map_err(|error| {
+            IncrementumError::Internal(format!("Failed to resolve PDF cache: {error}"))
+        })
 }
 
 fn document_cache_dir(
@@ -43,7 +45,9 @@ fn page_path(dir: &Path, page_number: u32) -> PathBuf {
 }
 
 async fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
-    let parent = path.parent().ok_or_else(|| IncrementumError::InvalidInput("Invalid PDF cache path".into()))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| IncrementumError::InvalidInput("Invalid PDF cache path".into()))?;
     tokio::fs::create_dir_all(parent).await?;
     let temp = path.with_extension(format!("json.tmp-{}", uuid::Uuid::new_v4()));
     let bytes = serde_json::to_vec(value)?;
@@ -58,16 +62,25 @@ async fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
 async fn enforce_cache_limit(root: &Path) -> Result<()> {
     let root = root.to_path_buf();
     tokio::task::spawn_blocking(move || -> Result<()> {
-        if !root.exists() { return Ok(()); }
+        if !root.exists() {
+            return Ok(());
+        }
         let mut files: Vec<(PathBuf, u64, std::time::SystemTime)> = Vec::new();
-        fn collect(path: &Path, files: &mut Vec<(PathBuf, u64, std::time::SystemTime)>) -> std::io::Result<()> {
+        fn collect(
+            path: &Path,
+            files: &mut Vec<(PathBuf, u64, std::time::SystemTime)>,
+        ) -> std::io::Result<()> {
             for entry in std::fs::read_dir(path)? {
                 let path = entry?.path();
                 if path.is_dir() {
                     collect(&path, files)?;
                 } else if path.extension().and_then(|value| value.to_str()) == Some("json") {
                     let metadata = std::fs::metadata(&path)?;
-                    files.push((path, metadata.len(), metadata.modified().unwrap_or(std::time::UNIX_EPOCH)));
+                    files.push((
+                        path,
+                        metadata.len(),
+                        metadata.modified().unwrap_or(std::time::UNIX_EPOCH),
+                    ));
                 }
             }
             Ok(())
@@ -76,8 +89,12 @@ async fn enforce_cache_limit(root: &Path) -> Result<()> {
         let mut total: u64 = files.iter().map(|(_, size, _)| size).sum();
         files.sort_by_key(|(_, _, modified)| *modified);
         for (path, size, _) in files {
-            if total <= PDF_REFLOW_CACHE_LIMIT_BYTES { break; }
-            if std::fs::remove_file(path).is_ok() { total = total.saturating_sub(size); }
+            if total <= PDF_REFLOW_CACHE_LIMIT_BYTES {
+                break;
+            }
+            if std::fs::remove_file(path).is_ok() {
+                total = total.saturating_sub(size);
+            }
         }
         Ok(())
     })
@@ -95,10 +112,20 @@ pub async fn get_pdf_reflow_cache_page(
     page_number: u32,
     app: AppHandle,
 ) -> Result<Option<Value>> {
-    if page_number == 0 { return Err(IncrementumError::InvalidInput("PDF page numbers start at 1".into())); }
+    if page_number == 0 {
+        return Err(IncrementumError::InvalidInput(
+            "PDF page numbers start at 1".into(),
+        ));
+    }
     let root = cache_root(&app)?;
     let path = page_path(
-        &document_cache_dir(&root, &document_id, &source_identity, schema_version, &engine_version),
+        &document_cache_dir(
+            &root,
+            &document_id,
+            &source_identity,
+            schema_version,
+            &engine_version,
+        ),
         page_number,
     );
     match tokio::fs::read(path).await {
@@ -118,10 +145,20 @@ pub async fn put_pdf_reflow_cache_page(
     page: Value,
     app: AppHandle,
 ) -> Result<()> {
-    if page_number == 0 { return Err(IncrementumError::InvalidInput("PDF page numbers start at 1".into())); }
+    if page_number == 0 {
+        return Err(IncrementumError::InvalidInput(
+            "PDF page numbers start at 1".into(),
+        ));
+    }
     let root = cache_root(&app)?;
     let path = page_path(
-        &document_cache_dir(&root, &document_id, &source_identity, schema_version, &engine_version),
+        &document_cache_dir(
+            &root,
+            &document_id,
+            &source_identity,
+            schema_version,
+            &engine_version,
+        ),
         page_number,
     );
     write_json_atomic(&path, &page).await?;
@@ -132,9 +169,15 @@ pub async fn put_pdf_reflow_cache_page(
 pub async fn delete_pdf_reflow_cache(document_id: String, app: AppHandle) -> Result<()> {
     let root = cache_root(&app)?;
     let document_dir = root.join(key_hash(&[&document_id]));
-    tokio::fs::remove_dir_all(&document_dir).await.or_else(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(error) }
-    })?;
+    tokio::fs::remove_dir_all(&document_dir)
+        .await
+        .or_else(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })?;
     Ok(())
 }
 
@@ -149,7 +192,15 @@ mod tests {
         let leaf = path.file_name().unwrap().to_string_lossy();
         assert_eq!(leaf.len(), 64);
         assert!(!leaf.contains(".."));
-        assert_eq!(path.parent().unwrap().file_name().unwrap().to_string_lossy().len(), 64);
+        assert_eq!(
+            path.parent()
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .len(),
+            64
+        );
         assert!(page_path(&path, 7).ends_with("page-7.json"));
     }
 

@@ -17,20 +17,20 @@ use crate::commands::rss::{
 };
 use crate::commands::rss_features::{
     add_rss_classifier_http, add_tag_http, compute_story_clusters_http, create_annotation_http,
-    create_rss_folder_http, delete_annotation_http, delete_discovered_site_http,
-    delete_rss_folder_http, get_all_tags_http, get_article_annotations_http, get_article_tags_http,
-    get_articles_by_tag_http, get_discovered_sites_http, get_feed_statistics_http,
-    get_read_rss_articles_http, get_river_of_news_http, get_rss_article_clusters_http,
-    get_rss_articles_with_intelligence_http, get_rss_classifiers_http, get_rss_folders_http,
-    create_rss_reading_list_http, delete_rss_reading_list_http, duplicate_rss_reading_list_http,
-    get_rss_reading_list_by_id_http, get_rss_reading_lists_http, RssReadingList,
-    invalidate_clusters_for_feed_http, mark_rss_article_unread_http,
+    create_rss_folder_http, create_rss_reading_list_http, delete_annotation_http,
+    delete_discovered_site_http, delete_rss_folder_http, delete_rss_reading_list_http,
+    duplicate_rss_reading_list_http, get_all_tags_http, get_article_annotations_http,
+    get_article_tags_http, get_articles_by_tag_http, get_discovered_sites_http,
+    get_feed_statistics_http, get_read_rss_articles_http, get_river_of_news_http,
+    get_rss_article_clusters_http, get_rss_articles_with_intelligence_http,
+    get_rss_classifiers_http, get_rss_folders_http, get_rss_reading_list_by_id_http,
+    get_rss_reading_lists_http, invalidate_clusters_for_feed_http, mark_rss_article_unread_http,
     mark_rss_articles_after_date_read_http, mark_rss_articles_before_date_read_http,
     merge_tags_http, migrate_folders_from_localstorage_http, move_feed_to_folder_http,
     recompute_all_intelligence_scores_http, refresh_discoveries, remove_rss_classifier_http,
     remove_tag_http, rename_tag_http, reorder_folders_http, search_rss_articles_http,
     set_feed_view_preferences_http, tag_article_http, toggle_feed_active_http, untag_article_http,
-    update_annotation_http, update_rss_classifiers_batch_http, ClassifierUpdate,
+    update_annotation_http, update_rss_classifiers_batch_http, ClassifierUpdate, RssReadingList,
 };
 use crate::database::Repository;
 use crate::error::AppError;
@@ -369,10 +369,9 @@ pub struct AutomationSubmitReviewRequest {
 /// Global server handle for shutdown
 static SERVER_HANDLE: Mutex<Option<tokio::task::JoinHandle<()>>> = Mutex::const_new(None);
 
-pub static ACTIVE_THEME: once_cell::sync::Lazy<std::sync::Mutex<(String, Option<serde_json::Value>)>> =
-    once_cell::sync::Lazy::new(|| {
-        std::sync::Mutex::new(("super-game-bro".to_string(), None))
-    });
+pub static ACTIVE_THEME: once_cell::sync::Lazy<
+    std::sync::Mutex<(String, Option<serde_json::Value>)>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(("super-game-bro".to_string(), None)));
 
 pub fn set_active_theme(theme_id: String, colors: Option<serde_json::Value>) {
     if let Ok(mut theme) = ACTIVE_THEME.lock() {
@@ -3315,11 +3314,14 @@ async fn handle_update_reading_list(
         .get("name")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let feed_ids = payload.get("feed_ids").and_then(|v| v.as_array()).map(|arr| {
-        arr.iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect::<Vec<String>>()
-    });
+    let feed_ids = payload
+        .get("feed_ids")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<String>>()
+        });
     let icon_val = payload
         .get("icon")
         .and_then(|v| v.as_str())
@@ -3344,56 +3346,61 @@ async fn handle_update_reading_list(
 
     let now = chrono::Utc::now().to_rfc3339();
     if let Some(ref n) = name {
-        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET name = ?, updated_at = ? WHERE id = ?")
-            .bind(n)
-            .bind(&now)
-            .bind(&id)
-            .execute(state.repo.pool())
-            .await
+        if let Err(e) =
+            sqlx::query("UPDATE rss_reading_lists SET name = ?, updated_at = ? WHERE id = ?")
+                .bind(n)
+                .bind(&now)
+                .bind(&id)
+                .execute(state.repo.pool())
+                .await
         {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if let Some(ref f) = feed_ids {
         let json = serde_json::to_string(f).unwrap_or_else(|_| "[]".to_string());
-        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET feed_ids = ?, updated_at = ? WHERE id = ?")
-            .bind(&json)
-            .bind(&now)
-            .bind(&id)
-            .execute(state.repo.pool())
-            .await
+        if let Err(e) =
+            sqlx::query("UPDATE rss_reading_lists SET feed_ids = ?, updated_at = ? WHERE id = ?")
+                .bind(&json)
+                .bind(&now)
+                .bind(&id)
+                .execute(state.repo.pool())
+                .await
         {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if let Some(ref ic) = icon_val {
-        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET icon = ?, updated_at = ? WHERE id = ?")
-            .bind(ic)
-            .bind(&now)
-            .bind(&id)
-            .execute(state.repo.pool())
-            .await
+        if let Err(e) =
+            sqlx::query("UPDATE rss_reading_lists SET icon = ?, updated_at = ? WHERE id = ?")
+                .bind(ic)
+                .bind(&now)
+                .bind(&id)
+                .execute(state.repo.pool())
+                .await
         {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if icon_null.is_some() {
-        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET icon = NULL, updated_at = ? WHERE id = ?")
-            .bind(&now)
-            .bind(&id)
-            .execute(state.repo.pool())
-            .await
+        if let Err(e) =
+            sqlx::query("UPDATE rss_reading_lists SET icon = NULL, updated_at = ? WHERE id = ?")
+                .bind(&now)
+                .bind(&id)
+                .execute(state.repo.pool())
+                .await
         {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }
     }
     if let Some(so) = sort_order {
-        if let Err(e) = sqlx::query("UPDATE rss_reading_lists SET sort_order = ?, updated_at = ? WHERE id = ?")
-            .bind(so)
-            .bind(&now)
-            .bind(&id)
-            .execute(state.repo.pool())
-            .await
+        if let Err(e) =
+            sqlx::query("UPDATE rss_reading_lists SET sort_order = ?, updated_at = ? WHERE id = ?")
+                .bind(so)
+                .bind(&now)
+                .bind(&id)
+                .execute(state.repo.pool())
+                .await
         {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
         }

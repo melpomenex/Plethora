@@ -110,12 +110,22 @@ impl CloudSyncManager {
         // `try_join_all` short-circuits on the first error, matching the
         // original `?`-bail.
         let uploaded = self
-            .run_change_batch(provider, &local_changes, &conflicts, ChangeDirection::Upload)
+            .run_change_batch(
+                provider,
+                &local_changes,
+                &conflicts,
+                ChangeDirection::Upload,
+            )
             .await?;
 
         // 5. Download remote changes (parallelized with bounded concurrency)
         let downloaded = self
-            .run_change_batch(provider, &remote_changes, &conflicts, ChangeDirection::Download)
+            .run_change_batch(
+                provider,
+                &remote_changes,
+                &conflicts,
+                ChangeDirection::Download,
+            )
             .await?;
 
         // 6. Update sync state

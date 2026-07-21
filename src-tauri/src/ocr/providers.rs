@@ -988,7 +988,9 @@ pub struct MistralProvider {
 
 impl MistralProvider {
     pub fn new(config: super::MistralOCRConfig) -> Self {
-        let model = config.model.unwrap_or_else(|| "mistral-ocr-latest".to_string());
+        let model = config
+            .model
+            .unwrap_or_else(|| "mistral-ocr-latest".to_string());
         let model = if model.trim().is_empty() {
             "mistral-ocr-latest".to_string()
         } else {
@@ -1022,18 +1024,18 @@ impl MistralProvider {
     }
 
     fn markdown_to_html(markdown_input: &str) -> String {
-        use pulldown_cmark::{Parser, Options, html};
+        use pulldown_cmark::{html, Options, Parser};
         let mut options = Options::empty();
         options.insert(Options::ENABLE_TABLES);
         options.insert(Options::ENABLE_FOOTNOTES);
         options.insert(Options::ENABLE_STRIKETHROUGH);
         options.insert(Options::ENABLE_TASKLISTS);
         options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
-        
+
         let parser = Parser::new_ext(markdown_input, options);
         let mut html_output = String::new();
         html::push_html(&mut html_output, parser);
-        
+
         format!(
             r#"<!DOCTYPE html>
 <html>
@@ -1080,7 +1082,9 @@ impl MistralProvider {
         let start = std::time::Instant::now();
 
         if self.api_key.trim().is_empty() {
-            return Err(IncrementumError::Internal("Mistral API key is not configured".to_string()));
+            return Err(IncrementumError::Internal(
+                "Mistral API key is not configured".to_string(),
+            ));
         }
 
         let is_pdf = Self::is_pdf(image_data);
@@ -1094,18 +1098,24 @@ impl MistralProvider {
         let part = reqwest::multipart::Part::bytes(image_data.to_vec())
             .file_name(filename)
             .mime_str(mime)
-            .map_err(|e| IncrementumError::Internal(format!("Failed to build multipart part: {}", e)))?;
+            .map_err(|e| {
+                IncrementumError::Internal(format!("Failed to build multipart part: {}", e))
+            })?;
 
         let form = reqwest::multipart::Form::new()
             .text("purpose", "ocr")
             .part("file", part);
 
-        let upload_res = self.client.post("https://api.mistral.ai/v1/files")
+        let upload_res = self
+            .client
+            .post("https://api.mistral.ai/v1/files")
             .bearer_auth(&self.api_key)
             .multipart(form)
             .send()
             .await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to upload file to Mistral: {}", e)))?;
+            .map_err(|e| {
+                IncrementumError::Internal(format!("Failed to upload file to Mistral: {}", e))
+            })?;
 
         if !upload_res.status().is_success() {
             let status = upload_res.status();
@@ -1121,8 +1131,9 @@ impl MistralProvider {
             id: String,
         }
 
-        let upload_data: MistralUploadResponse = upload_res.json().await
-            .map_err(|e| IncrementumError::Internal(format!("Failed to parse Mistral upload response: {}", e)))?;
+        let upload_data: MistralUploadResponse = upload_res.json().await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to parse Mistral upload response: {}", e))
+        })?;
 
         let file_id = upload_data.id;
 
@@ -1136,7 +1147,9 @@ impl MistralProvider {
             }
         });
 
-        let ocr_future = self.client.post(ocr_url)
+        let ocr_future = self
+            .client
+            .post(ocr_url)
             .bearer_auth(&self.api_key)
             .json(&ocr_payload)
             .send();
@@ -1145,7 +1158,9 @@ impl MistralProvider {
 
         // 3. File Deletion / Cleanup
         let delete_url = format!("https://api.mistral.ai/v1/files/{}", file_id);
-        let delete_future = self.client.delete(&delete_url)
+        let delete_future = self
+            .client
+            .delete(&delete_url)
             .bearer_auth(&self.api_key)
             .send();
 
@@ -1181,7 +1196,9 @@ impl MistralProvider {
         })?;
 
         if parsed.pages.is_empty() {
-            return Err(IncrementumError::Internal("Mistral OCR returned no pages".to_string()));
+            return Err(IncrementumError::Internal(
+                "Mistral OCR returned no pages".to_string(),
+            ));
         }
 
         // Combine markdown content across pages
@@ -1291,10 +1308,9 @@ pub fn create_provider(
             Ok(Box::new(GLMOCRProvider::new(glm_config.clone())))
         }
         OCRProviderType::Mistral => {
-            let mistral_config = config
-                .mistral_ocr
-                .as_ref()
-                .ok_or_else(|| IncrementumError::Internal("Mistral OCR config not set".to_string()))?;
+            let mistral_config = config.mistral_ocr.as_ref().ok_or_else(|| {
+                IncrementumError::Internal("Mistral OCR config not set".to_string())
+            })?;
             Ok(Box::new(MistralProvider::new(mistral_config.clone())))
         }
     }

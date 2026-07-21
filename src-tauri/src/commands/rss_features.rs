@@ -1855,7 +1855,10 @@ pub async fn update_rss_reading_list(
     sets.push("updated_at = ?".to_string());
     let now = Utc::now().to_rfc3339();
 
-    let query_str = format!("UPDATE rss_reading_lists SET {} WHERE id = ?", sets.join(", "));
+    let query_str = format!(
+        "UPDATE rss_reading_lists SET {} WHERE id = ?",
+        sets.join(", ")
+    );
     let mut query = sqlx::query(&query_str);
 
     if let Some(ref n) = name {
@@ -1881,7 +1884,10 @@ pub async fn update_rss_reading_list(
     get_rss_reading_list_by_id(id, repo.clone()).await
 }
 
-async fn get_rss_reading_list_by_id(id: String, repo: State<'_, Repository>) -> Result<RssReadingList> {
+async fn get_rss_reading_list_by_id(
+    id: String,
+    repo: State<'_, Repository>,
+) -> Result<RssReadingList> {
     let row = sqlx::query("SELECT * FROM rss_reading_lists WHERE id = ?")
         .bind(&id)
         .fetch_optional(repo.pool())
@@ -1905,7 +1911,10 @@ pub async fn delete_rss_reading_list(id: String, repo: State<'_, Repository>) ->
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to delete reading list: {}", e))
+            crate::error::IncrementumError::Internal(format!(
+                "Failed to delete reading list: {}",
+                e
+            ))
         })?;
     Ok(())
 }
@@ -1931,7 +1940,8 @@ pub async fn duplicate_rss_reading_list(
     let new_id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let new_name = format!("{} (copy)", source.name);
-    let feed_ids_json = serde_json::to_string(&source.feed_ids).unwrap_or_else(|_| "[]".to_string());
+    let feed_ids_json =
+        serde_json::to_string(&source.feed_ids).unwrap_or_else(|_| "[]".to_string());
     let icon = source.icon.clone();
 
     sqlx::query(
@@ -2529,7 +2539,10 @@ pub async fn delete_rss_reading_list_http(id: &str, repo: &Repository) -> Result
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to delete reading list: {}", e))
+            crate::error::IncrementumError::Internal(format!(
+                "Failed to delete reading list: {}",
+                e
+            ))
         })?;
     Ok(())
 }
@@ -2542,7 +2555,8 @@ pub async fn duplicate_rss_reading_list_http(
     let new_id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
     let new_name = format!("{} (copy)", source.name);
-    let feed_ids_json = serde_json::to_string(&source.feed_ids).unwrap_or_else(|_| "[]".to_string());
+    let feed_ids_json =
+        serde_json::to_string(&source.feed_ids).unwrap_or_else(|_| "[]".to_string());
     let icon = source.icon.clone();
     sqlx::query(
         "INSERT INTO rss_reading_lists (id, name, feed_ids, icon, sort_order, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",

@@ -865,7 +865,8 @@ pub async fn get_sm20_optimization_status(
         m2_optimizer_initialized: m2_initialized,
         m3_matrix_cells_populated: m3_cells,
         m3_matrix_total_cells: m3_total,
-        message: "SM-20 ensemble is active. M2 and M3 learn automatically on every review.".to_string(),
+        message: "SM-20 ensemble is active. M2 and M3 learn automatically on every review."
+            .to_string(),
     })
 }
 

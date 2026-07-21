@@ -87,7 +87,11 @@ pub fn extract_audio_cover_data_url(file_path: &str) -> Result<Option<(String, S
     let cover = pictures
         .iter()
         .find(|p| p.pic_type() == PictureType::CoverFront)
-        .or_else(|| pictures.iter().find(|p| p.pic_type() != PictureType::OtherIcon))
+        .or_else(|| {
+            pictures
+                .iter()
+                .find(|p| p.pic_type() != PictureType::OtherIcon)
+        })
         .or_else(|| pictures.first());
 
     let Some(cover) = cover else {

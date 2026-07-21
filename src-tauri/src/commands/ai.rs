@@ -754,24 +754,22 @@ pub async fn brave_web_search(
         .header("X-Subscription-Token", &api_key)
         .send()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Brave Search HTTP request failed: {}", e)))?;
+        .map_err(|e| {
+            IncrementumError::Internal(format!("Brave Search HTTP request failed: {}", e))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let err_text = response.text().await.unwrap_or_default();
         return Err(IncrementumError::Internal(format!(
             "Brave Search API returned error status {}: {}",
-            status,
-            err_text
+            status, err_text
         )));
     }
 
-    let search_res: BraveWebResponse = response
-        .json()
-        .await
-        .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to parse Brave Search JSON response: {}", e))
-        })?;
+    let search_res: BraveWebResponse = response.json().await.map_err(|e| {
+        IncrementumError::Internal(format!("Failed to parse Brave Search JSON response: {}", e))
+    })?;
 
     let mut results = Vec::new();
     if let Some(web) = search_res.web {

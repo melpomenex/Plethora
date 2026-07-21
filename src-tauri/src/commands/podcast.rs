@@ -626,7 +626,11 @@ async fn run_transcription_job(
                             guard.push(seg);
                         }
                     },
-                    Some(throttled_progress_cb(app_clone.clone(), ep_id.clone(), throttle.clone())),
+                    Some(throttled_progress_cb(
+                        app_clone.clone(),
+                        ep_id.clone(),
+                        throttle.clone(),
+                    )),
                 )
                 .await
                 .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
@@ -644,7 +648,11 @@ async fn run_transcription_job(
                             guard.push(seg);
                         }
                     },
-                    Some(throttled_progress_cb(app_clone.clone(), ep_id.clone(), throttle.clone())),
+                    Some(throttled_progress_cb(
+                        app_clone.clone(),
+                        ep_id.clone(),
+                        throttle.clone(),
+                    )),
                 )
                 .await
                 .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;
@@ -662,7 +670,11 @@ async fn run_transcription_job(
                             guard.push(seg);
                         }
                     },
-                    Some(throttled_progress_cb(app_clone.clone(), ep_id.clone(), throttle.clone())),
+                    Some(throttled_progress_cb(
+                        app_clone.clone(),
+                        ep_id.clone(),
+                        throttle.clone(),
+                    )),
                 )
                 .await
                 .map_err(|e| IncrementumError::Internal(format!("Transcription failed: {}", e)))?;

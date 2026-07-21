@@ -405,14 +405,13 @@ async fn spawn_segment_consumer(
     document_id: String,
 ) {
     // Resolve transcript_id once (book_id = chapter_id = document_id).
-    let transcript_id: i64 = sqlx::query_scalar(
-        "SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?",
-    )
-    .bind(&document_id)
-    .bind(&document_id)
-    .fetch_one(repo.pool())
-    .await
-    .unwrap_or(0);
+    let transcript_id: i64 =
+        sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
+            .bind(&document_id)
+            .bind(&document_id)
+            .fetch_one(repo.pool())
+            .await
+            .unwrap_or(0);
 
     let mut buffer: Vec<TranscriptSegment> = Vec::with_capacity(N_SEGMENTS_PER_BATCH);
     let mut deadline = tokio::time::Instant::now() + FLUSH_INTERVAL;

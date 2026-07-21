@@ -464,7 +464,9 @@ async fn get_due_queue_items_from_repo(
         .into_iter()
         .chain(new_video_extracts.into_iter())
         .collect();
-    let documents = repo.list_due_documents_for_queue(&now, collection_id).await?;
+    let documents = repo
+        .list_due_documents_for_queue(&now, collection_id)
+        .await?;
 
     let mut all_doc_ids: HashSet<String> = HashSet::new();
     for item in &learning_items {

@@ -54,7 +54,8 @@ async fn resolve_active_collection(
         .map_err(|error| error.to_string())?
         .map(|row| row.get::<String, _>("value"));
 
-    if let Some(id) = stored.filter(|id| collections.iter().any(|collection| collection.id == *id)) {
+    if let Some(id) = stored.filter(|id| collections.iter().any(|collection| collection.id == *id))
+    {
         return Ok(id);
     }
     if let Some(default) = collections.iter().find(|collection| collection.is_default) {
@@ -88,7 +89,10 @@ pub async fn get_startup_snapshot(
         .clamp(1, DEFAULT_PROGRESS_LIMIT);
     let include_queue = include_queue.unwrap_or(false);
 
-    let collections = repo.get_collections().await.map_err(|error| error.to_string())?;
+    let collections = repo
+        .get_collections()
+        .await
+        .map_err(|error| error.to_string())?;
     let active_collection_id = resolve_active_collection(repo.inner(), &collections).await?;
     let service = PositionService::new(repo.pool().clone());
 
@@ -97,10 +101,8 @@ pub async fn get_startup_snapshot(
         document_limit,
         document_offset,
     );
-    let progress_query = service.get_documents_with_progress_for_collection(
-        Some(progress_limit),
-        &active_collection_id,
-    );
+    let progress_query = service
+        .get_documents_with_progress_for_collection(Some(progress_limit), &active_collection_id);
     let due_count_query = repo.get_collection_due_count(&active_collection_id);
     let queue_query = async {
         if include_queue {

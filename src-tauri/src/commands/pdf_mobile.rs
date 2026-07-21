@@ -98,13 +98,14 @@ fn sampled_fingerprint(path: &Path, size: u64) -> std::result::Result<String, Pd
     hasher.update(&first);
     if size > FINGERPRINT_SAMPLE_BYTES as u64 {
         let tail_len = usize::try_from(size.min(FINGERPRINT_SAMPLE_BYTES as u64)).unwrap_or(0);
-        file.seek(SeekFrom::Start(size - tail_len as u64)).map_err(|error| {
-            PdfNativeError::new(
-                "pdf_source_unavailable",
-                format!("Could not seek in the PDF: {error}"),
-                true,
-            )
-        })?;
+        file.seek(SeekFrom::Start(size - tail_len as u64))
+            .map_err(|error| {
+                PdfNativeError::new(
+                    "pdf_source_unavailable",
+                    format!("Could not seek in the PDF: {error}"),
+                    true,
+                )
+            })?;
         let mut last = vec![0_u8; tail_len];
         file.read_exact(&mut last).map_err(|error| {
             PdfNativeError::new(
@@ -118,7 +119,10 @@ fn sampled_fingerprint(path: &Path, size: u64) -> std::result::Result<String, Pd
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn inspect_pdf_path(path: &Path, include_fingerprint: bool) -> std::result::Result<InspectedPdf, PdfNativeError> {
+fn inspect_pdf_path(
+    path: &Path,
+    include_fingerprint: bool,
+) -> std::result::Result<InspectedPdf, PdfNativeError> {
     let canonical = std::fs::canonicalize(path).map_err(|error| {
         let code = if error.kind() == std::io::ErrorKind::NotFound {
             "pdf_source_missing"
@@ -157,7 +161,11 @@ fn inspect_pdf_path(path: &Path, include_fingerprint: bool) -> std::result::Resu
     }
     let size = metadata.len();
     let identity = identity_for(&canonical, &metadata);
-    let fingerprint = if include_fingerprint { sampled_fingerprint(&canonical, size)? } else { String::new() };
+    let fingerprint = if include_fingerprint {
+        sampled_fingerprint(&canonical, size)?
+    } else {
+        String::new()
+    };
     Ok(InspectedPdf {
         path: canonical,
         size,
@@ -315,8 +323,14 @@ mod tests {
     #[test]
     fn reads_exact_and_overlapping_ranges() {
         let (_dir, inspected) = fixture(b"%PDF-0123456789");
-        assert_eq!(read_range_from_path(&inspected, 0, 5).unwrap().bytes, b"%PDF-");
-        assert_eq!(read_range_from_path(&inspected, 3, 6).unwrap().bytes, b"F-0123");
+        assert_eq!(
+            read_range_from_path(&inspected, 0, 5).unwrap().bytes,
+            b"%PDF-"
+        );
+        assert_eq!(
+            read_range_from_path(&inspected, 3, 6).unwrap().bytes,
+            b"F-0123"
+        );
     }
 
     #[test]
@@ -350,13 +364,24 @@ mod tests {
     #[test]
     fn rejects_missing_non_pdf_and_directory_sources() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(inspect_pdf_path(&dir.path().join("missing.pdf"), true).unwrap_err().code, "pdf_source_missing");
+        assert_eq!(
+            inspect_pdf_path(&dir.path().join("missing.pdf"), true)
+                .unwrap_err()
+                .code,
+            "pdf_source_missing"
+        );
         let text = dir.path().join("not-pdf.txt");
         std::fs::write(&text, b"hello").unwrap();
-        assert_eq!(inspect_pdf_path(&text, true).unwrap_err().code, "pdf_not_pdf");
+        assert_eq!(
+            inspect_pdf_path(&text, true).unwrap_err().code,
+            "pdf_not_pdf"
+        );
         let fake_dir = dir.path().join("folder.pdf");
         std::fs::create_dir(&fake_dir).unwrap();
-        assert_eq!(inspect_pdf_path(&fake_dir, true).unwrap_err().code, "pdf_source_unauthorized");
+        assert_eq!(
+            inspect_pdf_path(&fake_dir, true).unwrap_err().code,
+            "pdf_source_unauthorized"
+        );
     }
 
     #[test]
