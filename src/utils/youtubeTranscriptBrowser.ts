@@ -391,6 +391,152 @@ async function fetchTimedTextDirect(
 }
 
 /**
+ * Fetch transcript via YouTube's official innerTube player API (ANDROID / IOS / WEB_EMBEDDED_PLAYER clients).
+ * This obtains signed captionTrack URLs with valid tokens, bypassing bot challenges.
+ */
+async function fetchTimedTextInnerTube(
+  videoId: string,
+  language?: string
+): Promise<TranscriptResponse | null> {
+  const clients = [
+    {
+      clientName: "ANDROID",
+      clientVersion: "19.02.39",
+      androidSdkVersion: 34,
+      hl: "en",
+      gl: "US",
+    },
+    {
+      clientName: "IOS",
+      clientVersion: "19.02.1",
+      deviceModel: "iPhone16,2",
+      osVersion: "17.2.0.21C62",
+      hl: "en",
+      gl: "US",
+    },
+    {
+      clientName: "WEB_EMBEDDED_PLAYER",
+      clientVersion: "5.20240108.01.00",
+      hl: "en",
+      gl: "US",
+    },
+  ];
+
+  let captionTracks: any[] = [];
+
+  for (const clientCfg of clients) {
+    try {
+      const resp = await fetch("https://www.youtube.com/youtubei/v1/player", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          videoId,
+          context: { client: clientCfg },
+        }),
+      });
+      if (!resp.ok) continue;
+      const json = await resp.json();
+      const tracks = json?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+      if (tracks && Array.isArray(tracks) && tracks.length > 0) {
+        captionTracks = tracks;
+        break;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (captionTracks.length === 0) return null;
+
+  let selectedTrack = captionTracks[0];
+  if (language) {
+    const match = captionTracks.find(
+      (t) => t.languageCode === language || t.languageCode?.startsWith(language)
+    );
+    if (match) selectedTrack = match;
+  }
+
+  const baseUrl = selectedTrack.baseUrl;
+  if (!baseUrl) return null;
+
+  const timedtextUrl = baseUrl.includes("fmt=json3") ? baseUrl : `${baseUrl}&fmt=json3`;
+  try {
+    const ttResp = await fetch(timedtextUrl);
+    if (!ttResp.ok) return null;
+    const ttData = await ttResp.json();
+    if (!ttData.events || !Array.isArray(ttData.events)) return null;
+
+    const segments: TranscriptSegment[] = [];
+    for (const event of ttData.events) {
+      if (!event.segs) continue;
+      const start = (event.tStartMs || 0) / 1000.0;
+      const duration = (event.dDurationMs || 0) / 1000.0;
+      const tStartMs = event.tStartMs || 0;
+      const dDurationMs = event.dDurationMs || 0;
+      const eventEndMs = tStartMs + dDurationMs;
+
+      const rawWords: Array<{ word: string; start_ms: number }> = [];
+      let rawText = "";
+
+      for (const seg of event.segs) {
+        const segText = seg.utf8 || "";
+        if (!segText) continue;
+        rawText += segText;
+        const offsetMs = seg.tOffsetMs || 0;
+        const segStartMs = tStartMs + offsetMs;
+        const tokens = segText.split(/\s+/).filter(Boolean);
+        for (const token of tokens) {
+          rawWords.push({ word: token, start_ms: segStartMs });
+        }
+      }
+
+      const cleanText = rawText.trim();
+      if (!cleanText) continue;
+
+      let words: WordTiming[] | undefined;
+      if (rawWords.length > 0) {
+        words = rawWords.map((currW, idx) => {
+          const stM = currW.start_ms;
+          let enM = stM + 300;
+          if (idx < rawWords.length - 1) {
+            const nextSt = rawWords[idx + 1].start_ms;
+            enM = nextSt > stM ? nextSt : stM + 300;
+          } else {
+            enM = Math.max(eventEndMs, stM + 300);
+          }
+          return {
+            word: currW.word,
+            start_ms: Math.round(stM),
+            end_ms: Math.round(enM),
+          };
+        });
+      }
+
+      segments.push({
+        text: cleanText,
+        start,
+        duration,
+        ...(words && words.length > 0 ? { words } : {}),
+      });
+    }
+
+    if (segments.length > 0) {
+      return {
+        segments,
+        videoId,
+        language: selectedTrack.languageCode || "en",
+      };
+    }
+  } catch (e) {
+    console.warn("[YouTubeTranscript] InnerTube timedtext fetch failed:", e);
+  }
+
+  return null;
+}
+
+/**
  * Fetch YouTube transcript by video ID
  * 
  * For PWA/Web: Uses youtube-transcript-ts library (primary) or API endpoint
@@ -445,8 +591,17 @@ export async function fetchYouTubeTranscript(
     return apiResult;
   } catch (apiError) {
     // If API endpoint fails (e.g. yt-dlp bot detection on datacenter IP),
-    // try direct YouTube timedtext API fallback on client
-    console.warn('[YouTubeTranscript] Vercel API fetch failed, trying direct timedtext API fallback:', apiError);
+    // try YouTube innerTube API fallback first on client, then direct timedtext
+    console.warn('[YouTubeTranscript] Vercel API fetch failed, trying client innerTube API fallback:', apiError);
+    try {
+      const innerTubeResult = await fetchTimedTextInnerTube(videoId, language);
+      if (innerTubeResult) {
+        return innerTubeResult;
+      }
+    } catch (innerTubeErr) {
+      console.warn('[YouTubeTranscript] Client innerTube fallback failed:', innerTubeErr);
+    }
+
     try {
       const directResult = await fetchTimedTextDirect(videoId, language);
       if (directResult) {

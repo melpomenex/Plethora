@@ -212,8 +212,172 @@ def _format_cookie_header(cookies):
     return None
 
 
+def fetch_transcript_innertube(video_id, language="en", proxy=None, cookies_header=None):
+    """Fetch transcript via YouTube innerTube player API using ANDROID / IOS clients."""
+    import json
+    from urllib.request import Request, urlopen, ProxyHandler, build_opener
+    import html
+
+    clients = [
+        {
+            "clientName": "ANDROID",
+            "clientVersion": "19.02.39",
+            "androidSdkVersion": 34,
+            "hl": "en",
+            "gl": "US",
+            "user_agent": "com.google.android.youtube/19.02.39 (Linux; U; Android 14; US) gzip",
+        },
+        {
+            "clientName": "IOS",
+            "clientVersion": "19.02.1",
+            "deviceModel": "iPhone16,2",
+            "osVersion": "17.2.0.21C62",
+            "hl": "en",
+            "gl": "US",
+            "user_agent": "com.google.ios.youtube/19.02.1 (iPhone16,2; U; CPU iOS 17_2 like Mac OS X; en_US)",
+        },
+        {
+            "clientName": "WEB_EMBEDDED_PLAYER",
+            "clientVersion": "5.20240108.01.00",
+            "hl": "en",
+            "gl": "US",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+    ]
+
+    url = "https://www.youtube.com/youtubei/v1/player"
+    caption_tracks = []
+    opener = None
+
+    for client_cfg in clients:
+        ua = client_cfg.pop("user_agent")
+        payload = {
+            "videoId": video_id,
+            "context": {"client": client_cfg},
+        }
+        data_bytes = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": ua,
+        }
+        if cookies_header:
+            headers["Cookie"] = cookies_header
+
+        req = Request(url, data=data_bytes, headers=headers)
+        try:
+            if proxy:
+                proxy_handler = ProxyHandler({"http": proxy, "https": proxy})
+                opener = build_opener(proxy_handler)
+                resp = opener.open(req, timeout=15)
+            else:
+                resp = urlopen(req, timeout=15)
+
+            player_res = json.loads(resp.read().decode("utf-8"))
+            tracks = (
+                player_res.get("captions", {})
+                .get("playerCaptionsTracklistRenderer", {})
+                .get("captionTracks", [])
+            )
+            if tracks:
+                caption_tracks = tracks
+                break
+        except Exception as e:
+            logger.warning("[InnerTube] Client %s failed: %s", client_cfg.get("clientName"), e)
+            continue
+
+    if not caption_tracks:
+        raise Exception("No captions available via InnerTube API")
+
+    selected_track = None
+    if language:
+        for t in caption_tracks:
+            code = t.get("languageCode", "")
+            if code == language or code.startswith(language):
+                selected_track = t
+                break
+
+    if not selected_track:
+        selected_track = caption_tracks[0]
+
+    base_url = selected_track.get("baseUrl", "")
+    if not base_url:
+        raise Exception("Caption track missing baseUrl")
+
+    timedtext_url = base_url if "fmt=json3" in base_url else f"{base_url}&fmt=json3"
+
+    req_tt = Request(timedtext_url, headers={"User-Agent": "Mozilla/5.0"})
+    if proxy and opener:
+        resp_tt = opener.open(req_tt, timeout=15)
+    else:
+        resp_tt = urlopen(req_tt, timeout=15)
+
+    data_tt = json.loads(resp_tt.read().decode("utf-8"))
+    segments = []
+
+    for event in data_tt.get("events", []):
+        if "segs" not in event:
+            continue
+
+        start = event.get("tStartMs", 0) / 1000.0;
+        duration = event.get("dDurationMs", 0) / 1000.0;
+        t_start_ms = event.get("tStartMs", 0)
+        d_duration_ms = event.get("dDurationMs", 0)
+        event_end_ms = t_start_ms + d_duration_ms
+
+        raw_words = []
+        for seg in event.get("segs", []):
+            raw_text = seg.get("utf8", "")
+            if not raw_text:
+                continue
+            clean_chunk = html.unescape(raw_text)
+            offset_ms = seg.get("tOffsetMs", 0)
+            seg_start_ms = t_start_ms + offset_ms
+            tokens = [t for t in clean_chunk.split() if t]
+            for token in tokens:
+                raw_words.append({"word": token, "start_ms": seg_start_ms})
+
+        text = "".join(seg.get("utf8", "") for seg in event["segs"])
+        text = html.unescape(text).strip()
+
+        if text:
+            words = []
+            if raw_words:
+                for idx_w in range(len(raw_words)):
+                    curr_w = raw_words[idx_w]
+                    st_m = curr_w["start_ms"]
+                    if idx_w < len(raw_words) - 1:
+                        next_st = raw_words[idx_w + 1]["start_ms"]
+                        en_m = next_st if next_st > st_m else st_m + 300
+                    else:
+                        en_m = max(event_end_ms, st_m + 300)
+                    words.append({
+                        "word": curr_w["word"],
+                        "start_ms": int(st_m),
+                        "end_ms": int(en_m),
+                    })
+
+            seg_dict = {"text": text, "start": start, "duration": duration}
+            if words:
+                seg_dict["words"] = words
+            segments.append(seg_dict)
+
+    if not segments:
+        raise Exception("No transcript segments found")
+
+    return {
+        "segments": segments,
+        "videoId": video_id,
+        "language": selected_track.get("languageCode", "en"),
+    }
+
+
 def fetch_transcript_direct(video_id, proxy=None, cookies_header=None):
     """Fetch transcript directly from YouTube's timedtext API (lighter than yt-dlp)"""
+    try:
+        return fetch_transcript_innertube(video_id, proxy=proxy, cookies_header=cookies_header)
+    except Exception as ie:
+        logger.warning("[InnerTube] Failed: %s, trying HTML scraping...", ie)
+
     from urllib.request import Request, urlopen, ProxyHandler, build_opener
     from urllib.error import HTTPError
     import html
