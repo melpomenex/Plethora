@@ -99,7 +99,7 @@ fn frexp(x: f64) -> (f64, i32) {
     // IEEE-754 double: sign(1) | exponent(11) | mantissa(52)
     let raw_exp = ((bits >> 52) & 0x7ff) as i32; // biased exponent
     let unbiased = raw_exp - 1023; // E such that x = 1.mantissa * 2^E
-    // frexp wants fraction in [0.5, 1): set biased exponent to 1022 (=> 2^-1).
+                                   // frexp wants fraction in [0.5, 1): set biased exponent to 1022 (=> 2^-1).
     let new_bits = (bits & !(0x7ff_u64 << 52)) | ((0x3fe_u64) << 52);
     let fraction = f64::from_bits(new_bits);
     (fraction, unbiased + 1)
@@ -132,7 +132,11 @@ fn py_round_f(x: f64) -> f64 {
 fn weighted_linear(x: &[f64], y: &[f64], weights: &[f64], plus_one: bool) -> (f64, f64) {
     let mut w: Vec<f64> = Vec::with_capacity(weights.len());
     for &v in weights {
-        let wi = if plus_one { py_round_f(v) + 1.0 } else { py_round_f(v) + 1e-5 };
+        let wi = if plus_one {
+            py_round_f(v) + 1.0
+        } else {
+            py_round_f(v) + 1e-5
+        };
         w.push(wi);
     }
     let total: f64 = w.iter().sum();
@@ -319,7 +323,9 @@ const SECOND_GRADE_INIT: [f64; 18] = [
 
 impl ClassicM2Optimizer {
     /// Alias for new() — matches naming used by mod.rs and review.rs.
-    pub fn fresh() -> Self { Self::new() }
+    pub fn fresh() -> Self {
+        Self::new()
+    }
 
     /// Construct a fresh optimizer with all default matrices. `__init__`.
     pub fn new() -> Self {
@@ -440,7 +446,9 @@ impl ClassicM2Optimizer {
             .map(|i| self.empirical[i][0].max(1e-300).ln())
             .collect();
         // a60330 pre-adds one case, then 97bc90 adds one again while fitting.
-        let weights: Vec<f64> = (0..20).map(|i| self.cell_cases[i][0] as f64 + 1.0).collect();
+        let weights: Vec<f64> = (0..20)
+            .map(|i| self.cell_cases[i][0] as f64 + 1.0)
+            .collect();
         let (slope, intercept) = weighted_linear(&x, &y, &weights, true);
         for i in 0..20 {
             self.matrix[i][0] = q_default(clamp((slope * i as f64 + intercept).exp(), 1.0, 20.0));
@@ -454,7 +462,11 @@ impl ClassicM2Optimizer {
             for repetition in 3..=20 {
                 xs.push((repetition as f64 - 1.0).ln());
                 let optimum = self.empirical[(row - 1) as usize][(repetition - 1) as usize];
-                let transformed = if optimum <= 1.21 { -10000.0 } else { (optimum - 1.2).ln() };
+                let transformed = if optimum <= 1.21 {
+                    -10000.0
+                } else {
+                    (optimum - 1.2).ln()
+                };
                 ys.push(clamp(transformed, -4.0, 4.0));
                 ws.push(self.cell_cases[(row - 1) as usize][(repetition - 1) as usize] as f64);
             }
@@ -463,7 +475,11 @@ impl ClassicM2Optimizer {
                 ws[last] = 1.0;
             }
             let fixed_intercept = (a_axis(row) - 1.2).ln();
-            let exponent = clamp(-fixed_intercept_slope(&xs, &ys, &ws, fixed_intercept), 0.0, 3.0);
+            let exponent = clamp(
+                -fixed_intercept_slope(&xs, &ys, &ws, fixed_intercept),
+                0.0,
+                3.0,
+            );
             self.row_exponent[(row - 1) as usize] = py_round_f(exponent * 10000.0) / 10000.0;
             self.row_weight[(row - 1) as usize] =
                 MAX_CASES.min(ws.iter().map(|w| py_round_f(*w) as u32).sum::<u32>());
@@ -561,7 +577,16 @@ impl ClassicM2Optimizer {
             .iter()
             .map(|&value| (-5.0f64).max(value.max(1e-300).ln()))
             .collect();
-        weighted_linear(&x, &y, &self.second_grade_cases.iter().map(|&c| c as f64).collect::<Vec<_>>(), true)
+        weighted_linear(
+            &x,
+            &y,
+            &self
+                .second_grade_cases
+                .iter()
+                .map(|&c| c as f64)
+                .collect::<Vec<_>>(),
+            true,
+        )
     }
 
     /// `_first_grade_fit`: fit the first-grade graph. Slope is clamped to <= 0.
@@ -575,7 +600,11 @@ impl ClassicM2Optimizer {
         let (slope, intercept) = weighted_linear(
             &x,
             &y,
-            &self.first_grade_cases.iter().map(|&c| c as f64).collect::<Vec<_>>(),
+            &self
+                .first_grade_cases
+                .iter()
+                .map(|&c| c as f64)
+                .collect::<Vec<_>>(),
             true,
         );
         (0.0f64.min(slope), intercept)
@@ -583,7 +612,11 @@ impl ClassicM2Optimizer {
 
     /// `_grade_at` (static): evaluate the grade curve at a forgetting index.
     fn grade_at(value: f64, slope: f64, intercept: f64) -> f64 {
-        clamp((clamp(slope * value + intercept, -38.0, 38.0)).exp(), 0.1, 5.0)
+        clamp(
+            (clamp(slope * value + intercept, -38.0, 38.0)).exp(),
+            0.1,
+            5.0,
+        )
     }
 
     /// `_forgetting_index_for_grade`: invert the grade curve to a forgetting index.
@@ -641,7 +674,13 @@ impl ClassicM2Optimizer {
         }
 
         let (slope, intercept) = self.grade_fit();
-        let predicted_fi = self.predicted_fi(item.repetitions, item.lapses, item.a_factor, stage, observed_u);
+        let predicted_fi = self.predicted_fi(
+            item.repetitions,
+            item.lapses,
+            item.a_factor,
+            stage,
+            observed_u,
+        );
         let inferred_fi = self.forgetting_index_for_grade(grade as f64, slope, intercept);
 
         let g10 = Self::grade_at(10.0, slope, intercept);
@@ -690,18 +729,15 @@ impl ClassicM2Optimizer {
     ) {
         // FUN_00a5e8a0: grade by forgetting-index graph.
         // Python: index = min(18, max(1, round(predicted_fi))) - 1
-        let index =
-            ((18_i32.min(1_i32.max(py_round(predicted_fi) as i32)) - 1).max(0)) as usize;
+        let index = ((18_i32.min(1_i32.max(py_round(predicted_fi) as i32)) - 1).max(0)) as usize;
         self.second_grade_cases[index] = MAX_CASES.min(self.second_grade_cases[index] + 1);
         let count = self.second_grade_cases[index];
         let alpha = 1.0 / (10.0 * (count as f64 + 2.0).ln());
-        self.second_grade[index] = real48(self.second_grade[index] * (1.0 - alpha) + alpha * grade as f64);
+        self.second_grade[index] =
+            real48(self.second_grade[index] * (1.0 - alpha) + alpha * grade as f64);
 
         // FUN_00a639c0: first-grade graph; excludes a first clean repetition.
-        if old_repetitions != 0
-            && !(old_repetitions == 1 && old_lapses == 0)
-            && grade < 6
-        {
+        if old_repetitions != 0 && !(old_repetitions == 1 && old_lapses == 0) && grade < 6 {
             let row = (a_bucket(new_a) - 1) as usize;
             self.first_grade_cases[row] = MAX_CASES.min(self.first_grade_cases[row] + 1);
             let alpha = if old_repetitions == 2 { 0.15 } else { 0.07 };
@@ -812,8 +848,11 @@ impl ClassicM2Optimizer {
             base = self.matrix[(20_i32.min(new_lapses as i32 + 1) - 1) as usize][0];
         } else {
             let factor = self.interpolate(a_bucket(new_a), stage + 1.0);
-            let (factor, au) =
-                Self::correct_early_factor(factor, 1_i32.max(item.previous_interval), 1_i32.max(used));
+            let (factor, au) = Self::correct_early_factor(
+                factor,
+                1_i32.max(item.previous_interval),
+                1_i32.max(used),
+            );
             adjusted_used = au;
             let prev_max = (1_i32.max(item.previous_interval) as f64).max(1_i32.max(used) as f64);
             base = prev_max * factor;

@@ -84,7 +84,11 @@ fn m4_item_loss(p: &[f64; 35], item: &RevlogItem) -> (f64, usize) {
     for &(elapsed, grade) in &item.reviews[1..] {
         if elapsed >= 1.0 {
             let pred = clamp(expert_mixture_with(p, elapsed, s, d), PRED_LO, PRED_HI);
-            loss += if grade >= 3 { -pred.ln() } else { -(1.0 - pred).ln() };
+            loss += if grade >= 3 {
+                -pred.ln()
+            } else {
+                -(1.0 - pred).ln()
+            };
             n += 1;
         }
         let k = review_kernel_with(p, elapsed, grade, d, s);
@@ -299,7 +303,11 @@ mod tests {
     /// Generate a synthetic revlog from a "true" parameter block: outcomes are
     /// sampled from the kernel's own (clamped) prediction, so the true block
     /// is the log-loss optimum the fitter should move toward.
-    fn synthetic_items(p_true: &[f64; 35], n_items: usize, reviews_per_item: usize) -> Vec<RevlogItem> {
+    fn synthetic_items(
+        p_true: &[f64; 35],
+        n_items: usize,
+        reviews_per_item: usize,
+    ) -> Vec<RevlogItem> {
         let mut rng = Rng(0x5EED_CAFE_F00D_1234);
         let mut out = Vec::with_capacity(n_items);
         for _ in 0..n_items {
@@ -313,7 +321,11 @@ mod tests {
                 let pred = clamp(expert_mixture_with(p_true, elapsed, s, d), PRED_LO, PRED_HI);
                 let recalled = rng.next_f64() < pred;
                 let grade = if recalled {
-                    if rng.next_f64() < 0.3 { 5 } else { 4 }
+                    if rng.next_f64() < 0.3 {
+                        5
+                    } else {
+                        4
+                    }
                 } else {
                     1
                 };
@@ -381,8 +393,7 @@ mod tests {
         assert!(
             !out.accepted,
             "null-signal fit must be rejected; val {:.4} -> {:.4}",
-            out.val_loss_before,
-            out.val_loss_after
+            out.val_loss_before, out.val_loss_after
         );
         assert!(out.params.is_none());
     }

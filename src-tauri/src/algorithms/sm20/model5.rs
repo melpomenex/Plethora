@@ -84,7 +84,11 @@ mod tests {
             assert!(
                 (got - expected).abs() < 1e-9,
                 "model_5(t={}, grade={}, S={}): got {}, expected {}",
-                t, grade, s_old, got, expected
+                t,
+                grade,
+                s_old,
+                got,
+                expected
             );
         }
     }

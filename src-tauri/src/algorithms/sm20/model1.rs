@@ -18,7 +18,10 @@ pub struct M1HistoryPoint {
 
 impl Default for M1HistoryPoint {
     fn default() -> Self {
-        Self { factor: 2.5, stability: 1.0 }
+        Self {
+            factor: 2.5,
+            stability: 1.0,
+        }
     }
 }
 
@@ -33,7 +36,12 @@ pub struct M1ItemState {
 
 impl Default for M1ItemState {
     fn default() -> Self {
-        Self { last_review_day: -1, previous_interval: 0, repetitions: 0, lapses: 0 }
+        Self {
+            last_review_day: -1,
+            previous_interval: 0,
+            repetitions: 0,
+            lapses: 0,
+        }
     }
 }
 
@@ -69,7 +77,12 @@ fn adjust_factor_for_grade(factor: f64, grade: i32) -> f64 {
 }
 
 /// Run the M1 interval path for one review. `FUN_00d43e00`. `[C][BIN]`
-pub fn model_1(item: &M1ItemState, today: i32, grade: i32, history: Option<&M1HistoryPoint>) -> M1ReviewResult {
+pub fn model_1(
+    item: &M1ItemState,
+    today: i32,
+    grade: i32,
+    history: Option<&M1HistoryPoint>,
+) -> M1ReviewResult {
     assert!((0..=5).contains(&grade), "grade must be in 0..=5");
 
     // Used interval. `FUN_00a62080` GetUsedInterval: `today - last_review_day`,
@@ -80,9 +93,16 @@ pub fn model_1(item: &M1ItemState, today: i32, grade: i32, history: Option<&M1Hi
         let raw = today - item.last_review_day;
         if raw < -1 {
             // Binary: fatal "UsedInterval is less than 1". We panic to match.
-            panic!("UsedInterval < -1 (today={}, last_review_day={})", today, item.last_review_day);
+            panic!(
+                "UsedInterval < -1 (today={}, last_review_day={})",
+                today, item.last_review_day
+            );
         }
-        if raw < 1 { 1 } else { raw }
+        if raw < 1 {
+            1
+        } else {
+            raw
+        }
     } else {
         1
     };
@@ -171,15 +191,28 @@ mod tests {
     fn used_interval_floors_at_one() {
         // previous_interval == 0: used = 1 regardless of dates (binary skips
         // GetUsedInterval and leaves the pre-loaded 1).
-        let item = M1ItemState { last_review_day: 100, previous_interval: 0, repetitions: 0, lapses: 0 };
+        let item = M1ItemState {
+            last_review_day: 100,
+            previous_interval: 0,
+            repetitions: 0,
+            lapses: 0,
+        };
         let r = model_1(&item, 100, 4, None);
         assert_eq!(r.used_interval, 1, "prev_interval=0 should give used=1");
 
         // previous_interval != 0 but today == last_review_day: raw delta is 0,
         // floored to 1 (binary never returns 0).
-        let item = M1ItemState { last_review_day: 100, previous_interval: 5, repetitions: 3, lapses: 0 };
+        let item = M1ItemState {
+            last_review_day: 100,
+            previous_interval: 5,
+            repetitions: 3,
+            lapses: 0,
+        };
         let r = model_1(&item, 100, 4, None);
-        assert_eq!(r.used_interval, 1, "today==last_review_day should floor to 1");
+        assert_eq!(
+            r.used_interval, 1,
+            "today==last_review_day should floor to 1"
+        );
 
         // Normal case: delta is 7, returned as-is.
         let r = model_1(&item, 107, 4, None);
@@ -191,7 +224,12 @@ mod tests {
     #[test]
     #[should_panic(expected = "UsedInterval < -1")]
     fn used_interval_negative_delta_panics() {
-        let item = M1ItemState { last_review_day: 100, previous_interval: 5, repetitions: 3, lapses: 0 };
+        let item = M1ItemState {
+            last_review_day: 100,
+            previous_interval: 5,
+            repetitions: 3,
+            lapses: 0,
+        };
         // today=98 -> raw = 98-100 = -2 < -1 -> panic
         model_1(&item, 98, 4, None);
     }
@@ -201,10 +239,21 @@ mod tests {
     /// (banker's `round()`); the old `.round()` (ties away from zero) gave 13.
     #[test]
     fn interval_rounds_ties_to_even() {
-        let item = M1ItemState { last_review_day: 0, previous_interval: 5, repetitions: 3, lapses: 0 };
-        let history = M1HistoryPoint { factor: 2.5, stability: 5.0 };
+        let item = M1ItemState {
+            last_review_day: 0,
+            previous_interval: 5,
+            repetitions: 3,
+            lapses: 0,
+        };
+        let history = M1HistoryPoint {
+            factor: 2.5,
+            stability: 5.0,
+        };
         let r = model_1(&item, 5, 5, Some(&history));
         assert_eq!(r.used_interval, 5);
-        assert_eq!(r.interval, 12, "12.5 rounds to even (12), matching the binary");
+        assert_eq!(
+            r.interval, 12,
+            "12.5 rounds to even (12), matching the binary"
+        );
     }
 }

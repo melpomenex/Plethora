@@ -300,20 +300,13 @@ impl M3MatrixState {
         }
     }
 
-    pub fn record_smoothing_value(
-        &mut self,
-        d_idx: i32,
-        s_idx: i32,
-        r_idx: i32,
-        value: f64,
-    ) {
+    pub fn record_smoothing_value(&mut self, d_idx: i32, s_idx: i32, r_idx: i32, value: f64) {
         if value <= 0.0 || s_idx <= 0 {
             return;
         }
         let off = matrix_cell_offset(d_idx, s_idx, r_idx);
         let count = self.smoothing_count[off] as f64;
-        self.smoothing_value[off] =
-            (self.smoothing_value[off] * count + value) / (count + 1.0);
+        self.smoothing_value[off] = (self.smoothing_value[off] * count + value) / (count + 1.0);
         self.smoothing_count[off] = self.smoothing_count[off].saturating_add(1);
     }
 }
@@ -376,13 +369,7 @@ fn sinc_interpolation(r: f64, matrix_sinc: f64, total_count: f64) -> f64 {
     w * matrix_sinc + (SINC_BASE - w) * r
 }
 
-fn predicted_blend(
-    old_interval: f64,
-    new_sinc: f64,
-    grade: i32,
-    reps: u32,
-    lapses: u32,
-) -> f64 {
+fn predicted_blend(old_interval: f64, new_sinc: f64, grade: i32, reps: u32, lapses: u32) -> f64 {
     let recall = if grade >= 3 { AF_ONE } else { AF_ZERO };
     let target = (sign_flip(recall - new_sinc) + AF_ADD) * AF_MUL;
     let mut mix_w = 0.2;
@@ -513,11 +500,7 @@ fn interval_axis_value(index: i32) -> i32 {
     index.max(powered)
 }
 
-fn forgetting_curve_fit(
-    successes: &[u32],
-    observations: &[u32],
-    prior_interval: f64,
-) -> f64 {
+fn forgetting_curve_fit(successes: &[u32], observations: &[u32], prior_interval: f64) -> f64 {
     let n = successes.len().min(35);
     let mut ratios = [0.0f64; 35];
     let mut total_success: i64 = 0;
@@ -539,7 +522,9 @@ fn forgetting_curve_fit(
         return prior_interval;
     }
     let overall = CF_R_LO.max(CF_R_HI.min(overall));
-    let xs: Vec<f64> = (1..=35).map(|i| (interval_axis_value(i) as f64).ln()).collect();
+    let xs: Vec<f64> = (1..=35)
+        .map(|i| (interval_axis_value(i) as f64).ln())
+        .collect();
     let ys: Vec<f64> = (0..35).map(|i| ratios[i].ln()).collect();
     let obs_slice = &observations[..n];
     let (slope, intercept) = wls_regression(&xs[..n], &ys[..n], obs_slice);
@@ -574,11 +559,7 @@ fn forgetting_curve_fit(
     fitted * output_weight + prior_interval * (CF_ONE - output_weight)
 }
 
-fn lapse_cell_fit(
-    r_idx: i32,
-    stage_idx: i32,
-    state: &M3MatrixState,
-) -> (f64, i64) {
+fn lapse_cell_fit(r_idx: i32, stage_idx: i32, state: &M3MatrixState) -> (f64, i64) {
     let mut successes = [0u32; 35];
     let mut observations = [0u32; 35];
     for interval_idx in 1..=35 {
@@ -588,25 +569,20 @@ fn lapse_cell_fit(
     }
     let total: i64 = observations.iter().map(|&x| x as i64).sum();
     (
-        clamp(forgetting_curve_fit(&successes, &observations, 1.0), 0.1, 11.0),
+        clamp(
+            forgetting_curve_fit(&successes, &observations, 1.0),
+            0.1,
+            11.0,
+        ),
         total,
     )
 }
 
-fn lapse_neighbor_lookup(
-    retrievability: f64,
-    stage: i32,
-    state: &M3MatrixState,
-) -> (f64, i64) {
+fn lapse_neighbor_lookup(retrievability: f64, stage: i32, state: &M3MatrixState) -> (f64, i64) {
     let center_r = r_index(retrievability);
     let center_stage = stage.clamp(1, 20);
-    let neighbors: [(i32, i32, i64); 5] = [
-        (0, 0, 16),
-        (-1, 0, 4),
-        (1, 0, 4),
-        (0, -1, 1),
-        (0, 1, 1),
-    ];
+    let neighbors: [(i32, i32, i64); 5] =
+        [(0, 0, 16), (-1, 0, 4), (1, 0, 4), (0, -1, 1), (0, 1, 1)];
     let mut weighted: Vec<(f64, i64)> = Vec::new();
     for (dr, ds, mult) in neighbors {
         let r = center_r + dr;
@@ -738,7 +714,13 @@ fn w3_model_path(
         let stage = round_half_up(lapses as f64) as i32 + 1;
         let (neighbor_smoothed, neighbor_count) =
             lapse_neighbor_lookup(new_s_from_matrix, stage, state);
-        matrix_entry = matrix_update(d, stage as f64, new_s_from_matrix, neighbor_smoothed, neighbor_count);
+        matrix_entry = matrix_update(
+            d,
+            stage as f64,
+            new_s_from_matrix,
+            neighbor_smoothed,
+            neighbor_count,
+        );
     } else {
         let prior_iv = bayesian_prior_interval(d_blend, old_interval, r);
         let new_d_idx = d_index(d_blend);
@@ -752,7 +734,10 @@ fn w3_model_path(
         );
     }
 
-    W3Output { matrix_entry, d_blend }
+    W3Output {
+        matrix_entry,
+        d_blend,
+    }
 }
 
 /// Run M3 with the binary's replay order: outcome → schedule → smoothing.
@@ -815,7 +800,11 @@ pub fn model_3_stateful(
     working.record_pre_lapse_outcome(
         item.repetitions,
         item.lapses,
-        if item.previous_r_index != 0 { item.previous_r_index } else { pre_r },
+        if item.previous_r_index != 0 {
+            item.previous_r_index
+        } else {
+            pre_r
+        },
         interval_category(elapsed),
         grade,
     );
@@ -834,7 +823,12 @@ pub fn model_3_stateful(
     );
 
     // Record smoothing value after scheduling
-    working.record_smoothing_value(pre_d, item.previous_stability_index, pre_r, output.matrix_entry);
+    working.record_smoothing_value(
+        pre_d,
+        item.previous_stability_index,
+        pre_r,
+        output.matrix_entry,
+    );
 
     let next_item = M3ItemState {
         last_review_day: today,
@@ -860,8 +854,7 @@ pub fn model_3_stateful(
 
 fn interval_category(interval: i32) -> i32 {
     let interval = interval.max(1);
-    let mut category =
-        round_half_up((interval as f64).ln() / INTERVAL_AXIS_BASE.ln()) as i32 + 12;
+    let mut category = round_half_up((interval as f64).ln() / INTERVAL_AXIS_BASE.ln()) as i32 + 12;
     category = interval.min(category);
     category.clamp(1, 35)
 }

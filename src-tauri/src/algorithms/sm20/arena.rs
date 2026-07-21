@@ -95,11 +95,11 @@ const ADAPT_TARGET_SUM: f64 = 100.0;
 /// before renormalization (`DAT_00af44d0`..`DAT_00af4510`). Slot order
 /// matches `ARENA_MODEL_NAMES`.
 const ADAPT_WEIGHT_CLAMPS: [(f64, f64); 5] = [
-    (0.1, 30.0),   // W1/PA2  (M1/SM-2)
-    (2.0, 50.0),   // W2/PA15 (M2/SM-15)
-    (25.0, 99.9),  // W3/PA19 (M3/SM-19)
-    (15.0, 95.0),  // W4/PA20 (M4/SM-20)
-    (0.1, 45.0),   // W5/PAF  (M5/FSRS)
+    (0.1, 30.0),  // W1/PA2  (M1/SM-2)
+    (2.0, 50.0),  // W2/PA15 (M2/SM-15)
+    (25.0, 99.9), // W3/PA19 (M3/SM-19)
+    (15.0, 95.0), // W4/PA20 (M4/SM-20)
+    (0.1, 45.0),  // W5/PAF  (M5/FSRS)
 ];
 
 // === Diagnostics constants (NOT decoded — Incrementum additions) ===
@@ -304,7 +304,9 @@ impl ArenaState {
         if self.decayed_count < MIN_METRIC_COUNT {
             return None;
         }
-        Some(std::array::from_fn(|i| self.decayed_loss[i] / self.decayed_count))
+        Some(std::array::from_fn(|i| {
+            self.decayed_loss[i] / self.decayed_count
+        }))
     }
 
     /// Diagnostic: the R-Metric — percentage log-loss improvement of the
@@ -315,9 +317,7 @@ impl ArenaState {
         if self.decayed_count < MIN_METRIC_COUNT || self.decayed_sm19_loss <= 0.0 {
             return None;
         }
-        Some(
-            (self.decayed_sm19_loss - self.decayed_blend_loss) / self.decayed_sm19_loss * 100.0,
-        )
+        Some((self.decayed_sm19_loss - self.decayed_blend_loss) / self.decayed_sm19_loss * 100.0)
     }
 }
 
@@ -351,8 +351,16 @@ mod tests {
         for _ in 0..500 {
             a.observe(&[3.0, 3.0, 1.0, 60.0, 3.0], 6.0, true);
         }
-        assert!(a.weights[3] > 40.0, "SM-20 should gain significantly: {:?}", a.weights);
-        assert!(a.weights[2] < 35.0, "SM-19 should shrink significantly: {:?}", a.weights);
+        assert!(
+            a.weights[3] > 40.0,
+            "SM-20 should gain significantly: {:?}",
+            a.weights
+        );
+        assert!(
+            a.weights[2] < 35.0,
+            "SM-19 should shrink significantly: {:?}",
+            a.weights
+        );
         // Sum stays 100
         assert!((a.weights.iter().sum::<f64>() - 100.0).abs() < 1e-4);
     }
@@ -384,7 +392,6 @@ mod tests {
         .sanitized();
         assert_eq!(a.weights, ARENA_DEFAULT_WEIGHTS);
     }
-
 
     #[test]
     fn weights_match_user_collection_b_range() {

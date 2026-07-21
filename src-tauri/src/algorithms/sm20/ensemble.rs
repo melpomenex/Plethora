@@ -28,13 +28,13 @@ const ADAPT_LEARNING_RATE: f64 = 0.0317; // _DAT_00af44c8
 const ADAPT_CLAMP_LO: f64 = -0.5; // DAT_00af44b8
 const ADAPT_CLAMP_HI: f64 = 0.5; // DAT_00af44c0
 const ADAPT_TARGET_SUM: f64 = 100.0; // _DAT_00af4518
-// Per-weight clamps: (lo, hi) from af44d0..af4510
+                                     // Per-weight clamps: (lo, hi) from af44d0..af4510
 const ADAPT_WEIGHT_CLAMPS: [(f64, f64); 5] = [
-    (0.1, 30.0),   // W1/PA2  (M1/SM-2 legacy)
-    (2.0, 50.0),   // W2/PA15 (M2/SM-15 classic)
-    (25.0, 99.9),  // W3/PA19 (M3/SM-19 matrix)
-    (15.0, 95.0),  // W4/PA20 (M4/SM-20 kernel)
-    (0.1, 45.0),   // W5/PAF  (M5/FSRS analytic)
+    (0.1, 30.0),  // W1/PA2  (M1/SM-2 legacy)
+    (2.0, 50.0),  // W2/PA15 (M2/SM-15 classic)
+    (25.0, 99.9), // W3/PA19 (M3/SM-19 matrix)
+    (15.0, 95.0), // W4/PA20 (M4/SM-20 kernel)
+    (0.1, 45.0),  // W5/PAF  (M5/FSRS analytic)
 ];
 
 // Finalization — FUN_00cf5b50
@@ -152,10 +152,7 @@ pub fn adapt_weights(weights: &mut [f64; 5], model_errors: &[f64; 5]) {
 ///
 /// Each model's error = actual_outcome - predicted_retrievability.
 /// `recalled` = true if the user recalled the item (grade >= 3).
-pub fn compute_model_errors(
-    predictions: [f64; 5],
-    recalled: bool,
-) -> [f64; 5] {
+pub fn compute_model_errors(predictions: [f64; 5], recalled: bool) -> [f64; 5] {
     let outcome = if recalled { 1.0 } else { 0.0 };
     [
         outcome - predictions[0],
@@ -317,7 +314,10 @@ mod tests {
         // Ratio already above the floor: unchanged.
         assert_eq!(min_growth_guard(20, 10), 20);
         // 70 <= used < 1461: flat 1.1 floor.
-        assert_eq!(min_growth_guard(100, 100), delphi_round(100.0 * 1.1 + 0.5) as i32);
+        assert_eq!(
+            min_growth_guard(100, 100),
+            delphi_round(100.0 * 1.1 + 0.5) as i32
+        );
         // used >= 1461: no guard.
         assert_eq!(min_growth_guard(1461, 1461), 1461);
     }

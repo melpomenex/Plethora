@@ -119,8 +119,8 @@ impl ArenaModelId {
 }
 
 // Re-export index mappers for backward compatibility with the old sm20.rs API
-pub use model3::{d_index as difficulty_to_index, r_index};
 pub use kernel::init_new_item as init_kernel_item;
+pub use model3::{d_index as difficulty_to_index, r_index};
 
 // =============================================================================
 // LEGACY V4 DIAGNOSTIC TYPES — kept for backward-compatible DB deserialization.
@@ -661,8 +661,16 @@ pub fn preview(
     pure_m4: bool,
     post_lapse_x: f64,
 ) -> SM20PreviewIntervals {
-    let grades =
-        preview_grades(state, elapsed_days, fi, collection, today, rng, pure_m4, post_lapse_x);
+    let grades = preview_grades(
+        state,
+        elapsed_days,
+        fi,
+        collection,
+        today,
+        rng,
+        pure_m4,
+        post_lapse_x,
+    );
     SM20PreviewIntervals {
         again: grades[rating_to_grade(1) as usize],
         hard: grades[rating_to_grade(2) as usize],
@@ -752,8 +760,8 @@ pub fn init_item(grade: i32) -> SM20State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
 
     fn rng() -> StdRng {
         StdRng::seed_from_u64(0)
@@ -809,14 +817,44 @@ mod tests {
         // family = 1 but ordinal = 0 → NORMAL path. Markers stored exactly
         // as the binary writes them: (1, 0).
         let fresh = SM20State::default();
-        let r1 = review(&fresh, 1, 0.0, 10, &mut coll, 0, true, false, &mut rng(), false, 0.0);
-        assert_eq!(r1.state.post_lapse_family, 1, "lapse dispatch always writes family = 1");
-        assert_eq!(r1.state.lapse_ordinal, 0, "first-review lapse: ordinal = 0 (pre-reps 0)");
+        let r1 = review(
+            &fresh,
+            1,
+            0.0,
+            10,
+            &mut coll,
+            0,
+            true,
+            false,
+            &mut rng(),
+            false,
+            0.0,
+        );
+        assert_eq!(
+            r1.state.post_lapse_family, 1,
+            "lapse dispatch always writes family = 1"
+        );
+        assert_eq!(
+            r1.state.lapse_ordinal, 0,
+            "first-review lapse: ordinal = 0 (pre-reps 0)"
+        );
 
         // Established item (pre-review m3 reps = 3), lapse: the post-lapse
         // curve fires for THIS review → interval lands in [1, 11].
         // Markers: family = 1, ordinal = pre-review lapses + 1 = 1.
-        let r2 = review(&established_item(), 1, 30.0, 10, &mut coll, 30, true, false, &mut rng(), false, 0.0);
+        let r2 = review(
+            &established_item(),
+            1,
+            30.0,
+            10,
+            &mut coll,
+            30,
+            true,
+            false,
+            &mut rng(),
+            false,
+            0.0,
+        );
         assert!(
             (1.0..=11.0).contains(&r2.interval_days),
             "lapse on an established item must take the post-lapse path: {}",
@@ -827,7 +865,19 @@ mod tests {
 
         // A pass on the established item: normal path (family = pre_reps+1,
         // ordinal = pre_lapses) + the min-growth guard.
-        let r3 = review(&established_item(), 4, 30.0, 10, &mut coll, 30, true, false, &mut rng(), false, 0.0);
+        let r3 = review(
+            &established_item(),
+            4,
+            30.0,
+            10,
+            &mut coll,
+            30,
+            true,
+            false,
+            &mut rng(),
+            false,
+            0.0,
+        );
         assert_eq!(r3.state.post_lapse_family, 4);
         assert_eq!(r3.state.lapse_ordinal, 0);
     }
@@ -846,9 +896,36 @@ mod tests {
             lapse_ordinal: 4,
             ..base.clone()
         };
-        let ra = review(&armed, 4, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
-        let rb = review(&base, 4, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
-        assert_eq!(ra.interval_days, rb.interval_days, "stored markers must not affect scheduling");
+        let ra = review(
+            &armed,
+            4,
+            30.0,
+            10,
+            &mut coll,
+            30,
+            false,
+            false,
+            &mut rng(),
+            false,
+            0.0,
+        );
+        let rb = review(
+            &base,
+            4,
+            30.0,
+            10,
+            &mut coll,
+            30,
+            false,
+            false,
+            &mut rng(),
+            false,
+            0.0,
+        );
+        assert_eq!(
+            ra.interval_days, rb.interval_days,
+            "stored markers must not affect scheduling"
+        );
     }
 
     /// End-to-end differential pins against the Python reference package
@@ -869,17 +946,62 @@ mod tests {
     fn pipeline_matches_python_reference_end_to_end() {
         // A: established pass (grade 4, elapsed 30) → 49 (exact match).
         let mut coll = SM20CollectionState::default();
-        let a = review(&established_item(), 4, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
-        assert_eq!(a.interval_days, 49.0, "established pass must match the reference");
+        let a = review(
+            &established_item(),
+            4,
+            30.0,
+            10,
+            &mut coll,
+            30,
+            false,
+            false,
+            &mut rng(),
+            false,
+            0.0,
+        );
+        assert_eq!(
+            a.interval_days, 49.0,
+            "established pass must match the reference"
+        );
 
         // B: established lapse (grade 1) → post-lapse path, no-jitter → 3.
-        let b = review(&established_item(), 1, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
-        assert_eq!(b.interval_days, 3.0, "established lapse (post-lapse curve, no preview jitter)");
+        let b = review(
+            &established_item(),
+            1,
+            30.0,
+            10,
+            &mut coll,
+            30,
+            false,
+            false,
+            &mut rng(),
+            false,
+            0.0,
+        );
+        assert_eq!(
+            b.interval_days, 3.0,
+            "established lapse (post-lapse curve, no preview jitter)"
+        );
 
         // C: fresh-item lapse (grade 1, elapsed 0; top-level difficulty 0.5 =
         // the reference's default) → normal path → 2 (exact match).
-        let fresh = SM20State { difficulty: 0.5, ..Default::default() };
-        let c = review(&fresh, 1, 0.0, 10, &mut coll, 0, false, false, &mut rng(), false, 0.0);
+        let fresh = SM20State {
+            difficulty: 0.5,
+            ..Default::default()
+        };
+        let c = review(
+            &fresh,
+            1,
+            0.0,
+            10,
+            &mut coll,
+            0,
+            false,
+            false,
+            &mut rng(),
+            false,
+            0.0,
+        );
         assert_eq!(c.interval_days, 2.0, "fresh lapse must match the reference");
     }
 
@@ -892,7 +1014,19 @@ mod tests {
         let mut coll = SM20CollectionState::default();
         // Reviewed 30 days after the last review: floor = 1.7 * 30^-0.1 ≈ 1.209,
         // so the interval must be ≥ round(30 * 1.209 + 0.5) = 37.
-        let r = review(&established_item(), 4, 30.0, 10, &mut coll, 30, false, false, &mut rng(), false, 0.0);
+        let r = review(
+            &established_item(),
+            4,
+            30.0,
+            10,
+            &mut coll,
+            30,
+            false,
+            false,
+            &mut rng(),
+            false,
+            0.0,
+        );
         let floor = 1.7 * (30f64).powf(-0.1);
         let min_interval = (30.0 * floor + 0.5).round_ties_even();
         assert!(
@@ -910,8 +1044,8 @@ mod tests {
             "../../../../src/shared/sm20ArenaParityFixture.json"
         ))
         .expect("shared Arena parity fixture");
-        let state: SM20State = serde_json::from_value(fixture["state"].clone())
-            .expect("shared fixture state");
+        let state: SM20State =
+            serde_json::from_value(fixture["state"].clone()).expect("shared fixture state");
         let elapsed_days = fixture["elapsed_days"].as_f64().expect("elapsed days");
         let before = serde_json::to_vec(&(
             &collection.m2_optimizer,
@@ -967,7 +1101,10 @@ mod tests {
         );
         for result in &first {
             assert!(result.interval_days.is_finite() && result.interval_days >= 1.0);
-            assert!(result.state.slot_stabilities.is_some(), "raw model slots stay available for later scoring");
+            assert!(
+                result.state.slot_stabilities.is_some(),
+                "raw model slots stay available for later scoring"
+            );
             assert!(result
                 .model_intervals
                 .iter()
@@ -977,21 +1114,36 @@ mod tests {
         let mut expected_intervals = [0.0; 6];
         for (index, (expected, repeated)) in fixture_grades.iter().zip(&second).enumerate() {
             let interval = expected["recommendation"].as_f64().expect("recommendation");
-            let slots: [f64; 5] = serde_json::from_value(expected["candidates"].clone())
-                .expect("candidate fixture");
-            let range: [f64; 2] = serde_json::from_value(expected["range"].clone())
-                .expect("range fixture");
+            let slots: [f64; 5] =
+                serde_json::from_value(expected["candidates"].clone()).expect("candidate fixture");
+            let range: [f64; 2] =
+                serde_json::from_value(expected["range"].clone()).expect("range fixture");
             expected_intervals[index] = interval;
-            assert_eq!(first[index].interval_days, interval, "grade {index} ensemble fixture");
-            assert_eq!(first[index].model_intervals, slots, "grade {index} candidate fixture");
-            assert_eq!(slots.iter().copied().fold(f64::INFINITY, f64::min), range[0]);
-            assert_eq!(slots.iter().copied().fold(f64::NEG_INFINITY, f64::max), range[1]);
+            assert_eq!(
+                first[index].interval_days, interval,
+                "grade {index} ensemble fixture"
+            );
+            assert_eq!(
+                first[index].model_intervals, slots,
+                "grade {index} candidate fixture"
+            );
+            assert_eq!(
+                slots.iter().copied().fold(f64::INFINITY, f64::min),
+                range[0]
+            );
+            assert_eq!(
+                slots.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+                range[1]
+            );
             assert_eq!(first[index].interval_days, repeated.interval_days);
             assert_eq!(first[index].model_intervals, repeated.model_intervals);
-            assert_eq!(first[index].state.slot_stabilities, repeated.state.slot_stabilities);
+            assert_eq!(
+                first[index].state.slot_stabilities,
+                repeated.state.slot_stabilities
+            );
         }
-        let fixture_weights: [f64; 5] = serde_json::from_value(fixture["weights"].clone())
-            .expect("weight fixture");
+        let fixture_weights: [f64; 5] =
+            serde_json::from_value(fixture["weights"].clone()).expect("weight fixture");
         assert_eq!(collection.arena.weights, fixture_weights);
         assert_eq!(
             fixture["custom_bounds"]["min_days"].as_f64().unwrap(),
@@ -1051,23 +1203,51 @@ mod tests {
             fixture["committed_state"],
         );
         assert_eq!(
-            commit_collection.m2_optimizer.cell_cases.iter().flatten().sum::<u32>(),
-            fixture["committed_collection"]["m2_case_count"].as_u64().unwrap() as u32,
+            commit_collection
+                .m2_optimizer
+                .cell_cases
+                .iter()
+                .flatten()
+                .sum::<u32>(),
+            fixture["committed_collection"]["m2_case_count"]
+                .as_u64()
+                .unwrap() as u32,
         );
         assert_eq!(
-            commit_collection.m3_matrices.outcome_count.iter().sum::<u32>(),
-            fixture["committed_collection"]["m3_outcome_count"].as_u64().unwrap() as u32,
+            commit_collection
+                .m3_matrices
+                .outcome_count
+                .iter()
+                .sum::<u32>(),
+            fixture["committed_collection"]["m3_outcome_count"]
+                .as_u64()
+                .unwrap() as u32,
         );
-        let expected_arena: ArenaState = serde_json::from_value(
-            fixture["committed_collection"]["arena"].clone(),
-        ).unwrap();
+        let expected_arena: ArenaState =
+            serde_json::from_value(fixture["committed_collection"]["arena"].clone()).unwrap();
         for index in 0..5 {
-            assert!((commit_collection.arena.weights[index] - expected_arena.weights[index]).abs() < 1e-14);
-            assert!((commit_collection.arena.decayed_loss[index] - expected_arena.decayed_loss[index]).abs() < 1e-14);
+            assert!(
+                (commit_collection.arena.weights[index] - expected_arena.weights[index]).abs()
+                    < 1e-14
+            );
+            assert!(
+                (commit_collection.arena.decayed_loss[index] - expected_arena.decayed_loss[index])
+                    .abs()
+                    < 1e-14
+            );
         }
-        assert!((commit_collection.arena.decayed_blend_loss - expected_arena.decayed_blend_loss).abs() < 1e-14);
-        assert!((commit_collection.arena.decayed_sm19_loss - expected_arena.decayed_sm19_loss).abs() < 1e-14);
-        assert_eq!(commit_collection.arena.total_scored, expected_arena.total_scored);
+        assert!(
+            (commit_collection.arena.decayed_blend_loss - expected_arena.decayed_blend_loss).abs()
+                < 1e-14
+        );
+        assert!(
+            (commit_collection.arena.decayed_sm19_loss - expected_arena.decayed_sm19_loss).abs()
+                < 1e-14
+        );
+        assert_eq!(
+            commit_collection.arena.total_scored,
+            expected_arena.total_scored
+        );
         let learned_preview = preview_grade_results(
             &committed.state,
             fixture["post_commit_elapsed_days"].as_f64().unwrap(),
@@ -1078,30 +1258,48 @@ mod tests {
             false,
             0.0,
         );
-        for (result, expected) in learned_preview.iter().zip(
-            fixture["post_commit_grades"].as_array().unwrap(),
-        ) {
-            assert_eq!(result.interval_days, expected["recommendation"].as_f64().unwrap());
-            let expected_candidates: [f64; 5] = serde_json::from_value(
-                expected["candidates"].clone(),
-            ).unwrap();
+        for (result, expected) in learned_preview
+            .iter()
+            .zip(fixture["post_commit_grades"].as_array().unwrap())
+        {
+            assert_eq!(
+                result.interval_days,
+                expected["recommendation"].as_f64().unwrap()
+            );
+            let expected_candidates: [f64; 5] =
+                serde_json::from_value(expected["candidates"].clone()).unwrap();
             assert_eq!(result.model_intervals, expected_candidates);
         }
         let mut personalized_collection = SM20CollectionState::default();
-        personalized_collection.fsrs_params = Some(serde_json::from_value(
-            fixture["personalized_fsrs"]["parameters"].clone(),
-        ).unwrap());
-        let personalized = preview_grade_results(
-            &state, elapsed_days, DEFAULT_FI, &personalized_collection, 30,
-            &mut StdRng::seed_from_u64(0), false, 0.0,
+        personalized_collection.fsrs_params = Some(
+            serde_json::from_value(fixture["personalized_fsrs"]["parameters"].clone()).unwrap(),
         );
-        for (result, expected) in personalized.iter().zip(
-            fixture["personalized_fsrs"]["grades"].as_array().unwrap(),
-        ) {
-            assert_eq!(result.model_intervals[4], expected["interval"].as_f64().unwrap());
+        let personalized = preview_grade_results(
+            &state,
+            elapsed_days,
+            DEFAULT_FI,
+            &personalized_collection,
+            30,
+            &mut StdRng::seed_from_u64(0),
+            false,
+            0.0,
+        );
+        for (result, expected) in personalized
+            .iter()
+            .zip(fixture["personalized_fsrs"]["grades"].as_array().unwrap())
+        {
+            assert_eq!(
+                result.model_intervals[4],
+                expected["interval"].as_f64().unwrap()
+            );
             let actual = result.state.m5_memory.expect("personalized M5 memory");
-            assert!((actual.stability - expected["memory"]["stability"].as_f64().unwrap()).abs() < 1e-7);
-            assert!((actual.difficulty - expected["memory"]["difficulty"].as_f64().unwrap()).abs() < 1e-7);
+            assert!(
+                (actual.stability - expected["memory"]["stability"].as_f64().unwrap()).abs() < 1e-7
+            );
+            assert!(
+                (actual.difficulty - expected["memory"]["difficulty"].as_f64().unwrap()).abs()
+                    < 1e-7
+            );
         }
 
         let after = serde_json::to_vec(&(

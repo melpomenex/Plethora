@@ -25,41 +25,41 @@ use super::helpers::*;
 
 /// The 35 FSRS parameters, read directly from the binary's `.data` section.
 pub const P: [f64; 35] = [
-    0.9286298950420208,   // [0]  expert1 power-law base (P0)
-    347.85204578386566,   // [1]  mixture weight: S denominator
-    0.30270230764837086,  // [2]  mixture weight: D denominator for w1
-    0.4078726801204931,   // [3]  mixture weight: D denominator for w2
-    767.8438603670941,    // [4]  mixture weight: S denominator for w3
-    7.894742385544259,    // [5]  init_s default
-    4.08242569493503,     // [6]  init_s[0]
-    1.996431220980246,    // [7]  init_s[1]
-    9.170585471775675,    // [8]  init_s[2]
-    1.1425608073008684,   // [9]  init_s[3]
-    17.65771045770738,    // [10] init_s[4]
-    77.77877780253718,    // [11] init_s[5]
-    0.5921926894783989,   // [12] init_d default
-    0.6895479373487655,   // [13] init_d[0]
-    0.6472785530963361,   // [14] init_d[1]
-    0.4208423230793679,   // [15] init_d[2]
-    0.5186353666458963,   // [16] init_d[3]
-    0.27244747048223983,  // [17] init_d[4]
-    0.3261492383691367,   // [18] init_d[5]
-    1.680034668443124,    // [19] lapse stability: base scale
-    5.928185533585771,    // [20] lapse stability: S weight denominator
-    2.0150955428514656,   // [21] lapse stability: S multiplier
-    0.2555216135743039,   // [22] lapse stability: retrov denominator
-    1.9926553104343092,   // [23] lapse stability: retrov multiplier
-    95.04137758278812,    // [24] difficulty update: S weight denominator
-    42.21989471200275,    // [25] recall stability: blend high (easy)
-    3.1089639864486682,   // [26] recall stability: blend low (hard)
-    1.3558071518966488,   // [27] recall stability: base factor
-    0.9250460852489478,   // [28] recall stability: hard bonus base
-    0.8538692150895362,   // [29] recall stability: hard bonus weight
-    0.9559110660552212,   // [30] recall stability: hard bonus ratio denom
-    -0.6915519353695037,  // [31] recall stability: time exponent
-    1.0037797256248404,   // [32] recall stability: recall signal D coefficient
-    1.393910494789472,    // [33] recall stability: recall signal offset
-    0.12374729387559685,  // [34] recall stability: grade multiplier
+    0.9286298950420208,  // [0]  expert1 power-law base (P0)
+    347.85204578386566,  // [1]  mixture weight: S denominator
+    0.30270230764837086, // [2]  mixture weight: D denominator for w1
+    0.4078726801204931,  // [3]  mixture weight: D denominator for w2
+    767.8438603670941,   // [4]  mixture weight: S denominator for w3
+    7.894742385544259,   // [5]  init_s default
+    4.08242569493503,    // [6]  init_s[0]
+    1.996431220980246,   // [7]  init_s[1]
+    9.170585471775675,   // [8]  init_s[2]
+    1.1425608073008684,  // [9]  init_s[3]
+    17.65771045770738,   // [10] init_s[4]
+    77.77877780253718,   // [11] init_s[5]
+    0.5921926894783989,  // [12] init_d default
+    0.6895479373487655,  // [13] init_d[0]
+    0.6472785530963361,  // [14] init_d[1]
+    0.4208423230793679,  // [15] init_d[2]
+    0.5186353666458963,  // [16] init_d[3]
+    0.27244747048223983, // [17] init_d[4]
+    0.3261492383691367,  // [18] init_d[5]
+    1.680034668443124,   // [19] lapse stability: base scale
+    5.928185533585771,   // [20] lapse stability: S weight denominator
+    2.0150955428514656,  // [21] lapse stability: S multiplier
+    0.2555216135743039,  // [22] lapse stability: retrov denominator
+    1.9926553104343092,  // [23] lapse stability: retrov multiplier
+    95.04137758278812,   // [24] difficulty update: S weight denominator
+    42.21989471200275,   // [25] recall stability: blend high (easy)
+    3.1089639864486682,  // [26] recall stability: blend low (hard)
+    1.3558071518966488,  // [27] recall stability: base factor
+    0.9250460852489478,  // [28] recall stability: hard bonus base
+    0.8538692150895362,  // [29] recall stability: hard bonus weight
+    0.9559110660552212,  // [30] recall stability: hard bonus ratio denom
+    -0.6915519353695037, // [31] recall stability: time exponent
+    1.0037797256248404,  // [32] recall stability: recall signal D coefficient
+    1.393910494789472,   // [33] recall stability: recall signal offset
+    0.12374729387559685, // [34] recall stability: grade multiplier
 ];
 
 // Embedded .text constants [BIN]
@@ -273,7 +273,12 @@ pub fn review_kernel_with(p: &[f64; 35], t: f64, grade: i32, d: f64, s: f64) -> 
     // Step 4: ratio
     let ratio = if s > 0.0 { s_new / s } else { 0.0 };
 
-    KernelResult { s_new, d_new, a, ratio }
+    KernelResult {
+        s_new,
+        d_new,
+        a,
+        ratio,
+    }
 }
 
 /// [`review_kernel_with`] at the binary's shipped parameter block.
