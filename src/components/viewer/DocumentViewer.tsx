@@ -6510,7 +6510,13 @@ export function DocumentViewer({
         ) : docType === "youtube" ? (
           <div className="h-full min-h-0 overflow-hidden">
             <YouTubeViewer
-              videoId={extractYouTubeVideoId(currentDocument.filePath) ?? ""}
+              videoId={
+                extractYouTubeVideoId(currentDocument.filePath || "") ??
+                extractYouTubeVideoId(currentDocument.metadata?.url || "") ??
+                extractYouTubeVideoId(currentDocument.metadata?.originalUrl || "") ??
+                extractYouTubeVideoId(currentDocument.content || "") ??
+                ""
+              }
               documentId={currentDocument.id}
               title={currentDocument.title}
               onLoad={handleYouTubeLoad}

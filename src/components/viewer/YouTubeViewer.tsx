@@ -188,15 +188,16 @@ export function YouTubeViewer({
   const [playerError, setPlayerError] = useState<{ code: number; message: string } | null>(null);
   const [embedHost, setEmbedHost] = useState<"https://www.youtube-nocookie.com" | "https://www.youtube.com">(
     () => {
-      // WebKitGTK on Linux blocks CORS for youtube-nocookie.com internal requests,
-      // causing "Your browser can't play this video." Use youtube.com instead.
-      if (getPlatform() === 'linux') return "https://www.youtube.com";
+      // WebKitGTK, Android WebView, and Tauri local schemes block CORS/iframe on youtube-nocookie.com.
+      // Use youtube.com host directly for reliable playback across all native/mobile platforms.
+      if (isTauri() || isNativeMobile() || getPlatform() === 'linux') return "https://www.youtube.com";
       return "https://www.youtube-nocookie.com";
     }
   );
   const [inlinePlaybackLikelyUnsupported, setInlinePlaybackLikelyUnsupported] = useState(false);
   const [forceInlinePlayback, setForceInlinePlayback] = useState(false);
-  const [normalizedVideoId, setNormalizedVideoId] = useState(() => extractYouTubeVideoId(videoId) ?? "");
+  const extractedVideoId = useMemo(() => extractYouTubeVideoId(videoId) ?? "", [videoId]);
+  const [normalizedVideoId, setNormalizedVideoId] = useState(extractedVideoId);
   const networkDebugEnabled = useMemo(() => isNetworkDebugEnabled(), []);
   const effectiveTranscriptSearchQuery = transcriptSearchQuery ?? initialTranscriptHighlightQuery ?? "";
   const isCompactMobile = compactOnMobile && isNativeMobile();
@@ -282,15 +283,16 @@ export function YouTubeViewer({
 
   // Reset player ready state when videoId changes
   useEffect(() => {
-    setNormalizedVideoId(extractYouTubeVideoId(videoId) ?? "");
+    setNormalizedVideoId(extractedVideoId);
     playerReadyRef.current = false;
+    setPlayerReady(false);
     initialSeekAppliedRef.current = false;
     userInteractedRef.current = false;
     desiredStartTimeRef.current = 0;
     initialSeekAttemptsRef.current = 0;
     initialSeekAttemptsDesiredRef.current = 0;
     setPlayerError(null);
-  }, [videoId]);
+  }, [extractedVideoId]);
 
   useEffect(() => {
     if (!networkDebugEnabled) return;
@@ -1160,9 +1162,9 @@ export function YouTubeViewer({
   // WebKitGTK (Linux AppImage) serves pages from http://localhost:<random-port>,
   // causing "Unable to post message to https://www.youtube.com" errors because
   // the dynamic localhost origin mismatches during postMessage validation.
-  // Omit the origin parameter for Linux production builds so YouTube's iframe API
-  // skips origin checking; all other environments pass window.location.origin.
-  const omitOrigin = isTauri() && getPlatform() === 'linux' && import.meta.env.PROD;
+  // Omit origin parameter for Tauri and mobile environments as custom app schemes (tauri.localhost, tauri://)
+  // cause origin mismatch validation errors in YouTube iframe API and cause blank player screens.
+  const omitOrigin = isTauri() || isNativeMobile() || !window.location.origin || window.location.origin.includes('tauri');
 
   const youtubeOpts: YouTubeProps['opts'] = {
     host: embedHost,
