@@ -18,6 +18,7 @@ import { ReviewRating } from "../../api/review";
 import { ReviewFeedback } from "./ReviewFeedback";
 import { ReviewCardSkeleton } from "../common/Skeleton";
 import { FSRSExplanationModal, useFSRSExplanation } from "../onboarding/FSRSExplanationModal";
+import { tourAnchor } from "../onboarding/tour/anchors";
 import { useSwipeGesture, getSwipeIndicatorStyle, SWIPE_RATINGS } from "../../hooks/useSwipeGesture";
 import { useRatingJoystick } from "../../hooks/useRatingJoystick";
 import { RatingJoystick } from "./RatingJoystick";
@@ -858,7 +859,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                 </div>
 
                 {/* Rating Buttons */}
-                <div className="flex-shrink-0 mt-4">
+                <div {...tourAnchor("reviewGradingControls")} className="flex-shrink-0 mt-4">
                   <RatingButtons
                     onSelectRating={handleRating}
                     disabled={isSubmitting}

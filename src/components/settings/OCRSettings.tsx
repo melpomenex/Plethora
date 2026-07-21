@@ -355,7 +355,7 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
             </div>
             <button
               onClick={() => onUpdateSettings({ autoOCR: !settings.autoOCR })}
-              className={`relative w-12 h-6 rounded-full transition-colors ${
+              className={`relative w-12 h-6 shrink-0 rounded-full transition-colors ${
                 settings.autoOCR ? "bg-primary" : "bg-muted"
               }`}
             >
@@ -877,7 +877,7 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
               </div>
               <button
                 onClick={() => onUpdateSettings({ preferLocal: !settings.preferLocal })}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
+                className={`relative w-12 h-6 shrink-0 rounded-full transition-colors ${
                   settings.preferLocal ? "bg-primary" : "bg-muted"
                 }`}
               >
@@ -904,7 +904,7 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
               </div>
               <button
                 onClick={() => onUpdateSettings({ mathOcrEnabled: !settings.mathOcrEnabled })}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
+                className={`relative w-12 h-6 shrink-0 rounded-full transition-colors ${
                   settings.mathOcrEnabled ? "bg-primary" : "bg-muted"
                 }`}
               >
@@ -974,7 +974,7 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
             </div>
             <button
               onClick={() => onUpdateSettings({ keyPhraseExtraction: !settings.keyPhraseExtraction })}
-              className={`relative w-12 h-6 rounded-full transition-colors ${
+              className={`relative w-12 h-6 shrink-0 rounded-full transition-colors ${
                 settings.keyPhraseExtraction ? "bg-primary" : "bg-muted"
               }`}
             >
@@ -999,7 +999,7 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
             </div>
             <button
               onClick={() => onUpdateSettings({ autoExtractOnLoad: !settings.autoExtractOnLoad })}
-              className={`relative w-12 h-6 rounded-full transition-colors ${
+              className={`relative w-12 h-6 shrink-0 rounded-full transition-colors ${
                 settings.autoExtractOnLoad ? "bg-primary" : "bg-muted"
               }`}
             >

@@ -78,7 +78,12 @@ def fetch_from_vps_service(video_id):
         logger.error("[VPS] HTTPError %s: %s", e.code, body)
         try:
             parsed = json.loads(body)
-            return {"success": False, "status": e.code, "error": parsed.get("error", body)}
+            return {
+                "success": False,
+                "status": e.code,
+                "error": parsed.get("error", body),
+                "code": parsed.get("code"),
+            }
         except Exception:
             return {"success": False, "status": e.code, "error": body}
     except (URLError, OSError) as e:
@@ -457,11 +462,17 @@ class handler(BaseHTTPRequestHandler):
             # falling through to the (broken from datacenter) local methods.
             vps_error = vps_result.get("error") if vps_result else None
             vps_status = vps_result.get("status") if vps_result else None
+            vps_code = vps_result.get("code") if vps_result else None
             if vps_error and VPS_SERVICE_URL and VPS_API_KEY:
                 code_map = {400: 400, 404: 404, 503: 503}
                 self.send_json(
                     code_map.get(vps_status, 502),
-                    {"success": False, "error": vps_error, "videoId": video_id},
+                    {
+                        "success": False,
+                        "error": vps_error,
+                        "videoId": video_id,
+                        "code": vps_code,
+                    },
                 )
                 return
 

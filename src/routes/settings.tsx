@@ -152,7 +152,7 @@ export function Settings() {
               <button
                 onClick={() => updateSettings({ documents: { ...settings.documents, autoProcessOnImport: !settings.documents.autoProcessOnImport } })}
                 className={`
-                  w-12 h-6 rounded-full transition-colors relative
+                  w-12 h-6 shrink-0 rounded-full transition-colors relative
                   ${settings.documents.autoProcessOnImport ? "bg-primary" : "bg-muted"}
                 `}
               >

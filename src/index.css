@@ -1925,3 +1925,212 @@
 .vim-cursor-highlight {
   animation: vim-highlight-flash 0.3s ease-out;
 }
+
+/* ========================================================================
+ * Guided onboarding tour
+ *
+ * Three motion tiers (design D10): spotlight travel (320ms), coach-mark
+ * fade+translate (180ms), and per-step CSS micro-animations. All three are
+ * gated on `:root[data-reduced-motion="true"]` so a single attribute stamp
+ * from `PresentationContext` flattens every animation below.
+ * ====================================================================== */
+
+.tour-root {
+  /* The coach mark itself is themed via CSS variables so its text meets WCAG
+     AA contrast against its own background in both light and dark themes,
+     independent of whatever is dimmed behind it. */
+  --tour-bg: #ffffff;
+  --tour-fg: #0f172a;
+  --tour-muted: #475569;
+  --tour-border: rgba(15, 23, 42, 0.12);
+  --tour-accent: #4f46e5;
+  --tour-accent-fg: #ffffff;
+  --tour-ring-color: rgba(99, 102, 241, 0.75);
+}
+
+:root[data-theme="dark"] .tour-root,
+:root[data-theme="dark"] ~ .tour-root,
+.tour-root[data-theme="dark"] {
+  --tour-bg: #11131a;
+  --tour-fg: #f8fafc;
+  --tour-muted: #94a3b8;
+  --tour-border: rgba(255, 255, 255, 0.12);
+  --tour-accent: #818cf8;
+  --tour-accent-fg: #0b1020;
+  --tour-ring-color: rgba(129, 140, 248, 0.85);
+}
+
+.tour-coach {
+  background: var(--tour-bg);
+  color: var(--tour-fg);
+  border: 1px solid var(--tour-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+  font-family: inherit;
+  overflow: hidden;
+  outline: none;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: tour-coach-enter 180ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.tour-coach:focus-visible {
+  outline: 2px solid var(--tour-accent);
+  outline-offset: 2px;
+}
+
+.tour-coach-inner {
+  padding: 16px 18px;
+}
+
+.tour-coach-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--tour-fg);
+}
+
+.tour-coach-body {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tour-fg);
+}
+
+.tour-coach-body p {
+  margin: 0 0 8px;
+  color: var(--tour-muted);
+}
+
+.tour-coach-footer {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tour-coach-footer button {
+  font: inherit;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  border: 1px solid var(--tour-border);
+  background: transparent;
+  color: var(--tour-fg);
+}
+
+.tour-coach-footer button.tour-btn-primary {
+  background: var(--tour-accent);
+  color: var(--tour-accent-fg);
+  border-color: transparent;
+}
+
+.tour-coach-footer button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tour-coach-footer button.tour-btn-skip {
+  color: var(--tour-muted);
+  border-color: transparent;
+}
+
+@keyframes tour-coach-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tour-chapter-rail {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--tour-border);
+  flex-wrap: wrap;
+}
+
+.tour-chapter-rail button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--tour-muted);
+  cursor: pointer;
+}
+
+.tour-chapter-rail button.is-active {
+  background: var(--tour-accent);
+  color: var(--tour-accent-fg);
+}
+
+.tour-chapter-rail button.is-done {
+  color: var(--tour-fg);
+  opacity: 0.7;
+}
+
+/* Mobile shell: the chapter rail collapses to a dot indicator. */
+.tour-root[data-mobile="true"] .tour-chapter-rail {
+  gap: 6px;
+  justify-content: center;
+}
+
+.tour-root[data-mobile="true"] .tour-chapter-rail button {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0;
+  color: transparent;
+}
+
+.tour-root[data-mobile="true"] .tour-chapter-rail button.is-active {
+  background: var(--tour-accent);
+}
+
+.tour-root[data-mobile="true"] .tour-chapter-rail button.is-done {
+  opacity: 0.4;
+}
+
+/* Per-chapter illustrative micro-animations (design D10 third tier). Pure
+   CSS keyframes over inline SVG. These replace looping decorative animations
+   under reduced motion. */
+.tour-illustration {
+  margin: 0 auto 12px;
+  width: 120px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes tour-illustrate-card {
+  0%, 100% { transform: rotateY(0deg); }
+  50%      { transform: rotateY(180deg); }
+}
+
+@keyframes tour-illustrate-lift {
+  0%   { transform: translateY(0); opacity: 0.9; }
+  50%  { transform: translateY(-6px); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0.9; }
+}
+
+@keyframes tour-illustrate-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.08); }
+}
+
+/* Reduced-motion flattening. Applies to every tier above. */
+:root[data-reduced-motion="true"] .tour-coach,
+:root[data-reduced-motion="true"] .tour-coach-enter,
+:root[data-reduced-motion="true"] .tour-dim {
+  animation: none !important;
+  transition: none !important;
+  transform: none !important;
+  opacity: 1 !important;
+}
+
+:root[data-reduced-motion="true"] .tour-illustration * {
+  animation: none !important;
+}
+

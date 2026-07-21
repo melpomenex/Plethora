@@ -74,7 +74,7 @@ export function DocumentsSettings() {
                 {t("settingsDocs.autoProcessDesc")}
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={settings.documents.autoProcessOnImport}
@@ -96,7 +96,7 @@ export function DocumentsSettings() {
                 {t("settingsDocs.detectDuplicatesDesc")}
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={settings.documents.detectDuplicates}
@@ -118,7 +118,7 @@ export function DocumentsSettings() {
                 {t("settingsDocs.preserveImagesDesc")}
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={settings.documents.webImportPreserveImages}
@@ -172,7 +172,7 @@ export function DocumentsSettings() {
                 {t("settingsDocs.twoPageSpreadDesc")}
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={settings.documents.pdfSettings.twoPageSpread}
@@ -197,7 +197,7 @@ export function DocumentsSettings() {
                 {t("settingsDocs.showOcrBreaksDesc")}
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={settings.documents.pdfSettings.showOcrPageBreaks}
@@ -297,7 +297,7 @@ export function DocumentsSettings() {
                 {t("settingsDocs.autoScrollDesc")}
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={settings.documents.epubSettings.autoScroll}
@@ -423,7 +423,7 @@ export function DocumentsSettings() {
                 {t("settingsDocs.cacheContentDesc")}
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={settings.documents.cacheContent}
@@ -445,7 +445,7 @@ export function DocumentsSettings() {
                 {t("settingsDocs.autoCleanupDesc")}
               </p>
             </div>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={settings.documents.autoCleanupCache}

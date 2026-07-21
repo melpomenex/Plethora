@@ -35,6 +35,11 @@ const BLOCKED_KEYS = new Set([
   "incrementum.reading-sessions",
   "assistant-panel-conversations-v1",
   "web-browser-extracts",
+  // NOTE: `incrementum-onboarding-tour` (guided tour display-policy state) is
+  // intentionally NOT blocked. It is a tiny settings-shaped record that should
+  // travel with the user so a second device does not re-onboard an existing
+  // user. See `src/lib/onboardingTour.ts` and the onboarding-display-policy
+  // spec.
 ]);
 
 const BLOCKED_PREFIXES = [

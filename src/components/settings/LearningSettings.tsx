@@ -16,6 +16,7 @@ import {
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
 import { NumericInput } from "../common";
 import { AlgorithmArenaModeControl } from "../review/AlgorithmArenaModeControl";
+import { tourAnchor } from "../onboarding/tour/anchors";
 
 export function LearningSettings() {
   const { t } = useI18n();
@@ -63,6 +64,7 @@ export function LearningSettings() {
                   learning: { ...settings.learning, algorithm: e.target.value as any },
                 })
               }
+              {...tourAnchor("reviewAlgorithmSetting")}
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
             >
               <option value="fsrs">FSRS-6 (Recommended)</option>
@@ -943,7 +945,7 @@ function SettingToggle({
           <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         )}
       </div>
-      <label className="relative inline-flex items-center cursor-pointer">
+      <label className="relative inline-flex items-center cursor-pointer shrink-0">
         <input
           type="checkbox"
           className="sr-only peer"

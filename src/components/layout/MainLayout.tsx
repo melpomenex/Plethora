@@ -26,6 +26,9 @@ import { PasteExtractDialog } from "../extracts/PasteExtractDialog";
 import { TwitterImportDialog } from "../documents/TwitterImportDialog";
 import { Desktop, ListChecks, SquaresFour, BookOpen, TextT, YoutubeLogo } from "@phosphor-icons/react";
 import { syncActivePaneTabId } from "./activePaneSync";
+import { TOUR_ANCHORS, tourAnchor } from "../onboarding/tour/anchors";
+import { TourHost, type TourControl, type TourNavigationAdapter } from "../onboarding/tour/TourHost";
+import { useOnboardingAutoOpen } from "../onboarding/tour/useOnboardingAutoOpen";
 
 const TAB_TYPE_ALIASES: Record<string, TabType> = {
   dash: "dashboard", dashboard: "dashboard", home: "dashboard",
@@ -78,6 +81,16 @@ export function MainLayout() {
   const [activePaneTabId, setActivePaneTabId] = useState<string | null>(null);
   const [isShortcutsHelpOpen, setIsShortcutsHelpOpen] = useState(false);
   const [isWorkspaceSwitcherOpen, setIsWorkspaceSwitcherOpen] = useState(false);
+  // Startup-notice gate for the guided tour. `startupNoticeSettled` flips to
+  // true once the existing `consume_startup_notice` poll has resolved; while
+  // a notice is pending (or unsettled) the tour must not auto-open and must
+  // not consume budget (design D8, gate 2).
+  const [startupNoticePending, setStartupNoticePending] = useState(true);
+  const [startupNoticeSettled, setStartupNoticeSettled] = useState(false);
+  // Imperative handle into the tour host. Stable across renders; populated
+  // by <TourHost> on mount. Used by the auto-open hook, the Settings replay
+  // button, the command palette, and the Vimium command.
+  const tourControlRef = useRef<TourControl | null>(null);
 
   const toolbarPosition = useSettingsStore((state) => state.settings.interface.toolbarPosition);
 
@@ -258,7 +271,13 @@ export function MainLayout() {
   // the setup hook. We also listen to the live `database-recovered` event as a
   // belt-and-suspenders for cases where the notice is generated after boot.
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isTauri()) {
+      // No startup notices in the web/PWA build. Unblock the tour gate so
+      // the auto-open hook can proceed.
+      setStartupNoticePending(false);
+      setStartupNoticeSettled(true);
+      return;
+    }
 
     const showDatabaseRecoveredToast = () => {
       void emitFeedback("db.recovered-after-quarantine", {}, {
@@ -304,20 +323,32 @@ export function MainLayout() {
     // 1) Pull any pending notice that was generated before the webview booted.
     invokeCommand<StartupNotice | null>("consume_startup_notice")
       .then((notice) => {
-        if (!notice) return;
-        if (notice === "DatabaseRecoveredAfterQuarantine") {
-          showDatabaseRecoveredToast();
-        } else if (typeof notice === "object") {
-          if ("DatabaseRecoveredAfterQuarantine" in notice) {
+        // Whether or not a notice was returned, the poll has now settled and
+        // the tour auto-open gate can make its decision. A non-null notice
+        // leaves `startupNoticePending` true so the tour yields to it.
+        if (notice) {
+          setStartupNoticePending(true);
+          if (notice === "DatabaseRecoveredAfterQuarantine") {
             showDatabaseRecoveredToast();
-          } else if ("AutoBackupFound" in notice) {
-            const backupPath = notice.AutoBackupFound.backup_path;
-            showAutoBackupToast(backupPath);
+          } else if (typeof notice === "object") {
+            if ("DatabaseRecoveredAfterQuarantine" in notice) {
+              showDatabaseRecoveredToast();
+            } else if ("AutoBackupFound" in notice) {
+              const backupPath = notice.AutoBackupFound.backup_path;
+              showAutoBackupToast(backupPath);
+            }
           }
+        } else {
+          setStartupNoticePending(false);
         }
+        setStartupNoticeSettled(true);
       })
       .catch((err) => {
         console.warn("[MainLayout] failed to read startup notice:", err);
+        // On error, treat as settled with no pending notice — the tour
+        // shouldn't be blocked indefinitely by a transient backend hiccup.
+        setStartupNoticePending(false);
+        setStartupNoticeSettled(true);
       });
 
     // 2) Also listen for the live event in case recovery happens after boot.
@@ -580,6 +611,99 @@ export function MainLayout() {
     return () => window.removeEventListener("incrementum:open-flashcard", handleOpenFlashcard);
   }, [openTabByType]);
 
+  // Tour ↔ shell navigation. Steps declare `navigateToView: { kind: "event",
+  // eventName: "tour-open-tab-<type>" }`; we translate those into real tab
+  // switches via the canonical openTabByType helper. The events are
+  // tour-namespaced so they don't collide with the app's own.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ tabType: TabType } | undefined>).detail;
+      // Detail-less events encode their target in the event name
+      // (tour-open-tab-documents etc.), since step definitions use that form.
+      const fromName = (e.type as string).replace(/^tour-open-tab-/, "");
+      const tabType = detail?.tabType ?? (fromName as TabType);
+      if (tabType) openTabByType(tabType);
+    };
+    const eventNames = [
+      "tour-open-tab",
+      "tour-open-tab-documents",
+      "tour-open-tab-queue",
+      "tour-open-tab-review",
+      "tour-open-tab-analytics",
+      "tour-open-tab-knowledge-sphere",
+      "tour-open-tab-settings",
+    ];
+    for (const name of eventNames) window.addEventListener(name, handler);
+    return () => {
+      for (const name of eventNames) window.removeEventListener(name, handler);
+    };
+  }, [openTabByType]);
+
+  // On-demand tour entry points. The command palette and the Settings →
+  // Replay button both dispatch these events; we route them through the
+  // imperative tour control. Replay resets progress and leaves
+  // launchCount/autoDisplayDisabled untouched (spec).
+  useEffect(() => {
+    const onReplay = () => tourControlRef.current?.open({ reset: true });
+    const onOpen = () => tourControlRef.current?.open();
+    window.addEventListener("tour-replay", onReplay);
+    window.addEventListener("tour-open", onOpen);
+    return () => {
+      window.removeEventListener("tour-replay", onReplay);
+      window.removeEventListener("tour-open", onOpen);
+    };
+  }, []);
+
+  // Navigation adapter the tour uses for non-destructive view navigation.
+  // The capture/restore pair remembers the first pane's active tab so closing
+  // the tour returns the user to where they were, and navigateTo drives the
+  // same openTabByType helper used everywhere else.
+  const tourAdapter = useMemo<TourNavigationAdapter>(
+    () => ({
+      captureView: () => {
+        const store = useTabsStore.getState();
+        const firstPane = store.rootPane.type === "tabs" ? store.rootPane : null;
+        return { paneId: firstPane?.id ?? null, tabId: firstPane?.activeTabId ?? null };
+      },
+      restoreView: (snapshot) => {
+        if (!snapshot) return;
+        const { paneId, tabId } = snapshot as { paneId: string | null; tabId: string | null };
+        if (!paneId || !tabId) return;
+        const store = useTabsStore.getState();
+        const stillExists = store.tabs.some((tab) => tab.id === tabId);
+        if (stillExists) store.setActiveTab(paneId, tabId);
+      },
+      navigateTo: (target) => {
+        if (target.kind === "tab") {
+          openTabByType(target.tabType as TabType);
+        } else {
+          window.dispatchEvent(new CustomEvent(target.eventName));
+        }
+      },
+    }),
+    [openTabByType],
+  );
+
+  // Auto-open gate. The conditions are: shell rendered (TourHost mounted
+  // below), startup-notice channel settled and not pending, we're on the
+  // catch-all route (MainLayout only mounts there), no deep link in the
+  // hash, and budget available. The hook itself owns the once-per-session
+  // flag and the budget increment.
+  const isDeepLinkedLaunch = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const hash = window.location.hash || "";
+    // Anything beyond the bare `#/` we treat as a deep link: opening into a
+    // specific document, a review session, etc. The tour must not interrupt.
+    return /#\/(?!$)/.test(hash);
+  }, []);
+  useOnboardingAutoOpen({
+    openTour: () => tourControlRef.current?.open(),
+    startupNoticePending,
+    startupNoticeSettled,
+    isCatchAllRoute: true, // MainLayout only mounts on the catch-all route.
+    isDeepLinkedLaunch,
+  });
+
   const vimiumCommands = useMemo<VimiumCommand[]>(() => {
     const cmds: VimiumCommand[] = [
       {
@@ -601,6 +725,13 @@ export function MainLayout() {
         name: "dashboard",
         description: t("toolbar.goToDashboard"),
         action: () => openTabByType("dashboard"),
+      },
+      {
+        id: "vimium-tour",
+        name: "tour",
+        description: t("onboarding.tour.command"),
+        action: () => tourControlRef.current?.open({ reset: true }),
+        aliases: ["onboarding"],
       },
       {
         id: "vimium-documents",
@@ -1179,7 +1310,7 @@ export function MainLayout() {
     // Toolbar on the left
     if (toolbarPosition === "left") {
       return (
-        <div className="app-shell relative isolate flex w-full overflow-hidden bg-background">
+        <div {...tourAnchor("shellRoot")} className="app-shell relative isolate flex w-full overflow-hidden bg-background">
           <ThemeBackdrop />
 
           <div className="relative z-10 flex w-full overflow-hidden">
@@ -1205,7 +1336,7 @@ export function MainLayout() {
     // Toolbar on the right
     if (toolbarPosition === "right") {
       return (
-        <div className="app-shell relative isolate flex w-full overflow-hidden bg-background">
+        <div {...tourAnchor("shellRoot")} className="app-shell relative isolate flex w-full overflow-hidden bg-background">
           <ThemeBackdrop />
 
           <div className="relative z-10 flex w-full overflow-hidden">
@@ -1230,7 +1361,7 @@ export function MainLayout() {
 
     // Default: Toolbar on top
     return (
-      <div className="app-shell relative isolate flex flex-col w-full overflow-hidden bg-background">
+      <div {...tourAnchor("shellRoot")} className="app-shell relative isolate flex flex-col w-full overflow-hidden bg-background">
         <ThemeBackdrop />
 
         <div className="relative z-10 flex flex-1 min-h-0 flex-col">
@@ -1275,6 +1406,7 @@ export function MainLayout() {
         />
         <ImageSaveOverlay />
         <WorkspaceSwitcher isOpen={isWorkspaceSwitcherOpen} onClose={() => setIsWorkspaceSwitcherOpen(false)} />
+        <TourHost tourControlRef={tourControlRef} adapter={tourAdapter} />
       </VimiumNavigationProvider>
     </MobileLayoutWrapper>
   );

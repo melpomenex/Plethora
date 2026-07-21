@@ -11,6 +11,9 @@ use tauri::{AppHandle, State};
 use crate::database::Repository;
 use crate::models::{Document, DocumentMetadata, FileType};
 
+pub mod innertube;
+pub use innertube::{fetch_youtube_transcript_on_device_internal, OnDeviceTranscriptResult};
+
 /// YouTube video metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YouTubeVideoInfo {
@@ -1228,6 +1231,80 @@ pub async fn get_youtube_transcript_by_id(
         repo.inner(),
     )
     .await
+}
+
+/// Tauri command: Fetch YouTube transcript on-device
+#[tauri::command]
+pub async fn fetch_youtube_transcript_on_device(
+    video_id: String,
+    language: Option<String>,
+    document_id: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<innertube::OnDeviceTranscriptResult, String> {
+    // 1. Check local cache first
+    if let Ok(Some((_transcript, segments_json))) =
+        repo.get_youtube_transcript_by_video_id(&video_id).await
+    {
+        if let Ok(segments) = serde_json::from_str::<Vec<TranscriptSegment>>(&segments_json) {
+            return Ok(innertube::OnDeviceTranscriptResult::Ok {
+                segments,
+                language: language.unwrap_or_else(|| "en".to_string()),
+            });
+        }
+    }
+
+    // 2. Perform fetch
+    let res = innertube::fetch_youtube_transcript_on_device_internal(&video_id, language.as_deref()).await;
+
+    // 3. Cache successful results or NoCaptions
+    match &res {
+        innertube::OnDeviceTranscriptResult::Ok { segments, language: _ } => {
+            let transcript = build_transcript_text(segments);
+            if let Ok(segments_json) = serde_json::to_string(segments) {
+                let _ = repo.upsert_youtube_transcript(
+                    document_id.as_deref(),
+                    &video_id,
+                    &transcript,
+                    &segments_json,
+                ).await;
+            }
+        }
+        innertube::OnDeviceTranscriptResult::Err { kind, .. } => {
+            if kind == "NoCaptions" {
+                // Cache empty transcript for NoCaptions to avoid retries
+                let _ = repo.upsert_youtube_transcript(
+                    document_id.as_deref(),
+                    &video_id,
+                    "",
+                    "[]",
+                ).await;
+            }
+        }
+    }
+
+    Ok(res)
+}
+
+/// Tauri command: Check if on-device transcript is available
+#[tauri::command]
+pub async fn on_device_transcript_available() -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    let platform = "android";
+    #[cfg(target_os = "ios")]
+    let platform = "ios";
+    #[cfg(target_os = "macos")]
+    let platform = "macos";
+    #[cfg(target_os = "windows")]
+    let platform = "windows";
+    #[cfg(target_os = "linux")]
+    let platform = "linux";
+    #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "macos", target_os = "windows", target_os = "linux")))]
+    let platform = "unknown";
+    
+    Ok(serde_json::json!({
+        "available": true,
+        "platform": platform
+    }))
 }
 
 /// Tauri command: Search YouTube

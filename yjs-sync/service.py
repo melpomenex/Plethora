@@ -429,12 +429,16 @@ def require_auth():
 @app.route("/health", methods=["GET"])
 def health():
     """Health check endpoint."""
+    cutoff = datetime.now() - timedelta(seconds=WORKER_TIMEOUT_SECONDS)
+    global active_workers
+    active_workers = {wid: t for wid, t in active_workers.items() if t > cutoff}
     return jsonify(
         {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
             "cache_size": len(list(CACHE_DIR.glob("*.json"))),
             "workers_available": len(active_workers),
+            "workers": {wid: t.isoformat() for wid, t in active_workers.items()},
             "pending_queue_size": len(pending_worker_queue),
         }
     )
@@ -470,11 +474,39 @@ def worker_upload():
     active_workers[worker_id] = datetime.now()
 
     data = request.get_json()
-    video_id = data.get("video_id")
-    segments = data.get("segments", [])
+    if not data:
+        return jsonify({"error": "Invalid JSON payload"}), 400
 
-    if not video_id or not segments:
-        return jsonify({"error": "Missing video_id or segments"}), 400
+    video_id = data.get("video_id")
+    segments = data.get("segments")
+
+    import re
+    if not video_id or not isinstance(video_id, str) or not re.match(r"^[a-zA-Z0-9_-]{11}$", video_id):
+        return jsonify({"error": "Invalid or missing video_id"}), 400
+
+    if not isinstance(segments, list):
+        return jsonify({"error": "segments must be a list"}), 400
+
+    for idx, seg in enumerate(segments):
+        if not isinstance(seg, dict):
+            return jsonify({"error": f"segment at index {idx} must be an object"}), 400
+        text = seg.get("text")
+        start = seg.get("start")
+        duration = seg.get("duration")
+        if text is None or not isinstance(text, str):
+            return jsonify({"error": f"segment at index {idx} is missing a string text field"}), 400
+        if start is None or not isinstance(start, (int, float)):
+            return jsonify({"error": f"segment at index {idx} is missing a numeric start field"}), 400
+        if duration is None or not isinstance(duration, (int, float)):
+            return jsonify({"error": f"segment at index {idx} is missing a numeric duration field"}), 400
+
+    # No-shrink cache rule
+    existing = load_from_cache(video_id)
+    if existing:
+        existing_segments = existing.get("segments", [])
+        if len(segments) < len(existing_segments):
+            print(f"[{video_id}] Ignored upload because new segment count ({len(segments)}) is less than existing segment count ({len(existing_segments)})")
+            return jsonify({"success": True, "cached": True, "message": "Ignored due to fewer segments than existing cache"})
 
     result = {
         "title": f"Video {video_id}",  # Worker doesn't send title
@@ -536,27 +568,14 @@ def get_transcript(video_id):
                     "retry_after": 5,
                 }
             ), 202
-
-    # No workers available, fetch directly using yt-dlp + proxy
-    try:
-        result = fetch_transcript(video_id)
-    except Exception as e:
-        logger.error("ERROR in fetch_transcript: %s", e, exc_info=True)
+    else:
         return jsonify(
             {
                 "success": False,
-                "error": f"Internal error: {str(e)}",
-                "code": "INTERNAL_ERROR",
+                "code": "RELAY_UNAVAILABLE",
+                "error": "Home worker is offline. No on-demand transcription is possible from VPS.",
             }
-        ), 500
-
-    if result.get("success"):
-        return jsonify(result), 200
-    else:
-        error_code = result.get("code", "UNKNOWN")
-        status_code = 404 if error_code == "NO_CAPTIONS" else 500
-        print(f"Transcript fetch failed: {result}", file=sys.stderr)
-        return jsonify(result), status_code
+        ), 503
 
 
 @app.route("/cache/stats", methods=["GET"])
@@ -568,11 +587,17 @@ def cache_stats():
     cache_files = list(CACHE_DIR.glob("*.json"))
     total_size = sum(f.stat().st_size for f in cache_files)
 
+    cutoff = datetime.now() - timedelta(seconds=WORKER_TIMEOUT_SECONDS)
+    global active_workers
+    active_workers = {wid: t for wid, t in active_workers.items() if t > cutoff}
+
     stats = {
         "total_files": len(cache_files),
         "total_size_bytes": total_size,
         "total_size_mb": round(total_size / (1024 * 1024), 2),
         "cache_dir": str(CACHE_DIR.absolute()),
+        "workers_available": len(active_workers),
+        "workers": {wid: t.isoformat() for wid, t in active_workers.items()},
     }
 
     return jsonify(stats)

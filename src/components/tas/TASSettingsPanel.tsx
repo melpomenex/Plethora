@@ -41,7 +41,7 @@ const TASSettingsPanel: React.FC = () => {
         </div>
         <button
           onClick={handleToggleTAS}
-          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
             config.enabled ? "bg-primary" : "bg-muted"
           }`}
         >
@@ -65,7 +65,7 @@ const TASSettingsPanel: React.FC = () => {
               </span>
               <button
                 onClick={handleToggleInterference}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
                   config.interference.enabled ? "bg-primary" : "bg-muted"
                 }`}
               >
@@ -146,7 +146,7 @@ const TASSettingsPanel: React.FC = () => {
               </span>
               <button
                 onClick={handleTogglePrerequisites}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
                   config.prerequisites.enabled ? "bg-primary" : "bg-muted"
                 }`}
               >

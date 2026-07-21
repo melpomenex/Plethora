@@ -203,6 +203,8 @@ export const en: Dict = {
   "settings.notifications": "Notifications",
   "settings.privacy": "Privacy",
   "settings.handbook": "Handbook",
+  "settings.help": "Help & Tour",
+  "settings.helpDesc": "Replay the guided tour or reset onboarding state",
   "settings.embeddings": "Embeddings & RAG",
   "settings.embeddingsDesc": "Embedding model and whole-library chat indexing",
   "settings.application": "Application",
@@ -422,6 +424,75 @@ export const en: Dict = {
     "Or continue in {demoMode} with local storage. You can sign up anytime later.",
   "onboarding.createAccount": "Create Account",
   "onboarding.continueDemo": "Continue with Demo Mode",
+  // Guided tour (add-guided-onboarding-tour). Chapter labels and per-step
+  // title/body copy. Reconciled with the legacy onboarding.* keys above
+  // rather than duplicating them.
+  "onboarding.tour.chapter.welcome": "Welcome",
+  "onboarding.tour.chapter.bringIn": "Bring things in",
+  "onboarding.tour.chapter.readExtract": "Read & extract",
+  "onboarding.tour.chapter.queue": "The queue",
+  "onboarding.tour.chapter.review": "Review",
+  "onboarding.tour.chapter.knowledge": "See your knowledge",
+  "onboarding.tour.chapter.makeYours": "Make it yours",
+  "onboarding.tour.welcome.title": "Welcome to Incrementum",
+  "onboarding.tour.welcome.body":
+    "This is a quick tour of the import → read → extract → review loop. It takes about two minutes, and you can leave anytime — Esc or click away to pause, and you'll pick up where you left off next time.",
+  "onboarding.tour.import.button.title": "Bring documents in",
+  "onboarding.tour.import.button.body":
+    "PDFs, EPUBs, web articles, YouTube videos, podcasts — they all land here. Click Import to open a file, or use the URL import on the toolbar for anything with a link.",
+  "onboarding.tour.import.url.title": "Import from a URL",
+  "onboarding.tour.import.url.body":
+    "The toolbar's Import URL action pulls in web articles, arXiv papers, and YouTube transcripts. The command palette (Ctrl+K / Cmd+K) reaches the same thing without leaving the keyboard.",
+  "onboarding.tour.import.grid.title": "Your library",
+  "onboarding.tour.import.grid.body":
+    "Imported documents appear here. Open any one to start reading and creating extracts.",
+  "onboarding.tour.read.reader.title": "Read in the viewer",
+  "onboarding.tour.read.reader.body":
+    "Each document opens in its own tab with a reader tuned for long-form reading. The same surface hosts the extract tools you'll see next.",
+  "onboarding.tour.read.extract.title": "Create extracts",
+  "onboarding.tour.read.extract.body":
+    "Select a passage in the reader to lift it out as an extract — a note, a flashcard, or a cloze. Extracts become the units the review scheduler learns.",
+  "onboarding.tour.read.extracts.title": "The extracts panel",
+  "onboarding.tour.read.extracts.body":
+    "Every extract you make is collected here, attached to its source so you can always jump back to the original context.",
+  "onboarding.tour.queue.nav.title": "The queue",
+  "onboarding.tour.queue.nav.body":
+    "The queue holds everything you've added — documents to read, extracts to learn. Open it from the nav to see what's due next or to pick something at random.",
+  "onboarding.tour.queue.controls.title": "Queue controls",
+  "onboarding.tour.queue.controls.body":
+    "Start an optimal review session, switch the queue between reading, schedule, and review modes, or browse manually. The queue is the single place that drives your daily loop.",
+  "onboarding.tour.review.nav.title": "Review sessions",
+  "onboarding.tour.review.nav.body":
+    "When extracts come due, the review session walks you through them and asks how well you remembered each one. Your answers train the spaced-repetition scheduler.",
+  "onboarding.tour.review.grading.title": "Grading controls",
+  "onboarding.tour.review.grading.body":
+    "After each card, pick the rating that matches your recall. The scheduler uses that signal to decide when to show the card again — better recall, longer interval.",
+  "onboarding.tour.review.algorithm.title": "Pick your algorithm",
+  "onboarding.tour.review.algorithm.body":
+    "Incrementum ships several schedulers — FSRS-6, SM-18, SM-20, and SM-2. Choose the one that fits your style in Settings → Learning.",
+  "onboarding.tour.knowledge.analytics.title": "Analytics",
+  "onboarding.tour.knowledge.analytics.body":
+    "See your retention rate, review activity, and progress over time. The numbers update as you review.",
+  "onboarding.tour.knowledge.sphere.title": "Knowledge Universe",
+  "onboarding.tour.knowledge.sphere.body":
+    "A spatial map of how your documents and extracts relate. Zoom out to see the shape of what you've learned.",
+  "onboarding.tour.make.settings.title": "Make it yours",
+  "onboarding.tour.make.settings.body":
+    "Settings hosts themes, keyboard shortcuts, sync, integrations, AI providers, and the learning algorithm. Everything that customises the app lives here.",
+  "onboarding.tour.make.workspace.title": "Workspaces",
+  "onboarding.tour.make.workspace.body":
+    "Workspaces partition your library into separate contexts — research, personal, a side project. Switch between them from the toolbar.",
+  "onboarding.tour.next": "Next",
+  "onboarding.tour.back": "Back",
+  "onboarding.tour.done": "Done",
+  "onboarding.tour.skip": "Skip tour",
+  "onboarding.tour.dontShowAgain": "Don't show this again",
+  "onboarding.tour.stepOf": "Step {current} of {total}",
+  "onboarding.tour.replayTour": "Replay guided tour",
+  "onboarding.tour.resetOnboarding": "Reset onboarding",
+  "onboarding.tour.resetOnboardingDesc":
+    "Clears the launch counter, completion flag, and resume position. The tour will auto-open on the next launch as if freshly installed.",
+  "onboarding.tour.command": "Start guided tour",
   "toolbar.importFile": "Import File",
   "toolbar.importUrl": "Import URL",
   "toolbar.readNext": "Read Next",
@@ -3670,6 +3741,17 @@ export const en: Dict = {
   "integrations.cookiesCleared": "Cookies cleared",
   "integrations.noCookiesToTest": "No cookies to test",
   "integrations.failedParseCookies": "Failed to parse cookies",
+  "integrations.youtubeTranscripts": "YouTube Transcripts",
+  "integrations.youtubeTranscriptsDesc": "Manage how transcripts are fetched and resolved for YouTube videos.",
+  "integrations.onDeviceFetching": "On-Device Transcript Fetching",
+  "integrations.onDeviceFetchingDesc": "Uses a direct client connection to YouTube endpoints from your device, bypasses external servers, and caches transcripts locally.",
+  "integrations.selfHostedSettings": "Self-Hosted Server Settings",
+  "integrations.diagnostics": "Diagnostics & Connectivity",
+  "integrations.testConnectivity": "Test Connectivity",
+  "integrations.onDeviceSupport": "On-Device Support",
+  "integrations.selfHostedServer": "Self-Hosted Server",
+  "integrations.cachedTranscripts": "Cached Transcripts:",
+  "integrations.activeWorkers": "Active Home Workers:",
 
   "backup.subtitle": "Export or import your complete app state",
   "backup.exportBackupDesc":

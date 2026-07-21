@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTabsStore, useDocumentStore, useUIStore, useSettingsStore } from "../stores";
 import { captureAndSaveScreenshot } from "../utils/screenshotCaptureFlow";
 import { useI18n } from "../lib/i18n";
+import { TOUR_ANCHORS } from "./onboarding/tour/anchors";
 import {
   ReviewTab,
   DashboardTab,
@@ -70,6 +71,28 @@ interface ToolbarButtonProps {
   orientation?: "horizontal" | "vertical";
 }
 
+/**
+ * Map a `Toolbar` button id to the corresponding onboarding-tour anchor
+ * (`data-tour`) when one exists for that surface. Buttons that have no tour
+ * representation (Read Next, Random Item, screenshot, etc.) return an empty
+ * object so the spread is a no-op. This keeps the anchor surface declared in
+ * one place rather than threaded through every button config entry.
+ */
+function tourAnchorForButton(buttonId: string): { "data-tour"?: string } {
+  const map: Record<string, string> = {
+    dashboard: TOUR_ANCHORS.navDashboard,
+    "import-file": TOUR_ANCHORS.navImportFile,
+    "import-url": TOUR_ANCHORS.navImportUrl,
+    "start-review": TOUR_ANCHORS.navReview,
+    "knowledge-sphere": TOUR_ANCHORS.navKnowledgeSphere,
+    settings: TOUR_ANCHORS.navSettings,
+    "workspace-switcher": TOUR_ANCHORS.workspaceSwitcher,
+    "command-palette": TOUR_ANCHORS.commandPalette,
+  };
+  const id = map[buttonId];
+  return id ? { "data-tour": id } : {};
+}
+
 function ToolbarButtonItem({ button, orientation = "horizontal" }: ToolbarButtonProps) {
   const Icon = button.icon;
 
@@ -91,6 +114,7 @@ function ToolbarButtonItem({ button, orientation = "horizontal" }: ToolbarButton
       disabled={button.disabled}
       title={`${button.label} (${button.shortcut})`}
       data-toolbar-orientation={orientation}
+      {...tourAnchorForButton(button.id)}
       className={cn(
         actionVariants({ variant: "tertiary", size: "icon" }),
         "toolbar-button relative",

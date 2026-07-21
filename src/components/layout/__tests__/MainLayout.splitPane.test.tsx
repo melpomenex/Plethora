@@ -22,12 +22,19 @@ vi.mock("../../common/VimiumNavigation", () => ({
 vi.mock("../../common/KeyboardShortcuts", () => ({ useShortcut: vi.fn() }));
 vi.mock("../../../hooks/useKeyboardShortcuts", () => ({ useGlobalShortcuts: vi.fn() }));
 vi.mock("../../../hooks/useMobileShell", () => ({ useMobileShell: () => false }));
-vi.mock("../../../lib/tauri", () => ({
-  invokeCommand: vi.fn().mockResolvedValue(null),
-  isTauri: () => false,
-  isNativeMobile: () => false,
-  listen: vi.fn().mockResolvedValue(() => {}),
-}));
+vi.mock("../../../lib/tauri", async (importOriginal) => {
+  // Preserve the real synchronous platform helpers (isNativeMobile,
+  // isNativePhone, nativePlatform, getPlatform, …) so the presentation layer
+  // pulled in by the tour host can read them; only stub the async surface
+  // that hits the Rust backend.
+  const actual = await importOriginal<typeof import("../../../lib/tauri")>();
+  return {
+    ...actual,
+    invokeCommand: vi.fn().mockResolvedValue(null),
+    isTauri: () => false,
+    listen: vi.fn().mockResolvedValue(() => {}),
+  };
+});
 vi.mock("../../../utils/updateChecker", () => ({ checkForUpdates: vi.fn() }));
 vi.mock("../../../lib/feedback", () => ({ emitFeedback: vi.fn() }));
 vi.mock("../../common/Toast", () => ({

@@ -178,7 +178,7 @@ export function RSSQueueSettingsModal({ isOpen, onClose }: RSSQueueSettingsProps
             <button
               onClick={() => setIncludeInQueue(!includeInQueue)}
               className={cn(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
                 includeInQueue ? "bg-primary" : "bg-muted-foreground/20"
               )}
             >
@@ -458,7 +458,7 @@ export function RSSQueueSettingsModal({ isOpen, onClose }: RSSQueueSettingsProps
               <button
                 onClick={() => setPodcastIncludeInQueue(!podcastIncludeInQueue)}
                 className={cn(
-                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                  "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
                   podcastIncludeInQueue ? "bg-primary" : "bg-muted-foreground/20"
                 )}
               >

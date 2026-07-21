@@ -403,7 +403,7 @@ export function SessionCustomizeModal({
           {/* Exclude Suspended */}
           <section className="flex items-center justify-between p-3 bg-muted/30 rounded border border-border">
             <span className="text-sm text-foreground">{t("sessionCustomize.excludeSuspended")}</span>
-            <label className="relative inline-flex items-center cursor-pointer">
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={customization.filters.excludeSuspended}

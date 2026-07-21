@@ -15,6 +15,7 @@ import {
   FolderOpen,
   GraduationCap,
   Keyboard,
+  Lifebuoy,
   MagnifyingGlass,
   Microphone,
   Palette,
@@ -37,6 +38,7 @@ import { CloudStorageSettings } from "./CloudStorageSettings";
 import { ThemePicker } from "./ThemePicker";
 import { IntegrationSettings } from "./IntegrationSettings";
 import { HandbookSettings } from "./HandbookSettings";
+import { HelpSettings } from "./HelpSettings";
 import { NotificationSettings } from "./NotificationSettings";
 import {
   AdaptiveContentHeader,
@@ -80,6 +82,7 @@ export enum SettingsTab {
   Privacy = "privacy",
   Handbook = "handbook",
   Embeddings = "embeddings",
+  Help = "help",
 }
 
 /**
@@ -250,6 +253,13 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
     icon: BookOpenText,
     keywords: ["guide", "help", "tutorial", "documentation", "manual", "how to", "learn"],
     description: "User guide and documentation",
+  },
+  {
+    id: SettingsTab.Help,
+    label: "settings.help",
+    icon: Lifebuoy,
+    keywords: ["tour", "onboarding", "replay", "reset", "walkthrough", "tutorial"],
+    description: "settings.helpDesc",
   },
 ];
 
@@ -593,6 +603,7 @@ export function SettingsPage() {
             <PrivacySettings onChange={() => setHasChanges(true)} />
           )}
           {activeTab === SettingsTab.Handbook && <HandbookSettings />}
+          {activeTab === SettingsTab.Help && <HelpSettings />}
         </SafeScrollContainer>
 
         {/* Footer */}

@@ -3602,6 +3602,17 @@ export const liquidGlassTheme: Theme = {
       display: none !important;
     }
 
+    :root[data-theme-id="liquid-glass"] .app-shell {
+      background: rgba(9, 13, 22, 0.65) !important;
+      background-color: rgba(9, 13, 22, 0.65) !important;
+    }
+    :root[data-theme-id="liquid-glass"] .bg-background:not(.app-shell),
+    :root[data-theme-id="liquid-glass"] .main-content,
+    :root[data-theme-id="liquid-glass"] .bg-cream {
+      background: transparent !important;
+      background-color: transparent !important;
+    }
+
     /* Custom layout component transparency and glass blurs */
     :root[data-theme-id="liquid-glass"] .sidebar-section,
     :root[data-theme-id="liquid-glass"] aside {
@@ -3857,6 +3868,17 @@ export const amberLiquidGlassTheme: Theme = {
       display: none !important;
     }
 
+    :root[data-theme-id="amber-liquid-glass"] .app-shell {
+      background: rgba(18, 11, 4, 0.65) !important;
+      background-color: rgba(18, 11, 4, 0.65) !important;
+    }
+    :root[data-theme-id="amber-liquid-glass"] .bg-background:not(.app-shell),
+    :root[data-theme-id="amber-liquid-glass"] .main-content,
+    :root[data-theme-id="amber-liquid-glass"] .bg-cream {
+      background: transparent !important;
+      background-color: transparent !important;
+    }
+
     /* Custom layout component transparency and glass blurs */
     :root[data-theme-id="amber-liquid-glass"] .sidebar-section,
     :root[data-theme-id="amber-liquid-glass"] aside {
@@ -4110,6 +4132,17 @@ export const roseLiquidGlassTheme: Theme = {
     :root[data-theme-id="rose-liquid-glass"][data-vibrancy-active="true"]::before,
     :root[data-theme-id="rose-liquid-glass"][data-vibrancy-active="true"]::after {
       display: none !important;
+    }
+
+    :root[data-theme-id="rose-liquid-glass"] .app-shell {
+      background: rgba(18, 6, 11, 0.65) !important;
+      background-color: rgba(18, 6, 11, 0.65) !important;
+    }
+    :root[data-theme-id="rose-liquid-glass"] .bg-background:not(.app-shell),
+    :root[data-theme-id="rose-liquid-glass"] .main-content,
+    :root[data-theme-id="rose-liquid-glass"] .bg-cream {
+      background: transparent !important;
+      background-color: transparent !important;
     }
 
     /* Custom layout component transparency and glass blurs */

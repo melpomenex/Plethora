@@ -781,7 +781,7 @@ function ToggleField({
   return (
     <label className="flex items-center justify-between p-3 border border-border rounded-lg hover:bg-muted transition-colors cursor-pointer">
       <span className="text-sm font-medium text-foreground">{label}</span>
-      <div className="relative">
+      <div className="relative shrink-0">
         <input
           type="checkbox"
           checked={checked}

@@ -54,6 +54,7 @@ import {
   type SessionCustomization,
 } from "./SessionCustomizeModal";
 import { SemanticGraphPanel } from "./SemanticGraphPanel";
+import { tourAnchor } from "../onboarding/tour/anchors";
 import type { EmbeddingConfig } from "../../utils/semanticEngine";
 import { TASQueueBadge } from "../tas";
 import { TASQueueIndicator } from "../tas";
@@ -901,7 +902,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
   return (
     <div className="h-full flex flex-col bg-cream pb-20 md:pb-0">
-      <div className="border-b border-border bg-card p-3 md:p-4">
+      <div {...tourAnchor("queueControls")} className="border-b border-border bg-card p-3 md:p-4">
         <div className="flex flex-col md:flex-row md:flex-wrap items-start md:items-center justify-between gap-3">
           <div className="w-full md:w-auto">
             <h1 className="text-xl md:text-2xl font-semibold text-foreground">
@@ -918,6 +919,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             <button
               onClick={handleStartOptimalSession}
+              {...tourAnchor("queueStartSession")}
               className="flex-1 md:flex-none px-3 md:px-4 py-2 md:py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 flex items-center justify-center gap-2 min-h-[44px] text-sm md:text-base"
             >
               <Play className="w-4 h-4" />

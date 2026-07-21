@@ -35,6 +35,7 @@ import { useTabsStore } from "../../stores";
 import type { TabType } from "../../stores/tabsStore";
 import { usePWAStatus } from "../pwa";
 import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
+import { TOUR_ANCHORS } from "../onboarding/tour/anchors";
 import {
   DashboardTab,
   QueueTab,
@@ -60,6 +61,19 @@ interface NavItem {
   closable: boolean;
   badge?: "review" | "rss";
 }
+
+/**
+ * Onboarding-tour anchor IDs for each primary bottom-nav item. Steps declare
+ * `[desktop-candidate, mobile-candidate]` and the resolver picks whichever is
+ * rendered, so one tour definition serves both shells.
+ */
+const MOBILE_NAV_ANCHORS: Record<string, string | undefined> = {
+  dashboard: TOUR_ANCHORS.mobileNavDashboard,
+  documents: TOUR_ANCHORS.mobileNavDocuments,
+  queue: TOUR_ANCHORS.mobileNavQueue,
+  review: TOUR_ANCHORS.mobileNavReview,
+  settings: TOUR_ANCHORS.mobileNavSettings,
+};
 
 /**
  * The bottom-nav primary tabs in left-to-right display order, expressed as
@@ -369,6 +383,7 @@ export function MobileNavigation({
           <button
             key={item.id}
             type="button"
+            data-tour={MOBILE_NAV_ANCHORS[item.id]}
             onClick={() => {
               openTab(item);
               setShowMoreMenu(false);
@@ -480,6 +495,7 @@ export function MobileNavigation({
             <div className="mobile-more-section">
               <button
                 type="button"
+                data-tour={TOUR_ANCHORS.mobileWorkspaceSwitcher}
                 onClick={() => {
                   window.dispatchEvent(new CustomEvent("open-workspace-switcher"));
                   setShowMoreMenu(false);
@@ -491,6 +507,7 @@ export function MobileNavigation({
               </button>
               <button
                 type="button"
+                data-tour={TOUR_ANCHORS.mobileCommandPalette}
                 onClick={() => {
                   window.dispatchEvent(new CustomEvent("command-palette-open"));
                   setShowMoreMenu(false);

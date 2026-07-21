@@ -299,7 +299,7 @@ export function AudioTranscriptionSettings() {
                     </p>
                   </div>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
                   <input
                     type="checkbox"
                     className="sr-only peer"

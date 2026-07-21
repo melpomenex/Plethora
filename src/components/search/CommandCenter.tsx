@@ -19,6 +19,7 @@ import {
   Brain,
   ChartBar,
   Clipboard,
+  Compass,
   Gear,
   Images,
   ListChecks,
@@ -683,6 +684,22 @@ export function CommandCenter() {
       ...navigationCommands,
       ...themeCommands,
       ...themeSwitchCommands,
+      // Start the guided tour. Dispatches a window event MainLayout listens
+      // for; the host opens the tour with progress reset (on-demand replay
+      // leaves launchCount/autoDisplayDisabled untouched per spec).
+      {
+        id: "start-guided-tour",
+        label: t("onboarding.tour.command"),
+        description: t("onboarding.tour.replayTour"),
+        icon: <Compass className="w-4 h-4" />,
+        category: CommandCategory.General,
+        action: () => {
+          useUIStore.getState().setCommandPaletteOpen(false);
+          window.dispatchEvent(new CustomEvent("tour-replay"));
+        },
+        keywords: ["tour", "onboarding", "guide", "tutorial", "help", "replay"],
+        shortcut: undefined,
+      } as Command,
     ];
 
     if (isRssView) {

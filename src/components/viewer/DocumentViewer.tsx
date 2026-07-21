@@ -47,6 +47,7 @@ import { ExtractsList } from "../extracts/ExtractsList";
 import { LearningCardsList } from "../learning/LearningCardsList";
 import { EditableContentPalette } from "../common/EditableContentPalette";
 import { useToast } from "../common/Toast";
+import { tourAnchor } from "../onboarding/tour/anchors";
 import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
 import { EditExtractDialog } from "../extracts/EditExtractDialog";
 import type { PdfSelectionContext, SelectionContext, TextSelectionContext, EpubSelectionContext } from "../../types/selection";
@@ -5131,7 +5132,7 @@ export function DocumentViewer({
   const canRenderAudioViewer = docType === "audio";
 
   return (
-    <div ref={containerRef} className="flex flex-col h-full min-h-0 overflow-hidden">
+    <div ref={containerRef} {...tourAnchor("readerRoot")} className="flex flex-col h-full min-h-0 overflow-hidden">
       {/* Toolbar */}
       {/* Toolbar */}
       {!embedded && !isFullscreen && !(isMobileTouch && docType === "epub" && viewMode === "document") && (
@@ -5646,6 +5647,7 @@ export function DocumentViewer({
             className="flex-shrink-0 p-2 rounded-md hover:bg-muted transition-colors text-primary"
             title={t("viewer.createExtract")}
             data-extract-button="true"
+            {...tourAnchor("readerExtractAction")}
           >
             <Lightbulb className="w-4 h-4" />
           </button>
@@ -5966,7 +5968,7 @@ export function DocumentViewer({
             <div className="text-muted-foreground">{t("viewer.loadingDocument")}</div>
           </div>
         ) : viewMode === "extracts" ? (
-          <div className="p-6 bg-background h-full overflow-auto">
+          <div {...tourAnchor("readerExtractsPanel")} className="p-6 bg-background h-full overflow-auto">
             <ExtractsList
               documentId={currentDocument.id}
               focusedExtractId={focusedExtractId}

@@ -65,7 +65,7 @@ export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
               id="extracts-toggle"
               onClick={() => onUpdateSetting("extractsCountAsFlashcards", !extractsCountAsFlashcards)}
               className={cn(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
                 extractsCountAsFlashcards ? "bg-primary" : "bg-muted"
               )}
             >
@@ -89,7 +89,7 @@ export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
               id="auto-proceed-toggle"
               onClick={() => onUpdateSetting("autoProceed", !autoProceed)}
               className={cn(
-                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
                 autoProceed ? "bg-primary" : "bg-muted"
               )}
             >

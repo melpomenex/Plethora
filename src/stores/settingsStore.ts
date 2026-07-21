@@ -471,6 +471,8 @@ interface YouTubeSettings {
   transcriptServerUrl?: string;
   /** API Key to authenticate with the custom transcript server */
   transcriptServerApiKey?: string;
+  /** Whether on-device transcript fetching is enabled */
+  transcriptOnDeviceEnabled: boolean;
 }
 
 /**
@@ -773,6 +775,7 @@ export const defaultSettings: Settings = {
     enabled: false,
     transcriptServerUrl: undefined,
     transcriptServerApiKey: undefined,
+    transcriptOnDeviceEnabled: true,
   },
   features: {
     notebooklmEnabled: false,

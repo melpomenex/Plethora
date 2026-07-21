@@ -288,35 +288,19 @@ export async function fetchYouTubeVideoInfo(videoId: string): Promise<YouTubeVid
  * youtubeTranscriptBrowser (yt-dlp can't run on Android/iOS).
  */
 export async function fetchYouTubeTranscript(videoId: string): Promise<YouTubeTranscriptSegment[]> {
-  if (isTauri() && !isNativeMobile()) {
-    // Desktop: backend yt-dlp fetches the transcript.
-    const { invokeCommand } = await import("../lib/tauri");
-    const result = await invokeCommand<Array<{ text: string; start: number; duration: number }> | null>(
-      "get_youtube_transcript_by_id",
-      { videoId }
-    );
-    return result || [];
-  }
-
-  // Web / native mobile: yt-dlp can't run on Android/iOS, so fetch the
-  // transcript from the hosted readsync.org API (same endpoint the PWA uses).
   try {
-    const { fetchYouTubeTranscript: fetchFromApi } = await import("../utils/youtubeTranscriptBrowser");
-    const response = await fetchFromApi(videoId);
-    return response.segments.map((seg) => ({
-      text: seg.text,
-      start: seg.start,
-      duration: seg.duration,
-    }));
+    const { resolveTranscript } = await import("../lib/transcript/sourceChain");
+    const result = await resolveTranscript(videoId);
+    return result.segments;
   } catch (error: any) {
     console.error("[YouTube] Failed to fetch transcript:", error);
 
-    const errorMsg = error?.message || '';
-    if (errorMsg.includes('disabled') || errorMsg.includes('not available')) {
-      throw new Error('This video does not have captions enabled.');
+    const errorMsg = error?.message || "";
+    if (errorMsg.includes("disabled") || errorMsg.includes("not available") || errorMsg.includes("NoCaptions")) {
+      throw new Error("This video does not have captions enabled.");
     }
-    if (errorMsg.includes('unavailable') || errorMsg.includes('private')) {
-      throw new Error('This video is unavailable or private.');
+    if (errorMsg.includes("unavailable") || errorMsg.includes("private") || errorMsg.includes("VideoUnavailable")) {
+      throw new Error("This video is unavailable or private.");
     }
 
     throw new Error(
@@ -331,14 +315,9 @@ export async function fetchYouTubeTranscript(videoId: string): Promise<YouTubeTr
  * Check if YouTube transcript is available for a video
  */
 export async function isTranscriptAvailable(videoId: string): Promise<boolean> {
-  if (isTauri() && !isNativeMobile()) {
-    // Desktop: assume transcripts might be available (the backend will fetch them).
-    return true;
-  }
-
   try {
-    const { fetchYouTubeTranscript: fetchFromApi } = await import("../utils/youtubeTranscriptBrowser");
-    await fetchFromApi(videoId);
+    const { resolveTranscript } = await import("../lib/transcript/sourceChain");
+    await resolveTranscript(videoId);
     return true;
   } catch {
     return false;

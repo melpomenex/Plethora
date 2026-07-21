@@ -48,7 +48,7 @@ export function SmartQueuesSettings({
             </div>
             <button
               onClick={() => onUpdateSettings({ autoRefresh: !settings.autoRefresh })}
-              className={`relative w-12 h-6 rounded-full transition-colors ${
+              className={`relative w-12 h-6 shrink-0 rounded-full transition-colors ${
                 settings.autoRefresh ? "bg-primary" : "bg-muted"
               }`}
             >

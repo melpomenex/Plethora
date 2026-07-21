@@ -38,6 +38,7 @@ import { AudiobookImportDialog } from "../import/AudiobookImportDialog";
 import { ImportProgressIndicator } from "../import/ImportProgressIndicator";
 import { MarkdownBundlePreview, type ImportBundleOptions } from "../import/MarkdownBundlePreview";
 import { EmptyDocuments, EmptySearch } from "../common/EmptyState";
+import { tourAnchor } from "../onboarding/tour/anchors";
 import { ConfirmDialog, useConfirmDialog } from "../common/ConfirmDialog";
 import { DocumentCardSkeleton, DocumentGridSkeleton } from "../common/Skeleton";
 import { DragDropUpload } from "../common/DragDropUpload";
@@ -963,7 +964,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
               <button
                 onClick={handleImport}
                 disabled={isImporting}
-                data-tutorial="import-button"
+                {...tourAnchor("documentsImportButton")}
                 className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus className="h-5 w-5" aria-hidden="true" />
@@ -2655,7 +2656,7 @@ function LibraryDashboard({
   const statColors = ["text-foreground", "text-blue-500", "text-amber-500", "text-emerald-500", "text-purple-500"];
 
   return (
-    <div className="space-y-5 pb-4">
+    <div {...tourAnchor("documentsGrid")} className="space-y-5 pb-4">
       {/* Stats Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         {stats.map((s, i) => (

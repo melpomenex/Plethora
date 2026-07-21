@@ -41,7 +41,7 @@ import {
   type ObsidianConfig,
   type AnkiConfig,
 } from "../../api/integrations";
-import { openFolderPicker } from "../../lib/tauri";
+import { openFolderPicker, isTauri } from "../../lib/tauri";
 import {
   getStoredYouTubeCookies,
   storeYouTubeCookies,
@@ -69,7 +69,7 @@ export function IntegrationSettings() {
 
   const { settings: globalSettings, updateSettings } = useSettingsStore();
 
-  const handleUpdateTranscriptSettings = (updates: Partial<{ transcriptServerUrl: string; transcriptServerApiKey: string }>) => {
+  const handleUpdateTranscriptSettings = (updates: Partial<{ transcriptServerUrl: string; transcriptServerApiKey: string; transcriptOnDeviceEnabled: boolean }>) => {
     updateSettings({
       youtube: {
         ...globalSettings.youtube,
@@ -116,6 +116,84 @@ export function IntegrationSettings() {
     success: boolean;
     message: string;
   } | null>(null);
+
+  // Transcript Diagnostics State & Actions
+  const [testResult, setTestResult] = useState<{
+    testing: boolean;
+    onDevice?: { available: boolean; platform: string };
+    vps?: { online: boolean; statusText: string; workersAvailable?: number; workers?: Record<string, string>; cacheSize?: number };
+    lastDiagnostic?: any;
+  } | null>(null);
+
+  const runTranscriptDiagnostics = async () => {
+    setTestResult((prev) => ({ ...prev, testing: true }));
+    const result: typeof testResult = { testing: true };
+
+    if (isTauri()) {
+      try {
+        const { invokeCommand } = await import("../../lib/tauri");
+        const onDevice = await invokeCommand<any>("on_device_transcript_available");
+        result.onDevice = {
+          available: onDevice.available,
+          platform: onDevice.platform,
+        };
+      } catch {
+        result.onDevice = { available: false, platform: "unknown" };
+      }
+    } else {
+      result.onDevice = { available: false, platform: "web" };
+    }
+
+    const vpsUrl = globalSettings.youtube?.transcriptServerUrl;
+    const vpsKey = globalSettings.youtube?.transcriptServerApiKey;
+    if (vpsUrl) {
+      try {
+        const base = vpsUrl.replace(/\/api\/?$/, "").replace(/\/+$/, "");
+        const headers: Record<string, string> = {};
+        if (vpsKey) headers["X-API-Key"] = vpsKey;
+
+        const res = await fetch(`${base}/health`, { headers });
+        if (res.ok) {
+          const healthData = await res.json();
+          result.vps = {
+            online: true,
+            statusText: "Connected successfully",
+            workersAvailable: healthData.workers_available,
+            workers: healthData.workers,
+            cacheSize: healthData.cache_size,
+          };
+        } else {
+          result.vps = {
+            online: false,
+            statusText: `Server returned HTTP ${res.status}`,
+          };
+        }
+      } catch (e: any) {
+        result.vps = {
+          online: false,
+          statusText: e.message || "Failed to reach server",
+        };
+      }
+    }
+
+    try {
+      const { getLastDiagnostic } = await import("../../lib/transcript/sourceChain");
+      result.lastDiagnostic = getLastDiagnostic();
+    } catch {}
+
+    setTestResult({ ...result, testing: false });
+  };
+
+  useEffect(() => {
+    if (activeTab === "youtube-transcript") {
+      import("../../lib/transcript/sourceChain").then(({ getLastDiagnostic }) => {
+        const last = getLastDiagnostic();
+        if (last) {
+          setTestResult((prev) => ({ ...prev, testing: false, lastDiagnostic: last }));
+        }
+      });
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const loaded = getIntegrationSettings();
@@ -750,7 +828,7 @@ export function IntegrationSettings() {
                 </div>
                 <button
                   onClick={() => handleExtensionConfigChange(undefined, !extensionAutoStart)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
                     extensionAutoStart ? "bg-primary" : "bg-muted"
                   }`}
                 >
@@ -954,45 +1032,188 @@ export function IntegrationSettings() {
         <div className="bg-card text-card-foreground border border-border rounded-xl p-6 shadow-sm">
           <div className="space-y-6">
             <div>
-              <h3 className="text-lg font-semibold text-foreground">YouTube Transcript Server</h3>
+              <h3 className="text-lg font-semibold text-foreground">{t("integrations.youtubeTranscripts")}</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                Configure your own self-hosted YouTube Transcript service (as detailed in yjs-sync/TRANSCRIPT_SERVICE.md) to query transcripts independently.
+                {t("integrations.youtubeTranscriptsDesc")}
               </p>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Server Endpoint Base URL
-                </label>
-                <input
-                  type="url"
-                  value={globalSettings.youtube?.transcriptServerUrl || ""}
-                  onChange={(e) => handleUpdateTranscriptSettings({ transcriptServerUrl: e.target.value })}
-                  placeholder="https://transcripts.yourdomain.com"
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  The API endpoint will automatically resolve to <code>{"{Server URL}/api/youtube/transcript"}</code>. Leave blank to use the default service.
-                </p>
+            {/* Toggle Row */}
+            <div className="flex items-center justify-between p-4 border border-border rounded-xl bg-background/50">
+              <div className="space-y-0.5 max-w-[80%]">
+                <span className="block text-sm font-medium text-foreground">
+                  {t("integrations.onDeviceFetching")}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {t("integrations.onDeviceFetchingDesc")}
+                </span>
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Server API Key
-                </label>
+              <label className="relative inline-flex items-center cursor-pointer">
                 <input
-                  type="password"
-                  value={globalSettings.youtube?.transcriptServerApiKey || ""}
-                  onChange={(e) => handleUpdateTranscriptSettings({ transcriptServerApiKey: e.target.value })}
-                  placeholder="Enter your transcript server api key"
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm font-mono"
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={globalSettings.youtube?.transcriptOnDeviceEnabled ?? true}
+                  onChange={(e) => handleUpdateTranscriptSettings({ transcriptOnDeviceEnabled: e.target.checked })}
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Required if your self-hosted transcript service is configured with a <code>TRANSCRIPT_API_KEY</code>.
-                </p>
+                <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+              </label>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <h4 className="text-sm font-medium text-foreground mb-3">{t("integrations.selfHostedSettings")}</h4>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-2">
+                    Server Endpoint Base URL
+                  </label>
+                  <input
+                    type="url"
+                    value={globalSettings.youtube?.transcriptServerUrl || ""}
+                    onChange={(e) => handleUpdateTranscriptSettings({ transcriptServerUrl: e.target.value })}
+                    placeholder="https://transcripts.yourdomain.com"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    The API endpoint will automatically resolve to <code>{"{Server URL}/api/youtube/transcript"}</code>. Leave blank to use the default readsync.org service.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-foreground mb-2">
+                    Server API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={globalSettings.youtube?.transcriptServerApiKey || ""}
+                    onChange={(e) => handleUpdateTranscriptSettings({ transcriptServerApiKey: e.target.value })}
+                    placeholder="Enter your transcript server api key"
+                    className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Required if your self-hosted transcript service is configured with a <code>TRANSCRIPT_API_KEY</code>.
+                  </p>
+                </div>
               </div>
             </div>
+
+            {/* Diagnostics Panel */}
+            <div className="border-t border-border pt-4">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-sm font-medium text-foreground">{t("integrations.diagnostics")}</h4>
+                <button
+                  type="button"
+                  disabled={testResult?.testing}
+                  onClick={runTranscriptDiagnostics}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:bg-primary/95 focus:outline-none disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                >
+                  <ArrowsClockwise className={`w-3.5 h-3.5 ${testResult?.testing ? "animate-spin" : ""}`} />
+                  {testResult?.testing ? t("integrations.testing") : t("integrations.testConnectivity")}
+                </button>
+              </div>
+
+              {testResult && (
+                <div className="space-y-4">
+                  {/* On-device capability status */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-3 border border-border rounded-xl bg-background/30 flex flex-col gap-1">
+                      <span className="text-xs font-medium text-muted-foreground">{t("integrations.onDeviceSupport")}</span>
+                      {testResult.onDevice ? (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <span className={`w-2 h-2 rounded-full ${testResult.onDevice.available ? "bg-emerald-500" : "bg-amber-500"}`} />
+                          <span className="text-sm font-semibold text-foreground">
+                            {testResult.onDevice.available
+                              ? `Available (${testResult.onDevice.platform})`
+                              : "Not Supported on Web"}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-foreground">-</span>
+                      )}
+                    </div>
+
+                    {/* VPS status */}
+                    {globalSettings.youtube?.transcriptServerUrl && (
+                      <div className="p-3 border border-border rounded-xl bg-background/30 flex flex-col gap-1">
+                        <span className="text-xs font-medium text-muted-foreground">{t("integrations.selfHostedServer")}</span>
+                        {testResult.vps ? (
+                          <div>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className={`w-2 h-2 rounded-full ${testResult.vps.online ? "bg-emerald-500" : "bg-red-500"}`} />
+                              <span className="text-sm font-semibold text-foreground">
+                                {testResult.vps.online ? "Online" : "Offline"}
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted-foreground mt-1 block">
+                              {testResult.vps.statusText}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-foreground">-</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* VPS details if online */}
+                  {testResult.vps?.online && (
+                    <div className="p-4 border border-border rounded-xl bg-background/20 space-y-2.5">
+                      <div className="flex justify-between text-xs border-b border-border/50 pb-1.5">
+                        <span className="text-muted-foreground">{t("integrations.cachedTranscripts")}</span>
+                        <span className="font-semibold text-foreground">{testResult.vps.cacheSize ?? 0}</span>
+                      </div>
+                      <div className="flex justify-between text-xs border-b border-border/50 pb-1.5">
+                        <span className="text-muted-foreground">{t("integrations.activeWorkers")}</span>
+                        <span className="font-semibold text-foreground">{testResult.vps.workersAvailable ?? 0}</span>
+                      </div>
+                      {testResult.vps.workers && Object.keys(testResult.vps.workers).length > 0 && (
+                        <div className="space-y-1 mt-2">
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">Registered Workers:</span>
+                          {Object.entries(testResult.vps.workers).map(([wid, lastPoll]) => (
+                            <div key={wid} className="flex justify-between text-xs font-mono bg-background/40 p-1.5 rounded border border-border/30">
+                              <span className="text-foreground">{wid}</span>
+                              <span className="text-muted-foreground text-[10px]">{new Date(lastPoll).toLocaleTimeString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Last resolution diagnostic */}
+                  {testResult.lastDiagnostic && (
+                    <div className="p-4 border border-border/80 rounded-xl bg-background/10 space-y-2.5">
+                      <span className="text-xs font-semibold text-foreground block">Last Transcript Request Details</span>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Video ID</span>
+                          <span className="font-mono text-foreground">{testResult.lastDiagnostic.videoId}</span>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Status</span>
+                          <span className={`font-semibold ${testResult.lastDiagnostic.status === "success" ? "text-emerald-500" : "text-red-500"}`}>
+                            {testResult.lastDiagnostic.status === "success" ? "Success" : "Failed"}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Source Route</span>
+                          <span className="font-medium text-foreground bg-secondary/40 px-1.5 py-0.5 rounded w-max">{testResult.lastDiagnostic.source}</span>
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Duration</span>
+                          <span className="text-foreground">{testResult.lastDiagnostic.durationMs}ms</span>
+                        </div>
+                      </div>
+                      {testResult.lastDiagnostic.error && (
+                        <div className="text-xs p-2 bg-red-500/10 border border-red-500/20 rounded text-red-400 font-mono mt-1 break-all">
+                          {testResult.lastDiagnostic.error}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       )}
