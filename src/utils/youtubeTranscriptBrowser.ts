@@ -296,6 +296,101 @@ async function fetchFromApi(videoId: string, language?: string): Promise<Transcr
 }
 
 /**
+ * Fetch transcript directly from YouTube's public timedtext API.
+ * This bypasses datacenter anti-bot blocks when fetching from client/mobile device.
+ */
+async function fetchTimedTextDirect(
+  videoId: string,
+  language?: string
+): Promise<TranscriptResponse | null> {
+  const langParam = language ? `&lang=${encodeURIComponent(language)}` : '&lang=en';
+  const urlsToTry = [
+    `https://www.youtube.com/api/timedtext?v=${videoId}${langParam}&fmt=json3`,
+    `https://www.youtube.com/api/timedtext?v=${videoId}&fmt=json3`,
+  ];
+
+  for (const url of urlsToTry) {
+    try {
+      const resp = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+        },
+      });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      if (!data.events || !Array.isArray(data.events)) continue;
+
+      const segments: TranscriptSegment[] = [];
+      for (const event of data.events) {
+        if (!event.segs) continue;
+        const start = (event.tStartMs || 0) / 1000.0;
+        const duration = (event.dDurationMs || 0) / 1000.0;
+        const tStartMs = event.tStartMs || 0;
+        const dDurationMs = event.dDurationMs || 0;
+        const eventEndMs = tStartMs + dDurationMs;
+
+        const rawWords: Array<{ word: string; start_ms: number }> = [];
+        let rawText = "";
+
+        for (const seg of event.segs) {
+          const segText = seg.utf8 || "";
+          if (!segText) continue;
+          rawText += segText;
+          const offsetMs = seg.tOffsetMs || 0;
+          const segStartMs = tStartMs + offsetMs;
+          const tokens = segText.split(/\s+/).filter(Boolean);
+          for (const token of tokens) {
+            rawWords.push({ word: token, start_ms: segStartMs });
+          }
+        }
+
+        const cleanText = rawText.trim();
+        if (!cleanText) continue;
+
+        let words: WordTiming[] | undefined;
+        if (rawWords.length > 0) {
+          words = rawWords.map((currW, idx) => {
+            const stM = currW.start_ms;
+            let enM = stM + 300;
+            if (idx < rawWords.length - 1) {
+              const nextSt = rawWords[idx + 1].start_ms;
+              enM = nextSt > stM ? nextSt : stM + 300;
+            } else {
+              enM = Math.max(eventEndMs, stM + 300);
+            }
+            return {
+              word: currW.word,
+              start_ms: Math.round(stM),
+              end_ms: Math.round(enM),
+            };
+          });
+        }
+
+        segments.push({
+          text: cleanText,
+          start,
+          duration,
+          ...(words && words.length > 0 ? { words } : {}),
+        });
+      }
+
+      if (segments.length > 0) {
+        return {
+          segments,
+          videoId,
+          language: language || 'en',
+        };
+      }
+    } catch (e) {
+      console.warn('[YouTubeTranscript] Direct timedtext fetch attempt failed:', e);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Fetch YouTube transcript by video ID
  * 
  * For PWA/Web: Uses youtube-transcript-ts library (primary) or API endpoint
@@ -349,6 +444,18 @@ export async function fetchYouTubeTranscript(
     const apiResult = await fetchFromApi(videoId, language);
     return apiResult;
   } catch (apiError) {
+    // If API endpoint fails (e.g. yt-dlp bot detection on datacenter IP),
+    // try direct YouTube timedtext API fallback on client
+    console.warn('[YouTubeTranscript] Vercel API fetch failed, trying direct timedtext API fallback:', apiError);
+    try {
+      const directResult = await fetchTimedTextDirect(videoId, language);
+      if (directResult) {
+        return directResult;
+      }
+    } catch (directError) {
+      console.warn('[YouTubeTranscript] Direct timedtext fallback failed:', directError);
+    }
+
     // If it's a specific error (like no captions), don't try fallback
     const errorMsg = apiError instanceof Error ? apiError.message : '';
     if (errorMsg.includes('does not have captions') ||
@@ -356,8 +463,6 @@ export async function fetchYouTubeTranscript(
       errorMsg.includes('requires consent')) {
       throw apiError;
     }
-
-    console.warn('[YouTubeTranscript] API fetch failed:', apiError);
 
     if (isLocalhost) {
       console.warn(
