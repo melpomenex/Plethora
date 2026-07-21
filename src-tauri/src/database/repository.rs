@@ -5,8 +5,8 @@ use crate::error::{IncrementumError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
 use crate::models::{
     Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
-    ItemType, LearningItem, TranscriptionJobStatus, TranscriptionQueueEntry,
-    TranscriptionQueueEntryWithDoc, VideoExtract, StartupDocumentSummary,
+    ItemType, LearningItem, StartupDocumentSummary, TranscriptionJobStatus,
+    TranscriptionQueueEntry, TranscriptionQueueEntryWithDoc, VideoExtract,
 };
 use chrono::Utc;
 use sqlx::{sqlite::SqliteRow, Pool, Row, Sqlite};
@@ -977,12 +977,11 @@ impl Repository {
     ) -> Result<(Vec<StartupDocumentSummary>, i64)> {
         let limit = i64::from(limit);
         let offset = i64::from(offset);
-        let total: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM documents WHERE collection_id = ?1",
-        )
-        .bind(collection_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let total: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM documents WHERE collection_id = ?1")
+                .bind(collection_id)
+                .fetch_one(&self.pool)
+                .await?;
 
         let rows = sqlx::query(
             "SELECT id, collection_id, title, file_path, file_type, total_pages,
@@ -2858,10 +2857,7 @@ impl Repository {
 
     /// Reconcile the append-only event and collection-wide learning side
     /// effects when the user immediately undoes an Arena review.
-    pub async fn undo_arena_review_by_commit_id(
-        &self,
-        arena_commit_id: &str,
-    ) -> Result<bool> {
+    pub async fn undo_arena_review_by_commit_id(&self, arena_commit_id: &str) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct UndoCollection {
             m2_optimizer: crate::algorithms::sm20::model2::ClassicM2Optimizer,
@@ -2898,7 +2894,10 @@ impl Repository {
         let timestamp: chrono::DateTime<Utc> = row.try_get("timestamp")?;
         let time_taken: i32 = row.try_get("time_taken")?;
 
-        if let Some(collection) = snapshot.as_ref().and_then(|value| value.undo_collection.as_ref()) {
+        if let Some(collection) = snapshot
+            .as_ref()
+            .and_then(|value| value.undo_collection.as_ref())
+        {
             let now_text = Utc::now().to_rfc3339();
             sqlx::query(
                 "INSERT INTO sm20_m2_optimizer (id, optimizer_state, date_modified)
@@ -3002,8 +3001,10 @@ impl Repository {
     async fn load_sm20_collection_in_transaction(
         tx: &mut sqlx::Transaction<'_, Sqlite>,
     ) -> Result<crate::algorithms::sm20::SM20CollectionState> {
-        use crate::algorithms::sm20::{arena::ArenaState, model3::M3MatrixState, SM20CollectionState};
         use crate::algorithms::sm20::model3::{LAPSE_CELLS, OUTCOME_CELLS};
+        use crate::algorithms::sm20::{
+            arena::ArenaState, model3::M3MatrixState, SM20CollectionState,
+        };
         const FIRST_STAGE_DIM: usize = 36;
 
         let m2_optimizer = sqlx::query_scalar::<_, Vec<u8>>(
@@ -3015,7 +3016,14 @@ impl Repository {
         .unwrap_or_else(crate::algorithms::sm20::model2::ClassicM2Optimizer::fresh);
 
         let m3_row: Option<(
-            Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
         )> = sqlx::query_as(
             "SELECT outcome_count, outcome_success, smoothing_count, smoothing_value,
                     lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered
@@ -3036,14 +3044,13 @@ impl Repository {
             })
             .unwrap_or_default();
 
-        let arena = sqlx::query_scalar::<_, String>(
-            "SELECT state FROM sm20_arena WHERE id = 'global'",
-        )
-        .fetch_optional(&mut **tx)
-        .await?
-        .and_then(|json| serde_json::from_str::<ArenaState>(&json).ok())
-        .unwrap_or_default()
-        .sanitized();
+        let arena =
+            sqlx::query_scalar::<_, String>("SELECT state FROM sm20_arena WHERE id = 'global'")
+                .fetch_optional(&mut **tx)
+                .await?
+                .and_then(|json| serde_json::from_str::<ArenaState>(&json).ok())
+                .unwrap_or_default()
+                .sanitized();
 
         let fsrs_params = sqlx::query_scalar::<_, String>(
             "SELECT params FROM sm20_model_params WHERE id = 'fsrs'",
@@ -3052,13 +3059,14 @@ impl Repository {
         .await?
         .and_then(|json| serde_json::from_str::<Vec<f32>>(&json).ok())
         .filter(|params| !params.is_empty() && params.iter().all(|value| value.is_finite()));
-        let m4_params = sqlx::query_scalar::<_, String>(
-            "SELECT params FROM sm20_model_params WHERE id = 'm4'",
-        )
-        .fetch_optional(&mut **tx)
-        .await?
-        .and_then(|json| serde_json::from_str::<Vec<f64>>(&json).ok())
-        .filter(|params| params.len() == 35 && params.iter().all(|value| value.is_finite()));
+        let m4_params =
+            sqlx::query_scalar::<_, String>("SELECT params FROM sm20_model_params WHERE id = 'm4'")
+                .fetch_optional(&mut **tx)
+                .await?
+                .and_then(|json| serde_json::from_str::<Vec<f64>>(&json).ok())
+                .filter(|params| {
+                    params.len() == 35 && params.iter().all(|value| value.is_finite())
+                });
 
         Ok(SM20CollectionState {
             m2_optimizer,
@@ -3169,7 +3177,8 @@ impl Repository {
         }
 
         let current_collection = Self::load_sm20_collection_in_transaction(&mut tx).await?;
-        let current_arena_revision = crate::commands::review::sm20_arena_revision(&current_collection)?;
+        let current_arena_revision =
+            crate::commands::review::sm20_arena_revision(&current_collection)?;
         if current_arena_revision != expected_arena_revision {
             tx.rollback().await?;
             return Err(IncrementumError::ArenaPreviewStale(
@@ -3571,6 +3580,28 @@ impl Repository {
         }))
     }
 
+    /// Same as [`Self::get_youtube_transcript_by_video_id`] but also returns the
+    /// `word_timings_version` of the cached row so callers can decide whether the
+    /// blob predates per-word timings and must be re-fetched.
+    pub async fn get_youtube_transcript_by_video_id_with_version(
+        &self,
+        video_id: &str,
+    ) -> Result<Option<(String, String, i32)>> {
+        let row = sqlx::query(
+            "SELECT transcript, segments_json, word_timings_version FROM youtube_transcripts WHERE video_id = ?1 LIMIT 1",
+        )
+        .bind(video_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|row| {
+            let transcript: String = row.get("transcript");
+            let segments_json: String = row.get("segments_json");
+            let word_timings_version: i32 = row.get("word_timings_version");
+            (transcript, segments_json, word_timings_version)
+        }))
+    }
+
     pub async fn get_youtube_transcript_by_document_id(
         &self,
         document_id: &str,
@@ -3595,6 +3626,7 @@ impl Repository {
         video_id: &str,
         transcript: &str,
         segments_json: &str,
+        word_timings_version: i32,
     ) -> Result<()> {
         let now = Utc::now();
         let id = uuid::Uuid::new_v4().to_string();
@@ -3602,13 +3634,15 @@ impl Repository {
         sqlx::query(
             r#"
             INSERT INTO youtube_transcripts (
-                id, document_id, video_id, transcript, segments_json, date_created, date_modified
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                id, document_id, video_id, transcript, segments_json, date_created, date_modified,
+                word_timings_version
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             ON CONFLICT(video_id) DO UPDATE SET
                 document_id = COALESCE(excluded.document_id, youtube_transcripts.document_id),
                 transcript = excluded.transcript,
                 segments_json = excluded.segments_json,
-                date_modified = excluded.date_modified
+                date_modified = excluded.date_modified,
+                word_timings_version = excluded.word_timings_version
             "#,
         )
         .bind(id)
@@ -3618,6 +3652,7 @@ impl Repository {
         .bind(segments_json)
         .bind(now)
         .bind(now)
+        .bind(word_timings_version)
         .execute(&self.pool)
         .await?;
 
@@ -3989,11 +4024,10 @@ impl Repository {
 
     /// Load the M2 optimizer state (JSON blob). Returns None if not yet initialized.
     pub async fn get_sm20_m2_optimizer(&self) -> Result<Option<Vec<u8>>> {
-        let row: Option<(Vec<u8>,)> = sqlx::query_as(
-            "SELECT optimizer_state FROM sm20_m2_optimizer WHERE id = 'global'",
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(Vec<u8>,)> =
+            sqlx::query_as("SELECT optimizer_state FROM sm20_m2_optimizer WHERE id = 'global'")
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|(state,)| state))
     }
 
@@ -4013,12 +4047,21 @@ impl Repository {
     }
 
     /// Load the M3 matrix state. Returns None if not yet initialized.
-    pub async fn get_sm20_m3_matrices(&self) -> Result<Option<crate::algorithms::sm20::model3::M3MatrixState>> {
-        use crate::algorithms::sm20::model3::{M3MatrixState, OUTCOME_CELLS, LAPSE_CELLS};
+    pub async fn get_sm20_m3_matrices(
+        &self,
+    ) -> Result<Option<crate::algorithms::sm20::model3::M3MatrixState>> {
+        use crate::algorithms::sm20::model3::{M3MatrixState, LAPSE_CELLS, OUTCOME_CELLS};
         const FIRST_STAGE_DIM: usize = 36;
 
         let row: Option<(
-            Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
+            Vec<u8>,
         )> = sqlx::query_as(
             "SELECT outcome_count, outcome_success, smoothing_count, smoothing_value,
                     lapse_observed, lapse_remembered, first_stage_observed, first_stage_remembered
@@ -4027,10 +4070,7 @@ impl Repository {
         .fetch_optional(&self.pool)
         .await?;
 
-        if let Some((
-            oc, os_, sc, sv, lo, lr, fso, fsr,
-        )) = row
-        {
+        if let Some((oc, os_, sc, sv, lo, lr, fso, fsr)) = row {
             let outcome_count = Self::bytes_to_u32_vec(&oc, OUTCOME_CELLS);
             let outcome_success = Self::bytes_to_u32_vec(&os_, OUTCOME_CELLS);
             let smoothing_count = Self::bytes_to_u32_vec(&sc, OUTCOME_CELLS);
@@ -4171,11 +4211,7 @@ impl Repository {
         bytes
             .chunks_exact(8)
             .take(expected_len)
-            .map(|c| {
-                f64::from_le_bytes([
-                    c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7],
-                ])
-            })
+            .map(|c| f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
             .collect()
     }
 
@@ -7259,16 +7295,14 @@ mod tests {
     async fn arena_review_provenance_round_trips_and_commit_ids_are_unique() {
         let repo = setup_repo().await;
         let item = LearningItem::new(ItemType::Flashcard, "Arena prompt".to_string());
-        repo.create_learning_item(&item).await.expect("learning item");
+        repo.create_learning_item(&item)
+            .await
+            .expect("learning item");
         let due = Utc::now();
 
-        for (index, (source, model)) in [
-            ("arena", None),
-            ("model", Some("sm19")),
-            ("custom", None),
-        ]
-        .into_iter()
-        .enumerate()
+        for (index, (source, model)) in [("arena", None), ("model", Some("sm19")), ("custom", None)]
+            .into_iter()
+            .enumerate()
         {
             let result_id = format!("arena-result-{index}");
             let commit_id = format!("arena-commit-{index}");
@@ -7307,9 +7341,15 @@ mod tests {
             .await
             .expect("read Arena provenance");
             assert_eq!(row.get::<String, _>("schedule_source"), source);
-            assert_eq!(row.get::<Option<String>, _>("schedule_model_id").as_deref(), model);
+            assert_eq!(
+                row.get::<Option<String>, _>("schedule_model_id").as_deref(),
+                model
+            );
             assert_eq!(row.get::<String, _>("arena_commit_id"), commit_id);
-            assert_eq!(row.get::<i64, _>("arena_decision_time_ms"), 900 + index as i64);
+            assert_eq!(
+                row.get::<i64, _>("arena_decision_time_ms"),
+                900 + index as i64
+            );
             assert_eq!(row.get::<String, _>("arena_snapshot"), snapshot);
             assert_eq!(
                 repo.get_review_item_by_arena_commit_id(&commit_id)
@@ -7343,7 +7383,10 @@ mod tests {
                 Some(&duplicate),
             )
             .await;
-        assert!(duplicate_result.is_err(), "unique partial index must reject duplicate commit IDs");
+        assert!(
+            duplicate_result.is_err(),
+            "unique partial index must reject duplicate commit IDs"
+        );
         assert!(repo
             .undo_arena_review_by_commit_id("arena-commit-0")
             .await
@@ -7380,17 +7423,19 @@ mod tests {
     async fn arena_commit_is_atomic_stale_safe_and_idempotent() {
         let repo = setup_repo().await;
         let original = LearningItem::new(ItemType::Flashcard, "Atomic Arena prompt".to_string());
-        repo.create_learning_item(&original).await.expect("learning item");
+        repo.create_learning_item(&original)
+            .await
+            .expect("learning item");
         let original = repo
             .get_learning_item_by_id(&original.id)
             .await
             .expect("stored item read")
             .expect("stored item");
-        let expected_item_revision = crate::commands::review::sm20_item_revision(&original)
-            .expect("item revision");
+        let expected_item_revision =
+            crate::commands::review::sm20_item_revision(&original).expect("item revision");
         let collection = crate::algorithms::sm20::SM20CollectionState::default();
-        let expected_arena_revision = crate::commands::review::sm20_arena_revision(&collection)
-            .expect("Arena revision");
+        let expected_arena_revision =
+            crate::commands::review::sm20_arena_revision(&collection).expect("Arena revision");
 
         let mut scheduled = original.clone();
         scheduled.interval = 12.0;
@@ -7564,13 +7609,12 @@ mod tests {
             .await
             .expect("idempotent retry");
         assert!(!repeated);
-        let unchanged_statistics: i64 = sqlx::query_scalar(
-            "SELECT cards_reviewed FROM study_statistics WHERE date = ?1",
-        )
-        .bind(&statistics_date)
-        .fetch_one(repo.pool())
-        .await
-        .expect("statistics after retry");
+        let unchanged_statistics: i64 =
+            sqlx::query_scalar("SELECT cards_reviewed FROM study_statistics WHERE date = ?1")
+                .bind(&statistics_date)
+                .fetch_one(repo.pool())
+                .await
+                .expect("statistics after retry");
         assert_eq!(unchanged_statistics, 1);
 
         assert!(repo
