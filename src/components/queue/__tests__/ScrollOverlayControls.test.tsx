@@ -58,6 +58,27 @@ describe("ScrollOverlayControls Rating Orbs Snap Positioning", () => {
     expect(screen.queryByTitle("Previous EPUB page")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Next EPUB page")).not.toBeInTheDocument();
   });
+
+  it("routes document, extracts, and learning-card view selections", () => {
+    const onSetScrollViewMode = vi.fn();
+    render(
+      <ScrollOverlayControls
+        {...defaultProps}
+        showRatingControls={false}
+        scrollViewMode="extracts"
+        onSetScrollViewMode={onSetScrollViewMode}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle("View document"));
+    fireEvent.click(screen.getByTitle("View extracts"));
+    fireEvent.click(screen.getByTitle("View learning cards"));
+
+    expect(onSetScrollViewMode).toHaveBeenNthCalledWith(1, "document");
+    expect(onSetScrollViewMode).toHaveBeenNthCalledWith(2, "extracts");
+    expect(onSetScrollViewMode).toHaveBeenNthCalledWith(3, "cards");
+  });
+
   it("renders with right snapping layout by default", () => {
     const { container } = render(<ScrollOverlayControls {...defaultProps} />);
     const docControl = container.querySelector(".right-6");

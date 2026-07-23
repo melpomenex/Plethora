@@ -35,7 +35,7 @@ import { ExtractScrollItem } from "../components/review/ExtractScrollItem";
 import { ClozeCreatorPopup } from "../components/extracts/ClozeCreatorPopup";
 import { QACreatorPopup } from "../components/extracts/QACreatorPopup";
 import { CreateExtractDialog } from "../components/extracts/CreateExtractDialog";
-import { ExtractsList } from "../components/extracts/ExtractsList";
+import { QueueExtractsView } from "../components/queue/QueueExtractsView";
 import { FlashcardStudioModal } from "../components/review/FlashcardStudioModal";
 import { LearningCardsList } from "../components/learning/LearningCardsList";
 import { submitReview } from "../api/review";
@@ -3137,7 +3137,7 @@ export function QueueScrollPage() {
         >
           {renderedItem?.type === "document" && scrollViewMode !== "document" ? (
             scrollViewMode === "extracts" ? (
-              <ExtractsList documentId={renderedItem.documentId!} />
+              <QueueExtractsView documentId={renderedItem.documentId!} />
             ) : (
               <LearningCardsList documentId={renderedItem.documentId!} />
             )
