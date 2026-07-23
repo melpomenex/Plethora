@@ -43,13 +43,17 @@ export function useEdgeSwipeBack(
     let tracking = false;
     let horizontal = false;
 
+    const reset = () => {
+      tracking = false;
+      horizontal = false;
+    };
+
     const onStart = (e: TouchEvent) => {
+      reset();
       if (shouldIgnoreGlobalGesture(e.target)) {
-        tracking = false;
         return;
       }
       if (e.touches.length !== 1) {
-        tracking = false;
         return;
       }
       const t = e.touches[0];
@@ -57,19 +61,26 @@ export function useEdgeSwipeBack(
         startX = t.clientX;
         startY = t.clientY;
         tracking = true;
-        horizontal = false;
-      } else {
-        tracking = false;
       }
     };
 
     const onMove = (e: TouchEvent) => {
       if (!tracking) return;
+      if (e.touches.length !== 1) {
+        reset();
+        return;
+      }
       const t = e.touches[0];
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
-      // Lock to "this is a horizontal gesture" once horizontal intent is clear.
-      if (!horizontal && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      // Decide ownership once the gesture has a clear direction. Vertical or
+      // outward movement is left to the view/native scroll system for the
+      // remainder of this touch sequence.
+      if (!horizontal && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+        if (Math.abs(dx) <= Math.abs(dy) || dx <= 0) {
+          reset();
+          return;
+        }
         horizontal = true;
       }
       // Once committed horizontal, suppress the browser's default (e.g. text
@@ -82,14 +93,23 @@ export function useEdgeSwipeBack(
 
     const onEnd = (e: TouchEvent) => {
       if (!tracking) return;
+      if (e.type === "touchcancel" || e.touches.length !== 0) {
+        reset();
+        return;
+      }
       const t = e.changedTouches[0];
+      if (!t) {
+        reset();
+        return;
+      }
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
-      tracking = false;
-      if (horizontal && dx >= minDistance && Math.abs(dx) > Math.abs(dy)) {
+      const shouldGoBack =
+        horizontal && dx >= minDistance && Math.abs(dx) > Math.abs(dy);
+      reset();
+      if (shouldGoBack) {
         onBackRef.current();
       }
-      horizontal = false;
     };
 
     // Attach to window so the gesture works regardless of which child element

@@ -16,7 +16,6 @@ vi.mock("../../../hooks/useMobileShell", () => ({
 
 vi.mock("../MobileNavigation", () => ({
   MobileNavigation: () => null,
-  PRIMARY_NAV_TAB_TYPES: ["dashboard", "queue", "review", "documents"],
 }));
 
 vi.mock("../PWAComponents", () => ({
