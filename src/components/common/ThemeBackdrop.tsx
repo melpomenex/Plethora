@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useBattery } from "../../contexts/BatteryContext";
-import { isNativeMobile } from "../../lib/tauri";
 
 /* ------------------------------------------------------------------ */
 /*  Animation type registry – each key is a self-contained renderer   */
@@ -10,14 +9,6 @@ import { isNativeMobile } from "../../lib/tauri";
 
 const BACKDROP_FPS = 30;
 const BACKDROP_FRAME_INTERVAL = 1000 / BACKDROP_FPS;
-
-/**
- * How long (ms) of no user interaction the animation keeps running before it
- * pauses. A decorative background doesn't need to animate while the user reads
- * — freezing it after this idle period cuts sustained CPU/GPU load to ~zero on
- * mobile (which was the dominant source of heating/jank: RenderThread ~57%).
- */
-const IDLE_PAUSE_MS = 10_000;
 
 type AnimCtx = {
   cv: HTMLCanvasElement;
@@ -1340,10 +1331,6 @@ export function ThemeBackdrop() {
   const curTypeRef = useRef<string | null>(null);
   const [suspended, setSuspended] = useState(false);
   const [isVisible, setIsVisible] = useState(!document.hidden);
-  // Idle pause: true after IDLE_PAUSE_MS of no pointer/scroll/keys. The
-  // decorative animation freezes while idle to stop the sustained CPU/GPU
-  // load that heated phones. Resumes on the next interaction.
-  const [isIdle, setIsIdle] = useState(false);
 
   const animation = theme.effects?.backgroundAnimation;
   const { onBattery, battery: _battery } = useBattery();
@@ -1355,37 +1342,25 @@ export function ThemeBackdrop() {
   // Setting is stored in tenths (10 = 1.0x, 12 = 1.2x, etc.)
   const brightnessGain = Math.max(0.1, settings.animationBrightness / 10);
 
-  // On native mobile, animated backgrounds are pure cost (sustained CPU/GPU →
-  // heating) with little benefit, so skip the component entirely.
-  if (isNativeMobile()) return null;
+  // Master toggle for animated themes. Defaulted to true on desktop; native
+  // mobile defaults to false (see settingsStore init) so we don't reintroduce
+  // the sustained GPU load that heated phones, but users can opt back in.
+  const animationsEnabled = settings.animationsEnabled;
 
-  // Activity tracker: any user interaction marks the user active and
-  // restarts the idle timer. After IDLE_PAUSE_MS of inactivity the animation
-  // is paused via setIsIdle(true).
+  // Respect the OS reduced-motion preference. When set, decorative animation is
+  // disabled regardless of the user toggle — a cheap accessibility win.
+  const reducedMotionQuery = useRef<MediaQueryList | null>(null);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
   useEffect(() => {
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
-    const poke = () => {
-      setIsIdle(false);
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => setIsIdle(true), IDLE_PAUSE_MS);
-    };
-    poke();
-    const opts: AddEventListenerOptions = { passive: true };
-    const captureOpts: AddEventListenerOptions = { passive: true, capture: true };
-    window.addEventListener("pointermove", poke, opts);
-    window.addEventListener("pointerdown", poke, opts);
-    window.addEventListener("keydown", poke, opts);
-    // scroll fires on scrollable descendants, so listen in capture phase.
-    window.addEventListener("scroll", poke, captureOpts);
-    window.addEventListener("touchstart", poke, opts);
-    return () => {
-      if (idleTimer) clearTimeout(idleTimer);
-      window.removeEventListener("pointermove", poke, opts);
-      window.removeEventListener("pointerdown", poke, opts);
-      window.removeEventListener("keydown", poke, opts);
-      window.removeEventListener("scroll", poke, captureOpts);
-      window.removeEventListener("touchstart", poke, opts);
-    };
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reducedMotionQuery.current = mq;
+    const onChange = () => setPrefersReducedMotion(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
 
   useEffect(() => {
@@ -1429,10 +1404,10 @@ export function ThemeBackdrop() {
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || !animation || suspended) return;
-    // Don't run the animation while idle, hidden, or unfocused — a decorative
-    // background needs no frames while the user reads. This is what stops the
-    // sustained RenderThread/GPU load that heated the phone.
-    if (!isVisible || isIdle) return;
+    // Skip frames when the app is hidden/unfocused — a decorative background
+    // needs no frames while the user is elsewhere. (The old idle-pause timer
+    // is gone; the master `animationsEnabled` toggle carries that intent now.)
+    if (!isVisible) return;
 
     const ctx = cv.getContext("2d");
     if (!ctx) return;
@@ -1492,9 +1467,12 @@ export function ThemeBackdrop() {
       document.querySelectorAll(".anim-flash").forEach(e => e.remove());
       curTypeRef.current = null;
     };
-  }, [animation, density, suspended, isVisible, isIdle, effectiveDensity]);
+  }, [animation, density, suspended, isVisible, effectiveDensity]);
 
-  if (!animation || suspended) return null;
+  // Master gate: the user (or the OS reduced-motion preference) can turn all
+  // theme animation off. On native mobile `animationsEnabled` defaults to
+  // false, which replaces the old unconditional hard-skip.
+  if (!animation || suspended || !animationsEnabled || prefersReducedMotion) return null;
 
   return (
     <div aria-hidden="true" className="theme-backdrop">

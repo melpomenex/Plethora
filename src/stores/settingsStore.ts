@@ -6,6 +6,7 @@ import {
   type TTSSettings,
 } from "../utils/ttsSettings";
 import { normalizeFsrsParameters } from "../utils/fsrsParameters";
+import { isNativeMobile } from "../lib/tauri";
 
 /**
  * FSRS Algorithm Parameters
@@ -851,7 +852,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "incrementum-settings",
-      version: 4,
+      version: 5,
       migrate: (persisted: unknown, version: number) => {
         const p = (persisted ?? {}) as Partial<Settings> & { settings?: Partial<Settings> };
         const root = p.settings ?? p;
@@ -872,6 +873,17 @@ export const useSettingsStore = create<SettingsState>()(
               ...root.sync,
               yjs: { enabled: true },
             };
+          }
+        }
+        // v4 -> v5: animated themes are now gated by `interface.animationsEnabled`
+        // instead of being hardcoded off on native mobile. To preserve the
+        // mobile behavior users actually experienced (no animation, to avoid
+        // sustained GPU load/heating), default the toggle to false on native
+        // mobile. Desktop keeps the default true. This only runs on migration
+        // from < v5, so an explicit later choice is never overridden.
+        if (version < 5) {
+          if (root?.interface && isNativeMobile()) {
+            root.interface.animationsEnabled = false;
           }
         }
         return persisted as SettingsState;
@@ -980,6 +992,18 @@ export const useSettingsStore = create<SettingsState>()(
         }
         if (!merged.documents.ocr.language) {
           merged.documents.ocr.language = defaultSettings.documents.ocr.language;
+        }
+
+        // Fresh native-mobile installs: there is no persisted `animationsEnabled`
+        // (the field defaulted to true), but animated backdrops were historically
+        // hardcoded off on mobile to avoid heating. Preserve that default on a
+        // first mobile run — but only when the user has never set the value, so a
+        // later explicit choice (either way) is always honored.
+        if (
+          isNativeMobile() &&
+          persisted.interface?.animationsEnabled === undefined
+        ) {
+          merged.interface.animationsEnabled = false;
         }
 
         state.settings = merged;

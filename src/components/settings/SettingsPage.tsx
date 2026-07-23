@@ -945,71 +945,97 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         title="Animated Backdrop"
         description="Adjust the particle animations for animated themes"
       >
-        <SettingsRow label="Particle Density" description="How many particles appear on screen">
-          <div className="flex items-center gap-3">
+        <SettingsRow
+          label="Enable animated themes"
+          description="Show moving background animations for animated themes. Turn off to save battery and reduce CPU/GPU load, especially on laptops and mobile."
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
             <input
-              type="range"
-              min="0.25"
-              max="8"
-              step="0.25"
-              value={settings.interface.animationFrequency}
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.interface.animationsEnabled}
               onChange={(e) => {
                 updateSettingsCategory("interface", {
-                  animationFrequency: parseFloat(e.target.value),
+                  animationsEnabled: e.target.checked,
                 });
                 onChange();
               }}
-              className="w-32"
             />
-            <NumericInput
-              min={0.25}
-              max={8}
-              step={0.25}
-              value={settings.interface.animationFrequency}
-              onChange={(value) => {
-                updateSettingsCategory("interface", { animationFrequency: value });
-                onChange();
-              }}
-              className="w-20 px-2 py-1 rounded border bg-input text-sm"
-            />
-            <span className="text-sm text-muted-foreground w-12">
-              {Math.round(settings.interface.animationFrequency * 100)}%
-            </span>
-          </div>
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
         </SettingsRow>
 
-        <SettingsRow label="Brightness" description="How strongly the particles glow and accumulate">
-          <div className="flex items-center gap-3">
-            <input
-              type="range"
-              min="1"
-              max="100"
-              step="1"
-              value={settings.interface.animationBrightness}
-              onChange={(e) => {
-                updateSettingsCategory("interface", {
-                  animationBrightness: parseInt(e.target.value, 10),
-                });
-                onChange();
-              }}
-              className="w-32"
-            />
-            <NumericInput
-              min={1}
-              max={100}
-              step={1}
-              value={settings.interface.animationBrightness}
-              onChange={(value) => {
-                updateSettingsCategory("interface", { animationBrightness: value });
-                onChange();
-              }}
-              className="w-20 px-2 py-1 rounded border bg-input text-sm"
-            />
-            <span className="text-sm text-muted-foreground w-12">
-              {(settings.interface.animationBrightness / 10).toFixed(1)}x
-            </span>
-          </div>
-        </SettingsRow>
+        <div className={settings.interface.animationsEnabled ? "" : "opacity-50 pointer-events-none"}>
+          <SettingsRow label="Particle Density" description="How many particles appear on screen">
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min="0.25"
+                max="8"
+                step="0.25"
+                value={settings.interface.animationFrequency}
+                onChange={(e) => {
+                  updateSettingsCategory("interface", {
+                    animationFrequency: parseFloat(e.target.value),
+                  });
+                  onChange();
+                }}
+                className="w-32"
+                disabled={!settings.interface.animationsEnabled}
+              />
+              <NumericInput
+                min={0.25}
+                max={8}
+                step={0.25}
+                value={settings.interface.animationFrequency}
+                onChange={(value) => {
+                  updateSettingsCategory("interface", { animationFrequency: value });
+                  onChange();
+                }}
+                className="w-20 px-2 py-1 rounded border bg-input text-sm"
+                disabled={!settings.interface.animationsEnabled}
+              />
+              <span className="text-sm text-muted-foreground w-12">
+                {Math.round(settings.interface.animationFrequency * 100)}%
+              </span>
+            </div>
+          </SettingsRow>
+
+          <SettingsRow label="Brightness" description="How strongly the particles glow and accumulate">
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min="1"
+                max="100"
+                step="1"
+                value={settings.interface.animationBrightness}
+                onChange={(e) => {
+                  updateSettingsCategory("interface", {
+                    animationBrightness: parseInt(e.target.value, 10),
+                  });
+                  onChange();
+                }}
+                className="w-32"
+                disabled={!settings.interface.animationsEnabled}
+              />
+              <NumericInput
+                min={1}
+                max={100}
+                step={1}
+                value={settings.interface.animationBrightness}
+                onChange={(value) => {
+                  updateSettingsCategory("interface", { animationBrightness: value });
+                  onChange();
+                }}
+                className="w-20 px-2 py-1 rounded border bg-input text-sm"
+                disabled={!settings.interface.animationsEnabled}
+              />
+              <span className="text-sm text-muted-foreground w-12">
+                {(settings.interface.animationBrightness / 10).toFixed(1)}x
+              </span>
+            </div>
+          </SettingsRow>
+        </div>
 
         <div className="text-xs text-muted-foreground">
           Extreme values are now allowed. High density and brightness can noticeably increase GPU usage.

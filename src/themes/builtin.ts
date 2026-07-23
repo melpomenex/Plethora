@@ -3593,13 +3593,12 @@ export const liquidGlassTheme: Theme = {
       }
     }
 
-    /* Hide CSS ambient gradient blobs when native OS window vibrancy is successfully active */
-    :root[data-theme-id="liquid-glass"][data-vibrancy-active="true"] {
-      background: transparent !important;
-    }
-    :root[data-theme-id="liquid-glass"][data-vibrancy-active="true"]::before,
-    :root[data-theme-id="liquid-glass"][data-vibrancy-active="true"]::after {
-      display: none !important;
+    /* Respect OS reduced-motion: freeze the blob animation but keep the blobs. */
+    @media (prefers-reduced-motion: reduce) {
+      :root[data-theme-id="liquid-glass"]::before,
+      :root[data-theme-id="liquid-glass"]::after {
+        animation: none !important;
+      }
     }
 
     :root[data-theme-id="liquid-glass"] .app-shell {
@@ -3859,13 +3858,12 @@ export const amberLiquidGlassTheme: Theme = {
       }
     }
 
-    /* Hide CSS ambient gradient blobs when native OS window vibrancy is successfully active */
-    :root[data-theme-id="amber-liquid-glass"][data-vibrancy-active="true"] {
-      background: transparent !important;
-    }
-    :root[data-theme-id="amber-liquid-glass"][data-vibrancy-active="true"]::before,
-    :root[data-theme-id="amber-liquid-glass"][data-vibrancy-active="true"]::after {
-      display: none !important;
+    /* Respect OS reduced-motion: freeze the blob animation but keep the blobs. */
+    @media (prefers-reduced-motion: reduce) {
+      :root[data-theme-id="amber-liquid-glass"]::before,
+      :root[data-theme-id="amber-liquid-glass"]::after {
+        animation: none !important;
+      }
     }
 
     :root[data-theme-id="amber-liquid-glass"] .app-shell {
@@ -4125,13 +4123,12 @@ export const roseLiquidGlassTheme: Theme = {
       }
     }
 
-    /* Hide CSS ambient gradient blobs when native OS window vibrancy is successfully active */
-    :root[data-theme-id="rose-liquid-glass"][data-vibrancy-active="true"] {
-      background: transparent !important;
-    }
-    :root[data-theme-id="rose-liquid-glass"][data-vibrancy-active="true"]::before,
-    :root[data-theme-id="rose-liquid-glass"][data-vibrancy-active="true"]::after {
-      display: none !important;
+    /* Respect OS reduced-motion: freeze the blob animation but keep the blobs. */
+    @media (prefers-reduced-motion: reduce) {
+      :root[data-theme-id="rose-liquid-glass"]::before,
+      :root[data-theme-id="rose-liquid-glass"]::after {
+        animation: none !important;
+      }
     }
 
     :root[data-theme-id="rose-liquid-glass"] .app-shell {
