@@ -53,8 +53,8 @@ async function fetchXmlWithCors(url: string): Promise<string> {
     // Use backend fetchUrlContent to handle CORS via proxies
     // This works in both Tauri (direct) and Browser (proxies)
     const fetched = await fetchUrlContent(url);
-    const base64Content = await readDocumentFile(fetched.file_path);
-    return atob(base64Content);
+    const fileBytes = await readDocumentFile(fetched.file_path);
+    return new TextDecoder("utf-8").decode(fileBytes);
   } catch (error) {
     console.error("Failed to fetch ArXiv data:", error);
     throw new Error(`Failed to fetch ArXiv data: ${error instanceof Error ? error.message : String(error)}`);

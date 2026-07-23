@@ -16,9 +16,17 @@ export interface QueueItem {
   documentFileType?: DocumentFileType;
   extractId?: string;
   learningItemId?: string;
+  /**
+   * Full card content. ABSENT in slim queue LISTINGS (the default for
+   * `get_queue`/`get_queued_items` since optimize-performance-hotspots) —
+   * listing UIs must use `learningHint` instead; full content comes from the
+   * per-item fetch commands or the non-listing queue commands.
+   */
   question?: string;
   answer?: string;
   clozeText?: string;
+  /** Bounded (~80 char) pre-stripped content preview, populated in slim listings. */
+  learningHint?: string;
   itemType: "document" | "extract" | "learning-item" | "playlist-video" | "rss-article";
   priorityRating?: number;
   prioritySlider?: number;

@@ -292,6 +292,15 @@ export function EPUBViewer({
   const selectionActiveRef = useRef(false);
   const lastEpubSelectionContextRef = useRef<EpubSelectionContext | null>(null);
   const initialDisplayCompleteRef = useRef(false);
+  // Tracks recent user interaction (touch/scroll/wheel). While active, the
+  // ResizeObserver must NOT trigger rendition.resize(): epub.js re-displays
+  // this.location.start.cfi on resize, which in continuous-scrolled mode snaps
+  // the view back to the start of the section the user navigated to (e.g. a
+  // TOC jump) instead of staying at their current scroll position. Mobile
+  // browsers fire viewport resizes constantly (address bar show/hide, keyboard),
+  // so without this guard every such resize yanks the reader back.
+  const interactingRef = useRef(false);
+  const interactingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeSearchHighlightsRef = useRef<string[]>([]);
   const liveSearchHighlightsRef = useRef<string[]>([]);
   const liveSearchResultsRef = useRef<string[]>([]);
@@ -672,8 +681,16 @@ export function EPUBViewer({
         }
         resizeTimeout = setTimeout(() => {
           if (!rendition) return;
+          // Skip the resize while the user is actively scrolling/touching.
+          // A pending resize stays armed via the observer firing again once
+          // interaction ends (mobile address-bar resizes are continuous).
+          if (interactingRef.current) return;
           try {
-            rendition.resize();
+            // Pass the live current location so epub.js re-displays where the
+            // reader actually is, not a stale this.location.start.cfi that
+            // would snap back to the last navigated section start.
+            const liveCfi = (rendition as any).currentLocation?.()?.start?.cfi;
+            rendition.resize(undefined, undefined, liveCfi);
           } catch {
             // Rendition may be destroyed during unmount while a resize is pending
           }
@@ -694,6 +711,50 @@ export function EPUBViewer({
     };
   }, [rendition]);
 
+  // Mark the user as actively interacting so the ResizeObserver above defers
+  // rendition.resize() (which would snap the view back). Bumped by direct
+  // touch/pointer/wheel on the viewer and by every epub.js `relocated` (i.e.
+  // any scroll-driven location change). After a quiet period we re-arm a
+  // resize so the layout still corrects itself once scrolling stops.
+  useEffect(() => {
+    if (!rendition || !viewerRef.current) return;
+    const el = viewerRef.current;
+
+    const markInteracting = () => {
+      interactingRef.current = true;
+      if (interactingTimerRef.current) clearTimeout(interactingTimerRef.current);
+      interactingTimerRef.current = setTimeout(() => {
+        interactingRef.current = false;
+        // Re-run a layout correction now that the user has stopped, using the
+        // live location so it never snaps to a stale section-start CFI.
+        try {
+          const liveCfi = (rendition as any).currentLocation?.()?.start?.cfi;
+          rendition.resize(undefined, undefined, liveCfi);
+        } catch {
+          /* rendition may be torn down */
+        }
+      }, 600);
+    };
+
+    el.addEventListener("touchstart", markInteracting, { passive: true });
+    el.addEventListener("touchmove", markInteracting, { passive: true });
+    el.addEventListener("pointerdown", markInteracting, { passive: true });
+    el.addEventListener("wheel", markInteracting, { passive: true });
+    // epub.js fires `relocated` on scroll in continuous mode — treat it as
+    // active interaction so a viewport resize mid-scroll can't preempt it.
+    rendition.on("relocated", markInteracting);
+
+    return () => {
+      el.removeEventListener("touchstart", markInteracting);
+      el.removeEventListener("touchmove", markInteracting);
+      el.removeEventListener("pointerdown", markInteracting);
+      el.removeEventListener("wheel", markInteracting);
+      rendition.off("relocated", markInteracting);
+      if (interactingTimerRef.current) clearTimeout(interactingTimerRef.current);
+      interactingRef.current = false;
+    };
+  }, [rendition]);
+
   useEffect(() => {
     if (!containerHasSize || (!fileUrl && !fileData)) return;
 
@@ -703,6 +764,8 @@ export function EPUBViewer({
     let bookReadySettled = false;
     let destroyBookWhenReady = false;
     let bookDestroyed = false;
+    let locationsSettled = true; // tracks whether background locations.generate() has settled
+    let destroyBookWhenLocationsSettled = false;
     let savePositionTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
     const maxRetries = 10;
@@ -739,7 +802,7 @@ export function EPUBViewer({
           await epubBook.ready;
         } finally {
           bookReadySettled = true;
-          if (destroyBookWhenReady) destroyBookInstance();
+          if (destroyBookWhenReady && locationsSettled) destroyBookInstance();
         }
 
         if (!mounted) return;
@@ -1215,11 +1278,25 @@ export function EPUBViewer({
 
           if (!mounted) return true;
 
-          // Generate locations in the background to avoid blocking initial render
+          // Generate locations in the background to avoid blocking initial render.
+          // Tracked so the viewer does not destroy the book (which nulls
+          // Locations internals) while generation is still in flight — otherwise
+          // a queued `process()` job resolves and reads `this._locations.concat()`
+          // against undefined, throwing the epub-vendor "concat" TypeError that
+          // surfaces when the document is rated "read" mid-load on mobile.
           const locationChunkSize = isMobile ? 800 : 1200;
-          void epubBook.locations.generate(locationChunkSize).catch((err: unknown) => {
-            console.warn("EPUBViewer: Failed to generate locations:", err);
-          });
+          locationsSettled = false;
+          void epubBook.locations.generate(locationChunkSize).then(
+            () => {
+              locationsSettled = true;
+              if (destroyBookWhenLocationsSettled) destroyBookInstance();
+            },
+            (err: unknown) => {
+              locationsSettled = true;
+              if (destroyBookWhenLocationsSettled) destroyBookInstance();
+              console.warn("EPUBViewer: Failed to generate locations:", err);
+            },
+          );
 
           const updateProgress = (location: any) => {
             if (!location || !location.start || !epubBook.locations) return;
@@ -1388,8 +1465,15 @@ export function EPUBViewer({
       }
       onVimRuntimeChange?.(null);
       if (bookInstance) {
-        if (bookReadySettled) destroyBookInstance();
-        else destroyBookWhenReady = true;
+        // Defer destruction until both `ready` and background location
+        // generation have settled — destroying mid-flight nulls epubjs internals
+        // and trips "concat" TypeErrors inside the epub-vendor chunk.
+        if (bookReadySettled && locationsSettled) {
+          destroyBookInstance();
+        } else {
+          destroyBookWhenReady = true;
+          if (!locationsSettled) destroyBookWhenLocationsSettled = true;
+        }
       }
     };
     // Note: onLoad, onContextTextChange, onSelectionChange, and onProgressChange are

@@ -53,11 +53,18 @@ import {
     fetchAndParsePodcastFeed,
     parsedFeedToRecords,
 } from './podcastFeedParser';
+import pdfWorkerUrl from '../workers/pdfjs.worker?worker&url';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
-    import.meta.url
-).toString();
+// Use the same compiled bootstrap worker chunk as PDFViewer (single worker
+// asset per build — pointing at pdf.worker.min.mjs here used to emit a second
+// ~1 MB copy of the PDF.js worker). PDF.js constructs its real module Worker
+// from this URL. Known limitation: the chunk carries no module exports (Vite
+// strips worker-entry signatures), so PDF.js's same-thread fake-worker
+// fallback can't resolve WorkerMessageHandler from it via import() — that
+// fallback only matters on browsers without module-worker support, which the
+// PWA target does not serve (the Tauri path has an explicit recovery hook in
+// PDFViewer.ensureFakeWorkerModuleLoaded).
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 // Suppress verbose PDF.js warnings (Unicode mismatch, unknown glyph name, etc.)
 // Only show errors, not warnings or info messages
@@ -65,19 +72,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 
 type CommandHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
-async function blobToBase64DataUrlPayload(blob: Blob): Promise<string> {
-    // Returns only the base64 payload portion (no "data:...;base64,").
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-            const raw = String(reader.result || '');
-            const base64 = raw.split(',')[1] || '';
-            resolve(base64);
-        };
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-    });
-}
 
 /**
  * Extract text content from an EPUB file
@@ -1399,15 +1393,19 @@ const commandHandlers: Record<string, CommandHandler> = {
     },
 
     read_document_file: async (args) => {
-        // In browser mode, return the file from IndexedDB if stored
+        // In browser mode, return the file from IndexedDB if stored.
+        // Contract parity with the Tauri command: resolves to raw bytes
+        // (Uint8Array), never base64 (design D1 of optimize-performance-hotspots).
         const filePath = args.filePath as string;
+        const blobToBytes = async (blob: Blob): Promise<Uint8Array> =>
+            new Uint8Array(await blob.arrayBuffer());
 
         // yjs-file://...: try IndexedDB cache first; otherwise download from yjs-sync and cache it.
         const yjsInfo = parseYjsFilePath(filePath);
         if (yjsInfo) {
             const cached = await db.getFile(filePath);
             if (cached) {
-                return await blobToBase64DataUrlPayload(cached.blob);
+                return await blobToBytes(cached.blob);
             }
 
             const blob = await downloadRoomFile(yjsInfo.room, yjsInfo.id);
@@ -1415,7 +1413,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             const contentType = blob.type || 'application/octet-stream';
             const file = new File([blob], filename, { type: contentType });
             await db.storeFile(file, filePath);
-            return await blobToBase64DataUrlPayload(file);
+            return await blobToBytes(file);
         }
 
         // If it's a browser-file:// path, try to find it in the file store first (IndexedDB)
@@ -1425,8 +1423,7 @@ const commandHandlers: Record<string, CommandHandler> = {
 
             const file = getBrowserFile(filePath);
             if (file) {
-                const base64 = await blobToBase64DataUrlPayload(file);
-                return base64;
+                return await blobToBytes(file);
             }
 
             // If not in memory (page refresh), try IndexedDB by path first, then by filename
@@ -1442,8 +1439,7 @@ const commandHandlers: Record<string, CommandHandler> = {
 
             if (storedFile) {
                 try {
-                    const base64 = await blobToBase64DataUrlPayload(storedFile.blob);
-                    return base64;
+                    return await blobToBytes(storedFile.blob);
                 } catch (error) {
                     console.warn('[Browser] Failed to read file blob, deleting corrupted entry:', error);
                     await db.deleteFile(storedFile.id);
@@ -1457,8 +1453,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             const storedFile = await db.getFile(filePath);
             if (storedFile) {
                 try {
-                    const base64 = await blobToBase64DataUrlPayload(storedFile.blob);
-                    return base64;
+                    return await blobToBytes(storedFile.blob);
                 } catch (error) {
                     console.warn('[Browser] Failed to read fetched file blob, deleting corrupted entry:', error);
                     await db.deleteFile(storedFile.id);
@@ -1468,7 +1463,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         console.warn('[Browser] read_document_file file not found:', filePath);
-        return '';
+        return new Uint8Array(0);
     },
 
     get_extracts: async (args) => {

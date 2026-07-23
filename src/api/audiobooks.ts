@@ -539,7 +539,7 @@ export async function importTranscriptFromFile(
   
   // Read file content
   const content = await readDocumentFile(filePath);
-  const text = atob(content);
+  const text = new TextDecoder("utf-8").decode(content);
   
   // Try to parse as JSON first
   try {

@@ -5,11 +5,13 @@
 
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
-// Only import the default fallback themes eagerly. The full `builtInThemes`
-// catalog (~5043 lines) is lazy-loaded on mount (see loadBuiltinCatalog below)
-// so it ships in its own chunk instead of the initial bundle. Tree-shaking keeps
-// just these two small theme constants in the app-root bundle.
-import { superGameBroTheme, milkyMatchaTheme } from "../themes/builtin";
+// Only import the default fallback themes eagerly, from the dedicated fallback
+// module. Importing them from "../themes/builtin" here would statically link
+// the full catalog (builtin.ts + legacyIndex.ts) into the entry chunk and
+// defeat the lazy import("../themes/builtin") below — Rollup merges a module
+// that is both statically and dynamically imported into the static importer's
+// chunk. The full catalog is lazy-loaded on mount (see the effect below).
+import { superGameBroTheme, milkyMatchaTheme } from "../themes/fallback";
 import { loadGoogleFont } from "../utils/fonts";
 import { invokeCommand } from "../lib/tauri";
 

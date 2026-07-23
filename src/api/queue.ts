@@ -41,6 +41,7 @@ export interface RustQueueItem {
   question?: string;
   answer?: string;
   cloze_text?: string;
+  learning_hint?: string;
   item_type: string;
   priority_rating?: number;
   priority_slider?: number;
@@ -74,6 +75,7 @@ export function convertQueueItem(item: RustQueueItem): QueueItem {
     question: item.question,
     answer: item.answer,
     clozeText: item.cloze_text,
+    learningHint: item.learning_hint,
     itemType: item.item_type as "document" | "extract" | "learning-item" | "playlist-video",
     priorityRating: item.priority_rating,
     prioritySlider: item.priority_slider,
@@ -161,9 +163,14 @@ export async function getQueueStats(): Promise<QueueStats> {
 /**
  * Postpone an item by N days.
  * Handles both learning items and documents (passes item_type to backend).
+ *
+ * Resolves to the item's NEW due date (RFC 3339) so the caller can apply the
+ * mutation to local queue state without reloading the whole queue; `null` if
+ * the backend returned an unexpected shape (callers should fall back to a
+ * full reload in that case).
  */
-export async function postponeItem(itemId: string, days: number, itemType?: string): Promise<void> {
-  await invokeCommand("postpone_item", { itemId, days, itemType: itemType ?? null });
+export async function postponeItem(itemId: string, days: number, itemType?: string): Promise<string | null> {
+  const newDueDate = await invokeCommand<unknown>("postpone_item", { itemId, days, itemType: itemType ?? null });
   if (itemType !== "document") {
     void (async () => {
       try {
@@ -174,6 +181,7 @@ export async function postponeItem(itemId: string, days: number, itemType?: stri
       }
     })();
   }
+  return typeof newDueDate === "string" && newDueDate.length > 0 ? newDueDate : null;
 }
 
 /** Result of a bulk load-management operation (advance / load-balance / easy-days). */

@@ -86,10 +86,7 @@ export function AudiobookEpubSyncView({
 
         setMediaSource({ src: audioRes.src, mimeType: audioRes.mimeType });
 
-        const binaryString = atob(epubData);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-        setEpubFileData(bytes);
+        setEpubFileData(epubData);
       } catch (err) {
         if (!cancelled) {
           setLoadError(err instanceof Error ? err.message : "Failed to load documents");

@@ -12,6 +12,12 @@ pub struct QueueItem {
     pub question: Option<String>,
     pub answer: Option<String>,
     pub cloze_text: Option<String>,
+    /// Short, pre-stripped preview of the card content for queue LISTINGS.
+    /// Populated only by the slim listing path (see `strip_content_for_listing`
+    /// in commands/queue.rs), where `question`/`answer`/`cloze_text` are
+    /// omitted from the payload; full-content commands leave it None.
+    #[serde(default)]
+    pub learning_hint: Option<String>,
     pub item_type: String, // "document", "extract", "learning-item", "playlist-video"
     pub priority_rating: Option<i32>,
     pub priority_slider: Option<i32>,

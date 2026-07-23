@@ -205,6 +205,22 @@ interface DynamicVirtualListProps<T> {
   estimateSize?: number; // Alias for defaultItemHeight
   overscan?: number;
   className?: string;
+  /**
+   * Additional ref to the scroll container element. Lets callers that need
+   * direct access to the scroller (scroll save/restore, pull-to-refresh
+   * detection) use this component AS their scroll container instead of
+   * nesting a second scrollable div inside their own.
+   */
+  scrollRef?: React.Ref<HTMLDivElement>;
+  /** Extra attributes spread onto the scroll container (e.g. data-* markers). */
+  containerProps?: React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>;
+  /**
+   * Called on every scroll of the container, composed with the internal
+   * windowing handler. Lets callers persist scroll position without binding
+   * their own listener to the container element (which is fragile when the
+   * scroll container swaps in/out of virtualization).
+   */
+  onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
 }
 
 export function DynamicVirtualList<T>({
@@ -214,9 +230,26 @@ export function DynamicVirtualList<T>({
   estimateSize,
   overscan = 3,
   className = "",
+  scrollRef,
+  containerProps,
+  onScroll,
 }: DynamicVirtualListProps<T>) {
   const itemHeight = estimateSize || defaultItemHeight;
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Keep the internal ref and the caller-provided scrollRef pointing at the
+  // same element.
+  const setContainerEl = useCallback(
+    (el: HTMLDivElement | null) => {
+      containerRef.current = el;
+      if (typeof scrollRef === "function") {
+        scrollRef(el);
+      } else if (scrollRef && typeof scrollRef === "object") {
+        (scrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+      }
+    },
+    [scrollRef]
+  );
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const itemHeightsRef = useRef<Map<number, number>>(new Map());
@@ -303,13 +336,18 @@ export function DynamicVirtualList<T>({
     }
   };
 
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(e.currentTarget.scrollTop);
-  }, []);
+  const handleScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      setScrollTop(e.currentTarget.scrollTop);
+      onScroll?.(e);
+    },
+    [onScroll]
+  );
 
   return (
     <div
-      ref={containerRef}
+      {...containerProps}
+      ref={setContainerEl}
       className={`overflow-auto ${className}`}
       onScroll={handleScroll}
       style={{ willChange: "transform" }}

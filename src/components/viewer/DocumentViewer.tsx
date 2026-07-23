@@ -1882,12 +1882,7 @@ export function DocumentViewer({
         // Load file data directly via backend for both PDFs and EPUBs in Tauri.
         // The convertFileSrc URL approach causes WebKit/CORS errors on Linux (WebKitGTK)
         // because epubjs uses XMLHttpRequest internally, which is blocked on asset://.
-        const base64Data = await documentsApi.readDocumentFile(doc.filePath);
-        const binaryString = atob(base64Data);
-        const rawBytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          rawBytes[i] = binaryString.charCodeAt(i);
-        }
+        const rawBytes = await documentsApi.readDocumentFile(doc.filePath);
         if (rawBytes.length === 0) {
           if (doc.fileId) {
             await clearInvalidSyncedFilePath(doc.id, doc.fileId, "read returned zero bytes");
@@ -1967,12 +1962,7 @@ export function DocumentViewer({
         setIsLoading(false);
       } else if (!doc.content && doc.filePath) {
         try {
-          const base64Data = await documentsApi.readDocumentFile(doc.filePath);
-          const binaryString = atob(base64Data);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
+          const bytes = await documentsApi.readDocumentFile(doc.filePath);
           const text = new TextDecoder("utf-8").decode(bytes);
           const baseUrl = doc.metadata?.source || doc.filePath;
           const processed = processHtmlContent(text, baseUrl, doc.title, true);

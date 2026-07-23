@@ -43,6 +43,14 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { orderQueueItems, type OrderedQueueItem, type PriorityPreset } from "../../utils/reviewUx";
 import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
 import { useStartupStore } from "../../stores/startupStore";
+import { DynamicVirtualList } from "../common/VirtualList";
+
+/**
+ * Above this many filtered items the mobile queue list windows its rows
+ * (same threshold as the desktop queue in ReviewQueueView). Small queues keep
+ * the plain map — no virtualization overhead, identical markup to before.
+ */
+const MOBILE_QUEUE_VIRTUALIZE_THRESHOLD = 20;
 
 interface MobileQueueViewProps {
   onStartReview?: (itemId?: string) => void;
@@ -119,20 +127,32 @@ export function MobileQueueView({
 
   // Persist scroll continuously so a remount (e.g. after scroll mode) can also
   // restore it, not just the keep-alive hide/show cycle.
-  useEffect(() => {
-    const el = listScrollRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      savedScrollRef.current = el.scrollTop;
-      try {
-        sessionStorage.setItem(SCROLL_RESTORE_KEY, String(el.scrollTop));
-      } catch {
-        // sessionStorage may be unavailable (private mode); ref still holds it.
-      }
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+  //
+  // Bound as an onScroll PROP on the scroll container (both the plain-list div
+  // and the virtualized list) rather than an effect that addEventListener's to
+  // listScrollRef.current once. The scroll container element swaps when the
+  // list crosses the virtualization threshold (or isLoading toggles), and a
+  // once-bound listener would strand on the detached element and silently stop
+  // saving — breaking scroll restore for exactly the large queues that
+  // virtualize. Reading e.currentTarget keeps it correct across the swap.
+  const handleListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    savedScrollRef.current = top;
+    try {
+      sessionStorage.setItem(SCROLL_RESTORE_KEY, String(top));
+    } catch {
+      // sessionStorage may be unavailable (private mode); ref still holds it.
+    }
   }, []);
+
+  // Reconcile-on-focus (design D2): if mutations were applied as local
+  // deltas while this view was inactive (or before leaving it), refresh the
+  // listing from the server on re-activation. No-op when clean.
+  useEffect(() => {
+    if (isActiveTab) {
+      void useQueueStore.getState().reconcileIfDirty();
+    }
+  }, [isActiveTab]);
 
   // On a false → true (re)activation, restore the saved scroll position.
   useEffect(() => {
@@ -285,7 +305,8 @@ export function MobileQueueView({
     try {
       await bulkSuspendItems([item.id]);
       toast.success(t("mobileQueue.itemSuspended"), t("mobileQueue.removedFromQueue"));
-      loadQueue(); // Refresh the queue
+      // Drop the one suspended item locally (design D2) — no full reload.
+      useQueueStore.getState().removeItemsLocally([item.id]);
 
       setUndoState({
         visible: true,
@@ -320,12 +341,13 @@ export function MobileQueueView({
   const handlePostpone = useCallback(async (item: QueueItem) => {
     captureScrollAnchor();
     try {
+      // postponeItemSmart applies the new due date to store state itself
+      // (local delta, design D2) — no full queue reload here.
       const result = await postponeItemSmart(item);
       toast.success(
         t("mobileQueue.itemPostponed"),
         t("mobileQueue.rescheduledByDays", { days: result.increase }),
       );
-      await loadQueue();
 
       // Show undo toast (for postpone, we'd need to store the original due date to undo)
       setUndoState({
@@ -640,9 +662,43 @@ export function MobileQueueView({
       {/* Items List — wrapped in PullToRefresh for swipe-down reload. The inner
           div is the scroll container (data-scroll-container) so PullToRefresh
           can detect scroll-top, and its scrollTop is preserved across tab
-          switches via listScrollRef (see restore effect above). */}
+          switches via listScrollRef (see restore effect above).
+
+          Above MOBILE_QUEUE_VIRTUALIZE_THRESHOLD items the list renders through
+          DynamicVirtualList (same threshold as the desktop queue) so a large
+          queue mounts only the visible window of rows instead of thousands of
+          DOM nodes. The virtual list IS the scroll container in that branch —
+          it takes listScrollRef and the data-scroll-container marker, keeping
+          the PullToRefresh detection and the scroll save/restore contract that
+          commit 2b12f2f2 established (never nest a second scroller). */}
       <PullToRefresh onRefresh={() => loadQueue()} className="flex-1 min-h-0 overflow-hidden">
-        <div ref={listScrollRef} className="h-full min-h-0 overflow-y-auto overscroll-contain" data-scroll-container="true">
+        {!isLoading && filteredItems.length > MOBILE_QUEUE_VIRTUALIZE_THRESHOLD ? (
+          <DynamicVirtualList
+            items={filteredItems}
+            scrollRef={listScrollRef}
+            containerProps={{ "data-scroll-container": "true" }}
+            className="h-full min-h-0 overflow-y-auto overscroll-contain"
+            estimateSize={88}
+            overscan={6}
+            onScroll={handleListScroll}
+            renderItem={(item) => (
+              <QueueRow
+                item={item}
+                activeTab={activeTab}
+                selectionMode={selectionMode}
+                isSelected={selectedIds.has(item.id)}
+                onToggleSelect={toggleSelect}
+                onOpenDocument={onOpenDocument}
+                onStartReview={onStartReview}
+                onOpenActions={openItemActions}
+                onSwipeLeft={handlePostpone}
+                onSwipeRight={handleSuspend}
+                t={t}
+              />
+            )}
+          />
+        ) : (
+        <div ref={listScrollRef} onScroll={handleListScroll} className="h-full min-h-0 overflow-y-auto overscroll-contain" data-scroll-container="true">
           {isLoading ? (
             <div className="flex items-center justify-center h-32 text-muted-foreground">
               <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full mr-2" />
@@ -685,6 +741,7 @@ export function MobileQueueView({
             </div>
           )}
         </div>
+        )}
       </PullToRefresh>
 
       {/* Stats Footer */}

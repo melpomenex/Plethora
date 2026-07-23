@@ -1,7 +1,7 @@
 {
   "name": "incrementum-tauri",
   "private": true,
-  "version": "1.89.2",
+  "version": "1.90.0",
   "type": "module",
   "scripts": {
     "dev": "NODE_OPTIONS=--max-old-space-size=4096 vite",
@@ -9,7 +9,7 @@
     "prebuild": "node scripts/download-sidecars.js",
     "build": "vite build",
     "build:pwa": "vite build --mode pwa",
-    "build:check": "tsc && vite build",
+    "build:check": "tsc && vite build && node scripts/check-bundle-budget.mjs",
     "preview": "vite preview",
     "preview:pwa": "vite preview --mode pwa",
     "tauri": "bash scripts/tauri-wrapper.sh",
@@ -42,7 +42,8 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:wave5:regression": "vitest run src/stores/__tests__/reviewStore.test.ts src/utils/__tests__/fsrsScope.test.ts src/utils/__tests__/reviewInteractions.test.ts src/utils/__tests__/semanticGrading.test.ts src/utils/__tests__/cardQuality.test.ts src/utils/__tests__/referenceImport.test.ts src/lib/__tests__/pluginHost.test.ts src/utils/__tests__/wave4Social.test.ts src/utils/__tests__/reviewAccessibility.test.ts",
-    "test:wave5:performance": "vitest run src/utils/__tests__/wave5Performance.test.ts src/utils/__tests__/performance.test.tsx"
+    "test:wave5:performance": "vitest run src/utils/__tests__/wave5Performance.test.ts src/utils/__tests__/performance.test.tsx",
+    "check:bundle": "node scripts/check-bundle-budget.mjs"
   },
   "dependencies": {
     "@dqbd/tiktoken": "^1.0.18",

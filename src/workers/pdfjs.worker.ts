@@ -53,4 +53,11 @@ installUint8ArrayCompat(self as unknown as typeof globalThis);
 
 // Re-export the worker entry. Its top-level `static { … initializeFromPort(self) }`
 // block self-bootstraps the message handler when loaded inside a Worker global.
+//
+// NOTE: Vite bundles worker entries with `preserveEntrySignatures: false`, so
+// this `export *` does NOT survive into the emitted chunk — it exists to pull
+// the module (and its top-level side effects, including the
+// `globalThis.pdfjsWorker = { WorkerMessageHandler }` assignment) into the
+// bundle. Consumers that need the fake-worker fallback rely on that global,
+// not on module exports — see ensureFakeWorkerModuleLoaded in PDFViewer.tsx.
 export * from "pdfjs-dist/build/pdf.worker.min.mjs";

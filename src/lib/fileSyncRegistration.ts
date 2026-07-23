@@ -112,8 +112,8 @@ export async function registerImportedFileSync(
     // whole session — critical for libraries with many/large documents, which
     // would otherwise thrash memory and crash on import.
     transferManager.registerLocalFileLoader(fileId, async () => {
-      const base64 = await readDocumentFile(doc.filePath);
-      return base64ToBlob(base64, mimeForFileType(doc.fileType));
+      const bytes = await readDocumentFile(doc.filePath);
+      return new Blob([bytes], { type: mimeForFileType(doc.fileType) });
     });
 
     // Upload the file to the file-service in the background so other devices can sync it asynchronously
@@ -250,8 +250,8 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
       // 3. Register the file loader with the transfer manager if not already present
       if (fileId && !transferManager.hasFileLocal(fileId)) {
         transferManager.registerLocalFileLoader(fileId, async () => {
-          const base64 = await readDocumentFile(doc.filePath);
-          const blob = base64ToBlob(base64, mimeForFileType(doc.fileType));
+          const bytes = await readDocumentFile(doc.filePath);
+          const blob = new Blob([bytes], { type: mimeForFileType(doc.fileType) });
           if (blob.size === 0) {
             throw new Error("Local sync file is empty");
           }
@@ -448,15 +448,6 @@ function mimeForFileType(fileType: Document["fileType"]): string {
   }
 }
 
-function base64ToBlob(base64: string, contentType: string): Blob {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: contentType });
-}
-
 // Background upload queue to limit memory spikes and concurrent request storms
 interface UploadTask {
   docId: string;
@@ -512,20 +503,15 @@ async function processUploadQueue(): Promise<void> {
         }
 
         if (!exists) {
-          let base64: string;
+          let bytes: Uint8Array;
           try {
-            base64 = await readDocumentFile(task.filePath);
+            bytes = await readDocumentFile(task.filePath);
           } catch {
             continue;
           }
 
           const mime = mimeForFileType(task.fileType);
-          let blob: Blob;
-          try {
-            blob = base64ToBlob(base64, mime);
-          } catch {
-            continue;
-          }
+          const blob = new Blob([bytes], { type: mime });
 
           if (blob.size === 0) {
             continue;

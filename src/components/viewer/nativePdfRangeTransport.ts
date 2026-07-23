@@ -21,10 +21,6 @@ export interface NativePdfRangeSource {
   failure: Promise<never>;
 }
 
-function toUint8Array(bytes: number[] | Uint8Array): Uint8Array {
-  return bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
-}
-
 export class NativePdfRangeTransport extends PDFDataRangeTransport {
   private readonly queue: PendingRequest[] = [];
   private readonly mergedQueue: MergedRequest[] = [];
@@ -115,14 +111,13 @@ export class NativePdfRangeTransport extends PDFDataRangeTransport {
 
   private async readMerged(merged: MergedRequest): Promise<void> {
     try {
-      const response = await readPdfDocumentRange(
+      const bytes = await readPdfDocumentRange(
         this.documentId,
         merged.begin,
         merged.end - merged.begin,
         this.info.identity,
       );
       if (this.cancelled) return;
-      const bytes = toUint8Array(response.bytes);
       this.diagnostics.recordRange(bytes.byteLength);
       for (const request of merged.requests) {
         const start = request.begin - merged.begin;
@@ -155,8 +150,7 @@ export async function createNativePdfRangeSource(documentId: string): Promise<Na
   const info = await getPdfDocumentSourceInfo(documentId);
   const diagnostics = new PdfDiagnostics("native-range", info.size);
   const initialLength = Math.min(info.size, NATIVE_PDF_INITIAL_RANGE_BYTES, info.maxChunkSize);
-  const initial = await readPdfDocumentRange(documentId, 0, initialLength, info.identity);
-  const initialData = toUint8Array(initial.bytes);
+  const initialData = await readPdfDocumentRange(documentId, 0, initialLength, info.identity);
   diagnostics.recordRange(initialData.byteLength);
   const transport = new NativePdfRangeTransport(documentId, info, initialData, diagnostics);
   transport.transportReady();

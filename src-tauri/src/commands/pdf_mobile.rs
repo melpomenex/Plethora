@@ -41,14 +41,18 @@ pub struct PdfDocumentSourceInfo {
     pub max_chunk_size: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PdfDocumentRange {
-    pub offset: u64,
-    pub bytes: Vec<u8>,
-    pub identity: String,
-    pub eof: bool,
-}
+// NOTE: range reads return raw bytes via `tauri::ipc::Response` (ArrayBuffer
+// on the JS side) — there is intentionally NO response struct. The metadata
+// the old `PdfDocumentRange { offset, bytes, identity, eof }` JSON shape
+// carried is implicit in the contract (design D1 of
+// optimize-performance-hotspots):
+//   - `offset` was an echo of the request;
+//   - `eof` is derivable by the caller: fewer bytes than requested, with the
+//     total size already known from `open_pdf_document_source`;
+//   - `identity` is validated server-side — a mismatch fails the command with
+//     `pdf_source_changed` instead of being echoed back.
+// Serializing `Vec<u8>` through serde_json turned every 512 KB chunk into
+// ~1.8 MB of JSON number-array text, re-parsed per page fetch on mobile.
 
 #[derive(Debug)]
 struct InspectedPdf {
@@ -178,7 +182,7 @@ fn read_range_from_path(
     inspected: &InspectedPdf,
     offset: u64,
     length: u64,
-) -> std::result::Result<PdfDocumentRange, PdfNativeError> {
+) -> std::result::Result<Vec<u8>, PdfNativeError> {
     if length > MAX_PDF_RANGE_BYTES {
         return Err(PdfNativeError::new(
             "pdf_range_too_large",
@@ -221,12 +225,7 @@ fn read_range_from_path(
         })?;
     }
 
-    Ok(PdfDocumentRange {
-        offset,
-        eof: offset.saturating_add(read_len) >= inspected.size,
-        bytes,
-        identity: inspected.identity.clone(),
-    })
+    Ok(bytes)
 }
 
 async fn inspect_document_pdf(
@@ -293,7 +292,7 @@ pub async fn read_pdf_document_range(
     length: u64,
     expected_identity: String,
     repo: State<'_, Repository>,
-) -> std::result::Result<PdfDocumentRange, PdfNativeError> {
+) -> std::result::Result<tauri::ipc::Response, PdfNativeError> {
     let inspected = inspect_document_pdf(&document_id, &repo, false).await?;
     if inspected.identity != expected_identity {
         return Err(PdfNativeError::new(
@@ -302,7 +301,21 @@ pub async fn read_pdf_document_range(
             true,
         ));
     }
-    read_range_from_path(&inspected, offset, length)
+    // The seek+read is blocking file I/O; run it on the blocking pool so a
+    // page-turn burst of range reads can't stall async runtime workers
+    // (design D5). `inspected` moves into the closure (it is only needed for
+    // this read).
+    let bytes =
+        tokio::task::spawn_blocking(move || read_range_from_path(&inspected, offset, length))
+            .await
+            .map_err(|error| {
+                PdfNativeError::new(
+                    "pdf_source_unavailable",
+                    format!("The PDF range read task failed: {error}"),
+                    true,
+                )
+            })??;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[cfg(test)]
@@ -323,25 +336,21 @@ mod tests {
     #[test]
     fn reads_exact_and_overlapping_ranges() {
         let (_dir, inspected) = fixture(b"%PDF-0123456789");
-        assert_eq!(
-            read_range_from_path(&inspected, 0, 5).unwrap().bytes,
-            b"%PDF-"
-        );
-        assert_eq!(
-            read_range_from_path(&inspected, 3, 6).unwrap().bytes,
-            b"F-0123"
-        );
+        assert_eq!(read_range_from_path(&inspected, 0, 5).unwrap(), b"%PDF-");
+        assert_eq!(read_range_from_path(&inspected, 3, 6).unwrap(), b"F-0123");
     }
 
     #[test]
     fn truncates_at_eof_and_accepts_empty_ranges() {
+        // EOF is a caller-side derivation now (returned length < requested
+        // length): assert the truncated/empty byte payloads that derivation
+        // relies on.
         let (_dir, inspected) = fixture(b"%PDF-1234");
         let tail = read_range_from_path(&inspected, 7, 99).unwrap();
-        assert_eq!(tail.bytes, b"34");
-        assert!(tail.eof);
+        assert_eq!(tail, b"34");
+        assert!(tail.len() < 99, "short read is the EOF signal");
         let empty = read_range_from_path(&inspected, inspected.size, 0).unwrap();
-        assert!(empty.bytes.is_empty());
-        assert!(empty.eof);
+        assert!(empty.is_empty());
     }
 
     #[test]

@@ -2,7 +2,7 @@
  * Settings page - Main settings UI with search functionality
  */
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, lazy, Suspense } from "react";
 import {
   ArrowLeft,
   ArrowsClockwise,
@@ -27,28 +27,11 @@ import {
   SpeakerHigh,
   X,
 } from "@phosphor-icons/react";
-import { KeyboardShortcutSettings } from "./KeyboardShortcutsSettings";
-import { AISettings as AIProviderSettings } from "./AIProviderSettings";
-import { ImportExportSettings as ImportExportSettingsComponent } from "./ImportExportSettings";
-import { SyncSettings as SyncSettingsOriginal } from "./SyncSettings";
-import { LearningSettings } from "./LearningSettings";
-import { DocumentsSettings } from "./DocumentsSettings";
-import { RSSSettings } from "./RSSSettings";
-import { CloudStorageSettings } from "./CloudStorageSettings";
-import { ThemePicker } from "./ThemePicker";
-import { IntegrationSettings } from "./IntegrationSettings";
-import { HandbookSettings } from "./HandbookSettings";
-import { HelpSettings } from "./HelpSettings";
-import { NotificationSettings } from "./NotificationSettings";
 import {
   AdaptiveContentHeader,
   SafeScrollContainer,
   StickyActionBar,
 } from "../adaptive";
-import { AudioTranscriptionSettings } from "./AudioTranscriptionSettings";
-import { TTSSettings } from "./TTSSettings";
-import { EmbeddingSettings } from "./EmbeddingSettings";
-import { SmartQueuesSettings } from "./SmartQueuesSettings";
 import { useToast } from "../common/Toast";
 import { NumericInput } from "../common";
 import { cn } from "../../utils";
@@ -60,6 +43,74 @@ import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { loadGoogleFont } from "../../utils/fonts";
 import { useI18n } from "../../lib/i18n";
 import { registerContextualBackHandler } from "../../lib/contextualBack";
+
+/**
+ * Section panels are lazy chunks: SettingsPage used to statically import all
+ * ~18 of them, producing a single ~960 KB chunk that loaded in full the moment
+ * Settings opened. Only the shell (tab list, search, header) is eager now;
+ * each panel is fetched when its section is first shown. Named exports are
+ * adapted to React.lazy's default-export shape, mirroring TabRegistry.
+ */
+function lazySection<T extends React.ComponentType<never>>(
+  name: string,
+  loader: () => Promise<{ default: T }>
+) {
+  return lazy(() =>
+    loader().catch((err) => {
+      console.error(`[SettingsPage] Failed to lazy-load section "${name}":`, err);
+      throw err;
+    })
+  );
+}
+
+const KeyboardShortcutSettings = lazySection("KeyboardShortcutSettings", () =>
+  import("./KeyboardShortcutsSettings").then((m) => ({ default: m.KeyboardShortcutSettings }))
+);
+const AIProviderSettings = lazySection("AIProviderSettings", () =>
+  import("./AIProviderSettings").then((m) => ({ default: m.AISettings }))
+);
+const ImportExportSettingsComponent = lazySection("ImportExportSettings", () =>
+  import("./ImportExportSettings").then((m) => ({ default: m.ImportExportSettings }))
+);
+const SyncSettingsOriginal = lazySection("SyncSettings", () =>
+  import("./SyncSettings").then((m) => ({ default: m.SyncSettings }))
+);
+const LearningSettings = lazySection("LearningSettings", () =>
+  import("./LearningSettings").then((m) => ({ default: m.LearningSettings }))
+);
+const DocumentsSettings = lazySection("DocumentsSettings", () =>
+  import("./DocumentsSettings").then((m) => ({ default: m.DocumentsSettings }))
+);
+const RSSSettings = lazySection("RSSSettings", () =>
+  import("./RSSSettings").then((m) => ({ default: m.RSSSettings }))
+);
+const CloudStorageSettings = lazySection("CloudStorageSettings", () =>
+  import("./CloudStorageSettings").then((m) => ({ default: m.CloudStorageSettings }))
+);
+const ThemePicker = lazySection("ThemePicker", () =>
+  import("./ThemePicker").then((m) => ({ default: m.ThemePicker }))
+);
+const IntegrationSettings = lazySection("IntegrationSettings", () =>
+  import("./IntegrationSettings").then((m) => ({ default: m.IntegrationSettings }))
+);
+const HandbookSettings = lazySection("HandbookSettings", () =>
+  import("./HandbookSettings").then((m) => ({ default: m.HandbookSettings }))
+);
+const HelpSettings = lazySection("HelpSettings", () =>
+  import("./HelpSettings").then((m) => ({ default: m.HelpSettings }))
+);
+const NotificationSettings = lazySection("NotificationSettings", () =>
+  import("./NotificationSettings").then((m) => ({ default: m.NotificationSettings }))
+);
+const AudioTranscriptionSettings = lazySection("AudioTranscriptionSettings", () =>
+  import("./AudioTranscriptionSettings").then((m) => ({ default: m.AudioTranscriptionSettings }))
+);
+const TTSSettings = lazySection("TTSSettings", () =>
+  import("./TTSSettings").then((m) => ({ default: m.TTSSettings }))
+);
+const EmbeddingSettings = lazySection("EmbeddingSettings", () =>
+  import("./EmbeddingSettings").then((m) => ({ default: m.EmbeddingSettings }))
+);
 
 /**
  * Settings tab
@@ -572,6 +623,7 @@ export function SettingsPage() {
 
         {/* Content */}
         <SafeScrollContainer className="flex-1 p-4 md:p-6">
+          <Suspense fallback={<SectionLoadingFallback />}>
           {activeTab === SettingsTab.General && (
             <GeneralSettings onChange={() => setHasChanges(true)} />
           )}
@@ -604,6 +656,7 @@ export function SettingsPage() {
           )}
           {activeTab === SettingsTab.Handbook && <HandbookSettings />}
           {activeTab === SettingsTab.Help && <HelpSettings />}
+          </Suspense>
         </SafeScrollContainer>
 
         {/* Footer */}
@@ -916,7 +969,8 @@ function applyFontFamily(fontFamily: string): void {
  * Appearance Settings Component
  */
 function AppearanceSettings({ onChange }: { onChange: () => void }) {
-  const { settings, updateSettingsCategory } = useSettingsStore();
+  const settings = useSettingsStore((state) => state.settings);
+  const updateSettingsCategory = useSettingsStore((state) => state.updateSettingsCategory);
   const { toolbarPosition, splitViewSpawn } = settings.interface;
 
   // Apply font family when it changes
@@ -1257,6 +1311,15 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
       </SettingsSection>
     </>
+  );
+}
+
+/** Shown while a lazy section chunk is being fetched. */
+function SectionLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center py-16 text-muted-foreground">
+      <div className="w-6 h-6 border-2 border-current border-t-transparent rounded-full animate-spin" aria-label="Loading section" />
+    </div>
   );
 }
 

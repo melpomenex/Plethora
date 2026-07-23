@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useReviewStore } from "../../stores/reviewStore";
 import { ReviewHome } from "../../components/review/ReviewHome";
 import { ReviewSession } from "../../components/review/ReviewSession";
@@ -12,7 +13,16 @@ export function ReviewTab() {
     currentCard,
     reviewTabMode,
     setReviewTabMode
-  } = useReviewStore();
+  } = useReviewStore(
+    useShallow((state) => ({
+      loadQueue: state.loadQueue,
+      resetSession: state.resetSession,
+      queue: state.queue,
+      currentCard: state.currentCard,
+      reviewTabMode: state.reviewTabMode,
+      setReviewTabMode: state.setReviewTabMode,
+    }))
+  );
 
   const handleStartReview = async () => {
     await loadQueue();

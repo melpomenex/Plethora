@@ -168,6 +168,7 @@ async fn get_queue_items_from_repo(
             question: Some(item.question.clone()),
             answer: item.answer.clone(),
             cloze_text: item.cloze_text.clone(),
+            learning_hint: None,
             item_type: "learning-item".to_string(),
             priority_rating: None,
             priority_slider: None,
@@ -219,6 +220,7 @@ async fn get_queue_items_from_repo(
             question: None,
             answer: None,
             cloze_text: None,
+            learning_hint: None,
             item_type: "extract".to_string(),
             priority_rating: None,
             priority_slider: None,
@@ -274,6 +276,7 @@ async fn get_queue_items_from_repo(
             )),
             answer: transcript_preview,
             cloze_text: None,
+            learning_hint: None,
             item_type: "video-extract".to_string(),
             priority_rating: None,
             priority_slider: None,
@@ -334,6 +337,7 @@ async fn get_queue_items_from_repo(
             question: None,
             answer: None,
             cloze_text: None,
+            learning_hint: None,
             item_type: "document".to_string(),
             priority_rating: Some(document.priority_rating),
             priority_slider: Some(document.priority_slider),
@@ -408,25 +412,103 @@ async fn get_queue_with_collection(
     get_queue_items_from_repo(repo.inner(), collection_id).await
 }
 
+/// Maximum length (in chars) of the pre-computed listing hint.
+const LEARNING_HINT_MAX_CHARS: usize = 80;
+
+/// Derive the short listing preview shown under a learning item's title in
+/// queue views: cloze markers unwrapped, HTML stripped, whitespace collapsed,
+/// truncated. Mirrors the old client-side `getLearningHint` logic so slim
+/// listings keep the exact same hint UX without shipping full card content.
+fn derive_learning_hint(cloze_text: Option<&str>, question: Option<&str>) -> Option<String> {
+    let raw = match cloze_text.filter(|s| !s.is_empty()).or(question) {
+        Some(raw) if !raw.is_empty() => raw,
+        _ => return None,
+    };
+    lazy_static::lazy_static! {
+        static ref CLOZE_RE: regex::Regex = regex::Regex::new(r"\[\[c\d+::(.*?)\]\]").unwrap();
+        static ref TAG_RE: regex::Regex = regex::Regex::new(r"<[^>]*>").unwrap();
+    }
+    let no_cloze = CLOZE_RE.replace_all(raw, "$1");
+    let no_html = TAG_RE.replace_all(&no_cloze, " ");
+    let collapsed = no_html.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = collapsed.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut hint: String = trimmed.chars().take(LEARNING_HINT_MAX_CHARS).collect();
+    if trimmed.chars().count() > LEARNING_HINT_MAX_CHARS {
+        hint.push('…');
+    }
+    Some(hint)
+}
+
+/// Slim a queue LISTING payload (design D2 of optimize-performance-hotspots):
+/// drop per-item card content (`question`/`answer`/`cloze_text`) and replace it
+/// with the bounded `learning_hint` preview. Applied only when a caller opts in
+/// via `slim: true` — see [`apply_slim`] for why it is NOT the default.
+fn strip_content_for_listing(items: &mut [QueueItem]) {
+    for item in items.iter_mut() {
+        if item.item_type == "learning-item" {
+            item.learning_hint =
+                derive_learning_hint(item.cloze_text.as_deref(), item.question.as_deref());
+        }
+        item.question = None;
+        item.answer = None;
+        item.cloze_text = None;
+    }
+}
+
+/// Apply listing-slim iff explicitly requested. The default (`None`) is FALSE —
+/// full content is retained — because the frontend stores a queue listing as
+/// the shared `state.items`, which backs content-dependent features
+/// (semantic-study focal-topic filtering, the semantic graph, schedule titles)
+/// that read question/answer/cloze_text. Stripping by default silently degraded
+/// those (the optimize-performance-hotspots review caught it), and the
+/// truncated `learning_hint` is lossy for topic matching. Slim is opt-in infra
+/// for a future dedicated listing that does not back those features.
+fn apply_slim(items: &mut [QueueItem], slim: Option<bool>) {
+    if slim.unwrap_or(false) {
+        strip_content_for_listing(items);
+    }
+}
+
 /// Get all queue items
 ///
 /// This returns all items that should be in the queue, including:
 /// - Learning items that are due
 /// - Documents scheduled for reading (based on next_reading_date)
 /// - Documents without scheduled dates (for initial reading)
+///
+/// `slim` (default FALSE) omits card content fields from the payload and
+/// populates `learning_hint` instead. It defaults OFF because the frontend
+/// stores this result as the shared queue `state.items`, which backs
+/// content-dependent features — semantic-study focal-topic filtering, the
+/// semantic graph, and schedule titles all read question/answer/cloze_text
+/// from it. Stripping by default silently degraded those features (see the
+/// optimize-performance-hotspots review), and `learning_hint` (an ~80-char
+/// truncated preview) is lossy for topic matching / similarity. Slimming is
+/// kept as explicit opt-in for a future dedicated listing that does NOT back
+/// those features; today no caller passes it. The realized queue win is the
+/// per-mutation local delta application, not listing slimming.
 #[tauri::command]
 pub async fn get_queue(
     collection_id: Option<String>,
+    slim: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
-    get_queue_items_from_repo(repo.inner(), collection_id.as_deref()).await
+    let mut items = get_queue_items_from_repo(repo.inner(), collection_id.as_deref()).await?;
+    apply_slim(&mut items, slim);
+    Ok(items)
 }
 
 /// Get queued items (items that are due or should be in the reading queue)
+///
+/// `slim` behaves as in [`get_queue`] (default FALSE — see that doc comment).
 #[tauri::command]
 pub async fn get_queued_items(
     randomness: Option<f32>,
     collection_id: Option<String>,
+    slim: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
     let queue = get_queue_with_collection(repo, collection_id.as_deref()).await?;
@@ -440,6 +522,7 @@ pub async fn get_queued_items(
         .collect();
 
     selector.sort_queue_items(&mut queued_items);
+    apply_slim(&mut queued_items, slim);
     Ok(queued_items)
 }
 
@@ -518,6 +601,7 @@ async fn get_due_queue_items_from_repo(
             question: Some(item.question.clone()),
             answer: item.answer.clone(),
             cloze_text: item.cloze_text.clone(),
+            learning_hint: None,
             item_type: "learning-item".to_string(),
             priority_rating: None,
             priority_slider: None,
@@ -562,6 +646,7 @@ async fn get_due_queue_items_from_repo(
             question: None,
             answer: None,
             cloze_text: None,
+            learning_hint: None,
             item_type: "extract".to_string(),
             priority_rating: None,
             priority_slider: None,
@@ -613,6 +698,7 @@ async fn get_due_queue_items_from_repo(
             )),
             answer: transcript_preview,
             cloze_text: None,
+            learning_hint: None,
             item_type: "video-extract".to_string(),
             priority_rating: None,
             priority_slider: None,
@@ -656,6 +742,7 @@ async fn get_due_queue_items_from_repo(
             question: None,
             answer: None,
             cloze_text: None,
+            learning_hint: None,
             item_type: "document".to_string(),
             priority_rating: Some(document.priority_rating),
             priority_slider: Some(document.priority_slider),
@@ -737,6 +824,7 @@ async fn get_due_documents_only_from_repo(
             question: None,
             answer: None,
             cloze_text: None,
+            learning_hint: None,
             item_type: "document".to_string(),
             priority_rating: Some(document.priority_rating),
             priority_slider: Some(document.priority_slider),
@@ -854,6 +942,7 @@ pub async fn get_queue_with_playlist_intersperse(
                             question: None,
                             answer: None,
                             cloze_text: None,
+                            learning_hint: None,
                             item_type: "playlist-video".to_string(),
                             priority_rating: Some(sub.priority_rating),
                             priority_slider: None,
@@ -950,6 +1039,132 @@ mod tests {
     use crate::database::Repository;
     use crate::models::{Document, FileType};
     use std::path::PathBuf;
+
+    #[test]
+    fn derive_learning_hint_strips_cloze_html_and_truncates() {
+        assert_eq!(
+            derive_learning_hint(
+                Some("The [[c1::mitochondria]] is the <b>powerhouse</b>"),
+                None
+            ),
+            Some("The mitochondria is the powerhouse".to_string())
+        );
+        // Falls back to question when cloze text is absent/empty.
+        assert_eq!(
+            derive_learning_hint(Some(""), Some("<p>What   is\nRust?</p>")),
+            Some("What is Rust?".to_string())
+        );
+        assert_eq!(derive_learning_hint(None, None), None);
+        assert_eq!(derive_learning_hint(Some("<p></p>"), None), None);
+        // Truncation appends an ellipsis and respects char boundaries.
+        let long = "x".repeat(200);
+        let hint = derive_learning_hint(None, Some(&long)).unwrap();
+        assert_eq!(hint.chars().count(), LEARNING_HINT_MAX_CHARS + 1);
+        assert!(hint.ends_with('…'));
+    }
+
+    #[test]
+    fn strip_content_for_listing_removes_content_and_populates_hint() {
+        let mut items = vec![QueueItem {
+            id: "i1".into(),
+            document_id: "d1".into(),
+            document_title: "Doc".into(),
+            extract_id: None,
+            learning_item_id: Some("i1".into()),
+            question: Some("What is <i>FSRS</i>?".into()),
+            answer: Some("A scheduler".into()),
+            cloze_text: None,
+            learning_hint: None,
+            item_type: "learning-item".into(),
+            priority_rating: None,
+            priority_slider: None,
+            priority: 1.0,
+            due_date: None,
+            estimated_time: 1,
+            tags: vec![],
+            category: None,
+            progress: 0,
+            source: None,
+            position: None,
+            stability: None,
+            difficulty: None,
+            interval: None,
+            retrievability: None,
+            lapses: None,
+            reps: None,
+        }];
+
+        strip_content_for_listing(&mut items);
+
+        let item = &items[0];
+        assert_eq!(item.question, None);
+        assert_eq!(item.answer, None);
+        assert_eq!(item.cloze_text, None);
+        // Tag replacement inserts a space (parity with the historical
+        // client-side getLearningHint: `<i>FSRS</i>?` → "FSRS ?").
+        assert_eq!(item.learning_hint.as_deref(), Some("What is FSRS ?"));
+    }
+
+    fn listing_item() -> QueueItem {
+        QueueItem {
+            id: "i1".into(),
+            document_id: "d1".into(),
+            document_title: "Doc".into(),
+            extract_id: None,
+            learning_item_id: Some("i1".into()),
+            question: Some("What is FSRS?".into()),
+            answer: Some("A scheduler".into()),
+            cloze_text: Some("[[c1::spaced repetition]]".into()),
+            learning_hint: None,
+            item_type: "learning-item".into(),
+            priority_rating: None,
+            priority_slider: None,
+            priority: 1.0,
+            due_date: None,
+            estimated_time: 1,
+            tags: vec![],
+            category: None,
+            progress: 0,
+            source: None,
+            position: None,
+            stability: None,
+            difficulty: None,
+            interval: None,
+            retrievability: None,
+            lapses: None,
+            reps: None,
+        }
+    }
+
+    // Regression guard for the optimize-performance-hotspots review: the queue
+    // listing default MUST retain card content, because the frontend stores it
+    // as the shared state.items that backs semantic-study / graph / schedule.
+    // Defaulting to slim=true silently broke those; this pins slim as opt-in.
+    #[test]
+    fn apply_slim_defaults_to_full_content() {
+        let mut items = vec![listing_item()];
+        apply_slim(&mut items, None); // no arg passed by the frontend
+        assert_eq!(items[0].question.as_deref(), Some("What is FSRS?"));
+        assert_eq!(
+            items[0].cloze_text.as_deref(),
+            Some("[[c1::spaced repetition]]")
+        );
+        assert_eq!(items[0].answer.as_deref(), Some("A scheduler"));
+
+        let mut items = vec![listing_item()];
+        apply_slim(&mut items, Some(false));
+        assert_eq!(items[0].question.as_deref(), Some("What is FSRS?"));
+    }
+
+    #[test]
+    fn apply_slim_strips_only_when_opted_in() {
+        let mut items = vec![listing_item()];
+        apply_slim(&mut items, Some(true));
+        assert_eq!(items[0].question, None);
+        assert_eq!(items[0].cloze_text, None);
+        assert_eq!(items[0].answer, None);
+        assert_eq!(items[0].learning_hint.as_deref(), Some("spaced repetition"));
+    }
 
     async fn setup_repo() -> Repository {
         let db = Database::new(PathBuf::from(":memory:")).await.expect("db");

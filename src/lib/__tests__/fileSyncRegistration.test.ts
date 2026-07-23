@@ -127,7 +127,7 @@ beforeEach(() => {
 describe("registerImportedFileSync", () => {
   it("hashes the file, adds a manifest entry, registers local bytes, returns fileId", async () => {
     mocks.invokeCommand.mockResolvedValueOnce(["abc123hash", 1024] as [string, number]);
-    mocks.readDocumentFile.mockResolvedValueOnce("dGVzdA=="); // "test"
+    mocks.readDocumentFile.mockResolvedValueOnce(new TextEncoder().encode("test"));
     const manifest = makeManifestMock();
     const transferManager = makeTransferManagerMock();
     mocks.getFileManifest.mockReturnValue(manifest);
@@ -181,7 +181,7 @@ describe("registerImportedFileSync", () => {
 
   it("reuses an existing manifest entry when the content hash matches (dedup)", async () => {
     mocks.invokeCommand.mockResolvedValueOnce(["sharedhash", 512] as [string, number]);
-    mocks.readDocumentFile.mockResolvedValueOnce("dGVzdA==");
+    mocks.readDocumentFile.mockResolvedValueOnce(new TextEncoder().encode("test"));
     const manifest = makeManifestMock();
     manifest.findByHash.mockReturnValueOnce([{ id: "already-known-file" }]);
     mocks.getFileManifest.mockReturnValue(manifest);

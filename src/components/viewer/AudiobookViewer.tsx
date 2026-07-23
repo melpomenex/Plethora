@@ -1336,13 +1336,8 @@ export function AudiobookViewer({
           } else {
             // Desktop: blob URL is safe (no mobile heap ceiling) and supports macOS.
             try {
-              const base64Data = await readDocumentFile(localPath);
-              if (base64Data) {
-                const binaryString = atob(base64Data);
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                  bytes[i] = binaryString.charCodeAt(i);
-                }
+              const bytes = await readDocumentFile(localPath);
+              if (bytes.byteLength > 0) {
                 const mimeType = getAudioMimeType(localPath);
                 const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
                 setFallbackSrc((prev) => {
@@ -1394,14 +1389,9 @@ export function AudiobookViewer({
         throw new Error("media server unavailable");
       }
 
-      const base64Data = await readDocumentFile(playbackFilePath);
-      if (!base64Data) {
+      const bytes = await readDocumentFile(playbackFilePath);
+      if (bytes.byteLength === 0) {
         throw new Error("Empty file data");
-      }
-      const binaryString = atob(base64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
       }
       const mimeType = getAudioMimeType(playbackFilePath);
       const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));

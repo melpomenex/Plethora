@@ -110,6 +110,23 @@ interface QueueState {
   postponeStats: PostponeStats | null;
   showAutoPostponePrompt: boolean;
 
+  /**
+   * True when single-item mutations have been applied to local state without
+   * a queue reload (design D2). Queue views reconcile with a full reload when
+   * they regain focus while this is set — see reconcileIfDirty.
+   */
+  hasLocalDeltas: boolean;
+
+  /**
+   * Apply a single-item mutation result to local queue state (no IPC): patch
+   * the item, re-run filters/sort, and mark the store for focus reconcile.
+   */
+  applyItemDelta: (id: string, updates: Partial<QueueItem>) => void;
+  /** Remove items from local queue state (suspend/delete mutations). */
+  removeItemsLocally: (ids: string[]) => void;
+  /** Full reload iff local deltas were applied since the last load. */
+  reconcileIfDirty: () => Promise<void>;
+
   // Actions
   loadQueue: (forceAllItems?: boolean) => Promise<void>;
   loadDueDocumentsOnly: () => Promise<void>;
@@ -187,6 +204,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         set({
           items,
           isLoading: false,
+          // A fresh listing is server truth; clear the focus-reconcile flag.
+          hasLocalDeltas: false,
         });
         get().applyFilters();
 
@@ -332,6 +351,31 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     get().applyFilters();
   },
 
+  hasLocalDeltas: false,
+
+  applyItemDelta: (id, updates) => {
+    set((state) => ({
+      items: state.items.map((item) => (item.id === id ? { ...item, ...updates } : item)),
+      hasLocalDeltas: true,
+    }));
+    get().applyFilters();
+  },
+
+  removeItemsLocally: (ids) => {
+    if (ids.length === 0) return;
+    const remove = new Set(ids);
+    set((state) => ({
+      items: state.items.filter((item) => !remove.has(item.id)),
+      hasLocalDeltas: true,
+    }));
+    get().applyFilters();
+  },
+
+  reconcileIfDirty: async () => {
+    if (!get().hasLocalDeltas) return;
+    await get().loadQueue();
+  },
+
   applyFilters: () => {
     const { items, searchQuery, filters, sortOptions } = get();
     const documents = useDocumentStore.getState().documents;
@@ -450,8 +494,15 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
       const result = postponeElement(input, config);
       if (result.postponed) {
-        await postponeItem(queueItem.id, result.increase);
-        await get().loadQueue();
+        // Single-item mutation: apply the server-returned due date locally
+        // instead of re-fetching the whole queue (design D2); fall back to a
+        // full reload if the response can't be mapped onto this item.
+        const newDueDate = await postponeItem(queueItem.id, result.increase, "document");
+        if (newDueDate) {
+          get().applyItemDelta(queueItem.id, { dueDate: newDueDate });
+        } else {
+          await get().loadQueue();
+        }
       }
       return { increase: result.increase, newInterval: result.newInterval };
     }
@@ -483,8 +534,12 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
     const result = postponeElement(input, config);
     if (result.postponed) {
-      await postponeItem(queueItem.id, result.increase);
-      await get().loadQueue();
+      const newDueDate = await postponeItem(queueItem.id, result.increase);
+      if (newDueDate) {
+        get().applyItemDelta(queueItem.id, { dueDate: newDueDate });
+      } else {
+        await get().loadQueue();
+      }
     }
     return { increase: result.increase, newInterval: result.newInterval };
   },
@@ -613,9 +668,19 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   postponeItem: async (id, days) => {
     try {
-      await postponeItem(id, days);
-      // Reload queue to get updated data
-      await get().loadQueue();
+      const item = get().items.find((i) => i.id === id);
+      const newDueDate = await postponeItem(
+        id,
+        days,
+        item?.itemType === "document" ? "document" : undefined,
+      );
+      if (newDueDate) {
+        // Apply the mutation locally instead of reloading the whole queue
+        // (design D2); fall back to a reload when the response is unmappable.
+        get().applyItemDelta(id, { dueDate: newDueDate });
+      } else {
+        await get().loadQueue();
+      }
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to postpone item",
@@ -633,8 +698,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       const result = await bulkSuspendItems(Array.from(selectedIds));
       set({ bulkOperationResult: result, bulkOperationLoading: false });
 
-      // Reload queue to get updated data
-      await get().loadQueue();
+      // Suspended items leave the queue: drop exactly the succeeded ids
+      // locally instead of re-transferring the whole listing (design D2).
+      get().removeItemsLocally(result.succeeded);
       await get().loadStats();
     } catch (error) {
       set({
@@ -675,9 +741,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       const result = await bulkDeleteItems(Array.from(selectedIds));
       set({ bulkOperationResult: result, bulkOperationLoading: false });
 
-      // Clear selection and reload queue
+      // Clear selection and drop exactly the deleted ids locally (design D2).
       set({ selectedIds: new Set<string>() });
-      await get().loadQueue();
+      get().removeItemsLocally(result.succeeded);
       await get().loadStats();
     } catch (error) {
       set({

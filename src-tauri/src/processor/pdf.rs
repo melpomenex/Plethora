@@ -137,15 +137,23 @@ pub async fn extract_pdf_page(file_path: &str, page_num: usize) -> Result<String
         .nth(page_num - 1)
         .ok_or_else(|| crate::error::IncrementumError::NotFound("Page not found".to_string()))?;
 
-    // Extract text from the page (with panic protection)
-    let text = match std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(&buffer)) {
+    // Extract text on the blocking pool: pdf_extract is CPU-bound for seconds
+    // on large PDFs and must not stall an async runtime worker (design D5).
+    // spawn_blocking surfaces extractor panics as a JoinError, which replaces
+    // the previous catch_unwind while preserving the same "malformed PDF
+    // degrades to empty text" contract.
+    let text = match tokio::task::spawn_blocking(move || {
+        pdf_extract::extract_text_from_mem(&buffer)
+    })
+    .await
+    {
         Ok(Ok(t)) => t,
         Ok(Err(e)) => {
             eprintln!("PDF text extraction failed: {}", e);
             String::new()
         }
-        Err(panic_info) => {
-            eprintln!("PDF text extraction panicked: {:?}", panic_info);
+        Err(join_error) => {
+            eprintln!("PDF text extraction panicked: {}", join_error);
             String::new()
         }
     };
@@ -267,21 +275,36 @@ pub async fn convert_pdf_to_html(file_path: &str) -> Result<String> {
         .to_string();
 
     // Extract text by page so the HTML keeps source page attribution.
-    let mut page_texts =
-        match std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem_by_pages(&buffer)) {
-            Ok(Ok(pages)) => pages,
-            Ok(Err(e)) => {
-                eprintln!("PDF page text extraction failed: {}", e);
-                Vec::new()
-            }
-            Err(panic_info) => {
-                eprintln!("PDF page text extraction panicked: {:?}", panic_info);
-                Vec::new()
-            }
-        };
+    //
+    // Both extraction passes run on the blocking pool: they are CPU-bound for
+    // seconds on large PDFs (design D5). The buffer is shared via Arc so the
+    // second (fallback) pass doesn't clone the potentially large PDF bytes.
+    // spawn_blocking surfaces extractor panics as JoinError, replacing the
+    // previous catch_unwind with the same degrade-to-empty contract.
+    let buffer = std::sync::Arc::new(buffer);
+    let buffer_for_pages = std::sync::Arc::clone(&buffer);
+    let mut page_texts = match tokio::task::spawn_blocking(move || {
+        pdf_extract::extract_text_from_mem_by_pages(&buffer_for_pages)
+    })
+    .await
+    {
+        Ok(Ok(pages)) => pages,
+        Ok(Err(e)) => {
+            eprintln!("PDF page text extraction failed: {}", e);
+            Vec::new()
+        }
+        Err(join_error) => {
+            eprintln!("PDF page text extraction panicked: {}", join_error);
+            Vec::new()
+        }
+    };
 
     if page_texts.is_empty() {
-        page_texts = match std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(&buffer))
+        let buffer_for_fallback = std::sync::Arc::clone(&buffer);
+        page_texts = match tokio::task::spawn_blocking(move || {
+            pdf_extract::extract_text_from_mem(&buffer_for_fallback)
+        })
+        .await
         {
             Ok(Ok(text)) if !text.trim().is_empty() => split_text_across_pages(&text, page_count),
             Ok(Ok(_)) => Vec::new(),
@@ -289,8 +312,8 @@ pub async fn convert_pdf_to_html(file_path: &str) -> Result<String> {
                 eprintln!("PDF text extraction fallback failed: {}", e);
                 Vec::new()
             }
-            Err(panic_info) => {
-                eprintln!("PDF text extraction fallback panicked: {:?}", panic_info);
+            Err(join_error) => {
+                eprintln!("PDF text extraction fallback panicked: {}", join_error);
                 Vec::new()
             }
         };

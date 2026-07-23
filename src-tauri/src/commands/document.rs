@@ -1159,25 +1159,36 @@ pub async fn dismiss_document(
     Ok(updated)
 }
 
+/// Read a document file and return its RAW BYTES as a binary IPC response
+/// (`ArrayBuffer` on the JS side).
+///
+/// This used to return the file as a base64 JSON string: a 100 MB file became
+/// a ~133 MB string materialized in Rust, serialized through the IPC JSON
+/// layer, and `atob()`-decoded back into bytes in the webview. Raw responses
+/// skip all three steps (design D1 of optimize-performance-hotspots).
+///
+/// All file I/O is `tokio::fs` (offloaded to the blocking pool internally) so
+/// large reads never stall an async runtime worker (design D5).
 #[tauri::command]
-pub async fn read_document_file(file_path: String) -> Result<String> {
-    use base64::{engine::general_purpose, Engine as _};
-    use std::fs;
-
-    let canonical = std::fs::canonicalize(&file_path)
+pub async fn read_document_file(file_path: String) -> Result<tauri::ipc::Response> {
+    let canonical = tokio::fs::canonicalize(&file_path)
+        .await
         .map_err(|e| IncrementumError::Internal(format!("Invalid path: {}", e)))?;
 
-    let file_size = std::fs::metadata(&canonical).map(|m| m.len()).unwrap_or(0);
-
-    // On Android, base64-encoding a large file into a single JS string and then
-    // atob()'ing it into a Uint8Array reliably blows the WebView's Java heap
-    // (a 142MB podcast => ~189MB allocation => OutOfMemoryError at launch).
-    // Refuse files above a conservative threshold so callers fall back to their
-    // streaming paths (AudiobookViewer / localMediaSource use the local media
-    // server with HTTP Range support; PDF/EPUB viewers accept a file URL). This
-    // is a hard backstop — the preferred streaming fixes live in the JS layer.
+    // On Android, materializing a large file into a single webview allocation
+    // reliably blows the WebView's Java heap (a 142MB podcast previously
+    // caused an OutOfMemoryError at launch — raw transfer shrinks the payload
+    // vs base64 but the single-allocation risk remains). Refuse files above a
+    // conservative threshold so callers fall back to their streaming paths
+    // (AudiobookViewer / localMediaSource use the local media server with
+    // HTTP Range support; PDF/EPUB viewers accept a file URL). This is a hard
+    // backstop — the preferred streaming fixes live in the JS layer.
     #[cfg(target_os = "android")]
     {
+        let file_size = tokio::fs::metadata(&canonical)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
         const MAX_INLINED_BYTES: u64 = 16 * 1024 * 1024; // 16 MiB
         if file_size > MAX_INLINED_BYTES {
             return Err(IncrementumError::Internal(format!(
@@ -1188,7 +1199,7 @@ pub async fn read_document_file(file_path: String) -> Result<String> {
         }
     }
 
-    let bytes = match fs::read(&canonical) {
+    let bytes = match tokio::fs::read(&canonical).await {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Err(crate::error::IncrementumError::NotFound(format!(
@@ -1204,8 +1215,7 @@ pub async fn read_document_file(file_path: String) -> Result<String> {
         }
     };
 
-    let base64_string = general_purpose::STANDARD.encode(&bytes);
-    Ok(base64_string)
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Hash a document file (SHA-256) and report its size without base64-encoding

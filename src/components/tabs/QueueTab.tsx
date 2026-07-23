@@ -9,7 +9,7 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { Brain, Stack, TextT } from "@phosphor-icons/react";
 
 export function QueueTab() {
-  const { addTab } = useTabsStore();
+  const addTab = useTabsStore((state) => state.addTab);
   const paneId = usePaneId();
   const isMobile = useMobileShell();
 

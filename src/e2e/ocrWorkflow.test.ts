@@ -113,7 +113,9 @@ describe("E2E Tests: OCR Workflow", () => {
       } as unknown as Document;
 
       // Mock OCR response
-      vi.mocked(documentsApi.readDocumentFile).mockResolvedValue("base64data...");
+      vi.mocked(documentsApi.readDocumentFile).mockResolvedValue(
+        new TextEncoder().encode("fake pdf bytes"),
+      );
 
       // User imports document
       act(() => {

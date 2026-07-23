@@ -199,8 +199,8 @@ export async function importFromUrl(
       // For HTML files, process the content
       if (fileType === 'html') {
         try {
-          const base64Content = await readDocumentFile(fetched.file_path);
-          const htmlContent = atob(base64Content);
+          const fileBytes = await readDocumentFile(fetched.file_path);
+          const htmlContent = new TextDecoder('utf-8').decode(fileBytes);
           content = processHtmlContent(htmlContent, url, title, preserveImages);
         } catch (error) {
           console.warn('Failed to process HTML content:', error);
@@ -226,11 +226,11 @@ export async function importFromUrl(
         filePath = fetched.file_path;
 
         // Read the downloaded HTML back and parse it. readDocumentFile
-        // returns base64-encoded content.
+        // returns raw bytes; decode as UTF-8 text.
         let html: string;
         try {
-          const base64Content = await readDocumentFile(fetched.file_path);
-          html = atob(base64Content);
+          const fileBytes = await readDocumentFile(fetched.file_path);
+          html = new TextDecoder('utf-8').decode(fileBytes);
         } catch (error) {
           console.warn('Failed to read fetched HTML content:', error);
           html = `<html><head><title>${hostname}</title></head><body>
@@ -348,8 +348,8 @@ export async function importFromArxiv(input: string, format: 'pdf' | 'html' = 'p
     let content = metadata.abstract;
     if (isHtml) {
       try {
-        const base64Content = await readDocumentFile(fetched.file_path);
-        const htmlContent = atob(base64Content);
+        const fileBytes = await readDocumentFile(fetched.file_path);
+        const htmlContent = new TextDecoder('utf-8').decode(fileBytes);
         content = processHtmlContent(htmlContent, downloadUrl, metadata.title, true);
       } catch (error) {
         console.warn('Failed to process ArXiv HTML content:', error);
@@ -441,8 +441,8 @@ async function fetchArxivMetadata(arxivId: string): Promise<ArxivMetadata> {
   try {
     // Use backend fetchUrlContent to handle CORS via proxies
     const fetched = await fetchUrlContent(apiUrl);
-    const base64Content = await readDocumentFile(fetched.file_path);
-    const text = atob(base64Content);
+    const fileBytes = await readDocumentFile(fetched.file_path);
+    const text = new TextDecoder('utf-8').decode(fileBytes);
 
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(text, 'text/xml');

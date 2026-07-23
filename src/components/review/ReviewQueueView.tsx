@@ -92,6 +92,18 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const isActiveTab = useIsActiveTab();
   const ensureStartup = useStartupStore((state) => state.ensureStartup);
   const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
+
+  // Reconcile-on-focus (design D2): mutations are applied to local queue
+  // state without reloading; when the user returns to this view, pull a fresh
+  // listing so any accumulated drift is corrected. No-op when clean.
+  // (Selector form rather than getState() so test doubles that stub the hook
+  // don't need a getState static; optional call tolerates partial stubs.)
+  const reconcileIfDirty = useQueueStore((state) => state.reconcileIfDirty);
+  useEffect(() => {
+    if (isActiveTab) {
+      void reconcileIfDirty?.();
+    }
+  }, [isActiveTab, reconcileIfDirty]);
   const {
     items,
     isLoading,
@@ -329,6 +341,11 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
   function getLearningHint(item: QueueItem) {
     if (item.itemType !== "learning-item") return null;
+    // `learningHint` is only populated when a caller opts into the slim
+    // listing (get_queue slim=true), which the store load does NOT do — so
+    // this short-circuit is inert today and the raw-content path below runs.
+    // It stays wired for a future dedicated slim listing.
+    if (item.learningHint) return item.learningHint;
     const raw = item.clozeText || item.question || "";
     if (!raw) return null;
     const noCloze = raw.replace(/\[\[c\d+::(.*?)\]\]/g, "$1");

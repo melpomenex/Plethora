@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTabsStore, normalizePane, useDocumentStore, useSettingsStore, useUIStore, type TabType } from "../../stores";
+import { useStartupStore } from "../../stores/startupStore";
+import { useCollectionStore } from "../../stores/collectionStore";
 import { useVimModeStore } from "../../stores/vimModeStore";
 import { useI18n } from "../../lib/i18n";
 import { useGlobalShortcuts } from "../../hooks/useKeyboardShortcuts";
@@ -233,6 +235,21 @@ export function MainLayout() {
 
     void initTabs();
   }, []);
+
+  // Boot-time queue preload. The queue surface is only fetched by the
+  // active queue view (MobileQueueView / ReviewQueueView), and those fetches
+  // are gated behind `useIsActiveTab()`. On a cold start where the Queue tab
+  // is not the initially-active tab (e.g. a restored session opens on
+  // Dashboard), no tab loads the queue, so switching to Queue later shows a
+  // stuck "Loading…" until the activation effect finally fires. Hydrate the
+  // queue at boot regardless of which tab is foregrounded, and again whenever
+  // the active collection changes (which resets startup state). The store
+  // dedupes concurrent requests with the same key, so this never double-loads.
+  const ensureStartup = useStartupStore((state) => state.ensureStartup);
+  const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
+  useEffect(() => {
+    void ensureStartup("queue", { queueMode: "due-today" });
+  }, [ensureStartup, activeCollectionId]);
 
   // Background update check on startup (desktop only). Runs once, after a
   // short delay so it doesn't compete with boot. Respects the skip-version

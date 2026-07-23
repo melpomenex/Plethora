@@ -294,14 +294,33 @@ export async function importPodcastAudioFile(
 }
 
 /**
- * Read document file contents as base64
- * Used for loading PDFs, EPUBs, etc. in the viewer
+ * Dev-only integrity trace for raw-byte IPC responses: length plus a head/tail
+ * sample, cheap enough to leave on in dev builds. Used while QA-ing the
+ * base64→ArrayBuffer IPC migration (optimize-performance-hotspots, task 4.5).
  */
-export async function readDocumentFile(filePath: string): Promise<string> {
-  if (isWebMode()) {
-    return await browserInvoke<string>("read_document_file", { filePath });
+function traceBinaryIpc(label: string, bytes: Uint8Array): Uint8Array {
+  if (import.meta.env.DEV) {
+    const head = Array.from(bytes.slice(0, 4));
+    const tail = Array.from(bytes.slice(-4));
+    console.debug(`[binary-ipc] ${label}: ${bytes.byteLength} bytes, head=[${head}], tail=[${tail}]`);
   }
-  return await invokeCommand<string>("read_document_file", { filePath });
+  return bytes;
+}
+
+/**
+ * Read document file contents as raw bytes.
+ * Used for loading PDFs, EPUBs, etc. in the viewer.
+ *
+ * The Tauri command returns a binary IPC response (ArrayBuffer) — NOT base64.
+ * Callers that need text should decode with TextDecoder; callers that need a
+ * Blob can wrap the bytes directly.
+ */
+export async function readDocumentFile(filePath: string): Promise<Uint8Array> {
+  if (isWebMode()) {
+    return await browserInvoke<Uint8Array>("read_document_file", { filePath });
+  }
+  const buffer = await invokeCommand<ArrayBuffer>("read_document_file", { filePath });
+  return traceBinaryIpc("read_document_file", new Uint8Array(buffer));
 }
 
 export interface PdfDocumentSourceInfo {
@@ -312,31 +331,33 @@ export interface PdfDocumentSourceInfo {
   maxChunkSize: number;
 }
 
-export interface PdfDocumentRange {
-  offset: number;
-  bytes: number[];
-  identity: string;
-  eof: boolean;
-}
-
 /** Resolve an imported PDF to an authorized, immutable native byte source. */
 export async function getPdfDocumentSourceInfo(documentId: string): Promise<PdfDocumentSourceInfo> {
   return await invokeCommand<PdfDocumentSourceInfo>("get_pdf_document_source_info", { documentId });
 }
 
-/** Read one bounded range from an authorized imported PDF. */
+/**
+ * Read one bounded range from an authorized imported PDF.
+ *
+ * Returns the raw bytes of the range (binary IPC response). The old JSON
+ * envelope (`{ offset, bytes: number[], identity, eof }`) is gone: `offset`
+ * echoes the request, EOF is derivable (`result.byteLength < length` — total
+ * size is known from `getPdfDocumentSourceInfo`), and an identity mismatch
+ * rejects with the `pdf_source_changed` error instead of echoing identity.
+ */
 export async function readPdfDocumentRange(
   documentId: string,
   offset: number,
   length: number,
   expectedIdentity: string
-): Promise<PdfDocumentRange> {
-  return await invokeCommand<PdfDocumentRange>("read_pdf_document_range", {
+): Promise<Uint8Array> {
+  const buffer = await invokeCommand<ArrayBuffer>("read_pdf_document_range", {
     documentId,
     offset,
     length,
     expectedIdentity,
   });
+  return traceBinaryIpc("read_pdf_document_range", new Uint8Array(buffer));
 }
 
 export async function getPdfReflowCachePage<T>(options: {

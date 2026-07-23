@@ -73,15 +73,6 @@ export function inferMimeType(filePath: string, mediaType: LocalMediaType): stri
   return VIDEO_MIME_TYPES[ext] ?? "video/mp4";
 }
 
-function decodeBase64ToBytes(base64Data: string): Uint8Array {
-  const binaryString = atob(base64Data);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
-}
-
 function formatAttemptSummary(attempts: LocalMediaResolutionAttempt[]): string {
   return attempts.map((attempt) => `${attempt.strategy}:${attempt.status}:${attempt.detail}`).join(" | ");
 }
@@ -315,11 +306,10 @@ export async function resolveLocalMediaSource(
   }
 
   try {
-    const base64Data = await readDocumentFile(filePath);
-    if (!base64Data || base64Data.length === 0) {
+    const bytes = await readDocumentFile(filePath);
+    if (!bytes || bytes.byteLength === 0) {
       throw new Error("File not found or empty.");
     }
-    const bytes = decodeBase64ToBytes(base64Data);
     const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
     const probe = await probeMediaSource(blobUrl, mediaType, mimeType);
     if (!probe.ok) {

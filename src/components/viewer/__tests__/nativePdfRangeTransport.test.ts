@@ -33,12 +33,10 @@ async function settle(): Promise<void> {
 describe("NativePdfRangeTransport", () => {
   beforeEach(() => {
     api.getInfo.mockReset().mockResolvedValue(info);
-    api.readRange.mockReset().mockImplementation(async (_id, offset: number, length: number) => ({
-      offset,
-      bytes: Array.from({ length }, (_, index) => (offset + index) % 256),
-      identity: info.identity,
-      eof: offset + length >= info.size,
-    }));
+    // readPdfDocumentRange resolves to raw bytes (binary IPC contract).
+    api.readRange.mockReset().mockImplementation(async (_id, offset: number, length: number) =>
+      Uint8Array.from({ length }, (_, index) => (offset + index) % 256),
+    );
   });
 
   it("loads bounded initial data without requesting the whole PDF", async () => {
@@ -89,7 +87,7 @@ describe("NativePdfRangeTransport", () => {
   it("does not deliver stale bytes after abort", async () => {
     let release!: () => void;
     api.readRange.mockImplementation(() => new Promise((resolve) => {
-      release = () => resolve({ offset: 0, bytes: [1, 2], identity: info.identity, eof: false });
+      release = () => resolve(Uint8Array.from([1, 2]));
     }));
     const transport = new NativePdfRangeTransport("doc-1", info, new Uint8Array(), new PdfDiagnostics());
     const listener = vi.fn();

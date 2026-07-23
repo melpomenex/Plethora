@@ -1,0 +1,6 @@
+{
+  "_comment": "Post-optimization actuals + headroom (optimize-performance-hotspots). Entry actual 1308 KB, total actual ~24.5 MB. Update deliberately, in the same PR as intentional growth.",
+  "entryChunkBytes": 1400000,
+  "pdfWorkerAssetCount": 1,
+  "totalDistBytes": 27000000
+}

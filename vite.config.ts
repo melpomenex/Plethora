@@ -28,6 +28,15 @@ export default defineConfig(async ({ mode }) => {
 
   return {
     plugins,
+    // Bundle workers as ES modules. Every `new Worker(...)` in the app already
+    // passes { type: "module" }, and the PDF.js bootstrap worker
+    // (src/workers/pdfjs.worker.ts) must keep its `export *` of
+    // WorkerMessageHandler so it can double as GlobalWorkerOptions.workerSrc
+    // for the same-thread fake-worker fallback (the default "iife" format
+    // strips module exports).
+    worker: {
+      format: "es" as const,
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState, useCallback, useMemo, type CSSProperties } from "react";
 import * as pdfjsLib from "pdfjs-dist";
-import pdfWorkerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+// URL of the compiled bootstrap worker chunk (src/workers/pdfjs.worker.ts).
+// Vite's worker cache emits ONE chunk for this file shared by both this
+// `?worker&url` import and the `new Worker(new URL(...))` construction below —
+// previously workerSrc pointed at a separate `pdf.worker.min.mjs?url` asset,
+// which shipped the ~1 MB PDF.js worker twice in every build. The bootstrap
+// chunk is a valid workerSrc target for PDF.js's same-thread fake-worker
+// fallback because it is emitted as an ES module (worker.format "es" in
+// vite.config.ts) re-exporting WorkerMessageHandler.
+import pdfWorkerSrc from "../../workers/pdfjs.worker?worker&url";
 import { EventBus } from "pdfjs-dist/web/pdf_viewer.mjs";
 import { PdfPageViewWrapper } from "./PdfPageView";
 import {
@@ -294,6 +302,28 @@ try {
   // Worker construction is best-effort: if it fails, PDF.js will fall back
   // to its fake (same-thread) worker via the load-retry logic below.
   console.warn("[PDFViewer] Could not construct PDF worker, using fallback");
+}
+
+/**
+ * Ensure the PDF.js worker module has been evaluated on the MAIN thread so the
+ * same-thread "fake worker" fallback can find it.
+ *
+ * Vite bundles worker entries with `preserveEntrySignatures: false`, so the
+ * emitted pdfjs.worker chunk has NO module exports — PDF.js's fallback loader
+ * (`(await import(workerSrc)).WorkerMessageHandler`) would read `undefined`
+ * from the namespace. Evaluating the module also sets `globalThis.pdfjsWorker`
+ * as a side effect, and PDF.js checks that global FIRST, so importing it here
+ * (idempotent, only on the fallback path) makes the global-check win before
+ * PDF.js attempts the namespace lookup.
+ */
+async function ensureFakeWorkerModuleLoaded(): Promise<void> {
+  const g = globalThis as unknown as { pdfjsWorker?: { WorkerMessageHandler?: unknown } };
+  if (g.pdfjsWorker?.WorkerMessageHandler) return;
+  try {
+    await import(/* @vite-ignore */ pdfWorkerSrc);
+  } catch (err) {
+    console.warn("[PDFViewer] Failed to preload fake-worker module:", err);
+  }
 }
 
 // Suppress verbose PDF.js warnings (Unicode mismatch, unknown glyph name, etc.)
@@ -1299,6 +1329,7 @@ export function PDFViewer({
               try { pdfjsLib.GlobalWorkerOptions.workerPort?.terminate(); } catch {}
               pdfjsLib.GlobalWorkerOptions.workerPort = null;
               pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+              await ensureFakeWorkerModuleLoaded();
               return await loadNative();
             }
           }
@@ -1331,6 +1362,7 @@ export function PDFViewer({
                 try { pdfjsLib.GlobalWorkerOptions.workerPort?.terminate(); } catch {}
                 pdfjsLib.GlobalWorkerOptions.workerPort = null;
                 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+                await ensureFakeWorkerModuleLoaded();
                 const source = sourceFactory.create();
                 const fallbackTask = pdfjsLib.getDocument(source as any);
                 return await awaitLoadingTask(fallbackTask);

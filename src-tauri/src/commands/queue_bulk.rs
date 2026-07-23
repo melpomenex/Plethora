@@ -96,16 +96,20 @@ pub async fn get_queue_stats(repo: State<'_, Repository>) -> Result<QueueStats> 
 /// When `item_type` is "document", updates the document's `next_reading_date`.
 /// Otherwise, treats it as a learning item and updates `due_date`.
 #[tauri::command]
+/// Postpone one queue item. Returns the item's NEW due date (RFC 3339) so the
+/// frontend can apply the mutation to its local queue state exactly, without
+/// re-fetching the entire queue listing (design D2 of
+/// optimize-performance-hotspots).
 pub async fn postpone_item(
     item_id: String,
     days: i32,
     item_type: Option<String>,
     repo: State<'_, Repository>,
-) -> Result<bool> {
+) -> Result<String> {
     match item_type.as_deref() {
         Some("document") => {
             // Postpone a document by advancing next_reading_date
-            let mut doc = repo.get_document(&item_id).await?.ok_or_else(|| {
+            let doc = repo.get_document(&item_id).await?.ok_or_else(|| {
                 crate::error::IncrementumError::NotFound(format!("Document {}", item_id))
             })?;
 
@@ -122,7 +126,7 @@ pub async fn postpone_item(
                 None, // total_time_spent
             )
             .await?;
-            Ok(true)
+            Ok(new_date.to_rfc3339())
         }
         _ => {
             // Default: postpone a learning item
@@ -139,7 +143,7 @@ pub async fn postpone_item(
             item.date_modified = Utc::now();
 
             repo.update_learning_item(&item).await?;
-            Ok(true)
+            Ok(item.due_date.to_rfc3339())
         }
     }
 }
