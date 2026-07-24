@@ -46,11 +46,15 @@ export function startSyncSubsystems(): Promise<void> {
       id: "sync:provider-setup",
       lane: "P1",
       maxRetries: 0,
-      run: () => measureSyncPhase("provider-setup", () => withTimeout(
-        getYjsSync(),
-        4000,
-        "[startSyncSubsystems] getYjsSync timed out (4s), continuing in degraded mode",
-      )),
+      kind: "atomic",
+      run: async (context) => {
+        if (context.shouldYield()) await context.yield();
+        return measureSyncPhase("provider-setup", () => withTimeout(
+          getYjsSync(),
+          4000,
+          "[startSyncSubsystems] getYjsSync timed out (4s), continuing in degraded mode",
+        ));
+      },
     }).catch((err) => {
       console.warn("[startSyncSubsystems] getYjsSync failed, sync will be unavailable:", err);
       return null;
@@ -109,9 +113,10 @@ export function startSyncSubsystems(): Promise<void> {
       })),
     ]);
 
-    // 3. Run file sync AND all entity initializations concurrently.
-    //    File sync depends on the Yjs doc (already ready), entity init depends
-    //    on the Yjs doc (already ready). They are independent of each other.
+    // 3. Run replicators through the scheduler in small waves. They all touch
+    // the same Yjs document, so an unbounded Promise.all only compounds their
+    // peak memory; two-at-a-time preserves useful overlap without nine-way
+    // amplification. The order favors surfaces users open first.
     const { startAutoFileSyncDownload } = await import("./autoFileSyncDownload");
 
     registerSyncAdapter("documents", ensureDocumentReplicationReady);
@@ -123,41 +128,38 @@ export function startSyncSubsystems(): Promise<void> {
     registerSyncAdapter("podcastFeeds", ensurePodcastSyncReady);
     registerSyncAdapter("fileAvailabilityIntent", ensureFileAvailabilityIntentReady);
 
-    await Promise.all([
-      measureSyncPhase("map-ready", () => ensureFileSyncReady()).catch((err) =>
-        console.warn("[startSyncSubsystems] file sync init failed:", err),
-      ),
-      measureSyncPhase("map-ready", () => ensureDocumentReplicationReady()).catch((err) =>
-        console.warn("[startSyncSubsystems] document replication init failed:", err),
-      ),
-      measureSyncPhase("map-ready", () => ensureCollectionSyncReady()).catch((err) =>
-        console.warn("[startSyncSubsystems] collection sync init failed:", err),
-      ),
-      measureSyncPhase("map-ready", () => ensureExtractSyncReady()).catch((err) =>
-        console.warn("[startSyncSubsystems] extract sync init failed:", err),
-      ),
-      measureSyncPhase("map-ready", () => ensureConversationSyncReady()).catch((err) =>
-        console.warn("[startSyncSubsystems] conversation sync init failed:", err),
-      ),
-      measureSyncPhase("map-ready", () => ensureFlashcardSyncReady()).catch((err) =>
-        console.warn("[startSyncSubsystems] flashcard sync init failed:", err),
-      ),
-      measureSyncPhase("map-ready", () => ensureRssSyncReady()).catch((err) =>
-        console.warn("[startSyncSubsystems] RSS sync init failed:", err),
-      ),
-      measureSyncPhase("map-ready", () => ensurePodcastSyncReady()).catch((err) =>
-        console.warn("[startSyncSubsystems] podcast sync init failed:", err),
-      ),
-      measureSyncPhase("map-ready", () => ensureFileAvailabilityIntentReady()).catch((err) =>
-        console.warn("[startSyncSubsystems] file availability intent init failed:", err),
-      ),
-    ]);
+    const replicators: Array<[string, () => Promise<void>]> = [
+      ["collections", ensureCollectionSyncReady],
+      ["documents", ensureDocumentReplicationReady],
+      ["flashcards", ensureFlashcardSyncReady],
+      ["extracts", ensureExtractSyncReady],
+      ["conversations", ensureConversationSyncReady],
+      ["rss", ensureRssSyncReady],
+      ["podcasts", ensurePodcastSyncReady],
+      ["fileSync", ensureFileSyncReady],
+      ["fileAvailabilityIntent", ensureFileAvailabilityIntentReady],
+    ];
+    const runReplicator = ([label, ensureReady]: [string, () => Promise<void>]) =>
+      scheduleProgressiveSyncWork({
+        id: `sync:replicator:${label}`,
+        lane: "P2",
+        kind: "sliceable",
+        maxRetries: 0,
+        run: async (context) => {
+          if (context.shouldYield()) await context.yield();
+          await measureSyncPhase("map-ready", ensureReady);
+        },
+      }).catch((err) => console.warn(`[startSyncSubsystems] ${label} init failed:`, err));
+    for (let i = 0; i < replicators.length; i += 2) {
+      await Promise.all(replicators.slice(i, i + 2).map(runReplicator));
+    }
 
     // 4. Auto-download watcher — needs file sync ready.
     await scheduleProgressiveSyncWork({
       id: "sync:auto-download-watch",
       lane: "P2",
-      run: () => startAutoFileSyncDownload(),
+      kind: "sliceable",
+      run: (context) => startAutoFileSyncDownload(context),
     }).catch((err) =>
       console.warn("[startSyncSubsystems] auto-download init failed:", err),
     );
@@ -168,7 +170,8 @@ export function startSyncSubsystems(): Promise<void> {
     await scheduleProgressiveSyncWork({
       id: "sync:first-join-migration",
       lane: "P2",
-      run: () => measureSyncPhase("migration", () => runSyncMigrationIfNeeded()),
+      kind: "sliceable",
+      run: (context) => measureSyncPhase("migration", () => runSyncMigrationIfNeeded(undefined, context)),
     }).catch((e) =>
       console.warn("[startSyncSubsystems] sync migration failed (non-fatal)", e),
     );

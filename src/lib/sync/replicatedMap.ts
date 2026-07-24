@@ -248,7 +248,11 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
             }
           });
           // Replay existing entries (e.g. rows published before this device joined).
+          let replayBytes = 0;
+          let replayRecords = 0;
           map.forEach((value, key) => {
+            replayRecords += 1;
+            try { replayBytes += JSON.stringify(value)?.length ?? 0; } catch { /* diagnostic only */ }
             if (config.name === "learningItems" || config.name === "documents") {
               const remoteClock = String((value as any)?.[clockField] ?? "");
               if (remoteClock && !syncClockCache.isStale(config.name, key, remoteClock)) {
@@ -261,6 +265,7 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
               run: () => handleRemote(key),
             });
           });
+          if (replayRecords > 0) recordSyncWorkSize(replayBytes, replayRecords);
           // Opportunistic tombstone GC on init.
           try {
             const removed = gcTombstonesMap(map);

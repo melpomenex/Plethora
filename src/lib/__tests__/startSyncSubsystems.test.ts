@@ -102,19 +102,19 @@ describe("startSyncSubsystems", () => {
   it("invokes every entity initializer exactly once, in dependency order", async () => {
     await startSyncSubsystems();
 
-    // Ordering: provider → all entity maps → auto-download → first-join
-    // backfill. The map initializers run together before the watcher so its
-    // manifest and intent subscriptions cannot miss a replayed row.
+    // Ordering: provider → bounded, user-facing entity waves → auto-download
+    // → first-join backfill. The scheduler keeps the first surfaces ahead of
+    // lower-priority feeds while still initializing every adapter once.
     expect(calls).toEqual([
       "getYjsSync",
-      "ensureFileSyncReady",
-      "ensureDocumentReplicationReady",
       "ensureCollectionSyncReady",
+      "ensureDocumentReplicationReady",
+      "ensureFlashcardSyncReady",
       "ensureExtractSyncReady",
       "ensureConversationSyncReady",
-      "ensureFlashcardSyncReady",
       "ensureRssSyncReady",
       "ensurePodcastSyncReady",
+      "ensureFileSyncReady",
       "ensureFileAvailabilityIntentReady",
       "startAutoFileSyncDownload",
       "runSyncMigrationIfNeeded",

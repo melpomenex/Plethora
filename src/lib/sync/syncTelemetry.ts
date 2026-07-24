@@ -28,10 +28,20 @@ export interface SyncPhaseSample {
   memoryBytes?: number;
 }
 
+export const MAX_SYNC_TELEMETRY_SAMPLES = 1000;
+const samples: SyncPhaseSample[] = [];
+
+function appendSample(sample: SyncPhaseSample): void {
+  samples.push(sample);
+  if (samples.length > MAX_SYNC_TELEMETRY_SAMPLES) {
+    samples.splice(0, samples.length - MAX_SYNC_TELEMETRY_SAMPLES);
+  }
+}
+
 export function recordSyncWorkSize(bytes: number, records = 1): void {
   if (!Number.isFinite(bytes) || !Number.isFinite(records)) return;
   // Keep this diagnostic-only and bounded; it must never retain payloads.
-  samples.push({
+  appendSample({
     phase: "projection",
     startedAt: now(),
     durationMs: 0,
@@ -41,7 +51,6 @@ export function recordSyncWorkSize(bytes: number, records = 1): void {
   });
 }
 
-const samples: SyncPhaseSample[] = [];
 const startupRequestCounts = new Map<string, number>();
 let longTaskObserver: PerformanceObserver | null = null;
 
@@ -59,6 +68,7 @@ function usedMemoryBytes(): number | undefined {
 }
 
 export interface SyncPhaseDetails {
+  outcome?: "ok" | "error" | "timeout";
   bytes?: number;
   records?: number;
   hasMore?: boolean;
@@ -68,13 +78,14 @@ export interface SyncPhaseDetails {
 
 export function markSyncPhaseStart(phase: SyncPhase): (details?: SyncPhaseDetails) => void {
   const sample: SyncPhaseSample = { phase, startedAt: now() };
-  samples.push(sample);
+  appendSample(sample);
   return (details) => {
     if (sample.durationMs !== undefined) return;
     sample.durationMs = Math.max(0, now() - sample.startedAt);
     sample.outcome = "ok";
     if (details) Object.assign(sample, details);
     sample.memoryBytes = usedMemoryBytes();
+    writeNativeSyncPhaseLog(sample);
   };
 }
 
@@ -83,11 +94,7 @@ export async function measureSyncPhase<T>(phase: SyncPhase, work: () => Promise<
   try {
     return await work();
   } catch (error) {
-    const sample = samples[samples.length - 1];
-    if (sample?.phase === phase) {
-      sample.durationMs = Math.max(0, now() - sample.startedAt);
-      sample.outcome = "error";
-    }
+    end({ outcome: "error" });
     throw error;
   } finally {
     end();
@@ -111,6 +118,24 @@ export function getStartupRequestCounts(): Readonly<Record<string, number>> {
 export function clearSyncTelemetry(): void {
   samples.length = 0;
   startupRequestCounts.clear();
+}
+
+let lastNativeLogAt = 0;
+let nativeLogPromise: Promise<((message: string) => Promise<void>) | null> | null = null;
+
+/** Mirror compact phase summaries to the native sink without blocking boot. */
+function writeNativeSyncPhaseLog(sample: SyncPhaseSample): void {
+  const timestamp = Date.now();
+  if (timestamp - lastNativeLogAt < 250) return;
+  lastNativeLogAt = timestamp;
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window || "__TAURI__" in window)) return;
+  if (!nativeLogPromise) {
+    nativeLogPromise = import("@tauri-apps/plugin-log")
+      .then((log) => (log.info ? (message: string) => log.info(message) : null))
+      .catch(() => null);
+  }
+  const summary = `[sync-telemetry] phase=${sample.phase} durationMs=${Math.round(sample.durationMs ?? 0)} records=${sample.records ?? 0} bytes=${sample.bytes ?? 0} outcome=${sample.outcome ?? "unknown"}`;
+  void nativeLogPromise.then((write) => write?.(summary)).catch(() => {});
 }
 
 let lastWarnTime = 0;

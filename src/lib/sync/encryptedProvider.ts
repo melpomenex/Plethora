@@ -3,6 +3,9 @@ import type { WebsocketProvider as WebsocketProviderType } from "y-websocket";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { encryptState, decryptState, DecryptError } from "./encryption";
+import { recordSyncWorkSize } from "./syncTelemetry";
+import { setSyncCheckpoint } from "./syncJournal";
+import { scheduleProgressiveSyncWork, type SyncWorkContext } from "./progressiveScheduler";
 
 // y-websocket message-type bytes (see node_modules/y-websocket/src/y-websocket.js).
 // These are written/read as varuint, but all values fit in a single byte.
@@ -25,6 +28,7 @@ const MESSAGE_QUERY_AWARENESS = 3;
 // "forwards opaque bytes"; that is a deployment requirement, not a property of
 // the current y-websocket server. See the wrapper's README/limitation note.
 const MESSAGE_ENCRYPTED_SYNC = 0x10;
+let nextReplayProviderId = 1;
 
 type WebsocketProviderConstructor = typeof WebsocketProviderType;
 
@@ -82,6 +86,10 @@ export interface EncryptedWebsocketProviderOptions {
 export class EncryptedWebsocketProvider {
   readonly provider: WebsocketProviderType;
   private readonly stateKey: CryptoKey;
+  private inboundReplayQueue: Array<{ data: ArrayBuffer | string; deliver: (data: ArrayBuffer | string) => void }> = [];
+  private replayScheduled = false;
+  private inboundReplayFrames = 0;
+  private readonly replayProviderId = nextReplayProviderId++;
 
   constructor(
     WebsocketProvider: WebsocketProviderConstructor,
@@ -98,6 +106,7 @@ export class EncryptedWebsocketProvider {
     const wsPolyfill = makeEncryptingWebSocketPolyfill(
       (data) => this.encryptOutbound(data),
       (data) => this.decryptInbound(data),
+      (data, deliver) => this.enqueueInbound(data, deliver),
     );
 
     this.provider = new WebsocketProvider(serverUrl, roomname, doc, {
@@ -158,6 +167,7 @@ export class EncryptedWebsocketProvider {
     let plaintext: Uint8Array;
     try {
       plaintext = await decryptState(ciphertext, this.stateKey);
+      recordSyncWorkSize(plaintext.byteLength, 1);
     } catch (err) {
       if (err instanceof DecryptError) {
         console.warn(
@@ -177,6 +187,51 @@ export class EncryptedWebsocketProvider {
     return encoding.toUint8Array(encoder);
   }
 
+  /** Apply encrypted frame-log updates in bounded batches, yielding between
+   * batches so a large room backlog cannot monopolize the WebView. */
+  private enqueueInbound(data: ArrayBuffer | string, deliver: (data: ArrayBuffer | string) => void): void {
+    this.inboundReplayQueue.push({ data, deliver });
+    this.scheduleInboundReplay();
+  }
+
+  private scheduleInboundReplay(): void {
+    if (this.replayScheduled) return;
+    this.replayScheduled = true;
+    void scheduleProgressiveSyncWork({
+      id: `sync:encrypted-frame-replay:${this.replayProviderId}`,
+      lane: "P1",
+      kind: "sliceable",
+      maxRetries: 0,
+      checkpoint: async (value) => {
+        await setSyncCheckpoint({
+          domain: "encrypted-frame-replay",
+          cursor: String(value),
+          shard: null,
+        });
+      },
+      run: (context) => this.drainInboundReplay(context),
+    })
+      .catch((error) => {
+        console.warn("[EncryptedWebsocketProvider] bounded replay failed", error);
+      })
+      .finally(() => {
+        this.replayScheduled = false;
+        if (this.inboundReplayQueue.length > 0) this.scheduleInboundReplay();
+      });
+  }
+
+  private async drainInboundReplay(context: SyncWorkContext): Promise<void> {
+    while (this.inboundReplayQueue.length > 0) {
+      const batch = this.inboundReplayQueue.splice(0, 32);
+      for (const entry of batch) entry.deliver(entry.data);
+      this.inboundReplayFrames += batch.length;
+      // The scheduler owns checkpoint persistence. This cursor is deliberately
+      // diagnostic-only until resume semantics can identify a frame in the
+      // relay log without changing the wire format.
+      await context.checkpoint(String(this.inboundReplayFrames));
+      if (this.inboundReplayQueue.length > 0) await context.yield();
+    }
+  }
   // --- Lifecycle pass-throughs so callers can treat this like a provider ---
 
   connect(): void {
@@ -188,6 +243,7 @@ export class EncryptedWebsocketProvider {
   }
 
   destroy(): void {
+    this.inboundReplayQueue.length = 0;
     this.provider.destroy();
   }
 
@@ -287,6 +343,7 @@ function toUint8Array(data: unknown): Uint8Array | null {
 function makeEncryptingWebSocketPolyfill(
   encrypt: (data: Uint8Array) => Promise<Uint8Array>,
   decrypt: (data: Uint8Array) => Promise<Uint8Array | null>,
+  enqueueInbound: (data: ArrayBuffer | string, deliver: (data: ArrayBuffer | string) => void) => void,
 ): WebSocketPolyfillCtor {
   const RealWebSocket = (globalThis as { WebSocket?: typeof WebSocket }).WebSocket;
   if (!RealWebSocket) {
@@ -336,7 +393,7 @@ function makeEncryptingWebSocketPolyfill(
         // and Node run in different realms: a Buffer from `ws` may not satisfy
         // either check against the jsdom ArrayBuffer global.
         if (typeof data === "string") {
-          this.deliver(data);
+          enqueueInbound(data, (queued) => this.deliver(queued));
           return;
         }
         const bytes = toUint8Array(data);
@@ -350,7 +407,7 @@ function makeEncryptingWebSocketPolyfill(
         decrypt(bytes)
           .then((decrypted) => {
             if (decrypted === null) return;
-            this.deliver(decrypted.buffer);
+            enqueueInbound(decrypted.buffer, (queued) => this.deliver(queued));
           })
           .catch((err) => {
             console.error(

@@ -13,6 +13,10 @@ export interface SyncWorkItem {
   id: string;
   lane: SyncLane;
   run: (context: SyncWorkContext) => void | Promise<void>;
+  /** `sliceable` work must consult the cooperative context before continuing. */
+  kind?: "atomic" | "sliceable";
+  /** Approximate bytes retained while this item is running. */
+  estimatedBytes?: number;
   checkpoint?: (value: unknown) => void | Promise<void>;
   /** A lower number is older/higher priority inside the same lane. */
   enqueuedAt?: number;
@@ -23,6 +27,7 @@ export interface SyncWorkItem {
 export interface ProgressiveSchedulerOptions {
   sliceMs?: number;
   maxItemsPerSlice?: number;
+  byteBudget?: number;
   now?: () => number;
   inputPending?: () => boolean;
   visible?: () => boolean;
@@ -49,6 +54,7 @@ export class ProgressiveSyncScheduler {
   };
   private readonly sliceMs: number;
   private readonly maxItemsPerSlice: number;
+  private readonly byteBudget: number;
   private readonly now: () => number;
   private readonly inputPending: () => boolean;
   private readonly visible: () => boolean;
@@ -63,11 +69,13 @@ export class ProgressiveSyncScheduler {
   private failed = 0;
   private lastHeartbeatAt = 0;
   private readonly quarantinedDomains = new Set<string>();
+  private bytesInFlight = 0;
 
   constructor(options: ProgressiveSchedulerOptions = {}) {
     this.sliceMs = options.sliceMs ?? 4;
     this.currentSliceMs = this.sliceMs;
     this.maxItemsPerSlice = options.maxItemsPerSlice ?? 8;
+    this.byteBudget = options.byteBudget ?? this.defaultByteBudget();
     this.now = options.now ?? (() => performance.now());
     this.inputPending = options.inputPending ?? (() => {
       try {
@@ -105,12 +113,14 @@ export class ProgressiveSyncScheduler {
     return false;
   }
 
-  stats(): { queued: number; completed: number; failed: number; running: boolean } {
+  stats(): { queued: number; completed: number; failed: number; running: boolean; bytesInFlight: number; byteBudget: number } {
     return {
       queued: LANES.reduce((total, lane) => total + this.queues[lane].length, 0),
       completed: this.completed,
       failed: this.failed,
       running: this.running,
+      bytesInFlight: this.bytesInFlight,
+      byteBudget: this.byteBudget,
     };
   }
 
@@ -159,6 +169,10 @@ export class ProgressiveSyncScheduler {
     for (const lane of LANES) {
       const candidate = this.queues[lane][0];
       if (!candidate) continue;
+      const estimate = this.estimateBytes(candidate);
+      // Keep a single oversized transfer schedulable, but do not start an
+      // additional estimated item while the current working set is over budget.
+      if (this.bytesInFlight > 0 && this.bytesInFlight + estimate > this.byteBudget) continue;
       // Aging prevents P2/P3 starvation during a busy interactive session.
       const ageBonus = Math.min(4, Math.floor(Math.max(0, now - (candidate.enqueuedAt ?? now)) / 1000));
       const score = LANE_WEIGHT[lane] + ageBonus;
@@ -188,18 +202,27 @@ export class ProgressiveSyncScheduler {
           break;
         }
         const deadline = this.now() + sliceBudget;
+        const estimatedBytes = this.estimateBytes(item);
+        this.bytesInFlight += estimatedBytes;
+        let yielded = false;
         const context: SyncWorkContext = {
           lane: item.lane,
           deadline,
           signal: this.controller.signal,
           shouldYield: () => this.controller.signal.aborted || this.now() >= deadline || (item.lane !== "P0" && this.inputPending()),
-          yield: () => this.yieldToHost(),
+          yield: () => {
+            yielded = true;
+            return this.yieldToHost();
+          },
           checkpoint: async (value) => {
             if (item.checkpoint) await item.checkpoint(value);
           },
         };
         try {
           await item.run(context);
+          if (item.kind === "sliceable" && isDevRuntime() && !yielded && this.now() - (deadline - sliceBudget) > sliceBudget * 4) {
+            console.warn(`[progressive-sync] sliceable item ${item.id} ran past ${sliceBudget * 4}ms without calling yield()`);
+          }
           this.completed += 1;
         } catch (error) {
           this.failed += 1;
@@ -214,6 +237,8 @@ export class ProgressiveSyncScheduler {
             this.quarantinedDomains.add(domain);
             void this.onQuarantine?.(domain, item, error);
           }
+        } finally {
+          this.bytesInFlight = Math.max(0, this.bytesInFlight - estimatedBytes);
         }
         processed += 1;
         if (this.now() - started >= sliceBudget || this.inputPending()) break;
@@ -232,6 +257,21 @@ export class ProgressiveSyncScheduler {
 
   private domainOf(id: string): string {
     return id.split(":", 1)[0] || id;
+  }
+
+  private estimateBytes(item: SyncWorkItem): number {
+    const value = item.estimatedBytes;
+    return Number.isFinite(value) && value && value > 0 ? Math.round(value) : 0;
+  }
+
+  private defaultByteBudget(): number {
+    try {
+      const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+      if (memory !== undefined && memory <= 2) return 64 * 1024 * 1024;
+    } catch {
+      // WKWebView does not expose deviceMemory; retain the portable default.
+    }
+    return 256 * 1024 * 1024;
   }
 
   private effectiveSliceMs(): number {
@@ -276,6 +316,17 @@ function isTestRuntime(): boolean {
   }
 }
 
+function isDevRuntime(): boolean {
+  try {
+    const viteEnv = (import.meta as ImportMeta & { env?: { PROD?: boolean } }).env;
+    if (viteEnv?.PROD) return false;
+    const env = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env;
+    return env?.NODE_ENV !== "production";
+  } catch {
+    return true;
+  }
+}
+
 let sharedScheduler: ProgressiveSyncScheduler | null = null;
 
 export function getProgressiveSyncScheduler(): ProgressiveSyncScheduler {
@@ -290,15 +341,15 @@ export function resetProgressiveSyncSchedulerForTest(): void {
 
 /** Enqueue one async operation and resolve when its bounded phase completes. */
 export function scheduleProgressiveSyncWork<T>(
-  item: Omit<SyncWorkItem, "run"> & { run: () => T | Promise<T> },
+  item: Omit<SyncWorkItem, "run"> & { run: (context: SyncWorkContext) => T | Promise<T> },
 ): Promise<T> {
   const scheduler = getProgressiveSyncScheduler();
   return new Promise<T>((resolve, reject) => {
     scheduler.enqueue({
       ...item,
-      run: async () => {
+      run: async (context) => {
         try {
-          resolve(await item.run());
+          resolve(await item.run(context));
         } catch (error) {
           reject(error);
           throw error;

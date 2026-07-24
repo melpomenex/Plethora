@@ -373,11 +373,14 @@ export async function saveReceivedFileSync(
         documentId: docId,
         filePath: storedPath,
       });
-      // Register the freshly-saved file with the transfer manager so this device
-      // can now also serve it to further peers.
+      // Register a disk-backed loader after persistence succeeds. The received
+      // Blob can then be collected instead of being pinned for the session.
       try {
         await ensureFileSyncReady();
-        getFileTransferManager().registerLocalFile(fileId, blob);
+        getFileTransferManager().registerLocalFileLoader(fileId, async () => {
+          const bytes = await readDocumentFile(storedPath);
+          return new Blob([bytes], { type: mimeForFileType(fileType as Document["fileType"]) });
+        });
       } catch (e) {
         console.warn("[fileSyncRegistration] could not register received file for serving", e);
       }

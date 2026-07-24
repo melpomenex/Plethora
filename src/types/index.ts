@@ -50,4 +50,5 @@ export interface KeyboardShortcut {
 export type StartupNotice =
   | "DatabaseRecoveredAfterQuarantine"
   | { DatabaseRecoveredAfterQuarantine: null }
-  | { AutoBackupFound: { backup_path: string } };
+  | { AutoBackupFound: { backup_path: string } }
+  | { DatabaseIntegrityWarning: { artifacts: string[] } };

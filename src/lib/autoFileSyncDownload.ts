@@ -25,7 +25,7 @@ import {
   subscribeFileAvailabilityIntent,
   syncQueueFileAvailabilityIntents,
 } from "./sync/fileAvailabilityIntent";
-import { scheduleProgressiveSyncWork } from "./sync/progressiveScheduler";
+import { scheduleProgressiveSyncWork, type SyncWorkContext } from "./sync/progressiveScheduler";
 import type { Document } from "../types";
 
 let started = false;
@@ -38,13 +38,16 @@ const pendingIntents = new Map<string, { fileId: string; requestedByDevice: stri
 let documentStoreListenerRegistered = false;
 let lastPrefetchSignature = "";
 let queuedPrefetchPromise: Promise<void> | null = null;
+let autoDownloadPass: Promise<void> | null = null;
+const pendingAutoDownloads = new Map<string, string>();
+const MAX_CONCURRENT_AUTO_TRANSFERS = 2;
 
 /**
  * Begin watching the manifest for newly-available files and auto-download them
  * per the user's setting. Idempotent — safe to call from the boot path and
  * again if sync reinitializes. The subscription lives for the session.
  */
-export async function startAutoFileSyncDownload(): Promise<void> {
+export async function startAutoFileSyncDownload(context?: SyncWorkContext): Promise<void> {
   if (!roomChangeListenerRegistered) {
     roomChangeListenerRegistered = true;
     registerRoomChangeListener(() => {
@@ -64,6 +67,7 @@ export async function startAutoFileSyncDownload(): Promise<void> {
   }
 
   const manifest = getFileManifest();
+  if (context?.shouldYield()) await context.yield();
 
   if (!intentListenerRegistered) {
     intentListenerRegistered = true;
@@ -126,33 +130,59 @@ export async function startAutoFileSyncDownload(): Promise<void> {
 }
 
 async function maybeAutoDownload(availableFileIds: string[], sourceDeviceId: string): Promise<void> {
-  if (!availableFileIds || availableFileIds.length === 0) return;
-
-  const mode = useSettingsStore.getState().settings.sync?.autoDownloadMode ?? "wifi-only";
-  if (mode === "manual") return;
-  if (mode === "wifi-only" && !(await isOnWifi())) return;
-  // mode === "always" → proceed unconditionally
-
-  const documents = useDocumentStore.getState().documents;
-  const manifest = getFileManifest();
-  if (sourceDeviceId === manifest.getDeviceId()) return;
-  const transferManager = getFileTransferManager();
-
-  for (const fileId of availableFileIds) {
-    // Skip files we already have locally (in-memory map or cached).
-    if (transferManager.hasFileLocal(fileId)) continue;
-    
-    const inManifest = manifest.getAllFiles().some((f) => f.id === fileId);
-    if (!inManifest && !manifest.isFileAvailable(fileId, { excludeDeviceId: manifest.getDeviceId() })) continue;
-
-    // Find the document this file belongs to on this device (needed to persist
-    // + update filePath). If we don't know about it yet, skip — it'll be
-    // handled once state-sync delivers the document row.
-    const doc = documents.find((d) => d.fileId === fileId);
-    if (!doc) continue;
-
-    await downloadDocumentFile(doc, fileId, transferManager);
+  for (const fileId of availableFileIds ?? []) {
+    if (fileId) pendingAutoDownloads.set(fileId, sourceDeviceId);
   }
+  if (autoDownloadPass) return autoDownloadPass;
+
+  autoDownloadPass = (async () => {
+    try {
+      while (pendingAutoDownloads.size > 0) {
+        const work = Array.from(pendingAutoDownloads.entries());
+        pendingAutoDownloads.clear();
+        const mode = useSettingsStore.getState().settings.sync?.autoDownloadMode ?? "wifi-only";
+        if (mode === "manual") continue;
+        if (mode === "wifi-only" && !(await isOnWifi())) continue;
+
+        const documents = useDocumentStore.getState().documents;
+        const manifest = getFileManifest();
+        const transferManager = getFileTransferManager();
+        const candidates = work.flatMap(([fileId, sourceDeviceId]) => {
+          if (sourceDeviceId === manifest.getDeviceId() || transferManager.hasFileLocal(fileId)) return [];
+          const inManifest = manifest.getAllFiles().some((f) => f.id === fileId);
+          if (!inManifest && !manifest.isFileAvailable(fileId, { excludeDeviceId: manifest.getDeviceId() })) return [];
+          const doc = documents.find((d) => d.fileId === fileId);
+          return doc ? [{ doc, fileId }] : [];
+        });
+
+        let next = 0;
+        const worker = async () => {
+          while (next < candidates.length) {
+            const index = next++;
+            const candidate = candidates[index];
+            const estimate = manifest.getFile(candidate.fileId)?.sizeBytes;
+            await scheduleProgressiveSyncWork({
+              id: `sync:auto-download:${candidate.fileId}`,
+              lane: "P2",
+              kind: "sliceable",
+              estimatedBytes: Number.isFinite(estimate) ? estimate : undefined,
+              maxRetries: 0,
+              run: async (transferContext) => {
+                if (transferContext.shouldYield()) await transferContext.yield();
+                await downloadDocumentFile(candidate.doc, candidate.fileId, transferManager);
+              },
+            });
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_AUTO_TRANSFERS, candidates.length) }, worker));
+      }
+    } finally {
+      autoDownloadPass = null;
+      // An event can arrive between the final check and clearing the promise.
+      if (pendingAutoDownloads.size > 0) void maybeAutoDownload([], "");
+    }
+  })();
+  return autoDownloadPass;
 }
 
 async function maybeAutoDownloadIntent(intent: {

@@ -201,6 +201,8 @@ export function useVirtualList<T>({
 interface DynamicVirtualListProps<T> {
   items: T[];
   renderItem: (item: T, index: number) => ReactNode;
+  /** Stable identity used for height measurements. Falls back to item.id/key. */
+  itemKey?: (item: T, index: number) => string;
   defaultItemHeight?: number;
   estimateSize?: number; // Alias for defaultItemHeight
   overscan?: number;
@@ -226,6 +228,7 @@ interface DynamicVirtualListProps<T> {
 export function DynamicVirtualList<T>({
   items,
   renderItem,
+  itemKey,
   defaultItemHeight = 100,
   estimateSize,
   overscan = 3,
@@ -252,8 +255,44 @@ export function DynamicVirtualList<T>({
   );
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
-  const itemHeightsRef = useRef<Map<number, number>>(new Map());
+  const itemHeightsRef = useRef<Map<string, number>>(new Map());
+  const measurementPassesRef = useRef<Map<string, number>>(new Map());
+  const refCallbacksRef = useRef<Map<string, (element: HTMLElement | null) => void>>(new Map());
+  const measureItemRef = useRef<(key: string, element: HTMLElement | null) => void>(() => {});
+  const lastListSignatureRef = useRef("");
+  const heightRevisionRef = useRef(0);
+  const prefixCacheRef = useRef<{ signature: string; revision: number; estimate: number; values: number[] } | null>(null);
   const [_, forceUpdate] = useState({});
+
+  const getItemKey = useCallback(
+    (item: T, index: number): string => {
+      if (itemKey) return itemKey(item, index);
+      if (item && typeof item === "object") {
+        const value = item as unknown as { id?: unknown; key?: unknown; _id?: unknown };
+        const candidate = value.id ?? value.key ?? value._id;
+        if (typeof candidate === "string" || typeof candidate === "number") return String(candidate);
+      }
+      return String(index);
+    },
+    [itemKey],
+  );
+
+  const itemKeys = items.map(getItemKey);
+  const listSignature = itemKeys.join("\u001f");
+  if (lastListSignatureRef.current !== listSignature) {
+    // Keep id-keyed heights for items that remain in the list, but reset the
+    // convergence cap whenever the list changes.
+    lastListSignatureRef.current = listSignature;
+    measurementPassesRef.current.clear();
+    const liveKeys = new Set(itemKeys);
+    for (const key of itemHeightsRef.current.keys()) {
+      if (!liveKeys.has(key)) itemHeightsRef.current.delete(key);
+    }
+    for (const key of refCallbacksRef.current.keys()) {
+      if (!liveKeys.has(key)) refCallbacksRef.current.delete(key);
+    }
+    heightRevisionRef.current += 1;
+  }
 
   useEffect(() => {
     const container = containerRef.current;
@@ -278,34 +317,35 @@ export function DynamicVirtualList<T>({
     };
   }, []);
 
-  // Get item height (use measured or default)
-  const getItemHeight = (index: number) => {
-    return itemHeightsRef.current.get(index) || itemHeight;
+  const getItemHeight = (index: number): number => {
+    const key = itemKeys[index];
+    const measured = itemHeightsRef.current.get(key);
+    return measured === undefined && !itemHeightsRef.current.has(key) ? itemHeight : measured as number;
   };
 
-  // Calculate positions
-  const getItemOffset = (index: number) => {
-    let offset = 0;
-    for (let i = 0; i < index; i++) {
-      offset += getItemHeight(i);
-    }
-    return offset;
-  };
-
-  // Calculate total height
-  const totalHeight = getItemOffset(items.length);
+  // Prefix sums turn every offset lookup into O(1). Rebuild only after the
+  // item list or a measured height changes.
+  const cachedPrefix = prefixCacheRef.current;
+  if (!cachedPrefix || cachedPrefix.signature !== listSignature || cachedPrefix.revision !== heightRevisionRef.current || cachedPrefix.estimate !== itemHeight) {
+    const values = new Array<number>(items.length + 1);
+    values[0] = 0;
+    for (let i = 0; i < items.length; i += 1) values[i + 1] = values[i] + getItemHeight(i);
+    prefixCacheRef.current = { signature: listSignature, revision: heightRevisionRef.current, estimate: itemHeight, values };
+  }
+  const prefixSums = prefixCacheRef.current.values;
+  const getItemOffset = (index: number) => prefixSums[Math.max(0, Math.min(index, items.length))];
+  const totalHeight = prefixSums[items.length];
 
   // Find start index based on scroll position
   const findStartIndex = () => {
-    let offset = 0;
-    for (let i = 0; i < items.length; i++) {
-      const height = getItemHeight(i);
-      if (offset + height > scrollTop) {
-        return Math.max(0, i - overscan);
-      }
-      offset += height;
+    let low = 0;
+    let high = items.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (prefixSums[middle + 1] <= scrollTop) low = middle + 1;
+      else high = middle;
     }
-    return 0;
+    return Math.max(0, low - overscan);
   };
 
   // Find end index based on container height
@@ -324,17 +364,36 @@ export function DynamicVirtualList<T>({
   const endIndex = findEndIndex(startIndex);
   const visibleItems = items.slice(startIndex, endIndex);
 
-  // Measure item height after render
-  const measureItem = (index: number, element: HTMLElement | null) => {
-    if (element) {
-      const height = element.getBoundingClientRect().height;
-      const currentHeight = itemHeightsRef.current.get(index);
-      if (currentHeight !== height) {
-        itemHeightsRef.current.set(index, height);
-        forceUpdate({});
-      }
+  const MAX_MEASURE_PASSES = 3;
+  measureItemRef.current = (key, element) => {
+    if (!element) return;
+    const height = element.getBoundingClientRect().height;
+    const hasCachedHeight = itemHeightsRef.current.has(key);
+    const cachedHeight = itemHeightsRef.current.get(key) ?? itemHeight;
+    const delta = Math.abs(height - cachedHeight);
+    if (!hasCachedHeight) {
+      itemHeightsRef.current.set(key, height);
+      heightRevisionRef.current += 1;
+      forceUpdate({});
+      return;
     }
+    if (delta <= 0.5) return;
+    const passes = measurementPassesRef.current.get(key) ?? 0;
+    if (passes >= MAX_MEASURE_PASSES) return;
+    measurementPassesRef.current.set(key, passes + 1);
+    itemHeightsRef.current.set(key, height);
+    heightRevisionRef.current += 1;
+    forceUpdate({});
   };
+
+  const getMeasureRef = useCallback((key: string) => {
+    let callback = refCallbacksRef.current.get(key);
+    if (!callback) {
+      callback = (element: HTMLElement | null) => measureItemRef.current(key, element);
+      refCallbacksRef.current.set(key, callback);
+    }
+    return callback;
+  }, []);
 
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
@@ -359,8 +418,8 @@ export function DynamicVirtualList<T>({
 
           return (
             <div
-              key={actualIndex}
-              ref={(el) => measureItem(actualIndex, el)}
+              key={itemKeys[actualIndex]}
+              ref={getMeasureRef(itemKeys[actualIndex])}
               style={{
                 position: "absolute",
                 top: offset,

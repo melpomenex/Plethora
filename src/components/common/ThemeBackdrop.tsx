@@ -1327,7 +1327,11 @@ export function ThemeBackdrop() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animIdRef = useRef<number | null>(null);
   const timersRef = useRef<number[]>([]);
-  const resizeFnRef = useRef<(() => void) | null>(null);
+  // Keep the DOM listener and animation-provided resize callback separate.
+  // Animations may call onResize() after the listener was installed; using one
+  // ref for both made cleanup remove a function that was never registered.
+  const registeredResizeFnRef = useRef<(() => void) | null>(null);
+  const animationResizeFnRef = useRef<(() => void) | null>(null);
   const curTypeRef = useRef<string | null>(null);
   const [suspended, setSuspended] = useState(false);
   const [isVisible, setIsVisible] = useState(!document.hidden);
@@ -1414,7 +1418,11 @@ export function ThemeBackdrop() {
 
     if (animIdRef.current !== null) { cancelAnimationFrame(animIdRef.current); animIdRef.current = null; }
     timersRef.current.forEach(t => clearInterval(t)); timersRef.current = [];
-    if (resizeFnRef.current) { window.removeEventListener("resize", resizeFnRef.current); resizeFnRef.current = null; }
+    if (registeredResizeFnRef.current) {
+      window.removeEventListener("resize", registeredResizeFnRef.current);
+      registeredResizeFnRef.current = null;
+    }
+    animationResizeFnRef.current = null;
     ctx.clearRect(0, 0, cv.width, cv.height);
     document.querySelectorAll(".anim-flash").forEach(e => e.remove());
     curTypeRef.current = animation;
@@ -1423,9 +1431,13 @@ export function ThemeBackdrop() {
     if (!isVisible) return;
 
     // Resize handler
-    function resize() { cv.width = window.innerWidth; cv.height = window.innerHeight; }
+    function resize() {
+      cv.width = window.innerWidth;
+      cv.height = window.innerHeight;
+      animationResizeFnRef.current?.();
+    }
     resize();
-    resizeFnRef.current = resize;
+    registeredResizeFnRef.current = resize;
     window.addEventListener("resize", resize);
 
     // Find matching animation function (exact match, or prefix match for backwards compat)
@@ -1436,7 +1448,11 @@ export function ThemeBackdrop() {
       const match = keys.find(k => k.startsWith(animation) || animation.startsWith(k));
       if (match) fn = _ANIM[match];
     }
-    if (!fn) return;
+    if (!fn) {
+      window.removeEventListener("resize", resize);
+      registeredResizeFnRef.current = null;
+      return;
+    }
 
     // Create animation context with battery-aware density and frame throttling
     let lastTime = 0;
@@ -1455,7 +1471,7 @@ export function ThemeBackdrop() {
       density: effectiveDensity,
       _frameInterval: BACKDROP_FRAME_INTERVAL,
       timer(id: number) { timersRef.current.push(id); },
-      onResize(fn: () => void) { resizeFnRef.current = fn; },
+      onResize(fn: () => void) { animationResizeFnRef.current = fn; },
       frame(id: number) { animIdRef.current = id; },
       shouldRender,
     });
@@ -1463,7 +1479,11 @@ export function ThemeBackdrop() {
     return () => {
       if (animIdRef.current !== null) { cancelAnimationFrame(animIdRef.current); animIdRef.current = null; }
       timersRef.current.forEach(t => clearInterval(t)); timersRef.current = [];
-      if (resizeFnRef.current) { window.removeEventListener("resize", resizeFnRef.current); resizeFnRef.current = null; }
+      if (registeredResizeFnRef.current) {
+        window.removeEventListener("resize", registeredResizeFnRef.current);
+        registeredResizeFnRef.current = null;
+      }
+      animationResizeFnRef.current = null;
       document.querySelectorAll(".anim-flash").forEach(e => e.remove());
       curTypeRef.current = null;
     };

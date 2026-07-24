@@ -51,6 +51,7 @@ mod sponsorblock;
 
 use anyhow::Context;
 use database::Database;
+use std::collections::HashSet;
 use std::io::Write;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -114,6 +115,9 @@ pub enum StartupNotice {
     /// A fresh database was created, but we found an auto-backup file
     /// in the public Downloads directory. The user may want to restore it.
     AutoBackupFound { backup_path: String },
+    /// External file-level sync left SQLite conflict/corrupt siblings beside
+    /// the live database. The files are preserved; the frontend only warns.
+    DatabaseIntegrityWarning { artifacts: Vec<String> },
 }
 
 mod startup_notice {
@@ -177,6 +181,110 @@ fn log_startup(app: &tauri::AppHandle, message: &str) {
     {
         let timestamp = chrono::Utc::now().to_rfc3339();
         let _ = writeln!(file, "[{timestamp}] {message}");
+    }
+}
+
+/// Find SQLite conflict artifacts without mutating them. A marker keeps the
+/// same set from reappearing on every launch; a newly-created sibling changes
+/// the signature and raises the notice again.
+fn detect_database_integrity_artifacts(app: &tauri::AppHandle, app_dir: &std::path::Path) {
+    let mut artifact_entries: Vec<(String, String)> = Vec::new();
+    let entries = match std::fs::read_dir(app_dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            tracing::warn!("database integrity scan skipped: {}", err);
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        if name.contains(".sync-conflict-") || name.contains(".corrupt-") {
+            let metadata = match entry.metadata() {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            let modified = metadata
+                .modified()
+                .ok()
+                .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|value| value.as_nanos())
+                .unwrap_or_default();
+            let path_string = path.display().to_string();
+            artifact_entries.push((
+                path_string.clone(),
+                format!("{}|{}|{}", path_string, metadata.len(), modified),
+            ));
+        }
+    }
+    artifact_entries.sort_by(|left, right| left.0.cmp(&right.0));
+    if artifact_entries.is_empty() {
+        return;
+    }
+    let artifacts: Vec<String> = artifact_entries.iter().map(|(path, _)| path.clone()).collect();
+    let marker = app_dir.join(".database-integrity-notice");
+    let signature = artifact_entries
+        .iter()
+        .map(|(_, signature)| signature.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let previous = std::fs::read_to_string(&marker).unwrap_or_default();
+    if previous == signature {
+        return;
+    }
+    if let Err(err) = std::fs::write(&marker, &signature) {
+        tracing::warn!("failed to persist database integrity notice marker: {}", err);
+    }
+    startup_notice::set(app, StartupNotice::DatabaseIntegrityWarning { artifacts });
+}
+
+/// Remove stranded podcast download files in the background. Active episode
+/// IDs are excluded so a live transcription can never lose its input.
+fn sweep_orphaned_transcription_temp_files(
+    app: tauri::AppHandle,
+    active_episode_ids: HashSet<String>,
+) {
+    let temp_dir = match app.path().app_data_dir() {
+        Ok(path) => path.join("temp_transcription"),
+        Err(err) => {
+            tracing::debug!("transcription temp sweep skipped: {}", err);
+            return;
+        }
+    };
+    let now = std::time::SystemTime::now();
+    let max_age = std::time::Duration::from_secs(24 * 60 * 60);
+    let entries = match std::fs::read_dir(&temp_dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return,
+        Err(err) => {
+            tracing::debug!("transcription temp sweep unreadable: {}", err);
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(metadata) = entry.metadata() else { continue };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(modified) = metadata.modified() else { continue };
+        let Ok(age) = now.duration_since(modified) else { continue };
+        if age <= max_age {
+            continue;
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let active = active_episode_ids.iter().any(|id| name.starts_with(&format!("{}_episode.", id)));
+        if active {
+            continue;
+        }
+        if let Err(err) = std::fs::remove_file(&path) {
+            tracing::debug!("failed to remove orphaned transcription temp file {}: {}", path.display(), err);
+        } else {
+            tracing::info!("removed orphaned transcription temp file {}", path.display());
+        }
     }
 }
 
@@ -763,6 +871,10 @@ pub fn run() {
 
                 log_startup(&app_handle, "startup: app data dir ready");
 
+                // Never mutate SQLite siblings created by an external file
+                // sync tool; preserve them and surface a dismissible notice.
+                detect_database_integrity_artifacts(&app_handle, &app_dir);
+
                 let db_path = app_dir.join("incrementum.db");
 
                 let (db, db_outcome) = Database::open_or_recover(db_path)
@@ -855,6 +967,16 @@ pub fn run() {
                         app.handle().clone(),
                         repo.clone(),
                     ),
+                });
+
+                let active_episode_ids = app
+                    .state::<commands::podcast::PodcastTranscriptionTokens>()
+                    .lock()
+                    .map(|tokens| tokens.keys().cloned().collect::<HashSet<_>>())
+                    .unwrap_or_default();
+                let sweep_app = app_handle.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    sweep_orphaned_transcription_temp_files(sweep_app, active_episode_ids);
                 });
 
                 // block app startup.  Providers are registered into the managed

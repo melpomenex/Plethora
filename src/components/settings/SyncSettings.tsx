@@ -14,6 +14,7 @@ import {
 import { createNewSyncRoomId, getSyncRoomId, setSyncRoomId, rejoinRoom, updateYjsSyncStatus } from "../../lib/yjsSync";
 import { useI18n } from "../../lib/i18n";
 import { isNativeMobile, isPWA } from "../../lib/tauri";
+import { getStartupRequestCounts, getSyncTelemetry, type SyncPhaseSample } from "../../lib/sync/syncTelemetry";
 import { startSyncSubsystems } from "../../lib/startSyncSubsystems";
 import { QRCodeCanvas } from "qrcode.react";
 import { SyncQrScanner } from "./SyncQrScanner";
@@ -55,11 +56,42 @@ export function SyncSettings() {
   // `roomSecret` is null only until the secret finishes loading/provisioning.
   const [roomSecret, setRoomSecret] = useState<string | null>(null);
   const [revealSecret, setRevealSecret] = useState(false);
+  const [diagnosticsTick, setDiagnosticsTick] = useState(0);
 
   const { settings, updateSettings } = useSettingsStore();
   const syncSettings = settings.sync ?? DEFAULT_SYNC_SETTINGS;
   const yjsSettings = syncSettings.yjs ?? DEFAULT_SYNC_SETTINGS.yjs;
   const autoDownloadMode = syncSettings?.autoDownloadMode ?? "wifi-only";
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setDiagnosticsTick((value) => value + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const telemetry = useMemo(() => getSyncTelemetry(), [diagnosticsTick]);
+  const startupRequestCounts = useMemo(() => getStartupRequestCounts(), [diagnosticsTick]);
+
+  const copySyncDiagnostics = async () => {
+    const report = JSON.stringify({ telemetry, startupRequestCounts }, null, 2);
+    try {
+      await navigator.clipboard.writeText(report);
+      setRoomMessage("Sync diagnostics copied");
+    } catch {
+      setRoomMessage("Unable to copy sync diagnostics");
+    }
+  };
+
+  const formatBytes = (bytes?: number) => {
+    if (!bytes || bytes < 1024) return `${Math.round(bytes ?? 0)} B`;
+    const units = ["KB", "MB", "GB"];
+    let value = bytes;
+    let unit = -1;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+    return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
+  };
 
   const [customUrl, setCustomUrl] = useState(yjsSettings.url || "");
 
@@ -273,6 +305,41 @@ export function SyncSettings() {
           <p className="text-sm text-muted-foreground">
             Sync your reading data across your devices over a shared sync room.
           </p>
+        </div>
+      </div>
+
+      <div className="bg-card border border-border rounded-lg p-6">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Sync diagnostics</h3>
+            <p className="text-xs text-muted-foreground">Phase timings and byte volumes from the current session.</p>
+          </div>
+          <button onClick={() => { void copySyncDiagnostics(); }} className="px-3 py-2 bg-muted text-foreground rounded text-xs flex items-center gap-1">
+            <Copy className="w-3 h-3" /> Copy report
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead className="text-muted-foreground border-b border-border">
+              <tr><th className="py-2 pr-3">Phase</th><th className="py-2 pr-3">Duration</th><th className="py-2 pr-3">Records</th><th className="py-2 pr-3">Bytes</th><th className="py-2">Outcome</th></tr>
+            </thead>
+            <tbody>
+              {telemetry.length === 0 ? (
+                <tr><td colSpan={5} className="py-3 text-muted-foreground">No sync phases recorded yet.</td></tr>
+              ) : telemetry.map((sample: SyncPhaseSample, index) => (
+                <tr key={`${sample.startedAt}-${index}`} className="border-b border-border/50">
+                  <td className="py-2 pr-3 font-mono">{sample.phase}</td>
+                  <td className="py-2 pr-3">{Math.round(sample.durationMs ?? 0)} ms</td>
+                  <td className="py-2 pr-3">{sample.records ?? 0}</td>
+                  <td className="py-2 pr-3">{formatBytes(sample.bytes)}</td>
+                  <td className={sample.outcome === "error" ? "py-2 text-destructive" : "py-2"}>{sample.outcome ?? "pending"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-3 text-xs text-muted-foreground">
+          Startup requests: {Object.entries(startupRequestCounts).map(([request, count]) => `${request} (${count})`).join(", ") || "none"}
         </div>
       </div>
 

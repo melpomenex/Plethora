@@ -41,6 +41,8 @@ import {
   ASSISTANT_CONVERSATIONS_KEY,
 } from "./entities/conversations";
 import type { Collection } from "../../types/collection";
+import type { SyncWorkContext } from "./progressiveScheduler";
+import { recordSyncWorkSize } from "./syncTelemetry";
 
 // Bumped to v3 when assistant-conversation seeding was added. Existing devices
 // that already seeded under v2 will re-seed (cheap: conversations are small)
@@ -61,6 +63,7 @@ export type ProgressListener = (p: MigrationProgress) => void;
  */
 export async function runSyncMigrationIfNeeded(
   onProgress?: ProgressListener,
+  context?: SyncWorkContext,
 ): Promise<void> {
   if (!isTauri()) return;
   const room = getSyncRoomId();
@@ -70,10 +73,10 @@ export async function runSyncMigrationIfNeeded(
   }
 
   try {
-    await seedCollections(onProgress);
-    await seedExtracts(onProgress);
-    await seedConversations(onProgress);
-    await seedCards(onProgress);
+    await seedCollections(onProgress, context);
+    await seedExtracts(onProgress, context);
+    await seedConversations(onProgress, context);
+    await seedCards(onProgress, context);
     // RSS feeds + podcast feeds seeding is left to Phase 4/5 follow-up wiring
     // (the publish entry points exist; this runner is intentionally focused on
     // the paramount case — cards — for v1). Each entity module's observe path
@@ -96,7 +99,7 @@ export async function runSyncMigrationIfNeeded(
  * if the room already has a newer copy of a card (two devices both had it), the
  * merge correctly keeps the newer one.
  */
-async function seedCards(onProgress?: ProgressListener): Promise<void> {
+async function seedCards(onProgress?: ProgressListener, context?: SyncWorkContext): Promise<void> {
   // Read every card (not just due). get_all_learning_items exists on the Rust
   // side; the TS wrapper returns the camelCase-or-snake row we normalize.
   const raw = await invokeCommand<unknown[]>("get_all_learning_items").catch(() => []);
@@ -114,7 +117,9 @@ async function seedCards(onProgress?: ProgressListener): Promise<void> {
   // independent and idempotent.
   const BATCH = 50;
   for (let i = 0; i < raw.length; i += BATCH) {
+    if (context?.shouldYield()) await context.yield();
     const slice = raw.slice(i, i + BATCH);
+    recordSyncWorkSize(safeJsonSize(slice), slice.length);
     await Promise.all(
       slice.map(async (row) => {
         const synced = toSyncedLearningItem(row as Record<string, unknown>);
@@ -129,14 +134,14 @@ async function seedCards(onProgress?: ProgressListener): Promise<void> {
     done += slice.length;
     onProgress?.({ total, done, entity: "cards" });
     // Yield to the event loop between batches so the UI stays responsive.
-    await new Promise((r) => setTimeout(r, 0));
+    if (context) await context.yield();
   }
 }
 
 /**
  * Publish all local collections into Yjs.
  */
-async function seedCollections(onProgress?: ProgressListener): Promise<void> {
+async function seedCollections(onProgress?: ProgressListener, context?: SyncWorkContext): Promise<void> {
   const raw = await invokeCommand<Collection[]>("get_collections").catch(() => []);
   if (!Array.isArray(raw) || raw.length === 0) {
     onProgress?.({ total: 0, done: 0, entity: "collections" });
@@ -148,6 +153,8 @@ async function seedCollections(onProgress?: ProgressListener): Promise<void> {
 
   let done = 0;
   for (const col of raw) {
+    if (context?.shouldYield()) await context.yield();
+    recordSyncWorkSize(safeJsonSize(col), 1);
     await publishCollection(col);
     done += 1;
     onProgress?.({ total, done, entity: "collections" });
@@ -157,7 +164,7 @@ async function seedCollections(onProgress?: ProgressListener): Promise<void> {
 /**
  * Publish all local extracts into Yjs.
  */
-async function seedExtracts(onProgress?: ProgressListener): Promise<void> {
+async function seedExtracts(onProgress?: ProgressListener, context?: SyncWorkContext): Promise<void> {
   const raw = await invokeCommand<unknown[]>("get_extracts").catch(() => []);
   if (!Array.isArray(raw) || raw.length === 0) {
     onProgress?.({ total: 0, done: 0, entity: "extracts" });
@@ -170,7 +177,9 @@ async function seedExtracts(onProgress?: ProgressListener): Promise<void> {
   let done = 0;
   const BATCH = 50;
   for (let i = 0; i < raw.length; i += BATCH) {
+    if (context?.shouldYield()) await context.yield();
     const slice = raw.slice(i, i + BATCH);
+    recordSyncWorkSize(safeJsonSize(slice), slice.length);
     await Promise.all(
       slice.map(async (row) => {
         const synced = toSyncedExtract(row);
@@ -183,7 +192,7 @@ async function seedExtracts(onProgress?: ProgressListener): Promise<void> {
     );
     done += slice.length;
     onProgress?.({ total, done, entity: "extracts" });
-    await new Promise((r) => setTimeout(r, 0));
+    if (context) await context.yield();
   }
 }
 
@@ -193,7 +202,7 @@ async function seedExtracts(onProgress?: ProgressListener): Promise<void> {
  * publish each conversation entry individually so the receiver applies them
  * one-key-at-a-time (row-LWW per conversation, not whole-blob).
  */
-async function seedConversations(onProgress?: ProgressListener): Promise<void> {
+async function seedConversations(onProgress?: ProgressListener, context?: SyncWorkContext): Promise<void> {
   if (typeof window === "undefined" || !window.localStorage) {
     onProgress?.({ total: 0, done: 0, entity: "conversations" });
     return;
@@ -232,6 +241,7 @@ async function seedConversations(onProgress?: ProgressListener): Promise<void> {
   onProgress?.({ total, done: 0, entity: "conversations" });
   let done = 0;
   for (const key of keys) {
+    if (context?.shouldYield()) await context.yield();
     const conv = parsed[key];
     if (!conv || !Array.isArray(conv.messages) || conv.messages.length === 0) {
       done += 1;
@@ -239,6 +249,7 @@ async function seedConversations(onProgress?: ProgressListener): Promise<void> {
       continue;
     }
     try {
+      recordSyncWorkSize(safeJsonSize(conv), 1);
       await publishConversation(key, { messages: conv.messages, input: conv.input });
     } catch (err) {
       // Best-effort: a single failed conversation must not abort the rest.
@@ -246,6 +257,14 @@ async function seedConversations(onProgress?: ProgressListener): Promise<void> {
     }
     done += 1;
     onProgress?.({ total, done, entity: "conversations" });
+  }
+}
+
+function safeJsonSize(value: unknown): number {
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return 0;
   }
 }
 

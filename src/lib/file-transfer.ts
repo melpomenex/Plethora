@@ -29,6 +29,7 @@ import { WebsocketProvider } from "y-websocket";
 import { FileManifest, getDeviceId } from "./file-manifest";
 import { getSyncRoomId } from "./yjsSync";
 import { downloadRoomFile } from "./yjs-file-service";
+import { recordSyncWorkSize } from "./sync/syncTelemetry";
 
 /** Wire message-type byte for the file-transfer protocol. */
 const FILE_TRANSFER_TYPE = 0x20;
@@ -268,14 +269,12 @@ export class FileTransferManager {
   private inboundTransfers: Map<string, InboundTransfer> = new Map();
   private outboundTransfers: Map<string, OutboundTransfer> = new Map();
 
-  // File storage - maps fileId to Blob. Populated eagerly for received files
-  // (rehydrated from cache) and lazily for locally-owned files via loaders.
-  private localFiles: Map<string, Blob> = new Map();
-
-  // Lazy loaders for locally-owned files (e.g. imported documents on disk).
-  // The bytes are fetched on demand only when a peer requests the file, so the
-  // app doesn't hold every document's full content in RAM for the session.
-  private localFileLoaders: Map<string, () => Promise<Blob>> = new Map();
+  // Registry answers "which files can I serve?" and never owns file bytes.
+  private fileRegistry: Map<string, () => Promise<Blob>> = new Map();
+  // Bounded LRU answers "give me the bytes". Presence never depends on this.
+  private blobCache: Map<string, Blob> = new Map();
+  private blobCacheBytes = 0;
+  private readonly blobCacheByteLimit = 128 * 1024 * 1024;
 
   // Pending requests waiting for a source device
   private pendingRequests: Map<string, { fileId: string; resolve: (blob: Blob) => void; reject: (err: Error) => void }> =
@@ -291,7 +290,7 @@ export class FileTransferManager {
     // Rehydrate previously-received files from the IndexedDB cache so this
     // device can serve them to peers and the UI shows them as "synced" right
     // after launch instead of "waiting".
-    void this.rehydrateCachedFiles();
+    void this.rehydrateCachedFileIds();
 
     // Listen for custom messages (file transfer protocol)
     this.provider.awareness.on("change", this.handleAwarenessChange.bind(this));
@@ -326,27 +325,71 @@ export class FileTransferManager {
   }
 
   /**
-   * Load every cached file Blob into the in-memory localFiles map. Run once at
-   * construction. Failures are non-fatal — a missing cache just means the
-   * device can't seed that file until it's re-fetched.
+   * Register cached IDs without reading their bytes. Failures are non-fatal —
+   * a missing cache just means the device can't seed that file until re-fetched.
    */
-  private async rehydrateCachedFiles(): Promise<void> {
+  private async rehydrateCachedFileIds(): Promise<void> {
     try {
       const ids = await getAllCachedFileIds();
       for (const id of ids) {
-        const blob = await getCachedFile(id);
-        if (blob && blob.size > 0) {
-          this.localFiles.set(id, blob);
-        } else if (blob && blob.size === 0) {
-          await deleteCachedFile(id);
-        }
+        this.fileRegistry.set(id, () => getCachedFile(id).then((blob) => blob ?? new Blob()));
       }
-      if (this.localFiles.size > 0) {
+      if (ids.length > 0) {
         this.refreshPresence();
       }
     } catch (err) {
       console.warn("[FileTransferManager] failed to rehydrate cached files", err);
     }
+  }
+
+  private touchCachedBlob(fileId: string): Blob | undefined {
+    const blob = this.blobCache.get(fileId);
+    if (!blob) return undefined;
+    this.blobCache.delete(fileId);
+    this.blobCache.set(fileId, blob);
+    return blob;
+  }
+
+  private cacheBlob(fileId: string, blob: Blob): void {
+    const previous = this.blobCache.get(fileId);
+    if (previous) this.blobCacheBytes -= previous.size;
+    this.blobCache.delete(fileId);
+    // A transfer larger than the cap remains usable for its current caller,
+    // but is not retained after the transfer completes.
+    if (blob.size <= this.blobCacheByteLimit) {
+      this.blobCache.set(fileId, blob);
+      this.blobCacheBytes += blob.size;
+    }
+    while (this.blobCacheBytes > this.blobCacheByteLimit) {
+      const oldest = this.blobCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      const evicted = this.blobCache.get(oldest);
+      this.blobCache.delete(oldest);
+      this.blobCacheBytes -= evicted?.size ?? 0;
+    }
+  }
+
+  private dropCachedBlob(fileId: string): void {
+    const blob = this.blobCache.get(fileId);
+    if (blob) this.blobCacheBytes -= blob.size;
+    this.blobCache.delete(fileId);
+  }
+
+  private async resolveLocalBlob(fileId: string): Promise<Blob | null> {
+    const cached = this.touchCachedBlob(fileId);
+    if (cached) return cached;
+    const loader = this.fileRegistry.get(fileId);
+    if (!loader) return null;
+    const blob = await loader();
+    if (!blob || blob.size === 0) {
+      this.dropCachedBlob(fileId);
+      this.fileRegistry.delete(fileId);
+      this.refreshPresence();
+      void deleteCachedFile(fileId).catch(() => {});
+      return null;
+    }
+    this.cacheBlob(fileId, blob);
+    return blob;
   }
 
   private setupWebSocketHandlers(ws: WebSocket): void {
@@ -403,9 +446,7 @@ export class FileTransferManager {
       return;
     }
 
-    const fileBlob = this.localFiles.get(fileId);
-    const loader = this.localFileLoaders.get(fileId);
-    if (!fileBlob && !loader) {
+    if (!this.fileRegistry.has(fileId)) {
       // We don't have it (neither eager nor lazy), ignore. If our own
       // presence somehow listed it, refresh so peers stop requesting us.
       const presence = this.manifest.getDevicePresence(this.deviceId);
@@ -418,13 +459,10 @@ export class FileTransferManager {
     // Notify listeners about the request
     this.emit({ type: "transfer-requested", fileId, requestId, requesterDeviceId });
 
-    // Resolve the blob: use the eager copy if present, otherwise invoke the
-    // lazy loader to read bytes from disk on demand. The actual transfer
-    // (chunking + sending) only happens once we have the bytes.
     const resolveAndSend = async (blob: Blob) => {
       if (blob.size === 0) {
-        this.localFiles.delete(fileId);
-        this.localFileLoaders.delete(fileId);
+        this.dropCachedBlob(fileId);
+        this.fileRegistry.delete(fileId);
         this.refreshPresence();
         void deleteCachedFile(fileId).catch((err) => {
           console.warn("[FileTransferManager] failed to delete empty cached file", fileId, err);
@@ -448,35 +486,23 @@ export class FileTransferManager {
       await this.startOutboundTransfer(fileId, requestId, requesterDeviceId, blob);
     };
 
-    if (fileBlob) {
-      if (fileBlob.size === 0) {
-        this.localFiles.delete(fileId);
-        this.refreshPresence();
-        void deleteCachedFile(fileId).catch((err) => {
-          console.warn("[FileTransferManager] failed to delete empty cached file", fileId, err);
-        });
+    void this.resolveLocalBlob(fileId)
+      .then((blob) => {
+        if (!blob) {
+          this.sendMessage({ type: "file-error", fileId, requestId, error: "Source file is empty" });
+          return;
+        }
+        return resolveAndSend(blob);
+      })
+      .catch((err) => {
+        console.warn("[FileTransferManager] lazy loader failed for", fileId, err);
         this.sendMessage({
           type: "file-error",
           fileId,
           requestId,
-          error: "Source file is empty",
+          error: `Source could not read file: ${(err as Error).message}`,
         });
-      } else {
-        void resolveAndSend(fileBlob);
-      }
-    } else if (loader) {
-      loader()
-        .then((blob) => resolveAndSend(blob))
-        .catch((err) => {
-          console.warn("[FileTransferManager] lazy loader failed for", fileId, err);
-          this.sendMessage({
-            type: "file-error",
-            fileId,
-            requestId,
-            error: `Source could not read file: ${(err as Error).message}`,
-          });
-        });
-    }
+      });
   }
 
   private handleFileResponse(msg: { type: "file-response"; fileId?: string; requestId: string; accepted: boolean; totalChunks: number }): void {
@@ -586,7 +612,8 @@ export class FileTransferManager {
    */
   registerLocalFile(fileId: string, blob: Blob): void {
     if (blob.size === 0) {
-      this.localFiles.delete(fileId);
+      this.dropCachedBlob(fileId);
+      this.fileRegistry.delete(fileId);
       this.refreshPresence();
       void deleteCachedFile(fileId).catch((err) => {
         console.warn("[FileTransferManager] failed to delete empty cached file", fileId, err);
@@ -594,8 +621,8 @@ export class FileTransferManager {
       return;
     }
 
-    this.localFiles.set(fileId, blob);
-    this.localFileLoaders.delete(fileId);
+    this.fileRegistry.set(fileId, async () => blob);
+    this.cacheBlob(fileId, blob);
     this.refreshPresence();
   }
 
@@ -607,10 +634,10 @@ export class FileTransferManager {
    * not be pinned in memory.
    */
   registerLocalFileLoader(fileId: string, loader: () => Promise<Blob>): void {
-    this.localFileLoaders.set(fileId, loader);
+    this.fileRegistry.set(fileId, loader);
     // If we previously had an in-memory copy, drop it — the loader is now the
     // source of truth, and we don't want to advertise/serve a stale blob.
-    this.localFiles.delete(fileId);
+    this.dropCachedBlob(fileId);
     this.refreshPresence();
   }
 
@@ -619,17 +646,15 @@ export class FileTransferManager {
    * what we advertise in our presence so peers know what they can request.
    */
   private allOwnedFileIds(): string[] {
-    const ids = new Set<string>(this.localFiles.keys());
-    for (const id of this.localFileLoaders.keys()) ids.add(id);
-    return Array.from(ids);
+    return Array.from(this.fileRegistry.keys());
   }
 
   /**
    * Unregister a local file
    */
   unregisterLocalFile(fileId: string): void {
-    this.localFiles.delete(fileId);
-    this.localFileLoaders.delete(fileId);
+    this.dropCachedBlob(fileId);
+    this.fileRegistry.delete(fileId);
     this.refreshPresence();
   }
 
@@ -687,16 +712,9 @@ export class FileTransferManager {
    * Request a file from other devices
    */
   async requestFile(fileId: string): Promise<Blob> {
-    const local = this.localFiles.get(fileId);
-    if (local && local.size > 0) {
-      return local;
-    }
-    if (local && local.size === 0) {
-      this.localFiles.delete(fileId);
-      this.refreshPresence();
-      void deleteCachedFile(fileId).catch((err) => {
-        console.warn("[FileTransferManager] failed to delete empty cached file", fileId, err);
-      });
+    if (this.fileRegistry.has(fileId)) {
+      const local = await this.resolveLocalBlob(fileId).catch(() => null);
+      if (local) return local;
     }
 
     // Try downloading from the HTTP file-service first (server-backed async sync)
@@ -704,7 +722,8 @@ export class FileTransferManager {
       const room = getSyncRoomId();
       const blob = await downloadRoomFile(room, fileId);
       if (blob && blob.size > 0) {
-        this.localFiles.set(fileId, blob);
+        this.fileRegistry.set(fileId, () => getCachedFile(fileId).then((cached) => cached ?? new Blob()));
+        this.cacheBlob(fileId, blob);
         this.refreshPresence();
         await cacheFile(fileId, blob).catch((e) => {
           console.warn("[FileTransferManager] failed to cache downloaded file", fileId, e);
@@ -795,23 +814,26 @@ export class FileTransferManager {
       return;
     }
 
-    const combined = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      combined.set(chunk, offset);
-      offset += chunk.length;
-    }
-
     const entry = this.manifest.getFile(transfer.fileId);
-    const blob = new Blob([combined], { type: entry?.contentType || "application/octet-stream" });
+    const blob = new Blob(chunks, { type: entry?.contentType || "application/octet-stream" });
+    // The chunk map is no longer needed once Blob has taken ownership of the
+    // ordered parts. Release it before persistence/IPC can retain the transfer.
+    transfer.receivedChunks.clear();
+    recordSyncWorkSize(totalLength, transfer.totalChunks);
 
-    this.localFiles.set(transfer.fileId, blob);
+    this.cacheBlob(transfer.fileId, blob);
+    this.fileRegistry.set(transfer.fileId, () => getCachedFile(transfer.fileId).then((cached) => cached ?? new Blob()));
     this.refreshPresence();
 
     // Persist to IndexedDB so the file survives a reload. Without this, a
     // received file lived only in this manager's in-memory map and was lost
     // the moment the app closed — leaving the UI stuck on "waiting" forever.
-    cacheFile(transfer.fileId, blob).catch((err) => {
+    const persistence = cacheFile(transfer.fileId, blob);
+    this.fileRegistry.set(transfer.fileId, async () => {
+      await persistence;
+      return (await getCachedFile(transfer.fileId)) ?? new Blob();
+    });
+    persistence.catch((err) => {
       console.warn("[FileTransferManager] failed to cache received file", transfer.fileId, err);
     });
 
@@ -873,7 +895,7 @@ export class FileTransferManager {
    * Check if a file is available locally (eager blob or lazy loader).
    */
   hasFileLocal(fileId: string): boolean {
-    return this.localFiles.has(fileId) || this.localFileLoaders.has(fileId);
+    return this.fileRegistry.has(fileId);
   }
 
   /**
@@ -882,7 +904,7 @@ export class FileTransferManager {
    * should go through requestFile, which invokes the loader.
    */
   getLocalFile(fileId: string): Blob | undefined {
-    return this.localFiles.get(fileId);
+    return this.touchCachedBlob(fileId);
   }
 
   /**
@@ -935,6 +957,9 @@ export class FileTransferManager {
     this.inboundTransfers.clear();
     this.outboundTransfers.clear();
     this.pendingRequests.clear();
+    this.fileRegistry.clear();
+    this.blobCache.clear();
+    this.blobCacheBytes = 0;
   }
 
   subscribe(listener: FileTransferListener): () => void {

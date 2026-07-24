@@ -337,6 +337,15 @@ export function MainLayout() {
       });
     };
 
+    const showDatabaseIntegrityToast = (artifacts: string[]) => {
+      const names = artifacts.map((path) => path.split(/[\\/]/).pop() || path).join(", ");
+      toast.warning(
+        "Database sync conflict files found",
+        `External file sync may corrupt SQLite. Preserved files: ${names}`,
+        { duration: 0, action: { label: t("mainLayout.openSettings"), onClick: () => openTabByType("settings") } },
+      );
+    };
+
     // 1) Pull any pending notice that was generated before the webview booted.
     invokeCommand<StartupNotice | null>("consume_startup_notice")
       .then((notice) => {
@@ -353,6 +362,8 @@ export function MainLayout() {
             } else if ("AutoBackupFound" in notice) {
               const backupPath = notice.AutoBackupFound.backup_path;
               showAutoBackupToast(backupPath);
+            } else if ("DatabaseIntegrityWarning" in notice) {
+              showDatabaseIntegrityToast(notice.DatabaseIntegrityWarning.artifacts);
             }
           }
         } else {

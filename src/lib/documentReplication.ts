@@ -39,6 +39,7 @@ import { getDocument, getDocuments } from "../api/documents";
 import { writeTombstone, isTombstone } from "./sync/tombstone";
 import { getDeviceId } from "./file-manifest";
 import { syncClockCache } from "./sync/clockCache";
+import { recordSyncWorkSize } from "./sync/syncTelemetry";
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
@@ -108,7 +109,11 @@ export async function ensureDocumentReplicationReady(): Promise<void> {
         });
         // Process anything already in the map (e.g. docs published before this
         // device joined the room).
+        let replayBytes = 0;
+        let replayRecords = 0;
         documentsMap.forEach((value, key) => {
+          replayRecords += 1;
+          try { replayBytes += JSON.stringify(value)?.length ?? 0; } catch { /* diagnostic only */ }
           const remoteClock = value.dateModified || value.dateAdded;
           if (remoteClock) {
             const clockStr = typeof remoteClock === "string" ? remoteClock : new Date(remoteClock).toISOString();
@@ -122,6 +127,7 @@ export async function ensureDocumentReplicationReady(): Promise<void> {
             run: () => handleRemoteDocument(key),
           });
         });
+        if (replayRecords > 0) recordSyncWorkSize(replayBytes, replayRecords);
         initialized = true;
       } catch (err) {
         // Reset so a later call can retry — mirrors the file-sync fix.
