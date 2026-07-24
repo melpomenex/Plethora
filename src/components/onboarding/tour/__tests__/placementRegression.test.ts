@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { resolveCoachPlacement } from "/Users/mini/incrementum-tauri/src/components/onboarding/tour/placement";
+import { resolveCoachPlacement } from "../placement";
 
 describe("placement regression: bottom-nav anchor", () => {
   // Simulate a mobile viewport with the queue button near the bottom edge.

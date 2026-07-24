@@ -19,7 +19,7 @@ describe("settingsStore notification persistence", () => {
     });
 
     const stored = JSON.parse(localStorage.getItem("incrementum-settings") || "{}");
-    expect(stored.version).toBe(4);
+    expect(stored.version).toBe(5);
     expect(stored.state.settings.notifications).toMatchObject({
       enabled: true,
       reminderTime: "07:30",
@@ -30,7 +30,7 @@ describe("settingsStore notification persistence", () => {
   it("deep-merges a partial persisted notification slice", async () => {
     localStorage.setItem("incrementum-settings", JSON.stringify({
       state: { settings: { notifications: { enabled: true, soundEnabled: false } } },
-      version: 4,
+      version: 5,
     }));
 
     await useSettingsStore.persist.rehydrate();

@@ -325,6 +325,20 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref }}
           submodules: recursive
 
+      - name: Free disk space
+        # The AppImage release build (Rust release profile + appimagetool) is
+        # disk-heavy and has tipped ubuntu-latest runners over the edge with
+        # "No space left on device" mid-compile. Remove ~10–15 GB of preinstalled
+        # toolchains/docs we don't use to give the build room.
+        shell: bash
+        run: |
+          echo "Disk usage before:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/conda /usr/local/share/boost 2>/dev/null || true
+          sudo apt-get clean
+          echo "Disk usage after:"
+          df -h /
+
       - name: Install dependencies
         run: |
           sudo apt-get update

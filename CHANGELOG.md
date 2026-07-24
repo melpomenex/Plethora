@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.90.1] - 2026-07-24
+
+### Fixed & Improved
+
+- **Release builds no longer blocked by broken CI tests** — The v1.90.0 release's required builds failed because three tests were out of sync with the codebase: the onboarding placement regression test used a hardcoded local path that didn't resolve on CI, the settings-store persistence test expected the old schema version (4 instead of 5), and the EPUB viewer test's mock didn't implement the event-listener cleanup API used by the scroll-snap fix. All three are corrected.
+- **More resilient mobile & AppImage release builds** — The Android build's `npm ci` now retries through transient `onnxruntime-node` postinstall timeouts (ETIMEDOUT reaching api.nuget.org), and the AppImage release job frees ~10–15 GB of unused preinstalled toolchains before building to avoid "No space left on device" mid-compile. These were the flakes that stopped the v1.90.0 APK and AppImage from publishing despite successful local builds.
+
 ## [1.90.0] - 2026-07-23
 
 ### Performance

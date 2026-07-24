@@ -10,6 +10,8 @@ const mockRendition = {
   resize: vi.fn(),
   destroy: vi.fn(),
   on: vi.fn(),
+  off: vi.fn(),
+  currentLocation: vi.fn().mockReturnValue({ start: { cfi: "epubcfi(/0)" } }),
   themes: {
     register: vi.fn(),
     default: vi.fn(),

@@ -110,7 +110,16 @@ jobs:
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm ci
+        # Retry npm ci up to 3 times. The onnxruntime-node postinstall script
+        # downloads a native binary from api.nuget.org and intermittently hits
+        # ETIMEDOUT on GitHub runners, which aborts the whole Android build.
+        run: |
+          for i in 1 2 3; do
+            npm ci && break
+            echo "::warning::npm ci attempt $i failed, retrying..."
+            [ "$i" -lt 3 ] || exit 1
+            sleep 10
+          done
 
       - name: Build frontend assets
         run: npm run build
