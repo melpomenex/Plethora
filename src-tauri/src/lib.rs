@@ -44,6 +44,7 @@ mod youtube;
 mod screenshot;
 
 mod media_server;
+mod epub_server;
 mod security;
 #[cfg(test)]
 mod security_tests;
@@ -1202,6 +1203,7 @@ pub fn run() {
             commands::save_synced_file,
             commands::update_document_file_path,
             media_server::get_media_stream_url,
+            epub_server::get_epub_stream_url,
             commands::fetch_url_content,
             commands::yjs_file_exists,
             commands::yjs_file_upload,

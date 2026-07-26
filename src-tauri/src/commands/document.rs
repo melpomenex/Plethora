@@ -1199,6 +1199,33 @@ pub async fn read_document_file(file_path: String) -> Result<tauri::ipc::Respons
         }
     }
 
+    // Desktop backstop: the EPUB viewer now streams via the loopback epub_server
+    // and the PDF viewer uses convertFileSrc / range reads, so nothing on the
+    // desktop hot path should be calling this for a very large file. Refuse
+    // files above a generous threshold so any caller that ignores the
+    // streaming path fails loudly with an attributed error instead of
+    // stalling the webview. Legitimate whole-file callers (collection archive
+    // export, app-state export, file-sync registration) stay well under this
+    // size; if a real use case crosses it, raise the cap or migrate the
+    // caller to streaming. Design reference: openspec/changes/
+    // stream-epub-resources/design.md (decision D4).
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let file_size = tokio::fs::metadata(&canonical)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+        const MAX_DESKTOP_INLINED_BYTES: u64 = 256 * 1024 * 1024; // 256 MiB
+        if file_size > MAX_DESKTOP_INLINED_BYTES {
+            return Err(IncrementumError::Internal(format!(
+                "File too large to read into memory ({} bytes > {} cap); use the streaming server instead. Path: {}",
+                file_size,
+                MAX_DESKTOP_INLINED_BYTES,
+                canonical.display()
+            )));
+        }
+    }
+
     let bytes = match tokio::fs::read(&canonical).await {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

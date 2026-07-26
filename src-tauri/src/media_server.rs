@@ -4,6 +4,17 @@
 //! entire file into a `WebResourceResponse` body, which causes an
 //! `OutOfMemoryError` for large audiobooks. This module serves app-managed files
 //! over loopback with correct full-response and byte-range semantics.
+//!
+//! # Shared loopback listener
+//!
+//! There is exactly one loopback HTTP listener per process
+//! (`MEDIA_SERVER_PORT`). The sibling [`crate::epub_server`] module mounts its
+//! `/epub` route onto this same listener via [`epub_server::router`], merged
+//! into the Router below in [`start`]. Design reference: `openspec/changes/
+//! stream-epub-resources/design.md` (decision D2 — "sibling module, same
+//! listener"). The shared helpers in this file (`canonical_path_within_roots`,
+//! `parse_range`, `response_with_body`, etc.) are `pub(crate)` so the EPUB
+//! route reuses them unchanged.
 
 use axum::{
     body::Body,
@@ -30,8 +41,8 @@ use tokio_util::io::ReaderStream;
 static MEDIA_SERVER_PORT: OnceCell<u16> = OnceCell::const_new();
 
 #[derive(Clone)]
-struct MediaServerState {
-    allowed_roots: Arc<Vec<PathBuf>>,
+pub(crate) struct MediaServerState {
+    pub(crate) allowed_roots: Arc<Vec<PathBuf>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -57,6 +68,7 @@ pub async fn start(app_handle: &tauri::AppHandle) -> Result<u16, String> {
             };
             let app = Router::new()
                 .route("/stream", get(stream_handler))
+                .merge(crate::epub_server::router())
                 .with_state(state);
 
             tokio::spawn(async move {
@@ -77,7 +89,7 @@ pub fn port() -> u16 {
     MEDIA_SERVER_PORT.get().copied().unwrap_or(0)
 }
 
-fn allowed_media_roots(app_handle: &tauri::AppHandle) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn allowed_media_roots(app_handle: &tauri::AppHandle) -> Result<Vec<PathBuf>, String> {
     use tauri::Manager;
 
     let app_data = app_handle
@@ -92,7 +104,10 @@ fn allowed_media_roots(app_handle: &tauri::AppHandle) -> Result<Vec<PathBuf>, St
     Ok(vec![app_data, app_cache])
 }
 
-fn canonical_path_within_roots(path: &Path, roots: &[PathBuf]) -> Result<PathBuf, StatusCode> {
+pub(crate) fn canonical_path_within_roots(
+    path: &Path,
+    roots: &[PathBuf],
+) -> Result<PathBuf, StatusCode> {
     let canonical = std::fs::canonicalize(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             StatusCode::NOT_FOUND
@@ -138,13 +153,13 @@ fn media_content_type(path: &Path) -> &'static str {
     }
 }
 
-fn path_label(path: &Path) -> &str {
+pub(crate) fn path_label(path: &Path) -> &str {
     path.file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("<unnamed>")
 }
 
-fn set_common_headers(response: &mut Response, content_type: &str, length: u64) {
+pub(crate) fn set_common_headers(response: &mut Response, content_type: &str, length: u64) {
     let headers = response.headers_mut();
     if let Ok(value) = HeaderValue::from_str(content_type) {
         headers.insert(header::CONTENT_TYPE, value);
@@ -159,7 +174,7 @@ fn set_common_headers(response: &mut Response, content_type: &str, length: u64) 
     );
 }
 
-fn response_with_body(
+pub(crate) fn response_with_body(
     status: StatusCode,
     content_type: &str,
     length: u64,
@@ -178,7 +193,7 @@ fn response_with_body(
 }
 
 /// Parse a single `bytes=START-END` range header.
-fn parse_range(value: &str, total: u64) -> Result<(u64, u64), ()> {
+pub(crate) fn parse_range(value: &str, total: u64) -> Result<(u64, u64), ()> {
     if total == 0 {
         return Err(());
     }

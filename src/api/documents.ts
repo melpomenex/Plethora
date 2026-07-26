@@ -323,6 +323,27 @@ export async function readDocumentFile(filePath: string): Promise<Uint8Array> {
   return traceBinaryIpc("read_document_file", new Uint8Array(buffer));
 }
 
+/**
+ * Resolve a loopback HTTP URL that streams a `.epub` file with full byte-range
+ * support, so epubjs/JSZip can fetch only the central directory and the spine
+ * entries they need instead of materializing the whole file in webview memory.
+ *
+ * Replaces the previous whole-file `readDocumentFile` + `ePub(bytes.slice().buffer)`
+ * path for EPUB display, which OOMed the webview for files above ~20–30 MB.
+ * Design reference: openspec/changes/stream-epub-resources/design.md.
+ *
+ * The returned URL is only valid in the current app session and is scoped to
+ * `app_data_dir` / `app_cache_dir` on the backend.
+ */
+export async function getEpubStreamUrl(filePath: string): Promise<string> {
+  if (isWebMode()) {
+    // Web builds have no backend media server; callers should fall back to
+    // reading bytes directly. This wrapper is a no-op there.
+    throw new Error("getEpubStreamUrl is not available in web mode");
+  }
+  return await invokeCommand<string>("get_epub_stream_url", { filePath });
+}
+
 export interface PdfDocumentSourceInfo {
   documentId: string;
   size: number;

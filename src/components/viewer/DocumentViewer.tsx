@@ -1865,9 +1865,7 @@ export function DocumentViewer({
         // allocates a fixed ~189MB array and blows the 512MB Java heap at
         // launch when a document tab is session-restored as active). Instead,
         // hand pdf.js a streaming URL (convertFileSrc) so the viewer fetches
-        // only the pages it needs. EPUBs intentionally keep the direct byte
-        // path below: epub.js resolves zipped spine resources more reliably
-        // from an ArrayBuffer than from Android/Tauri asset URLs.
+        // only the pages it needs.
         if (isNativeMobile() && inferredType === "pdf") {
           if (shouldUseNativeMobilePdfSource({ nativeMobile: true, fileType: inferredType })) {
             setUseNativePdfRange(true);
@@ -1879,9 +1877,37 @@ export function DocumentViewer({
           return;
         }
 
-        // Load file data directly via backend for both PDFs and EPUBs in Tauri.
+        // EPUBs stream from the backend loopback HTTP server instead of being
+        // read whole into webview memory. The previous whole-file path
+        // (readDocumentFile → Uint8Array → fileData.slice().buffer → epubjs)
+        // OOMed the webview for files above ~20–30 MB (confirmed: 26 MB and
+        // 84 MB both failed). epubjs/JSZip load a ZIP by URL and issue their
+        // own byte-range requests, so they fetch only the central directory
+        // and the spine entries they need. This also sidesteps the WebKitGTK
+        // XMLHttpRequest-on-asset:// blocker that previously forced the whole
+        // file path on Linux, because the loopback server speaks plain HTTP.
+        // Design reference: openspec/changes/stream-epub-resources/design.md.
+        if (inferredType === "epub") {
+          try {
+            const url = await documentsApi.getEpubStreamUrl(doc.filePath);
+            if (!url) {
+              throw new Error("EPUB stream URL was empty.");
+            }
+            setEpubUrl(url);
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error("[DocumentViewer] Failed to resolve EPUB stream URL:", error);
+            setMediaError(
+              `Unable to open this EPUB${doc.title ? ` (${doc.title})` : ""}. ${errorMessage}`,
+            );
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        // Load PDF file data directly via backend in Tauri.
         // The convertFileSrc URL approach causes WebKit/CORS errors on Linux (WebKitGTK)
-        // because epubjs uses XMLHttpRequest internally, which is blocked on asset://.
+        // because pdfjs uses XMLHttpRequest internally, which is blocked on asset://.
         const rawBytes = await documentsApi.readDocumentFile(doc.filePath);
         if (rawBytes.length === 0) {
           if (doc.fileId) {
