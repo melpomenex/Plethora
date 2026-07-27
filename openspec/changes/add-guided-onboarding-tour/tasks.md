@@ -5,6 +5,7 @@
 - [x] 1.3 Implement the transition functions — `markCompleted()`, `markSkipped()`, `markDismissed()` (soft, preserves budget), `markOptedOut()`, `recordResumePosition(stepId)`, `resetOnboardingState()` — each writing the whole record, never partial fields
 - [x] 1.4 Register `incrementum-onboarding-tour` in the synced key allowlist in `src/lib/localStorageSync.ts`
 - [x] 1.5 Unit-test the policy in `src/lib/__tests__/onboardingTour.test.ts`: launch budget of 3, soft dismissal preserving budget, explicit skip and completion as terminal, corrupt-state recovery, future-version suppression, reset behaviour
+- [x] 1.6 Implement forward migration in `readOnboardingTourState()`: a well-formed record whose `version` is older than `ONBOARDING_TOUR_VERSION` is migrated (fields carried forward, new fields defaulted) rather than falling into the corrupt-state branch; only a record that also fails field validation at that older version resets to fresh. Unit-test all three scenarios added to `onboarding-display-policy/spec.md`'s "Older state versions migrate forward" requirement.
 
 ## 2. Anchor catalogue
 

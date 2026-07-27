@@ -61,6 +61,51 @@ describe("onboardingTour policy", () => {
     expect(state.launchCount).toBe(1);
   });
 
+  test("older-version well-formed record migrates forward, preserving fields", () => {
+    const older = {
+      version: ONBOARDING_TOUR_VERSION - 1,
+      launchCount: 2,
+      autoDisplayDisabled: false,
+      furthestStepId: "import-docs",
+      completedAt: null,
+    };
+    window.localStorage.setItem(ONBOARDING_TOUR_STORAGE_KEY, JSON.stringify(older));
+    const state = readOnboardingTourState();
+    expect(state.version).toBe(ONBOARDING_TOUR_VERSION);
+    expect(state.launchCount).toBe(2);
+    expect(state.autoDisplayDisabled).toBe(false);
+    expect(state.furthestStepId).toBe("import-docs");
+    expect(state.completedAt).toBeNull();
+  });
+
+  test("older-version terminal/exhausted record stays terminal/exhausted after migration", () => {
+    const olderExhausted = {
+      version: ONBOARDING_TOUR_VERSION - 1,
+      launchCount: ONBOARDING_TOUR_LAUNCH_BUDGET,
+      autoDisplayDisabled: true,
+      furthestStepId: null,
+      completedAt: "2026-01-01T00:00:00.000Z",
+    };
+    window.localStorage.setItem(ONBOARDING_TOUR_STORAGE_KEY, JSON.stringify(olderExhausted));
+    const state = readOnboardingTourState();
+    expect(state.version).toBe(ONBOARDING_TOUR_VERSION);
+    expect(shouldAutoDisplay(state)).toBe(false);
+    expect(state.autoDisplayDisabled).toBe(true);
+    expect(state.completedAt).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  test("older-version record with a malformed field is still treated as corrupt, not migrated", () => {
+    const olderMalformed = {
+      version: ONBOARDING_TOUR_VERSION - 1,
+      launchCount: "two", // wrong type
+      autoDisplayDisabled: false,
+      furthestStepId: null,
+      completedAt: null,
+    };
+    window.localStorage.setItem(ONBOARDING_TOUR_STORAGE_KEY, JSON.stringify(olderMalformed));
+    expect(readOnboardingTourState()).toEqual(FRESH_ONBOARDING_TOUR_STATE);
+  });
+
   test("launch budget of 3 — shouldAutoDisplay flips at the boundary", () => {
     expect(ONBOARDING_TOUR_LAUNCH_BUDGET).toBe(3);
     seed({ launchCount: 0 });

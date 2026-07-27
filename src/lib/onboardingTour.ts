@@ -102,12 +102,17 @@ export function readOnboardingTourState(): OnboardingTourState {
     return { ...FRESH_ONBOARDING_TOUR_STATE };
   }
 
+  const version = parsed.version;
+  if (typeof version !== "number") {
+    return { ...FRESH_ONBOARDING_TOUR_STATE };
+  }
+
   // Unknown future version: suppress auto-display rather than reset.
   // The record's other fields are preserved untouched so re-upgrading
   // picks them back up.
-  if (typeof parsed.version === "number" && parsed.version > ONBOARDING_TOUR_VERSION) {
+  if (version > ONBOARDING_TOUR_VERSION) {
     return {
-      version: parsed.version as number,
+      version,
       launchCount: typeof parsed.launchCount === "number" ? parsed.launchCount : 0,
       autoDisplayDisabled: true,
       furthestStepId:
@@ -116,15 +121,15 @@ export function readOnboardingTourState(): OnboardingTourState {
     };
   }
 
-  // Same-version record must validate every field; any missing/wrong
-  // typed field is treated as corruption → fresh install.
-  if (
-    parsed.version !== ONBOARDING_TOUR_VERSION ||
-    typeof parsed.launchCount !== "number" ||
-    typeof parsed.autoDisplayDisabled !== "boolean" ||
-    (parsed.furthestStepId !== null && typeof parsed.furthestStepId !== "string") ||
-    (parsed.completedAt !== null && typeof parsed.completedAt !== "string")
-  ) {
+  // Current or older version: every core field must validate, or the
+  // record is corrupt, not merely stale → fresh install. A version older
+  // than current is not by itself corruption — it migrates forward,
+  // carrying its fields into the current shape (spec: "Older state
+  // versions migrate forward without resetting the budget"). Every
+  // version shipped so far shares this field set, so migration today is
+  // just the version stamp; if a future bump adds a field, default it
+  // here for records coming from a version that predates it.
+  if (!hasValidCoreFields(parsed)) {
     return { ...FRESH_ONBOARDING_TOUR_STATE };
   }
 
@@ -132,9 +137,30 @@ export function readOnboardingTourState(): OnboardingTourState {
     version: ONBOARDING_TOUR_VERSION,
     launchCount: parsed.launchCount,
     autoDisplayDisabled: parsed.autoDisplayDisabled,
-    furthestStepId: parsed.furthestStepId as string | null,
-    completedAt: parsed.completedAt as string | null,
+    furthestStepId: parsed.furthestStepId,
+    completedAt: parsed.completedAt,
   };
+}
+
+/**
+ * True when `parsed` carries every core field with the right type.
+ * Shared by the same-version and older-version paths in
+ * {@link readOnboardingTourState}: an older version is trusted to migrate
+ * only if it is otherwise well-formed, and a record failing this check is
+ * corrupt regardless of its version number.
+ */
+function hasValidCoreFields(parsed: Record<string, unknown>): parsed is Record<string, unknown> & {
+  launchCount: number;
+  autoDisplayDisabled: boolean;
+  furthestStepId: string | null;
+  completedAt: string | null;
+} {
+  return (
+    typeof parsed.launchCount === "number" &&
+    typeof parsed.autoDisplayDisabled === "boolean" &&
+    (parsed.furthestStepId === null || typeof parsed.furthestStepId === "string") &&
+    (parsed.completedAt === null || typeof parsed.completedAt === "string")
+  );
 }
 
 /**

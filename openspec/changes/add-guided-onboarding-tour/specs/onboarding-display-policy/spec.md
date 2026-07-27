@@ -115,6 +115,25 @@ Onboarding state SHALL persist across restarts, travel with the user's synced se
 - **WHEN** the stored state carries a version newer than the running app understands
 - **THEN** auto-display is suppressed rather than reset, so a downgraded client does not re-onboard an existing user
 
+### Requirement: Older state versions migrate forward without resetting the budget
+
+When the stored state is well-formed but carries a version older than the schema version the running app understands, the app SHALL migrate the record to the current schema rather than treating it as corrupt. The launch counter, `autoDisplayDisabled` flag, resume position, and completion timestamp SHALL be carried forward as-is; only fields introduced by the newer schema are populated with defaults. This applies on any app update that changes the record's shape, not only the current schema version.
+
+#### Scenario: Older version record after a schema change
+
+- **WHEN** the stored state carries a version older than the running app's current schema version, and every field defined at that older version is present and well-typed
+- **THEN** the record is migrated to the current version, preserving `launchCount`, `autoDisplayDisabled`, `furthestStepId`, and `completedAt`, rather than being reset to a fresh install
+
+#### Scenario: Exhausted budget or terminal state survives a schema migration
+
+- **WHEN** a user has exhausted the launch budget, or has completed or skipped the tour, under an older schema version
+- **THEN** after the app migrates the record on update, auto-display remains permanently disabled or budget-exhausted exactly as it was before the update — the update never grants additional auto-opens
+
+#### Scenario: Genuinely malformed old-version data still resets
+
+- **WHEN** a stored state's version is older than current AND a field required at that older version is missing or wrong-typed
+- **THEN** it is treated as corrupt per "Corrupt or unparseable state" and reset to a fresh install, distinguishing this from a well-formed record that is merely on an older schema
+
 ### Requirement: Resettable for testing and support
 
 The onboarding state SHALL be resettable so that the first-run experience can be reproduced.
