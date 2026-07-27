@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import DOMPurify from "dompurify";
 import {
   CaretDown,
@@ -21,6 +21,12 @@ import {
   Sparkle,
   TextT,
   X,
+  Quotes,
+  Pencil,
+  Trash,
+  FileText,
+  ChatCircleText,
+  ArrowsClockwise,
 } from "@phosphor-icons/react";
 import { compressImage, readFileAsDataUrl } from "../../utils/imageCompression";
 import { supportsVision } from "../../utils/visionCapability";
@@ -33,6 +39,9 @@ import { SettingsTab } from "../tabs/TabRegistry";
 import { ShareMessageDialog } from "./ShareMessageDialog";
 import { copyToClipboard, generateSingleMessageMarkdown, type ConversationMessage } from "../../api/integrations";
 import { useI18n } from "../../lib/i18n";
+import { useContextMenu, ContextMenu, ContextMenuItem, ContextMenuItemType } from "../common/ContextMenu";
+import { useToast } from "../common/Toast";
+import { createExtract } from "../../api/extracts";
 import { getAssistantContextErrorMessage, type ResolvedAssistantContext } from "../../utils/assistantContext";
 import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 import { invokeCommand, isTauri } from "../../lib/tauri";
@@ -262,6 +271,8 @@ export function AssistantPanel({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const assistantContextMenu = useContextMenu("assistant-panel-context-menu");
+  const toast = useToast();
   const [availableTools, setAvailableTools] = useState<MCPTool[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "ollama" | "openrouter">(() => {
     const stored = localStorage.getItem("assistant-llm-provider");
@@ -1748,7 +1759,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
     if (hashMatch) {
       const hashPos = cursorPos - hashMatch[0].length;
-      const token = `#{${node.id}}`;
+      const token = `#{${node.title}}`;
       const newValue = input.slice(0, hashPos) + token + " " + input.slice(cursorPos);
       setInput(newValue);
       setSelectedSectionNodes((prev) => {
@@ -1898,6 +1909,285 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       }));
   };
 
+  const renderUserMessageContent = (content: string, sectionsList: SectionNode[]) => {
+    const re = /#{([^}]+)}/g;
+    if (!re.test(content)) return content;
+
+    re.lastIndex = 0;
+    const matches: { index: number; length: number; token: string }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(content)) !== null) {
+      matches.push({ index: m.index, length: m[0].length, token: m[1] });
+    }
+
+    const elements: (string | JSX.Element)[] = [];
+    let lastIdx = 0;
+
+    matches.forEach((item, idx) => {
+      if (item.index > lastIdx) {
+        elements.push(content.slice(lastIdx, item.index));
+      }
+      const matchedNode = sectionsList.find((s) => s.id === item.token || s.title === item.token);
+      const label = matchedNode
+        ? (matchedNode.breadcrumb.length > 0
+            ? `${matchedNode.breadcrumb[matchedNode.breadcrumb.length - 1]} > ${matchedNode.title}`
+            : matchedNode.title)
+        : item.token.startsWith("section-")
+          ? "Section"
+          : item.token;
+
+      elements.push(
+        <span
+          key={`sec-${idx}`}
+          className="inline-flex items-center gap-1 px-2 py-0.5 my-0.5 mx-0.5 rounded-full text-xs font-semibold bg-primary-foreground/20 text-primary-foreground border border-primary-foreground/30 align-baseline"
+          title={matchedNode?.title || label}
+        >
+          <TextT className="w-3 h-3" />
+          {label}
+        </span>
+      );
+      lastIdx = item.index + item.length;
+    });
+
+    if (lastIdx < content.length) {
+      elements.push(content.slice(lastIdx));
+    }
+
+    return <>{elements}</>;
+  };
+
+  const handleExtractText = async (text: string) => {
+    if (!text.trim()) return;
+    try {
+      await createExtract({
+        content: text.trim(),
+        document_id: context?.documentId,
+        source_url: context?.url,
+        note: "Extracted from Assistant",
+      });
+      toast.success("Extract saved to library");
+    } catch (err) {
+      toast.error("Failed to save extract", err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleEditUserMessage = (targetMessage: Message) => {
+    const index = messages.findIndex((m) => m.id === targetMessage.id);
+    if (index === -1) return;
+
+    setInput(targetMessage.content);
+    setMessages((prev) => prev.slice(0, index));
+    textareaRef.current?.focus();
+  };
+
+  const handleDeleteMessage = (messageId: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    toast.success("Message deleted");
+  };
+
+  const handleRetryMessage = (targetMessage: Message) => {
+    const index = messages.findIndex((m) => m.id === targetMessage.id);
+    if (index === -1) return;
+
+    let promptText = "";
+    for (let i = index - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        promptText = messages[i].content;
+        break;
+      }
+    }
+
+    setMessages((prev) => prev.slice(0, index));
+    if (promptText) {
+      setInput(promptText);
+      textareaRef.current?.focus();
+    }
+  };
+
+  const handleCopyEntireChat = async () => {
+    if (messages.length === 0) return;
+    const conversationMessages = getConversationMessages();
+    const title =
+      context?.metadata?.title ||
+      (context?.type === "document"
+        ? "Document Discussion"
+        : context?.type === "web"
+          ? "Web Page Discussion"
+          : "AI Conversation");
+
+    const markdown = conversationMessages
+      .map((m) => `### ${m.role === "user" ? "User" : "Assistant"}\n\n${m.content}`)
+      .join("\n\n---\n\n");
+
+    const header = `# ${title}\n\n*Exported on ${new Date().toLocaleString()}*\n\n---\n\n`;
+    const fullText = header + markdown;
+
+    const success = await copyToClipboard(fullText);
+    if (success) {
+      toast.success("Entire chat copied to clipboard");
+    }
+  };
+
+  const handleClearChat = () => {
+    setMessages([]);
+    toast.success("Chat history cleared");
+  };
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, targetMessage?: Message) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const selectionText = window.getSelection()?.toString().trim() || "";
+      const position = { x: e.clientX, y: e.clientY };
+      const items: ContextMenuItem[] = [];
+
+      // 1. Text Selection Actions
+      if (selectionText) {
+        items.push(
+          {
+            id: "extract-selection",
+            label: "Extract Selection",
+            icon: <Quotes className="w-4 h-4" />,
+            onClick: () => handleExtractText(selectionText),
+          },
+          {
+            id: "copy-selection",
+            label: "Copy Selection",
+            icon: <Copy className="w-4 h-4" />,
+            onClick: () => {
+              copyToClipboard(selectionText);
+              toast.success("Copied selection to clipboard");
+            },
+          },
+          {
+            id: "ask-selection",
+            label: "Ask about Selection",
+            icon: <ChatCircleText className="w-4 h-4" />,
+            onClick: () => {
+              setInput((prev) => (prev ? `${prev}\n\n> ${selectionText}\n` : `> ${selectionText}\n`));
+              textareaRef.current?.focus();
+            },
+          },
+          {
+            id: "summarize-selection",
+            label: "Summarize Selection",
+            icon: <Sparkle className="w-4 h-4" />,
+            onClick: () => {
+              setInput(`Summarize this excerpt: "${selectionText}"`);
+              textareaRef.current?.focus();
+            },
+          }
+        );
+      }
+
+      // 2. Message Specific Actions
+      if (targetMessage) {
+        if (items.length > 0) {
+          items.push({ id: "sep-msg-start", type: ContextMenuItemType.Separator, label: "" });
+        }
+
+        if (targetMessage.role === "assistant") {
+          items.push(
+            {
+              id: "extract-message",
+              label: "Extract Message Content",
+              icon: <Quotes className="w-4 h-4" />,
+              onClick: () => handleExtractText(targetMessage.content),
+            },
+            {
+              id: "copy-message-plain",
+              label: "Copy Text",
+              icon: <Copy className="w-4 h-4" />,
+              onClick: () => {
+                copyToClipboard(targetMessage.content);
+                toast.success("Copied message text to clipboard");
+              },
+            },
+            {
+              id: "copy-message-md",
+              label: "Copy as Markdown",
+              icon: <FileText className="w-4 h-4" />,
+              onClick: () => handleCopyMessage(targetMessage),
+            },
+            {
+              id: "share-message",
+              label: "Share / Export",
+              icon: <ShareNetwork className="w-4 h-4" />,
+              onClick: () => handleShareMessage(targetMessage),
+            },
+            {
+              id: "retry-message",
+              label: "Regenerate Response",
+              icon: <ArrowsClockwise className="w-4 h-4" />,
+              onClick: () => handleRetryMessage(targetMessage),
+            },
+            { id: "sep-msg-del", type: ContextMenuItemType.Separator, label: "" },
+            {
+              id: "delete-message",
+              label: "Delete Message",
+              icon: <Trash className="w-4 h-4 text-destructive" />,
+              type: ContextMenuItemType.Danger,
+              onClick: () => handleDeleteMessage(targetMessage.id),
+            }
+          );
+        } else if (targetMessage.role === "user") {
+          items.push(
+            {
+              id: "copy-user-prompt",
+              label: "Copy Prompt",
+              icon: <Copy className="w-4 h-4" />,
+              onClick: () => {
+                copyToClipboard(targetMessage.content);
+                toast.success("Copied prompt to clipboard");
+              },
+            },
+            {
+              id: "edit-user-prompt",
+              label: "Edit & Resend",
+              icon: <Pencil className="w-4 h-4" />,
+              onClick: () => handleEditUserMessage(targetMessage),
+            },
+            { id: "sep-user-del", type: ContextMenuItemType.Separator, label: "" },
+            {
+              id: "delete-user-msg",
+              label: "Delete Message",
+              icon: <Trash className="w-4 h-4 text-destructive" />,
+              type: ContextMenuItemType.Danger,
+              onClick: () => handleDeleteMessage(targetMessage.id),
+            }
+          );
+        }
+      }
+
+      // 3. General Chat Actions
+      if (items.length > 0) {
+        items.push({ id: "sep-general", type: ContextMenuItemType.Separator, label: "" });
+      }
+
+      items.push(
+        {
+          id: "copy-entire-chat",
+          label: "Copy Entire Chat",
+          icon: <Copy className="w-4 h-4" />,
+          disabled: messages.length === 0,
+          onClick: handleCopyEntireChat,
+        },
+        {
+          id: "clear-chat-history",
+          label: "Clear Chat History",
+          icon: <Trash className="w-4 h-4 text-destructive" />,
+          type: ContextMenuItemType.Danger,
+          disabled: messages.length === 0,
+          onClick: handleClearChat,
+        }
+      );
+
+      assistantContextMenu.showMenu(position, items);
+    },
+    [assistantContextMenu, context, messages]
+  );
+
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizing) {
@@ -1961,6 +2251,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     <div
       className={`flex flex-col h-full max-h-full min-h-0 overflow-hidden bg-card ${position === "right" ? "border-l" : "border-r"} border-border relative ${className}`}
       style={{ width: isCollapsed ? "auto" : width }}
+      onContextMenu={(e) => handleContextMenu(e)}
     >
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-border">
@@ -2250,6 +2541,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               key={message.id}
               className={`flex flex-col group ${message.role === "user" ? "items-end" : "items-start"
                 }`}
+              onContextMenu={(e) => handleContextMenu(e, message)}
             >
               {/* Message Header */}
               <div className="flex items-center gap-2 mb-1">
@@ -2300,7 +2592,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   </div>
                 )}
                 {message.role === "user" ? (
-                  message.content
+                  renderUserMessageContent(message.content, assistantSectionFlat)
                 ) : (
                   <MemoizedMarkdown content={message.content} />
                 )}
@@ -2447,7 +2739,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                     <button
                       onClick={() => {
                         setSelectedSectionNodes((prev) => prev.filter((n) => n.id !== node.id));
-                        const newInput = input.replace(`#{${node.id}}`, "").replace(/\s{2,}/g, " ").trim();
+                        const newInput = input.replace(`#{${node.title}}`, "").replace(`#{${node.id}}`, "").replace(/\s{2,}/g, " ").trim();
                         setInput(newInput);
                       }}
                       className={`rounded-full p-0.5 transition-colors ${getCloseButtonClass(tokens)}`}
@@ -2581,6 +2873,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           (context?.type === "document" ? "Document Discussion" :
             context?.type === "web" ? "Web Page Discussion" :
               "AI Conversation")}
+      />
+
+      <ContextMenu
+        menuId="assistant-panel-context-menu"
+        items={assistantContextMenu.items}
+        visible={assistantContextMenu.visible}
+        position={assistantContextMenu.position}
+        onClose={assistantContextMenu.hideMenu}
       />
 
       {/* Resize Handle - positioned based on panel position */}

@@ -452,7 +452,7 @@ export function DocumentQATab() {
 
     if (hashMatch) {
       const hashPosition = cursorPosition - hashMatch[0].length;
-      const sectionToken = `#{${sec.id}}`;
+      const sectionToken = `#{${sec.title}}`;
       const newValue =
         value.slice(0, hashPosition) + sectionToken + " " + value.slice(cursorPosition);
 
@@ -1608,10 +1608,9 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
               </span>
               <button
                 onClick={() => {
-                  const token = `#{${selectedSection.id}}`;
                   const nextSections = selectedSections.filter((section) => section.id !== selectedSection.id);
                   setSelectedSections(nextSections);
-                  const newRaw = rawInput.replace(token, "").replace(/\s{2,}/g, " ").trim();
+                  const newRaw = rawInput.replace(`#{${selectedSection.title}}`, "").replace(`#{${selectedSection.id}}`, "").replace(/\s{2,}/g, " ").trim();
                   setRawInput(newRaw);
                   setInput(formatInputForDisplay(newRaw, mentions, nextSections));
                 }}

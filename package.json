@@ -7,7 +7,7 @@
     "dev": "NODE_OPTIONS=--max-old-space-size=4096 vite",
     "dev:pwa": "NODE_OPTIONS=--max-old-space-size=4096 vite --mode pwa",
     "prebuild": "node scripts/download-sidecars.js",
-    "build": "vite build",
+    "build": "NODE_OPTIONS=--max-old-space-size=8192 vite build",
     "build:pwa": "vite build --mode pwa",
     "build:check": "tsc && vite build && node scripts/check-bundle-budget.mjs",
     "preview": "vite preview",
