@@ -30,7 +30,7 @@ describe("AssistantPanel Context Menu", () => {
   });
 
   it("opens context menu on right click in Assistant panel", async () => {
-    const { container } = render(<AssistantPanel isOpen={true} />);
+    const { container } = render(<AssistantPanel />);
     const panel = container.firstChild as HTMLElement;
     expect(panel).toBeTruthy();
 
@@ -43,7 +43,7 @@ describe("AssistantPanel Context Menu", () => {
   });
 
   it("handles selected text extraction via context menu", async () => {
-    const { container } = render(<AssistantPanel isOpen={true} />);
+    const { container } = render(<AssistantPanel />);
     const panel = container.firstChild as HTMLElement;
 
     vi.spyOn(window, "getSelection").mockReturnValue({

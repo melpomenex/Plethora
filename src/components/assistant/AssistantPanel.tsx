@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import DOMPurify from "dompurify";
 import {
   CaretDown,
@@ -1166,12 +1166,28 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       if (selectedSectionNodes.length > 0 && llmContext?.type === "document") {
         const documentId = llmContext.documentId;
         if (!documentId) throw new Error("Select the document that owns this section, then choose the heading again.");
-        const canonicalText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
-        const focused = resolveSectionFocusedContext(selectedSectionNodes, assistantSectionFlat, canonicalText, {
-          documentId,
-          maxTokens: effectiveContextWindow,
-          includeNeighbors: true,
-        });
+
+        // Section resolution occasionally misses on the very first request
+        // right after a document opens or a section is picked (the
+        // just-fetched canonical text can momentarily disagree with the
+        // TOC/heading offsets the section was picked against) and then
+        // succeeds immediately on an identical retry — users were seeing
+        // this as "reselect and resend". One transparent retry with a fresh
+        // text fetch absorbs that transient miss instead of surfacing it.
+        let focused = resolveSectionFocusedContext(
+          selectedSectionNodes,
+          assistantSectionFlat,
+          await loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
+          { documentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
+        );
+        if (!focused.ok) {
+          focused = resolveSectionFocusedContext(
+            selectedSectionNodes,
+            assistantSectionFlat,
+            await loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
+            { documentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
+          );
+        }
         if (!focused.ok) {
           const labels = focused.unresolved.map((item) => item.label).join(", ");
           throw new Error(`The selected section${labels ? ` (${labels})` : ""} is stale or ambiguous. Reselect it before sending; no request was made.`);
@@ -1920,7 +1936,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       matches.push({ index: m.index, length: m[0].length, token: m[1] });
     }
 
-    const elements: (string | JSX.Element)[] = [];
+    const elements: (string | ReactNode)[] = [];
     let lastIdx = 0;
 
     matches.forEach((item, idx) => {

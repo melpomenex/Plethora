@@ -192,21 +192,86 @@ async fn epub_handler(
     )
 }
 
-/// Return an `http://127.0.0.1:<port>/epub?path=<encoded>` URL for a validated
-/// app-managed EPUB file. Starts the shared media/epub server on first call.
+/// Copy `source` into `app_cache_dir/incrementum/epub-mirror` so it becomes
+/// servable under [`canonical_path_within_roots`], and return the mirror's
+/// canonical path. Idempotent: reuses an existing mirror whose size still
+/// matches the source instead of re-copying on every open.
+///
+/// Unlike audio (copied into app storage once, at import time), EPUBs are
+/// imported in place and normally live wherever the user picked them from on
+/// disk (`document.rs`, `import_from_path`) — outside `app_data_dir` /
+/// `app_cache_dir`. That was fine for the whole-file Tauri IPC read this
+/// module replaced (reachable only from the app's own webview), but the
+/// loopback HTTP server it introduced is reachable by any local process, so
+/// `canonical_path_within_roots` correctly refuses to serve the original path
+/// directly. Mirroring lazily here — rather than widening the allowed roots —
+/// keeps that containment check meaningful while still letting every
+/// already-imported book stream.
+fn mirror_epub_into_app_storage(
+    app_handle: &tauri::AppHandle,
+    source: &std::path::Path,
+) -> Result<PathBuf, String> {
+    use std::hash::{Hash, Hasher};
+    use tauri::Manager;
+
+    let cache_dir = app_handle
+        .path()
+        .app_cache_dir()
+        .map_err(|error| format!("Failed to resolve app cache directory: {error}"))?
+        .join("incrementum")
+        .join("epub-mirror");
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|error| format!("Failed to create epub mirror directory: {error}"))?;
+
+    let source_len = std::fs::metadata(source)
+        .map_err(|error| format!("Cannot stat epub file: {error}"))?
+        .len();
+
+    // Stable per-source-path filename so repeated opens of the same document
+    // reuse one mirror instead of accumulating copies.
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.to_string_lossy().hash(&mut hasher);
+    let path_hash = hasher.finish();
+    let original_filename = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("book.epub");
+    let safe_filename = original_filename.replace(['/', '\\', ':'], "_");
+    let dest = cache_dir.join(format!("{path_hash:016x}-{safe_filename}"));
+
+    let up_to_date = std::fs::metadata(&dest)
+        .map(|dest_meta| dest_meta.len() == source_len)
+        .unwrap_or(false);
+    if !up_to_date {
+        std::fs::copy(source, &dest)
+            .map_err(|error| format!("Failed to stage epub for streaming: {error}"))?;
+    }
+
+    std::fs::canonicalize(&dest)
+        .map_err(|error| format!("Cannot resolve staged epub path: {error}"))
+}
+
+/// Return an `http://127.0.0.1:<port>/epub?path=<encoded>` URL for an EPUB
+/// file. Starts the shared media/epub server on first call.
 ///
 /// Mirrors `media_server::get_media_stream_url`; the URL it returns is handed
-/// directly to epubjs in the frontend (`ePub(url)`).
+/// directly to epubjs in the frontend (`ePub(url)`). If `file_path` isn't
+/// already under an allowed root, it's mirrored into app storage first (see
+/// [`mirror_epub_into_app_storage`]).
 #[tauri::command]
 pub async fn get_epub_stream_url(
     app_handle: tauri::AppHandle,
     file_path: String,
 ) -> Result<String, String> {
-    use std::path::Path;
-
     let roots = crate::media_server::allowed_media_roots(&app_handle)?;
-    let canonical = canonical_path_within_roots(Path::new(&file_path), &roots)
-        .map_err(|status| format!("Cannot stream epub file (HTTP {})", status.as_u16()))?;
+    let source_canonical = std::fs::canonicalize(&file_path)
+        .map_err(|error| format!("Cannot stat epub file: {error}"))?;
+
+    let canonical = match canonical_path_within_roots(&source_canonical, &roots) {
+        Ok(path) => path,
+        Err(_) => mirror_epub_into_app_storage(&app_handle, &source_canonical)?,
+    };
+
     let metadata = std::fs::metadata(&canonical)
         .map_err(|error| format!("Cannot stat epub file: {error}"))?;
     let port = crate::media_server::start(&app_handle).await?;
