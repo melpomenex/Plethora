@@ -3476,6 +3476,7 @@ export const fr: Dict = {
     "La suppression n'est disponible que pour les cartes d'apprentissage.",
   "reviewSession.cardDeleted": "Carte supprimée",
   "reviewSession.deleteFailed": "Échec de la suppression de la carte",
+  "reviewSession.deleteConfirmMessage": "Supprimer cette carte et la retirer de la session de révision actuelle ?",
   "reviewSession.suspendOnlyLearning":
     "La suspension n'est disponible que pour les cartes d'apprentissage.",
   "reviewSession.cardSuspended": "Carte suspendue",

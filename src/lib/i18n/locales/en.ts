@@ -4112,6 +4112,7 @@ export const en: Dict = {
   "reviewSession.deleteOnlyLearning": "Delete is only available for learning cards.",
   "reviewSession.cardDeleted": "Card deleted",
   "reviewSession.deleteFailed": "Failed to delete card",
+  "reviewSession.deleteConfirmMessage": "Delete this card and remove it from the current review session?",
   "reviewSession.suspendOnlyLearning": "Suspend is only available for learning cards.",
   "reviewSession.cardSuspended": "Card suspended",
   "reviewSession.suspendFailed": "Failed to suspend card",

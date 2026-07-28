@@ -154,6 +154,32 @@ describe("reviewStore Wave 1 behavior", () => {
     expect(submitReviewMock).not.toHaveBeenCalled();
   });
 
+  it("removes a deleted card from the active session without resetting progress", () => {
+    const first = makeLearningCard({ id: "card-1" });
+    const second = makeLearningCard({ id: "card-2" });
+    const third = makeLearningCard({ id: "card-3" });
+    useReviewStore.setState({
+      queue: [first, second, third],
+      currentCard: second,
+      currentIndex: 1,
+      isAnswerShown: true,
+      reviewsCompleted: 7,
+      correctCount: 5,
+      sessionId: "session-in-progress",
+    });
+
+    useReviewStore.getState().removeItemFromSession(second.id);
+
+    const state = useReviewStore.getState();
+    expect(state.queue.map((card) => card.id)).toEqual(["card-1", "card-3"]);
+    expect(state.currentCard?.id).toBe("card-3");
+    expect(state.currentIndex).toBe(1);
+    expect(state.isAnswerShown).toBe(false);
+    expect(state.reviewsCompleted).toBe(7);
+    expect(state.correctCount).toBe(5);
+    expect(state.sessionId).toBe("session-in-progress");
+  });
+
   it("buries sibling cards from the same extract in the active session", async () => {
     submitReviewMock.mockResolvedValue({});
     const first = makeLearningCard({ id: "card-1", extract_id: "extract-a" });

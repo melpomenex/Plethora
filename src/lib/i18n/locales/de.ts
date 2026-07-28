@@ -3466,6 +3466,7 @@ export const de: Dict = {
   "reviewSession.deleteOnlyLearning": "Löschen ist nur für Lernkarten verfügbar.",
   "reviewSession.cardDeleted": "Karte gelöscht",
   "reviewSession.deleteFailed": "Karte konnte nicht gelöscht werden",
+  "reviewSession.deleteConfirmMessage": "Diese Karte löschen und aus der aktuellen Wiederholung entfernen?",
   "reviewSession.suspendOnlyLearning": "Aussetzen ist nur für Lernkarten verfügbar.",
   "reviewSession.cardSuspended": "Karte ausgesetzt",
   "reviewSession.suspendFailed": "Karte konnte nicht ausgesetzt werden",

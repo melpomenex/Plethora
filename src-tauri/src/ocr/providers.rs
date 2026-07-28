@@ -5,6 +5,58 @@ use base64::Engine;
 use image::ImageFormat;
 use lopdf::Document;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+fn expand_home_path(value: &str) -> PathBuf {
+    if let Some(relative) = value.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(relative);
+        }
+    }
+    PathBuf::from(value)
+}
+
+/// GUI apps on macOS do not inherit the interactive shell's PATH. Resolve
+/// common user and package-manager bin directories before falling back to the
+/// ordinary command name.
+fn resolve_local_executable(configured: Option<&str>, binary_name: &str) -> PathBuf {
+    if let Some(value) = configured.map(str::trim).filter(|value| !value.is_empty()) {
+        let configured_path = expand_home_path(value);
+        return if configured_path.is_dir() {
+            configured_path.join(binary_name)
+        } else {
+            configured_path
+        };
+    }
+
+    let mut candidates = Vec::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&path).map(|dir| dir.join(binary_name)));
+    }
+    if let Some(virtual_env) = std::env::var_os("VIRTUAL_ENV") {
+        candidates.push(PathBuf::from(virtual_env).join("bin").join(binary_name));
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        candidates.push(home.join(".local/bin").join(binary_name));
+        candidates.push(home.join("bin").join(binary_name));
+        candidates.push(home.join(".pyenv/shims").join(binary_name));
+
+        let python_root = home.join("Library/Python");
+        if let Ok(entries) = std::fs::read_dir(python_root) {
+            for entry in entries.flatten() {
+                candidates.push(entry.path().join("bin").join(binary_name));
+            }
+        }
+    }
+    candidates.push(Path::new("/opt/homebrew/bin").join(binary_name));
+    candidates.push(Path::new("/usr/local/bin").join(binary_name));
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| PathBuf::from(binary_name))
+}
 
 /// OCR provider type
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -562,18 +614,16 @@ impl NougatProvider {
 
     /// Check if Nougat is installed
     pub fn check_installation(&self) -> Result<()> {
-        let cmd = self
-            .nougat_path
-            .clone()
-            .unwrap_or_else(|| "nougat".to_string());
+        let cmd = resolve_local_executable(self.nougat_path.as_deref(), "nougat");
 
         let output = std::process::Command::new(&cmd).arg("--version").output();
 
         match output {
             Ok(output) if output.status.success() => Ok(()),
-            _ => Err(IncrementumError::Internal(
-                "Nougat not found. Please install it or provide the correct path.".to_string(),
-            )),
+            _ => Err(IncrementumError::Internal(format!(
+                "Nougat not found at '{}'. Set the executable path in Settings > Documents > OCR.",
+                cmd.display()
+            ))),
         }
     }
 }
@@ -595,15 +645,18 @@ impl OCRProvider for NougatProvider {
     async fn process_image(&self, image_path: &std::path::Path) -> Result<OCRResult> {
         let start = std::time::Instant::now();
 
-        let cmd = self
-            .nougat_path
-            .clone()
-            .unwrap_or_else(|| "nougat".to_string());
+        let cmd = resolve_local_executable(self.nougat_path.as_deref(), "nougat");
 
         let output = std::process::Command::new(&cmd)
             .arg(image_path)
             .output()
-            .map_err(|e| IncrementumError::Internal(format!("Failed to run Nougat: {}", e)))?;
+            .map_err(|e| {
+                IncrementumError::Internal(format!(
+                    "Failed to run Nougat at '{}': {}. Set the executable path in Settings > Documents > OCR.",
+                    cmd.display(),
+                    e
+                ))
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1334,5 +1387,23 @@ mod tests {
 
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("Test text"));
+    }
+
+    #[test]
+    fn configured_nougat_directory_resolves_to_binary_inside_it() {
+        let directory = tempfile::tempdir().unwrap();
+        assert_eq!(
+            resolve_local_executable(directory.path().to_str(), "nougat"),
+            directory.path().join("nougat")
+        );
+    }
+
+    #[test]
+    fn configured_nougat_executable_path_is_used_verbatim() {
+        let path = "/custom/python/bin/nougat";
+        assert_eq!(
+            resolve_local_executable(Some(path), "nougat"),
+            PathBuf::from(path)
+        );
     }
 }

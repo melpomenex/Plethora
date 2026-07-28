@@ -3459,6 +3459,7 @@ export const es: Dict = {
   "reviewSession.deleteOnlyLearning": "Eliminar solo está disponible para tarjetas de aprendizaje.",
   "reviewSession.cardDeleted": "Tarjeta eliminada",
   "reviewSession.deleteFailed": "No se pudo eliminar la tarjeta",
+  "reviewSession.deleteConfirmMessage": "¿Eliminar esta tarjeta y quitarla de la sesión de repaso actual?",
   "reviewSession.suspendOnlyLearning":
     "Suspender solo está disponible para tarjetas de aprendizaje.",
   "reviewSession.cardSuspended": "Tarjeta suspendida",

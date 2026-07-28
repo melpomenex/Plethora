@@ -36,6 +36,7 @@ import { printFlashcards } from "../../utils/printFlashcards";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import { getDocument } from "../../api/documents";
+import { useUndoableOperations } from "../../api/undoable";
 
 interface LearningCardsListProps {
   documentId: string;
@@ -44,12 +45,14 @@ interface LearningCardsListProps {
 export function LearningCardsList({ documentId }: LearningCardsListProps) {
   const { t } = useI18n();
   const toast = useToast();
+  const { deleteLearningItem } = useUndoableOperations();
   const [cards, setCards] = useState<LearningItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAnswers, setShowAnswers] = useState<Record<string, boolean>>({});
   const [qualityByCard, setQualityByCard] = useState<Record<string, ReturnType<typeof analyzeCardQuality>>>({});
   const [prereqByCard, setPrereqByCard] = useState<Record<string, string[]>>({});
+  const [deletingCardIds, setDeletingCardIds] = useState<Set<string>>(new Set());
 
   // Custom Save as Smart Deck Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -366,7 +369,34 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                   {t("learningCards.analyze")}
                 </button>
                 <button
-                  className="p-1.5 rounded hover:bg-destructive/10 transition-colors"
+                  onClick={async () => {
+                    if (deletingCardIds.has(card.id)) return;
+                    setDeletingCardIds((current) => new Set(current).add(card.id));
+                    try {
+                      await deleteLearningItem(card.id, () => {
+                        setCards((current) => current.filter((item) => item.id !== card.id));
+                        setPrereqByCard((current) => {
+                          const next = { ...current };
+                          delete next[card.id];
+                          return next;
+                        });
+                      });
+                      toast.success("Card deleted");
+                    } catch (error) {
+                      toast.error(
+                        "Failed to delete card",
+                        error instanceof Error ? error.message : String(error),
+                      );
+                    } finally {
+                      setDeletingCardIds((current) => {
+                        const next = new Set(current);
+                        next.delete(card.id);
+                        return next;
+                      });
+                    }
+                  }}
+                  disabled={deletingCardIds.has(card.id)}
+                  className="p-1.5 rounded hover:bg-destructive/10 transition-colors disabled:opacity-50"
                   title={t("learningCards.deleteCard")}
                 >
                   <Trash className="w-3.5 h-3.5 text-destructive" />

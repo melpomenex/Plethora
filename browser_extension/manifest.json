@@ -43,7 +43,7 @@
   ],
   
   "background": {
-    "scripts": ["background.js"],
+    "scripts": ["shared.js", "background.js"],
     "service_worker": "background.js"
   },
   

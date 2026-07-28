@@ -15,7 +15,7 @@ import {
   TextT,
   Translate,
 } from "@phosphor-icons/react";
-import { isTauri, listen } from "../../lib/tauri";
+import { isTauri, listen, openFilePicker } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
 import {
   downloadOllamaInstaller,
@@ -41,6 +41,7 @@ interface OCRSettingsProps {
     awsSecretKey?: string;
     azureEndpoint?: string;
     azureApiKey?: string;
+    nougat_path?: string;
     glmEndpoint?: string;
     glmModel?: string;
     glmApiKey?: string;
@@ -888,6 +889,38 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
                 />
               </button>
             </div>
+
+            {settings.provider === "nougat" && (
+              <div className="mt-4 border-t border-border pt-4">
+                <label className="mb-1 block text-xs font-medium text-foreground">
+                  Nougat executable
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={settings.nougat_path || ""}
+                    onChange={(event) => onUpdateSettings({ nougat_path: event.target.value || undefined })}
+                    placeholder="Auto-detect, or /Users/you/.local/bin/nougat"
+                    className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const paths = await openFilePicker({
+                        title: "Select Nougat executable",
+                      });
+                      if (paths?.[0]) onUpdateSettings({ nougat_path: paths[0] });
+                    }}
+                    className="rounded-lg bg-muted px-3 py-2 text-sm transition-colors hover:bg-muted/80"
+                  >
+                    {t("ocrSettings.browse")}
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Leave blank to search PATH, ~/.local/bin, ~/bin, Homebrew, and user Python bin folders.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

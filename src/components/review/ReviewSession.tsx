@@ -4,10 +4,11 @@ import {
   Sparkle,
   SpeakerHigh,
   SpeakerSlash,
+  Trash,
   Upload,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { useReviewStore, type ReviewSessionItem } from "../../stores/reviewStore";
+import { useReviewStore } from "../../stores/reviewStore";
 import { ReviewCard } from "./ReviewCard";
 import { RatingButtons } from "./RatingButtons";
 import { ReviewProgress } from "./ReviewProgress";
@@ -43,6 +44,7 @@ import { AlgorithmArenaDecision } from "./AlgorithmArenaDecision";
 import { formatArenaInterval } from "./arenaFormatters";
 import { AlgorithmArenaModeControl } from "./AlgorithmArenaModeControl";
 import { featureFlags } from "../../lib/featureFlags";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 
 interface ReviewSessionProps {
   onExit: () => void;
@@ -89,9 +91,12 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     showAnswer,
     submitRating,
     goToIndex,
+    removeItemFromSession,
     cancelArenaDecision,
   } = useReviewStore();
   const [isQueueListOpen, setIsQueueListOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+  const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
   const queueListRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [interactionResult, setInteractionResult] = useState<{
@@ -288,17 +293,36 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   ratingCbRef.current = handleRating;
 
   const handleDeleteCurrent = async () => {
-    if (!currentCard) {
+    const target = deleteTarget;
+    if (!target) {
       toast.info(t("queue.delete"), t("reviewSession.deleteOnlyLearning"));
       return;
     }
+    setDeletingCardId(target.id);
     try {
-      await bulkDeleteItems([currentCard.id]);
+      await bulkDeleteItems([target.id]);
+      removeItemFromSession(target.id);
       toast.success(t("reviewSession.cardDeleted"));
-      await loadQueue();
     } catch (error) {
       toast.error(t("reviewSession.deleteFailed"), error instanceof Error ? error.message : t("reviewSession.unknownError"));
+    } finally {
+      setDeletingCardId(null);
     }
+  };
+
+  const requestDeleteCurrent = () => {
+    if (!currentCard || pendingArenaReview || isSubmitting) return;
+    const rawLabel = currentCard.question || currentCard.cloze_text || t("reviewSession.untitledCard");
+    const label = rawLabel
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\{\{c\d+::(.*?)(?:::[^}]*)?\}\}/g, "$1")
+      .replace(/\[\[c\d+::(.*?)\]\]/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    setDeleteTarget({
+      id: currentCard.id,
+      label: label || t("reviewSession.untitledCard"),
+    });
   };
 
   const handleSuspendCurrent = async () => {
@@ -511,7 +535,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       if (mod && (lowerKey === "e" || lowerKey === "d" || lowerKey === "s" || lowerKey === "h")) {
         e.preventDefault();
         if (lowerKey === "e") toast.info(t("reviewSession.editUnavailable"));
-        if (lowerKey === "d") void handleDeleteCurrent();
+        if (lowerKey === "d") requestDeleteCurrent();
         if (lowerKey === "s") void handleSuspendCurrent();
         if (lowerKey === "h") toast.info(t("reviewSession.historyUnavailable"));
         return;
@@ -545,7 +569,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     submitRating,
     onExit,
     toast,
-    handleDeleteCurrent,
+    requestDeleteCurrent,
     handleSuspendCurrent,
     volumeRockerMode,
     goToIndex,
@@ -640,10 +664,31 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   const safeStopCount = Math.max(1, Math.min(remainingItems, Math.floor((20 * 60) / perItemSeconds)));
   const minMinutes = Math.max(1, Math.round((estimatedSecondsRemaining / 60) * 0.85));
   const maxMinutes = Math.max(1, Math.round((estimatedSecondsRemaining / 60) * 1.15));
+  const deleteConfirmDialog = (
+    <ConfirmDialog
+      isOpen={deleteTarget !== null}
+      onClose={() => setDeleteTarget(null)}
+      onConfirm={() => void handleDeleteCurrent()}
+      title={t("learningCards.deleteCard")}
+      message={t("reviewSession.deleteConfirmMessage")}
+      confirmLabel={t("common.delete")}
+      cancelLabel={t("common.cancel")}
+      variant="danger"
+      details={deleteTarget ? [deleteTarget.label] : undefined}
+      itemName="card"
+    />
+  );
 
   if (isZenMode && !isLoading && queue.length > 0 && currentCard) {
     return (
-      <ZenReviewMode onExit={() => setIsZenMode(false)} />
+      <>
+        <ZenReviewMode
+          onExit={() => setIsZenMode(false)}
+          onRequestDelete={requestDeleteCurrent}
+          isDeleting={deletingCardId === currentCard.id}
+        />
+        {deleteConfirmDialog}
+      </>
     );
   }
 
@@ -706,6 +751,16 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
               Audio
             </button>
           )}
+          <button
+            onClick={requestDeleteCurrent}
+            disabled={!currentCard || isSubmitting || Boolean(pendingArenaReview) || deletingCardId === currentCard?.id}
+            className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md border border-destructive/30 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={t("learningCards.deleteCard")}
+            aria-label={t("learningCards.deleteCard")}
+          >
+            <Trash className="w-3.5 h-3.5" />
+            {t("common.delete")}
+          </button>
           <button
             onClick={handleImportDeck}
             disabled={isAnkiImporting}
@@ -946,6 +1001,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         isOpen={isInspectorOpen}
         onClose={() => setIsInspectorOpen(false)}
       />
+      {deleteConfirmDialog}
     </div>
   );
 }

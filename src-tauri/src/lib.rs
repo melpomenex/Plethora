@@ -852,7 +852,11 @@ pub fn run() {
                 // It ensures that any early IPC calls from the fast-loading mobile WebView
                 // resolve the State injection successfully rather than throwing "state not managed" errors.
                 app.manage(AppState::new());
-                app.manage(AIState::default());
+                let saved_ai_config =
+                    commands::ai::load_ai_config_preferences(&app.handle().clone());
+                app.manage(AIState {
+                    config: Arc::new(std::sync::Mutex::new(saved_ai_config)),
+                });
                 app.manage(FocusTimer::new());
                 app.manage(commands::podcast::PodcastTranscriptionTokens::default());
 

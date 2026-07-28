@@ -123,6 +123,11 @@ src-tauri/plugins/*/ios/build/
 # tracking them would sweep unrelated files into release commits via `git add -A`.
 *.xpi
 browser_extension/
+!browser_extension/
+browser_extension/*
+!browser_extension/shared.js
+!browser_extension/tests/
+browser_extension/tests/*
+!browser_extension/tests/shared.test.cjs
 
 scratch/
-

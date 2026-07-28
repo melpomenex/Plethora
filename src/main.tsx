@@ -253,6 +253,22 @@ function initLocalStorageSyncLazy(): Promise<void> {
   );
 }
 
+// The browser-extension server runs in Rust, while the current AI settings UI
+// is backed by the persisted LLM provider registry in the WebView. Bridge the
+// selected provider after hydration on every native startup so HTTP AI routes
+// see exactly the same provider as the desktop assistant.
+if (isTauri()) {
+  runAfterFirstPaint(() => {
+    import("./stores/llmProvidersStore")
+      .then(({ syncPrimaryProviderToNativeAI, useLLMProvidersStore }) =>
+        syncPrimaryProviderToNativeAI(useLLMProvidersStore.getState().providers),
+      )
+      .catch((error) => {
+        console.error("[main.tsx] Failed to synchronize native AI provider:", error);
+      });
+  });
+}
+
 // Keep the in-app reminder alive on every surface. The scheduler is deliberately
 // deferred until after the first paint so local boot remains responsive.
 runAfterFirstPaint(() => {

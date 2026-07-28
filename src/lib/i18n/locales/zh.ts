@@ -3612,6 +3612,7 @@ export const zh: Dict = {
   "reviewSession.deleteOnlyLearning": "删除仅适用于学习卡片。",
   "reviewSession.cardDeleted": "卡片已删除",
   "reviewSession.deleteFailed": "删除卡片失败",
+  "reviewSession.deleteConfirmMessage": "删除此卡片并将其从当前复习会话中移除吗？",
   "reviewSession.suspendOnlyLearning": "暂停仅适用于学习卡片。",
   "reviewSession.cardSuspended": "卡片已暂停",
   "reviewSession.suspendFailed": "暂停卡片失败",

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from "react";
 import {
   ArrowClockwise,
   Brain,
@@ -79,6 +79,7 @@ import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extr
 import type { DocumentSearchState } from "../../types/searchHit";
 import { ReaderTTSControls } from "../common/ReaderTTSControls";
 import { useIsActiveTab, usePaneId } from "../common/Tabs/TabContent";
+import { useTabReactivation } from "../../hooks/useTabReactivation";
 import { generateShareUrl, copyShareLink, DocumentState, parseStateFromUrl } from "../../lib/shareLink";
 import { usePdfUrlState } from "../../hooks/usePdfUrlState";
 import { dispatchCommandPaletteOpen, isCommandPaletteOpenShortcut } from "../../utils/commandPaletteShortcut";
@@ -358,6 +359,7 @@ export function DocumentViewer({
   const [useNativePdfRange, setUseNativePdfRange] = useState(false);
   const [epubUrl, setEpubUrl] = useState<string | null>(null);
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
+  const [isHtmlFrameReady, setIsHtmlFrameReady] = useState(false);
   const [mediaSource, setMediaSource] = useState<ResolvedLocalMediaSource | null>(null);
   const mediaSourceRef = useRef<ResolvedLocalMediaSource | null>(null);
   const mediaSourceRequestRef = useRef(0);
@@ -485,6 +487,7 @@ export function DocumentViewer({
   const scrollSaveTimeoutRef = useRef<number | null>(null);
   const htmlScrollTimeoutRef = useRef<number | null>(null);
   const htmlRestorationPendingRef = useRef<ViewState | null>(null);
+  const htmlResumeReloadAtRef = useRef(0);
   const restoreRequestIdRef = useRef(0);
   const restoreAttemptRef = useRef(0);
   const restoreReadyAttemptsRef = useRef(0);
@@ -2312,7 +2315,56 @@ export function DocumentViewer({
 
   // Track if this tab is currently visible/active
   const isVisibleRef = useRef(true);
-  
+
+  const reloadHtmlIframeAfterResume = useCallback(() => {
+    if (docType !== "html" || viewModeRef.current !== "document") return;
+    const iframe = iframeRef.current;
+    const srcDoc = iframe?.srcdoc || iframe?.getAttribute("srcdoc") || "";
+    if (!iframe || !srcDoc) return;
+
+    const now = Date.now();
+    if (now - htmlResumeReloadAtRef.current < 500) return;
+    htmlResumeReloadAtRef.current = now;
+
+    const state = captureHtmlScrollState() ?? lastScrollStateRef.current;
+    if (currentDocument?.id && state) {
+      htmlRestorationPendingRef.current = {
+        docId: currentDocument.id,
+        pageNumber: state.pageNumber,
+        scale: scaleRef.current,
+        zoomMode: zoomModeRef.current,
+        rotation: 0,
+        viewMode: viewModeRef.current,
+        dest: null,
+        scrollTop: state.scrollTop,
+        scrollLeft: state.scrollLeft,
+        scrollPercent: state.scrollPercent,
+        updatedAt: now,
+        version: 1,
+      };
+    }
+
+    // WKWebView can discard a srcdoc iframe's rendered backing store while
+    // its container or the app is hidden. Reloading the same srcdoc restores
+    // the article; the iframe onLoad handler restores scroll.
+    setIsHtmlFrameReady(false);
+    requestAnimationFrame(() => {
+      if (iframeRef.current === iframe) {
+        iframe.srcdoc = srcDoc;
+      }
+    });
+  }, [docType, captureHtmlScrollState, currentDocument?.id]);
+
+  const recoverHtmlIframeAfterTabReactivation = useCallback(() => {
+    // TabContent keeps inactive tabs mounted under display:none. WebKit can
+    // discard the iframe backing store in that state without firing a document
+    // visibility or window focus event, so force the same recovery used when
+    // returning from another macOS Space.
+    htmlResumeReloadAtRef.current = 0;
+    reloadHtmlIframeAfterResume();
+  }, [reloadHtmlIframeAfterResume]);
+  useTabReactivation(isTabActive, recoverHtmlIframeAfterTabReactivation);
+
   // Save position when tab becomes hidden (user switches to another tab)
   // and restore position when tab becomes visible again
   useEffect(() => {
@@ -2386,6 +2438,7 @@ export function DocumentViewer({
       } else if (isVisible && !wasVisible) {
         // Tab is becoming visible again
         isVisibleRef.current = true;
+        reloadHtmlIframeAfterResume();
         
         // For PDFs, we need to restore the scroll position
         // because the PDFViewer might have reset to page 1
@@ -2506,15 +2559,17 @@ export function DocumentViewer({
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", reloadHtmlIframeAfterResume);
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("beforeunload", handleBeforeUnload);
     
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", reloadHtmlIframeAfterResume);
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [documentId, docType, currentDocument?.id, saveScrollProgress, resolvePreferredViewStateKey, resolveViewStateKeyCandidates, persistScrollState]);
+  }, [documentId, docType, currentDocument?.id, saveScrollProgress, resolvePreferredViewStateKey, resolveViewStateKeyCandidates, persistScrollState, reloadHtmlIframeAfterResume]);
 
   // Parse URL fragment and restore state after document is loaded
   useEffect(() => {
@@ -4181,6 +4236,14 @@ export function DocumentViewer({
 
   const isOcrHtml = docType === "pdf" && pdfViewMode === "ocr-html" && ocrResult?.format === "html";
   const isHtmlViewer = docType === "html" || isOcrHtml;
+
+  useLayoutEffect(() => {
+    if (docType === "html") {
+      // Prevent a newly navigated srcdoc from painting with its source site's
+      // colors before the reader-theme stylesheet has been injected.
+      setIsHtmlFrameReady(false);
+    }
+  }, [docType, currentDocument?.id, htmlForDisplay]);
 
   useEffect(() => {
     if (!isHtmlViewer) return;
@@ -6397,6 +6460,15 @@ export function DocumentViewer({
           </div>
         ) : docType === "html" ? (
           <div ref={htmlViewerContainerRef} data-html-viewer="true" className="h-full w-full overflow-hidden bg-background relative">
+            {!isHtmlFrameReady && (
+              <div
+                className="absolute inset-0 z-20 flex items-center justify-center bg-background"
+                aria-label="Preparing article"
+              >
+                <CircleNotch className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+
             {/* Floating settings toggle */}
             <button
               onClick={() => setShowHtmlSettings(!showHtmlSettings)}
@@ -6495,10 +6567,12 @@ export function DocumentViewer({
               srcDoc={htmlForDisplay}
               onMouseUp={handleIframeMouseUp}
               onLoad={() => {
+                const loadedFrame = iframeRef.current;
                 injectHtmlViewerStyles();
                 scrollHtmlFrameToInitialHit();
                 // Restore saved scroll position (skip if initialJump already scrolled)
                 const pending = htmlRestorationPendingRef.current;
+                const waitForScrollRestore = Boolean(pending && !initialJump);
                 if (pending && !initialJump) {
                   // Wait a short delay to ensure injected styles are reflowed by the browser,
                   // avoiding scroll clamping issues on unrendered/unexpanded document.
@@ -6526,6 +6600,22 @@ export function DocumentViewer({
                 }
                 htmlRestorationPendingRef.current = null;
                 restorationInProgressRef.current = false;
+
+                // Keep the opaque preparation layer in place until the
+                // injected theme has painted (and any pending scroll restore
+                // has run), so source-page colors never flash on screen.
+                const reveal = () => {
+                  requestAnimationFrame(() => {
+                    if (iframeRef.current === loadedFrame) {
+                      setIsHtmlFrameReady(true);
+                    }
+                  });
+                };
+                if (waitForScrollRestore) {
+                  setTimeout(reveal, 180);
+                } else {
+                  requestAnimationFrame(reveal);
+                }
               }}
             />
           </div>

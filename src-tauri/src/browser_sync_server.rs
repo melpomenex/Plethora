@@ -48,8 +48,11 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use base64::{engine::general_purpose, Engine as _};
+use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
@@ -187,6 +190,12 @@ pub struct AIRequest {
     /// Count for key points/questions/flashcards (default: 5)
     #[serde(default = "default_count")]
     pub count: usize,
+    /// Persist generated flashcards directly into the active Incrementum collection.
+    #[serde(default)]
+    pub save_flashcards: bool,
+    /// Text flashcard formats requested by the extension (`qa`, `cloze`).
+    #[serde(default)]
+    pub card_types: Vec<String>,
     /// Page URL for context
     #[serde(default)]
     pub url: Option<String>,
@@ -211,6 +220,8 @@ pub struct GeneratedFlashcard {
     pub question: String,
     pub answer: String,
     pub card_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saved_id: Option<String>,
 }
 
 /// AI response to browser extension
@@ -249,6 +260,32 @@ pub struct AIStatusResponse {
     pub configured: bool,
     pub provider: Option<String>,
     pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImageOcclusionRegion {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImageOcclusionRequest {
+    pub image_base64: String,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    pub question: String,
+    #[serde(default)]
+    pub answer: String,
+    pub regions: Vec<ImageOcclusionRegion>,
+    #[serde(default)]
+    pub source_url: Option<String>,
 }
 
 /// RSS feed creation request
@@ -420,6 +457,7 @@ pub async fn start_server(
         .route("/", post(handle_extension_request))
         .route("/ai/process", post(handle_ai_request))
         .route("/ai/status", get(handle_ai_status))
+        .route("/ai/image-occlusion", post(handle_image_occlusion_request))
         .route("/api/theme", get(handle_get_theme))
         .route(
             "/api/rss/feeds",
@@ -1124,6 +1162,15 @@ async fn handle_import_request(
             }
         }
     } else {
+        if let Some(image) = payload_images
+            .as_ref()
+            .and_then(|images| images.first())
+            .filter(|image| !image.src.trim().is_empty())
+        {
+            cover_image_url = Some(image.src.clone());
+            cover_image_source = Some("browser_extension".to_string());
+        }
+
         let is_title_url = title.trim().is_empty()
             || title.starts_with("http://")
             || title.starts_with("https://")
@@ -1134,7 +1181,11 @@ async fn handle_import_request(
                     || title.contains("youtu.be")
                     || title.contains("youtube.com")));
 
-        if is_title_url {
+        // When the extension already supplied article text, do not block the
+        // import on a second network request just to discover preview metadata.
+        // This was a major source of "Failed to fetch"/"Network failed" reports
+        // on long Wikipedia imports.
+        if is_title_url && payload_content.is_empty() {
             if let Ok(preview) =
                 crate::commands::document::fetch_web_page_preview(payload.url.clone()).await
             {
@@ -1150,7 +1201,7 @@ async fn handle_import_request(
                     }
                 }
             }
-        } else {
+        } else if payload_content.is_empty() && cover_image_url.is_none() {
             if let Ok(preview) =
                 crate::commands::document::fetch_web_page_preview(payload.url.clone()).await
             {
@@ -1711,8 +1762,154 @@ async fn is_automation_authorized(state: &ServerState, headers: &HeaderMap) -> b
         .unwrap_or(false)
 }
 
-/// Middleware that requires a valid API key on all requests.
-/// The API key must be configured (non-empty) or all requests are rejected.
+fn is_public_browser_extension_endpoint(path: &str, method: &axum::http::Method) -> bool {
+    (path == "/" && method == axum::http::Method::POST)
+        || (path == "/ai/process" && method == axum::http::Method::POST)
+        || (path == "/ai/status" && method == axum::http::Method::GET)
+        || (path == "/ai/image-occlusion" && method == axum::http::Method::POST)
+        || (path == "/api/theme" && method == axum::http::Method::GET)
+}
+
+async fn handle_image_occlusion_request(
+    State(state): State<ServerState>,
+    Json(payload): Json<ImageOcclusionRequest>,
+) -> Response {
+    let bytes = match general_purpose::STANDARD.decode(payload.image_base64.as_bytes()) {
+        Ok(bytes) if !bytes.is_empty() && bytes.len() <= 7 * 1024 * 1024 => bytes,
+        Ok(_) => {
+            return error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Image must be between 1 byte and 7 MB",
+            )
+        }
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Invalid image payload: {}", error),
+            )
+        }
+    };
+
+    let image_format = match image::guess_format(&bytes) {
+        Ok(format) => format,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, "Unsupported image format"),
+    };
+    let decoded = match image::load_from_memory(&bytes) {
+        Ok(image) => image,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                &format!("Unable to decode image: {}", error),
+            )
+        }
+    };
+    let (width, height) = decoded.dimensions();
+    let mime_type = payload
+        .mime_type
+        .filter(|mime| mime.starts_with("image/"))
+        .unwrap_or_else(|| match image_format {
+            image::ImageFormat::Png => "image/png".to_string(),
+            image::ImageFormat::Gif => "image/gif".to_string(),
+            image::ImageFormat::WebP => "image/webp".to_string(),
+            _ => "image/jpeg".to_string(),
+        });
+
+    let regions: Vec<serde_json::Value> = payload
+        .regions
+        .iter()
+        .filter(|region| {
+            region.x.is_finite()
+                && region.y.is_finite()
+                && region.width.is_finite()
+                && region.height.is_finite()
+                && region.x >= 0.0
+                && region.y >= 0.0
+                && region.width > 0.0
+                && region.height > 0.0
+                && region.x + region.width <= 100.0
+                && region.y + region.height <= 100.0
+        })
+        .map(|region| {
+            json!({
+                "id": region.id,
+                "x": region.x,
+                "y": region.y,
+                "width": region.width,
+                "height": region.height,
+                "label": region.label,
+            })
+        })
+        .collect();
+    if regions.is_empty() {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Draw at least one valid occlusion region",
+        );
+    }
+
+    let question = payload.question.trim();
+    if question.is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "A card prompt is required");
+    }
+
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let asset = match state
+        .repo
+        .create_or_get_image_asset(
+            &mime_type,
+            payload.file_name.as_deref(),
+            &bytes,
+            &sha256,
+            i32::try_from(width).ok(),
+            i32::try_from(height).ok(),
+        )
+        .await
+    {
+        Ok(asset) => asset,
+        Err(error) => {
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("Failed to save image: {}", error),
+            )
+        }
+    };
+
+    let mut item = LearningItem::new(ItemType::Qa, question.to_string());
+    item.collection_id = resolve_browser_import_collection_id(&state.repo).await;
+    item.answer = Some(payload.answer.trim().to_string());
+    item.image_asset_ids = vec![asset.id.clone()];
+    item.tags = vec![
+        "browser-extension".to_string(),
+        "image-occlusion".to_string(),
+    ];
+    item.interaction_metadata = Some(json!({
+        "interactionType": "image-occlusion",
+        "imageOcclusionAssetId": asset.id,
+        "imageOcclusionRegions": regions,
+        "imageOcclusionPrompt": question,
+        "sourceUrl": payload.source_url,
+    }));
+
+    match state.repo.create_learning_item(&item).await {
+        Ok(saved) => (
+            StatusCode::OK,
+            Json(json!({
+                "success": true,
+                "saved_id": saved.id,
+                "asset_id": asset.id,
+                "regions": payload.regions.len(),
+            })),
+        )
+            .into_response(),
+        Err(error) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Failed to save image occlusion card: {}", error),
+        ),
+    }
+}
+
+/// Middleware that keeps browser-extension routes local and credential-free
+/// while requiring the configured API key for automation and data APIs.
 async fn require_api_key(
     State(state): State<ServerState>,
     headers: HeaderMap,
@@ -1724,8 +1921,10 @@ async fn require_api_key(
         return next.run(request).await;
     }
 
-    // Browser extension sync endpoint — no API key needed
-    if request.uri().path() == "/" && request.method() == "POST" {
+    // The server only binds to the configured loopback host. These are the
+    // routes called by the bundled browser extension, which does not have
+    // access to the desktop app's automation credential.
+    if is_public_browser_extension_endpoint(request.uri().path(), request.method()) {
         return next.run(request).await;
     }
 
@@ -1901,9 +2100,25 @@ async fn handle_ai_request(
         payload.content.len()
     );
 
+    // Always read the managed AI state. The browser server may start before
+    // keychain loading finishes, and users can change providers while it is
+    // already running. Its startup snapshot is therefore only a fallback.
     let ai_config = {
-        let config_guard = state.ai_config.lock().await;
-        config_guard.clone()
+        let ai_state = state.app_handle.state::<crate::commands::ai::AIState>();
+        let config = ai_state
+            .config
+            .lock()
+            .expect("AI config mutex poisoned")
+            .clone();
+        drop(ai_state);
+
+        match config {
+            Some(config) => Some(config),
+            None => {
+                let config_guard = state.ai_config.lock().await;
+                config_guard.clone()
+            }
+        }
     };
 
     let config = match ai_config {
@@ -2002,8 +2217,14 @@ async fn handle_ai_request(
         }
         "flashcards" => {
             let generator = FlashcardGenerator::new(provider);
+            let include_qa =
+                payload.card_types.is_empty() || payload.card_types.iter().any(|kind| kind == "qa");
+            let include_cloze = payload.card_types.is_empty()
+                || payload.card_types.iter().any(|kind| kind == "cloze");
             let options = FlashcardGenerationOptions {
                 count: payload.count,
+                include_cloze,
+                include_qa,
                 ..Default::default()
             };
             match generator
@@ -2011,16 +2232,48 @@ async fn handle_ai_request(
                 .await
             {
                 Ok(cards) => {
-                    response.flashcards = Some(
-                        cards
-                            .into_iter()
-                            .map(|c| GeneratedFlashcard {
-                                question: c.question,
-                                answer: c.answer,
-                                card_type: format!("{:?}", c.card_type),
-                            })
-                            .collect(),
-                    );
+                    let mut generated: Vec<GeneratedFlashcard> = cards
+                        .into_iter()
+                        .map(|c| GeneratedFlashcard {
+                            question: c.question,
+                            answer: c.answer,
+                            card_type: format!("{:?}", c.card_type),
+                            saved_id: None,
+                        })
+                        .collect();
+
+                    if payload.save_flashcards {
+                        let collection_id = resolve_browser_import_collection_id(&state.repo).await;
+                        for card in &mut generated {
+                            let item_type = match card.card_type.as_str() {
+                                "Cloze" => ItemType::Cloze,
+                                "Qa" => ItemType::Qa,
+                                _ => ItemType::Basic,
+                            };
+                            let mut item =
+                                LearningItem::new(item_type.clone(), card.question.clone());
+                            item.collection_id = collection_id.clone();
+                            item.answer = Some(card.answer.clone());
+                            if item_type == ItemType::Cloze {
+                                item.cloze_text = Some(card.question.clone());
+                            }
+                            item.tags =
+                                vec!["browser-extension".to_string(), "ai-generated".to_string()];
+                            match state.repo.create_learning_item(&item).await {
+                                Ok(saved) => card.saved_id = Some(saved.id),
+                                Err(error) => {
+                                    response.success = false;
+                                    response.error = Some(format!(
+                                        "Generated flashcards but failed to save one: {}",
+                                        error
+                                    ));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    response.flashcards = Some(generated);
                 }
                 Err(e) => {
                     response.success = false;
@@ -2076,14 +2329,40 @@ async fn handle_ai_request(
         }
     }
 
+    info!(
+        "Completed AI request: operation={}, success={}, summary={}, flashcards={}, error={}",
+        payload.operation,
+        response.success,
+        response.summary.is_some(),
+        response
+            .flashcards
+            .as_ref()
+            .map(|cards| cards.len())
+            .unwrap_or(0),
+        response.error.as_deref().unwrap_or("none")
+    );
+
     (StatusCode::OK, Json(response)).into_response()
 }
 
 /// Handle AI status check from browser extension
 async fn handle_ai_status(State(state): State<ServerState>) -> Response {
     let ai_config = {
-        let config_guard = state.ai_config.lock().await;
-        config_guard.clone()
+        let ai_state = state.app_handle.state::<crate::commands::ai::AIState>();
+        let config = ai_state
+            .config
+            .lock()
+            .expect("AI config mutex poisoned")
+            .clone();
+        drop(ai_state);
+
+        match config {
+            Some(config) => Some(config),
+            None => {
+                let config_guard = state.ai_config.lock().await;
+                config_guard.clone()
+            }
+        }
     };
 
     let response = match ai_config {
@@ -4548,6 +4827,59 @@ mod browser_import_persistence_tests {
             )),
             ExtensionRequestKind::Extract
         );
+    }
+
+    #[test]
+    fn browser_extension_ai_and_theme_routes_do_not_require_automation_key() {
+        assert!(is_public_browser_extension_endpoint(
+            "/",
+            &axum::http::Method::POST
+        ));
+        assert!(is_public_browser_extension_endpoint(
+            "/ai/process",
+            &axum::http::Method::POST
+        ));
+        assert!(is_public_browser_extension_endpoint(
+            "/ai/status",
+            &axum::http::Method::GET
+        ));
+        assert!(is_public_browser_extension_endpoint(
+            "/ai/image-occlusion",
+            &axum::http::Method::POST
+        ));
+        assert!(is_public_browser_extension_endpoint(
+            "/api/theme",
+            &axum::http::Method::GET
+        ));
+        assert!(!is_public_browser_extension_endpoint(
+            "/api/automation/cards",
+            &axum::http::Method::POST
+        ));
+        assert!(!is_public_browser_extension_endpoint(
+            "/ai/process",
+            &axum::http::Method::GET
+        ));
+    }
+
+    #[test]
+    fn ai_flashcard_persistence_requires_an_explicit_request_flag() {
+        let without_save: AIRequest = serde_json::from_value(json!({
+            "content": "Selected browser text",
+            "operation": "flashcards"
+        }))
+        .expect("valid AI request");
+        assert!(!without_save.save_flashcards);
+        assert!(without_save.card_types.is_empty());
+
+        let with_save: AIRequest = serde_json::from_value(json!({
+            "content": "Selected browser text",
+            "operation": "flashcards",
+            "save_flashcards": true,
+            "card_types": ["qa"]
+        }))
+        .expect("valid AI request");
+        assert!(with_save.save_flashcards);
+        assert_eq!(with_save.card_types, vec!["qa"]);
     }
 
     #[test]

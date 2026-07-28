@@ -6,7 +6,10 @@
 import { SettingsSection, SettingsRow } from "./SettingsPage";
 import { LLMProviderSettings } from "./LLMProviderSettings";
 import { MCPServersSettings } from "./MCPServersSettings";
-import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
+import {
+  syncPrimaryProviderToNativeAI,
+  useLLMProvidersStore,
+} from "../../stores/llmProvidersStore";
 import { useMCPServersStore } from "../../stores/mcpServersStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { invokeCommand as invoke } from "../../lib/tauri";
@@ -24,6 +27,12 @@ export function AISettings({ onChange }: { onChange: () => void }) {
   const addProvider = useLLMProvidersStore((state) => state.addProvider);
   const updateProvider = useLLMProvidersStore((state) => state.updateProvider);
   const removeProvider = useLLMProvidersStore((state) => state.removeProvider);
+
+  // Keep the native/browser-extension AI service aligned with the provider
+  // registry even when the registry was hydrated before its store bridge ran.
+  useEffect(() => {
+    void syncPrimaryProviderToNativeAI(providers);
+  }, [providers]);
 
   const mcpServers = useMCPServersStore((state) => state.servers);
   const addMCPServer = useMCPServersStore((state) => state.addServer);

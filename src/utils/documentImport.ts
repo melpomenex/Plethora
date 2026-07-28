@@ -85,7 +85,9 @@ export function processHtmlContent(rawHtml: string, baseUrl: string, title: stri
       }
       baseHref = urlObj.toString();
     } else {
-      baseHref = new URL(baseUrl).origin + '/';
+      const urlObj = new URL(baseUrl);
+      urlObj.hash = '';
+      baseHref = urlObj.toString();
     }
   } catch {
     if (baseUrl.startsWith('file://')) {
@@ -114,6 +116,35 @@ export function processHtmlContent(rawHtml: string, baseUrl: string, title: stri
     const imageSelectors = ['img', 'picture', 'source'];
     imageSelectors.forEach(selector => {
       doc.querySelectorAll(selector).forEach(el => el.remove());
+    });
+  }
+
+  if (preserveImages) {
+    doc.querySelectorAll('img').forEach((image) => {
+      const candidate = [
+        image.getAttribute('src'),
+        image.getAttribute('data-src'),
+        image.getAttribute('data-lazy-src'),
+        image.getAttribute('data-original'),
+      ].find((value) => value && !value.startsWith('data:'));
+
+      if (candidate) {
+        try {
+          image.setAttribute('src', new URL(candidate, baseHref).toString());
+        } catch {
+          image.setAttribute('src', candidate);
+        }
+      }
+
+      // Captured srcset values often retain lazy placeholders or candidates
+      // that WebKit cannot resolve after the page is detached from its origin.
+      image.removeAttribute('srcset');
+      image.removeAttribute('data-src');
+      image.removeAttribute('data-lazy-src');
+      image.removeAttribute('data-original');
+      image.setAttribute('loading', 'eager');
+      image.setAttribute('decoding', 'async');
+      image.setAttribute('referrerpolicy', 'no-referrer');
     });
   }
 

@@ -2,6 +2,10 @@
 // Background service worker for Incrementum Browser Sync
 // Handles tab monitoring, bookmark syncing, and communication with Incrementum
 
+if (typeof importScripts === 'function') {
+  importScripts('shared.js');
+}
+
 let INCREMENTUM_BASE_URL = 'http://127.0.0.1:8766';
 let ENABLE_CONTEXT_MENU = true;
 let ENABLE_NOTIFICATIONS = true;
@@ -10,6 +14,8 @@ let SAVE_BOOKMARKS = true;
 let SAVE_HISTORY = true;
 let ENABLE_AUTO_SYNC = false;
 let SYNC_FREQUENCY = 'manual';
+let FLASHCARD_TYPES = ['qa', 'cloze'];
+let FLASHCARD_COUNT = 5;
 let keepAliveCount = 0;
 const PENDING_EXTRACTS_KEY = 'pendingExtracts';
 let flushInProgress = false;
@@ -175,7 +181,9 @@ async function loadSettings() {
       'saveBookmarks',
       'saveHistory',
       'enableAutoSync',
-      'syncFrequency'
+      'syncFrequency',
+      'flashcardTypes',
+      'flashcardCount'
     ]);
 
     let serverUrl = settings.serverUrl || '127.0.0.1';
@@ -205,6 +213,13 @@ async function loadSettings() {
     SAVE_HISTORY = settings.saveHistory === true;
     ENABLE_AUTO_SYNC = settings.enableAutoSync === true;
     SYNC_FREQUENCY = settings.syncFrequency || 'manual';
+    const configuredFlashcardTypes = Array.isArray(settings.flashcardTypes)
+      ? settings.flashcardTypes.filter((type) => type === 'qa' || type === 'cloze')
+      : [];
+    FLASHCARD_TYPES = configuredFlashcardTypes.length > 0
+      ? configuredFlashcardTypes
+      : ['qa', 'cloze'];
+    FLASHCARD_COUNT = Math.max(1, Math.min(20, Number(settings.flashcardCount) || 5));
 
     setupAutoSyncAlarm();
   } catch (error) {
@@ -217,6 +232,8 @@ async function loadSettings() {
     SAVE_HISTORY = false;
     ENABLE_AUTO_SYNC = false;
     SYNC_FREQUENCY = 'manual';
+    FLASHCARD_TYPES = ['qa', 'cloze'];
+    FLASHCARD_COUNT = 5;
   }
 }
 
@@ -263,6 +280,32 @@ function createContextMenus() {
       title: '📝 Create Extract',
       contexts: ['selection']
     });
+
+    chrome.contextMenus.create({
+      id: 'ai-selection',
+      title: '✨ Incrementum AI',
+      contexts: ['selection']
+    });
+
+    chrome.contextMenus.create({
+      id: 'ai-summarize-selection',
+      parentId: 'ai-selection',
+      title: 'Summarize selection',
+      contexts: ['selection']
+    });
+
+    chrome.contextMenus.create({
+      id: 'ai-flashcards-selection',
+      parentId: 'ai-selection',
+      title: 'Generate and save flashcards',
+      contexts: ['selection']
+    });
+
+    chrome.contextMenus.create({
+      id: 'ai-image-occlusion',
+      title: '🖼️ Create image occlusion card',
+      contexts: ['image']
+    });
   });
 }
 
@@ -294,8 +337,114 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         await createExtractFromSelection(info.selectionText, tab);
       }
       break;
+
+    case 'ai-summarize-selection':
+      await processSelectionWithAI('summarize', info.selectionText, tab);
+      break;
+
+    case 'ai-flashcards-selection':
+      await processSelectionWithAI('flashcards', info.selectionText, tab);
+      break;
+
+    case 'ai-image-occlusion':
+      await openImageOcclusionEditor(info.srcUrl, tab);
+      break;
   }
 });
+
+async function openImageOcclusionEditor(imageUrl, tab) {
+  if (!imageUrl || !tab?.id) {
+    showAINativeNotification('flashcards', false, 'Could not identify the selected image.');
+    return;
+  }
+  const displayed = await sendAIStateToTab(tab.id, {
+    action: 'showImageOcclusionEditor',
+    imageUrl,
+    pageUrl: tab.url,
+    pageTitle: tab.title
+  });
+  if (!displayed) {
+    showAINativeNotification(
+      'flashcards',
+      false,
+      'This page does not allow the image-occlusion editor to open.'
+    );
+  }
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function createImageOcclusionCard(data, senderTabId) {
+  await loadSettings();
+  try {
+    const imageResponse = await fetch(data.imageUrl);
+    if (!imageResponse.ok) {
+      throw new Error(`Could not download image (${imageResponse.status})`);
+    }
+    const blob = await imageResponse.blob();
+    if (blob.type && !blob.type.startsWith('image/')) {
+      throw new Error('The selected resource is not a supported image.');
+    }
+    if (blob.size > 7 * 1024 * 1024) {
+      throw new Error('The selected image is larger than 7 MB.');
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    let response;
+    try {
+      response = await fetch(`${INCREMENTUM_BASE_URL}/ai/image-occlusion`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          image_base64: arrayBufferToBase64(await blob.arrayBuffer()),
+          mime_type: blob.type || undefined,
+          file_name: data.fileName,
+          question: data.question,
+          answer: data.answer || '',
+          regions: data.regions,
+          source_url: data.pageUrl
+        })
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Incrementum returned ${response.status}`);
+    }
+
+    const displayed = await sendAIStateToTab(senderTabId, {
+      action: 'showImageOcclusionSaved',
+      result
+    });
+    if (!displayed) {
+      showAINativeNotification('flashcards', true, 'Image occlusion card saved to Incrementum.');
+    }
+    return result;
+  } catch (error) {
+    const message = aiFailureMessage(error?.message);
+    const displayed = await sendAIStateToTab(senderTabId, {
+      action: 'showAIError',
+      operation: 'flashcards',
+      error: message
+    });
+    if (!displayed) {
+      showAINativeNotification('flashcards', false, message);
+    }
+    return { success: false, error: message };
+  }
+}
 
 // NOTE: In MV3, onMessage listeners must not be `async`, otherwise the returned Promise
 // can cause Chrome to close the message channel before `sendResponse()` runs.
@@ -339,6 +488,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case 'sendToIncrementum':
           sendResponse(await sendToIncrementum(message.data));
+          break;
+
+        case 'createImageOcclusionCard':
+          sendResponse(await createImageOcclusionCard(message.data || {}, sender.tab?.id));
           break;
 
         case 'createExtract': {
@@ -542,7 +695,7 @@ async function saveAllTabs() {
 
     let successful = 0;
     const results = await Promise.allSettled(
-      validTabs.map(tab => savePage(tab.url, tab.title))
+      validTabs.map(tab => savePage(tab.url, tab.title, tab.id))
     );
 
     results.forEach(result => {
@@ -568,33 +721,59 @@ async function sendToIncrementum(data, options = {}) {
 
     // Use the root endpoint as expected by BrowserSyncServer
     const endpoint = browserSyncEndpoint();
+    const shared = globalThis.IncrementumExtensionShared;
+    const fitted = shared.fitPayloadToBudget(data);
+    if (fitted.compactedHtml || fitted.droppedHtml || fitted.droppedImages || fitted.truncatedText) {
+      console.warn('[Incrementum] Page payload was reduced to fit the desktop import limit.', {
+        compactedHtml: fitted.compactedHtml,
+        droppedHtml: fitted.droppedHtml,
+        droppedImages: fitted.droppedImages,
+        truncatedText: fitted.truncatedText,
+        byteLength: fitted.byteLength
+      });
+    }
 
-    const trimmedText = (data.text || '').trim();
+    const postPayload = async (target, body) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      try {
+        return await fetch(target, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body,
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
 
-    const requestBody = JSON.stringify({
-      url: data.url,
-      title: data.title || 'Untitled',
-      text: trimmedText,
-      content: trimmedText, // kept for backward compatibility
-      html_content: data.html_content, // Rich HTML content for visual fidelity
-      extracted_images: data.extracted_images,
-      type: data.type || (trimmedText ? 'extract' : 'page'),
-      source: data.source || 'browser_extension',
-      timestamp: data.timestamp || new Date().toISOString(),
-      context: data.context,
-      tags: data.tags,
-      priority: data.priority,
-      analysis: data.analysis,
-      fsrs_data: data.fsrs_data
-    });
+    let response;
+    let requestEndpoint = endpoint;
+    try {
+      response = await postPayload(endpoint, fitted.requestBody);
+    } catch (firstError) {
+      const endpointUrl = new URL(endpoint);
+      if (endpointUrl.hostname === '127.0.0.1') {
+        endpointUrl.hostname = 'localhost';
+      } else if (endpointUrl.hostname === 'localhost') {
+        endpointUrl.hostname = '127.0.0.1';
+      } else {
+        throw firstError;
+      }
+      console.warn('[Incrementum] Primary loopback address failed; retrying the alternate address.');
+      requestEndpoint = endpointUrl.toString();
+      response = await postPayload(requestEndpoint, fitted.requestBody);
+    }
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: requestBody
-    });
+    // Retry oversized rich captures as text-only. The readable text is much
+    // smaller and more valuable than returning a 413 to the user.
+    if (response.status === 413 && (fitted.payload.html_content || fitted.payload.extracted_images)) {
+      const textOnly = shared.withoutRichContent(fitted.payload);
+      response = await postPayload(requestEndpoint, JSON.stringify(textOnly));
+    }
 
     if (response.ok) {
       // The BrowserSyncServer returns 200 OK without JSON body
@@ -605,7 +784,11 @@ async function sendToIncrementum(data, options = {}) {
     } else {
       const errorText = await response.text();
       console.error('Server response error:', errorText);
-      return { success: false, error: `Server error: ${response.status}`, retryable: response.status >= 500 };
+      return {
+        success: false,
+        error: errorText || `Server error: ${response.status}`,
+        retryable: response.status >= 500 || response.status === 408 || response.status === 429
+      };
     }
   } catch (error) {
     console.error('[DEBUG] Network error in sendToIncrementum:', error);
@@ -613,6 +796,59 @@ async function sendToIncrementum(data, options = {}) {
     return { success: false, error: error.message, retryable: true };
   }
 }
+
+async function capturePageContentFallback(tabId) {
+  if (!tabId || !chrome.scripting?.executeScript) return null;
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const root =
+          document.querySelector('article, main, [role="main"], #content, #main, .mw-parser-output') ||
+          document.body;
+        const text = (root?.innerText || root?.textContent || document.body?.innerText || '')
+          .replace(/\r/g, '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim()
+          .slice(0, 250000);
+        const html = root?.outerHTML || '';
+        const images = Array.from(root?.querySelectorAll?.('img') || [])
+          .map((img) => {
+            const src =
+              img.currentSrc ||
+              img.getAttribute('src') ||
+              img.getAttribute('data-src') ||
+              img.getAttribute('data-lazy-src') ||
+              '';
+            if (!src || src.startsWith('data:')) return null;
+            try {
+              return {
+                src: new URL(src, window.location.href).href,
+                alt: (img.getAttribute('alt') || '').trim() || undefined
+              };
+            } catch {
+              return { src, alt: (img.getAttribute('alt') || '').trim() || undefined };
+            }
+          })
+          .filter(Boolean)
+          .slice(0, 24);
+
+        return {
+          text,
+          title: document.title || location.hostname,
+          html_content: html.length <= 4 * 1024 * 1024 ? html : undefined,
+          extracted_images: images
+        };
+      }
+    });
+    return results?.[0]?.result || null;
+  } catch (error) {
+    console.warn('[Incrementum] Direct page capture fallback failed:', error.message);
+    return null;
+  }
+}
+
 async function saveLink(url, sourceTabId, linkText) {
   // Resolve a title without opening a tab — use link text or hostname
   let fallbackTitle = '';
@@ -659,7 +895,7 @@ async function savePage(url, title, tabId = null) {
     if (resolvedTabId) {
       try {
         // Request content from the content script
-        const response = await chrome.tabs.sendMessage(resolvedTabId, {
+        const response = await safeSendTabMessage(resolvedTabId, {
           action: 'getPageContent'
         });
         if (response && response.success) {
@@ -672,17 +908,38 @@ async function savePage(url, title, tabId = null) {
       }
     }
 
+    if (resolvedTabId && !pageContent.trim() && !pageHtml) {
+      const fallback = await capturePageContentFallback(resolvedTabId);
+      if (fallback) {
+        pageContent = fallback.text || '';
+        pageHtml = fallback.html_content;
+        extractedImages = fallback.extracted_images;
+        title = fallback.title || title;
+      }
+    }
+
     // Whole-page save: always a "page", never an "extract" (extracts are
     // text selections/highlights). Without this, sendToIncrementum's
     // heuristic would classify the non-empty page text as an extract.
-    return await sendToIncrementum({
+    const payload = {
       url,
       title,
       text: pageContent,
       html_content: pageHtml,
       extracted_images: extractedImages,
       type: 'page'
-    });
+    };
+    const result = await sendToIncrementum(payload);
+    if (!result.success && isRetryableConnectionError(result)) {
+      const queuedItem = await queueExtractForSync(payload);
+      return {
+        success: true,
+        queued: true,
+        queueId: queuedItem.queueId,
+        message: 'Page cached and will sync when Incrementum is available.'
+      };
+    }
+    return result;
   } catch (error) {
     console.error('[DEBUG] Error in savePage:', error);
     // Fallback to basic save without content
@@ -728,7 +985,7 @@ async function sendInPageToast(tabId, success, message) {
       if (chrome.notifications) {
         chrome.notifications.create({
           type: 'basic',
-          iconUrl: 'icon48.png',
+          iconUrl: 'icons/icon48.png',
           title: 'Incrementum',
           message: message
         });
@@ -736,6 +993,144 @@ async function sendInPageToast(tabId, success, message) {
     }
   } catch (error) {
     console.error('[DEBUG] Could not send in-page toast:', error.message);
+  }
+}
+
+async function sendAIStateToTab(tabId, message) {
+  if (!tabId) {
+    return false;
+  }
+
+  try {
+    const response = await safeSendTabMessage(tabId, message);
+    if (response?.success === true) {
+      return true;
+    }
+  } catch (error) {
+    console.warn('[DEBUG] Existing content script could not show AI state:', error.message);
+  }
+
+  // Reloading/updating an extension invalidates content scripts in tabs that
+  // were already open. Reinstall the current script on demand so users do not
+  // have to know that every page must also be refreshed after an extension
+  // reload.
+  try {
+    if (chrome.scripting?.executeScript) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content.js']
+      });
+      const response = await safeSendTabMessage(tabId, message);
+      return response?.success === true;
+    }
+  } catch (error) {
+    console.warn('[DEBUG] Could not inject the AI result UI into the page:', error.message);
+  }
+
+  return false;
+}
+
+function aiProgressMessage(operation) {
+  return operation === 'flashcards'
+    ? 'Generating and saving flashcards…'
+    : 'Summarizing the selected text…';
+}
+
+function aiSuccessMessage(operation) {
+  return operation === 'flashcards'
+    ? 'Flashcards were generated and saved to Incrementum.'
+    : 'The selected text was summarized.';
+}
+
+function aiFailureMessage(error) {
+  const message = String(error || 'Incrementum AI request failed.').trim();
+  return message.length > 240 ? `${message.slice(0, 237)}…` : message;
+}
+
+function showAINativeNotification(operation, success, message) {
+  if (!chrome.notifications) {
+    return false;
+  }
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icons/icon48.png',
+    title: operation === 'flashcards'
+      ? (success ? 'Incrementum AI flashcards' : 'Flashcard generation failed')
+      : (success ? 'Incrementum AI summary' : 'Summarization failed'),
+    message
+  });
+  return true;
+}
+
+async function processSelectionWithAI(operation, selectedText, tab) {
+  const content = (selectedText || '').trim();
+  if (!content || !tab?.id) {
+    const message = 'Select some text before using Incrementum AI.';
+    const displayed = await sendAIStateToTab(tab?.id, {
+      action: 'showAIError',
+      operation,
+      error: message
+    });
+    if (!displayed) {
+      showAINativeNotification(operation, false, message);
+    }
+    return { success: false, error: 'No selection provided' };
+  }
+
+  const progressDisplayed = await sendAIStateToTab(tab.id, {
+    action: 'showAIProgress',
+    operation
+  });
+  if (!progressDisplayed) {
+    showAINativeNotification(operation, true, aiProgressMessage(operation));
+  }
+
+  try {
+    const result = await requestAIAnalysis({
+      content,
+      operation,
+      count: FLASHCARD_COUNT,
+      max_words: 150,
+      save_flashcards: operation === 'flashcards',
+      card_types: operation === 'flashcards' ? FLASHCARD_TYPES : undefined,
+      url: tab.url,
+      title: tab.title
+    });
+
+    if (!result?.success) {
+      const message = aiFailureMessage(result?.error);
+      const displayed = await sendAIStateToTab(tab.id, {
+        action: 'showAIError',
+        operation,
+        error: message
+      });
+      if (!displayed) {
+        showAINativeNotification(operation, false, message);
+      }
+      return result;
+    }
+
+    const displayed = await sendAIStateToTab(tab.id, {
+      action: 'showAIResult',
+      operation,
+      result
+    });
+    if (!displayed) {
+      showAINativeNotification(operation, true, aiSuccessMessage(operation));
+    }
+
+    return result;
+  } catch (error) {
+    const message = aiFailureMessage(error?.message);
+    const displayed = await sendAIStateToTab(tab.id, {
+      action: 'showAIError',
+      operation,
+      error: message
+    });
+    if (!displayed) {
+      showAINativeNotification(operation, false, message);
+    }
+    return { success: false, error: message };
   }
 }
 
@@ -823,6 +1218,8 @@ async function toggleHighlights() {
 
 // Request AI analysis from desktop app
 async function requestAIAnalysis(data) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
   try {
     await loadSettings();
     const endpoint = `${INCREMENTUM_BASE_URL}/ai/process`;
@@ -832,11 +1229,14 @@ async function requestAIAnalysis(data) {
       headers: {
         'Content-Type': 'application/json'
       },
+      signal: controller.signal,
       body: JSON.stringify({
         content: data.content,
         operation: data.operation || 'all',
         max_words: data.max_words || 150,
         count: data.count || 5,
+        save_flashcards: Boolean(data.save_flashcards),
+        card_types: Array.isArray(data.card_types) ? data.card_types : undefined,
         url: data.url,
         title: data.title
       })
@@ -860,8 +1260,12 @@ async function requestAIAnalysis(data) {
     console.error('[DEBUG] AI analysis error:', error);
     return {
       success: false,
-      error: error.message || 'Failed to connect to AI service'
+      error: error?.name === 'AbortError'
+        ? 'Incrementum AI took longer than 60 seconds to respond. Please try again.'
+        : (error.message || 'Could not reach Incrementum. Make sure the desktop app and Browser Extension Server are running.')
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -920,21 +1324,6 @@ if (chrome.bookmarks) {
       await savePage(bookmark.url, bookmark.title);
     }
   });
-}
-
-// Helper to check if a URL is an internal browser page
-function isInternalUrl(url) {
-  if (!url) return true;
-  const internalPrefixes = [
-    'chrome://',
-    'chrome-extension://',
-    'moz-extension://',
-    'about:',
-    'edge://',
-    'opera://',
-    'brave://'
-  ];
-  return internalPrefixes.some(prefix => url.startsWith(prefix));
 }
 
 // History sync listener

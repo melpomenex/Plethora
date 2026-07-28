@@ -409,10 +409,26 @@
       }
 
       if (originalEl instanceof HTMLImageElement) {
-        const src = originalEl.currentSrc || originalEl.src || originalEl.getAttribute('src');
+        const src = [
+          originalEl.currentSrc,
+          originalEl.getAttribute('src'),
+          originalEl.getAttribute('data-src'),
+          originalEl.getAttribute('data-lazy-src'),
+          originalEl.getAttribute('data-original')
+        ].find((candidate) => candidate && !candidate.startsWith('data:'));
         if (src) {
-          clonedEl.setAttribute('src', src);
+          try {
+            clonedEl.setAttribute('src', new URL(src, window.location.href).href);
+          } catch {
+            clonedEl.setAttribute('src', src);
+          }
         }
+        clonedEl.removeAttribute('srcset');
+        clonedEl.removeAttribute('data-src');
+        clonedEl.removeAttribute('data-lazy-src');
+        clonedEl.removeAttribute('data-original');
+        clonedEl.setAttribute('loading', 'eager');
+        clonedEl.setAttribute('referrerpolicy', 'no-referrer');
       }
     }
 
@@ -427,10 +443,16 @@
 
     const seen = new Set();
     const images = [];
-    const nodes = root.querySelectorAll('img[src]');
+    const nodes = root.querySelectorAll('img');
 
     for (const img of nodes) {
-      const rawSrc = img.currentSrc || img.getAttribute('src') || '';
+      const rawSrc = [
+        img.currentSrc,
+        img.getAttribute('src'),
+        img.getAttribute('data-src'),
+        img.getAttribute('data-lazy-src'),
+        img.getAttribute('data-original')
+      ].find((candidate) => candidate && !candidate.startsWith('data:')) || '';
       if (!rawSrc || rawSrc.startsWith('data:')) continue;
 
       let absoluteSrc = rawSrc;
@@ -1661,12 +1683,478 @@
       }
     }
   }
+
+  function showAIResult(operation, result, state = 'result', error = '') {
+    document.getElementById('incrementum-ai-result-host')?.remove();
+
+    const host = document.createElement('div');
+    host.id = 'incrementum-ai-result-host';
+    host.style.position = 'fixed';
+    host.style.inset = '0';
+    host.style.zIndex = '2147483647';
+    const shadow = host.attachShadow({ mode: 'open' });
+
+    const style = document.createElement('style');
+    style.textContent = `
+      :host { all: initial; }
+      .backdrop {
+        position: fixed; inset: 0; display: grid; place-items: center;
+        padding: 24px; background: rgba(2, 6, 23, .72);
+        backdrop-filter: blur(8px);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .panel {
+        width: min(620px, 100%); max-height: min(720px, 88vh);
+        display: flex; flex-direction: column; overflow: hidden;
+        color: #e5e7eb; background: #111827;
+        border: 1px solid rgba(148, 163, 184, .3); border-radius: 16px;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, .5);
+      }
+      .header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 16px; padding: 16px 18px; border-bottom: 1px solid rgba(148, 163, 184, .2);
+      }
+      h2 { margin: 0; color: #f8fafc; font-size: 17px; font-weight: 700; }
+      .close {
+        width: 34px; height: 34px; border: 0; border-radius: 9px;
+        color: #cbd5e1; background: rgba(148, 163, 184, .12);
+        font-size: 22px; line-height: 1; cursor: pointer;
+      }
+      .body { padding: 18px; overflow: auto; }
+      .summary { white-space: pre-wrap; font-size: 15px; line-height: 1.65; color: #e2e8f0; }
+      .saved {
+        margin-bottom: 14px; padding: 10px 12px; border-radius: 10px;
+        color: #86efac; background: rgba(34, 197, 94, .12);
+        border: 1px solid rgba(34, 197, 94, .3); font-size: 13px;
+      }
+      .card {
+        padding: 14px; margin-bottom: 12px; border-radius: 12px;
+        background: rgba(30, 41, 59, .8); border: 1px solid rgba(148, 163, 184, .2);
+      }
+      .label {
+        margin-bottom: 5px; color: #94a3b8; font-size: 10px;
+        font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      }
+      .question { margin-bottom: 12px; color: #f8fafc; font-size: 14px; font-weight: 650; line-height: 1.45; }
+      .answer { color: #cbd5e1; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+      .empty { color: #fca5a5; font-size: 14px; }
+      .progress { display: flex; align-items: center; gap: 14px; color: #e2e8f0; font-size: 15px; }
+      .spinner {
+        width: 22px; height: 22px; flex: 0 0 auto; border-radius: 50%;
+        border: 3px solid rgba(148, 163, 184, .28); border-top-color: #f59e0b;
+        animation: incrementum-spin .8s linear infinite;
+      }
+      .error {
+        padding: 12px 14px; border-radius: 10px; color: #fecaca;
+        background: rgba(239, 68, 68, .11); border: 1px solid rgba(239, 68, 68, .3);
+        font-size: 14px; line-height: 1.55; white-space: pre-wrap;
+      }
+      .help { margin-top: 14px; color: #cbd5e1; font-size: 13px; line-height: 1.55; }
+      @keyframes incrementum-spin { to { transform: rotate(360deg); } }
+    `;
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'backdrop';
+    const panel = document.createElement('section');
+    panel.className = 'panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-label', 'Incrementum AI result');
+
+    const header = document.createElement('div');
+    header.className = 'header';
+    const title = document.createElement('h2');
+    title.textContent = state === 'progress'
+      ? (operation === 'flashcards' ? '🧠 Generating flashcards…' : '✨ Summarizing selection…')
+      : state === 'error'
+        ? 'Incrementum AI could not finish'
+        : operation === 'flashcards'
+          ? '🧠 Incrementum AI Flashcards'
+          : '✨ Incrementum AI Summary';
+    const close = document.createElement('button');
+    close.className = 'close';
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Close');
+    close.textContent = '×';
+
+    const body = document.createElement('div');
+    body.className = 'body';
+    const remove = () => {
+      document.removeEventListener('keydown', handleEscape, true);
+      host.remove();
+    };
+    close.addEventListener('click', remove);
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === backdrop) remove();
+    });
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        remove();
+      }
+    };
+    document.addEventListener('keydown', handleEscape, true);
+
+    if (state === 'progress') {
+      const progress = document.createElement('div');
+      progress.className = 'progress';
+      const spinner = document.createElement('span');
+      spinner.className = 'spinner';
+      const message = document.createElement('span');
+      message.textContent = operation === 'flashcards'
+        ? 'Creating and saving flashcards in Incrementum. This can take a moment.'
+        : 'Generating a summary. This can take a moment.';
+      progress.append(spinner, message);
+      body.appendChild(progress);
+    } else if (state === 'error') {
+      const errorMessage = document.createElement('div');
+      errorMessage.className = 'error';
+      errorMessage.textContent = error || 'Incrementum AI request failed.';
+      const help = document.createElement('div');
+      help.className = 'help';
+      help.textContent = 'Make sure Incrementum is open, its Browser Extension Server is running on the configured port, and an AI provider is configured in Settings.';
+      body.append(errorMessage, help);
+    } else if (operation === 'flashcards') {
+      const cards = Array.isArray(result?.flashcards) ? result.flashcards : [];
+      const savedCount = cards.filter((card) => card?.saved_id).length;
+      const saved = document.createElement('div');
+      saved.className = savedCount > 0 ? 'saved' : 'empty';
+      saved.textContent = savedCount > 0
+        ? `${savedCount} flashcard${savedCount === 1 ? '' : 's'} saved to Incrementum.`
+        : 'No flashcards were saved.';
+      body.appendChild(saved);
+
+      cards.forEach((card, index) => {
+        const cardElement = document.createElement('article');
+        cardElement.className = 'card';
+        const questionLabel = document.createElement('div');
+        questionLabel.className = 'label';
+        questionLabel.textContent = `Question ${index + 1}`;
+        const question = document.createElement('div');
+        question.className = 'question';
+        question.textContent = card?.question || '';
+        const answerLabel = document.createElement('div');
+        answerLabel.className = 'label';
+        answerLabel.textContent = 'Answer';
+        const answer = document.createElement('div');
+        answer.className = 'answer';
+        answer.textContent = card?.answer || '';
+        cardElement.append(questionLabel, question, answerLabel, answer);
+        body.appendChild(cardElement);
+      });
+    } else {
+      const summary = document.createElement('div');
+      summary.className = result?.summary ? 'summary' : 'empty';
+      summary.textContent = result?.summary || 'Incrementum AI did not return a summary.';
+      body.appendChild(summary);
+    }
+
+    header.append(title, close);
+    panel.append(header, body);
+    backdrop.appendChild(panel);
+    shadow.append(style, backdrop);
+    document.documentElement.appendChild(host);
+    close.focus();
+  }
+
+  function showImageOcclusionEditor(data) {
+    document.getElementById('incrementum-image-occlusion-host')?.remove();
+
+    const host = document.createElement('div');
+    host.id = 'incrementum-image-occlusion-host';
+    host.style.position = 'fixed';
+    host.style.inset = '0';
+    host.style.zIndex = '2147483647';
+    const shadow = host.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent = `
+      :host { all: initial; }
+      .backdrop {
+        position: fixed; inset: 0; display: grid; place-items: center; padding: 20px;
+        background: rgba(2, 6, 23, .8); backdrop-filter: blur(8px);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .panel {
+        width: min(900px, 100%); max-height: 94vh; overflow: auto;
+        color: #e5e7eb; background: #111827; border: 1px solid rgba(148,163,184,.32);
+        border-radius: 16px; box-shadow: 0 24px 80px rgba(0,0,0,.55);
+      }
+      .header { display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border-bottom:1px solid rgba(148,163,184,.2); }
+      h2 { margin:0; color:#f8fafc; font-size:17px; }
+      .close { width:34px; height:34px; border:0; border-radius:9px; color:#cbd5e1; background:rgba(148,163,184,.12); font-size:22px; cursor:pointer; }
+      .body { padding:18px; }
+      .hint { margin:0 0 14px; color:#cbd5e1; font-size:13px; line-height:1.5; }
+      .viewport { display:flex; justify-content:center; padding:12px; border-radius:12px; background:#020617; overflow:auto; }
+      .stage { position:relative; display:inline-block; line-height:0; user-select:none; touch-action:none; cursor:crosshair; }
+      .stage img { display:block; max-width:min(780px, 82vw); max-height:48vh; width:auto; height:auto; pointer-events:none; }
+      .drawing { position:absolute; inset:0; z-index:1; cursor:crosshair; }
+      .region {
+        position:absolute; border:2px solid #f59e0b; background:rgba(15,23,42,.9);
+        box-sizing:border-box; pointer-events:none; box-shadow:0 0 0 1px rgba(0,0,0,.45);
+      }
+      .region.preview { border-style:dashed; background:rgba(245,158,11,.48); }
+      .fields { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }
+      label { display:block; color:#cbd5e1; font-size:12px; font-weight:650; }
+      input { width:100%; margin-top:6px; padding:10px 11px; box-sizing:border-box; border:1px solid rgba(148,163,184,.35); border-radius:9px; color:#f8fafc; background:#0f172a; font:inherit; }
+      .actions { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; }
+      .tools, .submit { display:flex; gap:8px; }
+      button { border:0; border-radius:9px; padding:9px 13px; color:#e2e8f0; background:#334155; font:600 13px inherit; cursor:pointer; }
+      button.primary { color:#111827; background:#f59e0b; }
+      button:disabled { opacity:.45; cursor:not-allowed; }
+      .status { min-height:20px; margin-top:10px; color:#fca5a5; font-size:13px; }
+      @media (max-width: 650px) { .fields { grid-template-columns:1fr; } .actions { align-items:stretch; flex-direction:column; } }
+    `;
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'backdrop';
+    const panel = document.createElement('section');
+    panel.className = 'panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    const header = document.createElement('div');
+    header.className = 'header';
+    const title = document.createElement('h2');
+    title.textContent = '🖼️ Create image occlusion card';
+    const close = document.createElement('button');
+    close.className = 'close';
+    close.textContent = '×';
+    close.setAttribute('aria-label', 'Close');
+    header.append(title, close);
+
+    const body = document.createElement('div');
+    body.className = 'body';
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent =
+      'Click and drag to draw a rectangular mask. The shaded area will be hidden during review.';
+    const viewport = document.createElement('div');
+    viewport.className = 'viewport';
+    const stage = document.createElement('div');
+    stage.className = 'stage';
+    const image = document.createElement('img');
+    image.src = data.imageUrl;
+    image.alt = data.pageTitle || 'Image selected for occlusion';
+    const drawing = document.createElement('div');
+    drawing.className = 'drawing';
+    stage.append(image, drawing);
+    viewport.appendChild(stage);
+
+    const fields = document.createElement('div');
+    fields.className = 'fields';
+    const promptLabel = document.createElement('label');
+    promptLabel.textContent = 'Prompt';
+    const prompt = document.createElement('input');
+    prompt.value = 'Identify the hidden part of this image.';
+    prompt.placeholder = 'What should you recall?';
+    promptLabel.appendChild(prompt);
+    const answerLabel = document.createElement('label');
+    answerLabel.textContent = 'Answer / hidden label';
+    const answer = document.createElement('input');
+    answer.placeholder = 'Optional answer shown after reveal';
+    answerLabel.appendChild(answer);
+    fields.append(promptLabel, answerLabel);
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const tools = document.createElement('div');
+    tools.className = 'tools';
+    const undo = document.createElement('button');
+    undo.textContent = 'Undo region';
+    const clear = document.createElement('button');
+    clear.textContent = 'Clear';
+    tools.append(undo, clear);
+    const submitGroup = document.createElement('div');
+    submitGroup.className = 'submit';
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Cancel';
+    const save = document.createElement('button');
+    save.className = 'primary';
+    save.textContent = 'Create card';
+    submitGroup.append(cancel, save);
+    actions.append(tools, submitGroup);
+    const status = document.createElement('div');
+    status.className = 'status';
+
+    body.append(hint, viewport, fields, actions, status);
+    panel.append(header, body);
+    backdrop.appendChild(panel);
+    shadow.append(style, backdrop);
+    document.documentElement.appendChild(host);
+
+    let regions = [];
+    let start = null;
+    let previewRegion = null;
+    let activePointerId = null;
+    const renderRegions = () => {
+      drawing.replaceChildren();
+      const renderRegion = (region, preview = false) => {
+        const element = document.createElement('div');
+        element.className = preview ? 'region preview' : 'region';
+        element.style.left = `${region.x}%`;
+        element.style.top = `${region.y}%`;
+        element.style.width = `${region.width}%`;
+        element.style.height = `${region.height}%`;
+        drawing.appendChild(element);
+      };
+      regions.forEach((region) => renderRegion(region));
+      if (previewRegion) {
+        renderRegion(previewRegion, true);
+      }
+      undo.disabled = regions.length === 0;
+      clear.disabled = regions.length === 0;
+    };
+    const point = (event) => {
+      const rect = drawing.getBoundingClientRect();
+      return {
+        x: Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
+        y: Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100))
+      };
+    };
+    const regionBetween = (first, second) => ({
+      x: Math.min(first.x, second.x),
+      y: Math.min(first.y, second.y),
+      width: Math.abs(second.x - first.x),
+      height: Math.abs(second.y - first.y)
+    });
+    drawing.addEventListener('pointerdown', (event) => {
+      if (!image.complete || !image.naturalWidth || (event.pointerType === 'mouse' && event.button !== 0)) {
+        return;
+      }
+      event.preventDefault();
+      start = point(event);
+      previewRegion = { x: start.x, y: start.y, width: 0, height: 0 };
+      activePointerId = event.pointerId;
+      drawing.setPointerCapture(event.pointerId);
+      renderRegions();
+    });
+    drawing.addEventListener('pointermove', (event) => {
+      if (!start || event.pointerId !== activePointerId) return;
+      event.preventDefault();
+      previewRegion = regionBetween(start, point(event));
+      renderRegions();
+    });
+    const finishDrawing = (event, commit) => {
+      if (!start || event.pointerId !== activePointerId) return;
+      event.preventDefault();
+      const completedRegion = regionBetween(start, point(event));
+      if (drawing.hasPointerCapture(event.pointerId)) {
+        drawing.releasePointerCapture(event.pointerId);
+      }
+      start = null;
+      previewRegion = null;
+      activePointerId = null;
+      if (commit && completedRegion.width >= 1 && completedRegion.height >= 1) {
+        regions.push({
+          id: `region-${Date.now()}-${regions.length + 1}`,
+          ...completedRegion,
+          label: answer.value.trim() || undefined
+        });
+      }
+      renderRegions();
+    };
+    drawing.addEventListener('pointerup', (event) => finishDrawing(event, true));
+    drawing.addEventListener('pointercancel', (event) => finishDrawing(event, false));
+
+    const remove = () => host.remove();
+    close.addEventListener('click', remove);
+    cancel.addEventListener('click', remove);
+    undo.addEventListener('click', () => {
+      regions = regions.slice(0, -1);
+      renderRegions();
+    });
+    clear.addEventListener('click', () => {
+      regions = [];
+      renderRegions();
+    });
+    save.addEventListener('click', async () => {
+      if (regions.length === 0) {
+        status.textContent = 'Draw at least one region on the image.';
+        return;
+      }
+      if (!prompt.value.trim()) {
+        status.textContent = 'Enter a prompt for the card.';
+        prompt.focus();
+        return;
+      }
+      save.disabled = true;
+      save.textContent = 'Saving…';
+      status.textContent = '';
+      try {
+        const url = new URL(data.imageUrl, window.location.href);
+        const fileName = decodeURIComponent(url.pathname.split('/').pop() || 'browser-image');
+        let transferableImageUrl = data.imageUrl;
+        if (url.protocol === 'blob:') {
+          const imageResponse = await fetch(data.imageUrl);
+          if (!imageResponse.ok) {
+            throw new Error('Could not read this page-local image.');
+          }
+          const blob = await imageResponse.blob();
+          transferableImageUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.addEventListener('load', () => resolve(reader.result), { once: true });
+            reader.addEventListener('error', () => reject(new Error('Could not prepare this image.')), {
+              once: true
+            });
+            reader.readAsDataURL(blob);
+          });
+        }
+        const result = await chrome.runtime.sendMessage({
+          action: 'createImageOcclusionCard',
+          data: {
+            imageUrl: transferableImageUrl,
+            pageUrl: data.pageUrl || window.location.href,
+            fileName,
+            question: prompt.value.trim(),
+            answer: answer.value.trim(),
+            regions
+          }
+        });
+        if (!result?.success) {
+          throw new Error(result?.error || 'Incrementum could not save the card.');
+        }
+        if (!host.isConnected) return;
+        remove();
+        showSaveIndicator('Image occlusion card saved to Incrementum.', 'success');
+      } catch (error) {
+        status.textContent = error?.message || 'Could not save image occlusion card.';
+        save.disabled = false;
+        save.textContent = 'Create card';
+      }
+    });
+    renderRegions();
+    prompt.focus();
+  }
   
   // Listen for messages from background script and popup
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     switch (message.action) {
       case 'showSaveIndicator':
         showSaveIndicator(message.text || 'Saved to Incrementum', message.type || 'success');
+        sendResponse({ success: true });
+        break;
+
+      case 'showAIResult':
+        showAIResult(message.operation, message.result);
+        sendResponse({ success: true });
+        break;
+
+      case 'showAIProgress':
+        showAIResult(message.operation, null, 'progress');
+        sendResponse({ success: true });
+        break;
+
+      case 'showAIError':
+        showAIResult(message.operation, null, 'error', message.error);
+        sendResponse({ success: true });
+        break;
+
+      case 'showImageOcclusionEditor':
+        showImageOcclusionEditor(message);
+        sendResponse({ success: true });
+        break;
+
+      case 'showImageOcclusionSaved':
+        document.getElementById('incrementum-image-occlusion-host')?.remove();
+        showSaveIndicator('Image occlusion card saved to Incrementum.', 'success');
         sendResponse({ success: true });
         break;
         

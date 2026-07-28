@@ -29,11 +29,13 @@ import { useRatingJoystick } from "../../hooks/useRatingJoystick";
 import { useSwipeGesture } from "../../hooks/useSwipeGesture";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { RatingJoystick } from "./RatingJoystick";
-import { X } from "@phosphor-icons/react";
+import { Trash, X } from "@phosphor-icons/react";
 import { AlgorithmArenaDecision } from "./AlgorithmArenaDecision";
 
 interface ZenReviewModeProps {
   onExit: () => void;
+  onRequestDelete: () => void;
+  isDeleting?: boolean;
 }
 
 // Minimal card display - just the content
@@ -290,7 +292,7 @@ function SessionTimer({ startTime, isVisible }: { startTime: number; isVisible: 
   );
 }
 
-export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
+export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: ZenReviewModeProps) {
   const { t } = useI18n();
   const {
     currentCard,
@@ -567,6 +569,19 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
         <X className="w-5 h-5" />
       </button>
 
+      <button
+        onClick={onRequestDelete}
+        disabled={isDeleting || Boolean(pendingArenaReview)}
+        className={cn(
+          "fixed top-4 right-4 z-50 p-2 rounded-full border border-destructive/30 bg-background/60 hover:bg-destructive/10 backdrop-blur-sm text-destructive/70 hover:text-destructive transition-all duration-300 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed",
+          areControlsVisible ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"
+        )}
+        title={t("learningCards.deleteCard")}
+        aria-label={t("learningCards.deleteCard")}
+      >
+        <Trash className="w-5 h-5" />
+      </button>
+
       {/* Session Timer */}
       {sessionStartTime && <SessionTimer startTime={sessionStartTime} isVisible={areControlsVisible} />}
 
@@ -621,7 +636,7 @@ export function ZenReviewMode({ onExit }: ZenReviewModeProps) {
       {/* Progress indicator - ultra subtle dots */}
       <div 
         className={cn(
-          "fixed top-4 right-4 flex gap-1 transition-all duration-300",
+          "fixed top-16 right-4 flex gap-1 transition-all duration-300",
           areControlsVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2 pointer-events-none"
         )}
       >

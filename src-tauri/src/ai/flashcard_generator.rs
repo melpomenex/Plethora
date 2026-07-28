@@ -64,7 +64,12 @@ impl FlashcardGenerator {
         content: &str,
         options: &FlashcardGenerationOptions,
     ) -> Result<Vec<GeneratedFlashcard>, String> {
-        let prompt = PromptBuilder::flashcard_generation(content, options.count);
+        let prompt = PromptBuilder::flashcard_generation_for_types(
+            content,
+            options.count,
+            options.include_qa,
+            options.include_cloze,
+        );
 
         let (messages, temp, max_tokens) = prompt.build();
 
@@ -123,21 +128,24 @@ impl FlashcardGenerator {
 
         let flashcards: Vec<GeneratedFlashcard> = items
             .into_iter()
-            .map(|item| {
-                let card_type = match item.item_type.as_deref() {
-                    Some("cloze") => FlashcardType::Cloze,
-                    Some("qa") => FlashcardType::Qa,
-                    _ => FlashcardType::Basic,
+            .filter_map(|item| {
+                let card_type = match item.item_type.as_deref().map(str::to_lowercase).as_deref() {
+                    Some("cloze") if options.include_cloze => FlashcardType::Cloze,
+                    Some("qa" | "basic") if options.include_qa => FlashcardType::Qa,
+                    _ if options.include_qa => FlashcardType::Qa,
+                    _ if options.include_cloze => FlashcardType::Cloze,
+                    _ => return None,
                 };
 
-                GeneratedFlashcard {
+                Some(GeneratedFlashcard {
                     question: item.question,
                     answer: item.answer,
                     card_type,
                     difficulty: options.difficulty,
                     tags: Vec::new(),
-                }
+                })
             })
+            .take(options.count)
             .collect();
 
         Ok(flashcards)

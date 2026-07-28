@@ -104,6 +104,40 @@ impl PromptBuilder {
             ))
     }
 
+    pub fn flashcard_generation_for_types(
+        content: &str,
+        count: usize,
+        include_qa: bool,
+        include_cloze: bool,
+    ) -> Self {
+        let mut allowed = Vec::new();
+        if include_qa {
+            allowed.push(
+                "'qa': use a direct question and a concise answer in the question/answer fields",
+            );
+        }
+        if include_cloze {
+            allowed.push(
+                "'cloze': put the complete sentence in question using {{{{c1::hidden text}}}} syntax and put the hidden text in answer",
+            );
+        }
+        if allowed.is_empty() {
+            allowed.push("'qa': use a direct question and concise answer");
+        }
+
+        Self::new()
+            .with_system(format!(
+                "You are an expert at creating educational flashcards. Generate clear, concise cards \
+                that test key concepts. Return only a JSON array. Every object must contain \
+                'question', 'answer', and 'type'. Allowed types:\n- {}",
+                allowed.join("\n- ")
+            ))
+            .add_user(format!(
+                "Generate exactly {} flashcards from the following content:\n\n{}",
+                count, content
+            ))
+    }
+
     /// Create a prompt for generating flashcards from an extract
     pub fn flashcard_from_extract(extract_content: &str, context: Option<&str>) -> Self {
         let builder = Self::new()
@@ -299,6 +333,22 @@ mod tests {
         assert_eq!(messages.len(), 2); // System + User
         assert_eq!(messages[0].role, MessageRole::System);
         assert!(messages[0].content.contains("flashcards"));
+    }
+
+    #[test]
+    fn test_flashcard_generation_prompt_respects_selected_types() {
+        let qa_only = PromptBuilder::flashcard_generation_for_types("Test content", 3, true, false)
+            .build_messages();
+        assert!(qa_only[0].content.contains("'qa'"));
+        assert!(!qa_only[0].content.contains("'cloze'"));
+        assert!(qa_only[1].content.contains("exactly 3"));
+
+        let cloze_only =
+            PromptBuilder::flashcard_generation_for_types("Test content", 2, false, true)
+                .build_messages();
+        assert!(!cloze_only[0].content.contains("'qa'"));
+        assert!(cloze_only[0].content.contains("'cloze'"));
+        assert!(cloze_only[0].content.contains("{{c1::hidden text}}"));
     }
 
     #[test]

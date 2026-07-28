@@ -14,7 +14,9 @@ class OptionsController {
             enableAutoSync: false,
             saveHistory: false,
             saveBookmarks: false,
-            syncFrequency: 'manual'
+            syncFrequency: 'manual',
+            flashcardTypes: ['qa', 'cloze'],
+            flashcardCount: 5
         };
 
         this.init();
@@ -56,7 +58,8 @@ class OptionsController {
         // Auto-save server URL changes
         const autoSaveFields = ['auto-save', 'auto-extract', 'enable-context-menu',
                                 'enable-notifications', 'enable-highlights', 'enable-auto-sync',
-                                'save-history', 'save-bookmarks', 'sync-frequency'];
+                                'save-history', 'save-bookmarks', 'sync-frequency',
+                                'flashcard-type-qa', 'flashcard-type-cloze', 'flashcard-count'];
 
         autoSaveFields.forEach(fieldId => {
             const element = document.getElementById(fieldId);
@@ -91,6 +94,12 @@ class OptionsController {
             document.getElementById('save-history').checked = settings.saveHistory !== false;
             document.getElementById('save-bookmarks').checked = settings.saveBookmarks !== false;
             document.getElementById('sync-frequency').value = settings.syncFrequency || this.defaultSettings.syncFrequency;
+            const flashcardTypes = Array.isArray(settings.flashcardTypes)
+                ? settings.flashcardTypes
+                : this.defaultSettings.flashcardTypes;
+            document.getElementById('flashcard-type-qa').checked = flashcardTypes.includes('qa');
+            document.getElementById('flashcard-type-cloze').checked = flashcardTypes.includes('cloze');
+            document.getElementById('flashcard-count').value = settings.flashcardCount || this.defaultSettings.flashcardCount;
 
         } catch (error) {
             console.error('Error loading settings:', error);
@@ -109,6 +118,10 @@ class OptionsController {
                 serverUrl = `http://${serverUrl}`;
             }
 
+            const flashcardTypes = [];
+            if (document.getElementById('flashcard-type-qa').checked) flashcardTypes.push('qa');
+            if (document.getElementById('flashcard-type-cloze').checked) flashcardTypes.push('cloze');
+
             const settings = {
                 serverUrl: serverUrl,
                 browserSyncPort: parseInt(document.getElementById('port').value) || this.defaultSettings.browserSyncPort,
@@ -120,7 +133,9 @@ class OptionsController {
                 enableAutoSync: document.getElementById('enable-auto-sync').checked,
                 saveHistory: document.getElementById('save-history').checked,
                 saveBookmarks: document.getElementById('save-bookmarks').checked,
-                syncFrequency: document.getElementById('sync-frequency').value
+                syncFrequency: document.getElementById('sync-frequency').value,
+                flashcardTypes,
+                flashcardCount: Math.max(1, Math.min(20, parseInt(document.getElementById('flashcard-count').value) || 5))
             };
 
             if (!this.validateSettings(settings)) {
@@ -161,6 +176,11 @@ class OptionsController {
 
         if (settings.browserSyncPort < 1 || settings.browserSyncPort > 65535) {
             this.showNotification('Port must be between 1 and 65535', 'error');
+            return false;
+        }
+
+        if (!Array.isArray(settings.flashcardTypes) || settings.flashcardTypes.length === 0) {
+            this.showNotification('Choose at least one AI flashcard type', 'error');
             return false;
         }
 

@@ -160,6 +160,7 @@ interface ReviewState {
   loadPreviewIntervals: () => Promise<void>;
   nextCard: () => void;
   goToIndex: (index: number) => void;
+  removeItemFromSession: (itemId: string) => void;
   resetSession: () => void;
   startReviewAtItem: (itemId: string) => Promise<void>;
   studyDocumentCards: (documentId: string) => Promise<void>;
@@ -744,6 +745,41 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     setTimeout(() => {
       get().loadPreviewIntervals();
     }, 100);
+  },
+
+  removeItemFromSession: (itemId: string) => {
+    const state = get();
+    const removedIndex = state.queue.findIndex((item) => item.id === itemId);
+    if (removedIndex === -1) return;
+
+    const remainingQueue = state.queue.filter((item) => item.id !== itemId);
+    let nextIndex = state.currentIndex;
+    if (removedIndex < state.currentIndex) {
+      nextIndex -= 1;
+    }
+    nextIndex = remainingQueue.length > 0
+      ? Math.max(0, Math.min(nextIndex, remainingQueue.length - 1))
+      : 0;
+
+    set({
+      queue: remainingQueue,
+      currentIndex: nextIndex,
+      currentCard: remainingQueue[nextIndex] ?? null,
+      isAnswerShown: false,
+      isSubmitting: false,
+      previewIntervals: null,
+      pendingReviewMetadata: null,
+      pendingArenaReview: null,
+      reviewPhase: "question",
+      arenaPreviewError: null,
+      error: null,
+    });
+
+    if (remainingQueue.length === 0) {
+      clearStoredSession();
+    } else {
+      setTimeout(() => void get().loadPreviewIntervals(), 100);
+    }
   },
 
   resetSession: () => {

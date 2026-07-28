@@ -19,7 +19,7 @@ use crate::database::Repository;
 use crate::error::IncrementumError;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 // Global AI configuration state
 pub struct AIState {
@@ -32,6 +32,37 @@ impl Default for AIState {
             config: Arc::new(Mutex::new(None)),
         }
     }
+}
+
+pub fn load_ai_config_preferences(app_handle: &AppHandle) -> Option<AIConfig> {
+    let path = app_handle
+        .path()
+        .app_config_dir()
+        .ok()?
+        .join("ai_config.json");
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut config = serde_json::from_str::<AIConfig>(&content).ok()?;
+    // API keys are never persisted here; the keychain loader supplies them.
+    config.api_keys = Default::default();
+    Some(config)
+}
+
+fn save_ai_config_preferences(app_handle: &AppHandle, config: &AIConfig) -> Result<()> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|error| {
+        IncrementumError::Internal(format!("Failed to resolve AI config directory: {}", error))
+    })?;
+    std::fs::create_dir_all(&config_dir).map_err(|error| {
+        IncrementumError::Internal(format!("Failed to create AI config directory: {}", error))
+    })?;
+
+    let mut preferences = config.clone();
+    preferences.api_keys = Default::default();
+    let serialized = serde_json::to_string_pretty(&preferences).map_err(|error| {
+        IncrementumError::Internal(format!("Failed to serialize AI preferences: {}", error))
+    })?;
+    std::fs::write(config_dir.join("ai_config.json"), serialized).map_err(|error| {
+        IncrementumError::Internal(format!("Failed to save AI preferences: {}", error))
+    })
 }
 
 /// Get AI config (clones and drops the mutex guard)
@@ -101,10 +132,74 @@ pub async fn get_ai_config(state: State<'_, AIState>) -> Result<Option<serde_jso
 
 /// Set AI configuration
 #[tauri::command]
-pub async fn set_ai_config(config: AIConfig, state: State<'_, AIState>) -> Result<()> {
+pub async fn set_ai_config(
+    mut config: AIConfig,
+    state: State<'_, AIState>,
+    app_handle: AppHandle,
+) -> Result<()> {
     let mut state_config = state.config.lock().expect("AI config mutex poisoned");
-    *state_config = Some(config);
-    Ok(())
+
+    // The settings UI receives redacted values and may send those placeholders
+    // back while changing the provider or model. Never replace a real key that
+    // is already loaded from the keychain with a mask (or with an omitted key).
+    if let Some(current) = state_config.as_ref() {
+        config.api_keys.openai =
+            preserve_secret(config.api_keys.openai, current.api_keys.openai.clone());
+        config.api_keys.anthropic = preserve_secret(
+            config.api_keys.anthropic,
+            current.api_keys.anthropic.clone(),
+        );
+        config.api_keys.openrouter = preserve_secret(
+            config.api_keys.openrouter,
+            current.api_keys.openrouter.clone(),
+        );
+        config.api_keys.brave =
+            preserve_secret(config.api_keys.brave, current.api_keys.brave.clone());
+    }
+
+    *state_config = Some(config.clone());
+    drop(state_config);
+    save_ai_config_preferences(&app_handle, &config)
+}
+
+fn preserve_secret(incoming: Option<String>, existing: Option<String>) -> Option<String> {
+    match incoming {
+        Some(value) if !value.trim().is_empty() && !value.contains('*') && !value.contains('•') => {
+            Some(value)
+        }
+        _ => existing,
+    }
+}
+
+#[cfg(test)]
+mod ai_config_tests {
+    use super::preserve_secret;
+
+    #[test]
+    fn masked_or_omitted_settings_values_preserve_the_keychain_secret() {
+        let existing = Some("sk-or-real-secret".to_string());
+
+        assert_eq!(
+            preserve_secret(Some("********cret".to_string()), existing.clone()),
+            existing
+        );
+        assert_eq!(
+            preserve_secret(Some("••••••••".to_string()), existing.clone()),
+            existing
+        );
+        assert_eq!(preserve_secret(None, existing.clone()), existing);
+    }
+
+    #[test]
+    fn a_new_plaintext_secret_replaces_the_existing_value() {
+        assert_eq!(
+            preserve_secret(
+                Some("sk-or-new-secret".to_string()),
+                Some("sk-or-old-secret".to_string())
+            ),
+            Some("sk-or-new-secret".to_string())
+        );
+    }
 }
 
 /// Set API key for a provider (stores in OS keychain and in-memory state)

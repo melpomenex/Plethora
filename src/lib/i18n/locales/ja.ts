@@ -3394,6 +3394,7 @@ export const ja: Dict = {
   "reviewSession.deleteOnlyLearning": "削除は学習カードでのみ利用できます。",
   "reviewSession.cardDeleted": "カードを削除しました",
   "reviewSession.deleteFailed": "カードの削除に失敗しました",
+  "reviewSession.deleteConfirmMessage": "このカードを削除し、現在の復習セッションから取り除きますか？",
   "reviewSession.suspendOnlyLearning": "停止は学習カードでのみ利用できます。",
   "reviewSession.cardSuspended": "カードを停止しました",
   "reviewSession.suspendFailed": "カードの停止に失敗しました",

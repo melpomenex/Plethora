@@ -38,6 +38,7 @@
     "lint": "eslint . --cache --cache-location .eslintcache",
     "lint:fix": "npm run lint -- --fix",
     "test": "vitest",
+    "test:browser-extension": "node --test browser_extension/tests/*.test.cjs",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
