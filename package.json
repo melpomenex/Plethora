@@ -1,7 +1,7 @@
 {
   "name": "incrementum-tauri",
   "private": true,
-  "version": "1.91.0",
+  "version": "1.91.1",
   "type": "module",
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 vite",

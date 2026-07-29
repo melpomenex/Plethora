@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.91.1] - 2026-07-29
+
+### Fixed & Improved
+
+- **Windows frontend build now succeeds** — The `build`/`dev` npm scripts used the Unix-only `NODE_OPTIONS=… vite` syntax, which Windows `cmd.exe` rejected with `'NODE_OPTIONS' is not recognized`, failing every Windows CI job at the "Build frontend" step. Scripts now set the flag via `cross-env`, so the same command works on Windows, macOS, and Linux.
+- **iOS build validation passes** — The `incrementum-folder-import` Tauri plugin's Swift package was named `tauri-plugin-incrementum-folder-import` while the Rust crate (and thus the linker directive swift-rs emits) expected `incrementum-folder-import`, so iOS builds failed with `could not find native static library`. The Swift package/product/target name now matches the crate name, resolving the link.
+- **Stable global-search keyboard test** — The "activates highlighted section with Enter" test flaked in CI because it dispatched Enter before the keydown listener's effect had re-bound with the populated results. The test now waits for the result row to be committed and asserts the selection before driving Enter, removing the race.
+
 ## [1.91.0] - 2026-07-28
 
 ### Added
