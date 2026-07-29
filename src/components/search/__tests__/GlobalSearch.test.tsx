@@ -42,10 +42,23 @@ describe("GlobalSearch keyboard navigation", () => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "settings" } });
     await act(async () => {});
 
-    await waitFor(() => expect(screen.getByText("Settings")).toBeInTheDocument(), { timeout: 2000 });
+    // Wait for results to render. The keydown handler is registered in an
+    // effect that closes over `results`/`selectedIndex`, so we must wait until
+    // the result row is committed (and the effect re-binds the listener with
+    // the populated results) before dispatching Enter. Querying the selected
+    // row guarantees the effect for the populated state has run.
+    const settingsRow = await waitFor(
+      () => screen.getByText("Settings"),
+      { timeout: 2000 }
+    );
+    await waitFor(() =>
+      expect(settingsRow.closest('[role="button"]')).toHaveClass("border-primary-400")
+    );
 
     fireEvent.keyDown(window, { key: "Enter" });
-    expect(onResultClick).toHaveBeenCalledWith(expect.objectContaining({ id: "section-settings" }));
+    await waitFor(() =>
+      expect(onResultClick).toHaveBeenCalledWith(expect.objectContaining({ id: "section-settings" }))
+    );
   });
 
   it("supports ArrowDown then Enter for mixed results and keeps document-open behavior", async () => {
@@ -65,14 +78,24 @@ describe("GlobalSearch keyboard navigation", () => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "set" } });
     await act(async () => {});
 
-    await waitFor(() => expect(screen.getByText("My Document")).toBeInTheDocument(), { timeout: 2000 });
+    // Wait for the document result to render AND be confirmed committed before
+    // driving keyboard navigation (see the note on the Enter test above).
+    const docRow = await waitFor(
+      () => screen.getByText("My Document"),
+      { timeout: 2000 }
+    );
+    await waitFor(() =>
+      expect(docRow.closest('[role="button"]')).toBeInTheDocument()
+    );
 
     fireEvent.keyDown(window, { key: "ArrowDown" });
     fireEvent.keyDown(window, { key: "Enter" });
 
-    expect(onResultClick).toHaveBeenCalledWith(expect.objectContaining({
-      id: "doc-1",
-      type: SearchResultType.Document,
-    }));
+    await waitFor(() =>
+      expect(onResultClick).toHaveBeenCalledWith(expect.objectContaining({
+        id: "doc-1",
+        type: SearchResultType.Document,
+      }))
+    );
   });
 });
