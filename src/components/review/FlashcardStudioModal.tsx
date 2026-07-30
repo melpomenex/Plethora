@@ -145,6 +145,7 @@ interface FlashcardStudioSeed {
   documentId?: string | null;
   excerpt?: string;
   draftCardType?: DraftCardType;
+  imageAssetId?: string;
   resetDraftCards?: boolean;
   autoEditDraft?: boolean;
   /** If set, auto-generate flashcards from this extract when the modal opens */
@@ -3432,6 +3433,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         nextCard.text = seed.excerpt.trim();
       }
       nextCard.extractId = seed.linkedExtractId;
+      if (seed.draftCardType === "image-occlusion" && seed.imageAssetId) {
+        nextCard.imageOcclusionAssetId = seed.imageAssetId;
+        setSelectedImageAssetIds([seed.imageAssetId]);
+      }
       // Apply a transient deck tag (e.g. from `:deck <name>`) to the new card.
       if (seed.deckTag?.trim()) {
         nextCard.tags = [...(nextCard.tags ?? []), seed.deckTag.trim()];

@@ -133,6 +133,7 @@ zip = "0.6"
 quick-xml = "0.37"
 rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 image = "0.24"
+tempfile = "3"
 
 # RSS parsing
 roxmltree = "0.20"
@@ -210,12 +211,10 @@ opt-level = 3
 # compiling large dependency graphs with full debuginfo/incremental enabled.
 # Disabling both improves build stability for `tauri dev`.
 [profile.dev]
-features = ["devtools"]
 debug = 0
 incremental = false
 
 [dev-dependencies]
-tempfile = "3"
 tower05 = { package = "tower", version = "0.5", features = ["util"] }
 
 [patch.crates-io]

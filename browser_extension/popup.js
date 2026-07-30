@@ -246,7 +246,12 @@ class PopupController {
 
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab && tab.id && !this.isInternalUrl(tab.url)) {
-        await chrome.tabs.sendMessage(tab.id, { action: 'toggleExtractMode' });
+        const response = await chrome.runtime.sendMessage({
+          action: 'toggleExtractModeForActiveTab'
+        });
+        if (!response?.success) {
+          throw new Error(response?.error || 'Could not toggle extract mode.');
+        }
 
         setTimeout(() => {
           this.checkExtractMode();

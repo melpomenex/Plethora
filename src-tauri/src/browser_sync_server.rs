@@ -1000,6 +1000,79 @@ fn extract_images_from_html_fragment(html: &str, base_url: &str) -> Vec<Document
     images
 }
 
+fn spawn_browser_document_enrichment(
+    repo: Arc<Repository>,
+    document_id: String,
+    expected_date_modified: chrono::DateTime<chrono::Utc>,
+    url: String,
+    baseline_len: usize,
+) {
+    tokio::spawn(async move {
+        match fetch_readable_content(&url).await {
+            Ok(readable) => {
+                info!(
+                    "Readability extracted {} chars (vs {} supplied) for: {}",
+                    readable.text.len(),
+                    baseline_len,
+                    url
+                );
+                let metadata = build_browser_import_metadata_with_article(
+                    &ExtensionRequest {
+                        url: url.clone(),
+                        title: String::new(),
+                        text: readable.text.clone(),
+                        html_content: Some(readable.html.clone()),
+                        extracted_images: Some(
+                            readable
+                                .images
+                                .iter()
+                                .map(|image| ExtensionImagePayload {
+                                    src: image.src.clone(),
+                                    alt: image.alt.clone(),
+                                })
+                                .collect(),
+                        ),
+                        r#type: "page".to_string(),
+                        source: "browser_extension".to_string(),
+                        timestamp: None,
+                        context: None,
+                        tags: None,
+                        priority: None,
+                        analysis: None,
+                        fsrs_data: None,
+                        test: None,
+                    },
+                    Some(readable.html.clone()),
+                    Some(readable.images.clone()),
+                );
+                match repo
+                    .guarded_enrich_browser_document(
+                        &document_id,
+                        expected_date_modified,
+                        &readable.text,
+                        metadata,
+                    )
+                    .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => info!(
+                        "Discarded empty, poorer, or stale readability result for: {}",
+                        url
+                    ),
+                    Err(error) => warn!(
+                        "Failed to update document {} with readable content: {}",
+                        document_id, error
+                    ),
+                }
+            }
+            Err(error) => warn!(
+                "Background readability extraction failed for {}: {}",
+                url, error
+            ),
+        }
+    });
+}
+
 /// Handle general document import request (page or video)
 async fn handle_import_request(
     state: &ServerState,
@@ -1324,79 +1397,18 @@ async fn handle_import_request(
 
     // Background: attempt readability extraction for richer content.
     // This does not block the response to the extension.
-    if is_html {
-        let bg_doc_id = created.id.clone();
-        let bg_url = payload.url.clone();
-        let bg_repo = state.repo.clone();
-        let bg_expected_date_modified = created.date_modified;
-        let bg_payload = payload.url.clone();
-
-        tokio::spawn(async move {
-            match fetch_readable_content(&bg_url).await {
-                Ok(readable) => {
-                    info!(
-                        "Readability extracted {} chars (vs {} from extension) for: {}",
-                        readable.text.len(),
-                        content_len,
-                        bg_url
-                    );
-                    let metadata = build_browser_import_metadata_with_article(
-                        &ExtensionRequest {
-                            url: bg_payload,
-                            title: String::new(),
-                            text: readable.text.clone(),
-                            html_content: Some(readable.html.clone()),
-                            extracted_images: Some(
-                                readable
-                                    .images
-                                    .iter()
-                                    .map(|image| ExtensionImagePayload {
-                                        src: image.src.clone(),
-                                        alt: image.alt.clone(),
-                                    })
-                                    .collect(),
-                            ),
-                            r#type: "page".to_string(),
-                            source: "browser_extension".to_string(),
-                            timestamp: None,
-                            context: None,
-                            tags: None,
-                            priority: None,
-                            analysis: None,
-                            fsrs_data: None,
-                            test: None,
-                        },
-                        Some(readable.html.clone()),
-                        Some(readable.images.clone()),
-                    );
-                    match bg_repo
-                        .guarded_enrich_browser_document(
-                            &bg_doc_id,
-                            bg_expected_date_modified,
-                            &readable.text,
-                            metadata,
-                        )
-                        .await
-                    {
-                        Ok(true) => {}
-                        Ok(false) => info!(
-                            "Discarded empty, poorer, or stale readability result for: {}",
-                            bg_url
-                        ),
-                        Err(e) => warn!(
-                            "Failed to update document {} with readable content: {}",
-                            bg_doc_id, e
-                        ),
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        "Background readability extraction failed for {}: {}",
-                        bg_url, e
-                    );
-                }
-            }
-        });
+    // A strong extension capture is already the page the user was viewing.
+    // Refetching it can produce a longer but much noisier Readability result
+    // (notably Wikipedia navigation/link dumps), so only enrich genuinely
+    // sparse imports such as bare link saves.
+    if is_html && content_len < 500 {
+        spawn_browser_document_enrichment(
+            state.repo.clone(),
+            created.id.clone(),
+            created.date_modified,
+            payload.url.clone(),
+            content_len,
+        );
     }
 
     Ok(ExtensionResponse {
@@ -1428,7 +1440,36 @@ async fn handle_extract_request(
         _ => None,
     };
     let document_id = if let Some(doc) = existing {
-        doc.id
+        let document_id = doc.id.clone();
+        let missing_content = doc
+            .content
+            .as_deref()
+            .map(str::trim)
+            .map(str::is_empty)
+            .unwrap_or(true);
+        if missing_content && matches!(doc.file_type, FileType::Html) {
+            let fallback_content = select_extension_document_text(payload);
+            if !fallback_content.is_empty() {
+                let metadata = build_browser_import_metadata(payload);
+                if let Err(error) = state
+                    .repo
+                    .update_document_content(
+                        &document_id,
+                        &fallback_content,
+                        None,
+                        None,
+                        Some(metadata),
+                    )
+                    .await
+                {
+                    warn!(
+                        "Failed to repair empty parent document {} for extract: {}",
+                        document_id, error
+                    );
+                }
+            }
+        }
+        document_id
     } else {
         let inferred_file_type = infer_extension_file_type(payload);
         let metadata = if matches!(inferred_file_type, FileType::Html) {
@@ -1442,7 +1483,9 @@ async fn handle_extract_request(
             title: payload.title.clone(),
             file_path: normalized_url,
             file_type: inferred_file_type,
-            content: None,
+            // The selection is immediately readable even if the background
+            // full-page fetch is blocked by the source site.
+            content: Some(select_extension_document_text(payload)),
             content_hash: None,
             total_pages: None,
             current_page: None,
@@ -1481,6 +1524,15 @@ async fn handle_extract_request(
             "Created document for extract URL: {} with id: {}",
             payload.url, created.id
         );
+        if matches!(created.file_type, FileType::Html) {
+            spawn_browser_document_enrichment(
+                state.repo.clone(),
+                created.id.clone(),
+                created.date_modified,
+                payload.url.clone(),
+                created.content.as_deref().map(str::len).unwrap_or(0),
+            );
+        }
         created.id
     };
 

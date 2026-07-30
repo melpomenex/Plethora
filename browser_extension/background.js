@@ -508,6 +508,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         }
 
+        case 'toggleExtractModeForActiveTab':
+          sendResponse(await toggleExtractMode());
+          break;
+
         case 'settingsChanged':
           // Reload settings when they change
           await loadSettings();
@@ -805,7 +809,7 @@ async function capturePageContentFallback(tabId) {
       target: { tabId },
       func: () => {
         const root =
-          document.querySelector('article, main, [role="main"], #content, #main, .mw-parser-output') ||
+          document.querySelector('#mw-content-text .mw-parser-output, .mw-parser-output, article, [itemprop="articleBody"], .article-body, .post-content, .entry-content, .article-content, [role="main"], main, #content, #main') ||
           document.body;
         const text = (root?.innerText || root?.textContent || document.body?.innerText || '')
           .replace(/\r/g, '')
@@ -817,9 +821,10 @@ async function capturePageContentFallback(tabId) {
           .map((img) => {
             const src =
               img.currentSrc ||
-              img.getAttribute('src') ||
               img.getAttribute('data-src') ||
               img.getAttribute('data-lazy-src') ||
+              img.getAttribute('data-original') ||
+              img.getAttribute('src') ||
               '';
             if (!src || src.startsWith('data:')) return null;
             try {
@@ -1180,10 +1185,15 @@ async function toggleExtractMode() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab && tab.id) {
-      await safeSendTabMessage(tab.id, { action: 'toggleExtractMode' });
+      const response = await sendAIStateToTab(tab.id, { action: 'toggleExtractMode' });
+      return response
+        ? { success: true }
+        : { success: false, error: 'Could not activate extract mode on this page.' };
     }
+    return { success: false, error: 'No active tab found.' };
   } catch (error) {
     console.error('Error toggling extract mode:', error);
+    return { success: false, error: error.message };
   }
 }
 

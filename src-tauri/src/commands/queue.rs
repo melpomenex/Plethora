@@ -4,7 +4,7 @@ use crate::algorithms::{calculate_fsrs_document_priority, QueueSelector};
 use crate::database::Repository;
 use crate::error::Result;
 use crate::models::QueueItem;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
 use tauri::State;
 
@@ -526,29 +526,42 @@ pub async fn get_queued_items(
     Ok(queued_items)
 }
 
-async fn get_due_queue_items_from_repo(
+fn end_of_utc_day(now: DateTime<Utc>) -> DateTime<Utc> {
+    now.date_naive()
+        .and_hms_nano_opt(23, 59, 59, 999_999_999)
+        .expect("a valid date always has an end of day")
+        .and_utc()
+}
+
+async fn get_due_queue_items_from_repo_at(
     repo: &Repository,
     collection_id: Option<&str>,
     randomness: Option<f32>,
+    now: DateTime<Utc>,
 ) -> Result<Vec<QueueItem>> {
     let mut queue_items = Vec::new();
-    let now = Utc::now();
+    // Schedule groups items by UTC calendar date. Include the whole current
+    // day so its "Today" bucket and Reading Queue → Due All show the same
+    // scheduled items, including entries whose exact timestamp is later today.
+    let due_before = end_of_utc_day(now);
 
-    let learning_items = repo.get_due_learning_items(&now, collection_id).await?;
-    let due_extracts = repo.get_due_extracts(&now).await?;
+    let learning_items = repo
+        .get_due_learning_items(&due_before, collection_id)
+        .await?;
+    let due_extracts = repo.get_due_extracts(&due_before).await?;
     let new_extracts = repo.get_new_extracts().await?;
     let extracts: Vec<_> = due_extracts
         .into_iter()
         .chain(new_extracts.into_iter())
         .collect();
-    let due_video_extracts = repo.get_due_video_extracts(&now).await?;
+    let due_video_extracts = repo.get_due_video_extracts(&due_before).await?;
     let new_video_extracts = repo.get_new_video_extracts().await.unwrap_or_default();
     let video_extracts: Vec<_> = due_video_extracts
         .into_iter()
         .chain(new_video_extracts.into_iter())
         .collect();
     let documents = repo
-        .list_due_documents_for_queue(&now, collection_id)
+        .list_due_documents_for_queue(&due_before, collection_id)
         .await?;
 
     let mut all_doc_ids: HashSet<String> = HashSet::new();
@@ -773,7 +786,15 @@ async fn get_due_queue_items_from_repo(
     Ok(queue_items)
 }
 
-/// Get due queue items only
+async fn get_due_queue_items_from_repo(
+    repo: &Repository,
+    collection_id: Option<&str>,
+    randomness: Option<f32>,
+) -> Result<Vec<QueueItem>> {
+    get_due_queue_items_from_repo_at(repo, collection_id, randomness, Utc::now()).await
+}
+
+/// Get queue items scheduled through the end of today
 #[tauri::command]
 pub async fn get_due_queue_items(
     randomness: Option<f32>,
@@ -1037,7 +1058,8 @@ mod tests {
     use super::*;
     use crate::database::connection::Database;
     use crate::database::Repository;
-    use crate::models::{Document, FileType};
+    use crate::models::{Document, FileType, ItemType, LearningItem};
+    use chrono::TimeZone;
     use std::path::PathBuf;
 
     #[test]
@@ -1224,6 +1246,41 @@ mod tests {
 
         assert!(due_document_ids.contains(&visible.id));
         assert!(!due_document_ids.contains(&dismissed.id));
+    }
+
+    #[tokio::test]
+    async fn due_all_includes_items_scheduled_later_today_but_not_tomorrow() {
+        let repo = setup_repo().await;
+        let now = Utc
+            .with_ymd_and_hms(2026, 7, 30, 9, 0, 0)
+            .single()
+            .expect("valid test time");
+
+        let mut later_today = LearningItem::new(ItemType::Flashcard, "Later today".to_string());
+        later_today.due_date = Utc
+            .with_ymd_and_hms(2026, 7, 30, 18, 0, 0)
+            .single()
+            .expect("valid due time");
+        repo.create_learning_item(&later_today)
+            .await
+            .expect("create today's item");
+
+        let mut tomorrow = LearningItem::new(ItemType::Flashcard, "Tomorrow".to_string());
+        tomorrow.due_date = Utc
+            .with_ymd_and_hms(2026, 7, 31, 0, 0, 0)
+            .single()
+            .expect("valid due time");
+        repo.create_learning_item(&tomorrow)
+            .await
+            .expect("create tomorrow's item");
+
+        let due_items = get_due_queue_items_from_repo_at(&repo, None, Some(0.0), now)
+            .await
+            .expect("due-all queue");
+        let due_ids: HashSet<_> = due_items.iter().map(|item| item.id.as_str()).collect();
+
+        assert!(due_ids.contains(later_today.id.as_str()));
+        assert!(!due_ids.contains(tomorrow.id.as_str()));
     }
 
     #[tokio::test]

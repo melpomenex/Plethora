@@ -307,16 +307,20 @@
 
   function getPrimaryContentRoot() {
     const contentSelectors = [
-      'main',
+      '#mw-content-text .mw-parser-output',
+      '.mw-parser-output',
       'article',
+      '[itemprop="articleBody"]',
+      '.article-body',
+      '.post-content',
+      '.entry-content',
+      '.article-content',
       '[role="main"]',
-      '.content',
       '.main-content',
       '#content',
       '#main',
-      '.post-content',
-      '.entry-content',
-      '.article-content'
+      'main',
+      '.content'
     ];
 
     for (const selector of contentSelectors) {
@@ -336,7 +340,7 @@
       .replace(/[ \t]+\n/g, '\n')
       .replace(/\n[ \t]+/g, '\n')
       .trim()
-      .slice(0, 50000);
+      .slice(0, 250000);
   }
 
   function captureStyledArticleHtml(root) {
@@ -411,10 +415,10 @@
       if (originalEl instanceof HTMLImageElement) {
         const src = [
           originalEl.currentSrc,
-          originalEl.getAttribute('src'),
           originalEl.getAttribute('data-src'),
           originalEl.getAttribute('data-lazy-src'),
-          originalEl.getAttribute('data-original')
+          originalEl.getAttribute('data-original'),
+          originalEl.getAttribute('src')
         ].find((candidate) => candidate && !candidate.startsWith('data:'));
         if (src) {
           try {
@@ -438,6 +442,77 @@
     return clone.textContent || '';
   }
 
+  function captureCompactArticleHtml(root) {
+    if (!root) return '';
+
+    const clone = root.cloneNode(true);
+    if (!(clone instanceof HTMLElement)) {
+      return clone.textContent || '';
+    }
+
+    const originalElements = [root, ...root.querySelectorAll('*')];
+    const elements = [clone, ...clone.querySelectorAll('*')];
+    for (let index = 0; index < elements.length; index++) {
+      const originalElement = originalElements[index];
+      const element = elements[index];
+      if (!(element instanceof HTMLElement)) continue;
+
+      if (element instanceof HTMLAnchorElement) {
+        const originalAnchor = originalElement instanceof HTMLAnchorElement
+          ? originalElement
+          : null;
+        const href = originalAnchor?.href || element.getAttribute('href');
+        if (href) {
+          try {
+            element.setAttribute('href', new URL(href, window.location.href).href);
+          } catch {
+            // Keep the captured href when URL resolution is not possible.
+          }
+        }
+      }
+
+      if (element instanceof HTMLImageElement) {
+        const originalImage = originalElement instanceof HTMLImageElement
+          ? originalElement
+          : null;
+        const src = [
+          originalImage?.currentSrc,
+          originalImage?.getAttribute('data-src'),
+          originalImage?.getAttribute('data-lazy-src'),
+          originalImage?.getAttribute('data-original'),
+          originalImage?.getAttribute('src'),
+          element.getAttribute('src')
+        ].find((candidate) => candidate && !candidate.startsWith('data:'));
+        if (src) {
+          try {
+            element.setAttribute('src', new URL(src, window.location.href).href);
+          } catch {
+            element.setAttribute('src', src);
+          }
+        }
+        element.setAttribute('loading', 'eager');
+        element.setAttribute('referrerpolicy', 'no-referrer');
+      }
+
+      Array.from(element.attributes).forEach((attr) => {
+        if (
+          attr.name.startsWith('on') ||
+          attr.name.startsWith('data-') ||
+          attr.name === 'style' ||
+          attr.name === 'srcset'
+        ) {
+          element.removeAttribute(attr.name);
+        }
+      });
+    }
+
+    clone.querySelectorAll(
+      'script, iframe, object, embed, form, .mw-editsection, .mw-jump-link, .navbox, .metadata, .sistersitebox, .catlinks, .printfooter, .mw-indicators, .vector-page-toolbar'
+    ).forEach((element) => element.remove());
+
+    return clone.outerHTML;
+  }
+
   function extractArticleImages(root) {
     if (!root) return [];
 
@@ -448,10 +523,10 @@
     for (const img of nodes) {
       const rawSrc = [
         img.currentSrc,
-        img.getAttribute('src'),
         img.getAttribute('data-src'),
         img.getAttribute('data-lazy-src'),
-        img.getAttribute('data-original')
+        img.getAttribute('data-original'),
+        img.getAttribute('src')
       ].find((candidate) => candidate && !candidate.startsWith('data:')) || '';
       if (!rawSrc || rawSrc.startsWith('data:')) continue;
 
@@ -487,15 +562,29 @@
       let extractedImages = [];
       
       if (!isYoutube) {
-        htmlContent = captureStyledArticleHtml(root);
+        const isMediaWikiArticle =
+          root?.matches?.('.mw-parser-output') ||
+          root?.classList?.contains('mw-parser-output');
+        // MediaWiki articles can contain thousands of nodes. Copying computed
+        // styles onto every one balloons otherwise compact semantic HTML past
+        // the transport limit and causes the app to receive text only.
+        htmlContent = isMediaWikiArticle
+          ? captureCompactArticleHtml(root)
+          : captureStyledArticleHtml(root);
         extractedImages = extractArticleImages(root);
       }
       
       // Cap html_content size to 5MB to avoid HTTP 413 Payload Too Large
       const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5MB
       if (htmlContent && htmlContent.length > MAX_HTML_SIZE) {
-        console.warn('[Content] Captured HTML is too large, skipping html_content to avoid HTTP 413.');
-        htmlContent = '';
+        const compactHtml = captureCompactArticleHtml(root);
+        if (compactHtml.length <= MAX_HTML_SIZE) {
+          console.warn('[Content] Captured HTML was compacted to preserve article structure.');
+          htmlContent = compactHtml;
+        } else {
+          console.warn('[Content] Captured HTML is too large, skipping html_content to avoid HTTP 413.');
+          htmlContent = '';
+        }
       }
 
       const title =

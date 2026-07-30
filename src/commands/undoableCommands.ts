@@ -204,7 +204,7 @@ export class DeleteLearningItemCommand extends UndoableCommandBase {
       throw new Error("Learning item not found");
     }
 
-    await invoke("delete_item", { id: this.itemId });
+    await invoke("delete_learning_item", { itemId: this.itemId });
     void (async () => {
       try {
         const { publishCardDeleted } = await import("../lib/sync/entities/flashcards");
@@ -221,7 +221,7 @@ export class DeleteLearningItemCommand extends UndoableCommandBase {
       throw new Error("Cannot undo: learning item data not available");
     }
 
-    await invoke("create_learning_item", {
+    await invoke("restore_learning_item", {
       item: this.deletedItem,
     });
     void (async () => {

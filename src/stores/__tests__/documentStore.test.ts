@@ -5,6 +5,7 @@ const bulkDeleteDocumentsMock = vi.fn();
 const pickFolderDocumentsMock = vi.fn();
 const importDocumentMock = vi.fn();
 const loadDocumentsMock = vi.fn();
+const getDocumentsMock = vi.fn();
 const getDocumentMock = vi.fn();
 const emitFeedbackMock = vi.hoisted(() => vi.fn().mockResolvedValue({ channels: [] }));
 vi.mock("../../api/documents", () => ({
@@ -13,6 +14,7 @@ vi.mock("../../api/documents", () => ({
   importDocument: (...args: unknown[]) => importDocumentMock(...args),
   // loadDocuments is destructured as documentsApi.loadDocuments in the store.
   loadDocuments: (...args: unknown[]) => loadDocumentsMock(...args),
+  getDocuments: (...args: unknown[]) => getDocumentsMock(...args),
   getDocument: (...args: unknown[]) => getDocumentMock(...args),
 }));
 
@@ -29,6 +31,10 @@ vi.mock("../../utils/documentImport", () => ({
 }));
 vi.mock("../../lib/tauri", () => ({ listen: vi.fn(), isTauri: () => false }));
 vi.mock("../../lib/feedback", () => ({ emitFeedback: emitFeedbackMock }));
+vi.mock("../../lib/fileSyncRegistration", () => ({
+  registerImportedFileSync: vi.fn().mockResolvedValue(null),
+  registerExistingFilesSync: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("../../components/common/Toast", () => ({
   useToastStore: { getState: () => ({ addToast: vi.fn() }) },
   ToastType: { Success: "success", Error: "error", Info: "info" },
@@ -150,6 +156,48 @@ describe("documentStore.hydrateDocument", () => {
 
     expect(useDocumentStore.getState().currentDocument?.id).toBe("active");
     expect(useDocumentStore.getState().documents[0].content).toBe("Late body");
+  });
+});
+
+describe("documentStore.loadDocuments", () => {
+  beforeEach(() => {
+    getDocumentsMock.mockReset();
+  });
+
+  it("does not replace hydrated article content with a lightweight library summary", async () => {
+    const hydrated = {
+      ...makeDoc("article"),
+      title: "Old title",
+      fileType: "html" as const,
+      content: "Persisted article text",
+      contentHash: "content-hash",
+      metadata: {
+        source: "browser_extension",
+        articleHtml: "<article><h2>Structured article</h2></article>",
+      },
+    };
+    useDocumentStore.setState({
+      documents: [hydrated],
+      currentDocument: hydrated,
+    });
+    getDocumentsMock.mockResolvedValue([
+      {
+        ...makeDoc("article"),
+        title: "Fresh summary title",
+        fileType: "html",
+        content: undefined,
+        contentHash: undefined,
+        metadata: undefined,
+      },
+    ]);
+
+    await useDocumentStore.getState().loadDocuments();
+
+    const article = useDocumentStore.getState().documents[0];
+    expect(article.title).toBe("Fresh summary title");
+    expect(article.content).toBe("Persisted article text");
+    expect(article.contentHash).toBe("content-hash");
+    expect(article.metadata?.articleHtml).toContain("<h2>Structured article</h2>");
   });
 });
 

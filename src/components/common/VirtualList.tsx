@@ -256,9 +256,13 @@ export function DynamicVirtualList<T>({
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const itemHeightsRef = useRef<Map<string, number>>(new Map());
-  const measurementPassesRef = useRef<Map<string, number>>(new Map());
+  const itemObserversRef = useRef<Map<string, ResizeObserver>>(new Map());
   const refCallbacksRef = useRef<Map<string, (element: HTMLElement | null) => void>>(new Map());
-  const measureItemRef = useRef<(key: string, element: HTMLElement | null) => void>(() => {});
+  const pendingMeasurementsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const measurementScheduledRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const measureItemRef = useRef<(key: string, element: HTMLElement | null) => boolean>(() => false);
+  const scheduleItemMeasurementRef = useRef<(key: string, element: HTMLElement) => void>(() => {});
   const lastListSignatureRef = useRef("");
   const heightRevisionRef = useRef(0);
   const prefixCacheRef = useRef<{ signature: string; revision: number; estimate: number; values: number[] } | null>(null);
@@ -280,16 +284,20 @@ export function DynamicVirtualList<T>({
   const itemKeys = items.map(getItemKey);
   const listSignature = itemKeys.join("\u001f");
   if (lastListSignatureRef.current !== listSignature) {
-    // Keep id-keyed heights for items that remain in the list, but reset the
-    // convergence cap whenever the list changes.
+    // Keep id-keyed heights for items that remain in the list.
     lastListSignatureRef.current = listSignature;
-    measurementPassesRef.current.clear();
     const liveKeys = new Set(itemKeys);
     for (const key of itemHeightsRef.current.keys()) {
       if (!liveKeys.has(key)) itemHeightsRef.current.delete(key);
     }
     for (const key of refCallbacksRef.current.keys()) {
       if (!liveKeys.has(key)) refCallbacksRef.current.delete(key);
+    }
+    for (const [key, observer] of itemObserversRef.current) {
+      if (!liveKeys.has(key)) {
+        observer.disconnect();
+        itemObserversRef.current.delete(key);
+      }
     }
     heightRevisionRef.current += 1;
   }
@@ -364,9 +372,8 @@ export function DynamicVirtualList<T>({
   const endIndex = findEndIndex(startIndex);
   const visibleItems = items.slice(startIndex, endIndex);
 
-  const MAX_MEASURE_PASSES = 3;
   measureItemRef.current = (key, element) => {
-    if (!element) return;
+    if (!element) return false;
     const height = element.getBoundingClientRect().height;
     const hasCachedHeight = itemHeightsRef.current.has(key);
     const cachedHeight = itemHeightsRef.current.get(key) ?? itemHeight;
@@ -374,25 +381,72 @@ export function DynamicVirtualList<T>({
     if (!hasCachedHeight) {
       itemHeightsRef.current.set(key, height);
       heightRevisionRef.current += 1;
-      forceUpdate({});
-      return;
+      return true;
     }
-    if (delta <= 0.5) return;
-    const passes = measurementPassesRef.current.get(key) ?? 0;
-    if (passes >= MAX_MEASURE_PASSES) return;
-    measurementPassesRef.current.set(key, passes + 1);
+    if (delta <= 0.5) return false;
     itemHeightsRef.current.set(key, height);
     heightRevisionRef.current += 1;
-    forceUpdate({});
+    return true;
+  };
+
+  // Callback refs run during React's commit phase. Updating state directly
+  // from one ref attachment per visible row can recurse through enough commits
+  // to hit React's maximum-update-depth guard on a large queue. Collect all
+  // initial/ResizeObserver measurements into one microtask and render once.
+  scheduleItemMeasurementRef.current = (key, element) => {
+    pendingMeasurementsRef.current.set(key, element);
+    if (measurementScheduledRef.current) return;
+    measurementScheduledRef.current = true;
+
+    queueMicrotask(() => {
+      measurementScheduledRef.current = false;
+      if (!isMountedRef.current) {
+        pendingMeasurementsRef.current.clear();
+        return;
+      }
+
+      const pending = Array.from(pendingMeasurementsRef.current.entries());
+      pendingMeasurementsRef.current.clear();
+      let changed = false;
+      for (const [pendingKey, pendingElement] of pending) {
+        if (!pendingElement.isConnected) continue;
+        changed = measureItemRef.current(pendingKey, pendingElement) || changed;
+      }
+      if (changed) forceUpdate({});
+    });
   };
 
   const getMeasureRef = useCallback((key: string) => {
     let callback = refCallbacksRef.current.get(key);
     if (!callback) {
-      callback = (element: HTMLElement | null) => measureItemRef.current(key, element);
+      callback = (element: HTMLElement | null) => {
+        itemObserversRef.current.get(key)?.disconnect();
+        itemObserversRef.current.delete(key);
+        if (!element) {
+          pendingMeasurementsRef.current.delete(key);
+          return;
+        }
+
+        scheduleItemMeasurementRef.current(key, element);
+        const observer = new ResizeObserver(() => {
+          scheduleItemMeasurementRef.current(key, element);
+        });
+        observer.observe(element);
+        itemObserversRef.current.set(key, observer);
+      };
       refCallbacksRef.current.set(key, callback);
     }
     return callback;
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      pendingMeasurementsRef.current.clear();
+      itemObserversRef.current.forEach((observer) => observer.disconnect());
+      itemObserversRef.current.clear();
+    };
   }, []);
 
   const handleScroll = useCallback(

@@ -28,6 +28,7 @@ const mockStore = vi.hoisted(() => {
       },
       {
         id: "item-2",
+        learningItemId: "card-2",
         documentId: "doc-2",
         documentTitle: "Review Item",
         itemType: "learning-item",
@@ -53,6 +54,13 @@ const mockStore = vi.hoisted(() => {
     bulkOperationLoading: false,
     bulkOperationResult: null,
     clearBulkResult: vi.fn(),
+    loadDueDocumentsOnly: vi.fn(),
+    loadDueQueueItems: vi.fn(),
+    queueFilterMode: "all-items",
+    setQueueFilterMode: vi.fn(),
+    customSubset: null,
+    setCustomSubset: vi.fn(),
+    applyFilters: vi.fn(),
   };
   return store;
 });
@@ -64,8 +72,11 @@ vi.mock("../../../stores/queueStore", () => ({
   // when one is passed so per-field reads resolve correctly; without this the
   // mock returns the whole store for every selector, making `customSubset`
   // truthy and breaking applyFilters.
-  useQueueStore: (selector?: (s: typeof mockStore) => unknown) =>
-    selector ? selector(mockStore) : mockStore,
+  useQueueStore: Object.assign(
+    (selector?: (s: typeof mockStore) => unknown) =>
+      selector ? selector(mockStore) : mockStore,
+    { getState: () => mockStore }
+  ),
 }));
 
 vi.mock("../../../lib/pwa", () => ({
@@ -85,9 +96,16 @@ beforeEach(() => {
   mockStore.loadQueue.mockClear();
   mockStore.loadStats.mockClear();
   mockStore.searchQuery = "";
+  mockStore.queueFilterMode = undefined;
 });
 
 describe("ReviewQueueView", () => {
+  it("shows flashcards as well as documents in Due All", () => {
+    mockStore.queueFilterMode = "due-all";
+    render(<ReviewQueueView />);
+    expect(screen.getAllByText("Review Item").length).toBeGreaterThan(0);
+  });
+
   it("renders session actions and queue toggle", () => {
     render(<ReviewQueueView />);
     expect(screen.getByText("Start Optimal Session")).toBeInTheDocument();
@@ -106,6 +124,23 @@ describe("ReviewQueueView", () => {
     render(<ReviewQueueView onOpenScrollMode={onOpenScrollMode} />);
     fireEvent.click(screen.getByText("Start Optimal Session"));
     expect(onOpenScrollMode).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the planned flashcard queue when Review Queue is selected", () => {
+    const onStartReview = vi.fn();
+    const onOpenScrollMode = vi.fn();
+    render(
+      <ReviewQueueView
+        onStartReview={onStartReview}
+        onOpenScrollMode={onOpenScrollMode}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Review Queue" }));
+    fireEvent.click(screen.getByText("Start Optimal Session"));
+
+    expect(onOpenScrollMode).not.toHaveBeenCalled();
+    expect(onStartReview).toHaveBeenCalledWith("card-2", ["card-2"]);
   });
 
   it("supports manual browse keyboard navigation and activation", () => {

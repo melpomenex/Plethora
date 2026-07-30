@@ -74,7 +74,7 @@ import { useCollectionStore } from "../../stores/collectionStore";
 type QueueMode = "reading" | "review" | "schedule";
 
 interface ReviewQueueViewProps {
-  onStartReview?: (itemId?: string) => void;
+  onStartReview?: (itemId?: string, queueItemIds?: string[]) => void;
   onOpenDocument?: (item: QueueItem) => void;
   onOpenScrollMode?: () => void;
 }
@@ -242,7 +242,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         const { invokeCommand } = await import("../../lib/tauri");
         const config = await invokeCommand<EmbeddingConfig | null>("get_embedding_config");
         setEmbeddingConfig(config ?? undefined);
-      } catch (_e) { /* non-critical */ }
+      } catch { /* non-critical */ }
     })();
   }, []);
 
@@ -336,8 +336,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     } else {
       useTASStore.getState().resetQueue();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasConfig.enabled]);
+  }, [tasConfig.enabled, tasBuildQueue]);
 
   function getLearningHint(item: QueueItem) {
     if (item.itemType !== "learning-item") return null;
@@ -371,7 +370,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           if (queueMode === "review") {
             return item.itemType === "learning-item";
           }
-          // Reading mode: only show imported documents (books/articles/RSS), not extracts or learning items
+          // "Due All" explicitly promises every due item type. Keep the
+          // narrower document-only behavior for the other reading filters.
+          if (queueFilterMode === "due-all") return true;
           return item.itemType === "document";
         });
     
@@ -399,13 +400,16 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       // above, so passing `learningItems: false` (its default) here would
       // strip every card and leave the Review Queue empty. Omit it so the
       // other filters (tags/categories/priority/excludeSuspended) still apply.
-      itemTypes: queueMode === "review" ? undefined : sessionCustomization.itemTypes,
+      itemTypes:
+        queueMode === "review" || queueFilterMode === "due-all"
+          ? undefined
+          : sessionCustomization.itemTypes,
       priorityPreset: preset,
       semanticStudy: sessionCustomization.semanticStudy,
     };
     const filtered = applyFilters(searchedItems, customizationOptions);
     return orderQueueItems(filtered, preset);
-  }, [items, queueMode, preset, searchQuery, selectedFileType, sessionCustomization, customSubset]);
+  }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, customSubset]);
 
   useEffect(() => {
     if (isLoading || !scrollAnchorRef.current) return;
@@ -859,9 +863,23 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   };
 
   const handleStartOptimalSession = () => {
-    if (queueMode !== "reading") {
-      setQueueMode("reading");
+    if (queueMode === "review") {
+      const seen = new Set<string>();
+      const reviewQueueIds = sessionBlocks
+        .flatMap((block) => block.items)
+        .filter((item) => item.itemType === "learning-item")
+        .map((item) => item.learningItemId ?? item.id)
+        .filter((itemId) => {
+          if (seen.has(itemId)) return false;
+          seen.add(itemId);
+          return true;
+        });
+      if (reviewQueueIds.length > 0) {
+        onStartReview?.(reviewQueueIds[0], reviewQueueIds);
+      }
+      return;
     }
+
     if (onOpenScrollMode) {
       onOpenScrollMode();
       return;

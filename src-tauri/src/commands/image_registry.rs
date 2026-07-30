@@ -1,9 +1,11 @@
 //! Image registry commands
 
 use base64::{engine::general_purpose, Engine as _};
+use futures_util::StreamExt;
 use image::GenericImageView;
 use sha2::{Digest, Sha256};
 use std::io::Cursor;
+use std::time::Duration;
 use tauri::State;
 
 use crate::database::Repository;
@@ -46,6 +48,142 @@ pub async fn ingest_image_asset(
             IncrementumError::InvalidInput(format!("Invalid base64 image payload: {}", e))
         })?;
 
+    ingest_image_bytes(bytes, mime_type, file_name, repo.inner()).await
+}
+
+#[tauri::command]
+pub async fn ingest_remote_image_asset(
+    image_url: String,
+    file_name: Option<String>,
+    referrer_url: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<ImageAssetDto> {
+    let parsed = reqwest::Url::parse(&image_url)
+        .map_err(|error| IncrementumError::InvalidInput(format!("Invalid image URL: {error}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(IncrementumError::InvalidInput(
+            "Remote images must use HTTP or HTTPS".to_string(),
+        ));
+    }
+    crate::security::validate_url_not_private(parsed.as_str()).map_err(|error| {
+        IncrementumError::InvalidInput(format!("Image URL is not allowed: {error}"))
+    })?;
+    let referrer = validated_image_referrer(referrer_url.as_deref(), &parsed)?;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+             AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        )
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 {
+                return attempt.stop();
+            }
+            let target = attempt.url();
+            if !matches!(target.scheme(), "http" | "https")
+                || crate::security::validate_url_not_private(target.as_str()).is_err()
+            {
+                return attempt.error("redirect target is not allowed");
+            }
+            attempt.follow()
+        }))
+        .build()
+        .map_err(|error| {
+            IncrementumError::Internal(format!("Failed to create image HTTP client: {error}"))
+        })?;
+
+    let response = client
+        .get(parsed)
+        .header(
+            reqwest::header::ACCEPT,
+            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        )
+        .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .header(reqwest::header::REFERER, referrer.as_str())
+        .send()
+        .await
+        .map_err(|error| {
+            IncrementumError::Internal(format!("Failed to download remote image: {error}"))
+        })?;
+    if !response.status().is_success() {
+        return Err(IncrementumError::Internal(format!(
+            "Remote image returned HTTP {}",
+            response.status()
+        )));
+    }
+    crate::security::validate_url_not_private(response.url().as_str()).map_err(|error| {
+        IncrementumError::InvalidInput(format!("Image redirect is not allowed: {error}"))
+    })?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_IMAGE_BYTES as u64)
+    {
+        return Err(image_too_large_error());
+    }
+
+    let mime_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .filter(|value| value.starts_with("image/"))
+        .map(str::to_string);
+    let response_name = response
+        .url()
+        .path_segments()
+        .and_then(|mut segments| segments.next_back())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|error| {
+            IncrementumError::Internal(format!("Failed while downloading remote image: {error}"))
+        })?;
+        if bytes.len().saturating_add(chunk.len()) > MAX_IMAGE_BYTES {
+            return Err(image_too_large_error());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+
+    ingest_image_bytes(bytes, mime_type, file_name.or(response_name), repo.inner()).await
+}
+
+fn validated_image_referrer(
+    requested_referrer: Option<&str>,
+    image_url: &reqwest::Url,
+) -> Result<reqwest::Url> {
+    if let Some(requested) = requested_referrer.filter(|value| !value.trim().is_empty()) {
+        let parsed = reqwest::Url::parse(requested).map_err(|error| {
+            IncrementumError::InvalidInput(format!("Invalid article referrer URL: {error}"))
+        })?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(IncrementumError::InvalidInput(
+                "Article referrer must use HTTP or HTTPS".to_string(),
+            ));
+        }
+        crate::security::validate_url_not_private(parsed.as_str()).map_err(|error| {
+            IncrementumError::InvalidInput(format!("Article referrer is not allowed: {error}"))
+        })?;
+        return Ok(parsed);
+    }
+
+    let mut origin = image_url.clone();
+    origin.set_path("/");
+    origin.set_query(None);
+    origin.set_fragment(None);
+    Ok(origin)
+}
+
+async fn ingest_image_bytes(
+    bytes: Vec<u8>,
+    mime_type: Option<String>,
+    file_name: Option<String>,
+    repo: &Repository,
+) -> Result<ImageAssetDto> {
     if bytes.is_empty() {
         return Err(IncrementumError::InvalidInput(
             "Image payload is empty".to_string(),
@@ -53,10 +191,7 @@ pub async fn ingest_image_asset(
     }
 
     if bytes.len() > MAX_IMAGE_BYTES {
-        return Err(IncrementumError::InvalidInput(format!(
-            "Image exceeds max size of {} bytes",
-            MAX_IMAGE_BYTES
-        )));
+        return Err(image_too_large_error());
     }
 
     let guessed = image::guess_format(&bytes)
@@ -82,6 +217,13 @@ pub async fn ingest_image_asset(
         .await?;
 
     Ok(to_dto(asset))
+}
+
+fn image_too_large_error() -> IncrementumError {
+    IncrementumError::InvalidInput(format!(
+        "Image exceeds max size of {} bytes",
+        MAX_IMAGE_BYTES
+    ))
 }
 
 #[tauri::command]

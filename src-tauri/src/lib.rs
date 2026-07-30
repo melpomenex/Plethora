@@ -1243,10 +1243,13 @@ pub fn run() {
             commands::generate_learning_items_from_extract,
             commands::get_learning_items,
             commands::get_learning_item,
+            commands::delete_learning_item,
+            commands::restore_learning_item,
             commands::get_learning_items_by_extract,
             commands::get_all_learning_items,
             commands::check_semantic_duplicate_candidates,
             commands::ingest_image_asset,
+            commands::ingest_remote_image_asset,
             commands::list_image_assets,
             commands::get_image_asset,
             commands::delete_image_asset,
@@ -1617,6 +1620,8 @@ pub fn run() {
             commands::is_provider_available,
             commands::get_ocr_config,
             commands::update_ocr_config,
+            commands::nougat_runtime_status,
+            commands::nougat_install_managed_runtime,
             commands::glm_runtime_status,
             commands::glm_download_ollama_installer,
             commands::glm_open_installer,
@@ -1638,6 +1643,11 @@ pub fn run() {
                 not(any(target_os = "android", target_os = "ios"))
             ))]
             screenshot::capture_app_window,
+            #[cfg(all(
+                feature = "screenshot",
+                not(any(target_os = "android", target_os = "ios"))
+            ))]
+            screenshot::capture_app_window_region,
             #[cfg(all(
                 feature = "screenshot",
                 not(any(target_os = "android", target_os = "ios"))

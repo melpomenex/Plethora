@@ -53,7 +53,7 @@ import { DynamicVirtualList } from "../common/VirtualList";
 const MOBILE_QUEUE_VIRTUALIZE_THRESHOLD = 20;
 
 interface MobileQueueViewProps {
-  onStartReview?: (itemId?: string) => void;
+  onStartReview?: (itemId?: string, queueItemIds?: string[]) => void;
   onOpenDocument?: (item: QueueItem) => void;
   onOpenScrollMode?: () => void;
 }
@@ -282,6 +282,15 @@ export function MobileQueueView({
     const firstDue = filteredItems[0];
     if (!firstDue) {
       toast.info(t("mobileQueue.noItemsReady"), t("mobileQueue.noItemsReadyDesc"));
+      return;
+    }
+    if (activeTab === "review") {
+      const reviewQueueIds = filteredItems
+        .filter((item) => item.itemType === "learning-item")
+        .map((item) => item.learningItemId ?? item.id);
+      if (reviewQueueIds.length > 0) {
+        onStartReview?.(reviewQueueIds[0], reviewQueueIds);
+      }
       return;
     }
     // On mobile, "Start Reading" opens Scroll Mode — the same immersive flow the
@@ -860,7 +869,7 @@ interface QueueRowProps {
   isSelected: boolean;
   onToggleSelect: (itemId: string) => void;
   onOpenDocument?: (item: QueueItem) => void;
-  onStartReview?: (itemId?: string) => void;
+  onStartReview?: (itemId?: string, queueItemIds?: string[]) => void;
   onOpenActions: (item: QueueItem, trigger?: HTMLElement) => void;
   onSwipeLeft: (item: QueueItem) => void;
   onSwipeRight: (item: QueueItem) => void;

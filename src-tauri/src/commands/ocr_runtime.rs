@@ -1,11 +1,27 @@
 //! GLM-OCR runtime commands
 
 use crate::error::Result;
+use crate::ocr::nougat_runtime::{
+    get_nougat_runtime_status, install_managed_nougat, NougatRuntimeStatus,
+};
 use crate::ocr::runtime::{
     download_ollama_installer, get_runtime_status, open_installer, pull_ollama_model,
     start_ollama_runtime, stop_ollama_runtime, GLMRuntimeStatus,
 };
 use tauri::AppHandle;
+
+#[tauri::command]
+pub async fn nougat_runtime_status(
+    app_handle: AppHandle,
+    nougat_path: Option<String>,
+) -> Result<NougatRuntimeStatus> {
+    get_nougat_runtime_status(&app_handle, nougat_path).await
+}
+
+#[tauri::command]
+pub async fn nougat_install_managed_runtime(app_handle: AppHandle) -> Result<NougatRuntimeStatus> {
+    install_managed_nougat(app_handle).await
+}
 
 #[tauri::command]
 pub async fn glm_runtime_status(

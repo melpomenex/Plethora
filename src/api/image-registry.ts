@@ -49,6 +49,18 @@ export async function ingestImageBlob(blob: Blob, fileName?: string): Promise<Im
   });
 }
 
+export async function ingestRemoteImage(
+  imageUrl: string,
+  fileName?: string,
+  referrerUrl?: string,
+): Promise<ImageAsset> {
+  return invokeCommand<ImageAsset>("ingest_remote_image_asset", {
+    imageUrl,
+    fileName,
+    referrerUrl,
+  });
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

@@ -14,6 +14,8 @@ import {
   getAvailableOCRProviders,
   isProviderAvailable,
   getOCRConfig,
+  getNougatRuntimeStatus,
+  installManagedNougat,
   updateOCRConfig,
 } from "../ocrCommands";
 import type { OCRConfig } from "../ocrCommands";
@@ -326,6 +328,42 @@ describe("OCR Commands Integration Tests", () => {
       mockInvoke.mockRejectedValue(new Error("Invalid provider"));
 
       await expect(updateOCRConfig(config)).rejects.toThrow("Invalid provider");
+    });
+  });
+
+  describe("managed Nougat runtime", () => {
+    it("checks the configured executable path", async () => {
+      mockInvoke.mockResolvedValue({
+        supported: true,
+        installed: true,
+        managed: false,
+        repair_required: false,
+        executable_path: "/Users/test/.local/bin/nougat",
+        package: "nougat-ocr==0.1.17",
+      });
+
+      const status = await getNougatRuntimeStatus("/Users/test/.local/bin/nougat");
+
+      expect(mockInvoke).toHaveBeenCalledWith("nougat_runtime_status", {
+        nougat_path: "/Users/test/.local/bin/nougat",
+      });
+      expect(status.installed).toBe(true);
+    });
+
+    it("starts an isolated managed installation", async () => {
+      mockInvoke.mockResolvedValue({
+        supported: true,
+        installed: true,
+        managed: true,
+        repair_required: false,
+        executable_path: "/app-data/ocr/nougat-runtime/venv/bin/nougat",
+        package: "nougat-ocr==0.1.17",
+      });
+
+      const status = await installManagedNougat();
+
+      expect(mockInvoke).toHaveBeenCalledWith("nougat_install_managed_runtime", undefined);
+      expect(status.managed).toBe(true);
     });
   });
 

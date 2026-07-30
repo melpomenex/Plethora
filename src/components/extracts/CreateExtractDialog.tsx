@@ -1,9 +1,12 @@
 import { useState, useEffect } from "react";
 import {
   BookOpen,
+  Check,
+  CircleNotch,
   Code,
   Eye,
   FolderOpen,
+  Images,
   Lightbulb,
   List,
   Stack,
@@ -21,6 +24,16 @@ import { QACreatorPopup } from "./QACreatorPopup";
 import { useToast } from "../common/Toast";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useI18n } from "../../lib/i18n";
+import {
+  ingestRemoteImage,
+  type ImageAsset,
+} from "../../api/image-registry";
+import {
+  captureAppWindowRegion,
+  saveScreenshotToRegistry,
+} from "../../utils/screenshotCapture";
+import { isTauri } from "../../lib/tauri";
+import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
 
 interface CreateExtractDialogProps {
   documentId: string;
@@ -85,6 +98,16 @@ export function CreateExtractDialog({
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [attachedArticleImages, setAttachedArticleImages] = useState<Array<{
+    sourceUrl: string;
+    alt: string;
+    asset: ImageAsset;
+  }>>([]);
+  const [importingImageUrls, setImportingImageUrls] = useState<string[]>([]);
+  const [visibleArticleImageCount, setVisibleArticleImageCount] = useState(24);
+  const [showImageRegistry, setShowImageRegistry] = useState(false);
+  const [registryAssets, setRegistryAssets] = useState<ImageAsset[]>([]);
+  const [selectedRegistryImageIds, setSelectedRegistryImageIds] = useState<string[]>([]);
   const [creationMode, setCreationMode] = useState<"edit" | "cloze" | "qa">("edit");
   const [savedExtractId, setSavedExtractId] = useState<string | null>(null);
   const toast = useToast();
@@ -92,6 +115,13 @@ export function CreateExtractDialog({
   const { documents } = useDocumentStore();
 
   const currentDocument = documents.find((d) => d.id === documentId);
+  const articleImages = Array.from(
+    new Map(
+      (currentDocument?.metadata?.extractedImages ?? [])
+        .filter((image) => image.src?.trim())
+        .map((image) => [image.src, image]),
+    ).values(),
+  );
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -107,6 +137,11 @@ export function CreateExtractDialog({
       setHighlightColor(initialHighlightColor || HIGHLIGHT_COLORS[0].value);
       setProgressiveLevel(0);
       setShowPreview(false);
+      setAttachedArticleImages([]);
+      setImportingImageUrls([]);
+      setVisibleArticleImageCount(24);
+      setShowImageRegistry(false);
+      setSelectedRegistryImageIds([]);
       setError(null);
       setCreationMode("edit");
       setSavedExtractId(null);
@@ -167,6 +202,81 @@ export function CreateExtractDialog({
     }
   };
 
+  const attachArticleImage = async (
+    image: { src: string; alt?: string },
+    element: HTMLImageElement | null,
+  ) => {
+    if (attachedArticleImages.some((entry) => entry.sourceUrl === image.src)) {
+      setAttachedArticleImages((entries) =>
+        entries.filter((entry) => entry.sourceUrl !== image.src)
+      );
+      return;
+    }
+    if (importingImageUrls.includes(image.src)) return;
+
+    setImportingImageUrls((urls) => [...urls, image.src]);
+    setError(null);
+
+    // Capture the already-rendered image before starting the network request.
+    // Some sites allow an <img> to render but reject a second native download;
+    // this gives those images a durable local fallback.
+    let renderedFallback: string | null = null;
+    if (isTauri() && element) {
+      const rect = element.getBoundingClientRect();
+      try {
+        renderedFallback = await captureAppWindowRegion({
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        });
+      } catch {
+        renderedFallback = null;
+      }
+    }
+
+    try {
+      let asset: ImageAsset;
+      try {
+        const parsedUrl = new URL(image.src);
+        const fileName =
+          decodeURIComponent(parsedUrl.pathname.split("/").pop() || "") ||
+          `article-image-${Date.now()}`;
+        asset = await ingestRemoteImage(
+          image.src,
+          fileName,
+          currentDocument?.metadata?.originalUrl ||
+            currentDocument?.metadata?.url ||
+            undefined,
+        );
+      } catch (downloadError) {
+        if (!renderedFallback) throw downloadError;
+        asset = await saveScreenshotToRegistry(
+          renderedFallback,
+          `article-image-${Date.now()}.png`,
+        ) as ImageAsset;
+      }
+
+      setAttachedArticleImages((entries) => [
+        ...entries,
+        {
+          sourceUrl: image.src,
+          alt: image.alt || "",
+          asset,
+        },
+      ]);
+      window.dispatchEvent(new CustomEvent("refresh-image-registry"));
+    } catch (imageError) {
+      setError(
+        imageError instanceof Error
+          ? `Could not attach image: ${imageError.message}`
+          : "Could not attach this image.",
+      );
+    } finally {
+      setImportingImageUrls((urls) => urls.filter((url) => url !== image.src));
+    }
+  };
+
   const handleCreate = async (action: "extract" | "generate" | "cloze" | "qa") => {
     if (!content.trim()) {
       setError(t("extracts.contentRequired"));
@@ -177,9 +287,50 @@ export function CreateExtractDialog({
     setError(null);
 
     try {
+      const selectedRegistryImages = selectedRegistryImageIds
+        .map((id) => registryAssets.find((asset) => asset.id === id))
+        .filter((asset): asset is ImageAsset => Boolean(asset));
+      const selectedImages = [
+        ...attachedArticleImages.map(({ alt, asset }) => ({ alt, asset })),
+        ...selectedRegistryImages.map((asset) => ({
+          alt: asset.file_name || "Attached image",
+          asset,
+        })),
+      ].filter(
+        (entry, index, entries) =>
+          entries.findIndex(({ asset }) => asset.id === entry.asset.id) === index,
+      );
+      let htmlContent: string | undefined;
+      if (selectedImages.length > 0) {
+        const wrapper = document.createElement("div");
+        const text = document.createElement("div");
+        text.innerHTML = DOMPurify.sanitize(formatContent(content.trim()));
+        wrapper.appendChild(text);
+        selectedImages.forEach(({ alt, asset }) => {
+          const figure = document.createElement("figure");
+          const element = document.createElement("img");
+          element.src = asset.data_url;
+          element.alt = alt;
+          element.loading = "eager";
+          figure.appendChild(element);
+          if (alt) {
+            const caption = document.createElement("figcaption");
+            caption.textContent = alt;
+            figure.appendChild(caption);
+          }
+          wrapper.appendChild(figure);
+        });
+        htmlContent = DOMPurify.sanitize(wrapper.innerHTML);
+      }
+
       const input: CreateExtractInput = {
         document_id: documentId,
         content: content.trim(),
+        html_content: htmlContent,
+        source_url:
+          currentDocument?.metadata?.originalUrl ||
+          currentDocument?.metadata?.url ||
+          (currentDocument?.filePath?.startsWith("http") ? currentDocument.filePath : undefined),
         note: notes.trim() || undefined,
         category: category || undefined,
         tags: tags.length > 0 ? tags : undefined,
@@ -331,6 +482,98 @@ export function CreateExtractDialog({
                   <span className="text-muted-foreground">{t("extracts.previewHint")}</span>
                 )}
               </div>
+            )}
+          </div>
+
+          {articleImages.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">
+                <Images className="w-4 h-4 inline mr-1" />
+                Article images
+              </label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Choose any relevant image. It will be saved locally in the Image Registry and kept with the extract.
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {articleImages
+                  .slice(0, visibleArticleImageCount)
+                  .map((image) => {
+                    const selected = attachedArticleImages.some(
+                      (entry) => entry.sourceUrl === image.src,
+                    );
+                    const importing = importingImageUrls.includes(image.src);
+                    return (
+                      <button
+                        key={image.src}
+                        type="button"
+                        aria-pressed={selected}
+                        disabled={importing}
+                        onClick={(event) => {
+                          const element = event.currentTarget.querySelector("img");
+                          void attachArticleImage(image, element);
+                        }}
+                        className={`relative aspect-video overflow-hidden rounded-md border-2 transition-colors ${
+                          selected ? "border-primary" : "border-border hover:border-primary/60"
+                        } disabled:cursor-wait disabled:opacity-70`}
+                        title={image.alt || "Article image"}
+                      >
+                        <img
+                          src={image.src}
+                          alt={image.alt || ""}
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                          className="h-full w-full bg-muted object-contain"
+                        />
+                        <span className="absolute right-1 top-1 flex h-6 min-w-6 items-center justify-center rounded bg-background/90 px-1.5 text-[10px] text-foreground shadow">
+                          {importing ? (
+                            <CircleNotch className="h-3.5 w-3.5 animate-spin" />
+                          ) : selected ? (
+                            <Check className="h-3.5 w-3.5 text-primary" weight="bold" />
+                          ) : (
+                            "Add"
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+              {articleImages.length > visibleArticleImageCount && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleArticleImageCount((count) => count + 24)}
+                  className="mt-2 w-full rounded-md border border-border px-3 py-2 text-xs text-foreground hover:bg-muted"
+                >
+                  Show more article images
+                </button>
+              )}
+            </div>
+          )}
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowImageRegistry((visible) => !visible)}
+              className="flex w-full items-center justify-between rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Images className="h-4 w-4" />
+                Attach from Image Registry
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {selectedRegistryImageIds.length > 0
+                  ? `${selectedRegistryImageIds.length} selected`
+                  : showImageRegistry ? "Hide" : "Choose"}
+              </span>
+            </button>
+            {showImageRegistry && (
+              <ImageRegistryLibrary
+                className="mt-3 max-h-[28rem] overflow-auto rounded-md border border-border"
+                title="Image Registry"
+                subtitle="Choose saved images or import, paste, and drop new ones."
+                initialSelectedIds={selectedRegistryImageIds}
+                onSelectedIdsChange={setSelectedRegistryImageIds}
+                onAssetsChange={setRegistryAssets}
+              />
             )}
           </div>
 

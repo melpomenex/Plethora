@@ -112,6 +112,19 @@ export function processHtmlContent(rawHtml: string, baseUrl: string, title: stri
     doc.querySelectorAll(selector).forEach(el => el.remove());
   });
 
+  // MediaWiki pages wrap the actual article in `.mw-parser-output`, while
+  // broader captures can also include the site header, navigation, and
+  // account menus. Isolate the article so old imports are repaired at render
+  // time as well as new extension captures.
+  const mediaWikiArticle = doc.querySelector('.mw-parser-output');
+  if (mediaWikiArticle) {
+    const article = mediaWikiArticle.cloneNode(true);
+    doc.body.replaceChildren(article);
+    doc.querySelectorAll(
+      '.mw-editsection, .mw-jump-link, .navbox, .metadata, .sistersitebox, .catlinks, .printfooter, .mw-indicators, .vector-page-toolbar'
+    ).forEach((element) => element.remove());
+  }
+
   if (!preserveImages) {
     const imageSelectors = ['img', 'picture', 'source'];
     imageSelectors.forEach(selector => {
@@ -122,10 +135,10 @@ export function processHtmlContent(rawHtml: string, baseUrl: string, title: stri
   if (preserveImages) {
     doc.querySelectorAll('img').forEach((image) => {
       const candidate = [
-        image.getAttribute('src'),
         image.getAttribute('data-src'),
         image.getAttribute('data-lazy-src'),
         image.getAttribute('data-original'),
+        image.getAttribute('src'),
       ].find((value) => value && !value.startsWith('data:'));
 
       if (candidate) {

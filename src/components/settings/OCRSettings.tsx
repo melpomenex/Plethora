@@ -6,21 +6,28 @@
 import { useEffect, useState } from "react";
 import {
   Brain,
+  CheckCircle,
   Cloud,
   Cpu,
+  DownloadSimple,
   Eye,
   HardDrives,
   Lightning,
   Scan,
   TextT,
   Translate,
+  WarningCircle,
 } from "@phosphor-icons/react";
-import { isTauri, listen, openFilePicker } from "../../lib/tauri";
+import { isTauri, listen, openExternal, openFilePicker } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
 import {
   downloadOllamaInstaller,
   getGLMRuntimeStatus,
+  getNougatRuntimeStatus,
   GLMRuntimeStatus,
+  installManagedNougat,
+  NougatInstallProgress,
+  NougatRuntimeStatus,
   openInstaller,
   pullOllamaModel,
   startOllamaRuntime,
@@ -153,7 +160,16 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
   const [isStoppingRuntime, setIsStoppingRuntime] = useState(false);
   const [isDownloadingInstaller, setIsDownloadingInstaller] = useState(false);
   const [isPullingModel, setIsPullingModel] = useState(false);
+  const [nougatStatus, setNougatStatus] = useState<NougatRuntimeStatus | null>(null);
+  const [nougatError, setNougatError] = useState<string | null>(null);
+  const [nougatInstallProgress, setNougatInstallProgress] = useState<NougatInstallProgress | null>(
+    null
+  );
+  const [isInstallingNougat, setIsInstallingNougat] = useState(false);
   const runtimeDisabled = !isTauri();
+  const needsNougat =
+    settings.provider === "nougat" ||
+    (settings.mathOcrEnabled && (settings.mathOcrCommand || "nougat") === "nougat");
 
   const glmBackend = settings.glmBackend || "ollama";
   const defaultOllamaEndpoint = "http://localhost:11434/v1";
@@ -172,7 +188,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
       setRuntimeStatus(status);
       setRuntimeError(null);
     } catch (error) {
-      setRuntimeError(error instanceof Error ? error.message : t("ocrSettings.runtimeStatusFailed"));
+      setRuntimeError(
+        error instanceof Error ? error.message : t("ocrSettings.runtimeStatusFailed")
+      );
     }
   };
 
@@ -180,10 +198,26 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
     refreshRuntimeStatus();
   }, [settings.provider, glmBackend, resolvedGlmEndpoint, settings.glmOllamaPath]);
 
+  const refreshNougatStatus = async () => {
+    if (!isTauri() || !needsNougat) return;
+    try {
+      const status = await getNougatRuntimeStatus(settings.nougat_path);
+      setNougatStatus(status);
+      setNougatError(null);
+    } catch (error) {
+      setNougatError(error instanceof Error ? error.message : t("ocrSettings.nougatStatusFailed"));
+    }
+  };
+
+  useEffect(() => {
+    void refreshNougatStatus();
+  }, [needsNougat, settings.nougat_path]);
+
   useEffect(() => {
     if (!isTauri()) return;
     let unlistenProgress: (() => void) | null = null;
     let unlistenComplete: (() => void) | null = null;
+    let unlistenNougatProgress: (() => void) | null = null;
     let mounted = true;
 
     listen<{ id: string; progress: number }>("glm-ocr://download-progress", (event) => {
@@ -191,15 +225,21 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
         setDownloadProgress(event.payload.progress);
         setIsDownloadingInstaller(true);
       }
-    }).then((unlisten) => {
-      if (mounted) {
-        unlistenProgress = unlisten;
-      } else {
-        try { unlisten(); } catch { /* ignore */ }
-      }
-    }).catch(() => {
-      // Ignore errors if component unmounted
-    });
+    })
+      .then((unlisten) => {
+        if (mounted) {
+          unlistenProgress = unlisten;
+        } else {
+          try {
+            unlisten();
+          } catch {
+            /* ignore */
+          }
+        }
+      })
+      .catch(() => {
+        // Ignore errors if component unmounted
+      });
 
     listen<{ id: string; path: string }>("glm-ocr://download-complete", (event) => {
       if (event.payload.id === "ollama") {
@@ -207,15 +247,40 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
         setIsDownloadingInstaller(false);
         setDownloadProgress(null);
       }
-    }).then((unlisten) => {
-      if (mounted) {
-        unlistenComplete = unlisten;
-      } else {
-        try { unlisten(); } catch { /* ignore */ }
-      }
-    }).catch(() => {
-      // Ignore errors if component unmounted
-    });
+    })
+      .then((unlisten) => {
+        if (mounted) {
+          unlistenComplete = unlisten;
+        } else {
+          try {
+            unlisten();
+          } catch {
+            /* ignore */
+          }
+        }
+      })
+      .catch(() => {
+        // Ignore errors if component unmounted
+      });
+
+    listen<NougatInstallProgress>("nougat://install-progress", (event) => {
+      setNougatInstallProgress(event.payload);
+      setIsInstallingNougat(event.payload.stage !== "complete");
+    })
+      .then((unlisten) => {
+        if (mounted) {
+          unlistenNougatProgress = unlisten;
+        } else {
+          try {
+            unlisten();
+          } catch {
+            /* ignore */
+          }
+        }
+      })
+      .catch(() => {
+        // Ignore errors if component unmounted
+      });
 
     return () => {
       mounted = false;
@@ -226,6 +291,11 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
       }
       try {
         unlistenComplete?.();
+      } catch {
+        // Ignore errors during cleanup
+      }
+      try {
+        unlistenNougatProgress?.();
       } catch {
         // Ignore errors during cleanup
       }
@@ -269,7 +339,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
     try {
       await openInstaller(installerPath);
     } catch (error) {
-      setRuntimeError(error instanceof Error ? error.message : t("ocrSettings.openInstallerFailed"));
+      setRuntimeError(
+        error instanceof Error ? error.message : t("ocrSettings.openInstallerFailed")
+      );
     }
   };
 
@@ -331,6 +403,36 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
     }
   };
 
+  const handleInstallNougat = async () => {
+    if (runtimeDisabled) {
+      setNougatError(t("ocrSettings.desktopOnly"));
+      return;
+    }
+    setIsInstallingNougat(true);
+    setNougatError(null);
+    setNougatInstallProgress({
+      stage: "downloading-installer",
+      progress: 1,
+      message: t("ocrSettings.nougatStartingInstall"),
+    });
+    try {
+      const status = await installManagedNougat();
+      setNougatStatus(status);
+      if (status.executable_path) {
+        onUpdateSettings({ nougat_path: status.executable_path });
+      }
+      setNougatInstallProgress({
+        stage: "complete",
+        progress: 100,
+        message: t("ocrSettings.nougatInstallComplete"),
+      });
+    } catch (error) {
+      setNougatError(error instanceof Error ? error.message : t("ocrSettings.nougatInstallFailed"));
+    } finally {
+      setIsInstallingNougat(false);
+    }
+  };
+
   return (
     <div className="p-6 max-w-3xl">
       <div className="flex items-center gap-3 mb-6">
@@ -350,8 +452,12 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
             <div className="flex items-start gap-3">
               <Lightning className="w-5 h-5 text-muted-foreground mt-0.5" />
               <div>
-                <div className="text-sm font-medium text-foreground">{t("ocrSettings.autoOcr")}</div>
-                <div className="text-xs text-muted-foreground mt-1">{t("ocrSettings.autoOcrDesc")}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.autoOcr")}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {t("ocrSettings.autoOcrDesc")}
+                </div>
               </div>
             </div>
             <button
@@ -414,7 +520,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
             <Translate className="w-5 h-5 text-muted-foreground" />
             <div>
               <div className="text-sm font-medium text-foreground">{t("ocrSettings.language")}</div>
-              <div className="text-xs text-muted-foreground">{t("ocrSettings.primaryLanguage")}</div>
+              <div className="text-xs text-muted-foreground">
+                {t("ocrSettings.primaryLanguage")}
+              </div>
             </div>
           </div>
           <select
@@ -437,14 +545,20 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
             <div className="flex items-center gap-3 mb-4">
               <Cloud className="w-5 h-5 text-muted-foreground" />
               <div>
-                <div className="text-sm font-medium text-foreground">{t("ocrSettings.googleDocAi")}</div>
-                <div className="text-xs text-muted-foreground">{t("ocrSettings.googleDocAiDesc")}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.googleDocAi")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("ocrSettings.googleDocAiDesc")}
+                </div>
               </div>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.projectId")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.projectId")}
+                </label>
                 <input
                   type="text"
                   value={settings.googleProjectId || ""}
@@ -455,7 +569,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.location")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.location")}
+                </label>
                 <input
                   type="text"
                   value={settings.googleLocation || "us"}
@@ -466,7 +582,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.processorId")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.processorId")}
+                </label>
                 <input
                   type="text"
                   value={settings.googleProcessorId || ""}
@@ -477,7 +595,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.credentialsPath")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.credentialsPath")}
+                </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -488,11 +608,13 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
                   />
                   <button
                     onClick={() => {
-                      (window as any).api?.file?.openFileDialog?.({
-                        filters: [{ name: "JSON", extensions: ["json"] }],
-                      })?.then((path: string) => {
-                        if (path) onUpdateSettings({ googleCredentialsPath: path });
-                      });
+                      (window as any).api?.file
+                        ?.openFileDialog?.({
+                          filters: [{ name: "JSON", extensions: ["json"] }],
+                        })
+                        ?.then((path: string) => {
+                          if (path) onUpdateSettings({ googleCredentialsPath: path });
+                        });
                     }}
                     className="px-3 py-2 bg-muted hover:bg-muted/80 rounded-lg text-sm transition-colors"
                   >
@@ -510,14 +632,20 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
             <div className="flex items-center gap-3 mb-4">
               <Cloud className="w-5 h-5 text-muted-foreground" />
               <div>
-                <div className="text-sm font-medium text-foreground">{t("ocrSettings.awsTextract")}</div>
-                <div className="text-xs text-muted-foreground">{t("ocrSettings.awsTextractDesc")}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.awsTextract")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("ocrSettings.awsTextractDesc")}
+                </div>
               </div>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.awsRegion")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.awsRegion")}
+                </label>
                 <select
                   value={settings.awsRegion || "us-east-1"}
                   onChange={(e) => onUpdateSettings({ awsRegion: e.target.value })}
@@ -531,7 +659,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.accessKeyId")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.accessKeyId")}
+                </label>
                 <input
                   type="password"
                   value={settings.awsAccessKey || ""}
@@ -542,7 +672,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.secretAccessKey")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.secretAccessKey")}
+                </label>
                 <input
                   type="password"
                   value={settings.awsSecretKey || ""}
@@ -561,14 +693,20 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
             <div className="flex items-center gap-3 mb-4">
               <Cloud className="w-5 h-5 text-muted-foreground" />
               <div>
-                <div className="text-sm font-medium text-foreground">{t("ocrSettings.azureVision")}</div>
-                <div className="text-xs text-muted-foreground">{t("ocrSettings.azureVisionDesc")}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.azureVision")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("ocrSettings.azureVisionDesc")}
+                </div>
               </div>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.endpoint")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.endpoint")}
+                </label>
                 <input
                   type="text"
                   value={settings.azureEndpoint || ""}
@@ -579,7 +717,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.apiKey")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.apiKey")}
+                </label>
                 <input
                   type="password"
                   value={settings.azureApiKey || ""}
@@ -598,14 +738,18 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
             <div className="flex items-center gap-3 mb-4">
               <Cloud className="w-5 h-5 text-muted-foreground" />
               <div>
-                <div className="text-sm font-medium text-foreground">{t("ocrSettings.mistral")}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.mistral")}
+                </div>
                 <div className="text-xs text-muted-foreground">{t("ocrSettings.mistralDesc")}</div>
               </div>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.mistralApiKey")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.mistralApiKey")}
+                </label>
                 <input
                   type="password"
                   value={settings.mistralApiKey || ""}
@@ -631,18 +775,24 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.endpoint")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.endpoint")}
+                </label>
                 <input
                   type="text"
                   value={settings.glmEndpoint || ""}
                   onChange={(e) => onUpdateSettings({ glmEndpoint: e.target.value })}
-                  placeholder={glmBackend === "ollama" ? defaultOllamaEndpoint : defaultVllmEndpoint}
+                  placeholder={
+                    glmBackend === "ollama" ? defaultOllamaEndpoint : defaultVllmEndpoint
+                  }
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.model")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.model")}
+                </label>
                 <input
                   type="text"
                   value={settings.glmModel || ""}
@@ -678,7 +828,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.apiKeyOptional")}</label>
+                <label className="block text-xs font-medium text-foreground mb-1">
+                  {t("ocrSettings.apiKeyOptional")}
+                </label>
                 <input
                   type="password"
                   value={settings.glmApiKey || ""}
@@ -697,8 +849,12 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
             <div className="flex items-center gap-3 mb-4">
               <Cpu className="w-5 h-5 text-muted-foreground" />
               <div>
-                <div className="text-sm font-medium text-foreground">{t("ocrSettings.glmRuntime")}</div>
-                <div className="text-xs text-muted-foreground">{t("ocrSettings.glmRuntimeDesc")}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.glmRuntime")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("ocrSettings.glmRuntimeDesc")}
+                </div>
               </div>
             </div>
 
@@ -740,7 +896,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
                     </span>
                     {" · "}
                     <span className="text-foreground font-medium">
-                      {runtimeStatus?.installed ? t("ocrSettings.installed") : t("ocrSettings.notInstalled")}
+                      {runtimeStatus?.installed
+                        ? t("ocrSettings.installed")
+                        : t("ocrSettings.notInstalled")}
                     </span>
                   </div>
                   <button
@@ -770,7 +928,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
                     disabled={runtimeDisabled || isDownloadingInstaller}
                     className="px-3 py-2 bg-muted hover:bg-muted/80 rounded-md text-xs transition-colors disabled:opacity-50"
                   >
-                    {isDownloadingInstaller ? t("ocrSettings.downloading") : t("ocrSettings.downloadOllama")}
+                    {isDownloadingInstaller
+                      ? t("ocrSettings.downloading")
+                      : t("ocrSettings.downloadOllama")}
                   </button>
                   {installerPath && (
                     <button
@@ -815,13 +975,12 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
 
                 {runtimeStatus?.models_dir && (
                   <div className="text-xs text-muted-foreground">
-                    {t("ocrSettings.modelsDir")}: <span className="text-foreground">{runtimeStatus.models_dir}</span>
+                    {t("ocrSettings.modelsDir")}:{" "}
+                    <span className="text-foreground">{runtimeStatus.models_dir}</span>
                   </div>
                 )}
 
-                {runtimeError && (
-                  <div className="text-xs text-destructive">{runtimeError}</div>
-                )}
+                {runtimeError && <div className="text-xs text-destructive">{runtimeError}</div>}
 
                 <div className="text-xs text-muted-foreground">
                   {t("ocrSettings.linuxSudoHint")}
@@ -831,7 +990,9 @@ export function OCRSettings({ settings, onUpdateSettings }: OCRSettingsProps) {
               <div className="space-y-3 text-xs text-muted-foreground">
                 <div>{t("ocrSettings.vllmIntro")}</div>
                 <div className="rounded-md bg-muted/40 p-3">
-                  <div className="font-medium text-foreground mb-1">{t("ocrSettings.llamaCppTitle")}</div>
+                  <div className="font-medium text-foreground mb-1">
+                    {t("ocrSettings.llamaCppTitle")}
+                  </div>
                   <pre className="whitespace-pre-wrap text-xs text-foreground">
                     {`git clone https://github.com/ggml-org/llama.cpp.git
 cd llama.cpp && cmake -B build && cmake --build build -j$(nproc)
@@ -840,7 +1001,9 @@ cd llama.cpp && cmake -B build && cmake --build build -j$(nproc)
                   </pre>
                 </div>
                 <div className="rounded-md bg-muted/40 p-3">
-                  <div className="font-medium text-foreground mb-1">{t("ocrSettings.vllmTitle")}</div>
+                  <div className="font-medium text-foreground mb-1">
+                    {t("ocrSettings.vllmTitle")}
+                  </div>
                   <pre className="whitespace-pre-wrap text-xs text-foreground">
                     {`pip install -U vllm
 vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
@@ -861,19 +1024,29 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
         )}
 
         {/* Local OCR Options */}
-        {(settings.provider === "tesseract" || settings.provider === "marker" || settings.provider === "nougat" || settings.provider === "glm") && (
+        {(settings.provider === "tesseract" ||
+          settings.provider === "marker" ||
+          settings.provider === "nougat" ||
+          settings.provider === "glm" ||
+          needsNougat) && (
           <div className="bg-card border border-border rounded-lg p-4">
             <div className="flex items-center gap-3 mb-4">
               <HardDrives className="w-5 h-5 text-muted-foreground" />
               <div>
-                <div className="text-sm font-medium text-foreground">{t("ocrSettings.localProcessing")}</div>
-                <div className="text-xs text-muted-foreground">{t("ocrSettings.localProcessingDesc")}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.localProcessing")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("ocrSettings.localProcessingDesc")}
+                </div>
               </div>
             </div>
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-foreground">{t("ocrSettings.preferLocal")}</p>
+                <p className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.preferLocal")}
+                </p>
                 <p className="text-xs text-muted-foreground">{t("ocrSettings.preferLocalDesc")}</p>
               </div>
               <button
@@ -890,35 +1063,144 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
               </button>
             </div>
 
-            {settings.provider === "nougat" && (
-              <div className="mt-4 border-t border-border pt-4">
-                <label className="mb-1 block text-xs font-medium text-foreground">
-                  Nougat executable
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={settings.nougat_path || ""}
-                    onChange={(event) => onUpdateSettings({ nougat_path: event.target.value || undefined })}
-                    placeholder="Auto-detect, or /Users/you/.local/bin/nougat"
-                    className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
+            {needsNougat && (
+              <div className="mt-4 space-y-4 border-t border-border pt-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    {nougatStatus?.installed ? (
+                      <CheckCircle className="mt-0.5 h-5 w-5 text-emerald-500" weight="fill" />
+                    ) : (
+                      <WarningCircle className="mt-0.5 h-5 w-5 text-amber-500" weight="fill" />
+                    )}
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        {nougatStatus?.repair_required
+                          ? t("ocrSettings.nougatRepairRequired")
+                          : nougatStatus?.installed
+                            ? t("ocrSettings.nougatReady")
+                            : t("ocrSettings.nougatRequired")}
+                      </div>
+                      <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+                        {nougatStatus?.repair_required
+                          ? t("ocrSettings.nougatRepairRequiredDesc")
+                          : nougatStatus?.installed
+                            ? t("ocrSettings.nougatReadyDesc")
+                            : t("ocrSettings.nougatRequiredDesc")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void refreshNougatStatus()}
+                      disabled={runtimeDisabled || isInstallingNougat}
+                      className="rounded-lg bg-muted px-3 py-2 text-xs transition-colors hover:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {t("ocrSettings.checkAgain")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleInstallNougat()}
+                      disabled={
+                        runtimeDisabled || isInstallingNougat || nougatStatus?.supported === false
+                      }
+                      className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <DownloadSimple
+                        className={isInstallingNougat ? "h-4 w-4 animate-pulse" : "h-4 w-4"}
+                      />
+                      {isInstallingNougat
+                        ? t("ocrSettings.installingNougat")
+                        : nougatStatus?.installed || nougatStatus?.repair_required
+                          ? t("ocrSettings.repairNougat")
+                          : t("ocrSettings.installNougat")}
+                    </button>
+                  </div>
+                </div>
+
+                {nougatInstallProgress && (
+                  <div className="rounded-lg border border-border bg-background/60 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                      <span className="text-foreground">{nougatInstallProgress.message}</span>
+                      <span className="tabular-nums text-muted-foreground">
+                        {Math.round(nougatInstallProgress.progress)}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-[width] duration-300"
+                        style={{
+                          width: `${Math.min(100, Math.max(0, nougatInstallProgress.progress))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {nougatError && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                    {nougatError}
+                  </div>
+                )}
+
+                {nougatStatus?.executable_path && (
+                  <div className="rounded-lg border border-border bg-background/60 p-3">
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("ocrSettings.detectedExecutable")}
+                    </div>
+                    <div className="mt-1 break-all font-mono text-xs text-foreground">
+                      {nougatStatus.executable_path}
+                    </div>
+                    {nougatStatus.managed && (
+                      <div className="mt-1 text-xs text-emerald-500">
+                        {t("ocrSettings.managedByIncrementum")}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-foreground">
+                    {t("ocrSettings.nougatExecutable")}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={settings.nougat_path || ""}
+                      onChange={(event) =>
+                        onUpdateSettings({ nougat_path: event.target.value || undefined })
+                      }
+                      placeholder={t("ocrSettings.nougatExecutablePlaceholder")}
+                      className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const paths = await openFilePicker({
+                          title: t("ocrSettings.selectNougatExecutable"),
+                        });
+                        if (paths?.[0]) onUpdateSettings({ nougat_path: paths[0] });
+                      }}
+                      className="rounded-lg bg-muted px-3 py-2 text-sm transition-colors hover:bg-muted/80"
+                    >
+                      {t("ocrSettings.browse")}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("ocrSettings.nougatAutoDetectHint")}
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+                  <p>{t("ocrSettings.nougatInstallDisclosure")}</p>
                   <button
                     type="button"
-                    onClick={async () => {
-                      const paths = await openFilePicker({
-                        title: "Select Nougat executable",
-                      });
-                      if (paths?.[0]) onUpdateSettings({ nougat_path: paths[0] });
-                    }}
-                    className="rounded-lg bg-muted px-3 py-2 text-sm transition-colors hover:bg-muted/80"
+                    onClick={() => void openExternal("https://github.com/facebookresearch/nougat")}
+                    className="mt-2 text-primary hover:underline"
                   >
-                    {t("ocrSettings.browse")}
+                    {t("ocrSettings.nougatProjectAndLicense")}
                   </button>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Leave blank to search PATH, ~/.local/bin, ~/bin, Homebrew, and user Python bin folders.
-                </p>
               </div>
             )}
           </div>
@@ -931,8 +1213,12 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
               <div className="flex items-center gap-3">
                 <Brain className="w-5 h-5 text-muted-foreground" />
                 <div>
-                  <div className="text-sm font-medium text-foreground">{t("ocrSettings.mathOcr")}</div>
-                  <div className="text-xs text-muted-foreground">{t("ocrSettings.mathOcrDesc")}</div>
+                  <div className="text-sm font-medium text-foreground">
+                    {t("ocrSettings.mathOcr")}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {t("ocrSettings.mathOcrDesc")}
+                  </div>
                 </div>
               </div>
               <button
@@ -952,7 +1238,9 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
             {settings.mathOcrEnabled && (
               <div className="space-y-3 pt-3 border-t border-border">
                 <div>
-                  <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.ocrModel")}</label>
+                  <label className="block text-xs font-medium text-foreground mb-1">
+                    {t("ocrSettings.ocrModel")}
+                  </label>
                   <select
                     value={settings.mathOcrCommand || "nougat"}
                     onChange={(e) => onUpdateSettings({ mathOcrCommand: e.target.value })}
@@ -967,7 +1255,9 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-foreground mb-1">{t("ocrSettings.modelDirOptional")}</label>
+                  <label className="block text-xs font-medium text-foreground mb-1">
+                    {t("ocrSettings.modelDirOptional")}
+                  </label>
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -978,11 +1268,13 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
                     />
                     <button
                       onClick={() => {
-                        (window as any).api?.file?.openFileDialog?.({
-                          directory: true,
-                        })?.then((path: string) => {
-                          if (path) onUpdateSettings({ mathOcrModelDir: path });
-                        });
+                        (window as any).api?.file
+                          ?.openFileDialog?.({
+                            directory: true,
+                          })
+                          ?.then((path: string) => {
+                            if (path) onUpdateSettings({ mathOcrModelDir: path });
+                          });
                       }}
                       className="px-3 py-2 bg-muted hover:bg-muted/80 rounded-lg text-sm transition-colors"
                     >
@@ -1001,12 +1293,18 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
             <div className="flex items-start gap-3">
               <Eye className="w-5 h-5 text-muted-foreground mt-0.5" />
               <div>
-                <div className="text-sm font-medium text-foreground">{t("ocrSettings.keyPhrase")}</div>
-                <div className="text-xs text-muted-foreground mt-1">{t("ocrSettings.keyPhraseDesc")}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.keyPhrase")}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {t("ocrSettings.keyPhraseDesc")}
+                </div>
               </div>
             </div>
             <button
-              onClick={() => onUpdateSettings({ keyPhraseExtraction: !settings.keyPhraseExtraction })}
+              onClick={() =>
+                onUpdateSettings({ keyPhraseExtraction: !settings.keyPhraseExtraction })
+              }
               className={`relative w-12 h-6 shrink-0 rounded-full transition-colors ${
                 settings.keyPhraseExtraction ? "bg-primary" : "bg-muted"
               }`}
@@ -1026,8 +1324,12 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080`}
             <div className="flex items-start gap-3">
               <TextT className="w-5 h-5 text-muted-foreground mt-0.5" />
               <div>
-                <div className="text-sm font-medium text-foreground">{t("ocrSettings.autoExtractOnLoad")}</div>
-                <div className="text-xs text-muted-foreground mt-1">{t("ocrSettings.autoExtractOnLoadDesc")}</div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("ocrSettings.autoExtractOnLoad")}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {t("ocrSettings.autoExtractOnLoadDesc")}
+                </div>
               </div>
             </div>
             <button

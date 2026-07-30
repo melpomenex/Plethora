@@ -3,14 +3,17 @@
 use crate::error::{IncrementumError, Result};
 use base64::Engine;
 use image::ImageFormat;
-use lopdf::Document;
+use lopdf::{dictionary, Document, Object, Stream};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 fn expand_home_path(value: &str) -> PathBuf {
     if let Some(relative) = value.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(relative);
+        if let Some(home) = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .or_else(dirs::home_dir)
+        {
+            return home.join(relative);
         }
     }
     PathBuf::from(value)
@@ -36,8 +39,10 @@ fn resolve_local_executable(configured: Option<&str>, binary_name: &str) -> Path
     if let Some(virtual_env) = std::env::var_os("VIRTUAL_ENV") {
         candidates.push(PathBuf::from(virtual_env).join("bin").join(binary_name));
     }
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
+    if let Some(home) = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(dirs::home_dir)
+    {
         candidates.push(home.join(".local/bin").join(binary_name));
         candidates.push(home.join("bin").join(binary_name));
         candidates.push(home.join(".pyenv/shims").join(binary_name));
@@ -56,6 +61,35 @@ fn resolve_local_executable(configured: Option<&str>, binary_name: &str) -> Path
         .into_iter()
         .find(|candidate| candidate.is_file())
         .unwrap_or_else(|| PathBuf::from(binary_name))
+}
+
+pub(crate) fn resolve_nougat_executables(configured: Option<&str>) -> Vec<PathBuf> {
+    if let Some(value) = configured.map(str::trim).filter(|value| !value.is_empty()) {
+        let configured_path = expand_home_path(value);
+        if configured_path.is_dir() {
+            return ["nougat", "nougat_predict"]
+                .into_iter()
+                .map(|name| configured_path.join(name))
+                .collect();
+        }
+        return vec![configured_path];
+    }
+
+    let mut candidates = Vec::new();
+    for name in ["nougat", "nougat_predict"] {
+        let candidate = resolve_local_executable(None, name);
+        if !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    candidates
+}
+
+pub(crate) fn nougat_executable_is_runnable(command: &Path) -> bool {
+    std::process::Command::new(command)
+        .arg("--help")
+        .output()
+        .is_ok_and(|output| output.status.success())
 }
 
 /// OCR provider type
@@ -614,17 +648,179 @@ impl NougatProvider {
 
     /// Check if Nougat is installed
     pub fn check_installation(&self) -> Result<()> {
-        let cmd = resolve_local_executable(self.nougat_path.as_deref(), "nougat");
-
-        let output = std::process::Command::new(&cmd).arg("--version").output();
-
-        match output {
-            Ok(output) if output.status.success() => Ok(()),
-            _ => Err(IncrementumError::Internal(format!(
-                "Nougat not found at '{}'. Set the executable path in Settings > Documents > OCR.",
-                cmd.display()
-            ))),
+        let candidates = resolve_nougat_executables(self.nougat_path.as_deref());
+        for command in &candidates {
+            // The official `nougat-ocr` CLI exposes `--help`, but older
+            // releases do not expose a `--version` flag.
+            if nougat_executable_is_runnable(command) {
+                return Ok(());
+            }
         }
+        Err(IncrementumError::Internal(format!(
+            "Nougat was not runnable at any detected path: {}. Set the executable or bin-directory path in Settings > Documents > OCR.",
+            candidates
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )))
+    }
+
+    fn prepare_pdf_input(image_path: &Path, working_directory: &Path) -> Result<PathBuf> {
+        if image_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+        {
+            return Ok(image_path.to_path_buf());
+        }
+
+        // The official Nougat CLI accepts PDFs only. OCR image selections are
+        // therefore wrapped in a one-page PDF before being sent to Nougat.
+        let image = image::open(image_path).map_err(|error| {
+            IncrementumError::Internal(format!("Failed to prepare the image for Nougat: {error}"))
+        })?;
+        let rgb = image.to_rgb8();
+        let (width, height) = rgb.dimensions();
+        if width == 0 || height == 0 {
+            return Err(IncrementumError::Internal(
+                "Failed to prepare an empty image for Nougat".to_string(),
+            ));
+        }
+
+        let mut document = Document::with_version("1.5");
+        let pages_id = document.new_object_id();
+
+        let mut image_stream = Stream::new(
+            lopdf::dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => i64::from(width),
+                "Height" => i64::from(height),
+                "ColorSpace" => "DeviceRGB",
+                "BitsPerComponent" => 8,
+            },
+            rgb.into_raw(),
+        );
+        image_stream.compress().map_err(|error| {
+            IncrementumError::Internal(format!(
+                "Failed to compress the temporary Nougat PDF: {error}"
+            ))
+        })?;
+        let image_id = document.add_object(image_stream);
+        let resources_id = document.add_object(lopdf::dictionary! {
+            "XObject" => lopdf::dictionary! {
+                "NougatInput" => image_id,
+            },
+        });
+        let content = format!("q\n{} 0 0 {} 0 0 cm\n/NougatInput Do\nQ\n", width, height);
+        let content_id =
+            document.add_object(Stream::new(lopdf::dictionary! {}, content.into_bytes()));
+        let page_id = document.add_object(lopdf::dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Resources" => resources_id,
+            "MediaBox" => vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(i64::from(width)),
+                Object::Integer(i64::from(height)),
+            ],
+            "Contents" => content_id,
+        });
+        document.objects.insert(
+            pages_id,
+            Object::Dictionary(lopdf::dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = document.add_object(lopdf::dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        document.compress();
+
+        let pdf_path = working_directory.join("nougat-input.pdf");
+        document.save(&pdf_path).map_err(|error| {
+            IncrementumError::Internal(format!("Failed to save the temporary Nougat PDF: {error}"))
+        })?;
+        Ok(pdf_path)
+    }
+
+    fn read_output(
+        output_directory: &Path,
+        input_path: &Path,
+        stdout: &[u8],
+        stderr: &[u8],
+    ) -> Result<String> {
+        let expected_path = output_directory
+            .join(
+                input_path
+                    .file_stem()
+                    .unwrap_or_else(|| std::ffi::OsStr::new("nougat-input")),
+            )
+            .with_extension("mmd");
+
+        let output_path = if expected_path.is_file() {
+            Some(expected_path)
+        } else {
+            std::fs::read_dir(output_directory)
+                .ok()
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                .find(|path| {
+                    path.extension()
+                        .and_then(|extension| extension.to_str())
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("mmd"))
+                })
+        };
+
+        if let Some(output_path) = output_path {
+            return std::fs::read_to_string(&output_path).map_err(|error| {
+                IncrementumError::Internal(format!(
+                    "Nougat created {} but it could not be read: {error}",
+                    output_path.display()
+                ))
+            });
+        }
+
+        // Keep compatibility with alternative/older Nougat launchers that
+        // print their Markdown result instead of writing an .mmd file.
+        let stdout = String::from_utf8_lossy(stdout).trim().to_string();
+        if !stdout.is_empty() {
+            return Ok(stdout);
+        }
+
+        let stderr = String::from_utf8_lossy(stderr).replace('\r', "");
+        if stderr.contains("'PdfDocument' object has no attribute 'render'") {
+            return Err(IncrementumError::Internal(
+                "Nougat's PDF renderer is incompatible. Open Settings > Documents > OCR and choose Repair installation."
+                    .to_string(),
+            ));
+        }
+        let diagnostic = stderr
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .rev()
+            .take(12)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+        Err(IncrementumError::Internal(format!(
+            "Nougat completed but did not create an .mmd result in {}{}",
+            output_directory.display(),
+            if diagnostic.is_empty() {
+                String::new()
+            } else {
+                format!(". Nougat diagnostics:\n{diagnostic}")
+            }
+        )))
     }
 }
 
@@ -644,29 +840,61 @@ impl OCRProvider for NougatProvider {
 
     async fn process_image(&self, image_path: &std::path::Path) -> Result<OCRResult> {
         let start = std::time::Instant::now();
+        let working_directory = tempfile::tempdir().map_err(|error| {
+            IncrementumError::Internal(format!(
+                "Failed to create a temporary Nougat directory: {error}"
+            ))
+        })?;
+        let input_path = Self::prepare_pdf_input(image_path, working_directory.path())?;
+        let output_directory = working_directory.path().join("output");
+        std::fs::create_dir_all(&output_directory).map_err(|error| {
+            IncrementumError::Internal(format!(
+                "Failed to create the temporary Nougat output directory: {error}"
+            ))
+        })?;
 
-        let cmd = resolve_local_executable(self.nougat_path.as_deref(), "nougat");
-
-        let output = std::process::Command::new(&cmd)
-            .arg(image_path)
-            .output()
-            .map_err(|e| {
-                IncrementumError::Internal(format!(
-                    "Failed to run Nougat at '{}': {}. Set the executable path in Settings > Documents > OCR.",
-                    cmd.display(),
-                    e
-                ))
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(IncrementumError::Internal(format!(
-                "Nougat processing failed: {}",
-                stderr
-            )));
+        let candidates = resolve_nougat_executables(self.nougat_path.as_deref());
+        let mut failures = Vec::new();
+        let mut successful_output = None;
+        for command in &candidates {
+            match std::process::Command::new(command)
+                .arg(&input_path)
+                .arg("-o")
+                .arg(&output_directory)
+                .output()
+            {
+                Ok(output) if output.status.success() => {
+                    successful_output = Some(output);
+                    break;
+                }
+                Ok(output) => {
+                    failures.push(format!(
+                        "{}: {}",
+                        command.display(),
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ));
+                }
+                Err(error) => failures.push(format!("{}: {}", command.display(), error)),
+            }
         }
+        let output = successful_output.ok_or_else(|| {
+            IncrementumError::Internal(format!(
+                "Failed to run Nougat. Tried {}. Set the executable or bin-directory path in Settings > Documents > OCR. {}",
+                candidates
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                failures.join("; ")
+            ))
+        })?;
 
-        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        let text = Self::read_output(
+            &output_directory,
+            &input_path,
+            &output.stdout,
+            &output.stderr,
+        )?;
         let processing_time_ms = start.elapsed().as_millis() as u64;
 
         let line_count = text.lines().count();
@@ -1396,6 +1624,13 @@ mod tests {
             resolve_local_executable(directory.path().to_str(), "nougat"),
             directory.path().join("nougat")
         );
+        assert_eq!(
+            resolve_nougat_executables(directory.path().to_str()),
+            vec![
+                directory.path().join("nougat"),
+                directory.path().join("nougat_predict"),
+            ]
+        );
     }
 
     #[test]
@@ -1405,5 +1640,51 @@ mod tests {
             resolve_local_executable(Some(path), "nougat"),
             PathBuf::from(path)
         );
+    }
+
+    #[test]
+    fn nougat_reads_the_mmd_file_written_by_the_official_cli() {
+        let directory = tempfile::tempdir().unwrap();
+        let output_directory = directory.path().join("output");
+        std::fs::create_dir_all(&output_directory).unwrap();
+        std::fs::write(output_directory.join("paper.mmd"), "# Parsed paper").unwrap();
+
+        let text = NougatProvider::read_output(
+            &output_directory,
+            Path::new("/documents/paper.pdf"),
+            b"",
+            b"",
+        )
+        .unwrap();
+
+        assert_eq!(text, "# Parsed paper");
+    }
+
+    #[test]
+    fn nougat_explains_incompatible_pdfium_instead_of_reporting_missing_output() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = NougatProvider::read_output(
+            directory.path(),
+            Path::new("/documents/paper.pdf"),
+            b"",
+            b"ERROR:root:'PdfDocument' object has no attribute 'render'",
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("Repair installation"));
+    }
+
+    #[test]
+    fn nougat_wraps_image_inputs_in_a_valid_single_page_pdf() {
+        let directory = tempfile::tempdir().unwrap();
+        let source_path = directory.path().join("formula.png");
+        image::RgbImage::from_pixel(16, 8, image::Rgb([255, 255, 255]))
+            .save(&source_path)
+            .unwrap();
+
+        let pdf_path = NougatProvider::prepare_pdf_input(&source_path, directory.path()).unwrap();
+        let pdf = Document::load(&pdf_path).unwrap();
+
+        assert_eq!(pdf.get_pages().len(), 1);
     }
 }

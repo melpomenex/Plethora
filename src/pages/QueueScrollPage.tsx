@@ -378,7 +378,7 @@ export function QueueScrollPage() {
   const [activeExtractForCloze, setActiveExtractForCloze] = useState<{ id: string, text: string, extractContent?: string, range: [number, number] } | null>(null);
   const [activeExtractForQA, setActiveExtractForQA] = useState<string | null>(null);
   const [isExtractDialogOpen, setIsExtractDialogOpen] = useState(false);
-  const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | null; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string } | null>(null);
+  const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | "image-occlusion" | null; imageAssetId?: string; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string } | null>(null);
 
   const lastScrollTime = useRef(0);
   const scrollCooldown = 500; // ms between scroll actions
@@ -1189,6 +1189,33 @@ export function QueueScrollPage() {
     if (!currentItem || currentItem.type !== "document" || !currentItem.documentId) return null;
     return documentsMap.get(currentItem.documentId) ?? null;
   }, [currentItem, documentsMap]);
+
+  useEffect(() => {
+    const handleImageOcclusionRequest = (
+      event: CustomEvent<{ assetId?: string; documentId?: string }>,
+    ) => {
+      const { assetId, documentId: sourceDocumentId } = event.detail ?? {};
+      // DocumentViewer handles its own images. QueueScroll owns direct RSS
+      // images, whose hover events do not carry a document id.
+      if (!isActiveTab || !assetId || sourceDocumentId) return;
+      setFlashcardStudioSeed({
+        key: `queue-image-occlusion-${assetId}-${Date.now()}`,
+        documentId: currentDocument?.id ?? currentItem?.documentId ?? null,
+        draftCardType: "image-occlusion",
+        imageAssetId: assetId,
+        resetDraftCards: true,
+        autoEditDraft: true,
+      });
+    };
+    window.addEventListener(
+      "incrementum:create-image-occlusion",
+      handleImageOcclusionRequest as EventListener,
+    );
+    return () => window.removeEventListener(
+      "incrementum:create-image-occlusion",
+      handleImageOcclusionRequest as EventListener,
+    );
+  }, [currentDocument?.id, currentItem?.documentId, isActiveTab]);
 
   // Keep a small cross-device download horizon ahead of the reader. This is
   // fire-and-forget and bounded to the current item plus the next two

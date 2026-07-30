@@ -10,9 +10,12 @@ export function QueuePage() {
   const { t } = useI18n();
   const { addTab } = useTabsStore();
 
-  const handleStartReview = (itemId?: string) => {
-    if (itemId) {
-      void useReviewStore.getState().startReviewAtItem(itemId);
+  const handleStartReview = (itemId?: string, queueItemIds?: string[]) => {
+    const reviewStore = useReviewStore.getState();
+    if (queueItemIds?.length) {
+      void reviewStore.startReviewWithQueue(queueItemIds);
+    } else if (itemId) {
+      void reviewStore.startReviewAtItem(itemId);
     }
     addTab({
       title: t("review.title"),

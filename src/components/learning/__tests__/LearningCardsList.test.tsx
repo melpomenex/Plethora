@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LearningItem } from "../../../api/learning-items";
 import { LearningCardsList } from "../LearningCardsList";
 
-const { deleteLearningItemMock } = vi.hoisted(() => ({
+const { deleteLearningItemMock, toastSuccessMock, toastErrorMock } = vi.hoisted(() => ({
   deleteLearningItemMock: vi.fn(async (_id: string, onSuccess?: () => void) => {
     onSuccess?.();
   }),
+  toastSuccessMock: vi.fn(),
+  toastErrorMock: vi.fn(),
 }));
 
 const card = {
@@ -56,8 +58,8 @@ vi.mock("../../common/VirtualList", () => ({
 
 vi.mock("../../common/Toast", () => ({
   useToast: () => ({
-    success: vi.fn(),
-    error: vi.fn(),
+    success: toastSuccessMock,
+    error: toastErrorMock,
     info: vi.fn(),
   }),
 }));
@@ -81,9 +83,11 @@ vi.mock("../../../api/documents", () => ({
 describe("LearningCardsList", () => {
   beforeEach(() => {
     deleteLearningItemMock.mockClear();
+    toastSuccessMock.mockClear();
+    toastErrorMock.mockClear();
   });
 
-  it("deletes a card through the undoable operation and removes it from the list", async () => {
+  it("deletes through the undoable operation without adding a duplicate toast", async () => {
     render(<LearningCardsList documentId="document-40" />);
 
     expect(await screen.findByText("Issue 40 card")).toBeInTheDocument();
@@ -93,5 +97,7 @@ describe("LearningCardsList", () => {
       expect(deleteLearningItemMock).toHaveBeenCalledWith("card-40", expect.any(Function));
       expect(screen.queryByText("Issue 40 card")).not.toBeInTheDocument();
     });
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
   });
 });

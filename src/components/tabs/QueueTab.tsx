@@ -13,9 +13,12 @@ export function QueueTab() {
   const paneId = usePaneId();
   const isMobile = useMobileShell();
 
-  const handleStartReview = (itemId?: string) => {
-    if (itemId) {
-      void useReviewStore.getState().startReviewAtItem(itemId);
+  const handleStartReview = (itemId?: string, queueItemIds?: string[]) => {
+    const reviewStore = useReviewStore.getState();
+    if (queueItemIds?.length) {
+      void reviewStore.startReviewWithQueue(queueItemIds);
+    } else if (itemId) {
+      void reviewStore.startReviewAtItem(itemId);
     }
     addTab({
       title: "Review",

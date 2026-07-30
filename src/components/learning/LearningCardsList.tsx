@@ -381,12 +381,8 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                           return next;
                         });
                       });
-                      toast.success("Card deleted");
-                    } catch (error) {
-                      toast.error(
-                        "Failed to delete card",
-                        error instanceof Error ? error.message : String(error),
-                      );
+                    } catch {
+                      // The undoable operation owns success and error notifications.
                     } finally {
                       setDeletingCardIds((current) => {
                         const next = new Set(current);

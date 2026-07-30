@@ -163,6 +163,7 @@ interface ReviewState {
   removeItemFromSession: (itemId: string) => void;
   resetSession: () => void;
   startReviewAtItem: (itemId: string) => Promise<void>;
+  startReviewWithQueue: (itemIds: string[]) => Promise<void>;
   studyDocumentCards: (documentId: string) => Promise<void>;
   getEstimatedTimeRemaining: () => number; // in seconds
   setReviewMode: (mode: "normal" | "cram") => void;
@@ -831,6 +832,74 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     setTimeout(() => {
       get().loadPreviewIntervals();
     }, 100);
+  },
+
+  startReviewWithQueue: async (itemIds: string[]) => {
+    const orderedIds = Array.from(
+      new Set(itemIds.map((itemId) => itemId.trim()).filter(Boolean))
+    );
+    set({
+      isLoading: true,
+      error: null,
+      queue: [],
+      currentIndex: 0,
+      currentCard: null,
+      reviewTabMode: "home",
+    });
+
+    try {
+      const collectionId = useCollectionStore.getState().activeCollectionId;
+      const dueItems = await getDueItems(collectionId);
+      const dueById = new Map(dueItems.map((item) => [item.id, item]));
+      const queue = orderedIds
+        .map((itemId) => dueById.get(itemId))
+        .filter((item): item is ReviewSessionItem => item != null);
+      const sessionId = queue.length > 0 ? await startReview() : "";
+
+      set({
+        queue,
+        currentIndex: 0,
+        currentCard: queue[0] ?? null,
+        sessionStartTime: Date.now(),
+        isLoading: false,
+        reviewsCompleted: 0,
+        correctCount: 0,
+        sessionId,
+        averageTimePerCard: 0,
+        isAnswerShown: false,
+        isSubmitting: false,
+        previewIntervals: null,
+        reviewPhase: "question",
+        pendingArenaReview: null,
+        arenaPreviewError: null,
+        canUndoLastReview: false,
+        lastUndoError: null,
+        pendingReviewMetadata: null,
+        reviewEventLog: [],
+        reviewMode: "normal",
+        reviewTabMode: queue.length > 0 ? "session" : "home",
+      });
+      lastUndoSnapshot = null;
+
+      if (queue.length > 0) {
+        saveStoredSession({
+          reviewedIds: [],
+          sessionId,
+          updatedAt: Date.now(),
+        });
+        void get().loadStreak();
+        void get().loadPreviewIntervals();
+      } else {
+        clearStoredSession();
+        set({ error: "No cards from this review queue are currently available." });
+      }
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : "Failed to start review queue",
+        isLoading: false,
+        reviewTabMode: "home",
+      });
+    }
   },
 
   studyDocumentCards: async (documentId: string) => {

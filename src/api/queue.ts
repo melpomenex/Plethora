@@ -122,7 +122,8 @@ export async function getDueDocumentsOnly(collectionId?: string): Promise<QueueI
 }
 
 /**
- * Get due queue items only (includes documents, extracts, and learning items)
+ * Get queue items scheduled through the end of today
+ * (includes documents, extracts, and learning items)
  */
 export async function getDueQueueItems(randomness?: number, collectionId?: string): Promise<QueueItem[]> {
   const items = await invokeCommand<RustQueueItem[] | null>("get_due_queue_items", { randomness, collectionId });

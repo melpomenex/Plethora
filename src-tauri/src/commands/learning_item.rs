@@ -314,6 +314,66 @@ pub async fn get_learning_item(
 }
 
 #[tauri::command]
+pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) -> Result<()> {
+    let item = repo
+        .get_learning_item(&item_id)
+        .await?
+        .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
+
+    let mut transaction = repo.pool().begin().await?;
+    let deleted = sqlx::query("DELETE FROM learning_items WHERE id = ?1")
+        .bind(&item_id)
+        .execute(&mut *transaction)
+        .await?;
+    if deleted.rows_affected() == 0 {
+        return Err(IncrementumError::NotFound(format!(
+            "Learning item {}",
+            item_id
+        )));
+    }
+
+    if let Some(document_id) = item.document_id {
+        sqlx::query(
+            r#"
+            UPDATE documents
+            SET learning_item_count = (
+                SELECT COUNT(*) FROM learning_items WHERE document_id = ?1
+            )
+            WHERE id = ?1
+            "#,
+        )
+        .bind(document_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn restore_learning_item(
+    item: LearningItem,
+    repo: State<'_, Repository>,
+) -> Result<LearningItem> {
+    let restored = repo.create_learning_item(&item).await?;
+    if let Some(document_id) = &restored.document_id {
+        sqlx::query(
+            r#"
+            UPDATE documents
+            SET learning_item_count = (
+                SELECT COUNT(*) FROM learning_items WHERE document_id = ?1
+            )
+            WHERE id = ?1
+            "#,
+        )
+        .bind(document_id)
+        .execute(repo.pool())
+        .await?;
+    }
+    Ok(restored)
+}
+
+#[tauri::command]
 pub async fn get_learning_items_by_extract(
     extract_id: String,
     repo: State<'_, Repository>,

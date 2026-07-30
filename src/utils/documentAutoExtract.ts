@@ -6,6 +6,7 @@
 import { invokeCommand as invoke, isTauri } from "../lib/tauri";
 import {
   ocrImageFile,
+  ocrPdfFile,
   getGLMRuntimeStatus,
   startOllamaRuntime,
   updateOCRConfig,
@@ -197,14 +198,15 @@ export async function extractDocumentOnLoad(
       if (useMathOCR && isPDF) {
         // Use Nougat for scientific documents
         try {
-          const mathResult = await invoke<{ latex: string }>("run_nougat_ocr", {
-            imagePath: filePath,
-            modelDir: ocr.mathOcrModelDir,
+          const mathResult = await ocrPdfFile({
+            pdf_path: filePath,
+            provider: "nougat",
           });
+          if (!mathResult.success) throw new Error(mathResult.error || "Nougat OCR failed");
 
-          result.text = mathResult.latex;
+          result.text = mathResult.combined_text;
           result.ocrUsed = true;
-          result.mathExpressions = extractMathFromText(mathResult.latex);
+          result.mathExpressions = extractMathFromText(mathResult.combined_text);
         } catch {
           // Fall back to regular OCR
           const ocrResult = await ocrImageFile({
@@ -375,14 +377,15 @@ export async function extractFromImage(
     // Use math OCR if enabled and requested
     if ((options.useMathOCR || ocr.mathOcrEnabled) && ocr.mathOcrEnabled) {
       try {
-        const mathResult = await invoke<{ latex: string }>("run_nougat_ocr", {
-          imagePath: filePath,
-          modelDir: ocr.mathOcrModelDir,
+        const mathResult = await ocrImageFile({
+          image_path: [filePath],
+          provider: "nougat",
         });
+        if (!mathResult.success) throw new Error(mathResult.error || "Nougat OCR failed");
 
-        result.text = mathResult.latex;
+        result.text = mathResult.text;
         result.ocrUsed = true;
-        result.mathExpressions = [mathResult.latex];
+        result.mathExpressions = [mathResult.text];
       } catch {
         await ensureOCRConfig(ocr);
         await ensureGLMOllamaRuntime(ocr);

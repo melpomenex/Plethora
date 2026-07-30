@@ -59,6 +59,22 @@ function runDeferredSyncSetup(task: () => void): void {
 }
 
 /**
+ * Library queries intentionally return lightweight summaries with the large
+ * content fields set to null. Preserve a document body that this client has
+ * already hydrated when a later library refresh brings that summary back.
+ */
+function mergeDocumentSummary(existing: Document | undefined, summary: Document): Document {
+  if (!existing) return summary;
+  return {
+    ...existing,
+    ...summary,
+    content: summary.content ?? existing.content,
+    contentHash: summary.contentHash ?? existing.contentHash,
+    metadata: summary.metadata ?? existing.metadata,
+  };
+}
+
+/**
  * Mobile file picker: uses the WebView's <input type=file>, which Android/iOS
  * route to the native system file chooser (SAF / document picker). Returns the
  * chosen File objects so their bytes can be sent to import_document_from_bytes.
@@ -215,12 +231,16 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         // this fetch's scope simply doesn't cover. Reconcile deletions only among
         // entries that fall within the scope we just queried.
         const fetchedIds = new Set(docs.map((d) => d.id));
+        const existingById = new Map(state.documents.map((doc) => [doc.id, doc]));
         const retained = state.documents.filter((d) => {
           if (fetchedIds.has(d.id)) return false; // superseded by fresh copy below
           if (collectionId == null) return false; // full-scope fetch is authoritative
           return d.collectionId !== collectionId; // outside this fetch's scope, keep as-is
         });
-        return { documents: [...retained, ...docs], isLoading: false };
+        const mergedDocs = docs.map((summary) =>
+          mergeDocumentSummary(existingById.get(summary.id), summary)
+        );
+        return { documents: [...retained, ...mergedDocs], isLoading: false };
       });
       void registerExistingFilesSyncLazy(docs);
     } catch (error) {
@@ -280,7 +300,18 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         set({ isLoading: false });
         return;
       }
-      const nextDocuments = append ? [...get().documents, ...snapshot.documents.items] : snapshot.documents.items;
+      const cachedDocuments = get().documents;
+      const cachedById = new Map(cachedDocuments.map((doc) => [doc.id, doc]));
+      const mergedPage = snapshot.documents.items.map((summary) =>
+        mergeDocumentSummary(cachedById.get(summary.id), summary)
+      );
+      const pageIds = new Set(snapshot.documents.items.map((summary) => summary.id));
+      const nextDocuments = append
+        ? [
+            ...cachedDocuments.filter((doc) => !pageIds.has(doc.id)),
+            ...mergedPage,
+          ]
+        : mergedPage;
       set({
         documents: nextDocuments,
         isLoading: false,

@@ -337,8 +337,18 @@ export function DocumentViewer({
   // A tab may render while another document is still the store's shared
   // currentDocument. Never let that unrelated document determine this
   // viewer's type or loading state; the tab must stay keyed to its own id.
+  const activeGlobalDocument =
+    globalCurrentDocument?.id === documentId ? globalCurrentDocument : undefined;
+  const localDocumentHasReaderData =
+    Boolean(localDocument?.content?.trim()) || localDocument?.metadata != null;
   const currentDocument =
-    localDocument || (globalCurrentDocument?.id === documentId ? globalCurrentDocument : undefined);
+    localDocument && (localDocumentHasReaderData || !activeGlobalDocument)
+      ? localDocument
+      : activeGlobalDocument;
+  const imageReferrerUrl =
+    currentDocument?.metadata?.originalUrl ||
+    currentDocument?.metadata?.url ||
+    (currentDocument?.filePath?.startsWith("http") ? currentDocument.filePath : undefined);
   const { closeTab, tabs, updateTab, setActiveTab, findPaneContainingTab } = useTabsStore();
   const { items: queueItems, loadQueue } = useQueueStore();
   const { settings, updateSettings } = useSettingsStore();
@@ -360,6 +370,7 @@ export function DocumentViewer({
   const [epubUrl, setEpubUrl] = useState<string | null>(null);
   const [htmlContent, setHtmlContent] = useState<string | null>(null);
   const [isHtmlFrameReady, setIsHtmlFrameReady] = useState(false);
+  const [htmlFrameRevision, setHtmlFrameRevision] = useState(0);
   const [mediaSource, setMediaSource] = useState<ResolvedLocalMediaSource | null>(null);
   const mediaSourceRef = useRef<ResolvedLocalMediaSource | null>(null);
   const mediaSourceRequestRef = useRef(0);
@@ -435,6 +446,11 @@ export function DocumentViewer({
   });
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [iframeElement, setIframeElement] = useState<HTMLIFrameElement | null>(null);
+  const setIframeRef = useCallback((element: HTMLIFrameElement | null) => {
+    iframeRef.current = element;
+    setIframeElement((current) => current === element ? current : element);
+  }, []);
   const htmlViewerContainerRef = useRef<HTMLDivElement | null>(null);
   const htmlSearchMatchesRef = useRef<HTMLElement[]>([]);
   const [showHtmlSettings, setShowHtmlSettings] = useState(false);
@@ -853,7 +869,7 @@ export function DocumentViewer({
   const [initialHighlightColor, setInitialHighlightColor] = useState<string | undefined>(undefined);
   const [pdfTextSelectionCapability, setPdfTextSelectionCapability] = useState<PdfTextSelectionCapability | null>(null);
   const [isExtractDialogOpen, setIsExtractDialogOpen] = useState(false);
-  const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | "multiple-choice" | null; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string; deckTag?: string | null } | null>(null);
+  const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | "multiple-choice" | "image-occlusion" | null; imageAssetId?: string; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string; deckTag?: string | null } | null>(null);
   const [dictionaryResult, setDictionaryResult] = useState<DictionaryResult | null>(null);
   const [isDictionaryLoading, setIsDictionaryLoading] = useState(false);
   const [contextMenuState, setContextMenuState] = useState<{
@@ -864,6 +880,31 @@ export function DocumentViewer({
     selectionContext?: SelectionContext | null;
   } | null>(null);
   const lastSelectionRef = useRef("");
+
+  useEffect(() => {
+    const handleImageOcclusionRequest = (
+      event: CustomEvent<{ assetId?: string; documentId?: string }>,
+    ) => {
+      const { assetId, documentId: sourceDocumentId } = event.detail ?? {};
+      if (!isTabActive || !assetId || sourceDocumentId !== documentId) return;
+      setFlashcardStudioSeed({
+        key: `image-occlusion-${assetId}-${Date.now()}`,
+        documentId,
+        draftCardType: "image-occlusion",
+        imageAssetId: assetId,
+        resetDraftCards: true,
+        autoEditDraft: true,
+      });
+    };
+    window.addEventListener(
+      "incrementum:create-image-occlusion",
+      handleImageOcclusionRequest as EventListener,
+    );
+    return () => window.removeEventListener(
+      "incrementum:create-image-occlusion",
+      handleImageOcclusionRequest as EventListener,
+    );
+  }, [documentId, isTabActive]);
   // Guard that suppresses selection re-population for a short window after an
   // extract is created. On mobile (esp. EPUB/OCR-HTML), creating an extract
   // applies a highlight whose DOM mutation re-fires the viewer's selection
@@ -2202,13 +2243,20 @@ export function DocumentViewer({
   useEffect(() => {
     const handleMouseOver = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target && target.tagName === "IMG") {
+      if (
+        isTabActive &&
+        target &&
+        target.tagName === "IMG" &&
+        containerRef.current?.contains(target)
+      ) {
         const img = target as HTMLImageElement;
         const rect = img.getBoundingClientRect();
         window.dispatchEvent(
           new CustomEvent("image-hover", {
             detail: {
               src: img.src,
+              documentId,
+              referrerUrl: imageReferrerUrl,
               rect: {
                 left: rect.left,
                 top: rect.top,
@@ -2223,7 +2271,12 @@ export function DocumentViewer({
 
     const handleMouseOut = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target && target.tagName === "IMG") {
+      if (
+        isTabActive &&
+        target &&
+        target.tagName === "IMG" &&
+        containerRef.current?.contains(target)
+      ) {
         window.dispatchEvent(new CustomEvent("image-leave"));
       }
     };
@@ -2232,7 +2285,7 @@ export function DocumentViewer({
     mainDoc.addEventListener("mouseover", handleMouseOver);
     mainDoc.addEventListener("mouseout", handleMouseOut);
 
-    const iframe = iframeRef.current;
+    const iframe = iframeElement;
     let iframeDoc: Document | null = null;
     const handleIframeMouseOver = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -2245,6 +2298,8 @@ export function DocumentViewer({
             new CustomEvent("image-hover", {
               detail: {
                 src: img.src,
+                documentId,
+                referrerUrl: imageReferrerUrl,
                 rect: {
                   left: rect.left + iframeRect.left,
                   top: rect.top + iframeRect.top,
@@ -2295,7 +2350,7 @@ export function DocumentViewer({
         } catch { /* ignore */ }
       }
     };
-  }, []);
+  }, [documentId, iframeElement, imageReferrerUrl, isTabActive]);
 
   // Save scroll progress when switching away from document view (e.g., to extracts or cards)
   const prevViewModeRef = useRef<ViewMode | null>(null);
@@ -2317,7 +2372,7 @@ export function DocumentViewer({
   const isVisibleRef = useRef(true);
 
   const reloadHtmlIframeAfterResume = useCallback(() => {
-    if (docType !== "html" || viewModeRef.current !== "document") return;
+    if (!isTabActive || docType !== "html" || viewModeRef.current !== "document") return;
     const iframe = iframeRef.current;
     const srcDoc = iframe?.srcdoc || iframe?.getAttribute("srcdoc") || "";
     if (!iframe || !srcDoc) return;
@@ -2345,24 +2400,35 @@ export function DocumentViewer({
     }
 
     // WKWebView can discard a srcdoc iframe's rendered backing store while
-    // its container or the app is hidden. Reloading the same srcdoc restores
-    // the article; the iframe onLoad handler restores scroll.
+    // its container or the app is hidden. Assigning the same srcdoc is a
+    // no-op in WebKit, so remount the active frame and restore its scroll in
+    // the onLoad handler. Inactive tabs stay untouched for responsiveness.
     setIsHtmlFrameReady(false);
-    requestAnimationFrame(() => {
-      if (iframeRef.current === iframe) {
-        iframe.srcdoc = srcDoc;
-      }
-    });
-  }, [docType, captureHtmlScrollState, currentDocument?.id]);
+    setHtmlFrameRevision((revision) => revision + 1);
+  }, [isTabActive, docType, captureHtmlScrollState, currentDocument?.id]);
 
   const recoverHtmlIframeAfterTabReactivation = useCallback(() => {
     // TabContent keeps inactive tabs mounted under display:none. WebKit can
     // discard the iframe backing store in that state without firing a document
-    // visibility or window focus event, so force the same recovery used when
-    // returning from another macOS Space.
+    // visibility or window focus event. If the DOM is intact, a compositor
+    // repaint is enough and avoids reparsing a large article on every tab
+    // switch. Fall back to a remount only when WebKit also discarded the DOM.
+    if (!isTabActive || docType !== "html" || viewModeRef.current !== "document") return;
+    const iframe = iframeRef.current;
+    const body = iframe?.contentDocument?.body;
+    if (iframe && body && body.childNodes.length > 0) {
+      iframe.style.transform = "translateZ(0)";
+      requestAnimationFrame(() => {
+        if (iframeRef.current === iframe) {
+          iframe.style.removeProperty("transform");
+          setIsHtmlFrameReady(true);
+        }
+      });
+      return;
+    }
     htmlResumeReloadAtRef.current = 0;
     reloadHtmlIframeAfterResume();
-  }, [reloadHtmlIframeAfterResume]);
+  }, [isTabActive, docType, reloadHtmlIframeAfterResume]);
   useTabReactivation(isTabActive, recoverHtmlIframeAfterTabReactivation);
 
   // Save position when tab becomes hidden (user switches to another tab)
@@ -2559,17 +2625,17 @@ export function DocumentViewer({
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", reloadHtmlIframeAfterResume);
+    window.addEventListener("focus", recoverHtmlIframeAfterTabReactivation);
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("beforeunload", handleBeforeUnload);
     
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", reloadHtmlIframeAfterResume);
+      window.removeEventListener("focus", recoverHtmlIframeAfterTabReactivation);
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [documentId, docType, currentDocument?.id, saveScrollProgress, resolvePreferredViewStateKey, resolveViewStateKeyCandidates, persistScrollState, reloadHtmlIframeAfterResume]);
+  }, [documentId, docType, currentDocument?.id, saveScrollProgress, resolvePreferredViewStateKey, resolveViewStateKeyCandidates, persistScrollState, reloadHtmlIframeAfterResume, recoverHtmlIframeAfterTabReactivation]);
 
   // Parse URL fragment and restore state after document is loaded
   useEffect(() => {
@@ -3543,10 +3609,6 @@ export function DocumentViewer({
   const handleResetZoom = () => {
     setZoomMode("custom");
     setScale(1.0);
-  };
-
-  const handleZoomModeChange = (mode: "custom" | "fit-width" | "fit-page") => {
-    setZoomMode(mode);
   };
 
   const handleWidenMarkdown = useCallback(() => {
@@ -4734,6 +4796,85 @@ export function DocumentViewer({
         text-decoration: inherit !important;
         text-transform: inherit !important;
       }
+      /* Restore semantic article hierarchy after neutralizing source-site
+         typography. Browser imports (especially MediaWiki) are not wrapped in
+         the PDF converter's .page-content container. */
+      h1, h2, h3, h4, h5, h6 {
+        font-weight: 700 !important;
+        line-height: 1.25 !important;
+        text-align: start !important;
+      }
+      h1 {
+        font-size: 2rem !important;
+        margin: 0 0 0.8em !important;
+        padding-bottom: 0.35em !important;
+        border-bottom: 1px solid ${border} !important;
+      }
+      h2 {
+        font-size: 1.55rem !important;
+        margin: 1.8em 0 0.65em !important;
+        padding-bottom: 0.25em !important;
+        border-bottom: 1px solid ${border} !important;
+      }
+      h3 {
+        font-size: 1.25rem !important;
+        margin: 1.5em 0 0.55em !important;
+      }
+      h4, h5, h6 {
+        font-size: 1.05rem !important;
+        margin: 1.25em 0 0.45em !important;
+      }
+      p {
+        margin: 0 0 1em !important;
+      }
+      ul, ol {
+        margin: 0 0 1em 1.5em !important;
+        padding-left: 1.25em !important;
+      }
+      ul { list-style: disc outside !important; }
+      ol { list-style: decimal outside !important; }
+      li {
+        display: list-item !important;
+        margin: 0.3em 0 !important;
+      }
+      table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        margin: 1.25em 0 !important;
+        overflow-wrap: anywhere !important;
+      }
+      th, td {
+        border: 1px solid ${border} !important;
+        padding: 0.5rem 0.65rem !important;
+        text-align: start !important;
+        vertical-align: top !important;
+      }
+      th {
+        background: ${resolvedMuted} !important;
+        font-weight: 700 !important;
+      }
+      figure {
+        display: block !important;
+        margin: 1.25em auto !important;
+      }
+      figcaption {
+        color: ${mutedFg} !important;
+        font-size: 0.85em !important;
+        text-align: center !important;
+        margin-top: 0.4em !important;
+      }
+      dl { margin: 0 0 1em !important; }
+      dt { font-weight: 700 !important; margin-top: 0.75em !important; }
+      dd { margin: 0.25em 0 0.75em 1.5em !important; }
+      hr {
+        border: 0 !important;
+        border-top: 1px solid ${border} !important;
+        margin: 1.75em 0 !important;
+      }
+      sup, sub {
+        font-size: 0.75em !important;
+        line-height: 0 !important;
+      }
       /* Reset layout sizing and structural margins/paddings on generic container blocks to prevent cutoffs/squishing */
       div, section, article, main, header, footer {
         margin-left: 0 !important;
@@ -5584,8 +5725,8 @@ export function DocumentViewer({
             )}
           </div>
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-2 p-2 sm:flex-nowrap sm:p-4 bg-card border-b border-border">
-        <div className="flex min-w-0 w-full flex-1 items-center gap-2 sm:w-auto">
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-card p-2 sm:p-4 border-b border-border">
+        <div className="flex min-w-0 max-w-full flex-[1_1_32rem] items-center gap-2 overflow-x-auto">
           <button
             onClick={handleBack}
             className="p-2 rounded-md hover:bg-muted transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
@@ -5664,7 +5805,7 @@ export function DocumentViewer({
           </div>
         </div>
 
-        <div className="flex w-full max-w-full flex-shrink-0 flex-wrap items-center justify-end gap-1 pr-1 sm:w-auto sm:max-w-none sm:flex-nowrap sm:gap-2 sm:overflow-visible sm:pr-0">
+        <div className="flex min-w-0 max-w-full flex-[1_1_24rem] flex-wrap items-center justify-end gap-1 overflow-x-auto pr-1 sm:gap-2 sm:pr-0">
           {/* Search */}
           {showSearch ? (
             <div className="flex items-center gap-2 bg-muted rounded-md p-1">
@@ -5913,68 +6054,9 @@ export function DocumentViewer({
           )}
 
           {/* Page Navigation and Zoom */}
-          {hasPageNavigation && viewMode === "document" && (
+          {hasPageNavigation && docType !== "pdf" && viewMode === "document" && (
             <>
-              {docType === "pdf" && (
-                <>
-                  <button
-                    onClick={handlePrevPage}
-                    disabled={pageNumber <= 1}
-                    className="p-2 rounded-md hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={t("viewer.previousPage")}
-                  >
-                    <CaretLeft className="w-4 h-4" />
-                  </button>
-
-                  <span className="text-sm text-muted-foreground min-w-[80px] text-center">
-                    {currentDocument.totalPages
-                      ? t("viewer.pageOf", { current: pageNumber, total: currentDocument.totalPages })
-                      : t("viewer.page", { current: pageNumber })}
-                  </span>
-
-                  <button
-                    onClick={handleNextPage}
-                    disabled={
-                      !currentDocument.totalPages || pageNumber >= (currentDocument.totalPages || 0)
-                    }
-                    className="p-2 rounded-md hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={t("viewer.nextPage")}
-                  >
-                    <CaretRight className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-
               <div className="h-6 w-px bg-border mx-2" />
-
-              {docType === "pdf" && (
-                <>
-                  {/* Zoom Mode Buttons */}
-                  <button
-                    onClick={() => handleZoomModeChange("fit-page")}
-                    className={cn(
-                      "p-2 rounded-md transition-colors text-xs",
-                      zoomMode === "fit-page" ? "bg-muted text-foreground" : "hover:bg-muted text-muted-foreground"
-                    )}
-                    title={t("viewer.fitToPage")}
-                  >
-                    {t("viewer.fitPage")}
-                  </button>
-
-                  <button
-                    onClick={() => handleZoomModeChange("fit-width")}
-                    className={cn(
-                      "p-2 rounded-md transition-colors text-xs",
-                      zoomMode === "fit-width" ? "bg-muted text-foreground" : "hover:bg-muted text-muted-foreground"
-                    )}
-                    title={t("viewer.fitToWidth")}
-                  >
-                    {t("viewer.fitWidth")}
-                  </button>
-
-                  <div className="h-6 w-px bg-border mx-2" />
-                </>
-              )}
 
               <button
                 onClick={handleZoomOut}
@@ -6155,7 +6237,7 @@ export function DocumentViewer({
 
                 <iframe
                   title={`${currentDocument.title} HTML`}
-                  ref={iframeRef}
+                  ref={setIframeRef}
                   className="h-full w-full border-0"
                   sandbox="allow-same-origin allow-scripts"
                   srcDoc={ocrResult.combinedText}
@@ -6560,8 +6642,9 @@ export function DocumentViewer({
             </div>
 
             <iframe
+              key={`${currentDocument.id}:${htmlFrameRevision}`}
               title={currentDocument.title}
-              ref={iframeRef}
+              ref={setIframeRef}
               className="h-full w-full border-0"
               sandbox="allow-same-origin allow-scripts"
               srcDoc={htmlForDisplay}

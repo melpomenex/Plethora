@@ -7,6 +7,7 @@
 //! - Azure Computer Vision (cloud)
 //! - GLM-OCR (local via vLLM)
 
+pub mod nougat_runtime;
 pub mod processor;
 pub mod providers;
 pub mod runtime;

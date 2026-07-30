@@ -3652,7 +3652,7 @@ export function PDFViewer({
             "pdf-reader-toolbar flex items-center justify-between p-1 md:p-2 border-b border-border bg-card gap-2 overflow-x-auto transition-all duration-200",
             isPhone && !mobileChromeVisible && "pointer-events-none absolute inset-x-0 top-0 z-30 -translate-y-full opacity-0",
           )}>
-            <div className="flex items-center gap-0.5 md:gap-1">
+            <div className="flex flex-shrink-0 items-center gap-0.5 md:gap-1">
               {isPhone && reflowDocument && (
                 <button
                   type="button"
@@ -3736,7 +3736,7 @@ export function PDFViewer({
               </button>
             </div>
 
-            <div className="flex items-center gap-0.5 md:gap-1">
+            <div className="flex flex-shrink-0 items-center gap-0.5 md:gap-1">
               {/* Zoom Mode Buttons - Hide some on mobile */}
               <button
                 onClick={() => handleZoomModeChange("fit-page")}

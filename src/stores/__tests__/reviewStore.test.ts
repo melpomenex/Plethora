@@ -180,6 +180,25 @@ describe("reviewStore Wave 1 behavior", () => {
     expect(state.sessionId).toBe("session-in-progress");
   });
 
+  it("starts a review session in the exact order supplied by the Review Queue", async () => {
+    const first = makeLearningCard({ id: "card-1" });
+    const second = makeLearningCard({ id: "card-2" });
+    const third = makeLearningCard({ id: "card-3" });
+    vi.mocked(getDueItems).mockResolvedValue([first, second, third]);
+
+    await useReviewStore.getState().startReviewWithQueue([
+      "card-3",
+      "card-1",
+      "card-3",
+    ]);
+
+    const state = useReviewStore.getState();
+    expect(state.queue.map((card) => card.id)).toEqual(["card-3", "card-1"]);
+    expect(state.currentCard?.id).toBe("card-3");
+    expect(state.currentIndex).toBe(0);
+    expect(state.reviewTabMode).toBe("session");
+  });
+
   it("buries sibling cards from the same extract in the active session", async () => {
     submitReviewMock.mockResolvedValue({});
     const first = makeLearningCard({ id: "card-1", extract_id: "extract-a" });

@@ -66,6 +66,15 @@ export async function captureAppWindow(): Promise<string> {
   }
 }
 
+export async function captureAppWindowRegion(rect: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}): Promise<string> {
+  return invokeCommand<string>("capture_app_window_region", rect);
+}
+
 /**
  * Save a screenshot as a document
  */

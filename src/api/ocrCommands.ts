@@ -58,6 +58,29 @@ export interface GLMRuntimeStatus {
   last_error?: string;
 }
 
+export interface NougatRuntimeStatus {
+  supported: boolean;
+  installed: boolean;
+  managed: boolean;
+  repair_required: boolean;
+  executable_path?: string;
+  install_root?: string;
+  package: string;
+  detail?: string;
+}
+
+export interface NougatInstallProgress {
+  stage:
+    | "downloading-installer"
+    | "installing-manager"
+    | "installing-python"
+    | "installing-package"
+    | "verifying"
+    | "complete";
+  progress: number;
+  message: string;
+}
+
 /**
  * OCR image file request
  */
@@ -209,6 +232,20 @@ export async function getOCRConfig(): Promise<OCRConfig> {
  */
 export async function updateOCRConfig(config: OCRConfig): Promise<void> {
   return invokeCommand("update_ocr_config", { config });
+}
+
+/**
+ * Inspect a configured or app-managed Nougat installation.
+ */
+export async function getNougatRuntimeStatus(nougatPath?: string): Promise<NougatRuntimeStatus> {
+  return invokeCommand("nougat_runtime_status", { nougat_path: nougatPath });
+}
+
+/**
+ * Install Nougat into Incrementum's isolated app-data runtime.
+ */
+export async function installManagedNougat(): Promise<NougatRuntimeStatus> {
+  return invokeCommand("nougat_install_managed_runtime");
 }
 
 /**

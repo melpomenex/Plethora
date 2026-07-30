@@ -1112,6 +1112,7 @@ export function EPUBViewer({
                     new CustomEvent("image-hover", {
                       detail: {
                         src: img.src,
+                        documentId,
                         rect: {
                           left: rect.left + iframeRect.left,
                           top: rect.top + iframeRect.top,

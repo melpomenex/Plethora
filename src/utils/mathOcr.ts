@@ -4,6 +4,7 @@
  */
 
 import { invokeCommand } from "../lib/tauri";
+import { ocrImageBytes } from "../api/ocrCommands";
 import katex from "katex";
 import "katex/dist/contrib/mhchem";
 import { MacroExpander } from "./latexMacros";
@@ -49,11 +50,15 @@ export async function extractMathWithNougat(
   const start = Date.now();
 
   try {
-    // Call Nougat via Python subprocess
-    const result = await invokeCommand<{ latex: string; confidence: number }>("run_nougat_ocr", {
-      imageData,
-      modelDir,
+    void modelDir;
+    const ocrResult = await ocrImageBytes({
+      image_data: imageData,
+      provider: "nougat",
     });
+    if (!ocrResult.success) {
+      throw new Error(ocrResult.error || "Nougat OCR failed");
+    }
+    const result = { latex: ocrResult.text, confidence: ocrResult.confidence };
 
     const processing_time_ms = Date.now() - start;
 
