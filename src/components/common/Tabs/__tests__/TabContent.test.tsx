@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { TabContent } from "../TabContent";
 
 describe("TabContent", () => {
@@ -54,5 +54,35 @@ describe("TabContent", () => {
     rerender(<TabContent tabs={[...tabs]} activeTabId="a" />);
 
     expect(screen.getByLabelText("stateful-input")).toHaveValue("resume me");
+  });
+
+  it("re-renders a tab when its immutable data reference changes", () => {
+    const renders = vi.fn();
+    function DataTab({ value }: { value?: number }) {
+      renders(value);
+      return <div>{value}</div>;
+    }
+
+    const firstData = { value: 1 };
+    const firstTab = {
+      id: "data",
+      title: "Data",
+      icon: "D",
+      type: "documents",
+      content: DataTab,
+      closable: true,
+      data: firstData,
+    } as const;
+    const { rerender } = render(<TabContent tabs={[firstTab]} activeTabId="data" />);
+    expect(renders).toHaveBeenCalledWith(1);
+
+    rerender(
+      <TabContent
+        tabs={[{ ...firstTab, data: { value: 2 } }]}
+        activeTabId="data"
+      />,
+    );
+
+    expect(renders).toHaveBeenLastCalledWith(2);
   });
 });

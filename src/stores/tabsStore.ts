@@ -4,6 +4,8 @@ import { generateId } from "../utils/id";
 import { useUIStore } from "./uiStore";
 import { useCollectionStore } from "./collectionStore";
 import { useSettingsStore } from "./settingsStore";
+import { getProgressiveSyncScheduler } from "../lib/sync/progressiveScheduler";
+import { measureTabSwitch } from "../lib/sync/syncTelemetry";
 
 export type TabType =
   | "continue-reading"
@@ -187,6 +189,50 @@ export interface TabsState {
 }
 
 const STORAGE_KEY = "incrementum-tabs";
+const TAB_SAVE_DEBOUNCE_MS = 180;
+let pendingTabsSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingTabsSave: (() => void) | null = null;
+let tabsPersistenceListenersInstalled = false;
+
+// Rapid-switch profiling identified two synchronous contributors on the tab
+// activation path: serializing the complete workspace snapshot in saveTabs()
+// and JSON-stringifying every mounted tab's restore data in TabContent's memo
+// comparator. Sync projections were a third contributor when their observers
+// ran in P0; those remote enqueue sites now use the scheduler's input-aware P1
+// lane. Keep this note next to the persistence fix so future changes do not
+// move serialization back into the interaction hot path.
+
+function flushPendingTabsSave(): void {
+  if (pendingTabsSaveTimer) {
+    clearTimeout(pendingTabsSaveTimer);
+    pendingTabsSaveTimer = null;
+  }
+  const save = pendingTabsSave;
+  pendingTabsSave = null;
+  save?.();
+}
+
+function installTabsPersistenceListeners(): void {
+  if (tabsPersistenceListenersInstalled || typeof window === "undefined") return;
+  tabsPersistenceListenersInstalled = true;
+  const flushWhenHidden = () => {
+    if (document.visibilityState === "hidden") flushPendingTabsSave();
+  };
+  window.addEventListener("pagehide", flushPendingTabsSave);
+  document.addEventListener("visibilitychange", flushWhenHidden);
+}
+
+function scheduleTabsSave(save: () => void): void {
+  installTabsPersistenceListeners();
+  pendingTabsSave = save;
+  if (pendingTabsSaveTimer) clearTimeout(pendingTabsSaveTimer);
+  pendingTabsSaveTimer = setTimeout(() => {
+    pendingTabsSaveTimer = null;
+    const pending = pendingTabsSave;
+    pendingTabsSave = null;
+    pending?.();
+  }, TAB_SAVE_DEBOUNCE_MS);
+}
 const SINGLE_INSTANCE_TAB_TYPES: ReadonlySet<TabType> = new Set([
   "continue-reading",
   "dashboard",
@@ -640,16 +686,21 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
   // Set the active tab in a specific pane
   setActiveTab: (paneId, tabId) => {
-    set((state) => ({
-      rootPane: updatePaneInTree(state.rootPane, paneId, (p) => ({
-        ...(p as TabPane),
-        activeTabId: tabId,
-      })),
-      activeTabHistory: [...state.activeTabHistory.filter((x) => x !== tabId), tabId],
-      // A direct navigation invalidates any forward history (browser semantics).
-      forwardTabHistory: [],
-    }));
-    get().saveTabs();
+    measureTabSwitch(
+      () => {
+        set((state) => ({
+          rootPane: updatePaneInTree(state.rootPane, paneId, (p) => ({
+            ...(p as TabPane),
+            activeTabId: tabId,
+          })),
+          activeTabHistory: [...state.activeTabHistory.filter((x) => x !== tabId), tabId],
+          // A direct navigation invalidates any forward history (browser semantics).
+          forwardTabHistory: [],
+        }));
+        scheduleTabsSave(() => get().saveTabs());
+      },
+      () => getProgressiveSyncScheduler().stats().queued,
+    );
   },
 
   updateTab: (tabId, updates) => {
@@ -1285,6 +1336,11 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
   saveTabs: () => {
     try {
+      if (pendingTabsSaveTimer) {
+        clearTimeout(pendingTabsSaveTimer);
+        pendingTabsSaveTimer = null;
+      }
+      pendingTabsSave = null;
       const state = get();
       const serializableTabs = state.tabs.map((tab) => ({
         id: tab.id,

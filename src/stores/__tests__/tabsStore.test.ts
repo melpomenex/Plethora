@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
+import { getProgressiveSyncScheduler, resetProgressiveSyncSchedulerForTest } from "../../lib/sync/progressiveScheduler";
+import { clearSyncTelemetry, getSyncTelemetry } from "../../lib/sync/syncTelemetry";
 
 vi.mock("../uiStore", () => ({
   useUIStore: {
@@ -267,5 +269,110 @@ describe("pane normalization", () => {
       children: [{ activeTabId: "tab" }],
     });
     expect(normalizePane(normalized)).toBe(normalized);
+  });
+});
+
+describe("tab workspace persistence", () => {
+  afterEach(() => {
+    window.dispatchEvent(new Event("pagehide"));
+    vi.useRealTimers();
+  });
+
+  it("debounces active-tab snapshot writes", () => {
+    vi.useFakeTimers();
+    const firstId = useTabsStore.getState().addTab({
+      title: "First",
+      icon: null,
+      type: "documents",
+      content: DummyComponent,
+      closable: true,
+    });
+    const secondId = useTabsStore.getState().addTab({
+      title: "Second",
+      icon: null,
+      type: "queue",
+      content: DummyComponent,
+      closable: true,
+    });
+    const paneId = useTabsStore.getState().rootPane.id;
+    window.localStorage.removeItem("incrementum-tabs");
+
+    useTabsStore.getState().setActiveTab(paneId, firstId);
+    useTabsStore.getState().setActiveTab(paneId, secondId);
+
+    expect(window.localStorage.getItem("incrementum-tabs")).toBeNull();
+    vi.advanceTimersByTime(180);
+
+    const snapshot = JSON.parse(window.localStorage.getItem("incrementum-tabs") ?? "null");
+    expect(snapshot.rootPane.activeTabId).toBe(secondId);
+  });
+
+  it("flushes a pending active-tab snapshot when the page is hidden", () => {
+    vi.useFakeTimers();
+    const firstId = useTabsStore.getState().addTab({
+      title: "First",
+      icon: null,
+      type: "documents",
+      content: DummyComponent,
+      closable: true,
+    });
+    const secondId = useTabsStore.getState().addTab({
+      title: "Second",
+      icon: null,
+      type: "queue",
+      content: DummyComponent,
+      closable: true,
+    });
+    const paneId = useTabsStore.getState().rootPane.id;
+    window.localStorage.removeItem("incrementum-tabs");
+
+    useTabsStore.getState().setActiveTab(paneId, firstId);
+    useTabsStore.getState().setActiveTab(paneId, secondId);
+    window.dispatchEvent(new Event("pagehide"));
+
+    const snapshot = JSON.parse(window.localStorage.getItem("incrementum-tabs") ?? "null");
+    expect(snapshot.rootPane.activeTabId).toBe(secondId);
+  });
+
+  it("keeps rapid switching across a 50-tab workspace bounded with sync backlog", () => {
+    vi.useFakeTimers();
+    clearSyncTelemetry();
+    const scheduler = getProgressiveSyncScheduler();
+    for (let index = 0; index < 20; index += 1) {
+      scheduler.enqueue({
+        id: `documents:remote:stress-${index}`,
+        lane: "P1",
+        run: async (context) => {
+          if (context.shouldYield()) await context.yield();
+        },
+      });
+    }
+
+    const tabIds = Array.from({ length: 50 }, (_, index) => useTabsStore.getState().addTab({
+      title: `Document ${index}`,
+      icon: null,
+      type: "document-viewer",
+      content: DummyComponent,
+      closable: true,
+      data: { documentId: `stress-${index}` },
+    }));
+    const paneId = useTabsStore.getState().rootPane.id;
+    const started = performance.now();
+    for (let index = 0; index < 200; index += 1) {
+      useTabsStore.getState().setActiveTab(paneId, tabIds[index % tabIds.length]);
+    }
+    const activationMs = performance.now() - started;
+
+    expect(activationMs).toBeLessThan(100);
+    vi.runAllTimers();
+    const switchDurations = getSyncTelemetry()
+      .filter((sample) => sample.phase === "tab-switch" && sample.durationMs !== undefined)
+      .map((sample) => sample.durationMs ?? 0)
+      .sort((a, b) => a - b);
+    const p95 = switchDurations[Math.min(switchDurations.length - 1, Math.floor(switchDurations.length * 0.95))] ?? 0;
+    expect(switchDurations.length).toBeGreaterThan(0);
+    expect(p95).toBeLessThan(100);
+
+    resetProgressiveSyncSchedulerForTest();
   });
 });

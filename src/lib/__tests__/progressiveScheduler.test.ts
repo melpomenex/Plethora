@@ -42,6 +42,24 @@ describe("ProgressiveSyncScheduler", () => {
     expect(order).toEqual(["urgent", "bulk"]);
   });
 
+  it("pauses P1 sync projections while input is pending", async () => {
+    let inputPending = true;
+    const scheduler = new ProgressiveSyncScheduler({
+      inputPending: () => inputPending,
+      visible: () => true,
+    });
+    const projection = vi.fn();
+    scheduler.enqueue({ id: "documents:remote:1", lane: "P1", run: projection });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(projection).not.toHaveBeenCalled();
+    expect(scheduler.stats().queued).toBe(1);
+
+    inputPending = false;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(projection).toHaveBeenCalledTimes(1);
+  });
+
   it("does not run work after disposal", async () => {
     const scheduler = new ProgressiveSyncScheduler({
       inputPending: () => false,

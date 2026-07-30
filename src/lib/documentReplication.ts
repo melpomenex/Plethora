@@ -102,7 +102,10 @@ export async function ensureDocumentReplicationReady(): Promise<void> {
             // dateModified against local and no-ops if we're already current.
             getProgressiveSyncScheduler().enqueue({
               id: `documents:remote:${key}`,
-              lane: "P0",
+              // Remote document projection is important but not interactive-
+              // critical: keeping it in P1 lets the scheduler yield while the
+              // user is switching tabs, without dropping the Yjs update.
+              lane: "P1",
               run: () => handleRemoteDocument(key),
             });
           }
@@ -227,7 +230,14 @@ function scheduleDocumentStoreReload(): void {
   if (storeReloadTimer) clearTimeout(storeReloadTimer);
   storeReloadTimer = setTimeout(() => {
     storeReloadTimer = null;
-    void useDocumentStore.getState().loadDocuments();
+    // Keep the coalesced refresh on the same input-aware scheduler as remote
+    // projections. A timer alone still wakes in the middle of a tab-switch
+    // burst; the scheduler can defer this single UI refresh until input rests.
+    getProgressiveSyncScheduler().enqueue({
+      id: "documents:store-reload",
+      lane: "P2",
+      run: () => useDocumentStore.getState().loadDocuments(),
+    });
   }, STORE_RELOAD_DEBOUNCE_MS);
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, act, waitFor } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import * as React from "react";
 
 /**
@@ -121,6 +121,34 @@ async function renderToScanner() {
 }
 
 describe("SyncSettings scan-to-join", () => {
+  it("keeps diagnostics collapsed until the user asks for details", () => {
+    render(React.createElement(SyncSettings));
+
+    const diagnosticsToggle = screen.getByRole("button", { name: /syncSettings\.diagnosticsTitle/i });
+    expect(diagnosticsToggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("table")).toBeNull();
+
+    fireEvent.click(diagnosticsToggle);
+
+    expect(diagnosticsToggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByText(/syncSettings\.diagnosticsShowingAll/i)).toBeInTheDocument();
+  });
+
+  it("copies the full diagnostics report without expanding the details", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    render(React.createElement(SyncSettings));
+
+    fireEvent.click(screen.getByRole("button", { name: /syncSettings\.copyDiagnostics/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(JSON.parse(writeText.mock.calls[0][0])).toEqual(
+      expect.objectContaining({ telemetry: expect.any(Array), startupRequestCounts: expect.any(Object) }),
+    );
+  });
+
   it("joins a scanned full invite code without a manual Join tap", async () => {
     // Simulate a native mobile build so the Scan button renders.
     mocks.isNativeMobile.mockReturnValue(true);

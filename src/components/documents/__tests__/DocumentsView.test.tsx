@@ -89,4 +89,18 @@ describe("DocumentsView", () => {
     expect(screen.getByText("Inspector")).toBeInTheDocument();
   });
 
+  it("supports reverse shift-click ranges in list mode", () => {
+    window.localStorage.setItem("documentsViewMode", "list");
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    fireEvent.click(screen.getAllByText("Secondary Doc")[0]);
+    fireEvent.click(screen.getAllByText("Priority Doc")[0], { shiftKey: true });
+
+    const rowCheckboxes = Array.from(
+      document.querySelectorAll<HTMLInputElement>(".documents-content .border.rounded-lg input[type=checkbox]")
+    );
+    expect(rowCheckboxes).toHaveLength(2);
+    expect(rowCheckboxes.every((checkbox) => checkbox.checked)).toBe(true);
+  });
+
 });

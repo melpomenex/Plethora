@@ -13,7 +13,8 @@ export type SyncPhase =
   | "map-ready"
   | "projection"
   | "clock-cache-init"
-  | "projection-batch";
+  | "projection-batch"
+  | "tab-switch";
 
 export interface SyncPhaseSample {
   phase: SyncPhase;
@@ -26,6 +27,7 @@ export interface SyncPhaseSample {
   request?: string;
   surface?: string;
   memoryBytes?: number;
+  queued?: number;
 }
 
 export const MAX_SYNC_TELEMETRY_SAMPLES = 1000;
@@ -74,6 +76,7 @@ export interface SyncPhaseDetails {
   hasMore?: boolean;
   request?: string;
   surface?: string;
+  queued?: number;
 }
 
 export function markSyncPhaseStart(phase: SyncPhase): (details?: SyncPhaseDetails) => void {
@@ -99,6 +102,48 @@ export async function measureSyncPhase<T>(phase: SyncPhase, work: () => Promise<
   } finally {
     end();
   }
+}
+
+function shouldMeasureTabSwitches(): boolean {
+  try {
+    if (import.meta.env?.DEV) return true;
+  } catch {
+    // Some test runtimes do not expose Vite's import.meta env object.
+  }
+  try {
+    return Boolean((globalThis as { process?: { env?: { VITEST?: string } } }).process?.env?.VITEST);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Measure the synchronous tab activation work through the next paint in dev
+ * and test builds. This is intentionally opt-in so production navigation does
+ * not allocate telemetry samples or add a native logging hop. The queued count
+ * is captured at completion to correlate slow switches with sync pressure.
+ */
+export function measureTabSwitch<T>(work: () => T, getQueued?: () => number): T {
+  if (!shouldMeasureTabSwitches()) return work();
+
+  const end = markSyncPhaseStart("tab-switch");
+  let result: T;
+  try {
+    result = work();
+  } catch (error) {
+    end({ outcome: "error", surface: "tab-bar", queued: getQueued?.() });
+    throw error;
+  }
+
+  const finish = () => end({ surface: "tab-bar", queued: getQueued?.() });
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(finish);
+  } else if (typeof queueMicrotask === "function") {
+    queueMicrotask(finish);
+  } else {
+    setTimeout(finish, 0);
+  }
+  return result;
 }
 
 export function getSyncTelemetry(): readonly SyncPhaseSample[] {

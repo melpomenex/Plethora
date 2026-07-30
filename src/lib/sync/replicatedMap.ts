@@ -242,7 +242,10 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
             for (const key of event.keysChanged) {
               scheduler.enqueue({
                 id: `${config.label}:remote:${key}`,
-                lane: "P0",
+                // Projection work must yield to active tab navigation. The
+                // Yjs map already owns the received state, so deferring this
+                // SQLite projection cannot lose the remote update.
+                lane: "P1",
                 run: () => handleRemote(key),
               });
             }

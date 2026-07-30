@@ -84,6 +84,11 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { useToast } from "../common/Toast";
 import { AdaptiveContentHeader, AdaptiveInspector } from "../adaptive";
+import {
+  selectDocumentsByClick,
+  uniqueDocumentIds,
+  type DocumentSelectionModifiers,
+} from "./documentSelection";
 
 const MODE_STORAGE_KEY = "documentsViewMode";
 const SAVED_VIEWS_KEY = "documentsSavedViews";
@@ -208,6 +213,8 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   const [selectedFileType, setSelectedFileType] = useState<string>("all");
   const [compactFilter, setCompactFilter] = useState<CompactDocumentFilter>("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
+  const [selectionToggledIds, setSelectionToggledIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listCtxDoc, setListCtxDoc] = useState<{ doc: Document; pos: { x: number; y: number } } | null>(null);
   const listCtxRef = useRef<HTMLDivElement>(null);
@@ -369,6 +376,10 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   const sortedDocuments = useMemo(() => {
     return sortDocuments(filteredDocuments, sortKey, sortDirection);
   }, [filteredDocuments, sortKey, sortDirection]);
+  const orderedDocumentIds = useMemo(
+    () => uniqueDocumentIds(sortedDocuments.map((doc) => doc.id)),
+    [sortedDocuments]
+  );
 
   // Track which doc IDs we've already processed for cover resolution.
   // This prevents re-firing resolveDocumentCover on every sortedDocuments change.
@@ -472,6 +483,8 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   useEffect(() => {
     const visibleIds = new Set(sortedDocuments.map((doc) => doc.id));
     setSelectedIds((prev) => new Set(Array.from(prev).filter((id) => visibleIds.has(id))));
+    setSelectionToggledIds((prev) => new Set(Array.from(prev).filter((id) => visibleIds.has(id))));
+    setSelectionAnchorId((prev) => (prev && visibleIds.has(prev) ? prev : null));
     if (activeId && !visibleIds.has(activeId)) {
       setActiveId(sortedDocuments[0]?.id ?? null);
     }
@@ -633,20 +646,26 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     }
   };
 
-  const handleSelectRow = (doc: Document, multiSelect: boolean) => {
-    if (multiSelect) {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(doc.id)) {
-          next.delete(doc.id);
-        } else {
-          next.add(doc.id);
-        }
-        return next;
-      });
-    } else {
-      setSelectedIds(new Set([doc.id]));
-    }
+  const clearDocumentSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectionAnchorId(null);
+    setSelectionToggledIds(new Set());
+  }, []);
+
+  const handleSelectRow = (doc: Document, modifiers: DocumentSelectionModifiers = {}) => {
+    const next = selectDocumentsByClick(
+      {
+        selectedIds,
+        anchorId: selectionAnchorId,
+        toggledIds: selectionToggledIds,
+      },
+      orderedDocumentIds,
+      doc.id,
+      modifiers,
+    );
+    setSelectedIds(next.selectedIds);
+    setSelectionAnchorId(next.anchorId);
+    setSelectionToggledIds(next.toggledIds);
     setActiveId(doc.id);
   };
 
@@ -667,7 +686,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
         selectedIds.forEach((id) => {
           updateDocument(id, { isArchived: true });
         });
-        setSelectedIds(new Set());
+        clearDocumentSelection();
       },
     });
   };
@@ -688,7 +707,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
       onConfirm: async () => {
         const ids = Array.from(selectedIds);
         const result = await bulkDelete(ids);
-        setSelectedIds(new Set());
+        clearDocumentSelection();
         setActiveId(null);
         if (result.failed.length > 0) {
           toast.error(
@@ -831,7 +850,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     );
     const _target = existing ?? await createCollection(targetName);
     // TODO: Update collection_id on selected documents via backend API
-    setSelectedIds(new Set());
+    clearDocumentSelection();
   };
 
   const handleSort = (key: DocumentSortKey) => {
@@ -879,6 +898,8 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
         const nextDoc = sortedDocuments[nextIndex];
         setActiveId(nextDoc.id);
         setSelectedIds(new Set([nextDoc.id]));
+        setSelectionAnchorId(nextDoc.id);
+        setSelectionToggledIds(new Set());
         return;
       }
 
@@ -1174,7 +1195,13 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                   const allSelected =
                     visibleIds.length > 0 &&
                     visibleIds.every((id) => selectedIds.has(id));
-                  setSelectedIds(allSelected ? new Set() : new Set(visibleIds));
+                  if (allSelected) {
+                    clearDocumentSelection();
+                  } else {
+                    setSelectedIds(new Set(visibleIds));
+                    setSelectionAnchorId(null);
+                    setSelectionToggledIds(new Set());
+                  }
                 }}
                 className="px-3 py-1.5 bg-background border border-border rounded text-sm text-foreground hover:bg-muted"
               >
@@ -1319,7 +1346,10 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                           onOpenDocument?.(doc);
                           return;
                         }
-                        handleSelectRow(doc, event.metaKey || event.ctrlKey);
+                        handleSelectRow(doc, {
+                          shiftKey: event.shiftKey,
+                          toggleKey: event.metaKey || event.ctrlKey,
+                        });
                         if (event.detail > 1) {
                           onOpenDocument?.(doc);
                         }
@@ -1342,9 +1372,13 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                         <input
                           type="checkbox"
                           checked={selectedIds.has(doc.id)}
-                          onChange={(event) => {
+                          onChange={(event) => event.stopPropagation()}
+                          onClick={(event) => {
                             event.stopPropagation();
-                            handleSelectRow(doc, true);
+                            handleSelectRow(doc, {
+                              shiftKey: event.shiftKey,
+                              toggleKey: event.metaKey || event.ctrlKey,
+                            });
                           }}
                           className="mt-1"
                         />
@@ -2044,7 +2078,7 @@ interface CompactLibraryViewProps {
   showNextAction: boolean;
   setShowNextAction: (show: boolean) => void;
   onOpenDocument?: (doc: Document) => void;
-  onSelectRow: (doc: Document, multi: boolean) => void;
+  onSelectRow: (doc: Document, modifiers?: DocumentSelectionModifiers) => void;
   searchQuery: string;
   onClearSearch: () => void;
   onImport: () => void;
@@ -2278,7 +2312,7 @@ function CompactLibraryView({
                     selected={selectedIds.has(doc.id)}
                     active={activeId === doc.id}
                     showNextAction={showNextAction}
-                    onSelect={(multi) => onSelectRow(doc, multi)}
+                    onSelect={(modifiers) => onSelectRow(doc, modifiers)}
                     onOpen={() => onOpenDocument?.(doc)}
                   />
                 ))}
@@ -2357,7 +2391,7 @@ function CompactDocumentRow({
   selected: boolean;
   active: boolean;
   showNextAction: boolean;
-  onSelect: (multi: boolean) => void;
+  onSelect: (modifiers?: DocumentSelectionModifiers) => void;
   onOpen: () => void;
 }) {
   const { t } = useI18n();
@@ -2388,7 +2422,10 @@ function CompactDocumentRow({
     if (event.key === "Enter") onOpen();
     if (event.key === " ") {
       event.preventDefault();
-      onSelect(event.metaKey || event.ctrlKey);
+      onSelect({
+        shiftKey: event.shiftKey,
+        toggleKey: event.metaKey || event.ctrlKey,
+      });
     }
   };
 
@@ -2397,7 +2434,10 @@ function CompactDocumentRow({
       role="button"
       tabIndex={0}
       onClick={(event) => {
-        onSelect(event.metaKey || event.ctrlKey);
+        onSelect({
+          shiftKey: event.shiftKey,
+          toggleKey: event.metaKey || event.ctrlKey,
+        });
         if (event.detail > 1) onOpen();
       }}
       onKeyDown={handleKeyDown}
@@ -2409,11 +2449,14 @@ function CompactDocumentRow({
         <input
           type="checkbox"
           checked={selected}
-          onChange={(event) => {
+          onChange={(event) => event.stopPropagation()}
+          onClick={(event) => {
             event.stopPropagation();
-            onSelect(true);
+            onSelect({
+              shiftKey: event.shiftKey,
+              toggleKey: event.metaKey || event.ctrlKey,
+            });
           }}
-          onClick={(event) => event.stopPropagation()}
           aria-label={`Select ${doc.title}`}
           className="mt-1 rounded border-border text-primary focus:ring-primary"
         />
@@ -2462,11 +2505,14 @@ function CompactDocumentRow({
           <input
             type="checkbox"
             checked={selected}
-            onChange={(event) => {
+            onChange={(event) => event.stopPropagation()}
+            onClick={(event) => {
               event.stopPropagation();
-              onSelect(true);
+              onSelect({
+                shiftKey: event.shiftKey,
+                toggleKey: event.metaKey || event.ctrlKey,
+              });
             }}
-            onClick={(event) => event.stopPropagation()}
             aria-label={`Select ${doc.title}`}
             className="rounded border-border text-primary focus:ring-primary"
           />
@@ -2571,7 +2617,7 @@ interface LibraryDashboardProps {
   setSelectedFileType: (type: string) => void;
   selectedIds: Set<string>;
   onOpenDocument?: (doc: Document) => void;
-  onSelectRow: (doc: Document, multi: boolean) => void;
+  onSelectRow: (doc: Document, modifiers?: DocumentSelectionModifiers) => void;
   onDelete: (doc: Document) => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onTranscribe?: (doc: Document) => void;
@@ -2745,7 +2791,7 @@ interface HorizontalSectionProps {
   docs: Document[];
   selectedIds: Set<string>;
   onOpenDocument?: (doc: Document) => void;
-  onSelectRow: (doc: Document, multi: boolean) => void;
+  onSelectRow: (doc: Document, modifiers?: DocumentSelectionModifiers) => void;
   onDelete: (doc: Document) => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onTranscribe?: (doc: Document) => void;
@@ -2810,7 +2856,7 @@ function HorizontalSection({
             key={doc.id}
             doc={doc}
             selected={selectedIds.has(doc.id)}
-            onSelect={(multi) => onSelectRow(doc, multi)}
+            onSelect={(modifiers) => onSelectRow(doc, modifiers)}
             onOpen={() => onOpenDocument?.(doc)}
             onDelete={onDelete}
             onUpdate={onUpdate}
@@ -2838,7 +2884,7 @@ function LibraryCard({
 }: {
   doc: Document;
   selected: boolean;
-  onSelect: (multi: boolean) => void;
+  onSelect: (modifiers?: DocumentSelectionModifiers) => void;
   onOpen: () => void;
   onDelete: (doc: Document) => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
@@ -2957,7 +3003,10 @@ function LibraryCard({
       <div
         onClick={(event) => {
           if (isMobile) { onOpen(); return; }
-          onSelect(event.metaKey || event.ctrlKey);
+          onSelect({
+            shiftKey: event.shiftKey,
+            toggleKey: event.metaKey || event.ctrlKey,
+          });
           if (event.detail > 1) onOpen();
         }}
         onContextMenu={(e) => {
@@ -2988,7 +3037,19 @@ function LibraryCard({
             </div>
           )}
           {!isMobile && (
-            <input type="checkbox" checked={selected} onChange={(e) => { e.stopPropagation(); onSelect(true); }} onClick={(e) => e.stopPropagation()} className="absolute top-2.5 right-2.5 w-4 h-4 rounded bg-background/80 backdrop-blur-sm border-border" />
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect({
+                  shiftKey: e.shiftKey,
+                  toggleKey: e.metaKey || e.ctrlKey,
+                });
+              }}
+              className="absolute top-2.5 right-2.5 w-4 h-4 rounded bg-background/80 backdrop-blur-sm border-border"
+            />
           )}
         </div>
 

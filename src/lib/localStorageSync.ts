@@ -315,7 +315,9 @@ export async function initLocalStorageSync(): Promise<void> {
         }
         scheduler.enqueue({
           id: `localStorage:remote:${key}`,
-          lane: "P0",
+          // localStorage replay is device-state hydration, not an interactive
+          // critical path; let input pressure defer it briefly.
+          lane: "P1",
           run: () => {
             const entry = map.get(key);
             const last = lastApplied.get(key);

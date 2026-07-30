@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   ArrowsClockwise,
+  CaretDown,
   Cloud,
   CloudSlash,
   Copy,
@@ -9,6 +10,7 @@ import {
   Key,
   Lock,
   Scan,
+  WarningCircle,
   WifiHigh,
 } from "@phosphor-icons/react";
 import { createNewSyncRoomId, getSyncRoomId, setSyncRoomId, rejoinRoom, updateYjsSyncStatus } from "../../lib/yjsSync";
@@ -57,6 +59,7 @@ export function SyncSettings() {
   const [roomSecret, setRoomSecret] = useState<string | null>(null);
   const [revealSecret, setRevealSecret] = useState(false);
   const [diagnosticsTick, setDiagnosticsTick] = useState(0);
+  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
 
   const { settings, updateSettings } = useSettingsStore();
   const syncSettings = settings.sync ?? DEFAULT_SYNC_SETTINGS;
@@ -70,6 +73,17 @@ export function SyncSettings() {
 
   const telemetry = useMemo(() => getSyncTelemetry(), [diagnosticsTick]);
   const startupRequestCounts = useMemo(() => getStartupRequestCounts(), [diagnosticsTick]);
+  const recentTelemetry = useMemo(() => telemetry.slice(-50), [telemetry]);
+  const diagnosticsSummary = useMemo(() => {
+    const latest = telemetry[telemetry.length - 1];
+    const errorCount = telemetry.filter((sample) => sample.outcome === "error").length;
+    const startupRequestCount = Object.values(startupRequestCounts).reduce((sum, count) => sum + count, 0);
+    return {
+      latest,
+      errorCount,
+      startupRequestCount,
+    };
+  }, [startupRequestCounts, telemetry]);
 
   const copySyncDiagnostics = async () => {
     const report = JSON.stringify({ telemetry, startupRequestCounts }, null, 2);
@@ -309,38 +323,76 @@ export function SyncSettings() {
       </div>
 
       <div className="bg-card border border-border rounded-lg p-6">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div>
-            <h3 className="text-lg font-semibold text-foreground">Sync diagnostics</h3>
-            <p className="text-xs text-muted-foreground">Phase timings and byte volumes from the current session.</p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <button
+              type="button"
+              aria-expanded={diagnosticsExpanded}
+              aria-controls="sync-diagnostics-details"
+              onClick={() => setDiagnosticsExpanded((expanded) => !expanded)}
+              className="flex items-center gap-2 text-left text-lg font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 rounded"
+            >
+              <CaretDown className={`h-4 w-4 shrink-0 transition-transform ${diagnosticsExpanded ? "rotate-0" : "-rotate-90"}`} />
+              <span>{t("syncSettings.diagnosticsTitle")}</span>
+            </button>
+            <p className="mt-1 text-xs text-muted-foreground">{t("syncSettings.diagnosticsDesc")}</p>
           </div>
-          <button onClick={() => { void copySyncDiagnostics(); }} className="px-3 py-2 bg-muted text-foreground rounded text-xs flex items-center gap-1">
-            <Copy className="w-3 h-3" /> Copy report
+          <button
+            type="button"
+            onClick={() => { void copySyncDiagnostics(); }}
+            className="shrink-0 px-3 py-2 bg-muted text-foreground rounded text-xs flex items-center gap-1"
+          >
+            <Copy className="w-3 h-3" /> {t("syncSettings.copyDiagnostics")}
           </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
-            <thead className="text-muted-foreground border-b border-border">
-              <tr><th className="py-2 pr-3">Phase</th><th className="py-2 pr-3">Duration</th><th className="py-2 pr-3">Records</th><th className="py-2 pr-3">Bytes</th><th className="py-2">Outcome</th></tr>
-            </thead>
-            <tbody>
-              {telemetry.length === 0 ? (
-                <tr><td colSpan={5} className="py-3 text-muted-foreground">No sync phases recorded yet.</td></tr>
-              ) : telemetry.map((sample: SyncPhaseSample, index) => (
-                <tr key={`${sample.startedAt}-${index}`} className="border-b border-border/50">
-                  <td className="py-2 pr-3 font-mono">{sample.phase}</td>
-                  <td className="py-2 pr-3">{Math.round(sample.durationMs ?? 0)} ms</td>
-                  <td className="py-2 pr-3">{sample.records ?? 0}</td>
-                  <td className="py-2 pr-3">{formatBytes(sample.bytes)}</td>
-                  <td className={sample.outcome === "error" ? "py-2 text-destructive" : "py-2"}>{sample.outcome ?? "pending"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-live="polite">
+          <span>
+            {t("syncSettings.diagnosticsPhases", { count: telemetry.length })}
+          </span>
+          <span>
+            {t("syncSettings.diagnosticsLatest", { phase: diagnosticsSummary.latest?.phase ?? t("syncSettings.diagnosticsNone") })}
+          </span>
+          <span className={diagnosticsSummary.errorCount > 0 ? "inline-flex items-center gap-1 text-destructive" : "text-emerald-500"}>
+            {diagnosticsSummary.errorCount > 0 && <WarningCircle className="h-3.5 w-3.5" />}
+            {diagnosticsSummary.errorCount > 0
+              ? t("syncSettings.diagnosticsErrors", { count: diagnosticsSummary.errorCount })
+              : t("syncSettings.diagnosticsHealthy")}
+          </span>
+          {diagnosticsSummary.startupRequestCount > 0 && (
+            <span>{t("syncSettings.diagnosticsStartupRequests", { count: diagnosticsSummary.startupRequestCount })}</span>
+          )}
         </div>
-        <div className="mt-3 text-xs text-muted-foreground">
-          Startup requests: {Object.entries(startupRequestCounts).map(([request, count]) => `${request} (${count})`).join(", ") || "none"}
-        </div>
+
+        {diagnosticsExpanded && (
+          <div id="sync-diagnostics-details" className="mt-3 max-h-80 overflow-auto rounded border border-border/70" tabIndex={0}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="sticky top-0 bg-card text-muted-foreground border-b border-border">
+                  <tr><th className="py-2 px-3 pr-3">{t("syncSettings.diagnosticsPhase")}</th><th className="py-2 pr-3">{t("syncSettings.diagnosticsDuration")}</th><th className="py-2 pr-3">{t("syncSettings.diagnosticsRecords")}</th><th className="py-2 pr-3">{t("syncSettings.diagnosticsBytes")}</th><th className="py-2 pr-3">{t("syncSettings.diagnosticsOutcome")}</th></tr>
+                </thead>
+                <tbody>
+                  {recentTelemetry.length === 0 ? (
+                    <tr><td colSpan={5} className="py-3 px-3 text-muted-foreground">{t("syncSettings.diagnosticsNoneRecorded")}</td></tr>
+                  ) : recentTelemetry.map((sample: SyncPhaseSample, index) => (
+                    <tr key={`${sample.startedAt}-${index}`} className="border-b border-border/50">
+                      <td className="py-2 px-3 pr-3 font-mono">{sample.phase}</td>
+                      <td className="py-2 pr-3">{Math.round(sample.durationMs ?? 0)} ms</td>
+                      <td className="py-2 pr-3">{sample.records ?? 0}</td>
+                      <td className="py-2 pr-3">{formatBytes(sample.bytes)}</td>
+                      <td className={sample.outcome === "error" ? "py-2 pr-3 text-destructive" : "py-2 pr-3"}>{sample.outcome ?? "pending"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+              {telemetry.length > recentTelemetry.length && t("syncSettings.diagnosticsShowingRecent", { count: recentTelemetry.length, total: telemetry.length })}
+              {telemetry.length <= recentTelemetry.length && t("syncSettings.diagnosticsShowingAll")}
+              <span className="ml-2">{t("syncSettings.diagnosticsStartupBreakdown", { requests: Object.entries(startupRequestCounts).map(([request, count]) => `${request} (${count})`).join(", ") || t("syncSettings.diagnosticsNone") })}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Device sync (room-based) */}

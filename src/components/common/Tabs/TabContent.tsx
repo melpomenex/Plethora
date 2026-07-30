@@ -49,12 +49,14 @@ const TabWrapper = memo(
     if (prevProps.isActive && !nextProps.isActive) {
       return true;
     }
-    // Otherwise, we only re-render if its active status changed, content changed, paneId changed, or data changed.
+    // Tab data is updated immutably by the tabs store. Comparing the reference
+    // avoids serializing every tab's restore payload on each activation while
+    // still re-rendering when an explicit tab-data update creates a new object.
     return (
       prevProps.isActive === nextProps.isActive &&
       prevProps.content === nextProps.content &&
       prevProps.paneId === nextProps.paneId &&
-      JSON.stringify(prevProps.data) === JSON.stringify(nextProps.data)
+      prevProps.data === nextProps.data
     );
   }
 );
@@ -122,4 +124,3 @@ export function TabContent({ tabs, activeTabId, paneId }: TabContentProps) {
     </div>
   );
 }
-

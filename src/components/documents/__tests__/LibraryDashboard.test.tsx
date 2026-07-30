@@ -383,4 +383,71 @@ describe("DocumentsView grid mode", () => {
       compactDocumentsView: false,
     });
   });
+
+  it("selects an inclusive shift-click range across repeated grid sections", () => {
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const firstCard = screen
+      .getAllByText("Linear Algebra Textbook")
+      .map((element) => element.closest(".snap-start"))
+      .find((card): card is HTMLElement => card !== null);
+    const lastCard = screen
+      .getAllByText("Physics Notes")
+      .map((element) => element.closest(".snap-start"))
+      .find((card): card is HTMLElement => card !== null);
+
+    expect(firstCard).not.toBeNull();
+    expect(lastCard).not.toBeNull();
+    fireEvent.click(firstCard!);
+    fireEvent.click(lastCard!, { shiftKey: true });
+
+    const cardCheckboxes = Array.from(
+      document.querySelectorAll<HTMLInputElement>(".snap-start input[type=checkbox]")
+    );
+    expect(cardCheckboxes.length).toBeGreaterThan(0);
+    expect(cardCheckboxes.every((checkbox) => checkbox.checked)).toBe(true);
+  });
+
+  it("keeps checkbox shift-click behavior in compact rows", () => {
+    settingsStoreValues.settings.interface.compactDocumentsView = true;
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const firstCheckbox = screen.getAllByRole("checkbox", { name: "Select Linear Algebra Textbook" })[0];
+    const lastCheckbox = screen.getAllByRole("checkbox", { name: "Select Physics Notes" })[0];
+    fireEvent.click(firstCheckbox);
+    fireEvent.click(lastCheckbox, { shiftKey: true });
+
+    expect(
+      screen
+        .getAllByRole("checkbox")
+        .filter((checkbox) => checkbox.getAttribute("aria-label")?.startsWith("Select "))
+        .every((checkbox) => (checkbox as HTMLInputElement).checked)
+    ).toBe(true);
+  });
+
+  it("supports command/control toggles without losing the existing selection", () => {
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const firstCard = screen
+      .getAllByText("Linear Algebra Textbook")
+      .map((element) => element.closest(".snap-start"))
+      .find((card): card is HTMLElement => card !== null);
+    const thirdCard = screen
+      .getAllByText("YouTube Lecture: Calculus")
+      .map((element) => element.closest(".snap-start"))
+      .find((card): card is HTMLElement => card !== null);
+
+    fireEvent.click(firstCard!);
+    fireEvent.click(thirdCard!, { ctrlKey: true });
+
+    expect(firstCard?.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked).toBe(true);
+    expect(thirdCard?.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked).toBe(true);
+    expect(
+      screen
+        .getAllByText("Machine Learning Guide")
+        .map((element) => element.closest(".snap-start"))
+        .filter((card): card is HTMLElement => card !== null)
+        .every((card) => !card.querySelector<HTMLInputElement>("input[type=checkbox]")?.checked)
+    ).toBe(true);
+  });
 });
