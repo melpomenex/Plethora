@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.94.0] - 2026-07-31
+
+### Added
+
+- **Native on-device TTS for Android** — A new `android-tts` Tauri plugin runs sherpa-onnx inference natively (KittenTTS and Kokoro-82M), streaming PCM straight into `AudioTrack` so a local voice is finally available on mobile, where Pocket TTS's desktop-only sidecar can't run. The plugin ships with a system-TTS fallback, a model registry and asset manager that download/verify model weights, a playback service, and a `AndroidTtsModelManager` UI for installing and switching models. The pivot to native (rather than in-webview WASM ONNX) follows a feasibility spike that measured real-time factors of 1.26–2.22 — audio slower than playback — and a ~123 s WASM `bad_alloc` crash; native inference sidesteps both.
+- **OpenRouter TTS + multi-provider voice catalog** — TTS providers grow from 4 to 8 with a new adapter registry replacing the old `TTSProvider` string-union branching. The **OpenRouter** provider reuses the AI key you already have and discovers its live speech-model catalog (19 models, ~12 vendors — Fish Audio, MiniMax, Deepgram Aura-2, Gemini TTS, Grok, MAI-Voice-2, Qwen, Kokoro, Orpheus, Sesame, Zonos, Voxtral) with pricing and voices, cached with TTL plus an offline snapshot. New direct providers **ElevenLabs**, **OpenAI** (incl. `instructions` tone control), and a generic **OpenAI-compatible** endpoint round out the set. Selection moves from flat dropdowns to a searchable, filterable **Voice & Model Browser** with click-to-audition previews, favorites, recents, cost/voice-count badges, and custom voice IDs. Per-provider settings (schema v2 → v3, migrated) and a model-aware cache key (fixing a collision where two models sharing a voice name served each other's audio) ship alongside.
+
+### Fixed & Improved
+
+- **AI Flashcard Studio mobile controls** — The Studio's controls are consolidated into a context chip bar plus bottom sheets, replacing the cramped desktop-first layout on phones. Context, deck, and document selection move into dedicated mobile components (`ContextControlPanel`, `DeckSelector`, `DocumentSelector`, `StudioContextChipBar`, `StudioSheets`) so the workspace stays usable on narrow screens, with shared selection logic factored out and unit-tested.
+
 ## [1.93.0] - 2026-07-31
 
 ### Added
