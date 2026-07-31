@@ -1,0 +1,16 @@
+[package]
+name = "incrementum-android-tts"
+version = "0.1.0"
+description = "Tauri plugin for on-device TTS on Android via sherpa-onnx (KittenTTS / Kokoro-82M)"
+authors = ["Incrementum Team"]
+edition = "2021"
+links = "incrementum-android-tts"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "=2.11.0", features = ["unstable"] }
+serde = "1"
+serde_json = "1"
+thiserror = "1"

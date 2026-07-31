@@ -60,6 +60,7 @@ export function chunkTextForTTS(
   text: string,
   maxChunkSize: number = 500
 ): string[] {
+  const limit = Math.max(1, Math.floor(maxChunkSize));
   const chunks: string[] = [];
   const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
 
@@ -69,12 +70,36 @@ export function chunkTextForTTS(
     const trimmed = sentence.trim();
     if (!trimmed) continue;
 
-    if (currentChunk.length + trimmed.length > maxChunkSize && currentChunk.length > 0) {
+    if (currentChunk.length + trimmed.length > limit && currentChunk.length > 0) {
       chunks.push(currentChunk.trim());
       currentChunk = "";
     }
 
-    currentChunk += " " + trimmed;
+    if (trimmed.length <= limit) {
+      currentChunk += (currentChunk ? " " : "") + trimmed;
+      continue;
+    }
+
+    // A single sentence can exceed a model's context window. Preserve words
+    // and split at the nearest boundary that remains under the limit.
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    let fragment = "";
+    for (const word of words) {
+      if (word.length > limit) {
+        if (fragment) chunks.push(fragment);
+        for (let i = 0; i < word.length; i += limit) chunks.push(word.slice(i, i + limit));
+        fragment = "";
+        continue;
+      }
+      const candidate = fragment ? `${fragment} ${word}` : word;
+      if (candidate.length > limit) {
+        chunks.push(fragment);
+        fragment = word;
+      } else {
+        fragment = candidate;
+      }
+    }
+    currentChunk = fragment;
   }
 
   if (currentChunk.trim()) {

@@ -11,8 +11,19 @@ import {
 } from "@phosphor-icons/react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getVoicesForProvider } from "../../utils/ttsSettings";
-import { generateSpeech } from "../../api/tts";
+import { generateSpeech, resolveTTSMaxChunkSize } from "../../api/tts";
 import { useSystemVoices, resolveSystemVoice } from "../../hooks/useSystemVoices";
+import {
+  onPlaybackState as onNativePlaybackState,
+  onSentencePosition as onNativeSentencePosition,
+  onUtteranceComplete as onNativeUtteranceComplete,
+  onTtsError as onNativeTtsError,
+  pluginPause as nativePause,
+  pluginResume as nativeResume,
+  pluginSpeak as nativeSpeak,
+  pluginStop as nativeStop,
+  isAndroidTtsAvailable,
+} from "../../api/tts/android/bridge";
 import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils";
 import { TextPositionIndex } from "../../utils/ttsTextExtraction";
@@ -54,9 +65,9 @@ interface ReaderTTSControlsProps {
 
 const CHUNK_TARGET = 420;
 const CHUNK_MAX = 700;
-const BUFFER_TARGET_SEC = 60;   // target seconds of audio buffered ahead
-const MAX_CONCURRENT_GEN = 3;   // max parallel generation invocations
-const EVICT_BEHIND_COUNT = 3;   // keep N already-played chunks in memory
+const BUFFER_TARGET_SEC = 60; // target seconds of audio buffered ahead
+const MAX_CONCURRENT_GEN = 3; // max parallel generation invocations
+const EVICT_BEHIND_COUNT = 3; // keep N already-played chunks in memory
 
 function normalizeText(text: string): string {
   return text
@@ -94,35 +105,37 @@ interface BuildChunksResult {
   pageCharOffsets: Map<number, number>;
 }
 
-function buildChunks(text: string): BuildChunksResult {
+function buildChunks(text: string, maxChunkSize = CHUNK_MAX): BuildChunksResult {
+  const targetSize = Math.min(CHUNK_TARGET, Math.max(1, maxChunkSize));
+  const hardSize = Math.max(1, maxChunkSize);
   const pageCharOffsets = new Map<number, number>();
   const pageRegex = /<page number="(\d+)"\s*\/?>/g;
-  
+
   // Clean page markers while keeping track of character offsets in the cleaned text
   let cleanedText = "";
   let lastIdx = 0;
   let match;
-  
+
   while ((match = pageRegex.exec(text)) !== null) {
     const pageNum = parseInt(match[1], 10);
     const fragment = text.slice(lastIdx, match.index);
     const normalizedFrag = normalizeText(fragment);
-    
+
     if (normalizedFrag) {
       cleanedText += (cleanedText ? " " : "") + normalizedFrag;
     }
-    
+
     // The offset of the page is the length of cleanedText up to this point
     pageCharOffsets.set(pageNum, cleanedText.length);
     lastIdx = pageRegex.lastIndex;
   }
-  
+
   const remaining = text.slice(lastIdx);
   const normalizedRemaining = normalizeText(remaining);
   if (normalizedRemaining) {
     cleanedText += (cleanedText ? " " : "") + normalizedRemaining;
   }
-  
+
   if (!cleanedText) {
     return { chunks: [], pageCharOffsets };
   }
@@ -142,7 +155,7 @@ function buildChunks(text: string): BuildChunksResult {
   for (const sentence of sentences) {
     const candidate = current ? `${current} ${sentence}` : sentence;
 
-    if (candidate.length <= CHUNK_TARGET) {
+    if (candidate.length <= targetSize) {
       current = candidate;
       continue;
     }
@@ -158,7 +171,7 @@ function buildChunks(text: string): BuildChunksResult {
     let fragment = "";
     for (const word of words) {
       const next = fragment ? `${fragment} ${word}` : word;
-      if (next.length <= CHUNK_MAX) {
+      if (next.length <= hardSize) {
         fragment = next;
       } else {
         if (fragment) chunks.push(fragment);
@@ -215,31 +228,48 @@ export function ReaderTTSControls({
   const updateSettings = useSettingsStore((state) => state.updateSettings);
   const ttsEnabled = tts?.enabled;
   const isSystemProvider = tts?.provider === "system";
+  // Native Android provider: playback is owned by the native plugin
+  // (sherpa-onnx → AudioTrack). It does its own chunking/prefetching, so like
+  // the system provider there is no <audio> URL to buffer — we hand the whole
+  // passage to the plugin in one speak call.
+  const isAndroidProvider = tts?.provider === "android";
   const { voices: systemSynthVoices, profiles: systemVoiceProfiles } = useSystemVoices();
-  const providerVoices = useMemo(
-    () => {
-      if (!tts) return [];
-      // System provider: device voices aren't persisted — merge in live list.
-      if (tts.provider === "system") {
-        return systemVoiceProfiles.length > 0 ? systemVoiceProfiles : getVoicesForProvider(tts);
-      }
-      return getVoicesForProvider(tts);
-    },
-    [tts, systemVoiceProfiles]
-  );
+  const providerVoices = useMemo(() => {
+    if (!tts) return [];
+    // System provider: device voices aren't persisted — merge in live list.
+    if (tts.provider === "system") {
+      return systemVoiceProfiles.length > 0 ? systemVoiceProfiles : getVoicesForProvider(tts);
+    }
+    return getVoicesForProvider(tts);
+  }, [tts, systemVoiceProfiles]);
   // Currently-active SpeechSynthesisUtterance (system provider only).
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [chunkIndex, setChunkIndex] = useState(0);
   const [selectedVoiceId, setSelectedVoiceId] = useState(tts?.defaultVoiceId ?? "");
   const [isAutoPlaying, setIsAutoPlaying] = useState(false);
+  const [ttsChunkLimit, setTtsChunkLimit] = useState(CHUNK_MAX);
+
+  useEffect(() => {
+    let cancelled = false;
+    void resolveTTSMaxChunkSize(settings).then((limit) => {
+      if (!cancelled) setTtsChunkLimit(limit);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings]);
 
   // Audio buffer: Map of chunk index -> audio URL
   const audioBufferRef = useRef<Map<number, BufferedAudio>>(new Map());
-  const [bufferStatus, setBufferStatus] = useState<Map<number, "pending" | "loading" | "ready" | "error">>(new Map());
+  const [bufferStatus, setBufferStatus] = useState<
+    Map<number, "pending" | "loading" | "ready" | "error">
+  >(new Map());
 
   // Audio element for playback
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Native provider event unsubs (android) — cleaned up on stop/unmount.
+  const nativeUnsubRef = useRef<Array<() => void>>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
 
@@ -287,7 +317,10 @@ export function ReaderTTSControls({
   const mountedRef = useRef(true);
   const playbackIdRef = useRef(0);
 
-  const { chunks, pageCharOffsets } = useMemo(() => buildChunks(text), [text]);
+  const { chunks, pageCharOffsets } = useMemo(
+    () => buildChunks(text, ttsChunkLimit),
+    [text, ttsChunkLimit]
+  );
 
   // TextPositionIndex for position-aware start
   const positionIndexRef = useRef<TextPositionIndex>(new TextPositionIndex(docType));
@@ -308,10 +341,7 @@ export function ReaderTTSControls({
   const getInitialChunk = useCallback(() => {
     const sp = startPositionRef.current;
     if (!sp) return 0;
-    const pos = positionIndexRef.current.getPosition(
-      sp.pageNumber,
-      sp.scrollPercent
-    );
+    const pos = positionIndexRef.current.getPosition(sp.pageNumber, sp.scrollPercent);
     return pos?.chunkIndex ?? 0;
   }, []);
 
@@ -322,7 +352,7 @@ export function ReaderTTSControls({
 
       const parentRect = parentContainer.getBoundingClientRect();
       const iframes = Array.from(parentContainer.querySelectorAll("iframe"));
-      
+
       let visibleElements: HTMLElement[] = [];
 
       if (iframes.length > 0) {
@@ -331,21 +361,21 @@ export function ReaderTTSControls({
             const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
             if (!iframeDoc) continue;
             const iframeRect = iframe.getBoundingClientRect();
-            
+
             const elements = Array.from(
               iframeDoc.body.querySelectorAll<HTMLElement>(
                 "p, h1, h2, h3, h4, h5, h6, li, [role='paragraph']"
               )
             );
-            
+
             for (const el of elements) {
               const text = el.textContent?.trim();
               if (!text || text.length < 3) continue;
-              
+
               const elRect = el.getBoundingClientRect();
               const absoluteTop = iframeRect.top + elRect.top;
               const absoluteBottom = iframeRect.top + elRect.bottom;
-              
+
               // Check if element is visible within the parent container's vertical bounds
               if (absoluteBottom > parentRect.top + 10 && absoluteTop < parentRect.bottom - 10) {
                 visibleElements.push(el);
@@ -364,7 +394,7 @@ export function ReaderTTSControls({
         for (const el of elements) {
           const text = el.textContent?.trim();
           if (!text || text.length < 3) continue;
-          
+
           const elRect = el.getBoundingClientRect();
           if (elRect.bottom > parentRect.top + 10 && elRect.top < parentRect.bottom - 10) {
             visibleElements.push(el);
@@ -378,19 +408,19 @@ export function ReaderTTSControls({
       visibleElements.sort((a, b) => {
         const rectA = a.getBoundingClientRect();
         const rectB = b.getBoundingClientRect();
-        
+
         let topA = rectA.top;
         let topB = rectB.top;
-        
+
         if (a.ownerDocument !== document) {
-          const iframe = iframes.find(f => f.contentDocument === a.ownerDocument);
+          const iframe = iframes.find((f) => f.contentDocument === a.ownerDocument);
           if (iframe) topA += iframe.getBoundingClientRect().top;
         }
         if (b.ownerDocument !== document) {
-          const iframe = iframes.find(f => f.contentDocument === b.ownerDocument);
+          const iframe = iframes.find((f) => f.contentDocument === b.ownerDocument);
           if (iframe) topB += iframe.getBoundingClientRect().top;
         }
-        
+
         return Math.abs(topA - parentRect.top) - Math.abs(topB - parentRect.top);
       });
 
@@ -450,7 +480,7 @@ export function ReaderTTSControls({
           audioBufferRef.current.delete(key);
         }
       }
-      setBufferStatus(prev => {
+      setBufferStatus((prev) => {
         const next = new Map(prev);
         let changed = false;
         for (const key of next.keys()) {
@@ -469,15 +499,12 @@ export function ReaderTTSControls({
   });
 
   // Create a text fingerprint to detect when content actually changes
-  const textFingerprint = useMemo(
-    () => `${text.length}:${text.slice(0, 100)}`,
-    [text]
-  );
+  const textFingerprint = useMemo(() => `${text.length}:${text.slice(0, 100)}`, [text]);
 
   // Selected voice for generation
   const voiceId = useMemo(() => {
     const hasSelectedVoice = providerVoices.some((voice) => voice.id === selectedVoiceId);
-    return hasSelectedVoice ? selectedVoiceId : (providerVoices[0]?.id || tts?.defaultVoiceId || "");
+    return hasSelectedVoice ? selectedVoiceId : providerVoices[0]?.id || tts?.defaultVoiceId || "";
   }, [providerVoices, selectedVoiceId, tts?.defaultVoiceId]);
 
   useEffect(() => {
@@ -528,228 +555,347 @@ export function ReaderTTSControls({
     if (isSystemProvider && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
+    // Native Android provider: stop native playback and unsubscribe events.
+    if (isAndroidProvider && isAndroidTtsAvailable()) {
+      nativeStop().catch(() => {});
+    }
+    const nativeUnsubs = nativeUnsubRef.current;
+    nativeUnsubRef.current = [];
+    for (const u of nativeUnsubs) {
+      try {
+        u();
+      } catch {
+        /* ignore */
+      }
+    }
     setIsPlaying(false);
     setIsPaused(false);
     stopWordTracking();
-  }, [stopWordTracking, isSystemProvider]);
+  }, [stopWordTracking, isSystemProvider, isAndroidProvider]);
 
   // Generate audio for a chunk
-  const generateChunkAudio = useCallback(async (index: number): Promise<BufferedAudio | null> => {
-    if (index < 0 || index >= chunks.length) return null;
+  const generateChunkAudio = useCallback(
+    async (index: number): Promise<BufferedAudio | null> => {
+      if (index < 0 || index >= chunks.length) return null;
 
-    const chunk = chunks[index];
-    if (!chunk) return null;
+      const chunk = chunks[index];
+      if (!chunk) return null;
 
-    // System TTS synthesizes directly at playback time — nothing to fetch/buffer.
-    if (isSystemProvider) {
-      const buffered: BufferedAudio = { audioUrl: "", system: true };
-      audioBufferRef.current.set(index, buffered);
-      setBufferStatus(prev => new Map(prev).set(index, "ready"));
-      return buffered;
-    }
+      // System TTS synthesizes directly at playback time — nothing to fetch/buffer.
+      if (isSystemProvider) {
+        const buffered: BufferedAudio = { audioUrl: "", system: true };
+        audioBufferRef.current.set(index, buffered);
+        setBufferStatus((prev) => new Map(prev).set(index, "ready"));
+        return buffered;
+      }
+      // Native Android provider: playback is owned by the plugin; no audio URL.
+      if (isAndroidProvider) {
+        const buffered: BufferedAudio = { audioUrl: "android-native://playback", system: true };
+        audioBufferRef.current.set(index, buffered);
+        setBufferStatus((prev) => new Map(prev).set(index, "ready"));
+        return buffered;
+      }
 
-    try {
-      setBufferStatus(prev => new Map(prev).set(index, "loading"));
+      try {
+        setBufferStatus((prev) => new Map(prev).set(index, "loading"));
 
-      const result = await generateSpeech(settings, {
-        text: chunk,
-        voiceId,
-      });
+        const result = await generateSpeech(settings, {
+          text: chunk,
+          voiceId,
+        });
 
-      const buffered: BufferedAudio = {
-        audioUrl: result.audioUrl,
-        durationSec: result.durationSec,
-      };
+        const buffered: BufferedAudio = {
+          audioUrl: result.audioUrl,
+          durationSec: result.durationSec,
+        };
 
-      audioBufferRef.current.set(index, buffered);
-      setBufferStatus(prev => new Map(prev).set(index, "ready"));
+        audioBufferRef.current.set(index, buffered);
+        setBufferStatus((prev) => new Map(prev).set(index, "ready"));
 
-      bufferMgrRef.current.activeGenCount = Math.max(0, bufferMgrRef.current.activeGenCount - 1);
-      bufferMgrRef.current.queuedIndices.delete(index);
+        bufferMgrRef.current.activeGenCount = Math.max(0, bufferMgrRef.current.activeGenCount - 1);
+        bufferMgrRef.current.queuedIndices.delete(index);
 
-      return buffered;
-    } catch (error) {
-      console.error(`Failed to generate audio for chunk ${index}:`, error);
-      setBufferStatus(prev => new Map(prev).set(index, "error"));
-      bufferMgrRef.current.activeGenCount = Math.max(0, bufferMgrRef.current.activeGenCount - 1);
-      bufferMgrRef.current.queuedIndices.delete(index);
-      return null;
-    }
-  }, [chunks, settings, voiceId]);
+        return buffered;
+      } catch (error) {
+        console.error(`Failed to generate audio for chunk ${index}:`, error);
+        setBufferStatus((prev) => new Map(prev).set(index, "error"));
+        bufferMgrRef.current.activeGenCount = Math.max(0, bufferMgrRef.current.activeGenCount - 1);
+        bufferMgrRef.current.queuedIndices.delete(index);
+        return null;
+      }
+    },
+    [chunks, settings, voiceId]
+  );
 
   // Pre-buffer upcoming chunks — unified waterfall for all providers
-  const preBufferChunks = useCallback((fromIndex: number) => {
-    bufferMgrRef.current.evictPlayedChunks(fromIndex);
+  const preBufferChunks = useCallback(
+    (fromIndex: number) => {
+      bufferMgrRef.current.evictPlayedChunks(fromIndex);
 
-    const mgr = bufferMgrRef.current;
-    const secondsAhead = mgr.getBufferedSecondsAhead(fromIndex);
-    if (secondsAhead >= BUFFER_TARGET_SEC) return;
+      const mgr = bufferMgrRef.current;
+      const secondsAhead = mgr.getBufferedSecondsAhead(fromIndex);
+      if (secondsAhead >= BUFFER_TARGET_SEC) return;
 
-    let bufferedSec = secondsAhead;
-    let idx = fromIndex;
-    while (idx < chunks.length && bufferedSec < BUFFER_TARGET_SEC) {
-      if (!audioBufferRef.current.has(idx) && !mgr.queuedIndices.has(idx)) {
-        const status = bufferStatusRef.current.get(idx);
-        if (!status || status === "error") {
-          if (mgr.activeGenCount < MAX_CONCURRENT_GEN) {
-            mgr.activeGenCount++;
-            mgr.queuedIndices.add(idx);
-            setBufferStatus(prev => new Map(prev).set(idx, "pending"));
-            generateChunkAudio(idx).catch(err => {
-              console.warn(`Background generation failed for chunk ${idx}:`, err);
-            });
+      let bufferedSec = secondsAhead;
+      let idx = fromIndex;
+      while (idx < chunks.length && bufferedSec < BUFFER_TARGET_SEC) {
+        if (!audioBufferRef.current.has(idx) && !mgr.queuedIndices.has(idx)) {
+          const status = bufferStatusRef.current.get(idx);
+          if (!status || status === "error") {
+            if (mgr.activeGenCount < MAX_CONCURRENT_GEN) {
+              mgr.activeGenCount++;
+              mgr.queuedIndices.add(idx);
+              setBufferStatus((prev) => new Map(prev).set(idx, "pending"));
+              generateChunkAudio(idx).catch((err) => {
+                console.warn(`Background generation failed for chunk ${idx}:`, err);
+              });
+            }
           }
         }
+        const entry = audioBufferRef.current.get(idx);
+        if (entry) bufferedSec += entry.durationSec ?? 3;
+        idx++;
       }
-      const entry = audioBufferRef.current.get(idx);
-      if (entry) bufferedSec += entry.durationSec ?? 3;
-      idx++;
-    }
-  }, [chunks.length, generateChunkAudio]);
+    },
+    [chunks.length, generateChunkAudio]
+  );
 
   // Ref so audio.onended always calls the latest playChunkAtIndex (avoids stale closure)
   const playChunkAtIndexRef = useRef<(index: number) => Promise<void>>(() => Promise.resolve());
 
   // Play a chunk by index
-  const playChunkAtIndex = useCallback(async (index: number) => {
-    if (index < 0 || index >= chunks.length) return;
+  const playChunkAtIndex = useCallback(
+    async (index: number) => {
+      if (index < 0 || index >= chunks.length) return;
 
-    const playId = ++playbackIdRef.current;
+      const playId = ++playbackIdRef.current;
 
-    const chunk = chunks[index];
-    setChunkIndex(index);
-    onChunkStart?.(index, chunk);
-    onChunkChangeRef.current?.(index, positionIndexRef.current.getScrollPercent(index));
+      const chunk = chunks[index];
+      setChunkIndex(index);
+      onChunkStart?.(index, chunk);
+      onChunkChangeRef.current?.(index, positionIndexRef.current.getScrollPercent(index));
 
-    let buffered = audioBufferRef.current.get(index);
+      let buffered = audioBufferRef.current.get(index);
 
-    if (!buffered) {
-      // Buffer underrun — show indicator and generate synchronously
-      setIsBuffering(true);
-      buffered = await generateChunkAudio(index);
-      setIsBuffering(false);
+      if (!buffered) {
+        // Buffer underrun — show indicator and generate synchronously
+        setIsBuffering(true);
+        buffered = await generateChunkAudio(index);
+        setIsBuffering(false);
+
+        if (!mountedRef.current || playbackIdRef.current !== playId) {
+          return;
+        }
+
+        if (!buffered) {
+          console.error("Failed to generate audio for chunk", index);
+          setIsAutoPlaying(false);
+          return;
+        }
+      }
 
       if (!mountedRef.current || playbackIdRef.current !== playId) {
         return;
       }
 
-      if (!buffered) {
-        console.error("Failed to generate audio for chunk", index);
-        setIsAutoPlaying(false);
+      stopAudio();
+
+      // ── System TTS: synthesize directly via the device speech engine ──────
+      // No audio element/URL; word highlighting comes from onboundary events
+      // (more accurate than the time-fraction heuristic used for cloud audio).
+      if (isSystemProvider && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(chunk);
+        utterance.rate = playbackRate;
+        const sysVoice = resolveSystemVoice(voiceId, systemSynthVoices);
+        if (sysVoice) {
+          utterance.voice = sysVoice;
+          utterance.lang = sysVoice.lang;
+        }
+        utterance.onstart = () => {
+          if (!mountedRef.current || playbackIdRef.current !== playId) return;
+          setIsPlaying(true);
+          setIsPaused(false);
+          setWordOffset(0);
+        };
+        utterance.onboundary = (event) => {
+          if (!mountedRef.current || playbackIdRef.current !== playId) return;
+          if (typeof event.charIndex === "number") {
+            setWordOffset(charIndexToWordOffset(chunk, event.charIndex));
+          }
+        };
+        utterance.onend = () => {
+          if (!mountedRef.current || playbackIdRef.current !== playId) return;
+          setIsPlaying(false);
+          setIsPaused(false);
+          setWordOffset(0);
+          if (isAutoPlayingRef.current && autoAdvance && !intentionalStopRef.current) {
+            const nextIndex = index + 1;
+            if (nextIndex < chunksLenRef.current) {
+              playChunkAtIndexRef.current(nextIndex);
+            } else {
+              advancingRef.current = true;
+              setIsAutoPlaying(false);
+              onComplete?.();
+            }
+          }
+        };
+        utterance.onerror = () => {
+          if (!mountedRef.current || playbackIdRef.current !== playId) return;
+          setIsPlaying(false);
+          setIsPaused(false);
+          setWordOffset(0);
+        };
+        utteranceRef.current = utterance;
+        onChunkStart?.(index, chunk);
+        window.speechSynthesis.speak(utterance);
         return;
       }
-    }
 
-    if (!mountedRef.current || playbackIdRef.current !== playId) {
-      return;
-    }
-
-    stopAudio();
-
-    // ── System TTS: synthesize directly via the device speech engine ──────
-    // No audio element/URL; word highlighting comes from onboundary events
-    // (more accurate than the time-fraction heuristic used for cloud audio).
-    if (isSystemProvider && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(chunk);
-      utterance.rate = playbackRate;
-      const sysVoice = resolveSystemVoice(voiceId, systemSynthVoices);
-      if (sysVoice) {
-        utterance.voice = sysVoice;
-        utterance.lang = sysVoice.lang;
-      }
-      utterance.onstart = () => {
-        if (!mountedRef.current || playbackIdRef.current !== playId) return;
+      // ── Native Android provider: hand the remaining chunks to the plugin ──
+      // The plugin owns inference (sherpa-onnx), AudioTrack playback, audio
+      // focus, lifecycle, and System-TTS fallback. It does its own prefetching
+      // and emits sentence-position/playback-state/utterance-complete events;
+      // we use those to drive chunk highlight and auto-advance.
+      if (isAndroidProvider && isAndroidTtsAvailable()) {
+        const remaining = chunks.slice(index);
         setIsPlaying(true);
         setIsPaused(false);
-        setWordOffset(0);
-      };
-      utterance.onboundary = (event) => {
-        if (!mountedRef.current || playbackIdRef.current !== playId) return;
-        if (typeof event.charIndex === "number") {
-          setWordOffset(charIndexToWordOffset(chunk, event.charIndex));
+        setIsBuffering(false);
+
+        // Subscribe for the duration of this utterance; unsubscribed on
+        // completion/error/unmount via the refs the effect cleanup owns.
+        const nativeUnsub: Array<() => void> = [];
+        nativeUnsub.push(
+          await onNativePlaybackState(() => {
+            /* state handled below */
+          })
+        );
+        nativeUnsub.push(
+          await onNativeSentencePosition((e) => {
+            if (!mountedRef.current || playbackIdRef.current !== playId) return;
+            // The plugin's index is relative to the slice we handed it.
+            const absolute = index + e.index;
+            if (absolute !== chunkIndex) {
+              setChunkIndex(absolute);
+              onChunkStart?.(absolute, chunks[absolute] ?? e.sentence);
+              onChunkChangeRef.current?.(
+                absolute,
+                positionIndexRef.current.getScrollPercent(absolute)
+              );
+            }
+          })
+        );
+        nativeUnsub.push(
+          await onNativeUtteranceComplete(() => {
+            if (!mountedRef.current || playbackIdRef.current !== playId) return;
+            setIsPlaying(false);
+            setIsPaused(false);
+            if (isAutoPlayingRef.current && autoAdvance && !intentionalStopRef.current) {
+              advancingRef.current = true;
+              setIsAutoPlaying(false);
+              onComplete?.();
+            }
+          })
+        );
+        nativeUnsub.push(
+          await onNativeTtsError(() => {
+            if (!mountedRef.current || playbackIdRef.current !== playId) return;
+            setIsPlaying(false);
+            setIsPaused(false);
+          })
+        );
+        nativeUnsubRef.current = nativeUnsub;
+
+        try {
+          await nativeSpeak({
+            sentences: remaining,
+            modelId: tts?.providers?.android?.modelId,
+            voiceId,
+            speed: playbackRate,
+          });
+        } catch (err) {
+          console.error("Native Android TTS failed to start:", err);
+          setIsPlaying(false);
+          nativeUnsub.forEach((u) => {
+            try {
+              u();
+            } catch {
+              /* ignore */
+            }
+          });
         }
+        return;
+      }
+
+      const audio = new Audio(buffered.audioUrl);
+      audio.playbackRate = playbackRate;
+      audioRef.current = audio;
+
+      audio.onplay = () => {
+        setIsPlaying(true);
+        setIsPaused(false);
+        startWordTracking(audio, chunk);
       };
-      utterance.onend = () => {
-        if (!mountedRef.current || playbackIdRef.current !== playId) return;
+
+      audio.onpause = () => {
+        if (!audio.ended) {
+          setIsPaused(true);
+          setIsPlaying(false);
+        }
+        stopWordTracking();
+      };
+
+      audio.onended = () => {
         setIsPlaying(false);
         setIsPaused(false);
-        setWordOffset(0);
+        stopWordTracking();
+
         if (isAutoPlayingRef.current && autoAdvance && !intentionalStopRef.current) {
           const nextIndex = index + 1;
           if (nextIndex < chunksLenRef.current) {
             playChunkAtIndexRef.current(nextIndex);
           } else {
+            // All done — signal advance so new text triggers auto-continue
             advancingRef.current = true;
             setIsAutoPlaying(false);
             onComplete?.();
           }
         }
       };
-      utterance.onerror = () => {
-        if (!mountedRef.current || playbackIdRef.current !== playId) return;
+
+      audio.onerror = () => {
+        console.error("Audio playback error");
         setIsPlaying(false);
         setIsPaused(false);
-        setWordOffset(0);
+        stopWordTracking();
       };
-      utteranceRef.current = utterance;
-      onChunkStart?.(index, chunk);
-      window.speechSynthesis.speak(utterance);
-      return;
-    }
 
-    const audio = new Audio(buffered.audioUrl);
-    audio.playbackRate = playbackRate;
-    audioRef.current = audio;
-
-    audio.onplay = () => {
-      setIsPlaying(true);
-      setIsPaused(false);
-      startWordTracking(audio, chunk);
-    };
-
-    audio.onpause = () => {
-      if (!audio.ended) {
-        setIsPaused(true);
+      try {
+        await audio.play();
+        preBufferChunks(index + 1);
+      } catch (error) {
+        console.error("Failed to play audio:", error);
         setIsPlaying(false);
+        stopWordTracking();
       }
-      stopWordTracking();
-    };
-
-    audio.onended = () => {
-      setIsPlaying(false);
-      setIsPaused(false);
-      stopWordTracking();
-
-      if (isAutoPlayingRef.current && autoAdvance && !intentionalStopRef.current) {
-        const nextIndex = index + 1;
-        if (nextIndex < chunksLenRef.current) {
-          playChunkAtIndexRef.current(nextIndex);
-        } else {
-          // All done — signal advance so new text triggers auto-continue
-          advancingRef.current = true;
-          setIsAutoPlaying(false);
-          onComplete?.();
-        }
-      }
-    };
-
-    audio.onerror = () => {
-      console.error("Audio playback error");
-      setIsPlaying(false);
-      setIsPaused(false);
-      stopWordTracking();
-    };
-
-    try {
-      await audio.play();
-      preBufferChunks(index + 1);
-    } catch (error) {
-      console.error("Failed to play audio:", error);
-      setIsPlaying(false);
-      stopWordTracking();
-    }
-  }, [chunks, playbackRate, autoAdvance, stopAudio, generateChunkAudio, preBufferChunks, onComplete, onChunkStart, startWordTracking, stopWordTracking, isSystemProvider, systemSynthVoices, voiceId]);
+    },
+    [
+      chunks,
+      playbackRate,
+      autoAdvance,
+      stopAudio,
+      generateChunkAudio,
+      preBufferChunks,
+      onComplete,
+      onChunkStart,
+      startWordTracking,
+      stopWordTracking,
+      isSystemProvider,
+      systemSynthVoices,
+      voiceId,
+    ]
+  );
   playChunkAtIndexRef.current = playChunkAtIndex;
 
   useEffect(() => {
@@ -791,6 +937,22 @@ export function ReaderTTSControls({
       }
       if (isPaused) {
         window.speechSynthesis.resume();
+        setIsPaused(false);
+        setIsPlaying(true);
+        return;
+      }
+    }
+
+    // ── Native Android provider pause/resume via the plugin ──
+    if (isAndroidProvider && isAndroidTtsAvailable()) {
+      if (isPlaying && !isPaused) {
+        nativePause().catch(() => {});
+        setIsPaused(true);
+        setIsPlaying(false);
+        return;
+      }
+      if (isPaused) {
+        nativeResume().catch(() => {});
         setIsPaused(false);
         setIsPlaying(true);
         return;
@@ -878,100 +1040,106 @@ export function ReaderTTSControls({
 
   return (
     <>
-    {highlightEnabled && currentChunk && (highlightContainerRef?.current || iframeWindow) && (
-      <WordHighlightLayer
-        enabled={highlightEnabled}
-        chunkText={currentChunk}
-        wordOffset={wordOffset}
-        containerRef={highlightContainerRef}
-        useChunkLevel={false}
-        iframeWindow={iframeWindow}
-      />
-    )}
-    <div
-      className={cn(
-        "pointer-events-auto rounded-xl border border-border/80 bg-card/95 px-3 py-2 shadow-lg backdrop-blur",
-        className
+      {highlightEnabled && currentChunk && (highlightContainerRef?.current || iframeWindow) && (
+        <WordHighlightLayer
+          enabled={highlightEnabled}
+          chunkText={currentChunk}
+          wordOffset={wordOffset}
+          containerRef={highlightContainerRef}
+          useChunkLevel={false}
+          iframeWindow={iframeWindow}
+        />
       )}
-    >
-      <div className="flex items-center gap-2">
-        <SpeakerHigh className="h-4 w-4 text-primary" />
-        <button
-          onClick={() => void handlePrev()}
-          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
-          disabled={chunkIndex === 0 || isLoading}
-          title={t("readerTts.previousChunk")}
-        >
-          <SkipBack className="h-3.5 w-3.5" />
-        </button>
-        <button
-          onClick={() => void handlePlayPause()}
-          className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40"
-          disabled={isLoading}
-          title={isPlaying ? (isPaused ? t("readerTts.resume") : t("readerTts.pause")) : t("readerTts.play")}
-        >
-          {isBuffering && isAutoPlaying ? (
-            <CircleNotch className="h-3.5 w-3.5 animate-spin" />
-          ) : isLoading ? (
-            <CircleNotch className="h-3.5 w-3.5 animate-spin" />
-          ) : isPlaying && !isPaused ? (
-            <Pause className="h-3.5 w-3.5" />
-          ) : (
-            <Play className="h-3.5 w-3.5" />
-          )}
-        </button>
-        <button
-          onClick={handleStop}
-          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
-          disabled={!isPlaying && !isPaused}
-          title={t("readerTts.stop")}
-        >
-          <Square className="h-3.5 w-3.5" />
-        </button>
-        <button
-          onClick={() => void handleNext()}
-          className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
-          disabled={chunkIndex >= chunks.length - 1 || isLoading}
-          title={t("readerTts.nextChunk")}
-        >
-          <SkipForward className="h-3.5 w-3.5" />
-        </button>
+      <div
+        className={cn(
+          "pointer-events-auto rounded-xl border border-border/80 bg-card/95 px-3 py-2 shadow-lg backdrop-blur",
+          className
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <SpeakerHigh className="h-4 w-4 text-primary" />
+          <button
+            onClick={() => void handlePrev()}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
+            disabled={chunkIndex === 0 || isLoading}
+            title={t("readerTts.previousChunk")}
+          >
+            <SkipBack className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => void handlePlayPause()}
+            className="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40"
+            disabled={isLoading}
+            title={
+              isPlaying
+                ? isPaused
+                  ? t("readerTts.resume")
+                  : t("readerTts.pause")
+                : t("readerTts.play")
+            }
+          >
+            {isBuffering && isAutoPlaying ? (
+              <CircleNotch className="h-3.5 w-3.5 animate-spin" />
+            ) : isLoading ? (
+              <CircleNotch className="h-3.5 w-3.5 animate-spin" />
+            ) : isPlaying && !isPaused ? (
+              <Pause className="h-3.5 w-3.5" />
+            ) : (
+              <Play className="h-3.5 w-3.5" />
+            )}
+          </button>
+          <button
+            onClick={handleStop}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
+            disabled={!isPlaying && !isPaused}
+            title={t("readerTts.stop")}
+          >
+            <Square className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => void handleNext()}
+            className="rounded-md border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40"
+            disabled={chunkIndex >= chunks.length - 1 || isLoading}
+            title={t("readerTts.nextChunk")}
+          >
+            <SkipForward className="h-3.5 w-3.5" />
+          </button>
 
-        <div className="flex items-center gap-1">
-          {providerVoices.length ? (
+          <div className="flex items-center gap-1">
+            {providerVoices.length ? (
+              <select
+                value={selectedVoiceId}
+                onChange={(e) => handleVoiceChange(e.target.value)}
+                className="max-w-[9.5rem] rounded-md border border-border bg-background px-1.5 py-1 text-xs"
+                title={t("readerTts.voice")}
+              >
+                {providerVoices.map((voice) => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+
             <select
-              value={selectedVoiceId}
-              onChange={(e) => handleVoiceChange(e.target.value)}
-              className="max-w-[9.5rem] rounded-md border border-border bg-background px-1.5 py-1 text-xs"
-              title={t("readerTts.voice")}
+              value={playbackRate}
+              onChange={(e) => {
+                const rate = Number(e.target.value);
+                setPlaybackRate(rate);
+                if (audioRef.current) {
+                  audioRef.current.playbackRate = rate;
+                }
+              }}
+              className="rounded-md border border-border bg-background px-1.5 py-1 text-xs"
+              title={t("readerTts.playbackSpeed")}
             >
-              {providerVoices.map((voice) => (
-                <option key={voice.id} value={voice.id}>
-                  {voice.name}
+              {speedOptions.map((speed) => (
+                <option key={speed} value={speed}>
+                  {speed}x
                 </option>
               ))}
             </select>
-          ) : null}
-
-          <select
-            value={playbackRate}
-            onChange={(e) => {
-              const rate = Number(e.target.value);
-              setPlaybackRate(rate);
-              if (audioRef.current) {
-                audioRef.current.playbackRate = rate;
-              }
-            }}
-            className="rounded-md border border-border bg-background px-1.5 py-1 text-xs"
-            title={t("readerTts.playbackSpeed")}
-          >
-            {speedOptions.map((speed) => (
-              <option key={speed} value={speed}>
-                {speed}x
-              </option>
-            ))}
-          </select>
-        </div>
+          </div>
 
           <button
             onClick={() => {
@@ -1001,11 +1169,18 @@ export function ReaderTTSControls({
           <span className="text-[11px] text-foreground/80">
             {Math.min(chunkIndex + 1, chunks.length)}/{chunks.length}
           </span>
+        </div>
+        <p
+          className="mt-1 max-w-[26rem] truncate text-[11px] text-foreground/80"
+          title={currentChunk}
+        >
+          {isBuffering && isAutoPlaying
+            ? t("readerTts.bufferingNextSegment")
+            : isLoading
+              ? t("readerTts.generatingAudio")
+              : currentChunk}
+        </p>
       </div>
-      <p className="mt-1 max-w-[26rem] truncate text-[11px] text-foreground/80" title={currentChunk}>
-        {isBuffering && isAutoPlaying ? t("readerTts.bufferingNextSegment") : isLoading ? t("readerTts.generatingAudio") : currentChunk}
-      </p>
-    </div>
     </>
   );
 }

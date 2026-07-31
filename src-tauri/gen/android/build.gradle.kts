@@ -13,6 +13,11 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // sherpa-onnx (k2-fsa) is published via JitPack, not Maven Central. The
+        // incrementum-android-tts plugin pulls com.github.k2-fsa:sherpa-onnx from
+        // here. Declared at the root so every subproject (including :app) can
+        // resolve it; module-level repositories are ignored under Tauri's build.
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

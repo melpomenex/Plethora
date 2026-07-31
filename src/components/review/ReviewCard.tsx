@@ -485,7 +485,7 @@ export const ReviewCard = React.memo(function ReviewCard({
         <span className="text-xs md:text-sm uppercase tracking-wide text-foreground/80 font-medium">
           {getItemTypeLabel(itemType)}
         </span>
-        {card.tags.length > 0 && (
+        {(card.tags?.length ?? 0) > 0 && (
           <>
             <span className="text-foreground/60" aria-hidden="true">•</span>
             {card.tags.slice(0, 2).map((tag) => (

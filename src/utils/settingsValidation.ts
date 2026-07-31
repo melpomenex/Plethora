@@ -175,10 +175,27 @@ export const AudioTranscriptionSettingsSchema = z.object({
   }),
 });
 
+const TTSProviderSettingsSchema = z.object({
+  apiKey: z.string().default(''),
+  baseUrl: z.string().default(''),
+  modelId: z.string().default(''),
+  voiceId: z.string().default(''),
+  responseFormat: z.string().default('mp3'),
+  speed: z.number().min(0.25).max(4).default(1),
+  instructions: z.string().default(''),
+  requestMode: z.enum(['direct', 'proxy']).default('direct'),
+  proxyUrl: z.string().default(''),
+  cloneModelId: z.string().default(''),
+  language: z.string().default('Auto'),
+  pocketSpeed: z.number().min(0.5).max(2).default(1),
+  pocketAvailable: z.boolean().default(false),
+});
+
 export const TTSSettingsSchema = z.object({
-  schemaVersion: z.number().int().default(2),
+  schemaVersion: z.number().int().default(3),
   enabled: z.boolean().default(false),
-  provider: z.enum(['fal', 'groq']).default('fal'),
+  provider: z.string().default('fal'),
+  providers: z.record(z.string(), TTSProviderSettingsSchema).default({}),
   requestMode: z.enum(['direct', 'proxy']).default('direct'),
   apiKey: z.string().default(''),
   proxyUrl: z.string().default(''),
@@ -191,10 +208,15 @@ export const TTSSettingsSchema = z.object({
   defaultPresetId: z.string().default('balanced-default'),
   voiceProfiles: z.array(z.object({
     id: z.string(),
-    provider: z.enum(['fal', 'groq']).default('fal'),
+    provider: z.string().default('fal'),
     name: z.string(),
-    kind: z.enum(['builtin', 'cloned']),
+    kind: z.enum(['builtin', 'cloned', 'custom']),
     voice: z.string().optional(),
+    modelId: z.string().optional(),
+    vendor: z.string().optional(),
+    language: z.string().optional(),
+    gender: z.string().optional(),
+    style: z.string().optional(),
     speakerEmbeddingUrl: z.string().optional(),
     referenceText: z.string().optional(),
     createdAt: z.string(),
@@ -211,6 +233,8 @@ export const TTSSettingsSchema = z.object({
     maxNewTokens: z.number().int().min(20).max(1000),
     readonly: z.boolean(),
   })).default([]),
+  favorites: z.array(z.string()).max(50).default([]),
+  recents: z.array(z.string()).max(50).default([]),
 });
 
 // Integration Settings Schema

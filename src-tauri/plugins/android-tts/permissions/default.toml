@@ -1,0 +1,21 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Allows the android-tts plugin's on-device TTS commands to be invoked from the
+frontend. On Android these drive native sherpa-onnx synthesis, AudioTrack
+playback, model downloads, and System-TTS fallback; on desktop every command
+returns an Android-only error and Pocket TTS is used instead.
+"""
+permissions = [
+  "allow-initialize",
+  "allow-download-model",
+  "allow-cancel-download",
+  "allow-list-models",
+  "allow-list-voices",
+  "allow-speak",
+  "allow-pause",
+  "allow-resume",
+  "allow-stop",
+  "allow-delete-model"
+]

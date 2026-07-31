@@ -47,6 +47,7 @@
     "notification:allow-request-permission",
     "notification:allow-notify",
     "incrementum-folder-import:default",
+    "incrementum-android-tts:default",
     "updater:default",
     "process:default",
     "process:allow-restart",

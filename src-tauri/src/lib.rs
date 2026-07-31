@@ -645,7 +645,13 @@ pub fn run() {
         // Desktop uses a native folder dialog + walkdir; Android uses SAF
         // (ACTION_OPEN_DOCUMENT_TREE) and iOS uses UIDocumentPickerViewController
         // in folder mode, staging files into app-private storage.
-        .plugin(incrementum_folder_import::init());
+        .plugin(incrementum_folder_import::init())
+        // On-device TTS for Android: native sherpa-onnx inference (KittenTTS
+        // Micro / Kokoro-82M) with AudioTrack playback, audio focus, lifecycle,
+        // model downloads, and System-TTS fallback — all owned by the Kotlin
+        // plugin. No PCM crosses the Tauri IPC. Desktop commands return an
+        // Android-only error; Pocket TTS is the desktop local option, untouched.
+        .plugin(incrementum_android_tts::init());
 
     // Updater + process (relaunch after install) are desktop-only.
     // The plugin reads its config from the `plugins.updater` block in

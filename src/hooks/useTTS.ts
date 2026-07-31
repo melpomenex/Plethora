@@ -1,11 +1,19 @@
 /**
  * Text-to-Speech Hook
  * Supports Fal.ai generation with local fallback to Web Speech API.
+ *
+ * When the active provider is `android`, playback is delegated to
+ * useNativeAndroidTTS — the native plugin plays audio through sherpa-onnx and
+ * AudioTrack and drives the UI via events (no audio URL is returned).
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { generateSpeech } from "../api/tts";
+import { chunkSpeechText, generateSpeech, resolveTTSMaxChunkSize } from "../api/tts";
+import { resolveProviderKey } from "../api/tts/auth";
+import { getAdapter } from "../api/tts/registry";
+import { getProviderSettings } from "../utils/ttsSettings";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useNativeAndroidTTS } from "./useNativeAndroidTTS";
 
 interface UseTTSOptions {
   rate?: number;
@@ -32,21 +40,29 @@ interface UseTTSReturn {
   voices: SpeechSynthesisVoice[];
   selectedVoice: SpeechSynthesisVoice | null;
   setSelectedVoice: (voice: SpeechSynthesisVoice | null) => void;
+  /** Active sentence index for reader highlighting (native provider only). */
+  activeSentenceIndex?: number;
+  /** Active sentence text for reader highlighting (native provider only). */
+  activeSentence?: string | null;
 }
 
 function cleanText(text: string): string {
-  return text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return text
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
-  const {
-    rate = 1,
-    pitch = 1,
-    volume = 1,
-    lang = "en-US",
-  } = options;
+  const { rate = 1, pitch = 1, volume = 1, lang = "en-US" } = options;
 
   const settings = useSettingsStore((state) => state.settings);
+
+  // ── Native Android provider: delegate the entire surface ────────────
+  // The native provider is event-driven and owns playback natively, so we
+  // route through useNativeAndroidTTS and adapt its return to UseTTSReturn.
+  const isAndroidProvider = settings.tts?.provider === "android";
+  const native = useNativeAndroidTTS(settings, { rate });
 
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -63,24 +79,29 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
   const hasAudioPlayback = typeof window !== "undefined" && typeof Audio !== "undefined";
   const isSupported = hasSpeechSynthesis || hasAudioPlayback;
 
+  // NOTE: the native-provider branch deliberately lives at the very BOTTOM of
+  // this function, not here. Returning early at this point skipped the eight
+  // hooks declared below, so switching the provider to or from "android" in
+  // settings changed this component's hook count between renders and React
+  // threw "Rendered fewer hooks than expected", blanking the app until a
+  // restart. Every hook must run on every render; only the returned value may
+  // branch. Keep it that way.
+
   const ttsSettings = settings.tts;
 
-  // Pocket TTS is always "configured" when enabled since it doesn't need API keys
-  const isPocketProvider = ttsSettings?.provider === "pocket";
   // System TTS uses the device speech engine — always "configured", no key/URL.
   const isSystemProvider = ttsSettings?.provider === "system";
-  const directKey =
-    ttsSettings?.provider === "groq"
-      ? (ttsSettings.apiKey?.trim() || settings.audioTranscription?.groq?.apiKey?.trim() || "")
-      : (ttsSettings?.apiKey?.trim() || "");
-
+  const activeAdapter = getAdapter(String(ttsSettings?.provider || "system"));
+  const activeConfig = ttsSettings
+    ? getProviderSettings(ttsSettings, String(ttsSettings.provider))
+    : null;
+  const resolvedKey = ttsSettings ? resolveProviderKey(activeAdapter, settings) : { key: "" };
   const providerConfigured =
-    ttsSettings?.enabled &&
-    (isPocketProvider || isSystemProvider
-      ? true // Pocket & System TTS don't need API keys
-      : ttsSettings.requestMode === "proxy"
-        ? Boolean(ttsSettings.proxyUrl?.trim())
-        : Boolean(directKey));
+    Boolean(ttsSettings?.enabled) &&
+    (activeAdapter.auth.mode === "none" ||
+      (activeConfig?.requestMode === "proxy"
+        ? Boolean(activeConfig.proxyUrl.trim())
+        : Boolean(resolvedKey.key)));
 
   const stop = useCallback(() => {
     // Resolve the active `speak` promise before cancelling the underlying
@@ -111,8 +132,8 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       const availableVoices = window.speechSynthesis.getVoices();
       setVoices(availableVoices);
 
-      const defaultVoice = availableVoices.find(
-        (voice) => voice.lang.startsWith(lang.split("-")[0])
+      const defaultVoice = availableVoices.find((voice) =>
+        voice.lang.startsWith(lang.split("-")[0])
       );
       if (defaultVoice && !selectedVoice) {
         setSelectedVoice(defaultVoice);
@@ -127,154 +148,171 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
     };
   }, [hasSpeechSynthesis, lang, selectedVoice]);
 
-  const speakWithWebSpeech = useCallback((text: string): Promise<void> => {
-    if (!hasSpeechSynthesis) return Promise.resolve();
+  const speakWithWebSpeech = useCallback(
+    (text: string): Promise<void> => {
+      if (!hasSpeechSynthesis) return Promise.resolve();
 
-    window.speechSynthesis.cancel();
+      window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = rate;
-    utterance.pitch = pitch;
-    utterance.volume = volume;
-    utterance.lang = lang;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = rate;
+      utterance.pitch = pitch;
+      utterance.volume = volume;
+      utterance.lang = lang;
 
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
-    }
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
 
-    return new Promise<void>((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        if (settlePlaybackRef.current === finish) {
-          settlePlaybackRef.current = null;
-        }
-        resolve();
-      };
-      settlePlaybackRef.current = finish;
+      return new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          if (settlePlaybackRef.current === finish) {
+            settlePlaybackRef.current = null;
+          }
+          resolve();
+        };
+        settlePlaybackRef.current = finish;
 
-      utterance.onstart = () => {
-        setLastError(null);
-        setIsSpeaking(true);
-        setIsPaused(false);
-      };
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        setIsPaused(false);
-        finish();
-      };
-      utterance.onerror = () => {
-        setLastError("Web Speech API failed to read this text.");
-        setIsSpeaking(false);
-        setIsPaused(false);
-        finish();
-      };
+        utterance.onstart = () => {
+          setLastError(null);
+          setIsSpeaking(true);
+          setIsPaused(false);
+        };
+        utterance.onend = () => {
+          setIsSpeaking(false);
+          setIsPaused(false);
+          finish();
+        };
+        utterance.onerror = () => {
+          setLastError("Web Speech API failed to read this text.");
+          setIsSpeaking(false);
+          setIsPaused(false);
+          finish();
+        };
 
-      utteranceRef.current = utterance;
-      window.speechSynthesis.speak(utterance);
-    });
-  }, [hasSpeechSynthesis, rate, pitch, volume, lang, selectedVoice]);
-
-  const speakWithFal = useCallback(async (text: string, overrides?: SpeakOverrides) => {
-    if (!hasAudioPlayback) {
-      throw new Error("Audio playback is not supported on this platform.");
-    }
-
-    setIsGenerating(true);
-    setLastError(null);
-
-    const result = await generateSpeech(settings, {
-      text,
-      voiceId: overrides?.voiceId,
-      presetId: overrides?.presetId,
-    });
-
-    const audio = new Audio(result.audioUrl);
-    audio.playbackRate = rate;
-    audioRef.current = audio;
-
-    await new Promise<void>((resolve, reject) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        if (settlePlaybackRef.current === finish) {
-          settlePlaybackRef.current = null;
-        }
-        resolve();
-      };
-      const fail = (error: Error) => {
-        if (settled) return;
-        settled = true;
-        if (settlePlaybackRef.current === finish) {
-          settlePlaybackRef.current = null;
-        }
-        reject(error);
-      };
-      settlePlaybackRef.current = finish;
-
-      audio.onplay = () => {
-        setIsGenerating(false);
-        setIsSpeaking(true);
-        setIsPaused(false);
-      };
-      audio.onpause = () => {
-        if (audio.ended) return;
-        setIsPaused(true);
-        setIsSpeaking(false);
-      };
-      audio.onended = () => {
-        setIsSpeaking(false);
-        setIsPaused(false);
-        setIsGenerating(false);
-        finish();
-      };
-      audio.onerror = () => {
-        setIsGenerating(false);
-        setIsSpeaking(false);
-        setIsPaused(false);
-        setLastError("Failed to play generated audio.");
-        fail(new Error("Failed to play generated audio."));
-      };
-
-      void audio.play().catch((error: unknown) => {
-        fail(error instanceof Error ? error : new Error("Failed to start generated audio."));
+        utteranceRef.current = utterance;
+        window.speechSynthesis.speak(utterance);
       });
-    });
-  }, [settings, hasAudioPlayback, rate]);
+    },
+    [hasSpeechSynthesis, rate, pitch, volume, lang, selectedVoice]
+  );
 
-  const speak = useCallback(async (text: string, overrides?: SpeakOverrides) => {
-    if (!isSupported) return;
-
-    stop();
-    const normalizedText = cleanText(text);
-    if (!normalizedText) return;
-
-    try {
-      // System TTS synthesizes directly via the device engine (no audio URL).
-      if (isSystemProvider && hasSpeechSynthesis) {
-        await speakWithWebSpeech(normalizedText);
-        return;
+  const speakWithProvider = useCallback(
+    async (text: string, overrides?: SpeakOverrides) => {
+      if (!hasAudioPlayback) {
+        throw new Error("Audio playback is not supported on this platform.");
       }
 
-      if (providerConfigured) {
-        await speakWithFal(normalizedText, overrides);
-        return;
-      }
+      setIsGenerating(true);
+      setLastError(null);
 
-      await speakWithWebSpeech(normalizedText);
-    } catch (error) {
-      setIsGenerating(false);
-      setIsSpeaking(false);
-      setIsPaused(false);
-      setLastError(error instanceof Error ? error.message : "TTS generation failed.");
+      const result = await generateSpeech(settings, {
+        text,
+        voiceId: overrides?.voiceId,
+        presetId: overrides?.presetId,
+      });
 
-      if (hasSpeechSynthesis) {
-        await speakWithWebSpeech(normalizedText);
+      const audio = new Audio(result.audioUrl);
+      audio.playbackRate = rate;
+      audioRef.current = audio;
+
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          if (settlePlaybackRef.current === finish) {
+            settlePlaybackRef.current = null;
+          }
+          resolve();
+        };
+        const fail = (error: Error) => {
+          if (settled) return;
+          settled = true;
+          if (settlePlaybackRef.current === finish) {
+            settlePlaybackRef.current = null;
+          }
+          reject(error);
+        };
+        settlePlaybackRef.current = finish;
+
+        audio.onplay = () => {
+          setIsGenerating(false);
+          setIsSpeaking(true);
+          setIsPaused(false);
+        };
+        audio.onpause = () => {
+          if (audio.ended) return;
+          setIsPaused(true);
+          setIsSpeaking(false);
+        };
+        audio.onended = () => {
+          setIsSpeaking(false);
+          setIsPaused(false);
+          setIsGenerating(false);
+          finish();
+        };
+        audio.onerror = () => {
+          setIsGenerating(false);
+          setIsSpeaking(false);
+          setIsPaused(false);
+          setLastError("Failed to play generated audio.");
+          fail(new Error("Failed to play generated audio."));
+        };
+
+        void audio.play().catch((error: unknown) => {
+          fail(error instanceof Error ? error : new Error("Failed to start generated audio."));
+        });
+      });
+    },
+    [settings, hasAudioPlayback, rate]
+  );
+
+  const speak = useCallback(
+    async (text: string, overrides?: SpeakOverrides) => {
+      if (!isSupported) return;
+
+      stop();
+      const normalizedText = cleanText(text);
+      if (!normalizedText) return;
+
+      try {
+        // System TTS synthesizes directly via the device engine (no audio URL).
+        if (isSystemProvider && hasSpeechSynthesis) {
+          await speakWithWebSpeech(normalizedText);
+        } else if (providerConfigured) {
+          const maxChunkSize = await resolveTTSMaxChunkSize(settings);
+          for (const chunk of chunkSpeechText(normalizedText, maxChunkSize)) {
+            await speakWithProvider(chunk, overrides);
+          }
+        } else {
+          await speakWithWebSpeech(normalizedText);
+        }
+      } catch (error) {
+        setIsGenerating(false);
+        setIsSpeaking(false);
+        setIsPaused(false);
+        setLastError(error instanceof Error ? error.message : "TTS generation failed.");
+
+        if (hasSpeechSynthesis) {
+          await speakWithWebSpeech(normalizedText);
+        }
       }
-    }
-  }, [isSupported, stop, providerConfigured, isSystemProvider, hasSpeechSynthesis, speakWithFal, speakWithWebSpeech]);
+    },
+    [
+      isSupported,
+      stop,
+      providerConfigured,
+      isSystemProvider,
+      hasSpeechSynthesis,
+      speakWithProvider,
+      speakWithWebSpeech,
+      settings,
+    ]
+  );
 
   const pause = useCallback(() => {
     if (audioRef.current && !audioRef.current.paused) {
@@ -316,6 +354,30 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       stop();
     };
   }, [stop]);
+
+  // Native provider: the native hook owns all state and playback, so we hand
+  // back its surface instead of the Web Speech / audio-element one. This must
+  // stay below every hook call above — see the note near the top of the hook.
+  // We still expose voices/setSelectedVoice (empty/null) so callers can use the
+  // same interface regardless of provider.
+  if (isAndroidProvider) {
+    return {
+      speak: native.speak,
+      stop: native.stop,
+      pause: native.pause,
+      resume: native.resume,
+      isSpeaking: native.isSpeaking,
+      isPaused: native.isPaused,
+      isGenerating: native.isGenerating,
+      lastError: native.lastError,
+      isSupported: native.available,
+      voices: [],
+      selectedVoice: null,
+      setSelectedVoice: () => {},
+      activeSentenceIndex: native.activeSentenceIndex,
+      activeSentence: native.activeSentence,
+    };
+  }
 
   return {
     speak,

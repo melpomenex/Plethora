@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsClockwise,
   CaretDown,
@@ -19,8 +19,13 @@ import {
 } from "@phosphor-icons/react";
 import { cloneVoice, generateSpeech, TTSServiceError } from "../../api/tts";
 import { checkPocketTTSAvailable } from "../../api/pocketTts";
+import { getAdapter, listAdapters } from "../../api/tts/registry";
+import { resolveProviderKey, describeBorrowedSource } from "../../api/tts/auth";
+import type { TTSModelInfo, TTSVoiceInfo, TTSProviderId } from "../../api/tts/types";
+import { getCatalog } from "../../api/tts/catalog";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { NumericInput } from "../common";
+import { AndroidTtsModelManager } from "./AndroidTtsModelManager";
 import {
   FAL_LANGUAGES,
   createDefaultTTSSettings,
@@ -29,6 +34,7 @@ import {
   type TTSPreset,
   type TTSVoiceProfile,
   type TTSProvider,
+  getProviderSettings,
 } from "../../utils/ttsSettings";
 import { cn } from "../../utils";
 import { isTauri, isNativeMobile } from "../../lib/tauri";
@@ -38,6 +44,8 @@ import {
   SYSTEM_VOICE_SELECT_CAP,
 } from "../../hooks/useSystemVoices";
 import { useI18n } from "../../lib/i18n";
+import VoiceBrowser from "./VoiceBrowser";
+import ModelBrowser from "./ModelBrowser";
 
 const MAX_SAMPLE_FILE_SIZE_MB = 12;
 const MAX_SAMPLE_DURATION_SECONDS = 45;
@@ -144,9 +152,7 @@ function SystemVoicePicker({
 }: SystemVoicePickerProps) {
   const { t } = useI18n();
   const query = search.trim().toLowerCase();
-  const filtered = query
-    ? voices.filter((v) => v.name.toLowerCase().includes(query))
-    : voices;
+  const filtered = query ? voices.filter((v) => v.name.toLowerCase().includes(query)) : voices;
   const capped = showAll ? filtered : filtered.slice(0, SYSTEM_VOICE_SELECT_CAP);
   const hiddenCount = filtered.length - capped.length;
 
@@ -169,9 +175,7 @@ function SystemVoicePicker({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {t("settings.ttsSystemNoVoices")}
-        </p>
+        <p className="text-sm text-muted-foreground">{t("settings.ttsSystemNoVoices")}</p>
       ) : (
         <div className="max-h-80 space-y-1.5 overflow-y-auto rounded-lg border border-border p-2">
           {capped.map((voice) => {
@@ -182,7 +186,9 @@ function SystemVoicePicker({
                 key={voice.id}
                 className={cn(
                   "flex items-center justify-between gap-3 rounded-md border px-3 py-2",
-                  isDefault ? "border-primary/40 bg-primary/5" : "border-transparent hover:bg-muted/40",
+                  isDefault
+                    ? "border-primary/40 bg-primary/5"
+                    : "border-transparent hover:bg-muted/40"
                 )}
               >
                 <div className="min-w-0">
@@ -205,7 +211,7 @@ function SystemVoicePicker({
                     onClick={() => onSelect(voice.id)}
                     className={cn(
                       "rounded-md border px-2 py-1 text-xs",
-                      isDefault ? "border-primary bg-primary/10 text-primary" : "border-border",
+                      isDefault ? "border-primary bg-primary/10 text-primary" : "border-border"
                     )}
                   >
                     {isDefault ? t("settings.ttsDefault") : t("settings.ttsSetDefault")}
@@ -237,11 +243,19 @@ export function TTSSettings() {
   const { settings, updateSettings } = useSettingsStore();
   const tts = settings.tts ?? createDefaultTTSSettings();
 
-  const [apiKeyInput, setApiKeyInput] = useState(tts.apiKey);
-  const [proxyUrlInput, setProxyUrlInput] = useState(tts.proxyUrl);
-  const [modelIdInput, setModelIdInput] = useState(tts.modelId);
-  const [cloneModelIdInput, setCloneModelIdInput] = useState(tts.cloneModelId);
-  const [groqModelIdInput, setGroqModelIdInput] = useState(tts.groqModelId);
+  const activeProviderConfig = getProviderSettings(tts, String(tts.provider));
+  const [apiKeyInput, setApiKeyInput] = useState(activeProviderConfig.apiKey);
+  const [proxyUrlInput, setProxyUrlInput] = useState(activeProviderConfig.proxyUrl);
+  const [modelIdInput, setModelIdInput] = useState(activeProviderConfig.modelId);
+  const [cloneModelIdInput, setCloneModelIdInput] = useState(activeProviderConfig.cloneModelId);
+  const [groqModelIdInput, setGroqModelIdInput] = useState(activeProviderConfig.modelId);
+  const [showVoiceBrowser, setShowVoiceBrowser] = useState(false);
+  const [showModelBrowser, setShowModelBrowser] = useState(false);
+  const [browserModels, setBrowserModels] = useState<TTSModelInfo[]>([]);
+  const [browserVoices, setBrowserVoices] = useState<TTSVoiceInfo[]>([]);
+  const [browserOffline, setBrowserOffline] = useState(false);
+  const browserAudioRef = useRef<HTMLAudioElement | null>(null);
+  const credentialInputRef = useRef<HTMLInputElement | null>(null);
 
   const [voiceName, setVoiceName] = useState("");
   const [voiceSampleText, setVoiceSampleText] = useState("This is my voice cloning sample.");
@@ -250,7 +264,9 @@ export function TTSSettings() {
 
   const [operationState, setOperationState] = useState<LifecycleState>("idle");
   const [operationMessage, setOperationMessage] = useState<string>("");
-  const [generateText, setGenerateText] = useState("Welcome to Incrementum. This is your configured text to speech output.");
+  const [generateText, setGenerateText] = useState(
+    "Welcome to Incrementum. This is your configured text to speech output."
+  );
   const [overrideVoiceId, setOverrideVoiceId] = useState("default");
   const [overridePresetId, setOverridePresetId] = useState("default");
   const [generatedAudioUrl, setGeneratedAudioUrl] = useState<string>("");
@@ -273,30 +289,77 @@ export function TTSSettings() {
   const [systemPreviewingId, setSystemPreviewingId] = useState<string | null>(null);
 
   useEffect(() => {
-    setApiKeyInput(tts.apiKey);
-    setProxyUrlInput(tts.proxyUrl);
-    setModelIdInput(tts.modelId);
-    setCloneModelIdInput(tts.cloneModelId);
-    setGroqModelIdInput(tts.groqModelId);
-  }, [tts.apiKey, tts.proxyUrl, tts.modelId, tts.cloneModelId, tts.groqModelId]);
+    const config = getProviderSettings(tts, String(tts.provider));
+    setApiKeyInput(config.apiKey);
+    setProxyUrlInput(config.proxyUrl);
+    setModelIdInput(config.modelId);
+    setCloneModelIdInput(config.cloneModelId);
+    setGroqModelIdInput(config.modelId);
+  }, [tts, tts.provider]);
 
   // Device speech-synthesis voices (System TTS provider). Declared early so the
   // providerVoices memo (below) and the system test path can reference it.
-  const { available: systemTtsAvailable, profiles: systemVoices, voices: systemSynthVoices } = useSystemVoices();
+  const {
+    available: systemTtsAvailable,
+    profiles: systemVoices,
+    voices: systemSynthVoices,
+  } = useSystemVoices();
 
-  const providerVoices = useMemo(
-    () => {
-      const persisted = getVoicesForProvider(tts);
-      // System provider: device voices aren't persisted, so merge in the live
-      // list from the WebView's speech engine.
-      if (tts.provider === "system") {
-        return systemVoices.length > 0 ? systemVoices : persisted;
-      }
-      return persisted;
-    },
-    [tts, systemVoices]
-  );
+  const providerVoices = useMemo(() => {
+    const persisted = getVoicesForProvider(tts);
+    // System provider: device voices aren't persisted, so merge in the live
+    // list from the WebView's speech engine.
+    if (tts.provider === "system") {
+      return systemVoices.length > 0 ? systemVoices : persisted;
+    }
+    return persisted;
+  }, [tts, systemVoices]);
   const isGroqProvider = tts.provider === "groq";
+  const activeAdapter = getAdapter(String(tts.provider));
+
+  useEffect(() => {
+    const resolved = resolveProviderKey(activeAdapter, settings);
+    if (activeAdapter.auth.mode !== "none" && !resolved.key) {
+      const timer = window.setTimeout(() => credentialInputRef.current?.focus(), 0);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [activeAdapter, settings, tts.provider]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const config = getProviderSettings(tts, String(tts.provider));
+    const context = { settings, tts, config };
+    const load = async () => {
+      try {
+        const catalog =
+          activeAdapter.id === "openrouter"
+            ? await getCatalog({
+                apiKey: resolveProviderKey(activeAdapter, settings).key || undefined,
+              })
+            : null;
+        const models = catalog?.models || (await activeAdapter.listModels(context));
+        if (!cancelled) {
+          setBrowserModels(models);
+          setBrowserOffline(Boolean(catalog?.offline));
+        }
+        if (config.modelId) {
+          const voices = await activeAdapter.listVoices(context, config.modelId);
+          if (!cancelled) setBrowserVoices(voices);
+        }
+      } catch {
+        if (!cancelled) {
+          setBrowserModels([]);
+          setBrowserVoices([]);
+          setBrowserOffline(true);
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAdapter, settings, tts, tts.provider]);
 
   const defaultVoice = useMemo(
     () => providerVoices.find((voice) => voice.id === tts.defaultVoiceId),
@@ -321,10 +384,22 @@ export function TTSSettings() {
 
   const saveProviderSettings = () => {
     const latestTts = useSettingsStore.getState().settings.tts ?? createDefaultTTSSettings();
-    const savingGroqProvider = latestTts.provider === "groq";
+    const provider = String(latestTts.provider) as TTSProvider;
+    const previous = getProviderSettings(latestTts, provider);
+    const nextProviders = {
+      ...latestTts.providers,
+      [provider]: {
+        ...previous,
+        apiKey: apiKeyInput.trim(),
+        proxyUrl: proxyUrlInput.trim(),
+        modelId: (provider === "groq" ? groqModelIdInput : modelIdInput).trim() || previous.modelId,
+        cloneModelId: cloneModelIdInput.trim() || previous.cloneModelId,
+      },
+    };
     updateTTS({
+      providers: nextProviders,
       apiKey: apiKeyInput.trim(),
-      proxyUrl: savingGroqProvider ? "" : proxyUrlInput.trim(),
+      proxyUrl: proxyUrlInput.trim(),
       modelId: modelIdInput.trim() || latestTts.modelId,
       cloneModelId: cloneModelIdInput.trim() || latestTts.cloneModelId,
       groqModelId: groqModelIdInput.trim() || latestTts.groqModelId,
@@ -404,10 +479,7 @@ export function TTSSettings() {
         sampleText: voiceSampleText,
       });
 
-      const mergedVoices: TTSVoiceProfile[] = [
-        ...tts.voiceProfiles,
-        result.profile,
-      ];
+      const mergedVoices: TTSVoiceProfile[] = [...tts.voiceProfiles, result.profile];
 
       updateTTS({
         voiceProfiles: mergedVoices,
@@ -516,7 +588,7 @@ export function TTSSettings() {
     const nextPresets = tts.presets.filter((item) => item.id !== presetId);
     const nextDefault =
       tts.defaultPresetId === presetId
-        ? nextPresets[0]?.id ?? createDefaultTTSSettings().defaultPresetId
+        ? (nextPresets[0]?.id ?? createDefaultTTSSettings().defaultPresetId)
         : tts.defaultPresetId;
 
     updateTTS({ presets: nextPresets, defaultPresetId: nextDefault });
@@ -551,7 +623,7 @@ export function TTSSettings() {
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(
-        sampleText ?? t("settings.ttsSystemPreviewSample"),
+        sampleText ?? t("settings.ttsSystemPreviewSample")
       );
       const voice = resolveSystemVoice(voiceId, systemSynthVoices);
       if (voice) {
@@ -586,12 +658,60 @@ export function TTSSettings() {
   const setProvider = (provider: TTSProvider) => {
     const latestTts = useSettingsStore.getState().settings.tts ?? createDefaultTTSSettings();
     const voices = getVoicesForProvider(latestTts, provider);
-    // System TTS has no request mode / API key — always "direct" and keyless.
-    const isLocal = provider === "groq" || provider === "pocket" || provider === "system";
+    const config = getProviderSettings(latestTts, provider);
     updateTTS({
       provider,
-      requestMode: isLocal ? "direct" : latestTts.requestMode,
-      defaultVoiceId: voices[0]?.id || latestTts.defaultVoiceId,
+      requestMode: config.requestMode,
+      defaultVoiceId: config.voiceId || voices[0]?.id || latestTts.defaultVoiceId,
+    });
+  };
+
+  const browserVoiceList = useMemo<TTSVoiceInfo[]>(
+    () =>
+      browserVoices.length > 0
+        ? browserVoices
+        : providerVoices.map((voice) => ({
+            id: voice.voice || voice.id,
+            name: voice.name,
+            provider: String(voice.provider) as TTSProviderId,
+            modelId: activeProviderConfig.modelId,
+            vendor: activeAdapter.label,
+            metadata: voice,
+          })),
+    [browserVoices, providerVoices, activeProviderConfig.modelId, activeAdapter.label]
+  );
+
+  const selectBrowserVoice = (voice: TTSVoiceInfo) => {
+    const provider = String(tts.provider) as TTSProvider;
+    const previous = getProviderSettings(tts, provider);
+    const recents = [voice.id, ...tts.recents.filter((id) => id !== voice.id)].slice(0, 20);
+    updateTTS({
+      defaultVoiceId: voice.id,
+      recents,
+      providers: { ...tts.providers, [provider]: { ...previous, voiceId: voice.id } },
+    });
+    setShowVoiceBrowser(false);
+  };
+
+  const previewBrowserVoice = async (voice: TTSVoiceInfo, phrase: string) => {
+    browserAudioRef.current?.pause();
+    const previewSettings = {
+      ...settings,
+      tts: {
+        ...tts,
+        providers: {
+          ...tts.providers,
+          [tts.provider]: { ...getProviderSettings(tts, String(tts.provider)), voiceId: voice.id },
+        },
+      },
+    };
+    const result = await generateSpeech(previewSettings, { text: phrase, voiceId: voice.id });
+    const audio = new Audio(result.audioUrl);
+    browserAudioRef.current = audio;
+    await new Promise<void>((resolve, reject) => {
+      audio.onended = () => resolve();
+      audio.onerror = () => reject(new Error("Voice preview failed."));
+      void audio.play().catch(reject);
     });
   };
 
@@ -622,7 +742,12 @@ export function TTSSettings() {
   const handleDownloadPocketTTS = async () => {
     if (!isTauri()) return;
 
-    setPocketStatus((prev) => ({ ...prev, downloading: true, downloadProgress: 0, error: undefined }));
+    setPocketStatus((prev) => ({
+      ...prev,
+      downloading: true,
+      downloadProgress: 0,
+      error: undefined,
+    }));
 
     try {
       // Pocket TTS downloads models automatically on first use
@@ -652,6 +777,7 @@ export function TTSSettings() {
   };
 
   const isPocketProvider = tts.provider === "pocket";
+  const isAndroidProvider = tts.provider === "android";
   // Pocket TTS bundles a desktop sidecar (no Android/iOS binary), so only offer
   // it on non-mobile Tauri builds. On mobile, show a note explaining why it's
   // unavailable and point users to System TTS instead.
@@ -673,9 +799,7 @@ export function TTSSettings() {
             </div>
             <div>
               <h4 className="text-lg font-semibold text-foreground">{t("settings.ttsTitle")}</h4>
-              <p className="text-sm text-muted-foreground">
-                {t("settings.ttsDescription")}
-              </p>
+              <p className="text-sm text-muted-foreground">{t("settings.ttsDescription")}</p>
             </div>
           </div>
           <label className="relative inline-flex cursor-pointer items-center">
@@ -691,28 +815,75 @@ export function TTSSettings() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-1 text-sm">
+          <div className="space-y-2 text-sm">
             <span className="font-medium text-foreground">{t("settings.ttsProvider")}</span>
-            <select
-              value={tts.provider}
-              onChange={(e) => setProvider(e.target.value as TTSProvider)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2"
-            >
-              <option value="fal">{t("settings.ttsProviderFalCloud")}</option>
-              <option value="groq">{t("settings.ttsProviderGroqCloud")}</option>
-              {showPocketOption && <option value="pocket">{t("settings.ttsProviderPocketLocal")}</option>}
-              {showSystemOption && <option value="system">{t("settings.ttsProviderSystem")}</option>}
-            </select>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {listAdapters()
+                .filter((adapter) => {
+                  // Pocket is desktop-only (shell sidecar); the native android
+                  // provider is Android-only. Hide each where it can't run.
+                  if (adapter.id === "pocket") return showPocketOption;
+                  if (adapter.id === "android") return isNativeMobile();
+                  return true;
+                })
+                .map((adapter) => {
+                  const resolved = resolveProviderKey(adapter, settings);
+                  const config = getProviderSettings(tts, adapter.id);
+                  const ready =
+                    adapter.auth.mode === "none" ||
+                    Boolean(resolved.key) ||
+                    (config.requestMode === "proxy" && Boolean(config.proxyUrl.trim()));
+                  const selected = String(tts.provider) === adapter.id;
+                  return (
+                    <button
+                      key={adapter.id}
+                      type="button"
+                      onClick={() => setProvider(adapter.id)}
+                      className={cn(
+                        "rounded-lg border p-2 text-left",
+                        selected
+                          ? "border-primary bg-primary/10"
+                          : "border-border hover:bg-muted/50"
+                      )}
+                    >
+                      <span className="block font-medium">{adapter.label}</span>
+                      <span
+                        className={cn(
+                          "block text-xs",
+                          ready ? "text-emerald-600" : "text-amber-600"
+                        )}
+                      >
+                        {adapter.kind === "local"
+                          ? "Available offline"
+                          : ready
+                            ? "Configured"
+                            : "Needs an API key"}
+                      </span>
+                      {resolved.source && (
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          Using {describeBorrowedSource(resolved.source)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+            </div>
             {isSystemProvider && (
-              <span className="text-xs text-muted-foreground">{t("settings.ttsSystemDescription")}</span>
+              <span className="block text-xs text-muted-foreground">
+                {t("settings.ttsSystemDescription")}
+              </span>
             )}
             {isSystemProvider && systemVoices.length === 0 && (
-              <span className="text-xs text-yellow-600">{t("settings.ttsSystemNoVoices")}</span>
+              <span className="block text-xs text-yellow-600">
+                {t("settings.ttsSystemNoVoices")}
+              </span>
             )}
             {!showPocketOption && isNativeMobile() && (
-              <span className="text-xs text-muted-foreground">{t("settings.ttsPocketRequiresDesktop")}</span>
+              <span className="block text-xs text-muted-foreground">
+                {t("settings.ttsPocketRequiresDesktop")}
+              </span>
             )}
-          </label>
+          </div>
 
           {isGroqProvider ? (
             <div className="space-y-1 text-sm">
@@ -732,8 +903,19 @@ export function TTSSettings() {
             <label className="space-y-1 text-sm">
               <span className="font-medium text-foreground">{t("settings.ttsRequestMode")}</span>
               <select
-                value={tts.requestMode}
-                onChange={(e) => updateTTS({ requestMode: e.target.value as "direct" | "proxy" })}
+                value={activeProviderConfig.requestMode}
+                onChange={(e) =>
+                  updateTTS({
+                    requestMode: e.target.value as "direct" | "proxy",
+                    providers: {
+                      ...tts.providers,
+                      [tts.provider]: {
+                        ...activeProviderConfig,
+                        requestMode: e.target.value as "direct" | "proxy",
+                      },
+                    },
+                  })
+                }
                 className="w-full rounded-lg border border-border bg-background px-3 py-2"
               >
                 <option value="direct">{t("settings.ttsDirectToFal")}</option>
@@ -742,16 +924,46 @@ export function TTSSettings() {
             </label>
           )}
 
-          {!isGroqProvider && !isPocketProvider && !isSystemProvider && (
+          {isAndroidProvider && (
+            <div className="space-y-2 text-sm md:col-span-2">
+              <span className="font-medium text-foreground">{t("settings.ttsAndroidModels")}</span>
+              <AndroidTtsModelManager
+                activeModelId={activeProviderConfig.modelId}
+                onSelectModel={(modelId) =>
+                  updateTTS({
+                    providers: {
+                      ...tts.providers,
+                      android: { ...activeProviderConfig, modelId },
+                    },
+                  })
+                }
+              />
+            </div>
+          )}
+
+          {!isGroqProvider && !isPocketProvider && !isSystemProvider && !isAndroidProvider && (
             <label className="space-y-1 text-sm">
               <span className="font-medium text-foreground">{t("settings.ttsLanguage")}</span>
               <select
-                value={tts.language}
-                onChange={(e) => updateTTS({ language: e.target.value as typeof tts.language })}
+                value={activeProviderConfig.language}
+                onChange={(e) =>
+                  updateTTS({
+                    language: e.target.value as typeof tts.language,
+                    providers: {
+                      ...tts.providers,
+                      [tts.provider]: {
+                        ...activeProviderConfig,
+                        language: e.target.value as typeof tts.language,
+                      },
+                    },
+                  })
+                }
                 className="w-full rounded-lg border border-border bg-background px-3 py-2"
               >
                 {FAL_LANGUAGES.map((language) => (
-                  <option key={language} value={language}>{language}</option>
+                  <option key={language} value={language}>
+                    {language}
+                  </option>
                 ))}
               </select>
             </label>
@@ -765,11 +977,21 @@ export function TTSSettings() {
                 min="0.5"
                 max="2"
                 step="0.1"
-                value={tts.pocketSpeed ?? 1.0}
-                onChange={(e) => updateTTS({ pocketSpeed: parseFloat(e.target.value) })}
+                value={activeProviderConfig.pocketSpeed ?? 1.0}
+                onChange={(e) =>
+                  updateTTS({
+                    pocketSpeed: parseFloat(e.target.value),
+                    providers: {
+                      ...tts.providers,
+                      pocket: { ...activeProviderConfig, pocketSpeed: parseFloat(e.target.value) },
+                    },
+                  })
+                }
                 className="w-full"
               />
-              <span className="text-xs text-muted-foreground">{(tts.pocketSpeed ?? 1.0).toFixed(1)}x</span>
+              <span className="text-xs text-muted-foreground">
+                {(activeProviderConfig.pocketSpeed ?? 1.0).toFixed(1)}x
+              </span>
             </label>
           )}
         </div>
@@ -811,7 +1033,9 @@ export function TTSSettings() {
                   />
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {t("settings.ttsDownloaded", { percent: pocketStatus.downloadProgress.toFixed(0) })}
+                  {t("settings.ttsDownloaded", {
+                    percent: pocketStatus.downloadProgress.toFixed(0),
+                  })}
                 </p>
               </div>
             )}
@@ -839,37 +1063,162 @@ export function TTSSettings() {
 
         {/* API Key section - not needed for Pocket TTS */}
         {!isPocketProvider && !isSystemProvider && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-foreground">{tts.provider === "groq" ? t("settings.ttsGroqApiKey") : t("settings.ttsFalApiKey")}</span>
-            <input
-              type="password"
-              value={apiKeyInput}
-              placeholder={tts.provider === "groq" ? "gsk_..." : "Key ..."}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2"
-            />
-            <span className="text-xs text-muted-foreground">
-              {tts.provider === "groq"
-                ? t("settings.ttsGroqApiKeyHint")
-                : t("settings.ttsFalApiKeyHint")}
-            </span>
-          </label>
-
-          {!isGroqProvider && (
+          <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-1 text-sm">
-              <span className="font-medium text-foreground">{t("settings.ttsProxyUrl")}</span>
+              <span className="font-medium text-foreground">{activeAdapter.label} API key</span>
               <input
-                type="text"
-                value={proxyUrlInput}
-                placeholder="https://your-proxy.example.com/tts"
-                onChange={(e) => setProxyUrlInput(e.target.value)}
+                ref={credentialInputRef}
+                type="password"
+                value={apiKeyInput}
+                placeholder={
+                  activeAdapter.auth.mode === "borrowed" ? "Optional override" : "API key"
+                }
+                onChange={(e) => setApiKeyInput(e.target.value)}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2"
               />
-              <span className="text-xs text-muted-foreground">{t("settings.ttsProxyUrlHint")}</span>
+              <span className="text-xs text-muted-foreground">
+                {activeAdapter.auth.mode === "borrowed"
+                  ? "Leave empty to use the configured key from another provider entry."
+                  : "Stored for this TTS provider only."}
+              </span>
+              {activeAdapter.auth.mode === "borrowed" &&
+                (() => {
+                  const source = resolveProviderKey(activeAdapter, settings).source;
+                  return source ? (
+                    <span className="block text-xs text-emerald-700">
+                      Using {describeBorrowedSource(source)}
+                      {apiKeyInput.trim() ? " (TTS key overrides it)" : ""}.
+                    </span>
+                  ) : null;
+                })()}
             </label>
+
+            {activeAdapter.id === "fal" && (
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-foreground">{t("settings.ttsProxyUrl")}</span>
+                <input
+                  type="text"
+                  value={proxyUrlInput}
+                  placeholder="https://your-proxy.example.com/tts"
+                  onChange={(e) => setProxyUrlInput(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {t("settings.ttsProxyUrlHint")}
+                </span>
+              </label>
+            )}
+          </div>
+        )}
+
+        {activeAdapter.canEnumerateModels &&
+          activeAdapter.id !== "system" &&
+          activeAdapter.id !== "pocket" && (
+            <div className="rounded-lg border border-border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <span className="block text-sm font-medium">Model</span>
+                  <span className="text-xs text-muted-foreground">
+                    {activeProviderConfig.modelId || "No model selected"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowModelBrowser(true)}
+                  className="rounded-lg border border-border px-3 py-2 text-sm"
+                >
+                  Browse models
+                </button>
+              </div>
+              {activeAdapter.capabilities.supportsInstructions && (
+                <label className="mt-3 block space-y-1 text-sm">
+                  <span className="font-medium">Tone instructions</span>
+                  <textarea
+                    value={activeProviderConfig.instructions}
+                    onChange={(event) =>
+                      updateTTS({
+                        providers: {
+                          ...tts.providers,
+                          [activeAdapter.id]: {
+                            ...activeProviderConfig,
+                            instructions: event.target.value,
+                          },
+                        },
+                      })
+                    }
+                    rows={2}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                    placeholder="Warm, calm, and conversational"
+                  />
+                </label>
+              )}
+              {activeAdapter.capabilities.supportsSpeed && (
+                <label className="mt-3 block space-y-1 text-sm">
+                  <span className="font-medium">
+                    Speed{" "}
+                    <span className="text-xs text-muted-foreground">
+                      {activeProviderConfig.speed.toFixed(2)}×
+                    </span>
+                  </span>
+                  <input
+                    type="range"
+                    min="0.25"
+                    max="4"
+                    step="0.05"
+                    value={activeProviderConfig.speed}
+                    onChange={(event) =>
+                      updateTTS({
+                        providers: {
+                          ...tts.providers,
+                          [activeAdapter.id]: {
+                            ...activeProviderConfig,
+                            speed: Number(event.target.value),
+                          },
+                        },
+                      })
+                    }
+                    className="w-full"
+                  />
+                </label>
+              )}
+            </div>
           )}
-        </div>
+
+        {activeAdapter.id === "openai-compatible" && (
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Base URL</span>
+              <input
+                value={activeProviderConfig.baseUrl}
+                onChange={(event) =>
+                  updateTTS({
+                    providers: {
+                      ...tts.providers,
+                      "openai-compatible": { ...activeProviderConfig, baseUrl: event.target.value },
+                    },
+                  })
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                placeholder="https://example.local/v1"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Model id</span>
+              <input
+                value={activeProviderConfig.modelId}
+                onChange={(event) =>
+                  updateTTS({
+                    providers: {
+                      ...tts.providers,
+                      "openai-compatible": { ...activeProviderConfig, modelId: event.target.value },
+                    },
+                  })
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                placeholder="tts-1"
+              />
+            </label>
+          </div>
         )}
 
         {/* Fal-specific model settings */}
@@ -913,8 +1262,19 @@ export function TTSSettings() {
             <label className="space-y-1 text-sm">
               <span className="font-medium text-foreground">{t("settings.ttsResponseFormat")}</span>
               <select
-                value={tts.groqResponseFormat}
-                onChange={(e) => updateTTS({ groqResponseFormat: e.target.value as "wav" | "mp3" })}
+                value={activeProviderConfig.responseFormat}
+                onChange={(e) =>
+                  updateTTS({
+                    groqResponseFormat: e.target.value as "wav" | "mp3",
+                    providers: {
+                      ...tts.providers,
+                      groq: {
+                        ...activeProviderConfig,
+                        responseFormat: e.target.value as "wav" | "mp3",
+                      },
+                    },
+                  })
+                }
                 className="w-full rounded-lg border border-border bg-background px-3 py-2"
               >
                 <option value="mp3">mp3</option>
@@ -951,12 +1311,22 @@ export function TTSSettings() {
       <section className="space-y-4 rounded-xl border border-border bg-card p-5">
         <div className="flex items-center justify-between">
           <div>
-            <h4 className="text-base font-semibold text-foreground">{t("settings.ttsVoiceProfiles")}</h4>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.ttsVoiceProfilesDesc")}
-            </p>
+            <h4 className="text-base font-semibold text-foreground">
+              {t("settings.ttsVoiceProfiles")}
+            </h4>
+            <p className="text-sm text-muted-foreground">{t("settings.ttsVoiceProfilesDesc")}</p>
           </div>
         </div>
+
+        {!isSystemProvider && (
+          <button
+            type="button"
+            onClick={() => setShowVoiceBrowser(true)}
+            className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm text-primary"
+          >
+            Browse voices{browserVoiceList.length > 0 ? ` (${browserVoiceList.length})` : ""}
+          </button>
+        )}
 
         {isSystemProvider ? (
           <SystemVoicePicker
@@ -975,206 +1345,222 @@ export function TTSSettings() {
             onToggleShowAll={() => setShowAllSystemVoices((v) => !v)}
           />
         ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {providerVoices.map((voice) => (
-            <div key={voice.id} className="rounded-lg border border-border p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">{voice.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {voice.kind === "builtin" ? t("settings.ttsBuiltInVoice") : t("settings.ttsClonedVoice")}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => updateTTS({ defaultVoiceId: voice.id })}
-                    className={cn(
-                      "rounded-md border px-2 py-1 text-xs",
-                      tts.defaultVoiceId === voice.id
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border"
-                    )}
-                  >
-                    {tts.defaultVoiceId === voice.id ? t("settings.ttsDefault") : t("settings.ttsSetDefault")}
-                  </button>
-                  {voice.kind === "cloned" && tts.provider === "fal" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            {providerVoices.map((voice) => (
+              <div key={voice.id} className="rounded-lg border border-border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{voice.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {voice.kind === "builtin"
+                        ? t("settings.ttsBuiltInVoice")
+                        : t("settings.ttsClonedVoice")}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => removeClonedVoice(voice.id)}
-                      className="rounded-md border border-destructive/40 px-2 py-1 text-xs text-destructive"
+                      onClick={() => updateTTS({ defaultVoiceId: voice.id })}
+                      className={cn(
+                        "rounded-md border px-2 py-1 text-xs",
+                        tts.defaultVoiceId === voice.id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border"
+                      )}
                     >
-                      <Trash className="h-3.5 w-3.5" />
+                      {tts.defaultVoiceId === voice.id
+                        ? t("settings.ttsDefault")
+                        : t("settings.ttsSetDefault")}
                     </button>
-                  )}
+                    {voice.kind === "cloned" && tts.provider === "fal" && (
+                      <button
+                        onClick={() => removeClonedVoice(voice.id)}
+                        className="rounded-md border border-destructive/40 px-2 py-1 text-xs text-destructive"
+                      >
+                        <Trash className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
         )}
 
         {tts.provider === "fal" && (
-        <div className="rounded-lg border border-border bg-muted/20 p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <Microphone className="h-4 w-4 text-primary" />
-            <h5 className="font-medium text-foreground">{t("settings.ttsCreateClonedVoice")}</h5>
-          </div>
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Microphone className="h-4 w-4 text-primary" />
+              <h5 className="font-medium text-foreground">{t("settings.ttsCreateClonedVoice")}</h5>
+            </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="space-y-1 text-sm">
-              <span className="font-medium text-foreground">{t("settings.ttsVoiceName")}</span>
-              <input
-                type="text"
-                value={voiceName}
-                onChange={(e) => setVoiceName(e.target.value)}
-                placeholder="My Narration Voice"
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-foreground">{t("settings.ttsVoiceName")}</span>
+                <input
+                  type="text"
+                  value={voiceName}
+                  onChange={(e) => setVoiceName(e.target.value)}
+                  placeholder="My Narration Voice"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                />
+              </label>
+
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-foreground">{t("settings.ttsAudioSample")}</span>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={(e) => handleVoiceFileSelect(e.target.files?.[0] ?? null)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                />
+              </label>
+            </div>
+
+            <label className="mt-3 block space-y-1 text-sm">
+              <span className="font-medium text-foreground">
+                {t("settings.ttsSampleTranscript")}
+              </span>
+              <textarea
+                rows={2}
+                value={voiceSampleText}
+                onChange={(e) => setVoiceSampleText(e.target.value)}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2"
               />
             </label>
 
-            <label className="space-y-1 text-sm">
-              <span className="font-medium text-foreground">{t("settings.ttsAudioSample")}</span>
-              <input
-                type="file"
-                accept="audio/*"
-                onChange={(e) => handleVoiceFileSelect(e.target.files?.[0] ?? null)}
-                className="w-full rounded-lg border border-border bg-background px-3 py-2"
-              />
-            </label>
-          </div>
-
-          <label className="mt-3 block space-y-1 text-sm">
-            <span className="font-medium text-foreground">{t("settings.ttsSampleTranscript")}</span>
-            <textarea
-              rows={2}
-              value={voiceSampleText}
-              onChange={(e) => setVoiceSampleText(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2"
-            />
-          </label>
-
-          {voiceValidationError && (
-            <p className="mt-2 text-xs text-destructive">{voiceValidationError}</p>
-          )}
-
-          <button
-            onClick={handleCloneVoice}
-            disabled={operationState === "uploading" || operationState === "cloning"}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-          >
-            {(operationState === "uploading" || operationState === "cloning") ? (
-              <CircleNotch className="h-4 w-4 animate-spin" />
-            ) : (
-              <Copy className="h-4 w-4" />
+            {voiceValidationError && (
+              <p className="mt-2 text-xs text-destructive">{voiceValidationError}</p>
             )}
-            {t("settings.ttsCloneVoice")}
-          </button>
-        </div>
+
+            <button
+              onClick={handleCloneVoice}
+              disabled={operationState === "uploading" || operationState === "cloning"}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
+              {operationState === "uploading" || operationState === "cloning" ? (
+                <CircleNotch className="h-4 w-4 animate-spin" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              {t("settings.ttsCloneVoice")}
+            </button>
+          </div>
         )}
       </section>
 
       {!isGroqProvider && !isSystemProvider && (
-      <section className="space-y-4 rounded-xl border border-border bg-card p-5">
-        <h4 className="text-base font-semibold text-foreground">{t("settings.ttsPresets")}</h4>
-        <p className="text-sm text-muted-foreground">
-          {t("settings.ttsPresetsDesc")}
-        </p>
+        <section className="space-y-4 rounded-xl border border-border bg-card p-5">
+          <h4 className="text-base font-semibold text-foreground">{t("settings.ttsPresets")}</h4>
+          <p className="text-sm text-muted-foreground">{t("settings.ttsPresetsDesc")}</p>
 
-        <div className="grid gap-3">
-          {tts.presets.map((preset) => (
-            <div key={preset.id} className="rounded-lg border border-border p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">{preset.name}</p>
-                  <p className="text-xs text-muted-foreground">{preset.description}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    temp {preset.temperature.toFixed(2)} • top_p {preset.topP.toFixed(2)} • top_k {preset.topK}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => updateTTS({ defaultPresetId: preset.id })}
-                    className={cn(
-                      "rounded-md border px-2 py-1 text-xs",
-                      tts.defaultPresetId === preset.id
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border"
-                    )}
-                  >
-                    {tts.defaultPresetId === preset.id ? t("settings.ttsDefault") : t("settings.ttsSetDefault")}
-                  </button>
-                  {!preset.readonly && (
+          <div className="grid gap-3">
+            {tts.presets.map((preset) => (
+              <div key={preset.id} className="rounded-lg border border-border p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{preset.name}</p>
+                    <p className="text-xs text-muted-foreground">{preset.description}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      temp {preset.temperature.toFixed(2)} • top_p {preset.topP.toFixed(2)} • top_k{" "}
+                      {preset.topK}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => deletePreset(preset.id)}
-                      className="rounded-md border border-destructive/40 px-2 py-1 text-xs text-destructive"
+                      onClick={() => updateTTS({ defaultPresetId: preset.id })}
+                      className={cn(
+                        "rounded-md border px-2 py-1 text-xs",
+                        tts.defaultPresetId === preset.id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border"
+                      )}
                     >
-                      <Trash className="h-3.5 w-3.5" />
+                      {tts.defaultPresetId === preset.id
+                        ? t("settings.ttsDefault")
+                        : t("settings.ttsSetDefault")}
                     </button>
-                  )}
+                    {!preset.readonly && (
+                      <button
+                        onClick={() => deletePreset(preset.id)}
+                        className="rounded-md border border-destructive/40 px-2 py-1 text-xs text-destructive"
+                      >
+                        <Trash className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
 
-        <div className="rounded-lg border border-border bg-muted/20 p-4">
-          <h5 className="mb-2 font-medium text-foreground">{t("settings.ttsAddCustomPreset")}</h5>
-          <div className="grid gap-3 md:grid-cols-2">
-            <input
-              type="text"
-              value={customPresetForm.name}
-              onChange={(e) => setCustomPresetForm((prev) => ({ ...prev, name: e.target.value }))}
-              placeholder={t("settings.ttsPresetNamePlaceholder")}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
-            />
-            <input
-              type="text"
-              value={customPresetForm.prompt}
-              onChange={(e) => setCustomPresetForm((prev) => ({ ...prev, prompt: e.target.value }))}
-              placeholder={t("settings.ttsPromptStylePlaceholder")}
-              className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
-            />
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <h5 className="mb-2 font-medium text-foreground">{t("settings.ttsAddCustomPreset")}</h5>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input
+                type="text"
+                value={customPresetForm.name}
+                onChange={(e) => setCustomPresetForm((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder={t("settings.ttsPresetNamePlaceholder")}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              />
+              <input
+                type="text"
+                value={customPresetForm.prompt}
+                onChange={(e) =>
+                  setCustomPresetForm((prev) => ({ ...prev, prompt: e.target.value }))
+                }
+                placeholder={t("settings.ttsPromptStylePlaceholder")}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <label className="text-xs">
+                {t("settings.ttsTemperature")}
+                <NumericInput
+                  min={0.1}
+                  max={2}
+                  step={0.05}
+                  value={customPresetForm.temperature}
+                  onChange={(value) =>
+                    setCustomPresetForm((prev) => ({ ...prev, temperature: value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="text-xs">
+                {t("settings.ttsTopP")}
+                <NumericInput
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  value={customPresetForm.topP}
+                  onChange={(value) => setCustomPresetForm((prev) => ({ ...prev, topP: value }))}
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
+                />
+              </label>
+              <label className="text-xs">
+                {t("settings.ttsMaxTokens")}
+                <NumericInput
+                  min={20}
+                  max={1000}
+                  step={10}
+                  value={customPresetForm.maxNewTokens}
+                  onChange={(value) =>
+                    setCustomPresetForm((prev) => ({ ...prev, maxNewTokens: value }))
+                  }
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
+                />
+              </label>
+            </div>
+            <button
+              onClick={addCustomPreset}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
+            >
+              <Plus className="h-4 w-4" />
+              {t("settings.ttsAddPreset")}
+            </button>
           </div>
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            <label className="text-xs">{t("settings.ttsTemperature")}
-              <NumericInput
-                min={0.1}
-                max={2}
-                step={0.05}
-                value={customPresetForm.temperature}
-                onChange={(value) => setCustomPresetForm((prev) => ({ ...prev, temperature: value }))}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
-              />
-            </label>
-            <label className="text-xs">{t("settings.ttsTopP")}
-              <NumericInput
-                min={0.1}
-                max={1}
-                step={0.05}
-                value={customPresetForm.topP}
-                onChange={(value) => setCustomPresetForm((prev) => ({ ...prev, topP: value }))}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
-              />
-            </label>
-            <label className="text-xs">{t("settings.ttsMaxTokens")}
-              <NumericInput
-                min={20}
-                max={1000}
-                step={10}
-                value={customPresetForm.maxNewTokens}
-                onChange={(value) => setCustomPresetForm((prev) => ({ ...prev, maxNewTokens: value }))}
-                className="mt-1 w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm"
-              />
-            </label>
-          </div>
-          <button
-            onClick={addCustomPreset}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
-          >
-            <Plus className="h-4 w-4" />
-            {t("settings.ttsAddPreset")}
-          </button>
-        </div>
-      </section>
+        </section>
       )}
 
       <section className="space-y-4 rounded-xl border border-border bg-card p-5">
@@ -1182,9 +1568,7 @@ export function TTSSettings() {
           {isGroqProvider ? t("settings.ttsTestGroqTts") : t("settings.ttsGenerateSpeech")}
         </h4>
         <p className="text-sm text-muted-foreground">
-          {isGroqProvider
-            ? t("settings.ttsTestGroqTtsDesc")
-            : t("settings.ttsGenerateSpeechDesc")}
+          {isGroqProvider ? t("settings.ttsTestGroqTtsDesc") : t("settings.ttsGenerateSpeechDesc")}
         </p>
 
         <textarea
@@ -1202,9 +1586,13 @@ export function TTSSettings() {
               onChange={(e) => setOverrideVoiceId(e.target.value)}
               className="w-full rounded-lg border border-border bg-background px-3 py-2"
             >
-              <option value="default">{t("settings.ttsUseDefault", { name: defaultVoice?.name || "none" })}</option>
+              <option value="default">
+                {t("settings.ttsUseDefault", { name: defaultVoice?.name || "none" })}
+              </option>
               {providerVoices.map((voice) => (
-                <option key={voice.id} value={voice.id}>{voice.name}</option>
+                <option key={voice.id} value={voice.id}>
+                  {voice.name}
+                </option>
               ))}
             </select>
           </label>
@@ -1217,9 +1605,13 @@ export function TTSSettings() {
                 onChange={(e) => setOverridePresetId(e.target.value)}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2"
               >
-                <option value="default">{t("settings.ttsUseDefault", { name: defaultPreset?.name || "none" })}</option>
+                <option value="default">
+                  {t("settings.ttsUseDefault", { name: defaultPreset?.name || "none" })}
+                </option>
                 {tts.presets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>{preset.name}</option>
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
                 ))}
               </select>
             </label>
@@ -1262,9 +1654,7 @@ export function TTSSettings() {
           </button>
         )}
 
-        {generatedAudioUrl && (
-          <audio controls src={generatedAudioUrl} className="w-full" />
-        )}
+        {generatedAudioUrl && <audio controls src={generatedAudioUrl} className="w-full" />}
       </section>
 
       {operationMessage && (
@@ -1285,6 +1675,58 @@ export function TTSSettings() {
           )}
           <span>{operationMessage}</span>
         </div>
+      )}
+
+      {showVoiceBrowser && (
+        <VoiceBrowser
+          voices={browserVoiceList}
+          currentVoiceId={activeProviderConfig.voiceId || tts.defaultVoiceId}
+          currentProvider={String(tts.provider)}
+          favorites={tts.favorites}
+          recents={tts.recents}
+          offline={browserOffline}
+          isBilled={activeAdapter.kind === "cloud"}
+          onClose={() => setShowVoiceBrowser(false)}
+          onSelect={selectBrowserVoice}
+          onPreview={activeAdapter.kind === "cloud" ? previewBrowserVoice : undefined}
+          onToggleFavorite={(voice) => {
+            const key = voice.id;
+            const favorites = tts.favorites.includes(key)
+              ? tts.favorites.filter((id) => id !== key)
+              : [key, ...tts.favorites].slice(0, 50);
+            updateTTS({ favorites });
+          }}
+        />
+      )}
+      {showModelBrowser && (
+        <ModelBrowser
+          models={browserModels}
+          currentModelId={activeProviderConfig.modelId}
+          offline={browserOffline}
+          onClose={() => setShowModelBrowser(false)}
+          onSelect={(model) => {
+            const provider = String(tts.provider) as TTSProvider;
+            const previous = getProviderSettings(tts, provider);
+            const nextVoice =
+              model.supportedVoices === null ? previous.voiceId : model.supportedVoices[0] || "";
+            updateTTS({
+              providers: {
+                ...tts.providers,
+                [provider]: { ...previous, modelId: model.id, voiceId: nextVoice },
+              },
+              defaultVoiceId: nextVoice,
+            });
+            setModelIdInput(model.id);
+            setShowModelBrowser(false);
+          }}
+          onRefresh={() => {
+            const context = { settings, tts, config: activeProviderConfig };
+            void activeAdapter
+              .listModels(context)
+              .then(setBrowserModels)
+              .catch(() => undefined);
+          }}
+        />
       )}
     </div>
   );

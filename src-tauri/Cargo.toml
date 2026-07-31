@@ -49,6 +49,13 @@ log = "0.4"
 # folder mode, staging files into app-private storage so the path-based import
 # pipeline can read them. See plugins/folder-import/.
 incrementum-folder-import = { path = "plugins/folder-import" }
+# In-repo mobile plugin for on-device TTS on Android via sherpa-onnx
+# (KittenTTS Micro / Kokoro-82M). The Rust side is a thin shim that registers
+# the Android plugin; the Kotlin side owns inference, AudioTrack playback, audio
+# focus, lifecycle, model downloads, and the System-TTS fallback. No PCM crosses
+# the Tauri IPC. On desktop every command returns an Android-only error and
+# Pocket TTS is used instead. See plugins/android-tts/.
+incrementum-android-tts = { path = "plugins/android-tts" }
 window-vibrancy = "0.6.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

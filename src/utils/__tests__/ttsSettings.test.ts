@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createDefaultTTSSettings,
+  defaultVoiceIdForProvider,
+  migrateTTSSettings,
   sanitizeTTSSettings,
   validateTTSConfiguration,
 } from "../ttsSettings";
@@ -12,6 +14,17 @@ describe("ttsSettings", () => {
 
     expect(settings.defaultPresetId).toBe(defaults.defaultPresetId);
     expect(settings.voiceProfiles.length).toBeGreaterThan(0);
+  });
+
+  it("includes the native android provider in default provider settings", () => {
+    const defaults = createDefaultTTSSettings();
+    expect(defaults.providers.android).toBeDefined();
+    expect(defaults.providers.android.modelId).toBe("kitten-nano");
+    expect(defaults.providers.android.voiceId).toBe("0");
+  });
+
+  it("resolves the default voice id for the android provider", () => {
+    expect(defaultVoiceIdForProvider("android")).toBe("0");
   });
 
   it("merges custom cloned voices while preserving built-ins", () => {
@@ -53,5 +66,50 @@ describe("ttsSettings", () => {
       proxyUrl: "https://proxy.example.com/fal",
     });
     expect(proxyValid.valid).toBe(true);
+  });
+
+  it("migrates every schema-2 provider field into v3 objects", () => {
+    const settings = sanitizeTTSSettings({
+      schemaVersion: 2,
+      enabled: true,
+      provider: "groq",
+      apiKey: "fal-key",
+      modelId: "fal-model",
+      cloneModelId: "clone-model",
+      requestMode: "proxy",
+      proxyUrl: "https://proxy.example",
+      groqModelId: "playai-tts-arabic",
+      groqResponseFormat: "wav",
+      pocketSpeed: 1.5,
+      pocketAvailable: true,
+      defaultVoiceId: "groq-builtin-fiora",
+      defaultPresetId: "balanced-default",
+    });
+    expect(settings.schemaVersion).toBe(3);
+    expect(settings.providers.fal).toMatchObject({ apiKey: "fal-key", modelId: "fal-model", cloneModelId: "clone-model", requestMode: "proxy", proxyUrl: "https://proxy.example" });
+    expect(settings.providers.groq).toMatchObject({ modelId: "playai-tts-arabic", responseFormat: "wav" });
+    expect(settings.providers.pocket).toMatchObject({ pocketSpeed: 1.5, pocketAvailable: true });
+    expect(settings.provider).toBe("groq");
+    expect(settings.defaultVoiceId).toBe("groq-builtin-fiora");
+  });
+
+  it("preserves cloned profiles and is idempotent for v3", () => {
+    const cloned = { id: "clone", provider: "fal", name: "Narrator", kind: "cloned", speakerEmbeddingUrl: "https://speaker", referenceText: "sample", createdAt: "2026-01-01" };
+    const migrated = sanitizeTTSSettings({ schemaVersion: 2, voiceProfiles: [cloned] });
+    expect(migrated.voiceProfiles.find((profile) => profile.id === "clone")).toMatchObject(cloned);
+    const again = sanitizeTTSSettings(migrated);
+    expect(again).toEqual(migrated);
+  });
+
+  it("sanitizes malformed provider objects without throwing", () => {
+    const settings = sanitizeTTSSettings({ schemaVersion: 3, providers: { openrouter: { speed: "fast", responseFormat: null } }, voiceProfiles: "bad", favorites: ["voice", 1, "voice"] });
+    expect(settings.providers.openrouter.speed).toBe(1);
+    expect(settings.providers.openrouter.responseFormat).toBe("mp3");
+    expect(settings.favorites).toEqual(["voice"]);
+  });
+
+  it("exposes the migration shape for callers that need to inspect it", () => {
+    const migrated = migrateTTSSettings({ schemaVersion: 2, modelId: "legacy" });
+    expect((migrated.providers as Record<string, { modelId: string }>).fal.modelId).toBe("legacy");
   });
 });

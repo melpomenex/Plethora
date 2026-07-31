@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      AudioTrack playback for spoken audio uses USAGE_ASSISTANT, which needs no
+      runtime permission, and the playback service is microphone-free so
+      RECORD_AUDIO is not required either.
+
+      The two permissions below ARE required and must be declared here: the
+      host app manifest does not carry them, and this plugin is the only thing
+      in the merged manifest that declares a foreground service. Without
+      FOREGROUND_SERVICE, Service.startForeground() throws SecurityException
+      from TtsPlaybackService.onCreate() — inside the service's own
+      handleCreateService frame, where the caller's try/catch cannot reach it —
+      which kills the process the first time anything speaks.
+      FOREGROUND_SERVICE_MEDIA_PLAYBACK is the type-specific permission Android
+      14 (API 34+) additionally requires for foregroundServiceType
+      "mediaPlayback"; the app targets SDK 36, so it is mandatory, not optional.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <application>
+        <!--
+          Foreground service that keeps playback alive when the screen is locked
+          or the app is backgrounded (spec: tts-local-onnx-runtime,
+          "Background and locked-screen playback where supported"). The host
+          activity starts/stops it; if foreground services are unavailable the
+          plugin degrades gracefully (playback simply stops on task removal).
+        -->
+        <service
+            android:name=".TtsPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
+</manifest>

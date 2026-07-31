@@ -3,6 +3,8 @@
  * Based on Incrementum-CPP SettingsDialog.cpp
  */
 
+import type { TTSSettings as ModernTTSSettings } from "../utils/ttsSettings";
+
 // General Settings
 export interface GeneralSettings {
   autoSaveMinutes: number;
@@ -226,26 +228,7 @@ export interface TTSVoiceProfile {
   createdAt: string;
 }
 
-export interface TTSSettings {
-  schemaVersion: number;
-  enabled: boolean;
-  provider: "fal" | "groq" | "pocket" | "system";
-  requestMode: TTSRequestMode;
-  apiKey: string;
-  proxyUrl: string;
-  modelId: string;
-  cloneModelId: string;
-  groqModelId: string;
-  groqResponseFormat: "wav" | "mp3";
-  language: string;
-  defaultVoiceId: string;
-  defaultPresetId: string;
-  voiceProfiles: TTSVoiceProfile[];
-  presets: TTSPreset[];
-  // Pocket TTS settings
-  pocketSpeed?: number;
-  pocketAvailable?: boolean;
-}
+export type TTSSettings = ModernTTSSettings;
 
 // Integration Settings
 export interface IntegrationSettings {

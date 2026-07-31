@@ -3948,6 +3948,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "incrementum-android-tts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "incrementum-folder-import"
 version = "0.1.0"
 dependencies = [
@@ -3983,6 +3994,7 @@ dependencies = [
  "hostname",
  "html2text",
  "image 0.24.9",
+ "incrementum-android-tts",
  "incrementum-folder-import",
  "keyring",
  "lazy_static",

@@ -36,13 +36,34 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
-export function makeCacheKey(provider: string, voice: string, speed: number, text: string): string {
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = ((hash << 5) - hash) + text.charCodeAt(i);
-    hash |= 0;
+const FNV128_OFFSET = 0x6c62272e07bb014262b821756295c58dn;
+const FNV128_PRIME = 0x1000000000000000000013bn;
+const FNV128_MASK = (1n << 128n) - 1n;
+
+/**
+ * FNV-1a widened to 128 bits. This remains synchronous for cache lookups,
+ * while providing a collision space appropriate for the 500 MB audio store.
+ */
+export function digestText128(text: string): string {
+  let hash = FNV128_OFFSET;
+  for (const byte of new TextEncoder().encode(text)) {
+    hash ^= BigInt(byte);
+    hash = (hash * FNV128_PRIME) & FNV128_MASK;
   }
-  return `${provider}:${voice}:${speed}:${Math.abs(hash).toString(36)}`;
+  return hash.toString(16).padStart(32, "0");
+}
+
+export function makeCacheKey(
+  provider: string,
+  model: string,
+  voice: string,
+  speed: number,
+  format: string,
+  text: string,
+): string {
+  return [provider, model, voice, speed, format, digestText128(text)]
+    .map((part) => encodeURIComponent(String(part)))
+    .join(":");
 }
 
 let cachedTotalSize: number | null = null;

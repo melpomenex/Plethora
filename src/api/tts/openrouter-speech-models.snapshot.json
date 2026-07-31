@@ -1,0 +1,18 @@
+[
+  {"id":"fish-audio/s1","name":"Fish Audio S1","description":"Fish Audio speech synthesis","supported_voices":null,"supported_parameters":["speed"],"context_length":0,"pricing":{"prompt":"0.00001"}},
+  {"id":"fish-audio/s2","name":"Fish Audio S2","supported_voices":null,"supported_parameters":["speed"],"context_length":0,"pricing":{"prompt":"0.00001"}},
+  {"id":"minimax/speech-02-hd","name":"MiniMax Speech 02 HD","supported_voices":null,"supported_parameters":["speed"],"context_length":0,"pricing":{"prompt":"0.0001"}},
+  {"id":"minimax/speech-02-turbo","name":"MiniMax Speech 02 Turbo","supported_voices":null,"supported_parameters":["speed"],"context_length":0,"pricing":{"prompt":"0.00003"}},
+  {"id":"deepgram/aura-2","name":"Deepgram Aura-2","supported_voices":["aura-2-apollo-en","aura-2-arcas-en","aura-2-athena-en","aura-2-hera-en","aura-2-luna-en","aura-2-thalia-en","aura-2-zeus-en"],"supported_parameters":["speed"],"context_length":4096,"pricing":{"prompt":"0.000005"}},
+  {"id":"google/gemini-3.1-flash-tts-preview","name":"Gemini 3.1 Flash TTS Preview","supported_voices":["Zephyr","Puck","Charon","Kore","Fenrir","Leda","Orus","Aoede"],"supported_parameters":["speed"],"context_length":32768,"pricing":{"prompt":"0.00001"}},
+  {"id":"xai/grok-tts","name":"Grok TTS","supported_voices":["eve","ara","rex","sal","leo"],"supported_parameters":["speed"],"context_length":4096,"pricing":{"prompt":"0.000015"}},
+  {"id":"microsoft/mai-voice-2","name":"Microsoft MAI Voice 2","supported_voices":["en-US-Harper:MAI-Voice-2","en-US-Jenny:MAI-Voice-2","en-US-Guy:MAI-Voice-2","en-US-Aria:MAI-Voice-2"],"supported_parameters":["speed"],"context_length":4096,"pricing":{"prompt":"0.00001"}},
+  {"id":"qwen/qwen3-tts-flash","name":"Qwen3 TTS Flash","supported_voices":["vivian","serena","dylan","eric"],"supported_parameters":["speed"],"context_length":4096,"pricing":{"prompt":"0.000002"}},
+  {"id":"qwen/qwen3-tts-plus","name":"Qwen3 TTS Plus","supported_voices":["vivian","serena","dylan","eric"],"supported_parameters":["speed"],"context_length":4096,"pricing":{"prompt":"0.000004"}},
+  {"id":"hexgrad/kokoro-82m","name":"Kokoro 82M","supported_voices":["af_bella","af_sarah","am_adam","am_michael","bf_emma","bf_isabella","bm_george","bm_lewis"],"supported_parameters":["speed"],"context_length":4096,"pricing":{"prompt":"0.00000062"}},
+  {"id":"canopylabs/orpheus","name":"Orpheus","supported_voices":["tara","leah","jess","leo","dan","mia","zac"],"supported_parameters":["speed"],"context_length":4096,"pricing":{"prompt":"0.00001"}},
+  {"id":"sesame/csm-1b","name":"Sesame CSM 1B","supported_voices":["conversational_a","conversational_b"],"supported_parameters":[],"context_length":4096,"pricing":{"prompt":"0.00001"}},
+  {"id":"zyphra/zonos-v0.1-hybrid","name":"Zonos Hybrid","supported_voices":["male","female"],"supported_parameters":["speed"],"context_length":4096,"pricing":{"prompt":"0.000004"}},
+  {"id":"zyphra/zonos-v0.1-transformer","name":"Zonos Transformer","supported_voices":["male","female"],"supported_parameters":["speed"],"context_length":4096,"pricing":{"prompt":"0.000004"}},
+  {"id":"mistralai/voxtral-mini-3b-2507","name":"Voxtral Mini","supported_voices":["en_paul_happy","en_alex_sad","en_sarah_calm"],"supported_parameters":["speed"],"context_length":32768,"pricing":{"prompt":"0.000006"}}
+]
