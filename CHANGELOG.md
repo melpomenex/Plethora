@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.93.0] - 2026-07-31
+
+### Added
+
+- **Contextual command-palette actions** — The command palette (Ctrl/Cmd+K) now detects the active view and surfaces a prioritized set of *actions* that operate on it — Add Bookmark, Jump to Page, or Next/Prev Chapter in the document/audiobook viewers, and mark-as-read or open-source actions in RSS and Podcast. Selecting an action dispatches a typed event that the active view routes to its existing handler, so no behavior is duplicated in the palette. In-context actions rank above global commands to win query ties, and an empty query lists every action available in the current view.
+- **Document Q&A sessions** — Document Q&A conversations are now persisted as distinct, resumable sessions. Start a clean chat for a new document or topic without losing past conversations, then resume, rename, or delete earlier ones from a Chat History sidebar. Each session captures the messages, the focus document, and the web-search toggle, with the most recent 50 conversations retained locally.
+- **Flashcard Studio sessions** — AI Flashcard Studio workspaces are now persisted as distinct, resumable sessions mirroring the Q&A model. Each session groups the chat, generated draft cards, context selection, and selected document/deck/provider so you can start a fresh context window for a new section without losing past work, and resume earlier sessions later. The most recent 50 sessions are kept locally.
+- **Collapsible section-mention cards** — Section mentions attached in the Assistant render as collapsible cards with an expandable content preview and token-tier badge, instead of an opaque pill. A remove control lets you drop a section from context without re-opening the picker.
+
+### Fixed & Improved
+
+- **RSS sidebar layout on desktop** — The sidebar's header toolbar (Newsletter, Add Feed, Import, Scroll/Select Mode, Refresh, Options) no longer overflows the fixed `lg:w-72` column and spills into the adjacent panes, and the feed list now scrolls vertically so all feeds stay reachable. The column gains `min-w-0` and the toolbar wraps within its bounds, restoring the flexbox clamp behavior the three-pane layout relies on.
+- **Section-mention removal from the input** — Removing a selected section mention in the Assistant now also drops any trailing separator it introduced from the message input, leaving a clean composer instead of an orphaned `@`.
+- **Stable contextual-action keyboard selection** — The global-search keyboard test that covers contextual-action results now waits for the result row to be committed and selected before driving Enter, removing the same effect-timing race already fixed for section results.
+
 ## [1.92.0] - 2026-07-30
 
 ### Added
