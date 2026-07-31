@@ -17,6 +17,7 @@ describe("Flashcard Studio context normalization", () => {
       excerpt: "",
       searchQuery: "",
       searchResults: [],
+      selectedSectionIds: [],
     });
   });
 

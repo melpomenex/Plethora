@@ -57,11 +57,16 @@ export interface SearchResult {
     action?: () => void | Promise<void>;
     sectionId?: string;
     targetPath?: string;
-    resultKind?: "section" | "command" | "rss-article" | "podcast-episode";
+    resultKind?: "section" | "command" | "rss-article" | "podcast-episode" | "contextual-action";
     articleId?: string;
     feedId?: string;
     episodeId?: string;
     shortcut?: string;
+    /** Contextual action dispatch target (when resultKind === "contextual-action"). */
+    contextualView?: "document-viewer" | "rss" | "podcast" | "audiobook";
+    contextualActionId?: string;
+    /** Optional group label used to visually cluster related results. */
+    groupLabel?: string;
   };
 }
 
@@ -205,10 +210,12 @@ export function GlobalSearch({
         tags: filters.tags.length > 0 ? filters.tags : undefined,
       };
       debouncedSearch(searchQuery);
-    } else if (results.length > 0) {
-      latestSearchRequestRef.current += 1;
-      setResults([]);
-      setIsSearching(false);
+    } else {
+      // Empty query: still ask for results so contextual "Actions in this view"
+      // can be surfaced as the default palette content. The search handler
+      // returns contextual actions (or an empty list) for an empty query.
+      const searchQuery: SearchQuery = { query: "" };
+      debouncedSearch(searchQuery);
     }
   }, [query, filters, debouncedSearch, isURLMode]);
 
@@ -570,9 +577,18 @@ export function GlobalSearch({
                 </div>
               ) : (
                 <div>
-                  {results.map((result, index) => (
+                  {results.map((result, index) => {
+                  const prevGroup = index > 0 ? results[index - 1]?.metadata?.groupLabel : undefined;
+                  const showGroupHeader =
+                    !!result.metadata?.groupLabel && result.metadata.groupLabel !== prevGroup;
+                  return (
+                    <div key={result.id}>
+                      {showGroupHeader && (
+                        <div className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                          {result.metadata?.groupLabel}
+                        </div>
+                      )}
                     <div
-                      key={result.id}
                       ref={index === selectedIndex ? selectedResultRef : undefined}
                       role="button"
                       tabIndex={-1}
@@ -703,7 +719,9 @@ export function GlobalSearch({
                         {Math.round(result.score * 100)}%
                       </div>
                     </div>
-                  ))}
+                    </div>
+                  );
+                  })}
                 </div>
               )}
             </div>

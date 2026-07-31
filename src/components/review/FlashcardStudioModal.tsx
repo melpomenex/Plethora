@@ -88,20 +88,50 @@ import { renderMarkdown } from "../../utils/markdown";
 import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useStudyDeckStore } from "../../stores";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
-import { isTauri } from "../../lib/tauri";
+import { isTauri, isMac } from "../../lib/tauri";
 import { cn } from "../../utils";
 import { buildChapterQAContext, getChapterTitles } from "../../utils/chapterUtils";
 import type { ImageOcclusionRegion, MultipleChoiceOption } from "../../types/learningItemInteractions";
 import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
 import { ExtractBrowserPanel } from "./ExtractBrowserPanel";
 import { extractDocumentText, getDocument } from "../../api/documents";
-import { loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
+import {
+  migrateLegacyState,
+  loadSessions,
+  saveSessions,
+  getSession,
+  setActiveSessionId as persistActiveSessionId,
+  createSession as createStudioSession,
+  updateSession as updateStudioSession,
+  deleteSession as deleteStudioSession,
+  renameSession as renameStudioSession,
+  type FlashcardStudioSession,
+} from "./flashcardStudioSessions";
+import { loadDocumentQaText, createDocumentQaRequestContent } from "../../features/documentQa/sectionContextRequest";
+import { useDocumentSections } from "../../hooks/useDocumentSections";
+import { SectionMentionPopup } from "../common/SectionMentionPopup";
+import { SectionMentionCard } from "../common/SectionMentionCard";
+import {
+  resolveSectionFocusedContext,
+  type SectionNode,
+  type SectionSourceReference,
+} from "../../utils/sectionIndex";
+
+/** Human-friendly label for a section (breadcrumb > title, or just title). Mirrors sectionIndex.sectionLabel. */
+function sectionLabel(section: SectionNode): string {
+  return section.breadcrumb.length > 0
+    ? `${section.breadcrumb.join(" > ")} > ${section.title}`
+    : section.title;
+}
 
 type DraftCardType = "qa" | "cloze" | "multiple-choice" | "image-occlusion";
-type ViewMode = "chat" | "templates" | "history" | "extracts";
-type ContextMode = "full" | "chapters" | "pages" | "excerpt" | "search";
+type ViewMode = "chat" | "templates" | "history" | "sessions" | "extracts";
+type ContextMode = "full" | "chapters" | "pages" | "excerpt" | "search" | "sections";
 
-interface DraftCard {
+// Matches the Assistant's section-mention token form, e.g. `#{Introduction}`.
+const SECTION_REGEX = /#{([^}]+)}/g;
+
+export interface DraftCard {
   id: string;
   type: DraftCardType;
   question?: string;
@@ -123,15 +153,19 @@ interface DraftCard {
   alreadyPersisted?: boolean;
   /** The DB id of the already-persisted learning item (if alreadyPersisted). */
   persistedItemId?: string;
+  /** Section provenance when the card was generated from a `#` section focus. */
+  sourceContext?: SectionSourceReference;
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
   cardsGenerated?: number;
   tokensUsed?: number;
+  /** Section provenance when the response was generated from a `#` section focus. */
+  sourceContext?: SectionSourceReference;
 }
 
 interface FlashcardStudioModalProps {
@@ -179,21 +213,24 @@ export interface ContextSelection {
   excerpt: string;
   searchQuery: string;
   searchResults: Array<{ start: number; end: number; preview: string }>;
+  /** Section ids selected via the `#` mention menu in `sections` mode. */
+  selectedSectionIds: string[];
 }
 
-const DEFAULT_CONTEXT_SELECTION: ContextSelection = {
+export const DEFAULT_CONTEXT_SELECTION: ContextSelection = {
   mode: "full",
   chapters: [],
   pageRange: null,
   excerpt: "",
   searchQuery: "",
   searchResults: [],
+  selectedSectionIds: [],
 };
 
 export function normalizeContextSelection(value: unknown): ContextSelection {
   const raw = (value && typeof value === "object" ? value : {}) as Partial<ContextSelection>;
   const mode: ContextMode =
-    raw.mode === "full" || raw.mode === "chapters" || raw.mode === "pages" || raw.mode === "excerpt" || raw.mode === "search"
+    raw.mode === "full" || raw.mode === "chapters" || raw.mode === "pages" || raw.mode === "excerpt" || raw.mode === "search" || raw.mode === "sections"
       ? raw.mode
       : DEFAULT_CONTEXT_SELECTION.mode;
   return {
@@ -215,10 +252,12 @@ export function normalizeContextSelection(value: unknown): ContextSelection {
           Boolean(result) && typeof result.start === "number" && typeof result.end === "number" && typeof result.preview === "string"
         )
       : [],
+    selectedSectionIds: Array.isArray(raw.selectedSectionIds)
+      ? raw.selectedSectionIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [],
   };
 }
 
-const STORAGE_KEY = "flashcard-studio-state-v3";
 const HISTORY_KEY = "flashcard-studio-history";
 const NOTEBOOKLM_PROVIDER_ID = "__notebooklm__";
 
@@ -996,11 +1035,20 @@ function ContextControlPanel({
   selection,
   onChange,
   maxTokens,
+  selectedSections,
+  focusedSectionTokens,
+  onRemoveSection,
 }: {
   document: { id: string; title: string; content?: string | null } | null;
   selection: ContextSelection;
   onChange: (selection: ContextSelection) => void;
   maxTokens: number;
+  /** Section nodes currently focused in `sections` mode (resolved from ids). */
+  selectedSections?: SectionNode[];
+  /** Cheap token estimate for the focused sections (precomputed upstream). */
+  focusedSectionTokens?: number;
+  /** Remove a focused section by id (also strips the `#{title}` token). */
+  onRemoveSection?: (id: string) => void;
 }) {
   const { t } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -1008,18 +1056,18 @@ function ContextControlPanel({
   const [pageStart, setPageStart] = useState("");
   const [pageEnd, setPageEnd] = useState("");
   const [excerptText, setExcerptText] = useState("");
-  
+
   const chapters = useMemo(() => {
     if (!document?.content) return [];
     return getChapterTitles(document.content);
   }, [document]);
   const safeSelection = normalizeContextSelection(selection);
   const selectedChapters = safeSelection.chapters;
-  
+
   const estimatedTokens = useMemo(() => {
     let text = "";
     if (!document?.content) return 0;
-    
+
     switch (safeSelection.mode) {
       case "full":
         text = document.content;
@@ -1032,11 +1080,14 @@ function ContextControlPanel({
       case "excerpt":
         text = safeSelection.excerpt;
         break;
+      case "sections":
+        // Cheap estimate is precomputed upstream (full resolution happens at send time).
+        return focusedSectionTokens ?? 0;
       default:
         text = document.content.slice(0, maxTokens * CHARS_PER_TOKEN);
     }
     return estimateTokens(text);
-  }, [document, safeSelection, selectedChapters, maxTokens]);
+  }, [document, safeSelection, selectedChapters, maxTokens, focusedSectionTokens]);
   
   const handleSearch = useCallback(() => {
     if (!searchQuery.trim() || !document?.content) return;
@@ -1088,6 +1139,7 @@ function ContextControlPanel({
               {safeSelection.mode === "pages" && t("flashcardStudio.contextModePagesSummary")}
               {safeSelection.mode === "excerpt" && t("flashcardStudio.contextModeExcerptSummary")}
               {safeSelection.mode === "search" && t("flashcardStudio.contextModeSearchSummary")}
+              {safeSelection.mode === "sections" && t("flashcardStudio.contextModeSectionsSummary", { count: safeSelection.selectedSectionIds.length })}
               {" · "}
               {t("flashcardStudio.tokensWithCount", { count: formatTokenCount(estimatedTokens) })}
             </div>
@@ -1103,6 +1155,7 @@ function ContextControlPanel({
             {[
               { id: "full", label: t("flashcardStudio.contextModeFull"), icon: TextT },
               { id: "chapters", label: t("flashcardStudio.contextModeChapters"), icon: BookOpen },
+              { id: "sections", label: t("flashcardStudio.contextModeSections"), icon: Hash },
               { id: "pages", label: t("flashcardStudio.contextModePages"), icon: Scroll },
               { id: "excerpt", label: t("flashcardStudio.contextModeExcerpt"), icon: Highlighter },
               { id: "search", label: t("flashcardStudio.contextModeSearch"), icon: MagnifyingGlass },
@@ -1256,7 +1309,30 @@ function ContextControlPanel({
               )}
             </div>
           )}
-          
+
+          {/* Sections (via `#` mentions) */}
+          {safeSelection.mode === "sections" && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.sectionsHint")}</div>
+              {selectedSections && selectedSections.length > 0 ? (
+                <div className="max-h-48 overflow-y-auto space-y-1 border border-border rounded-lg p-2">
+                  {selectedSections.map((node) => (
+                    <SectionMentionCard
+                      key={node.id}
+                      node={node}
+                      onRemove={onRemoveSection}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/30 text-xs text-muted-foreground">
+                  <WarningCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>{t("flashcardStudio.sectionsEmpty")}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Token Estimation */}
           <div className="flex items-center justify-between pt-2 border-t border-border">
             <div className="text-xs text-muted-foreground">
@@ -2906,6 +2982,18 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const [draftCards, setDraftCards] = useState<DraftCard[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
+  // Active Studio session — the source of truth for the live workspace.
+  // The component mirrors one session's messages/drafts/context at a time.
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  // Sessions list state, re-read from storage when the Sessions view is shown.
+  const [sessionsCache, setSessionsCache] = useState<FlashcardStudioSession[]>([]);
+  // Controls the "discard unsaved drafts?" confirmation when starting a new session.
+  const [showNewSessionDialog, setShowNewSessionDialog] = useState(false);
+  // Inline rename target within the Sessions view.
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  // Delete confirmation within the Sessions view.
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
   const [editingCardId, setEditingCardId] = useState<string | null>(null);
   const [generationHistory, setGenerationHistory] = useState<GenerationHistoryItem[]>([]);
@@ -2913,6 +3001,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const [bulkTagInput, setBulkTagInput] = useState("");
   const [isTagInputVisible, setIsTagInputVisible] = useState(false);
   const [contextSelection, setContextSelection] = useState<ContextSelection>(DEFAULT_CONTEXT_SELECTION);
+  // Section-mention (`#`) popup state for the chat input. Mirrors the Assistant.
+  const [showSectionPopup, setShowSectionPopup] = useState(false);
+  const [sectionQuery, setSectionQuery] = useState("");
+  const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
   const [allExtracts, setAllExtracts] = useState<Extract[]>([]);
   const [areExtractsLoading, setAreExtractsLoading] = useState(false);
   const [generatingExtractIds, setGeneratingExtractIds] = useState<Set<string>>(new Set());
@@ -3008,30 +3100,201 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     return () => { cancelled = true; };
   }, [isOpen]);
 
+  // Hydrate the live workspace from a session record.
+  const hydrateFromSession = useCallback((session: FlashcardStudioSession | null) => {
+    if (!session) {
+      setMessages([]);
+      setDraftCards([]);
+      setContextSelection(DEFAULT_CONTEXT_SELECTION);
+      return;
+    }
+    setMessages(Array.isArray(session.messages) ? session.messages : []);
+    setDraftCards(Array.isArray(session.draftCards) ? session.draftCards : []);
+    if (session.selectedProviderId) setSelectedProviderId(session.selectedProviderId);
+    if (typeof session.selectedNotebookId === "string") setSelectedNotebookId(session.selectedNotebookId);
+    setSelectedDocumentId(session.selectedDocumentId ?? null);
+    // Prefer the session's deck, else fall back to the first active deck.
+    setSelectedDeckId(session.selectedDeckId ?? activeDeckIds[0] ?? null);
+    setContextSelection(session.contextSelection ? normalizeContextSelection(session.contextSelection) : DEFAULT_CONTEXT_SELECTION);
+    if (session.viewMode && ["chat", "templates", "sessions", "extracts"].includes(session.viewMode)) {
+      setViewMode(session.viewMode as ViewMode);
+    } else if (session.viewMode === "history") {
+      // Legacy persisted view mode — map to the sessions view.
+      setViewMode("sessions");
+    }
+  }, [activeDeckIds]);
+
+  // Flush (synchronously persist) the current live workspace into the active
+  // session record. Used before a session switch to avoid stale-debounce races.
+  const flushActiveSession = useCallback(() => {
+    if (!activeSessionId) return;
+    // Guard (6.3): if the active id no longer resolves to a stored session
+    // (corrupt/missing record), recreate it rather than writing into the void.
+    if (!getSession(activeSessionId)) {
+      const doc = documents.find((d) => d.id === selectedDocumentId);
+      const recovered = createStudioSession({
+        selectedProviderId,
+        selectedNotebookId,
+        selectedDocumentId,
+        selectedDeckId,
+        contextSelection,
+        messages,
+        draftCards,
+        viewMode,
+        documentName: doc?.title,
+      });
+      saveSessions([recovered, ...loadSessions()]);
+      persistActiveSessionId(recovered.id);
+      setActiveSessionId(recovered.id);
+      return;
+    }
+    const doc = documents.find((d) => d.id === selectedDocumentId);
+    updateStudioSession(activeSessionId, {
+      selectedProviderId,
+      selectedNotebookId,
+      selectedDocumentId,
+      selectedDeckId,
+      contextSelection,
+      messages: messages.slice(-50),
+      draftCards: draftCards.slice(0, 100),
+      viewMode,
+      documentName: doc?.title,
+    });
+  }, [activeSessionId, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards, viewMode, documents]);
+
+  // Whether the active session has drafts that were never persisted to the
+  // learning-item DB. Used to decide whether "New session" must confirm.
+  const hasUnpersistedDrafts = useMemo(
+    () => draftCards.some((c) => !c.alreadyPersisted),
+    [draftCards],
+  );
+
+  /**
+   * Switch the live workspace to a target session: flush the outgoing session,
+   * mark the target active, hydrate its state, and refresh the sessions cache.
+   */
+  const switchToSession = useCallback((targetId: string) => {
+    // Flush the outgoing session before swapping the active id, so a pending
+    // debounced save can't fire against the wrong session.
+    if (activeSessionId && activeSessionId !== targetId) {
+      const doc = documents.find((d) => d.id === selectedDocumentId);
+      updateStudioSession(activeSessionId, {
+        selectedProviderId,
+        selectedNotebookId,
+        selectedDocumentId,
+        selectedDeckId,
+        contextSelection,
+        messages: messages.slice(-50),
+        draftCards: draftCards.slice(0, 100),
+        viewMode,
+        documentName: doc?.title,
+      });
+    }
+    persistActiveSessionId(targetId);
+    setActiveSessionId(targetId);
+    const target = getSession(targetId);
+    hydrateFromSession(target);
+    setSessionsCache(loadSessions());
+  }, [activeSessionId, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards, viewMode, documents, hydrateFromSession]);
+
+  /**
+   * Create a fresh empty session and switch to it. When `carryDrafts` is true,
+   * the current drafts are copied into the new session (e.g. when the user
+   * chooses "Keep drafts" in the discard confirmation).
+   */
+  const startFreshSession = useCallback((opts: { carryDrafts?: boolean } = {}) => {
+    const carriedDrafts = opts.carryDrafts ? draftCards : [];
+    const fresh = createStudioSession({
+      draftCards: carriedDrafts,
+      contextSelection: { ...DEFAULT_CONTEXT_SELECTION },
+    });
+    saveSessions([fresh, ...loadSessions()]);
+    persistActiveSessionId(fresh.id);
+    setActiveSessionId(fresh.id);
+    // Hydrate to a clean slate (empty chat + default context), optionally
+    // carrying drafts.
+    setMessages([]);
+    setContextSelection({ ...DEFAULT_CONTEXT_SELECTION });
+    setDraftCards(carriedDrafts);
+    setViewMode("chat");
+    setSessionsCache(loadSessions());
+  }, [draftCards]);
+
+  // Resume a past session from the Sessions view (see §5).
+  const handleResumeSession = useCallback((id: string) => {
+    switchToSession(id);
+    setViewMode("chat");
+  }, [switchToSession]);
+
+  // Delete a session; if it was active, a fresh empty one is created upstream.
+  const handleDeleteSession = useCallback((id: string) => {
+    const newActiveId = deleteStudioSession(id);
+    setActiveSessionId(newActiveId);
+    if (id === activeSessionId) {
+      const fresh = getSession(newActiveId);
+      hydrateFromSession(fresh);
+    }
+    setSessionsCache(loadSessions());
+  }, [activeSessionId, hydrateFromSession]);
+
+  const handleRenameSession = useCallback((id: string, title: string) => {
+    renameStudioSession(id, title);
+    setSessionsCache(loadSessions());
+  }, []);
+
+  /**
+   * Begin a new session. If the active session has drafts that were never
+   * persisted to the learning-item DB, ask the user whether to keep or discard
+   * them; otherwise start a clean session immediately.
+   */
+  const handleNewSession = useCallback(() => {
+    if (hasUnpersistedDrafts) {
+      setShowNewSessionDialog(true);
+      return;
+    }
+    startFreshSession({ carryDrafts: false });
+  }, [hasUnpersistedDrafts, startFreshSession]);
+
+  const confirmNewSession = useCallback((choice: "keep" | "clean") => {
+    setShowNewSessionDialog(false);
+    startFreshSession({ carryDrafts: choice === "keep" });
+  }, [startFreshSession]);
+
+  const commitRename = useCallback(() => {
+    if (renamingSessionId && renameValue.trim()) {
+      handleRenameSession(renamingSessionId, renameValue);
+    }
+    setRenamingSessionId(null);
+    setRenameValue("");
+  }, [renamingSessionId, renameValue, handleRenameSession]);
+
+  const beginRename = useCallback((session: FlashcardStudioSession) => {
+    setRenamingSessionId(session.id);
+    setRenameValue(session.title);
+  }, []);
+
+  const confirmDeleteSession = useCallback(() => {
+    if (deletingSessionId) {
+      handleDeleteSession(deletingSessionId);
+    }
+    setDeletingSessionId(null);
+  }, [deletingSessionId, handleDeleteSession]);
+
   useEffect(() => {
     if (!isOpen) return;
-    
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed?.messages)) setMessages(parsed.messages);
-        if (Array.isArray(parsed?.draftCards)) setDraftCards(parsed.draftCards);
-        if (typeof parsed?.selectedProviderId === "string") setSelectedProviderId(parsed.selectedProviderId);
-        if (typeof parsed?.selectedNotebookId === "string") setSelectedNotebookId(parsed.selectedNotebookId);
-        if (typeof parsed?.selectedDocumentId === "string") setSelectedDocumentId(parsed.selectedDocumentId);
-        if (typeof parsed?.selectedDeckId === "string") setSelectedDeckId(parsed.selectedDeckId);
-        else if (activeDeckIds[0]) setSelectedDeckId(activeDeckIds[0]);
-        if (parsed?.contextSelection) setContextSelection(normalizeContextSelection(parsed.contextSelection));
-        if (parsed?.viewMode && ["chat", "templates", "history", "extracts"].includes(parsed.viewMode)) setViewMode(parsed.viewMode);
-      } catch (error) {
-        console.warn("Failed to restore state", error);
-        setSelectedDeckId(activeDeckIds[0] ?? null);
-      }
-    } else {
-      setSelectedDeckId(activeDeckIds[0] ?? null);
+
+    // One-time legacy migration + ensure an active session exists.
+    const activeId = migrateLegacyState();
+    setActiveSessionId(activeId);
+    setSessionsCache(loadSessions());
+
+    const session = getSession(activeId);
+    hydrateFromSession(session);
+    if (!session?.selectedDeckId && activeDeckIds[0]) {
+      setSelectedDeckId(activeDeckIds[0]);
     }
 
+    // Legacy generation-history log is retained read-only for display.
     const historyRaw = localStorage.getItem(HISTORY_KEY);
     if (historyRaw) {
       try {
@@ -3041,22 +3304,24 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         // ignore
       }
     }
-  }, [isOpen, activeDeckIds[0]]);
+  }, [isOpen]);
 
+  // Debounced save: write current component state back into the active session.
+  useEffect(() => {
+    if (!isOpen || !activeSessionId) return;
+    flushActiveSession();
+    // Refresh the cached list so the Sessions view reflects live changes.
+    setSessionsCache(loadSessions());
+  }, [isOpen, activeSessionId, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards, viewMode, flushActiveSession]);
+
+  // Refresh the sessions list whenever the Sessions view is opened, so it
+  // reflects any external changes (e.g. migration, or another tab's edits).
   useEffect(() => {
     if (!isOpen) return;
-    const payload = {
-      selectedProviderId,
-      selectedNotebookId,
-      selectedDocumentId,
-      selectedDeckId,
-      contextSelection,
-      messages: messages.slice(-50),
-      draftCards: draftCards.slice(0, 100),
-      viewMode,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [isOpen, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards]);
+    if (viewMode === "sessions") {
+      setSessionsCache(loadSessions());
+    }
+  }, [isOpen, viewMode]);
 
   // Auto-scroll messages within the container only
   useEffect(() => {
@@ -3109,6 +3374,11 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         }
       }
 
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "n" || e.key === "N")) {
+        e.preventDefault();
+        handleNewSession();
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
         const selected = draftCards.filter((c) => c.selected);
@@ -3127,7 +3397,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, input, isSending, isSaving, draftCards, editingCardId, viewMode, onClose]);
+  }, [isOpen, input, isSending, isSaving, draftCards, editingCardId, viewMode, onClose, handleNewSession]);
 
   const currentProvider = useMemo(() => {
     if (!selectedProviderId) return null;
@@ -3163,6 +3433,45 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     }
     return typeof selectedDocument?.content === "string" ? selectedDocument.content : undefined;
   }, [resolvedDocumentContent, selectedDocument?.content]);
+
+  // Section tree for the `#` mention menu and section-focused context. The hook
+  // auto-resolves PDF/EPUB outlines from useDocumentOutlineStore, so passing the
+  // document text is enough. Same machinery the Assistant uses.
+  const {
+    tree: sectionTree,
+    flat: sectionFlat,
+  } = useDocumentSections({
+    documentId: selectedDocument?.id,
+    content: selectedDocumentText ?? "",
+    useStoreOutline: true,
+  });
+
+  // Resolve the focused section ids back to nodes against the current tree.
+  const selectedSectionNodes = useMemo<SectionNode[]>(() => {
+    const ids = normalizeContextSelection(contextSelection).selectedSectionIds;
+    if (ids.length === 0) return [];
+    const byId = new Map(sectionFlat.map((node) => [node.id, node]));
+    return ids.map((id) => byId.get(id)).filter((node): node is SectionNode => Boolean(node));
+  }, [contextSelection, sectionFlat]);
+
+  // Cheap token estimate for the focused sections (for cost/summary display).
+  const focusedSectionTokens = useMemo(() => {
+    if (selectedSectionNodes.length === 0) return 0;
+    return selectedSectionNodes.reduce((sum, node) => sum + (node.content ? estimateTokens(node.content) : 0), 0);
+  }, [selectedSectionNodes]);
+
+  // Concatenated focused-section text for the live cost estimator (sections
+  // mode doesn't go through the contextContent memo, so we feed the estimator
+  // directly). This is an estimate — actual resolution (neighbors, truncation)
+  // happens at send time.
+  const sectionsContextText = useMemo(() => {
+    if (selectedSectionNodes.length === 0) return "";
+    return selectedSectionNodes.map((node) => node.content || "").join("\n\n");
+  }, [selectedSectionNodes]);
+
+  // Whether the user is currently in section-focus mode (component-scope, used
+  // by both the cost estimator and handleSend).
+  const isSectionMode = normalizeContextSelection(contextSelection).mode === "sections";
 
   useEffect(() => {
     if (!isOpen || !selectedDocument) {
@@ -3333,6 +3642,12 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       case "search":
         return normalizedSelection.excerpt.trim() || undefined;
 
+      case "sections":
+        // Resolution is deferred to send time so ranges are computed against
+        // freshly fetched document text (mirrors AssistantPanel). The cost
+        // estimator uses the cheap focusedSectionTokens estimate instead.
+        return undefined;
+
       default:
         return undefined;
     }
@@ -3348,8 +3663,17 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     if (contextSelection.mode === "pages") return "Apply a valid page range that contains document text.";
     if (contextSelection.mode === "excerpt") return "Add an excerpt before generating cards.";
     if (contextSelection.mode === "search") return "Search the document and select a result before generating cards.";
+    if (contextSelection.mode === "sections") {
+      // Resolution happens at send time; here we only ensure the focus is non-empty.
+      // Stale/unresolvable sections are surfaced as errors from resolveSectionFocusedContext.
+      const ids = normalizeContextSelection(contextSelection).selectedSectionIds;
+      if (ids.length === 0) return t("flashcardStudio.sectionsEmpty");
+      // Section ids may exist but no longer resolve against the current tree.
+      if (selectedSectionNodes.length === 0) return t("flashcardStudio.sectionsUnresolvable");
+      return null;
+    }
     return "Choose valid document context before generating cards.";
-  }, [contextContent, contextLoadError, contextLoadState, contextSelection.mode, selectedDocument, selectedDocumentText]);
+  }, [contextContent, contextLoadError, contextLoadState, contextSelection, selectedDocument, selectedDocumentText, selectedSectionNodes, t]);
 
   const stats = useMemo(() => {
     const selected = draftCards.filter((c) => c.selected);
@@ -3414,6 +3738,16 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     appliedSeedKeyRef.current = seed.key;
     seededExtractIdRef.current = seed.linkedExtractId ?? null;
 
+    // If a seed arrives while the active session already has chat/drafts, start
+    // a fresh session so the seed targets a clean workspace (carrying the seed
+    // draft rather than the old pile). A bare document/excerpt seed without a
+    // draft, applied to an empty session, just updates that session in place.
+    const activeSessionHasContent = messages.length > 0 || draftCards.length > 0;
+    const seedCreatesDraft = Boolean(seed.resetDraftCards || seed.draftCardType || seed.extractId);
+    if (activeSessionHasContent && seedCreatesDraft) {
+      startFreshSession({ carryDrafts: false });
+    }
+
     if (seed.documentId !== undefined) {
       seededDocumentIdRef.current = seed.documentId;
       setSelectedDocumentId(seed.documentId);
@@ -3454,7 +3788,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         handleGenerateFromExtract(seed.extractId!);
       });
     }
-  }, [isOpen, seed, createBlankDraftCard]);
+  }, [isOpen, seed, createBlankDraftCard, startFreshSession, messages.length, draftCards.length]);
 
   const handleGenerateImageOcclusions = async () => {
     if (isSending) return;
@@ -3719,6 +4053,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
             .map((num) => chapters.find((c) => c.number === num)?.title || `Chapter ${num}`)
             .join(", ");
           contextDesc += `, focusing on: ${chapterNames}`;
+        } else if (contextSelection.mode === "sections" && selectedSectionNodes.length > 0) {
+          // Use labels resolved against the current tree (breadcrumb > title).
+          const sectionNames = selectedSectionNodes.map(sectionLabel).join(", ");
+          contextDesc += `, focusing on: ${sectionNames}`;
         } else if (contextSelection.mode === "pages" && contextSelection.pageRange) {
           contextDesc += `, pages ${contextSelection.pageRange.start}-${contextSelection.pageRange.end}`;
         } else if (contextSelection.mode === "excerpt") {
@@ -3739,10 +4077,58 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       
       llmMessages.push(...history, { role: "user", content: userMessage.content });
 
+      // Section-focused resolution (mirrors AssistantPanel 1166-1204). We resolve
+      // at send time against freshly fetched document text — the contextContent
+      // memo deliberately returns undefined for `sections` mode. On success we
+      // override the context sent to the LLM, rewrite the last user message to
+      // wrap the focused body, and stamp sourceContext for provenance.
+      let effectiveContextContent = contextContent;
+      let sectionSourceContext: SectionSourceReference | undefined;
+      let sectionTruncatedNote = "";
+      const shouldResolveSections = normalizeContextSelection(contextSelection).mode === "sections";
+      if (shouldResolveSections && selectedSectionNodes.length > 0 && selectedDocument) {
+        const documentId = selectedDocument.id;
+
+        const resolveOnce = async () => {
+          const freshText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
+          return resolveSectionFocusedContext(selectedSectionNodes, sectionFlat, freshText, {
+            documentId,
+            maxTokens,
+            includeNeighbors: true,
+          });
+        };
+
+        // Section resolution occasionally misses on the very first request
+        // right after a section is picked (the just-fetched canonical text can
+        // momentarily disagree with the offsets the section was picked against)
+        // and then succeeds immediately on an identical retry. One transparent
+        // retry absorbs that transient miss instead of surfacing it.
+        let focused = await resolveOnce();
+        if (!focused.ok) focused = await resolveOnce();
+
+        if (!focused.ok) {
+          const labels = focused.unresolved.map((item) => item.label).join(", ");
+          throw new Error(t("flashcardStudio.sectionUnresolved", { labels }));
+        }
+
+        effectiveContextContent = focused.content;
+        sectionSourceContext = focused.source;
+        if (focused.truncated) sectionTruncatedNote = t("flashcardStudio.sectionTruncated");
+
+        const request = createDocumentQaRequestContent({
+          documentContext: focused.content,
+          userQuestion: promptText.replace(SECTION_REGEX, "").trim(),
+          focusLabel: focused.labels.join(", "),
+        });
+        SECTION_REGEX.lastIndex = 0;
+        const lastUserIdx = llmMessages.map((message) => message.role).lastIndexOf("user");
+        if (lastUserIdx >= 0) llmMessages[lastUserIdx] = { role: "user", content: request.userPromptContent };
+      }
+
       // Use 'general' context type only when there is genuinely nothing to send.
       // A bare excerpt (e.g. selected EPUB text via right-click → Create Flashcard)
       // is enough to use document context even if the full document isn't loaded.
-      const hasDocumentContent = !!(contextContent?.trim());
+      const hasDocumentContent = !!(effectiveContextContent?.trim());
       const response = await chatWithContext(
         currentProvider.provider,
         currentProvider.model,
@@ -3750,7 +4136,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         {
           type: hasDocumentContent ? "document" : "general",
           documentId: hasDocumentContent ? selectedDocument?.id : undefined,
-          content: contextContent,
+          content: effectiveContextContent,
           contextWindowTokens: maxTokens,
         },
         currentProvider.apiKey,
@@ -3764,19 +4150,26 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
       const assistantId = `assistant-${Date.now()}`;
       const { cards, cleaned } = parseCardsFromResponse(response.content, assistantId);
-      
+
       const assistantMessage: ChatMessage = {
         id: assistantId,
         role: "assistant",
-        content: cleaned || response.content,
+        content: sectionTruncatedNote
+          ? `${sectionTruncatedNote}\n\n${cleaned || response.content}`
+          : cleaned || response.content,
         timestamp: Date.now(),
         cardsGenerated: cards.length,
+        sourceContext: sectionSourceContext,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-      
+
       if (cards.length > 0) {
-        setDraftCards((prev) => [...cards, ...prev]);
+        // Carry section provenance onto generated cards when applicable.
+        const provenancedCards = sectionSourceContext
+          ? cards.map((card) => ({ ...card, sourceContext: sectionSourceContext }))
+          : cards;
+        setDraftCards((prev) => [...provenancedCards, ...prev]);
         toast.success(t("flashcardStudio.cardsGenerated", { count: cards.length }), t("flashcardStudio.cardsGeneratedDesc"));
         
         const historyItem: GenerationHistoryItem = {
@@ -4100,7 +4493,132 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     toast.success(t("flashcardStudio.cardDuplicated"), t("flashcardStudio.cardDuplicatedDesc"));
   };
 
+  // Sections matching the current `#query` — used to drive keyboard navigation
+  // for the popup (the popup itself filters/sorts internally with the same
+  // scoring heuristics). Mirrors AssistantPanel.getFilteredAssistantSections.
+  const filteredSectionOptions = useMemo<SectionNode[]>(() => {
+    if (!showSectionPopup) return [];
+    if (!sectionQuery) return sectionFlat;
+    const q = sectionQuery.toLowerCase();
+    return sectionFlat
+      .map((sec) => {
+        const titleLower = sec.title.toLowerCase();
+        const breadLower = sec.breadcrumb.join(" > ").toLowerCase();
+        let score = 0;
+        if (titleLower.startsWith(q)) score += 100;
+        else if (titleLower.includes(q)) score += 50;
+        if (breadLower.includes(q)) score += 20;
+        return { sec, score };
+      })
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 100)
+      .map((s) => s.sec);
+  }, [showSectionPopup, sectionQuery, sectionFlat]);
+
+  const handleInputChange = (value: string) => {
+    setInput(value);
+
+    // Only show the section popup when a document is selected.
+    if (!selectedDocument) {
+      setShowSectionPopup(false);
+      setSectionQuery("");
+      return;
+    }
+
+    const textarea = inputRef.current;
+    const cursorPos = textarea ? textarea.selectionStart : value.length;
+    const beforeCursor = value.slice(0, cursorPos);
+    const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
+
+    if (hashMatch) {
+      setShowSectionPopup(true);
+      setSectionQuery(hashMatch[1]);
+      setSectionCursorIndex(0);
+    } else {
+      setShowSectionPopup(false);
+      setSectionQuery("");
+    }
+
+    // If no `#{...}` tokens remain, drop any stale section focus.
+    const hasTokens = SECTION_REGEX.test(value);
+    SECTION_REGEX.lastIndex = 0;
+    if (!hasTokens && normalizeContextSelection(contextSelection).selectedSectionIds.length > 0) {
+      setContextSelection((prev) => ({ ...normalizeContextSelection(prev), selectedSectionIds: [], mode: "full" }));
+    }
+  };
+
+  const handleSelectStudioSection = (node: SectionNode) => {
+    if (!inputRef.current) return;
+    const textarea = inputRef.current;
+    const cursorPos = textarea.selectionStart;
+    const beforeCursor = input.slice(0, cursorPos);
+    const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
+    if (!hashMatch) return;
+
+    const hashPos = cursorPos - hashMatch[0].length;
+    const token = `#{${node.title}}`;
+    const newValue = input.slice(0, hashPos) + token + " " + input.slice(cursorPos);
+    setInput(newValue);
+    setShowSectionPopup(false);
+    setSectionQuery("");
+
+    setContextSelection((prev) => {
+      const normalized = normalizeContextSelection(prev);
+      if (normalized.selectedSectionIds.includes(node.id)) return { ...normalized, mode: "sections" };
+      return { ...normalized, mode: "sections", selectedSectionIds: [...normalized.selectedSectionIds, node.id] };
+    });
+
+    setTimeout(() => {
+      const newPos = hashPos + token.length + 1;
+      textarea.setSelectionRange(newPos, newPos);
+      textarea.focus();
+    }, 0);
+  };
+
+  const handleRemoveSectionById = (id: string) => {
+    const node = sectionFlat.find((n) => n.id === id);
+    if (node) {
+      const token = `#{${node.title}}`;
+      setInput((current) => current.split(token).join("").replace(/[ \t]{2,}/g, " ").trim());
+    }
+    setContextSelection((prev) => {
+      const normalized = normalizeContextSelection(prev);
+      const nextIds = normalized.selectedSectionIds.filter((existing) => existing !== id);
+      if (nextIds.length === 0) return { ...normalized, selectedSectionIds: [], mode: "full" };
+      return { ...normalized, selectedSectionIds: nextIds };
+    });
+  };
+
   const handleInputKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (showSectionPopup) {
+      const filtered = filteredSectionOptions;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSectionCursorIndex((prev) => (prev < filtered.length - 1 ? prev + 1 : prev));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSectionCursorIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        return;
+      }
+      if (e.key === "Enter" && filtered.length > 0) {
+        e.preventDefault();
+        handleSelectStudioSection(filtered[sectionCursorIndex] || filtered[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setShowSectionPopup(false);
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       if (input.trim() && !isSending) {
@@ -4184,17 +4702,18 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                 {t("flashcardStudio.templates")}
               </button>
               <button
-                onClick={() => setViewMode("history")}
+                onClick={() => setViewMode("sessions")}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap",
-                  viewMode === "history" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  viewMode === "sessions" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
                 )}
+                title={t("flashcardStudio.sessions")}
               >
                 <ClockCounterClockwise className="w-3.5 h-3.5" />
-                {t("flashcardStudio.history")}
-                {generationHistory.length > 0 && (
+                {t("flashcardStudio.sessions")}
+                {sessionsCache.length > 0 && (
                   <span className="ml-0.5 text-[10px] bg-primary-foreground/20 px-1 rounded-full">
-                    {generationHistory.length}
+                    {sessionsCache.length}
                   </span>
                 )}
               </button>
@@ -4214,6 +4733,16 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                 )}
               </button>
             </div>
+
+            {/* New session */}
+            <button
+              onClick={() => handleNewSession()}
+              title={`${t("flashcardStudio.newSession")} (${isMac() ? "⌘" : "Ctrl"}+Shift+N)`}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border bg-background text-xs font-medium text-foreground hover:bg-muted transition-colors flex-shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{t("flashcardStudio.newSession")}</span>
+            </button>
 
             {/* Provider Selector */}
             <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 flex-shrink-0">
@@ -4374,6 +4903,9 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
               selection={contextSelection}
               onChange={setContextSelection}
               maxTokens={maxTokens}
+              selectedSections={selectedSectionNodes}
+              focusedSectionTokens={focusedSectionTokens}
+              onRemoveSection={handleRemoveSectionById}
             />
           </div>
         )}
@@ -4500,12 +5032,23 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                 {/* Input */}
                 <div className="border-t border-border px-4 pt-4 pb-[calc(max(1rem,env(safe-area-inset-bottom))+var(--shell-mobile-nav-height,0px))] bg-card">
                   <div className="relative">
+                    {selectedDocument && showSectionPopup && (
+                      <SectionMentionPopup
+                        tree={sectionTree}
+                        flat={sectionFlat}
+                        query={sectionQuery}
+                        selectedIndex={sectionCursorIndex}
+                        open={showSectionPopup}
+                        onSelect={handleSelectStudioSection}
+                        onClose={() => setShowSectionPopup(false)}
+                      />
+                    )}
                     <textarea
                       ref={inputRef}
                       value={input}
-                      onChange={(e) => setInput(e.target.value)}
+                      onChange={(e) => handleInputChange(e.target.value)}
                       onKeyDown={handleInputKeyDown}
-                      placeholder={selectedDocument 
+                      placeholder={selectedDocument
                         ? t("flashcardStudio.contextPromptPlaceholder")
                         : t("flashcardStudio.generalPromptPlaceholder")}
                       rows={3}
@@ -4526,9 +5069,13 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                   
                   {/* Cost Estimator */}
                   <div className="mt-3">
-                    <CostEstimator 
-                      inputText={isNotebookProviderSelected ? input : input + (contextContent || "")} 
-                      isVisible={true} 
+                    <CostEstimator
+                      inputText={
+                        isNotebookProviderSelected
+                          ? input
+                          : input + (contextContent || (isSectionMode ? sectionsContextText : ""))
+                      }
+                      isVisible={true}
                       pricing={currentModelPricing}
                     />
                   </div>
@@ -4557,68 +5104,117 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
               </div>
             )}
 
-            {viewMode === "history" && (
+            {viewMode === "sessions" && (
               <div className="flex-1 min-h-0 overflow-y-auto p-6">
                 <div className="max-w-2xl mx-auto">
-                  <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center justify-between mb-2">
                     <div>
-                      <h3 className="text-lg font-semibold text-foreground">{t("flashcardStudio.generationHistory")}</h3>
+                      <h3 className="text-lg font-semibold text-foreground">{t("flashcardStudio.sessions")}</h3>
                       <p className="text-sm text-muted-foreground">
-                        {t("flashcardStudio.generationHistoryDesc")}
+                        {t("flashcardStudio.sessionsDesc")}
                       </p>
                     </div>
-                    {generationHistory.length > 0 && (
-                      <button
-                        onClick={() => {
-                          setGenerationHistory([]);
-                          localStorage.removeItem(HISTORY_KEY);
-                          toast.success(t("flashcardStudio.historyCleared"));
-                        }}
-                        className="text-xs text-muted-foreground hover:text-destructive"
-                      >
-                        {t("flashcardStudio.clearAll")}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleNewSession()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      {t("flashcardStudio.newSession")}
+                    </button>
                   </div>
-                  
-                  {generationHistory.length === 0 ? (
+                  {sessionsCache.length > 1 && (
+                    <p className="text-[11px] text-muted-foreground mb-4">{t("flashcardStudio.sessionsCapNote")}</p>
+                  )}
+
+                  {sessionsCache.length === 0 ? (
                     <div className="text-center py-12">
                       <ClockCounterClockwise className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
-                      <p className="text-sm text-muted-foreground">{t("flashcardStudio.noGenerationHistory")}</p>
+                      <p className="text-sm text-muted-foreground">{t("flashcardStudio.sessionsEmpty")}</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {generationHistory.map((item) => (
-                        <button
-                          key={item.id}
-                          onClick={() => {
-                            setInput(item.prompt);
-                            setViewMode("chat");
-                          }}
-                          className="w-full text-left p-4 rounded-xl border border-border bg-card hover:bg-muted/50 transition-colors group"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-foreground line-clamp-2 group-hover:text-primary transition-colors">
-                                {item.prompt}
-                              </p>
-                              {item.documentName && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {t("flashcardStudio.historyFromDocument", { name: item.documentName })}
-                                </p>
-                              )}
+                      {sessionsCache.map((session) => {
+                        const isActive = session.id === activeSessionId;
+                        const isRenaming = renamingSessionId === session.id;
+                        return (
+                          <div
+                            key={session.id}
+                            className={cn(
+                              "p-4 rounded-xl border bg-card transition-colors",
+                              isActive ? "border-primary/60 ring-1 ring-primary/30" : "border-border hover:bg-muted/50",
+                            )}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                {isRenaming ? (
+                                  <input
+                                    autoFocus
+                                    value={renameValue}
+                                    onChange={(e) => setRenameValue(e.target.value)}
+                                    onBlur={commitRename}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") commitRename();
+                                      if (e.key === "Escape") {
+                                        setRenamingSessionId(null);
+                                        setRenameValue("");
+                                      }
+                                    }}
+                                    className="w-full px-2 py-1 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                  />
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium text-foreground truncate">
+                                      {session.title}
+                                    </p>
+                                    {isActive && (
+                                      <span className="text-[10px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                                        {t("flashcardStudio.activeSessionLabel")}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                                {session.documentName && (
+                                  <p className="text-xs text-muted-foreground mt-1 truncate">
+                                    {t("flashcardStudio.historyFromDocument", { name: session.documentName })}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                <span className="text-xs font-medium text-primary">
+                                  {t("flashcardStudio.cardsWithCount", { count: session.cardCount })}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {formatRelativeTime(session.updatedAt)}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex flex-col items-end gap-1">
-                              <span className="text-xs font-medium text-primary">
-                                {t("flashcardStudio.cardsWithCount", { count: item.cardCount })}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground">
-                                {formatRelativeTime(item.timestamp)}
-                              </span>
+                            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/60">
+                              <button
+                                onClick={() => handleResumeSession(session.id)}
+                                disabled={isActive}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <FolderOpen className="w-3.5 h-3.5" />
+                                {t("flashcardStudio.resume")}
+                              </button>
+                              <button
+                                onClick={() => beginRename(session)}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-muted-foreground hover:bg-muted"
+                              >
+                                <PencilSimple className="w-3.5 h-3.5" />
+                                {t("flashcardStudio.rename")}
+                              </button>
+                              <button
+                                onClick={() => setDeletingSessionId(session.id)}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-auto"
+                              >
+                                <Trash className="w-3.5 h-3.5" />
+                                {t("flashcardStudio.delete")}
+                              </button>
                             </div>
                           </div>
-                        </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -4975,6 +5571,90 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                 <span className="text-muted-foreground">{t("flashcardStudio.shortcutFlip")}</span>
                 <kbd className="px-2 py-1 bg-muted rounded text-xs">{t("flashcardStudio.clickCard")}</kbd>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New session — confirm before abandoning unsaved drafts */}
+      {showNewSessionDialog && (
+        <div
+          className="fixed inset-0 z-[9992] flex items-center justify-center bg-black/50"
+          onClick={() => setShowNewSessionDialog(false)}
+        >
+          <div
+            className="bg-card border border-border rounded-xl shadow-xl p-6 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
+                <WarningCircle className="w-5 h-5" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">
+                {t("flashcardStudio.discardUnsavedDraftsTitle")}
+              </h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-5">
+              {t("flashcardStudio.discardUnsavedDraftsBody")}
+            </p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                onClick={() => setShowNewSessionDialog(false)}
+                className="px-3 py-1.5 text-sm rounded-lg text-muted-foreground hover:bg-muted"
+              >
+                {t("flashcardStudio.cancel")}
+              </button>
+              <button
+                onClick={() => confirmNewSession("clean")}
+                className="px-3 py-1.5 text-sm rounded-lg bg-destructive text-destructive-foreground hover:opacity-90"
+              >
+                {t("flashcardStudio.startClean")}
+              </button>
+              <button
+                onClick={() => confirmNewSession("keep")}
+                className="px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:opacity-90"
+              >
+                {t("flashcardStudio.keepDrafts")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete session confirmation */}
+      {deletingSessionId && (
+        <div
+          className="fixed inset-0 z-[9992] flex items-center justify-center bg-black/50"
+          onClick={() => setDeletingSessionId(null)}
+        >
+          <div
+            className="bg-card border border-border rounded-xl shadow-xl p-6 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 rounded-lg bg-destructive/10 text-destructive">
+                <Trash className="w-5 h-5" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">
+                {t("flashcardStudio.deleteSession")}
+              </h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-5">
+              {t("flashcardStudio.deleteSessionConfirm")}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDeletingSessionId(null)}
+                className="px-3 py-1.5 text-sm rounded-lg text-muted-foreground hover:bg-muted"
+              >
+                {t("flashcardStudio.cancel")}
+              </button>
+              <button
+                onClick={confirmDeleteSession}
+                className="px-3 py-1.5 text-sm rounded-lg bg-destructive text-destructive-foreground hover:opacity-90"
+              >
+                {t("flashcardStudio.delete")}
+              </button>
             </div>
           </div>
         </div>

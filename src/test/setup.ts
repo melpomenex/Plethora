@@ -132,6 +132,13 @@ Object.defineProperty(window, "matchMedia", {
   }),
 });
 
+// jsdom does not implement Element.scrollIntoView. Provide a no-op so
+// components that auto-scroll on mount/update (e.g. chat message lists) don't
+// throw under test.
+if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
+}
+
 // Suppress console errors in tests (optional, for cleaner output)
 const originalError = console.error;
 beforeAll(() => {

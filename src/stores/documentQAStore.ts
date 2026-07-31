@@ -73,7 +73,12 @@ export const useDocumentQAStore = create<DocumentQAState>()(
     }),
     {
       name: "incrementum-document-qa",
-      partialize: (state) => ({ messages: state.messages }),
+      // The Document Q&A sessions store (src/components/tabs/documentQaSessions.ts)
+      // is now the authoritative persistence layer: it owns the per-session
+      // messages and migrates this legacy key on first load. Persist nothing
+      // new here so the two layers cannot diverge; the legacy key is retained
+      // read-only for one release as a migration/rollback source.
+      partialize: () => ({}),
     }
   )
 );

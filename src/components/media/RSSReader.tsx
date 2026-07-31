@@ -84,6 +84,7 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { IntelligenceIndicator } from "./IntelligenceIndicator";
 import { TrainingMenu } from "./TrainingMenu";
 import { KeyboardShortcutProvider } from "./KeyboardShortcutProvider";
+import { usePaletteActionListener, usePaletteContextProvider } from "../../commandPalette/paletteActionEvents";
 import { KeyboardHelpOverlay } from "./KeyboardHelpOverlay";
 import { AnnotationsPanel } from "./AnnotationsPanel";
 import { RSSDashboard } from "./RSSDashboard";
@@ -1507,6 +1508,33 @@ export function RSSReader() {
     }
   }, [items, selectedItem, selectedItemFeed, selectedFeed, feeds, viewMode, setUserClosedReader, handleToggleFavorite, refreshAllFeeds]);
 
+  // Contextual command-palette actions: route to the existing keyboard-action
+  // dispatcher (which already centralizes next/prev, mark-read, star, etc.) and
+  // the bulk handlers. Only the active RSS tab listens.
+  usePaletteContextProvider(
+    "rss",
+    { hasTargetItem: !!selectedItem },
+    { isActive: isActiveTab },
+  );
+  usePaletteActionListener(
+    "rss",
+    {
+      "rss.search": () => handleKeyboardAction("focusSearch"),
+      "rss.nextArticle": () => handleKeyboardAction("nextArticle"),
+      "rss.prevArticle": () => handleKeyboardAction("prevArticle"),
+      "rss.markRead": () => handleKeyboardAction("markRead"),
+      "rss.markUnread": () => handleKeyboardAction("markUnread"),
+      "rss.toggleStar": () => handleKeyboardAction("star"),
+      "rss.openOriginal": () => handleKeyboardAction("openOriginal"),
+      "rss.refreshFeed": () => handleKeyboardAction("refreshFeed"),
+      "rss.markAllRead": () => {
+        if (selectedFeed) void handleMarkAllRead(selectedFeed.id);
+      },
+      "rss.cycleViewMode": () => handleKeyboardAction("nextViewMode"),
+    },
+    { isActive: isActiveTab },
+  );
+
   // Mark article unread handler
   const handleMarkUnread = async (feed: Feed, item: FeedItem) => {
     // Update local state synchronously
@@ -1747,33 +1775,33 @@ export function RSSReader() {
         <div className="h-full w-full flex flex-col lg:flex-row overflow-hidden rounded-xl border border-border/70 bg-card/60 shadow-[0_0_0_1px_rgba(15,23,42,0.04)]">
           {/* Sidebar */}
           <div
-            className={`w-full lg:w-72 border-b lg:border-b-0 lg:border-r border-border/70 bg-card/60 flex-col min-h-0 ${showSidebar ? "flex" : "hidden"}`}
+            className={`w-full lg:w-72 border-b lg:border-b-0 lg:border-r border-border/70 bg-card/60 flex-col min-h-0 min-w-0 ${showSidebar ? "flex" : "hidden"}`}
           >
             {/* Header */}
-            <div className="px-4 pt-4 pb-3 border-b border-border/70 bg-gradient-to-b from-muted/30 via-muted/10 to-transparent">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold text-foreground flex items-center gap-2 tracking-tight">
+            <div className="px-4 pt-4 pb-3 border-b border-border/70 bg-gradient-to-b from-muted/30 via-muted/10 to-transparent shrink-0">
+              <div className="flex items-center justify-between mb-3 gap-2 min-w-0">
+                <h2 className="text-lg font-semibold text-foreground flex items-center gap-2 tracking-tight shrink-0">
                   <Rss className="w-5 h-5 text-orange-500" />
                   RSS
                 </h2>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1 justify-end">
                   <button
                     onClick={() => setShowAddDialog(true)}
-                    className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded transition-colors"
+                    className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted/60 rounded transition-colors shrink-0"
                     title={t("common.addFeed")}
                   >
                     <Plus className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setShowUrlImport(true)}
-                    className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
+                    className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 rounded transition-colors shrink-0"
                     title={t("rssReader.importByUrl")}
                   >
                     <Link className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setShowNewsletterDirectory(true)}
-                    className="p-2 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 rounded transition-colors"
+                    className="p-2 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 rounded transition-colors shrink-0"
                     title={t("rssReader.browseDirectory")}
                   >
                     <Newspaper className="w-4 h-4" />
@@ -1783,7 +1811,7 @@ export function RSSReader() {
                       setScrollScope(ALL_FEEDS_SCOPE);
                       setScrollMode(true);
                     }}
-                    className="p-2 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 rounded transition-colors"
+                    className="p-2 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 rounded transition-colors shrink-0"
                     title={t("rssReader.scrollMode")}
                   >
                     <Scroll className="w-4 h-4" />
@@ -1793,7 +1821,7 @@ export function RSSReader() {
                       if (selectMode) exitSelectMode();
                       else setSelectMode(true);
                     }}
-                    className={`p-2 rounded transition-colors ${
+                    className={`p-2 rounded transition-colors shrink-0 ${
                       selectMode
                         ? "bg-primary/15 text-primary"
                         : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
@@ -1807,7 +1835,7 @@ export function RSSReader() {
                   <button
                     onClick={() => refreshAllFeeds("manual")}
                     disabled={isAutoRefreshing}
-                    className={`p-2 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    className={`p-2 rounded transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
                       syncFeedback === "error"
                         ? "text-red-600 dark:text-red-400 hover:bg-red-500/10"
                         : syncFeedback === "success"
@@ -1836,19 +1864,19 @@ export function RSSReader() {
                     <button
                       onClick={() => rssStudy.clearBatch()}
                       title={`${rssStudy.selectedRssItems.length} article(s) batched for semantic graph — click to clear`}
-                      className="flex items-center gap-1 px-1.5 h-8 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/20 hover:bg-orange-500/25 transition-colors text-[10px] font-semibold leading-none"
+                      className="flex items-center gap-1 px-1.5 h-8 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/20 hover:bg-orange-500/25 transition-colors text-[10px] font-semibold leading-none shrink-0"
                     >
                       <Brain className="w-3 h-3" />
                       <span>{rssStudy.selectedRssItems.length}</span>
                       <span className="text-orange-600 dark:text-orange-400 hover:text-red-500 font-bold">×</span>
                     </button>
                   )}
-                  <div className="relative group" ref={optionsMenuRef}>
+                  <div className="relative group shrink-0" ref={optionsMenuRef}>
                     <button
                       onClick={() => setShowOptionsMenu((v) => !v)}
                       aria-haspopup="menu"
                       aria-expanded={showOptionsMenu}
-                      className={`p-2 rounded transition-colors ${
+                      className={`p-2 rounded transition-colors shrink-0 ${
                         showOptionsMenu
                           ? "bg-muted/60 text-foreground"
                           : "text-muted-foreground hover:text-foreground hover:bg-muted/60"

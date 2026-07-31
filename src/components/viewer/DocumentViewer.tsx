@@ -97,6 +97,7 @@ import { saveDocumentPosition, pagePosition, scrollPosition } from "../../api/po
 import type { DocumentPosition } from "../../types/position";
 import { useExtractStore } from "../../stores/extractStore";
 import { useVimModeStore } from "../../stores/vimModeStore";
+import { usePaletteActionListener } from "../../commandPalette/paletteActionEvents";
 import { buildSelectionContext } from "../../utils/vim/selectionContext";
 import { extractYouTubeVideoId } from "../../utils/youtubeEmbed";
 import {
@@ -3938,6 +3939,54 @@ export function DocumentViewer({
       }
     }
   };
+
+  // ---- Contextual command-palette actions --------------------------------
+  // Routes palette action ids to existing handlers. The map is rebuilt each
+  // render so handlers always close over fresh state; the listener hook reads
+  // it live via a ref (no stale captures, no resubscription).
+  usePaletteActionListener(
+    "document-viewer",
+    {
+      "doc.search": () => {
+        if (viewerSearchSupported) {
+          setShowSearch(true);
+          requestAnimationFrame(() => {
+            searchInputRef.current?.focus();
+            searchInputRef.current?.select();
+          });
+        }
+      },
+      // TOC lives inside the PDF/EPUB sub-viewers; ask the active one to toggle.
+      "doc.toggleToc": () => window.dispatchEvent(new CustomEvent("viewer-toggle-toc")),
+      "doc.nextPage": () => handleNextPage(),
+      "doc.prevPage": () => handlePrevPage(),
+      "doc.goToPage": () => {
+        // Focus the page indicator input so the user can type a page number.
+        const input = document.querySelector<HTMLInputElement>(
+          'input[aria-label*="age"], input[placeholder*="age"]'
+        );
+        input?.focus();
+        input?.select();
+      },
+      "doc.zoomIn": () => handleZoomIn(),
+      "doc.zoomOut": () => handleZoomOut(),
+      "doc.zoomReset": () => handleResetZoom(),
+      "doc.createExtract": () => {
+        setInitialHighlightColor(undefined);
+        openExtractDialog();
+      },
+      "doc.highlightSelection": () => {
+        setInitialHighlightColor("#fef08a");
+        openExtractDialog();
+      },
+      "doc.toggleFullscreen": () => { void toggleFullscreen(); },
+      "doc.toggleVimMode": () => {
+        const vim = useVimModeStore.getState();
+        vim.setMode(vim.mode === "inactive" ? "normal" : "inactive");
+      },
+    },
+    { isActive: tabContextIsActive },
+  );
 
   const handleRatingRef = useRef<(rating: ReviewRating) => Promise<void>>(null);
   const handleRating = async (rating: ReviewRating) => {

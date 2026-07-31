@@ -74,6 +74,26 @@ prerequisite 5).
 This is the step the release script can't do for you. The script's final
 `git add -A` is the right call *only* when the tree is clean. Concretely:
 
+- **Run `aislop` to scrub AI slop before staging.** This repo runs
+  [aislop](https://github.com/scanaislop/aislop) before every release to catch
+  and mechanically fix the low-quality patterns AI agents tend to leave behind
+  (narrative/trivial comments, leftover `console.log`, unused imports, dead
+  code, oversized functions). It's deterministic and sub-second — no LLM in the
+  runtime path — so it's cheap to run on every release.
+
+  ```bash
+  npx aislop@latest scan        # review the score + findings (read-only)
+  npx aislop@latest fix         # apply safe, reversible mechanical fixes
+  npx aislop@latest fix -f      # aggressive: also prunes unused deps/files
+  ```
+
+  After `fix`, always `git status` / `git diff` and **review what changed** —
+  `fix -f` can delete files, so confirm the removals are intended. Stage these
+  cleanups into the real work commit (see "Stage cleanly" below); never let the
+  release script's `git add -A` sweep them into the `chore: release` commit. If
+  the score is low or the findings look non-mechanical (e.g. architecture,
+  security), surface them to the user rather than auto-fixing blindly.
+
 - **Gitignore build artifacts that must never ship.** Anything machine-
   generated that isn't source belongs in `.gitignore`, e.g.:
   ```

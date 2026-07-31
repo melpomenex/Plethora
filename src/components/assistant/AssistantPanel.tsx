@@ -47,6 +47,7 @@ import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 import { invokeCommand, isTauri } from "../../lib/tauri";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
+import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
   resolveSectionFocusedContext,
   type SectionNode,
@@ -1792,6 +1793,19 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     }
   };
 
+  const handleRemoveAssistantSection = (id: string) => {
+    const node = selectedSectionNodes.find((n) => n.id === id);
+    setSelectedSectionNodes((prev) => prev.filter((n) => n.id !== id));
+    if (node) {
+      const newInput = input
+        .replace(`#{${node.title}}`, "")
+        .replace(`#{${node.id}}`, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      setInput(newInput);
+    }
+  };
+
   const getFilteredAssistantSections = () => {
     if (!sectionQuery) return assistantSectionFlat;
     const q = sectionQuery.toLowerCase();
@@ -2715,54 +2729,17 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </div>
           )}
 
-          {/* Selected section chips - new */}
+          {/* Selected section cards - collapsed by default, expandable to read */}
           {selectedSectionNodes.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {selectedSectionNodes.map((node) => {
                 const latestNode = assistantSectionFlat.find((n) => n.id === node.id) || node;
-                const tokens = latestNode.content ? Math.ceil(latestNode.content.length / 4) : 0;
-                
-                const getSelectedPillStyle = (t: number) => {
-                  if (t === 0) return "bg-muted text-muted-foreground border border-border/30";
-                  if (t < 1000) return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40";
-                  if (t <= 4000) return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40";
-                  return "bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300 border border-rose-200 dark:border-rose-800/40";
-                };
-
-                const getCloseButtonClass = (t: number) => {
-                  if (t === 0) return "hover:bg-muted-foreground/10";
-                  if (t < 1000) return "hover:bg-emerald-200 dark:hover:bg-emerald-800/60";
-                  if (t <= 4000) return "hover:bg-amber-200 dark:hover:bg-amber-800/60";
-                  return "hover:bg-rose-200 dark:hover:bg-rose-800/60";
-                };
-
-                const formatTokens = (count: number) => {
-                  if (count < 1000) return `${count}`;
-                  return `${(count / 1000).toFixed(1)}k`;
-                };
-
                 return (
-                  <span
+                  <SectionMentionCard
                     key={node.id}
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full transition-colors ${getSelectedPillStyle(tokens)}`}
-                    title={node.breadcrumb.join(" > ")}
-                  >
-                    <TextT className="w-3 h-3" />
-                    {node.breadcrumb.length > 0 ? `${node.breadcrumb[node.breadcrumb.length - 1]} > ${node.title}` : node.title}
-                    <span className="text-[9px] bg-white/50 dark:bg-black/20 px-1 rounded ml-1 font-mono">
-                      {tokens > 0 ? `${formatTokens(tokens)} tokens` : "-- tokens"}
-                    </span>
-                    <button
-                      onClick={() => {
-                        setSelectedSectionNodes((prev) => prev.filter((n) => n.id !== node.id));
-                        const newInput = input.replace(`#{${node.title}}`, "").replace(`#{${node.id}}`, "").replace(/\s{2,}/g, " ").trim();
-                        setInput(newInput);
-                      }}
-                      className={`rounded-full p-0.5 transition-colors ${getCloseButtonClass(tokens)}`}
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </span>
+                    node={latestNode}
+                    onRemove={handleRemoveAssistantSection}
+                  />
                 );
               })}
             </div>

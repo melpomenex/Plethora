@@ -70,6 +70,8 @@ import { resolveLocalMediaSource } from "./localMediaSource";
 import { KaraokeText } from "../media/KaraokeText";
 import { findActiveWordIndex, type WordTiming } from "../../utils/wordTimings";
 import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
+import { usePaletteActionListener } from "../../commandPalette/paletteActionEvents";
+import { useIsActiveTab } from "../common/Tabs";
 
 export type AudiobookPlaybackErrorKind = "source" | "codec";
 
@@ -1913,6 +1915,34 @@ export function AudiobookViewer({
     initAudioNodes();
     setVolumeBoostEnabled(!volumeBoostEnabled);
   };
+
+  // ---- Contextual command-palette actions --------------------------------
+  // This viewer is reused as the Podcast tab's inline player (isPodcast). In
+  // that case it reports view "podcast" so playback actions route here while
+  // PodcastManager handles podcast-specific (episode) actions. Only the active
+  // tab's viewer listens.
+  const isActiveTab = useIsActiveTab();
+  usePaletteActionListener(
+    isPodcast ? "podcast" : "audiobook",
+    {
+      "audiobook.playPause": () => togglePlay(),
+      "audiobook.skipBack": () => skip(-10),
+      "audiobook.skipForward": () => skip(10),
+      "audiobook.cycleSpeed": () => cyclePlaybackRate(),
+      "audiobook.toggleMute": () => toggleMute(),
+      "audiobook.toggleChapters": () => setShowChapters((prev) => !prev),
+      "audiobook.addBookmark": () => addBookmark(),
+      "audiobook.toggleTranscript": () => setShowTranscript((prev) => !prev),
+      "audiobook.toggleSleepTimer": () => setShowSleepTimer((prev) => !prev),
+      "audiobook.toggleFullscreen": () => setIsFullscreen((prev) => !prev),
+      // Playback actions reused when serving as the Podcast inline player:
+      "podcast.playPause": () => togglePlay(),
+      "podcast.skipBack": () => skip(-10),
+      "podcast.skipForward": () => skip(10),
+      "podcast.toggleTranscript": () => setShowTranscript((prev) => !prev),
+    },
+    { isActive: isActiveTab },
+  );
   
   useEffect(() => {
     if (!sleepTimer) return;

@@ -80,6 +80,8 @@ import { podcastFeedSearch } from "../../utils/podcastSearch";
 import { ConfirmDialog, useConfirmDialog } from "../common/ConfirmDialog";
 import { AssistantPanel } from "../assistant/AssistantPanel";
 import { resolveGenericAssistantContext, type ResolvedAssistantContext } from "../../utils/assistantContext";
+import { usePaletteActionListener, usePaletteContextProvider } from "../../commandPalette/paletteActionEvents";
+import { useIsActiveTab } from "../common/Tabs";
 
 interface PodcastManagerProps {
   onPlayEpisode?: (feed: PodcastFeed, episode: PodcastEpisode) => void;
@@ -1083,6 +1085,50 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
       toast.error("Delete failed", error instanceof Error ? error.message : "Unknown error");
     }
   };
+
+  // ---- Contextual command-palette actions --------------------------------
+  // Episode-specific actions target the now-playing episode. Playback actions
+  // (play/pause/skip/transcript) are served by the inline AudiobookViewer,
+  // which also reports view "podcast"; here we handle the podcast-specific
+  // (feed/episode) actions. Publish whether a target episode exists so the
+  // palette can hide episode actions when nothing is playing.
+  const isActiveTab = useIsActiveTab();
+  usePaletteContextProvider(
+    "podcast",
+    { hasTargetItem: !!playingEpisode },
+    { isActive: isActiveTab },
+  );
+  usePaletteActionListener(
+    "podcast",
+    {
+      "podcast.search": () => {
+        document.querySelector<HTMLInputElement>('input[placeholder*="earch"]')?.focus();
+        document.querySelector<HTMLInputElement>('input[placeholder*="earch"]')?.select();
+      },
+      "podcast.markPlayed": () => {
+        const ep = playingEpisode?.episode;
+        if (ep) void handleTogglePlayed(ep.id, !!ep.played);
+      },
+      "podcast.markUnplayed": () => {
+        const ep = playingEpisode?.episode;
+        if (ep) void handleTogglePlayed(ep.id, !!ep.played);
+      },
+      "podcast.download": () => {
+        const ep = playingEpisode?.episode;
+        if (!ep) return;
+        if (downloadedEpisodes.has(ep.id)) {
+          void handleDeleteDownload(ep.id);
+        } else {
+          void handleDownloadEpisode(ep);
+        }
+      },
+      "podcast.refreshFeed": () => {
+        const feed = playingEpisode?.feed ?? feeds.find((f) => f.id === selectedFeedId) ?? null;
+        if (feed) void handleRefreshFeed(feed);
+      },
+    },
+    { isActive: isActiveTab },
+  );
 
   const handleToggleAutoTranscribe = async (feed: PodcastFeed) => {
     try {

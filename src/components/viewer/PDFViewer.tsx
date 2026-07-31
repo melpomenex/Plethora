@@ -508,6 +508,15 @@ export function PDFViewer({
   const [showTOC, setShowTOC] = useState(false);
   const [zoomMode, setZoomMode] = useState<ZoomMode>(externalZoomMode || "custom");
 
+  // Allow the document-viewer palette action "Toggle Table of Contents" to
+  // toggle this sub-viewer's TOC panel (the parent DocumentViewer dispatches
+  // the event; only the active sub-viewer is mounted to hear it).
+  useEffect(() => {
+    const onToggle = () => setShowTOC((prev) => !prev);
+    window.addEventListener("viewer-toggle-toc", onToggle);
+    return () => window.removeEventListener("viewer-toggle-toc", onToggle);
+  }, []);
+
   const effectiveStartPage = useMemo(() => {
     return metadata?.chunkStartPage ?? 1;
   }, [metadata]);

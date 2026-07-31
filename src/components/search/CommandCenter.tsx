@@ -44,6 +44,15 @@ import { getSubscribedFeedsAuto, type FeedItem } from "../../api/rss";
 import { searchArticlesAuto } from "../../api/rss-search";
 import { useRssStudyStore } from "../../stores/rssStudyStore";
 import { getSubscribedPodcasts, getPodcastEpisodes, getPodcastTranscript } from "../../api/podcast";
+import {
+  actionMatchesQuery,
+  getActionsForView,
+  type ActionContext,
+  type ContextualViewType,
+  type ViewAction,
+  type ViewActionId,
+} from "../../commandPalette/contextualActions";
+import { dispatchPaletteAction, getLiveContext } from "../../commandPalette/paletteActionEvents";
 
 const STOPWORDS = new Set([
   "a",
@@ -322,7 +331,6 @@ export function CommandCenter() {
   const handleSearch = useCallback(async (query: SearchQuery): Promise<SearchResult[]> => {
     const term = query.query.toLowerCase().trim();
     const results: SearchResult[] = [];
-    if (!term) return results;
 
     // Lazy-load extracts for content search (once per session)
     const queryTerms = extractSearchTerms(query.query)
@@ -639,6 +647,79 @@ export function CommandCenter() {
     const isRssView = activeTab?.type === "rss";
     const isPodcastView = activeTab?.type === "podcast";
 
+    // ---- Contextual palette actions -----------------------------------
+    // Resolve the active view (if supported) and the context the action
+    // `applies()` predicates need, then build the contextual-action results.
+    const contextualView: ContextualViewType | null =
+      activeTab?.type === "document-viewer" || activeTab?.type === "audiobook-epub-sync"
+        ? "document-viewer"
+      : activeTab?.type === "rss" ? "rss"
+      : activeTab?.type === "podcast" ? "podcast"
+      : activeTab?.type === "audiobook" ? "audiobook"
+      : null;
+
+    const contextualContext: ActionContext = (() => {
+      if (contextualView === "document-viewer" && activeTab?.data?.documentId) {
+        const doc = documents.find(d => d.id === activeTab.data!.documentId);
+        const ft = (doc?.fileType || "").toLowerCase();
+        const viewerKind =
+          ft === "pdf" ? "pdf"
+          : ft === "epub" ? "epub"
+          : ft === "markdown" ? "markdown"
+          : ft === "html" ? "html"
+          : ft === "youtube" ? "youtube"
+          : ft === "audio" ? "audio"
+          : "other";
+        return { viewerKind, vimAvailable: true };
+      }
+      // For RSS/Podcast, target-item-dependent actions are shown by default;
+      // the listener hides them at runtime if there is no current item.
+      return { hasTargetItem: true };
+    })();
+
+    const contextualActions: ViewAction[] = contextualView
+      ? getActionsForView(contextualView, { ...contextualContext, ...getLiveContext(contextualView) })
+      : [];
+
+    // Convert matching contextual actions into palette results. Ranked above
+    // global commands (score 0.95 vs 0.8) so in-context actions win ties.
+    // Empty query shows all applicable actions (the "Actions in this view"
+    // group). Results carry the dispatch target for the click handler.
+    const buildContextualResults = (q: string): SearchResult[] => {
+      if (!contextualView) return [];
+      const matched = contextualActions.filter((a) => actionMatchesQuery(a, q));
+      // Cap to keep the contextual section focused; the rest remain reachable
+      // by typing a more specific query.
+      return matched.slice(0, 10).map((action) => ({
+        id: `ctx-${action.view}-${action.id}`,
+        type: SearchResultType.Command,
+        title: action.title,
+        excerpt: action.subtitle,
+        score: 0.95,
+        metadata: {
+          resultKind: "contextual-action",
+          contextualView: action.view,
+          contextualActionId: action.id,
+          shortcut: action.shortcutHint,
+          category: "Action",
+          groupLabel: "Actions in this view",
+        },
+      }));
+    };
+
+    // Push contextual-action results into the main result set. They are ranked
+    // above global commands (0.95 > 0.8) by the final sort. This runs for the
+    // document-viewer path (the main branch); RSS/Podcast branches seed their
+    // own `matches` arrays via buildContextualResults above.
+    if (contextualView && contextualView !== "rss" && contextualView !== "podcast") {
+      results.push(...buildContextualResults(query.query));
+    }
+
+    // Empty query: contextual actions are the default palette content (global
+    // commands and content search require a term). Return early here so we
+    // don't run the term-dependent search below.
+    if (!term) return results;
+
     const allCommands = [
       ...getDefaultCommands().filter((cmd) => ![
         "go-documents",
@@ -705,8 +786,8 @@ export function CommandCenter() {
     if (isRssView) {
       try {
         const lowerQuery = query.query.toLowerCase().trim();
-        const matches: SearchResult[] = [];
-        
+        const matches: SearchResult[] = [...buildContextualResults(query.query)];
+
         if (lowerQuery) {
           let cachedArticles = rssArticlesCacheRef.current;
           if (cachedArticles.length === 0) {
@@ -810,8 +891,8 @@ export function CommandCenter() {
       try {
         const podcasts = await getSubscribedPodcasts();
         const lowerQuery = query.query.toLowerCase().trim();
-        const matches: SearchResult[] = [];
-        
+        const matches: SearchResult[] = [...buildContextualResults(query.query)];
+
         const episodesLists = await Promise.all(
           podcasts.map(feed => getPodcastEpisodes(feed.id, true).catch(() => []))
         );
@@ -1332,11 +1413,23 @@ export function CommandCenter() {
       const seekTime = (location && (location.kind === "audio" || location.kind === "youtube"))
         ? location.timeSeconds
         : 0;
-      
+
       window.dispatchEvent(new CustomEvent("play-podcast-episode", {
         detail: { feedId, episodeId, seekTime }
       }));
       window.dispatchEvent(new CustomEvent("navigate", { detail: "/podcast" }));
+      return;
+    }
+
+    if (result.metadata?.resultKind === "contextual-action") {
+      const view = result.metadata.contextualView;
+      const actionId = result.metadata.contextualActionId;
+      if (view && actionId) {
+        // Close the palette first so the view (newly uncovered) can take focus
+        // — e.g. to focus a search input or receive a highlight selection.
+        useUIStore.getState().setCommandPaletteOpen(false);
+        dispatchPaletteAction(view, actionId as ViewActionId);
+      }
       return;
     }
 

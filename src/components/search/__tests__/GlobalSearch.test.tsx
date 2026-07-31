@@ -98,4 +98,58 @@ describe("GlobalSearch keyboard navigation", () => {
       }))
     );
   });
+
+  it("renders a group header for contextual-action results and selects them", async () => {
+    const onResultClick = vi.fn();
+    const onSearch = vi.fn(async (_query: SearchQuery): Promise<SearchResult[]> => [
+      {
+        id: "ctx-audiobook-audiobook.addBookmark",
+        type: SearchResultType.Command,
+        title: "Add Bookmark",
+        score: 0.95,
+        metadata: {
+          resultKind: "contextual-action",
+          contextualView: "audiobook",
+          contextualActionId: "audiobook.addBookmark",
+          groupLabel: "Actions in this view",
+        },
+      },
+    ]);
+
+    render(
+      <GlobalSearch
+        isOpen={true}
+        onOpenChange={vi.fn()}
+        hideTrigger={true}
+        onSearch={onSearch}
+        onResultClick={onResultClick}
+      />
+    );
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "bookmark" } });
+    await act(async () => {});
+
+    // The group header is rendered for the contextual section.
+    await waitFor(() => expect(screen.getByText("Actions in this view")).toBeInTheDocument(), {
+      timeout: 2000,
+    });
+
+    const row = await waitFor(() => screen.getByText("Add Bookmark"));
+    await waitFor(() =>
+      expect(row.closest('[role="button"]')).toHaveClass("border-primary-400")
+    );
+
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() =>
+      expect(onResultClick).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            resultKind: "contextual-action",
+            contextualView: "audiobook",
+            contextualActionId: "audiobook.addBookmark",
+          }),
+        })
+      )
+    );
+  });
 });

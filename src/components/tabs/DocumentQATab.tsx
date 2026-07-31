@@ -29,12 +29,16 @@ import {
   FloppyDisk,
   Gear,
   Globe,
+  List,
   PaperPlaneTilt,
+  PencilSimple,
+  Plus,
   Sparkle,
   TextT,
   Trash,
   WarningCircle,
   X,
+  XCircle,
 } from "@phosphor-icons/react";
 import { renderMarkdown } from "../../utils/markdown";
 import { detectChapterReference, buildChapterQAContext, getChapterTitles, type ChapterReference } from "../../utils/chapterUtils";
@@ -42,6 +46,7 @@ import { useI18n } from "../../lib/i18n";
 import { invokeCommand } from "../../lib/tauri";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
+import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
   buildDocumentSections,
   resolveSectionFocusedContext,
@@ -54,6 +59,20 @@ import {
   toolCallsToFlashcardArtifacts,
   type ChatFlashcardArtifact,
 } from "../../features/assistant/chatFlashcardArtifacts";
+import { formatRelativeTime } from "../../utils/relativeTime";
+import {
+  STORAGE_KEYS as SESSION_STORAGE_KEYS,
+  createSession,
+  deleteSession as deleteQaSession,
+  getActiveSessionId,
+  loadSessions,
+  migrateLegacyState,
+  renameSession as renameQaSession,
+  saveSessions,
+  setActiveSessionId,
+  updateSession,
+  type DocumentQaSession,
+} from "./documentQaSessions";
 
 // Re-export types with simpler names for local use
 type Message = QAMessage;
@@ -75,6 +94,7 @@ export function DocumentQATab() {
     messages,
     isProcessing,
     addMessage,
+    setMessages,
     clearMessages,
     setIsProcessing,
     updateToolCall,
@@ -115,6 +135,29 @@ export function DocumentQATab() {
   const [selectedSections, setSelectedSections] = useState<SectionNode[]>([]);
   const [fullContent, setFullContent] = useState("");
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+
+  // --- Document Q&A sessions (see documentQaSessions.ts) ---
+  // The active session id is the source of truth for which conversation is
+  // loaded into the live store below. Hydration happens in a load effect; the
+  // debounced save effect writes the live state back into the active record.
+  const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<DocumentQaSession[]>([]);
+  // Bump to force a sidebar refresh after session-store mutations performed
+  // outside React (e.g. rename/delete handled in the sidebar).
+  const [sessionsVersion, setSessionsVersion] = useState(0);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof localStorage === "undefined") return false;
+    return localStorage.getItem(SESSION_STORAGE_KEYS.sidebarCollapsed) === "1";
+  });
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [showNewChatConfirm, setShowNewChatConfirm] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const sessionSaveTimerRef = useRef<number | null>(null);
+  // Guard against the save effect writing state from a session we're in the
+  // middle of switching away from (hydration sets this true).
+  const isHydratingRef = useRef(false);
 
   const targetDocId = useMemo(() => {
     return mentions.length > 0 ? mentions[0].id : selectedDocumentId;
@@ -472,7 +515,28 @@ export function DocumentQATab() {
     }
   };
 
+  const handleRemoveDocumentQaSection = (id: string) => {
+    const removed = selectedSections.find((section) => section.id === id);
+    const nextSections = selectedSections.filter((section) => section.id !== id);
+    setSelectedSections(nextSections);
+    if (removed) {
+      const newRaw = rawInput
+        .replace(`#{${removed.title}}`, "")
+        .replace(`#{${removed.id}}`, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+      setRawInput(newRaw);
+      setInput(formatInputForDisplay(newRaw, mentions, nextSections));
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // §3.1 — Cmd/Ctrl+Shift+K starts a new chat.
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "K" || e.key === "k")) {
+      e.preventDefault();
+      handleNewChat();
+      return;
+    }
     if (showMentionPopup) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -560,9 +624,206 @@ export function DocumentQATab() {
     setInput(formatInputForDisplay(newValue, newMentions, selectedSections));
   };
 
+  const refreshSessions = useCallback(() => {
+    setSessions(loadSessions());
+  }, []);
+
+  // Flush (synchronously) the current live state into the active session.
+  // Called before any session switch/new/delete to avoid stale-debounce races.
+  const flushSaveActiveSession = useCallback(() => {
+    if (sessionSaveTimerRef.current) {
+      window.clearTimeout(sessionSaveTimerRef.current);
+      sessionSaveTimerRef.current = null;
+    }
+    const id = getActiveSessionId();
+    if (!id) return;
+    const focusDocName = selectedDocumentId
+      ? documents.find((d) => d.id === selectedDocumentId)?.title
+      : t("tabs.wholeLibrary");
+    updateSession(id, {
+      messages,
+      selectedDocumentId,
+      webSearchEnabled,
+      documentName: focusDocName,
+    });
+    refreshSessions();
+  }, [messages, selectedDocumentId, webSearchEnabled, documents, t, refreshSessions]);
+
+  // Hydrate the live store from a session record (and reset the composer).
+  const hydrateFromSession = useCallback(
+    (session: DocumentQaSession) => {
+      isHydratingRef.current = true;
+      setMessages(session.messages);
+      setSelectedDocumentId(session.selectedDocumentId ?? "");
+      setWebSearchEnabled(Boolean(session.webSearchEnabled));
+      // Reset composer / transient focus state — composer is per-session.
+      setInput("");
+      setRawInput("");
+      setMentions([]);
+      setSelectedSections([]);
+      setDetectedChapter(null);
+      setHistoryIndex(-1);
+      setProviderError(null);
+      isHydratingRef.current = false;
+      // Defer focus to the next tick so the textarea is rendered.
+      window.setTimeout(() => textareaRef.current?.focus(), 0);
+    },
+    [setMessages],
+  );
+
+  // §2.1 — On mount: migrate legacy state once, then hydrate the active
+  // session into the live store. Also refresh the sidebar list.
+  useEffect(() => {
+    const activeId = migrateLegacyState();
+    setActiveSessionIdState(activeId);
+    refreshSessions();
+    const session = activeId ? loadSessions().find((s) => s.id === activeId) ?? null : null;
+    if (session) {
+      hydrateFromSession(session);
+    } else {
+      clearMessages();
+    }
+  }, []);
+
+  // §2.2 — Debounced save of the live state back into the active session.
+  // Skips writes triggered purely by hydration to avoid stomping a just-loaded
+  // session with a stale closure. Flushes on unmount.
+  useEffect(() => {
+    if (!activeSessionId || isHydratingRef.current) return;
+    if (sessionSaveTimerRef.current) {
+      window.clearTimeout(sessionSaveTimerRef.current);
+    }
+    sessionSaveTimerRef.current = window.setTimeout(() => {
+      const focusDocName = selectedDocumentId
+        ? documents.find((d) => d.id === selectedDocumentId)?.title
+        : t("tabs.wholeLibrary");
+      updateSession(activeSessionId, {
+        messages,
+        selectedDocumentId,
+        webSearchEnabled,
+        documentName: focusDocName,
+      });
+      refreshSessions();
+    }, 500);
+
+    return () => {
+      if (sessionSaveTimerRef.current) {
+        window.clearTimeout(sessionSaveTimerRef.current);
+        sessionSaveTimerRef.current = null;
+      }
+    };
+  }, [messages, selectedDocumentId, webSearchEnabled, activeSessionId, documents, t, refreshSessions]);
+
+  // Keep the sidebar list fresh after out-of-band mutations.
+  useEffect(() => {
+    refreshSessions();
+  }, [sessionsVersion, refreshSessions]);
+
+  // Persist sidebar collapse choice.
+  useEffect(() => {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(SESSION_STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => !prev);
+  }, []);
+
+  // §3.2 / §3.3 — Start a new chat. If the composer has unsent text, confirm
+  // first. Sent history is always preserved into the outgoing session.
+  const handleNewChat = useCallback(() => {
+    if (rawInput.trim()) {
+      setShowNewChatConfirm(true);
+      return;
+    }
+    startNewChatNow();
+  }, [rawInput]);
+
+  const startNewChatNow = useCallback(() => {
+    flushSaveActiveSession();
+    const fresh = createSession({
+      selectedDocumentId,
+      webSearchEnabled: false,
+    });
+    // Persist the new record immediately (createSession only builds the
+    // object) so it's visible in the sidebar / survives a reload.
+    saveSessions([fresh, ...loadSessions()]);
+    setActiveSessionId(fresh.id);
+    setActiveSessionIdState(fresh.id);
+    hydrateFromSession(fresh);
+    setSessionsVersion((v) => v + 1);
+    setShowNewChatConfirm(false);
+  }, [flushSaveActiveSession, hydrateFromSession, selectedDocumentId]);
+
+  // §5.1 — Resume a past session with full state.
+  const handleResumeSession = useCallback(
+    (id: string) => {
+      if (id === activeSessionId) return;
+      flushSaveActiveSession();
+      setActiveSessionId(id);
+      setActiveSessionIdState(id);
+      const target = loadSessions().find((s) => s.id === id) ?? null;
+      if (target) {
+        hydrateFromSession(target);
+      } else {
+        // Guard (§6.3): target vanished — fall back to a fresh session.
+        const fresh = createSession();
+        setActiveSessionId(fresh.id);
+        setActiveSessionIdState(fresh.id);
+        hydrateFromSession(fresh);
+      }
+      setSessionsVersion((v) => v + 1);
+    },
+    [activeSessionId, flushSaveActiveSession, hydrateFromSession],
+  );
+
+  // §4.4 — Rename a session inline.
+  const handleRenameSession = useCallback(
+    (id: string) => {
+      const trimmed = renameValue.trim();
+      if (trimmed) {
+        renameQaSession(id, trimmed);
+      }
+      setRenamingSessionId(null);
+      setRenameValue("");
+      setSessionsVersion((v) => v + 1);
+    },
+    [renameValue],
+  );
+
+  // §4.4 — Delete a session (active session deletion is handled by the store:
+  // it creates+activates an empty session and returns its id).
+  const handleConfirmDelete = useCallback(() => {
+    if (!pendingDeleteId) return;
+    const wasActive = pendingDeleteId === activeSessionId;
+    const newActiveId = deleteQaSession(pendingDeleteId);
+    setPendingDeleteId(null);
+
+    if (wasActive) {
+      setActiveSessionId(newActiveId);
+      setActiveSessionIdState(newActiveId);
+      const fresh = loadSessions().find((s) => s.id === newActiveId) ?? null;
+      if (fresh) hydrateFromSession(fresh);
+    }
+    setSessionsVersion((v) => v + 1);
+  }, [pendingDeleteId, activeSessionId, hydrateFromSession]);
+
+  // §3.4 — Clear the active conversation in place (keeps the session record,
+  // empties its messages). Confirms first.
   const clearConversation = () => {
+    if (messages.length > 0) {
+      setShowClearConfirm(true);
+      return;
+    }
     clearMessages();
     setProviderError(null);
+  };
+
+  const confirmClearActiveConversation = () => {
+    clearMessages();
+    setProviderError(null);
+    setShowClearConfirm(false);
+    setSessionsVersion((v) => v + 1);
   };
 
   // Get document content for context (chapter-aware)
@@ -1376,7 +1637,171 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
   }
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full flex bg-background">
+      {/* Sessions sidebar (chat-app-native history rail) */}
+      {!sidebarCollapsed && (
+        <aside className="w-64 flex-shrink-0 border-r border-border flex flex-col bg-card/50">
+          <div className="p-3 border-b border-border flex items-center gap-2">
+            <button
+              onClick={startNewChatNow}
+              className="flex-1 px-3 py-2 text-sm font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
+              title={t("tabs.newChatShortcut")}
+            >
+              <Plus className="w-4 h-4" />
+              {t("tabs.newChat")}
+            </button>
+            <button
+              onClick={toggleSidebar}
+              className="p-2 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+              title={t("tabs.collapseSidebar")}
+              aria-label={t("tabs.collapseSidebar")}
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="px-3 pt-2 pb-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t("tabs.chatHistory")}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto px-2 pb-2">
+            {sessions.length === 0 ? (
+              <div className="text-center text-xs text-muted-foreground p-4">
+                <ChatCircle className="w-6 h-6 mx-auto mb-2 opacity-40" />
+                <p>{t("tabs.sidebarEmpty")}</p>
+              </div>
+            ) : (
+              <ul className="space-y-1">
+                {sessions.map((session) => {
+                  const isActive = session.id === activeSessionId;
+                  const focusLabel = session.documentName || t("tabs.wholeLibrary");
+                  return (
+                    <li key={session.id}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => handleResumeSession(session.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleResumeSession(session.id);
+                          }
+                        }}
+                        className={`group relative w-full text-left px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
+                          isActive
+                            ? "bg-primary/15 ring-1 ring-primary/30"
+                            : "hover:bg-muted"
+                        }`}
+                      >
+                        {isActive && (
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r bg-primary" />
+                        )}
+                        {renamingSessionId === session.id ? (
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onBlur={() => handleRenameSession(session.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleRenameSession(session.id);
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                setRenamingSessionId(null);
+                                setRenameValue("");
+                              }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full bg-background border border-primary rounded px-1.5 py-0.5 text-sm text-foreground focus:outline-none"
+                          />
+                        ) : (
+                          <div className="pr-12">
+                            <div className="text-sm font-medium text-foreground truncate">
+                              {session.title}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+                              <span>{formatRelativeTime(session.updatedAt)}</span>
+                              <span aria-hidden>·</span>
+                              <span className="truncate">{focusLabel}</span>
+                            </div>
+                            {isActive && (
+                              <span className="text-[10px] font-semibold uppercase text-primary">
+                                {t("tabs.activeSessionLabel")}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Row hover actions */}
+                        {renamingSessionId !== session.id && (
+                          <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRenamingSessionId(session.id);
+                                setRenameValue(session.title);
+                              }}
+                              className="p-1 rounded text-muted-foreground hover:bg-background hover:text-foreground"
+                              title={t("tabs.rename")}
+                              aria-label={t("tabs.rename")}
+                            >
+                              <PencilSimple className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPendingDeleteId(session.id);
+                              }}
+                              className="p-1 rounded text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                              title={t("tabs.deleteSession")}
+                              aria-label={t("tabs.deleteSession")}
+                            >
+                              <Trash className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {sessions.length > 0 && (
+              <p className="text-[10px] text-muted-foreground px-2 pt-3">
+                {t("tabs.sidebarCapNote")}
+              </p>
+            )}
+          </div>
+        </aside>
+      )}
+
+      {/* Collapsed sidebar — show just the expand toggle */}
+      {sidebarCollapsed && (
+        <div className="w-10 flex-shrink-0 border-r border-border flex flex-col items-center py-3 bg-card/50">
+          <button
+            onClick={toggleSidebar}
+            className="p-2 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
+            title={t("tabs.expandSidebar")}
+            aria-label={t("tabs.expandSidebar")}
+          >
+            <List className="w-4 h-4" />
+          </button>
+          <button
+            onClick={startNewChatNow}
+            className="mt-2 p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            title={t("tabs.newChatShortcut")}
+            aria-label={t("tabs.newChat")}
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Chat column */}
+      <div className="flex-1 flex flex-col min-w-0">
       {/* Header */}
       <div className="p-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -1393,7 +1818,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                 onChange={(e) => setSelectedDocumentId(e.target.value)}
                 className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer pr-1"
               >
-                <option value="" className="bg-background text-foreground">🌐 Whole Library (RAG)</option>
+                <option value="" className="bg-background text-foreground">🌐 {t("tabs.wholeLibrary")} (RAG)</option>
                 {documents.map((doc) => (
                   <option key={doc.id} value={doc.id} className="bg-background text-foreground">
                     {doc.title.length > 30 ? `${doc.title.slice(0, 30)}...` : doc.title}
@@ -1402,11 +1827,19 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
               </select>
             </div>
           )}
+          <button
+            onClick={handleNewChat}
+            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-1"
+            title={t("tabs.newChatShortcut")}
+          >
+            <Plus className="w-4 h-4" />
+            {t("tabs.newChat")}
+          </button>
           {messages.length > 0 && (
             <button
               onClick={clearConversation}
               className="px-3 py-1.5 text-sm bg-muted text-muted-foreground rounded hover:bg-destructive hover:text-destructive-foreground transition-colors flex items-center gap-1"
-              title="Clear conversation"
+              title={t("tabs.clearChat")}
             >
               <Trash className="w-4 h-4" />
               {t("tabs.clearChat")}
@@ -1594,31 +2027,11 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
             </span>
           )}
           {selectedSections.map((selectedSection) => (
-            <span
+            <SectionMentionCard
               key={selectedSection.id}
-              className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 text-sm rounded-full"
-              title={selectedSection.breadcrumb.length > 0 ? selectedSection.breadcrumb.join(" > ") : selectedSection.title}
-            >
-              <BookOpen className="w-3 h-3" />
-              {selectedSection.breadcrumb.length > 0
-                ? `${selectedSection.breadcrumb[selectedSection.breadcrumb.length - 1]} > ${selectedSection.title}`
-                : selectedSection.title}
-              <span className="text-[10px] bg-white/50 dark:bg-black/20 px-1 rounded ml-1">
-                {Math.ceil(selectedSection.content.length / 4)} tokens
-              </span>
-              <button
-                onClick={() => {
-                  const nextSections = selectedSections.filter((section) => section.id !== selectedSection.id);
-                  setSelectedSections(nextSections);
-                  const newRaw = rawInput.replace(`#{${selectedSection.title}}`, "").replace(`#{${selectedSection.id}}`, "").replace(/\s{2,}/g, " ").trim();
-                  setRawInput(newRaw);
-                  setInput(formatInputForDisplay(newRaw, mentions, nextSections));
-                }}
-                className="hover:bg-emerald-200 dark:hover:bg-emerald-800 rounded-full p-0.5 ml-1"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
+              node={selectedSection}
+              onRemove={handleRemoveDocumentQaSection}
+            />
           ))}
         </div>
       )}
@@ -1882,6 +2295,119 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
             open={showSectionPopup}
           />
         )}
+      </div>
+
+      {/* Confirmation dialogs (new chat / clear active / delete session) */}
+      {showNewChatConfirm && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("tabs.clearDraftTitle")}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setShowNewChatConfirm(false)}
+        >
+          <div
+            className="max-w-sm w-full bg-background border border-border rounded-lg shadow-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-2 mb-3">
+              <WarningCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-base font-semibold text-foreground">{t("tabs.clearDraftTitle")}</h3>
+                <p className="text-sm text-muted-foreground mt-1">{t("tabs.clearDraftBody")}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowNewChatConfirm(false)}
+                className="px-3 py-1.5 text-sm rounded border border-border bg-background hover:bg-muted"
+              >
+                {t("tabs.cancel")}
+              </button>
+              <button
+                onClick={startNewChatNow}
+                className="px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {t("tabs.startNewChat")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showClearConfirm && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("tabs.clearActiveChatTitle")}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setShowClearConfirm(false)}
+        >
+          <div
+            className="max-w-sm w-full bg-background border border-border rounded-lg shadow-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-2 mb-3">
+              <Trash className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-base font-semibold text-foreground">{t("tabs.clearActiveChatTitle")}</h3>
+                <p className="text-sm text-muted-foreground mt-1">{t("tabs.clearActiveChatBody")}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                className="px-3 py-1.5 text-sm rounded border border-border bg-background hover:bg-muted"
+              >
+                {t("tabs.cancel")}
+              </button>
+              <button
+                onClick={confirmClearActiveConversation}
+                className="px-3 py-1.5 text-sm rounded bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {t("tabs.clearChat")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("tabs.deleteSession")}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setPendingDeleteId(null)}
+        >
+          <div
+            className="max-w-sm w-full bg-background border border-border rounded-lg shadow-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-2 mb-3">
+              <XCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-base font-semibold text-foreground">{t("tabs.deleteSession")}</h3>
+                <p className="text-sm text-muted-foreground mt-1">{t("tabs.deleteSessionConfirm")}</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setPendingDeleteId(null)}
+                className="px-3 py-1.5 text-sm rounded border border-border bg-background hover:bg-muted"
+              >
+                {t("tabs.cancel")}
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="px-3 py-1.5 text-sm rounded bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {t("tabs.deleteSession")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
