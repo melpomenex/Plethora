@@ -31,6 +31,15 @@ interface MobileContextMenuSheetProps {
   onClose: () => void;
   /** Optional heading rendered above the items (e.g. the card/deck name). */
   title?: ReactNode;
+  /**
+   * `menu` (default) renders children as context-menu rows, which strips
+   * button borders/backgrounds so every row looks like a flat list item.
+   * `content` renders arbitrary UI (forms, pickers, panels) and keeps each
+   * child's own styling — required because `mobile.css` is unlayered, so its
+   * button reset would otherwise override Tailwind's background/border
+   * utilities on primary buttons and toggles.
+   */
+  variant?: "menu" | "content";
   children: ReactNode;
 }
 
@@ -38,6 +47,7 @@ export function MobileContextMenuSheet({
   open,
   onClose,
   title,
+  variant = "menu",
   children,
 }: MobileContextMenuSheetProps) {
   const [mounted, setMounted] = useState(open);
@@ -124,7 +134,14 @@ export function MobileContextMenuSheet({
           </div>
         )}
 
-        <div className="mobile-context-menu-items max-h-[70vh] overflow-y-auto overscroll-contain">
+        {/* Height is capped in mobile.css against the *visual* viewport, so the
+            sheet stays reachable when the on-screen keyboard is up. */}
+        <div
+          className={
+            (variant === "menu" ? "mobile-context-menu-items" : "mobile-sheet-content") +
+            " overflow-y-auto overscroll-contain"
+          }
+        >
           {children}
         </div>
 

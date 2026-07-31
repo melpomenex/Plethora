@@ -31,7 +31,6 @@ import {
   AlignLeft,
   BookOpen,
   Brain,
-  CaretDown,
   CaretRight,
   ChartBar,
   ChatCircle,
@@ -40,6 +39,7 @@ import {
   CircleNotch,
   ClockCounterClockwise,
   Copy,
+  DotsThree,
   CurrencyDollar,
   FloppyDisk,
   FolderOpen,
@@ -47,17 +47,13 @@ import {
   Funnel,
   Gear,
   Hash,
-  Highlighter,
   Images,
   Lightbulb,
   Lightning,
-  MagnifyingGlass,
   PaperPlaneTilt,
   PencilSimple,
   Plus,
   Quotes,
-  Scissors,
-  Scroll,
   Sparkle,
   Tag,
   TextAa,
@@ -110,12 +106,35 @@ import {
 import { loadDocumentQaText, createDocumentQaRequestContent } from "../../features/documentQa/sectionContextRequest";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
-import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
   resolveSectionFocusedContext,
   type SectionNode,
   type SectionSourceReference,
 } from "../../utils/sectionIndex";
+import { useMobileShell } from "../../hooks/useMobileShell";
+import { ContextControlPanel } from "./studio/ContextControlPanel";
+import { DocumentSelector } from "./studio/DocumentSelector";
+import { DeckSelector } from "./studio/DeckSelector";
+import { StudioContextChipBar } from "./studio/StudioContextChipBar";
+import { StudioSheets } from "./studio/StudioSheets";
+import type { StudioSheet } from "./studio/studioChips";
+import {
+  CHARS_PER_TOKEN,
+  DEFAULT_CONTEXT_SELECTION,
+  estimateContextTokens,
+  estimateTokens,
+  formatTokenCount,
+  normalizeContextSelection,
+  type ContextSelection,
+} from "./studio/contextSelection";
+
+// Re-exported so existing importers (flashcardStudioSessions.ts and its test
+// suites) keep resolving these from this module after the extraction.
+export {
+  DEFAULT_CONTEXT_SELECTION,
+  normalizeContextSelection,
+} from "./studio/contextSelection";
+export type { ContextSelection } from "./studio/contextSelection";
 
 /** Human-friendly label for a section (breadcrumb > title, or just title). Mirrors sectionIndex.sectionLabel. */
 function sectionLabel(section: SectionNode): string {
@@ -126,7 +145,6 @@ function sectionLabel(section: SectionNode): string {
 
 type DraftCardType = "qa" | "cloze" | "multiple-choice" | "image-occlusion";
 type ViewMode = "chat" | "templates" | "history" | "sessions" | "extracts";
-type ContextMode = "full" | "chapters" | "pages" | "excerpt" | "search" | "sections";
 
 // Matches the Assistant's section-mention token form, e.g. `#{Introduction}`.
 const SECTION_REGEX = /#{([^}]+)}/g;
@@ -206,63 +224,9 @@ interface GenerationHistoryItem {
   documentName?: string;
 }
 
-export interface ContextSelection {
-  mode: ContextMode;
-  chapters: number[];
-  pageRange: { start: number; end: number } | null;
-  excerpt: string;
-  searchQuery: string;
-  searchResults: Array<{ start: number; end: number; preview: string }>;
-  /** Section ids selected via the `#` mention menu in `sections` mode. */
-  selectedSectionIds: string[];
-}
-
-export const DEFAULT_CONTEXT_SELECTION: ContextSelection = {
-  mode: "full",
-  chapters: [],
-  pageRange: null,
-  excerpt: "",
-  searchQuery: "",
-  searchResults: [],
-  selectedSectionIds: [],
-};
-
-export function normalizeContextSelection(value: unknown): ContextSelection {
-  const raw = (value && typeof value === "object" ? value : {}) as Partial<ContextSelection>;
-  const mode: ContextMode =
-    raw.mode === "full" || raw.mode === "chapters" || raw.mode === "pages" || raw.mode === "excerpt" || raw.mode === "search" || raw.mode === "sections"
-      ? raw.mode
-      : DEFAULT_CONTEXT_SELECTION.mode;
-  return {
-    mode,
-    chapters: Array.isArray(raw.chapters)
-      ? raw.chapters.filter((chapter): chapter is number => typeof chapter === "number" && Number.isInteger(chapter) && chapter > 0)
-      : [],
-    pageRange:
-      raw.pageRange && typeof raw.pageRange.start === "number" && typeof raw.pageRange.end === "number"
-        ? {
-            start: Math.max(1, Math.floor(raw.pageRange.start)),
-            end: Math.max(Math.max(1, Math.floor(raw.pageRange.start)), Math.floor(raw.pageRange.end)),
-          }
-        : null,
-    excerpt: typeof raw.excerpt === "string" ? raw.excerpt : "",
-    searchQuery: typeof raw.searchQuery === "string" ? raw.searchQuery : "",
-    searchResults: Array.isArray(raw.searchResults)
-      ? raw.searchResults.filter((result): result is { start: number; end: number; preview: string } =>
-          Boolean(result) && typeof result.start === "number" && typeof result.end === "number" && typeof result.preview === "string"
-        )
-      : [],
-    selectedSectionIds: Array.isArray(raw.selectedSectionIds)
-      ? raw.selectedSectionIds.filter((id): id is string => typeof id === "string" && id.length > 0)
-      : [],
-  };
-}
-
 const HISTORY_KEY = "flashcard-studio-history";
 const NOTEBOOKLM_PROVIDER_ID = "__notebooklm__";
 
-// Rough token estimation: ~4 chars per token
-const CHARS_PER_TOKEN = 4;
 // Cost per 1K tokens (approximate for GPT-4)
 const COST_PER_1K_INPUT = 0.01;
 const COST_PER_1K_OUTPUT = 0.03;
@@ -946,15 +910,6 @@ function wrapMarkedTextByPlainOffsets(markedText: string, startOffset: number, e
   return `${markedText.slice(0, openIndex)}{{${markedText.slice(openIndex, closeIndex)}}}${markedText.slice(closeIndex)}`;
 }
 
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN);
-}
-
-function formatTokenCount(count: number): string {
-  if (count < 1000) return `${count}`;
-  return `${(count / 1000).toFixed(1)}k`;
-}
-
 function estimateCost(
   inputTokens: number, 
   outputTokens: number = 500,
@@ -986,21 +941,42 @@ function formatModelPrice(price?: number): string {
   return `$${price.toFixed(4)}`;
 }
 
-function CostEstimator({ 
-  inputText, 
-  isVisible, 
-  pricing 
-}: { 
-  inputText: string; 
+function CostEstimator({
+  inputText,
+  isVisible,
+  pricing,
+  compact = false,
+}: {
+  inputText: string;
   isVisible: boolean;
   pricing?: { prompt?: number; completion?: number };
+  /** Single-line form for mobile: the per-1M price breakdown is what wraps this
+   *  onto three lines on a phone, so it is dropped rather than shrunk. */
+  compact?: boolean;
 }) {
   const { t } = useI18n();
   const tokens = useMemo(() => estimateTokens(inputText), [inputText]);
   const cost = useMemo(() => estimateCost(tokens, 500, pricing), [tokens, pricing]);
-  
+
   if (!isVisible) return null;
-  
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg bg-muted/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <ChartBar className="h-3 w-3 flex-shrink-0" />
+        <span>{t("flashcardStudio.tokensWithCount", { count: formatTokenCount(tokens) })}</span>
+        <span className="opacity-50">·</span>
+        <span className="truncate">{t("flashcardStudio.estimatedCost", { cost })}</span>
+        {tokens > 4000 && (
+          <WarningCircle
+            className="ml-auto h-3.5 w-3.5 flex-shrink-0 text-amber-500"
+            aria-label={t("flashcardStudio.largeContext")}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-3 px-3 py-2 bg-muted/50 rounded-lg text-xs">
       <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -1024,329 +1000,6 @@ function CostEstimator({
         <div className="flex items-center gap-1 text-amber-500">
           <WarningCircle className="w-3.5 h-3.5" />
           <span>{t("flashcardStudio.largeContext")}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ContextControlPanel({
-  document,
-  selection,
-  onChange,
-  maxTokens,
-  selectedSections,
-  focusedSectionTokens,
-  onRemoveSection,
-}: {
-  document: { id: string; title: string; content?: string | null } | null;
-  selection: ContextSelection;
-  onChange: (selection: ContextSelection) => void;
-  maxTokens: number;
-  /** Section nodes currently focused in `sections` mode (resolved from ids). */
-  selectedSections?: SectionNode[];
-  /** Cheap token estimate for the focused sections (precomputed upstream). */
-  focusedSectionTokens?: number;
-  /** Remove a focused section by id (also strips the `#{title}` token). */
-  onRemoveSection?: (id: string) => void;
-}) {
-  const { t } = useI18n();
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [pageStart, setPageStart] = useState("");
-  const [pageEnd, setPageEnd] = useState("");
-  const [excerptText, setExcerptText] = useState("");
-
-  const chapters = useMemo(() => {
-    if (!document?.content) return [];
-    return getChapterTitles(document.content);
-  }, [document]);
-  const safeSelection = normalizeContextSelection(selection);
-  const selectedChapters = safeSelection.chapters;
-
-  const estimatedTokens = useMemo(() => {
-    let text = "";
-    if (!document?.content) return 0;
-
-    switch (safeSelection.mode) {
-      case "full":
-        text = document.content;
-        break;
-      case "chapters":
-        text = selectedChapters
-          .map((num) => buildChapterQAContext(document.title, document.content, num, Math.floor(maxTokens / Math.max(1, selectedChapters.length))))
-          .join("\n\n");
-        break;
-      case "excerpt":
-        text = safeSelection.excerpt;
-        break;
-      case "sections":
-        // Cheap estimate is precomputed upstream (full resolution happens at send time).
-        return focusedSectionTokens ?? 0;
-      default:
-        text = document.content.slice(0, maxTokens * CHARS_PER_TOKEN);
-    }
-    return estimateTokens(text);
-  }, [document, safeSelection, selectedChapters, maxTokens, focusedSectionTokens]);
-  
-  const handleSearch = useCallback(() => {
-    if (!searchQuery.trim() || !document?.content) return;
-    
-    const query = searchQuery.toLowerCase();
-    const content = document.content;
-    const results: Array<{ start: number; end: number; preview: string }> = [];
-    
-    // Simple search: find all occurrences and extract surrounding context
-    let index = content.toLowerCase().indexOf(query);
-    while (index !== -1) {
-      const start = Math.max(0, index - 100);
-      const end = Math.min(content.length, index + query.length + 100);
-      results.push({
-        start,
-        end,
-        preview: content.slice(start, end),
-      });
-      index = content.toLowerCase().indexOf(query, index + 1);
-    }
-    
-    onChange({ ...selection, searchResults: results.slice(0, 5) });
-  }, [searchQuery, document, selection, onChange]);
-  
-  if (!document) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-600">
-        <WarningCircle className="w-3.5 h-3.5" />
-        <span>{t("flashcardStudio.selectDocumentForContext")}</span>
-      </div>
-    );
-  }
-  
-  return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-            <Scissors className="w-4 h-4" />
-          </div>
-          <div className="text-left">
-            <div className="text-sm font-medium text-foreground">{t("flashcardStudio.contextControlTitle")}</div>
-            <div className="text-xs text-muted-foreground">
-              {safeSelection.mode === "full" && t("flashcardStudio.contextModeFullSummary")}
-              {safeSelection.mode === "chapters" && t("flashcardStudio.contextModeChaptersSummary", { count: selectedChapters.length })}
-              {safeSelection.mode === "pages" && t("flashcardStudio.contextModePagesSummary")}
-              {safeSelection.mode === "excerpt" && t("flashcardStudio.contextModeExcerptSummary")}
-              {safeSelection.mode === "search" && t("flashcardStudio.contextModeSearchSummary")}
-              {safeSelection.mode === "sections" && t("flashcardStudio.contextModeSectionsSummary", { count: safeSelection.selectedSectionIds.length })}
-              {" · "}
-              {t("flashcardStudio.tokensWithCount", { count: formatTokenCount(estimatedTokens) })}
-            </div>
-          </div>
-        </div>
-        <CaretDown className={cn("w-4 h-4 text-muted-foreground transition-transform", isExpanded && "rotate-180")} />
-      </button>
-      
-      {isExpanded && (
-        <div className="border-t border-border px-4 py-4 space-y-4">
-          {/* Mode Selection */}
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: "full", label: t("flashcardStudio.contextModeFull"), icon: TextT },
-              { id: "chapters", label: t("flashcardStudio.contextModeChapters"), icon: BookOpen },
-              { id: "sections", label: t("flashcardStudio.contextModeSections"), icon: Hash },
-              { id: "pages", label: t("flashcardStudio.contextModePages"), icon: Scroll },
-              { id: "excerpt", label: t("flashcardStudio.contextModeExcerpt"), icon: Highlighter },
-              { id: "search", label: t("flashcardStudio.contextModeSearch"), icon: MagnifyingGlass },
-            ].map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => onChange({ ...selection, mode: mode.id as ContextMode })}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  safeSelection.mode === mode.id
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <mode.icon className="w-3.5 h-3.5" />
-                {mode.label}
-              </button>
-            ))}
-          </div>
-          
-          {/* Chapter Selection */}
-          {safeSelection.mode === "chapters" && chapters.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.selectChapters")}</div>
-              <div className="max-h-48 overflow-y-auto space-y-1 border border-border rounded-lg p-2">
-                {chapters.map((chapter) => (
-                  <label
-                    key={chapter.number}
-                    className="flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedChapters.includes(chapter.number)}
-                      onChange={() => {
-                        const newChapters = selectedChapters.includes(chapter.number)
-                          ? selectedChapters.filter((c) => c !== chapter.number)
-                          : [...selectedChapters, chapter.number];
-                        onChange({ ...selection, chapters: newChapters });
-                      }}
-                      className="rounded"
-                    />
-                    <span className="text-xs text-muted-foreground w-16">{t("flashcardStudio.chapterNumber", { count: chapter.number })}</span>
-                    <span className="text-sm text-foreground truncate">{chapter.title}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {/* Page Range */}
-          {safeSelection.mode === "pages" && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.enterPageRange")}</div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={pageStart}
-                  onChange={(e) => setPageStart(e.target.value)}
-                  placeholder={t("flashcardStudio.start")}
-                  className="w-24 px-3 py-2 text-sm border border-border rounded-lg bg-background"
-                />
-                <span className="text-muted-foreground">{t("flashcardStudio.to")}</span>
-                <input
-                  type="number"
-                  value={pageEnd}
-                  onChange={(e) => setPageEnd(e.target.value)}
-                  placeholder={t("flashcardStudio.end")}
-                  className="w-24 px-3 py-2 text-sm border border-border rounded-lg bg-background"
-                />
-                <button
-                  onClick={() => {
-                    const start = parseInt(pageStart);
-                    const end = parseInt(pageEnd);
-                    if (!isNaN(start) && !isNaN(end)) {
-                      onChange({ ...selection, pageRange: { start, end } });
-                    }
-                  }}
-                  className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90"
-                >
-                  {t("flashcardStudio.apply")}
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t("flashcardStudio.pageRangeNote")}
-              </p>
-            </div>
-          )}
-          
-          {/* Excerpt */}
-          {safeSelection.mode === "excerpt" && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.pasteExcerptPrompt")}</div>
-              <textarea
-                value={excerptText}
-                onChange={(e) => setExcerptText(e.target.value)}
-                placeholder={t("flashcardStudio.excerptPlaceholder")}
-                rows={5}
-                className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-background resize-none"
-              />
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  {t("flashcardStudio.tokensWithCount", { count: formatTokenCount(estimateTokens(excerptText)) })}
-                </span>
-                <button
-                  onClick={() => {
-                    onChange({ ...selection, excerpt: excerptText });
-                    setExcerptText("");
-                  }}
-                  disabled={!excerptText.trim()}
-                  className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
-                >
-                  {t("flashcardStudio.useExcerpt")}
-                </button>
-              </div>
-            </div>
-          )}
-          
-          {/* MagnifyingGlass */}
-          {safeSelection.mode === "search" && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.searchWithinDocument")}</div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  placeholder={t("flashcardStudio.searchWithinDocumentPlaceholder")}
-                  className="flex-1 px-3 py-2 text-sm border border-border rounded-lg bg-background"
-                />
-                <button
-                  onClick={handleSearch}
-                  className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:opacity-90"
-                >
-                  <MagnifyingGlass className="w-4 h-4" />
-                </button>
-              </div>
-              
-              {safeSelection.searchResults.length > 0 && (
-                <div className="space-y-1 max-h-48 overflow-y-auto border border-border rounded-lg p-2">
-                  {safeSelection.searchResults.map((result, i) => (
-                    <button
-                      key={i}
-                      onClick={() => onChange({ ...selection, excerpt: result.preview })}
-                      className="w-full text-left p-2 rounded-md hover:bg-muted/50 text-xs"
-                    >
-                      <span className="text-muted-foreground">...{result.preview}...</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Sections (via `#` mentions) */}
-          {safeSelection.mode === "sections" && (
-            <div className="space-y-2">
-              <div className="text-xs font-medium text-muted-foreground">{t("flashcardStudio.sectionsHint")}</div>
-              {selectedSections && selectedSections.length > 0 ? (
-                <div className="max-h-48 overflow-y-auto space-y-1 border border-border rounded-lg p-2">
-                  {selectedSections.map((node) => (
-                    <SectionMentionCard
-                      key={node.id}
-                      node={node}
-                      onRemove={onRemoveSection}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/30 text-xs text-muted-foreground">
-                  <WarningCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                  <span>{t("flashcardStudio.sectionsEmpty")}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Token Estimation */}
-          <div className="flex items-center justify-between pt-2 border-t border-border">
-            <div className="text-xs text-muted-foreground">
-              {t("flashcardStudio.estimatedTokensPrefix")} <span className="font-medium text-foreground">{formatTokenCount(estimatedTokens)}</span> {t("flashcardStudio.tokens")}
-              {safeSelection.mode !== "full" && (
-                <span className="text-green-600 ml-2">
-                  {t("flashcardStudio.savesTokens", { count: formatTokenCount(estimateTokens(document.content || "") - estimatedTokens) })}
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {t("flashcardStudio.maxTokens", { count: formatTokenCount(maxTokens) })}
-            </div>
-          </div>
         </div>
       )}
     </div>
@@ -2661,295 +2314,6 @@ function TemplateCard({
   );
 }
 
-function DocumentSelector({
-  documents,
-  selectedId,
-  onSelect,
-}: {
-  documents: { id: string; title: string; content?: string }[];
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-}) {
-  const { t } = useI18n();
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const selectedDoc = documents.find((d) => d.id === selectedId);
-
-  const filteredDocs = documents.filter((d) =>
-    d.title.toLowerCase().includes(query.toLowerCase())
-  );
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && e.target instanceof Node && !containerRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  return (
-    <div ref={containerRef} className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={cn(
-          "flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all",
-          selectedId
-            ? "border-primary/30 bg-primary/5 text-foreground"
-            : "border-border bg-background text-muted-foreground hover:text-foreground"
-        )}
-      >
-        <TextT className="w-4 h-4" />
-        <span className="max-w-[150px] truncate">
-          {selectedDoc?.title || t("flashcardStudio.selectDocument")}
-        </span>
-        <CaretDown className={cn("w-3.5 h-3.5 transition-transform", isOpen && "rotate-180")} />
-      </button>
-
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-80 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
-          <div className="p-3 border-b border-border">
-            <div className="relative">
-              <MagnifyingGlass className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                autoFocus
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t("flashcardStudio.searchDocuments")}
-                className="w-full pl-9 pr-3 py-2 text-sm bg-muted/50 rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </div>
-          </div>
-          <div className="max-h-64 overflow-y-auto">
-            <button
-              onClick={() => {
-                onSelect(null);
-                setIsOpen(false);
-              }}
-              className={cn(
-                "w-full px-4 py-2.5 text-sm text-left transition-colors",
-                !selectedId ? "bg-primary/10 text-primary" : "hover:bg-muted/50"
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <X className="w-4 h-4" />
-                {t("flashcardStudio.noDocument")}
-              </span>
-            </button>
-            {filteredDocs.map((doc) => (
-              <button
-                key={doc.id}
-                onClick={() => {
-                  onSelect(doc.id);
-                  setIsOpen(false);
-                }}
-                className={cn(
-                  "w-full px-4 py-2.5 text-sm text-left transition-colors",
-                  selectedId === doc.id ? "bg-primary/10 text-primary" : "hover:bg-muted/50"
-                )}
-              >
-                <div className="font-medium truncate">{doc.title}</div>
-              </button>
-            ))}
-            {filteredDocs.length === 0 && (
-              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                {t("flashcardStudio.noDocumentsFound")}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DeckSelector({
-  decks,
-  selectedId,
-  suggestedName,
-  onSelect,
-  onCreateDeck,
-}: {
-  decks: { id: string; name: string; tagFilters: string[] }[];
-  selectedId: string | null;
-  suggestedName?: string;
-  onSelect: (id: string | null) => void;
-  onCreateDeck: (name: string) => string | null;
-}) {
-  const { t } = useI18n();
-  const [isOpen, setIsOpen] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [newDeckName, setNewDeckName] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const selectedDeck = decks.find((d) => d.id === selectedId);
-  const defaultDeckName = suggestedName?.trim() || "";
-
-  useEffect(() => {
-    if (isOpen && isCreating) {
-      window.requestAnimationFrame(() => inputRef.current?.focus());
-    }
-  }, [isOpen, isCreating]);
-
-  const beginCreate = () => {
-    setIsCreating(true);
-    setNewDeckName(defaultDeckName);
-  };
-
-  const cancelCreate = () => {
-    setIsCreating(false);
-    setNewDeckName("");
-  };
-
-  const submitCreate = () => {
-    const name = newDeckName.trim() || defaultDeckName || t("flashcardStudio.untitledDeck");
-    const deckId = onCreateDeck(name);
-    if (!deckId) return;
-    onSelect(deckId);
-    setIsCreating(false);
-    setNewDeckName("");
-    setIsOpen(false);
-  };
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && e.target instanceof Node && !containerRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  return (
-    <div ref={containerRef} className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={cn(
-          "flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all",
-          selectedId
-            ? "border-primary/30 bg-primary/5 text-foreground"
-            : "border-border bg-background text-muted-foreground hover:text-foreground"
-        )}
-      >
-        <FolderOpen className="w-4 h-4" />
-        <span className="max-w-[120px] truncate">
-          {selectedDeck?.name || t("flashcardStudio.selectDeck")}
-        </span>
-        <CaretDown className={cn("w-3.5 h-3.5 transition-transform", isOpen && "rotate-180")} />
-      </button>
-
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-64 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
-          <div className="border-b border-border p-2">
-            {isCreating ? (
-              <div className="space-y-2">
-                <input
-                  ref={inputRef}
-                  value={newDeckName}
-                  onChange={(e) => setNewDeckName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      submitCreate();
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      cancelCreate();
-                    }
-                  }}
-                  placeholder={t("flashcardStudio.deckNamePlaceholder")}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/40"
-                />
-                <div className="flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={cancelCreate}
-                    className="rounded-md px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    {t("flashcardStudio.cancel")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={submitCreate}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    {t("flashcardStudio.createDeck")}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={beginCreate}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-primary transition-colors hover:bg-primary/10"
-              >
-                <Plus className="h-4 w-4" />
-                <span>{t("flashcardStudio.newDeck")}</span>
-              </button>
-            )}
-          </div>
-          <div className="max-h-64 overflow-y-auto">
-            <button
-              onClick={() => {
-                onSelect(null);
-                setIsOpen(false);
-              }}
-              className={cn(
-                "w-full px-4 py-2.5 text-sm text-left transition-colors",
-                !selectedId ? "bg-primary/10 text-primary" : "hover:bg-muted/50"
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <X className="w-4 h-4" />
-                {t("flashcardStudio.noDeck")}
-              </span>
-            </button>
-            {decks.length === 0 && !isCreating && (
-              <div className="px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-                {t("flashcardStudio.noDecksHint")}
-              </div>
-            )}
-            {decks.map((deck) => (
-              <button
-                key={deck.id}
-                onClick={() => {
-                  onSelect(deck.id);
-                  setIsOpen(false);
-                }}
-                className={cn(
-                  "w-full px-4 py-2.5 text-sm text-left transition-colors",
-                  selectedId === deck.id ? "bg-primary/10 text-primary" : "hover:bg-muted/50"
-                )}
-              >
-                <div className="font-medium">{deck.name}</div>
-                {deck.tagFilters.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {deck.tagFilters.slice(0, 3).map((tag) => (
-                      <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-muted rounded-full">
-                        {tag}
-                      </span>
-                    ))}
-                    {deck.tagFilters.length > 3 && (
-                      <span className="text-[10px] px-1.5 py-0.5 bg-muted rounded-full">
-                        +{deck.tagFilters.length - 3}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioModalProps) {
   const { t } = useI18n();
   const toast = useToast();
@@ -2965,8 +2329,19 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   // Rust). Hide it in the browser/PWA rather than letting it silently no-op.
   const notebookLmAvailable = notebookLmEnabled && isTauri();
 
+  // Mobile shell decides whether configuration lives in the chip bar + sheets
+  // (phone/narrow tablet) or inline across the top (desktop).
+  const isMobileShell = useMobileShell();
+
   // State
   const [mobileActivePanel, setMobileActivePanel] = useState<"generator" | "drafts">("generator");
+  /** Which configuration bottom sheet is open on mobile; null = none. Single
+   *  value rather than a boolean per sheet, so "one sheet at a time" is
+   *  structural and the Escape guard below has one thing to check. */
+  const [activeSheet, setActiveSheet] = useState<StudioSheet | null>(null);
+  /** Measured composer height so the mobile textarea grows with its content
+   *  instead of reserving a third row that is empty most of the time. */
+  const [composerHeight, setComposerHeight] = useState<number | undefined>(undefined);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [selectedNotebookId, setSelectedNotebookId] = useState<string>("");
   const [notebooks, setNotebooks] = useState<NotebookSummary[]>([]);
@@ -3359,6 +2734,11 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.metaKey && !e.ctrlKey) {
+        // A configuration sheet owns Escape while it is open. Both its listener
+        // and this one are on `document`, and the sheet's stopPropagation()
+        // does not stop sibling listeners on the same node — without this guard
+        // Escape would dismiss the sheet *and* close the whole Studio.
+        if (activeSheet) return;
         if (editingCardId) {
           setEditingCardId(null);
         } else if (viewMode !== "chat") {
@@ -3397,7 +2777,27 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, input, isSending, isSaving, draftCards, editingCardId, viewMode, onClose, handleNewSession]);
+  }, [isOpen, input, isSending, isSaving, draftCards, editingCardId, viewMode, onClose, handleNewSession, activeSheet]);
+
+  // Never leave a sheet key set behind a closed modal — reopening the Studio
+  // would otherwise mount straight into that sheet.
+  useEffect(() => {
+    if (!isOpen) setActiveSheet(null);
+  }, [isOpen]);
+
+  // Grow the mobile composer to fit its content. Driven off `input` rather than
+  // the change handler so programmatic edits (templates, section mentions,
+  // restored sessions) resize it too. Desktop keeps its fixed 3 rows.
+  useEffect(() => {
+    if (!isMobileShell) {
+      setComposerHeight(undefined);
+      return;
+    }
+    const textarea = inputRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    setComposerHeight(textarea.scrollHeight);
+  }, [input, isMobileShell, isOpen, viewMode, mobileActivePanel]);
 
   const currentProvider = useMemo(() => {
     if (!selectedProviderId) return null;
@@ -3459,6 +2859,20 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     if (selectedSectionNodes.length === 0) return 0;
     return selectedSectionNodes.reduce((sum, node) => sum + (node.content ? estimateTokens(node.content) : 0), 0);
   }, [selectedSectionNodes]);
+
+  // Token figure shown on the mobile context chip. Uses the same estimator as
+  // the Context Control panel so the chip and the sheet always agree.
+  const chipContextTokens = useMemo(
+    () =>
+      estimateContextTokens({
+        content: selectedDocumentText,
+        title: selectedDocument?.title ?? "",
+        selection: contextSelection,
+        maxTokens,
+        focusedSectionTokens,
+      }),
+    [selectedDocumentText, selectedDocument?.title, contextSelection, maxTokens, focusedSectionTokens]
+  );
 
   // Concatenated focused-section text for the live cost estimator (sections
   // mode doesn't go through the contextContent memo, so we feed the estimator
@@ -4656,7 +4070,88 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         className="flex h-[100dvh] w-full max-w-7xl flex-col overflow-hidden rounded-none border border-border bg-card shadow-2xl animate-in zoom-in-95 duration-200 sm:h-[90vh] sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {/* Header — mobile collapses to a compact title row plus a full-width
+            Chat/Drafts segmented control, replacing both the wrapped desktop
+            control row and the separate panel-toggle band below. */}
+        {isMobileShell ? (
+          <div className="flex flex-col gap-1.5 border-b border-border bg-gradient-to-r from-muted/50 to-muted/30 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
+            <div className="flex items-center gap-2">
+              <div className="rounded-lg bg-gradient-to-br from-primary to-primary-600 p-1.5 text-primary-foreground shadow-md shadow-primary/25 flex-shrink-0">
+                <Sparkle className="h-4 w-4" />
+              </div>
+              <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                {t("flashcardStudio.title")}
+              </h2>
+              <button
+                onClick={() => handleNewSession()}
+                title={t("flashcardStudio.newSession")}
+                aria-label={t("flashcardStudio.newSession")}
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground active:bg-muted"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => setActiveSheet("views")}
+                title={t("flashcardStudio.sheetViewsTitle")}
+                aria-label={t("flashcardStudio.sheetViewsTitle")}
+                className={cn(
+                  "flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg active:bg-muted",
+                  viewMode === "chat" ? "text-muted-foreground" : "text-primary"
+                )}
+              >
+                <DotsThree className="h-5 w-5" weight="bold" />
+              </button>
+              <button
+                onClick={onClose}
+                aria-label={t("common.close")}
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground active:bg-muted"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex items-center rounded-lg border border-border bg-background p-0.5">
+              <button
+                type="button"
+                onClick={() => setMobileActivePanel("generator")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-all",
+                  mobileActivePanel === "generator"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground"
+                )}
+              >
+                <ChatCircle className="h-3.5 w-3.5" />
+                {t("flashcardStudio.chat")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileActivePanel("drafts")}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-xs font-medium transition-all",
+                  mobileActivePanel === "drafts"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground"
+                )}
+              >
+                <Brain className="h-3.5 w-3.5" />
+                {t("flashcardStudio.draftCards")}
+                {stats.total > 0 && (
+                  <span
+                    className={cn(
+                      "rounded-full px-1.5 text-[10px] font-semibold",
+                      mobileActivePanel === "drafts"
+                        ? "bg-primary-foreground/20"
+                        : "bg-primary text-primary-foreground"
+                    )}
+                  >
+                    {stats.total}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="flex flex-col gap-3 border-b border-border bg-gradient-to-r from-muted/50 to-muted/30 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:pt-4">
           <div className="flex items-center justify-between w-full sm:w-auto gap-4">
             <div className="flex items-center gap-3">
@@ -4791,8 +4286,28 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
             </button>
           </div>
         </div>
+        )}
 
-        {/* Context Bar */}
+        {/* Context Bar — one chip row on mobile, the full inline bar on desktop. */}
+        {isMobileShell ? (
+          mobileActivePanel === "generator" && (
+            <StudioContextChipBar
+              state={{
+                documentTitle: selectedDocument?.title ?? null,
+                deckName: selectedDeck?.name ?? null,
+                deckTags,
+                imageCount: imageAssets.length,
+                selectedImageCount: selectedImageAssetIds.length,
+                contextSelection,
+                contextTokens: chipContextTokens,
+                providerName: isNotebookProviderSelected
+                  ? "NotebookLM"
+                  : currentProvider?.name ?? null,
+              }}
+              onOpenSheet={setActiveSheet}
+            />
+          )
+        ) : (
         <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/20 px-6 py-3">
           <DocumentSelector
             documents={documents}
@@ -4878,9 +4393,11 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
             </div>
           )}
         </div>
+        )}
 
-        {/* Context Control Panel */}
-        {selectedDocument && (
+        {/* Context Control Panel — inline on desktop; on mobile it lives
+            behind the context chip's bottom sheet. */}
+        {!isMobileShell && selectedDocument && (
           <div className="px-6 py-3 border-b border-border bg-muted/10">
             {contextLoadState === "loading" && (
               <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs text-muted-foreground" role="status">
@@ -4909,41 +4426,6 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
             />
           </div>
         )}
-
-        {/* Mobile Panel Toggle */}
-        <div className="flex border-b border-border bg-background lg:hidden flex-shrink-0">
-          <button
-            type="button"
-            onClick={() => setMobileActivePanel("generator")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium border-b-2 transition-all",
-              mobileActivePanel === "generator"
-                ? "border-primary text-primary bg-primary/5"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <ChatCircle className="w-4 h-4" />
-            {t("flashcardStudio.chat")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setMobileActivePanel("drafts")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium border-b-2 transition-all relative",
-              mobileActivePanel === "drafts"
-                ? "border-primary text-primary bg-primary/5"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Brain className="w-4 h-4" />
-            {t("flashcardStudio.draftCards")}
-            {stats.total > 0 && (
-              <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-primary text-primary-foreground font-semibold">
-                {stats.total}
-              </span>
-            )}
-          </button>
-        </div>
 
         {/* Main Content */}
         <div className="grid flex-1 min-h-0 gap-0 overflow-hidden lg:grid-cols-[1fr_400px]">
@@ -5051,7 +4533,14 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                       placeholder={selectedDocument
                         ? t("flashcardStudio.contextPromptPlaceholder")
                         : t("flashcardStudio.generalPromptPlaceholder")}
-                      rows={3}
+                      // Mobile starts at 2 rows and grows with the content
+                      // (capped), returning the third row to the conversation.
+                      rows={isMobileShell ? 2 : 3}
+                      style={
+                        isMobileShell
+                          ? { height: composerHeight, maxHeight: "40vh" }
+                          : undefined
+                      }
                       className="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 pr-12 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                     />
                     <button
@@ -5068,7 +4557,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                   </div>
                   
                   {/* Cost Estimator */}
-                  <div className="mt-3">
+                  <div className={isMobileShell ? "mt-2" : "mt-3"}>
                     <CostEstimator
                       inputText={
                         isNotebookProviderSelected
@@ -5077,6 +4566,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                       }
                       isVisible={true}
                       pricing={currentModelPricing}
+                      compact={isMobileShell}
                     />
                   </div>
                 </div>
@@ -5508,6 +4998,61 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
           </div>
         </div>
       </div>
+
+      {/* Mobile configuration sheets. Portalled to document.body at z-[9999],
+          so they sit above the studio panel and their taps never bubble into
+          the modal backdrop's click-outside-to-close handler. */}
+      {isMobileShell && (
+        <StudioSheets
+          activeSheet={activeSheet}
+          onClose={() => setActiveSheet(null)}
+          documents={documents}
+          selectedDocumentId={selectedDocumentId}
+          onSelectDocument={(id) => {
+            setSelectedDocumentId(id);
+            // Same side effect as the desktop selector: a new document
+            // invalidates whatever context was scoped to the old one.
+            if (id !== selectedDocumentId) {
+              setContextSelection({ ...DEFAULT_CONTEXT_SELECTION });
+            }
+          }}
+          decks={decks}
+          selectedDeckId={selectedDeckId}
+          suggestedDeckName={suggestedDeckName}
+          onSelectDeck={setSelectedDeckId}
+          onCreateDeck={handleCreateDeck}
+          imageAssets={imageAssets}
+          selectedImageAssetIds={selectedImageAssetIds}
+          onToggleImageAsset={toggleSelectedImageAsset}
+          onOpenImageLibrary={() => setIsImageRegistryOpen(true)}
+          onGenerateImageOcclusions={() => void handleGenerateImageOcclusions()}
+          isImageImporting={isImageImporting}
+          isSending={isSending}
+          canUseVisionOcclusion={canUseVisionOcclusion}
+          selectedDocument={selectedDocument}
+          selectedDocumentText={selectedDocumentText ?? ""}
+          contextSelection={contextSelection}
+          onContextSelectionChange={setContextSelection}
+          maxTokens={maxTokens}
+          selectedSectionNodes={selectedSectionNodes}
+          focusedSectionTokens={focusedSectionTokens}
+          onRemoveSection={handleRemoveSectionById}
+          viewMode={viewMode}
+          onSelectViewMode={setViewMode}
+          sessionCount={sessionsCache.length}
+          extractCount={allExtracts.length}
+          providers={enabledProviders}
+          selectedProviderId={selectedProviderId}
+          onSelectProvider={setSelectedProviderId}
+          notebookLmAvailable={notebookLmAvailable}
+          notebookLmProviderId={NOTEBOOKLM_PROVIDER_ID}
+          isNotebookProviderSelected={isNotebookProviderSelected}
+          isNotebookLoading={isNotebookLoading}
+          notebooks={notebooks}
+          selectedNotebookId={selectedNotebookId}
+          onSelectNotebook={(id) => void handleNotebookSelect(id)}
+        />
+      )}
 
       {isImageRegistryOpen && (
         <div className="fixed inset-0 z-[9991] flex items-center justify-center bg-black/60 p-4">

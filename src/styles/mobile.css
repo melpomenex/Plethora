@@ -1671,8 +1671,23 @@
    the Material/Apple guideline), no hover-only affordances, and safe-area aware.
    ============================================================================== */
 
-.mobile-context-menu-items {
+/* Bound the scrollable area against the *visual* viewport rather than 70vh, so
+   a sheet containing a text input stays fully reachable while the on-screen
+   keyboard is shown. Mirrors the .mobile-more-sheet rule above. */
+.mobile-context-menu-items,
+.mobile-sheet-content {
+  max-height: min(
+    70vh,
+    calc(var(--app-viewport-height, 100dvh) - var(--shell-mobile-nav-height, 56px) - 48px)
+  );
   -webkit-overflow-scrolling: touch;
+}
+
+/* `variant="content"` sheets host arbitrary UI (pickers, forms, panels) and
+   deliberately opt out of the menu-row button reset below — this file is
+   unlayered, so that reset would beat Tailwind's own utilities. */
+.mobile-sheet-content {
+  padding-top: 0.25rem;
 }
 
 /* Sheet rows are rendered by each menu as <button>s using the
