@@ -933,8 +933,20 @@ pub async fn update_document_priority(
     slider: i32,
     repo: State<'_, Repository>,
 ) -> Result<Document> {
-    let rating_value = if (1..=5).contains(&rating) { rating } else { 0 };
+    // The slider is the authoritative priority input. Derive the rating from it
+    // so both fields (and the persisted score) stay consistent for any code that
+    // still reads the rating. A caller may pass a stale rating; the slider wins.
     let slider_value = slider.clamp(0, 100);
+    let rating_value = if slider_value > 0 {
+        crate::algorithms::rating_from_slider(slider_value)
+    } else if (1..=5).contains(&rating) {
+        // Slider explicitly zero but a valid rating supplied: honor the rating
+        // (legacy callers) and leave slider at 0 so resolve_priority_slider can
+        // re-derive it at read time.
+        rating
+    } else {
+        0
+    };
     let score = calculate_document_priority_score(
         if rating_value > 0 {
             Some(rating_value)

@@ -2086,6 +2086,12 @@ export const es: Dict = {
   "priority.highDesc": "Repasar con frecuencia",
   "priority.higherPriorityNote":
     "Los elementos de mayor prioridad aparecen más frecuentemente en tu cola.",
+  "priority.popupTitle": "Establecer prioridad",
+  "priority.popupTitleMass": "Establecer prioridad para {{count}} documentos",
+  "priority.massHint": "Todos los documentos seleccionados recibirán la misma prioridad.",
+  "priority.apply": "Aplicar",
+  "priority.cancel": "Cancelar",
+  "priority.bulkPartial": "{{succeeded}} exitosos, {{failed}} fallidos.",
   "priority.highestDesc": "Repasar a menudo",
   "priority.lowDesc": "Repasar ocasionalmente",
   "priority.lowestDesc": "Repasar rara vez",

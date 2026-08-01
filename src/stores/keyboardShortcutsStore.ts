@@ -36,7 +36,9 @@ export const DEFAULT_SHORTCUTS: KeyboardShortcut[] = [
   { id: "view-text", action: "textView", keys: "Shift+Enter", description: "Temporary text view", category: "view" },
   { id: "view-next-mode", action: "nextViewMode", keys: "v", description: "Cycle view mode", category: "view" },
   { id: "toggle-sidebar", action: "toggleSidebar", keys: "b", description: "Toggle sidebar", category: "view" },
-  { id: "document-priority-increase", action: "increaseDocumentPriority", keys: "Shift+p", description: "Increase active document priority", category: "article" },
+  // Note: document priority now lives in the primary shortcut store
+  // (useShortcutStore, id "doc.priority") so it is honored in both the
+  // Documents view and the reader. Do not re-add it here.
 
   // Training
   { id: "train-like", action: "trainLike", keys: "+", description: "Like (train intelligence)", category: "training" },
@@ -85,8 +87,33 @@ export const useKeyboardShortcutsStore = create<KeyboardShortcutsState>()(
     }),
     {
       name: "rss-keyboard-shortcuts",
-      version: 0,
-      migrate: (persisted: unknown) => persisted as KeyboardShortcutsState,
+      version: 1,
+      // Deep-merge new DEFAULT_SHORTCUTS entries into persisted state instead of
+      // wholesale replacing the in-memory defaults with a stale persisted list.
+      // Without this, any newly added default shortcut is invisible to existing
+      // users until they hit "Reset to defaults" — which is exactly why the
+      // document-priority shortcut silently failed to fire. Keyed by `id` so a
+      // user's custom binding for a known shortcut is preserved, and a removed
+      // default (like the old increaseDocumentPriority entry) is dropped.
+      merge: (persisted: unknown, current: KeyboardShortcutsState) => {
+        const persistedState = persisted as Partial<KeyboardShortcutsState> | undefined;
+        if (!persistedState?.shortcuts || !Array.isArray(persistedState.shortcuts)) {
+          return current;
+        }
+        const persistedById = new Map(persistedState.shortcuts.map((s) => [s.id, s]));
+        const mergedShortcuts = current.shortcuts.map((defaultShortcut) => {
+          const persistedShortcut = persistedById.get(defaultShortcut.id);
+          // Preserve a user-customized key binding; otherwise take the new default.
+          return persistedShortcut?.keys
+            ? { ...defaultShortcut, keys: persistedShortcut.keys }
+            : defaultShortcut;
+        });
+        return {
+          ...current,
+          shortcuts: mergedShortcuts,
+          isCustomized: persistedState.isCustomized ?? current.isCustomized,
+        };
+      },
     }
   )
 );

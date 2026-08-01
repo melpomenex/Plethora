@@ -2101,6 +2101,12 @@ export const fr: Dict = {
   "priority.highDesc": "Réviser fréquemment",
   "priority.higherPriorityNote":
     "Les éléments prioritaires apparaissent plus fréquemment dans votre file.",
+  "priority.popupTitle": "Définir la priorité",
+  "priority.popupTitleMass": "Définir la priorité pour {{count}} documents",
+  "priority.massHint": "Tous les documents sélectionnés recevront la même priorité.",
+  "priority.apply": "Appliquer",
+  "priority.cancel": "Annuler",
+  "priority.bulkPartial": "{{succeeded}} réussis, {{failed}} échoués.",
   "priority.highestDesc": "Réviser souvent",
   "priority.lowDesc": "Réviser occasionnellement",
   "priority.lowestDesc": "Réviser rarement",

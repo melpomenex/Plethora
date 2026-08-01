@@ -128,6 +128,31 @@ export async function updateDocumentPriority(
   return mapDocument(result) as Document;
 }
 
+/**
+ * Set the same continuous 0-100 priority on multiple documents. The backend
+ * derives the rating and score from the slider via the canonical formula, so a
+ * bulk set is consistent with a single-doc `updateDocumentPriority`.
+ *
+ * Only `slider` is taken as input: it is the authoritative priority value.
+ * `rating` is accepted by the single-doc command purely for legacy callers and
+ * is otherwise derived server-side.
+ */
+export async function bulkSetDocumentPriority(
+  documentIds: string[],
+  slider: number
+): Promise<BulkOperationResult> {
+  if (isWebMode()) {
+    return browserInvoke<BulkOperationResult>("bulk_set_document_priority", {
+      documentIds,
+      slider,
+    });
+  }
+  return invokeCommand<BulkOperationResult>("bulk_set_document_priority", {
+    documentIds,
+    slider,
+  });
+}
+
 export async function dismissDocument(
   id: string,
   dismissed: boolean

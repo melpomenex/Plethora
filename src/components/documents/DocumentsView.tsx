@@ -19,7 +19,7 @@ import {
   Link,
   List,
   MagnifyingGlass,
-  Minus,
+  Flag,
   Plus,
   Sparkle,
   Stack,
@@ -83,7 +83,6 @@ import { findCompanionDoc } from "../../utils/documentPairing";
 import { useTranscriptionQueueStore } from "../../stores/transcriptionQueueStore";
 import { enqueueAutoTranscription } from "../../api/transcription";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useKeyboardShortcutsStore } from "../../stores/keyboardShortcutsStore";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { useToast } from "../common/Toast";
 import { useModal } from "../common/Modal";
@@ -94,21 +93,12 @@ import {
   uniqueDocumentIds,
   type DocumentSelectionModifiers,
 } from "./documentSelection";
+import { usePriorityPopup, resolveDisplaySlider, getPriorityInfo } from "./usePriorityPopup";
+import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
 
 const MODE_STORAGE_KEY = "documentsViewMode";
 const SAVED_VIEWS_KEY = "documentsSavedViews";
 const MAX_VISIBLE_TAGS = 3;
-
-function keyboardEventCombo(event: KeyboardEvent): string {
-  const parts: string[] = [];
-  if (event.ctrlKey || event.metaKey) parts.push("Ctrl");
-  if (event.shiftKey) parts.push("Shift");
-  if (event.altKey) parts.push("Alt");
-  if (!["Control", "Shift", "Alt", "Meta"].includes(event.key)) {
-    parts.push(event.key.length === 1 ? event.key.toLowerCase() : event.key);
-  }
-  return parts.join("+");
-}
 
 type CompactDocumentFilter = "all" | "priority" | "recent" | "active" | "parked" | "highlights" | "cards";
 
@@ -249,6 +239,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   const confirmDialog = useConfirmDialog();
   const toast = useToast();
   const modal = useModal();
+  const priorityPopup = usePriorityPopup({ updateDocument });
 
   const isMobile = useMobileShell();
   const isActiveTab = useIsActiveTab();
@@ -904,20 +895,14 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
 
   const handleBulkReprioritize = async () => {
     if (selectedIds.size === 0) return;
-    const value = await modal.prompt(
-      t("documentsView.setPriorityPrompt"),
-      "",
-      t("documentsView.reprioritize"),
-    );
-    if (value === null) return;
-    const nextRating = Number(value.trim());
-    if (!Number.isFinite(nextRating)) {
-      toast.error(t("documentsView.reprioritize"), t("documentsView.invalidPriority"));
-      return;
+    const ids = Array.from(selectedIds);
+    const docs = sortedDocuments.filter((d) => ids.includes(d.id));
+    const { committed } = await priorityPopup.open(ids, docs, { forceBulk: true });
+    if (committed) {
+      // Mass-set wrote through bulk_set_document_priority; refresh every row.
+      await loadDocuments?.();
+      clearDocumentSelection();
     }
-    await applyToSelection(t("documentsView.reprioritize"), (doc) =>
-      updateDocument(doc.id, { priorityRating: nextRating, priorityScore: nextRating * 20 }),
-    );
   };
 
   const handleBulkMoveCollection = async () => {
@@ -984,27 +969,21 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
         return;
       }
 
-      const priorityShortcut = useKeyboardShortcutsStore
-        .getState()
-        .shortcuts.find((shortcut) => shortcut.action === "increaseDocumentPriority");
-      if (priorityShortcut?.keys === keyboardEventCombo(event)) {
-        const doc = activeDocument ?? sortedDocuments[0];
-        if (!doc) return;
+      // Priority popup: opens for the current selection (single or mass set).
+      const priorityCombo = getShortcutCombo("doc.priority");
+      if (priorityCombo && eventMatchesCombo(event, priorityCombo)) {
         event.preventDefault();
-        const nextRating = Math.min(5, (doc.priorityRating ?? 0) + 1);
-        if (nextRating === doc.priorityRating) return;
-        void import("../../api/documents")
-          .then(({ updateDocumentPriority }) =>
-            updateDocumentPriority(doc.id, nextRating, doc.prioritySlider ?? 0)
-          )
-          .then((updated) => {
-            updateDocument(doc.id, {
-              priorityRating: updated.priorityRating,
-              priorityScore: updated.priorityScore,
-              prioritySlider: updated.prioritySlider,
-            });
-          })
-          .catch((error) => console.error("Failed to adjust document priority", error));
+        // Operate on the explicit selection; if none, fall back to the active row.
+        const targetIds = selectedIds.size > 0 ? Array.from(selectedIds) : activeId ? [activeId] : [];
+        if (targetIds.length === 0) return;
+        const docs = sortedDocuments.filter((d) => targetIds.includes(d.id));
+        void priorityPopup.open(targetIds, docs).then(({ committed }) => {
+          // For a mass set, refresh the document list so all rows reflect the
+          // new value; the single-doc path already patched the store.
+          if (committed && targetIds.length > 1) {
+            void loadDocuments?.();
+          }
+        });
         return;
       }
 
@@ -1414,6 +1393,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                 onImportFolder={handleImportFolder}
                 onClearFilter={() => setCompactFilter("all")}
                 onUpdate={updateDocument}
+                onOpenPopup={(doc) => void priorityPopup.open([doc.id], [doc])}
               />
             ) : sortedDocuments.length === 0 ? (
               debouncedSearch ? (
@@ -2081,62 +2061,52 @@ function PriorityBadge({ doc }: { doc: Document }) {
 function PriorityStepper({
   doc,
   onUpdate,
+  onOpenPopup,
 }: {
   doc: Document;
   onUpdate: (id: string, updates: Partial<Document>) => void;
+  onOpenPopup?: (doc: Document) => void;
 }) {
   const { t } = useI18n();
-  const [pending, setPending] = useState(false);
-  const rating = doc.priorityRating ?? 0;
+  const slider = resolveDisplaySlider(doc);
+  const info = getPriorityInfo(slider);
 
-  const adjust = async (event: React.MouseEvent, delta: -1 | 1) => {
+  // When the popup is available, the whole chip opens it (single-doc set).
+  // When absent (e.g. legacy callers), fall back to a +1 nudge via the API.
+  const handleClick = async (event: React.MouseEvent) => {
     event.stopPropagation();
     event.preventDefault();
-    if (pending) return;
-    const nextRating = Math.min(5, Math.max(0, rating + delta));
-    if (nextRating === rating) return;
-
-    setPending(true);
-    try {
-      const { updateDocumentPriority } = await import("../../api/documents");
-      const updated = await updateDocumentPriority(doc.id, nextRating, doc.prioritySlider ?? 0);
-      onUpdate(doc.id, {
-        priorityRating: updated.priorityRating,
-        priorityScore: updated.priorityScore,
-        prioritySlider: updated.prioritySlider,
-      });
-    } catch (error) {
-      console.error("Failed to adjust document priority", error);
-    } finally {
-      setPending(false);
+    if (onOpenPopup) {
+      onOpenPopup(doc);
+      return;
     }
+    const rating = doc.priorityRating ?? 0;
+    const nextRating = Math.min(5, rating + 1);
+    if (nextRating === rating) return;
+    const { updateDocumentPriority } = await import("../../api/documents");
+    const updated = await updateDocumentPriority(doc.id, nextRating, doc.prioritySlider ?? 0);
+    onUpdate(doc.id, {
+      priorityRating: updated.priorityRating,
+      priorityScore: updated.priorityScore,
+      prioritySlider: updated.prioritySlider,
+    });
   };
 
   return (
-    <div
-      className="flex items-center gap-1"
-      onClick={(event) => event.stopPropagation()}
+    <button
+      type="button"
+      onClick={handleClick}
+      title={`${t("priority.setTitle")} · ${slider}`}
+      aria-label={t("priority.setTitle")}
+      className="flex items-center gap-1 px-1.5 h-5 rounded text-[11px] font-medium border border-border bg-muted/40 hover:bg-muted transition-colors"
     >
-      <button
-        type="button"
-        onClick={(event) => adjust(event, -1)}
-        disabled={pending || rating <= 0}
-        aria-label={t("documentsView.decreasePriority")}
-        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-      >
-        <Minus className="h-3 w-3" />
-      </button>
-      <PriorityBadge doc={doc} />
-      <button
-        type="button"
-        onClick={(event) => adjust(event, 1)}
-        disabled={pending || rating >= 5}
-        aria-label={t("documentsView.increasePriority")}
-        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-      >
-        <Plus className="h-3 w-3" />
-      </button>
-    </div>
+      <Flag
+        className="h-3 w-3"
+        style={{ color: info.color }}
+        fill={info.color}
+      />
+      <span style={{ color: info.color }}>{slider}</span>
+    </button>
   );
 }
 
@@ -2283,6 +2253,7 @@ interface CompactLibraryViewProps {
   onImportFolder: () => void;
   onClearFilter: () => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
+  onOpenPopup?: (doc: Document) => void;
 }
 
 function CompactLibraryView({
@@ -2308,6 +2279,7 @@ function CompactLibraryView({
   onImport,
   onImportFolder,
   onClearFilter,
+  onOpenPopup,
 }: CompactLibraryViewProps) {
   const { t } = useI18n();
   const now = Date.now();
@@ -2515,6 +2487,7 @@ function CompactLibraryView({
                     onSelect={(modifiers) => onSelectRow(doc, modifiers)}
                     onOpen={() => onOpenDocument?.(doc)}
                     onUpdate={onUpdate}
+                    onOpenPopup={onOpenPopup}
                   />
                 ))}
               </div>
@@ -2588,6 +2561,7 @@ function CompactDocumentRow({
   onSelect,
   onOpen,
   onUpdate,
+  onOpenPopup,
 }: {
   doc: Document;
   selected: boolean;
@@ -2596,6 +2570,7 @@ function CompactDocumentRow({
   onSelect: (modifiers?: DocumentSelectionModifiers) => void;
   onOpen: () => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
+  onOpenPopup?: (doc: Document) => void;
 }) {
   const { t } = useI18n();
   const coverUrl = getDocumentCoverUrl(doc);
@@ -2667,7 +2642,7 @@ function CompactDocumentRow({
               <div className="line-clamp-2 text-sm font-semibold leading-tight text-foreground">{doc.title}</div>
               <div className="mt-1 truncate text-xs text-muted-foreground">{sourceLabel}</div>
             </div>
-            <PriorityStepper doc={doc} onUpdate={onUpdate} />
+            <PriorityStepper doc={doc} onUpdate={onUpdate} onOpenPopup={onOpenPopup} />
           </div>
           <div className="mt-2 flex items-center gap-2">
             <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
@@ -2742,7 +2717,7 @@ function CompactDocumentRow({
         <span className="font-mono text-xs tabular-nums text-muted-foreground">{doc.extractCount}</span>
         <span className="font-mono text-xs tabular-nums text-muted-foreground">{doc.learningItemCount}</span>
         <span className="truncate text-[11px] text-muted-foreground">{formatRelativeTime(getLastTouched(doc))}</span>
-        <PriorityStepper doc={doc} onUpdate={onUpdate} />
+        <PriorityStepper doc={doc} onUpdate={onUpdate} onOpenPopup={onOpenPopup} />
         <button
           type="button"
           onClick={(event) => {

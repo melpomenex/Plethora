@@ -1,5 +1,6 @@
 //! Bulk document operations
 
+use crate::algorithms::{calculate_document_priority_score, rating_from_slider};
 use crate::database::Repository;
 use crate::error::Result;
 use tauri::State;
@@ -78,6 +79,56 @@ pub async fn bulk_move_documents_to_collection(
                 failed.push(document_id.clone());
                 errors.push(format!("{}: Document not found", document_id));
             }
+            Err(e) => {
+                failed.push(document_id.clone());
+                errors.push(format!("{}: {}", document_id, e));
+            }
+        }
+    }
+
+    Ok(BulkOperationResult {
+        succeeded,
+        failed,
+        errors,
+    })
+}
+
+/// Set the same continuous priority on multiple documents at once.
+///
+/// `slider` is the authoritative 0-100 value (the same input the single-item
+/// `update_document_priority` and the priority popup use). For each document the
+/// rating is derived via `rating_from_slider` and the `priority_score` via the
+/// canonical `calculate_document_priority_score`, so a bulk set leaves all three
+/// fields in exactly the state a single-doc update would — replacing the legacy
+/// bulk path that computed `rating * 20` locally and left `priority_slider`
+/// untouched. Per-document failures are reported without aborting the batch.
+#[tauri::command]
+pub async fn bulk_set_document_priority(
+    document_ids: Vec<String>,
+    slider: i32,
+    repo: State<'_, Repository>,
+) -> Result<BulkOperationResult> {
+    let slider_value = slider.clamp(0, 100);
+    let rating_value = rating_from_slider(slider_value);
+    let score = calculate_document_priority_score(
+        if rating_value > 0 {
+            Some(rating_value)
+        } else {
+            None
+        },
+        slider_value,
+    );
+
+    let mut succeeded = Vec::new();
+    let mut failed = Vec::new();
+    let mut errors = Vec::new();
+
+    for document_id in &document_ids {
+        match repo
+            .update_document_priority(document_id, rating_value, slider_value, score)
+            .await
+        {
+            Ok(_) => succeeded.push(document_id.clone()),
             Err(e) => {
                 failed.push(document_id.clone());
                 errors.push(format!("{}: {}", document_id, e));

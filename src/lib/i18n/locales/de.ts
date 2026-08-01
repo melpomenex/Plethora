@@ -2084,6 +2084,12 @@ export const de: Dict = {
   "priority.highDesc": "Häufig wiederholen",
   "priority.higherPriorityNote":
     "Elemente mit höherer Priorität erscheinen häufiger in deiner Warteschlange.",
+  "priority.popupTitle": "Priorität festlegen",
+  "priority.popupTitleMass": "Priorität für {{count}} Dokumente festlegen",
+  "priority.massHint": "Alle ausgewählten Dokumente erhalten dieselbe Priorität.",
+  "priority.apply": "Anwenden",
+  "priority.cancel": "Abbrechen",
+  "priority.bulkPartial": "{{succeeded}} erfolgreich, {{failed}} fehlgeschlagen.",
   "priority.highestDesc": "Sehr häufig wiederholen",
   "priority.lowDesc": "Gelegentlich wiederholen",
   "priority.lowestDesc": "Selten wiederholen",

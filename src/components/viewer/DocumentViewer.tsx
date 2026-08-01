@@ -62,7 +62,8 @@ import { VimModeIndicator } from "./VimModeIndicator";
 import { markItemViewed } from "../../lib/queueSession";
 import { useQueueNavigation } from "../../hooks/useQueueNavigation";
 import { cn } from "../../utils";
-import { eventMatchesCombo, useShortcutStore } from "../common/KeyboardShortcuts";
+import { eventMatchesCombo, getShortcutCombo, useShortcutStore } from "../common/KeyboardShortcuts";
+import { usePriorityPopup } from "../documents/usePriorityPopup";
 import * as documentsApi from "../../api/documents";
 import { createLearningItem, generateLearningItemsFromExtract } from "../../api/learning-items";
 import { handleAutoGeneration, handleAutoSummarization } from "../../utils/aiExtractUtils";
@@ -331,6 +332,7 @@ export function DocumentViewer({
   const { t } = useI18n();
   const { theme } = useTheme();
   const { documents, hydrateDocument, setCurrentDocument, currentDocument: globalCurrentDocument, updateDocument } = useDocumentStore();
+  const priorityPopup = usePriorityPopup({ updateDocument });
   
   // Use local document lookup by documentId prop instead of global currentDocument
   // This allows multiple DocumentViewers to show different documents in split panes
@@ -3449,6 +3451,20 @@ export function DocumentViewer({
           });
         }
         return;
+      }
+
+      // Shift + P — open the priority popup for the open document.
+      // Registered through the primary shortcut store so it is discoverable and
+      // rebindable, and honored consistently in the reader and the Documents view.
+      {
+        const priorityCombo = getShortcutCombo("doc.priority");
+        if (priorityCombo && eventMatchesCombo(e, priorityCombo)) {
+          e.preventDefault();
+          if (currentDocument) {
+            void priorityPopup.open([currentDocument.id], [currentDocument]);
+          }
+          return;
+        }
       }
 
       // Ctrl/Cmd + E for create extract from current selection

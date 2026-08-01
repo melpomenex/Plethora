@@ -195,6 +195,56 @@ pub fn calculate_priority_score(
     priority.clamp(0.0, 10.0)
 }
 
+/// Derive a 1-5 priority rating from a 0-100 slider value.
+///
+/// This is the single source of truth for the `slider → rating` mapping so every
+/// write path keeps the two fields (and the persisted `priority_score`)
+/// consistent. The thresholds match the reader's `PriorityControl` preset
+/// buckets (Lowest/Low/Normal/High/Highest at 10/30/50/70/90).
+pub fn rating_from_slider(priority_slider: i32) -> i32 {
+    let slider = priority_slider.clamp(0, 100);
+    if slider >= 81 {
+        5
+    } else if slider >= 61 {
+        4
+    } else if slider >= 41 {
+        3
+    } else if slider >= 21 {
+        2
+    } else if slider > 0 {
+        1
+    } else {
+        0
+    }
+}
+
+/// Normalize a document's priority fields into a single 0-100 slider value.
+///
+/// The slider is the authoritative priority input. Legacy rows written before
+/// the slider existed may have `priority_slider == 0` but a non-zero
+/// `priority_rating`; in that case the rating is converted back to a slider
+/// value so those documents keep roughly their old ordering. A document with
+/// no user-set priority at all (both zero) is treated as the neutral midpoint
+/// (50) rather than the floor, so un-prioritized documents are not silently
+/// demoted to the bottom of the queue.
+pub fn resolve_priority_slider(priority_slider: i32, priority_rating: i32) -> i32 {
+    if priority_slider > 0 {
+        return priority_slider.clamp(0, 100);
+    }
+    if priority_rating > 0 {
+        // Invert rating_from_slider's buckets: 1->10, 2->30, 3->50, 4->70, 5->90.
+        return match priority_rating.clamp(1, 5) {
+            1 => 10,
+            2 => 30,
+            3 => 50,
+            4 => 70,
+            _ => 90,
+        };
+    }
+    // Neither set → neutral midpoint.
+    50
+}
+
 /// Calculate combined priority score for documents using rating (1-5) and slider (0-100).
 pub fn calculate_document_priority_score(
     priority_rating: Option<i32>,
@@ -216,14 +266,14 @@ pub fn calculate_document_priority_score(
 /// Calculate FSRS-based priority for documents in the queue.
 ///
 /// This uses FSRS `next_reading_date` as the primary factor, with stability
-/// and difficulty as secondary sorting factors. The user's priority_rating
-/// acts as a multiplier on the FSRS-calculated priority.
+/// and difficulty as secondary sorting factors. The user's continuous 0-100
+/// priority slider acts as a multiplier on the FSRS-calculated priority.
 ///
 /// # Arguments
 /// * `next_reading_date` - FSRS-calculated next review date (None for new documents)
 /// * `stability` - FSRS stability value (None for new documents)
 /// * `difficulty` - FSRS difficulty value (None for new documents)
-/// * `priority_rating` - User-set priority (1-10) acting as multiplier
+/// * `priority_slider` - User-set continuous priority (0-100) acting as multiplier
 ///
 /// # Returns
 /// A priority score (0-10) where higher values indicate higher urgency
@@ -231,18 +281,16 @@ pub fn calculate_fsrs_document_priority(
     next_reading_date: Option<chrono::DateTime<Utc>>,
     stability: Option<f64>,
     difficulty: Option<f64>,
-    priority_rating: i32,
+    priority_slider: i32,
 ) -> f64 {
     let now = Utc::now();
 
-    // Calculate user priority multiplier (0.5x to 2.0x based on rating 1-10)
-    // Rating 5 = 1.0x (no effect), Rating 1 = 0.5x, Rating 10 = 2.0x
-    let priority_multiplier = if priority_rating > 0 {
-        let rating = priority_rating.clamp(1, 10) as f64;
-        0.5 + (rating - 1.0) / 9.0 * 1.5 // Maps 1->0.5, 5->1.0, 10->2.0
-    } else {
-        1.0
-    };
+    // Calculate user priority multiplier (0.5x to 2.0x based on slider 0-100).
+    // Slider 50 (neutral midpoint) ≈ 1.25x, slider 0 = 0.5x, slider 100 = 2.0x.
+    // The neutral midpoint (50) corresponds to a "no user preference" document
+    // and sits above 1.0x so un-prioritized documents are not buried.
+    let slider = priority_slider.clamp(0, 100) as f64;
+    let priority_multiplier = 0.5 + (slider / 100.0) * 1.5;
 
     // Base priority from FSRS scheduling
     let base_priority = match next_reading_date {
@@ -273,7 +321,7 @@ pub fn calculate_fsrs_document_priority(
         }
         None => {
             // New documents (never read) get high priority for first reading
-            // They're ordered by user-set priority_rating
+            // They're ordered by the user-set priority slider multiplier above
             9.0
         }
     };

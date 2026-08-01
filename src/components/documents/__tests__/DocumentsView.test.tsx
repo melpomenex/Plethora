@@ -6,12 +6,15 @@ import type { Document } from "../../../types/document";
 const modalMock = vi.hoisted(() => ({
   prompt: vi.fn<(message: string, defaultValue?: string, title?: string) => Promise<string | null>>(),
   confirm: vi.fn(),
-  alert: vi.fn(),
+  alert: vi.fn<(message: string, title?: string) => Promise<boolean>>().mockResolvedValue(true),
+  // The priority popup opens via modal.custom; resolving true simulates "Apply".
+  custom: vi.fn((): Promise<boolean> => Promise.resolve(true)),
 }));
 
 const documentsApiMock = vi.hoisted(() => ({
   bulkMoveDocumentsToCollection: vi.fn(),
   updateDocumentPriority: vi.fn(),
+  bulkSetDocumentPriority: vi.fn(async () => ({ succeeded: [], failed: [], errors: [] })),
 }));
 
 const collectionsMock = vi.hoisted(() => ({
@@ -82,6 +85,7 @@ vi.mock("../../../api/documents", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   bulkMoveDocumentsToCollection: documentsApiMock.bulkMoveDocumentsToCollection,
   updateDocumentPriority: documentsApiMock.updateDocumentPriority,
+  bulkSetDocumentPriority: documentsApiMock.bulkSetDocumentPriority,
 }));
 
 vi.mock("../../../stores/collectionStore", () => ({
@@ -111,6 +115,14 @@ beforeEach(() => {
   modalMock.prompt.mockReset();
   documentsApiMock.bulkMoveDocumentsToCollection.mockReset();
   documentsApiMock.updateDocumentPriority.mockReset();
+  documentsApiMock.bulkSetDocumentPriority.mockReset();
+  documentsApiMock.bulkSetDocumentPriority.mockResolvedValue({
+    succeeded: ["doc-1"],
+    failed: [],
+    errors: [],
+  });
+  modalMock.custom.mockReset();
+  modalMock.custom.mockResolvedValue(true);
   collectionsMock.createCollection.mockClear();
 });
 
@@ -130,22 +142,26 @@ describe("DocumentsView", () => {
   });
 
   it("adjusts the active document priority with the registered shortcut", async () => {
+    // The shortcut now opens the priority popup; resolving the modal to true
+    // applies the seeded slider value for the active document.
     documentsApiMock.updateDocumentPriority.mockResolvedValue({
+      id: "doc-1",
       priorityRating: 5,
-      prioritySlider: 0,
-      priorityScore: 100,
+      prioritySlider: 90,
+      priorityScore: 95,
     });
     render(<DocumentsView enableYouTubeImport={false} />);
     fireEvent.click(screen.getAllByText("Priority Doc")[0]);
 
     fireEvent.keyDown(window, { key: "P", shiftKey: true });
 
+    await waitFor(() => expect(modalMock.custom).toHaveBeenCalled());
     await waitFor(() =>
-      expect(documentsApiMock.updateDocumentPriority).toHaveBeenCalledWith("doc-1", 5, 0),
-    );
-    expect(mockStore.updateDocument).toHaveBeenCalledWith(
-      "doc-1",
-      expect.objectContaining({ priorityRating: 5, priorityScore: 100 }),
+      expect(documentsApiMock.updateDocumentPriority).toHaveBeenCalledWith(
+        "doc-1",
+        0, // rating is derived server-side; the popup passes 0 to mean "slider-authoritative"
+        expect.any(Number),
+      ),
     );
   });
 
@@ -244,28 +260,29 @@ describe("DocumentsView", () => {
       expect((screen.getByLabelText("Select Priority Doc") as HTMLInputElement).checked).toBe(true);
     });
 
-    it("reprioritizes through the in-app prompt", async () => {
-      modalMock.prompt.mockResolvedValue("3");
+    it("reprioritizes through the priority popup", async () => {
+      // Bulk reprioritize opens the popup; resolving true applies the seeded
+      // slider value to every selected doc via bulk_set_document_priority.
       selectFirstDocument();
 
       clickBulkAction("Reprioritize");
 
       await waitFor(() =>
-        expect(mockStore.updateDocument).toHaveBeenCalledWith(
-          "doc-1",
-          expect.objectContaining({ priorityRating: 3, priorityScore: 60 }),
-        )
+        expect(documentsApiMock.bulkSetDocumentPriority).toHaveBeenCalledWith(
+          ["doc-1"],
+          expect.any(Number),
+        ),
       );
     });
 
-    it("rejects a non-numeric priority without updating anything", async () => {
-      modalMock.prompt.mockResolvedValue("not a number");
+    it("cancelling the priority popup changes nothing", async () => {
+      modalMock.custom.mockResolvedValueOnce(false);
       selectFirstDocument();
 
       clickBulkAction("Reprioritize");
 
-      await waitFor(() => expect(modalMock.prompt).toHaveBeenCalled());
-      expect(mockStore.updateDocument).not.toHaveBeenCalled();
+      await waitFor(() => expect(modalMock.custom).toHaveBeenCalled());
+      expect(documentsApiMock.bulkSetDocumentPriority).not.toHaveBeenCalled();
     });
 
     it("moves documents into an existing collection", async () => {

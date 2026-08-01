@@ -240,6 +240,13 @@ export const DEFAULT_SHORTCUTS: ShortcutAction[] = [
     category: ShortcutCategory.Documents,
     defaultCombo: { key: "[", ctrl: true },
   },
+  {
+    id: "doc.priority",
+    name: "Set Priority",
+    description: "Open the priority slider for the selected document(s)",
+    category: ShortcutCategory.Documents,
+    defaultCombo: { key: "p", shift: true },
+  },
 
   // General
   {

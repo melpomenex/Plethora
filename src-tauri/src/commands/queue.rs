@@ -1,6 +1,6 @@
 //! Queue commands
 
-use crate::algorithms::{calculate_fsrs_document_priority, QueueSelector};
+use crate::algorithms::{calculate_fsrs_document_priority, resolve_priority_slider, QueueSelector};
 use crate::database::Repository;
 use crate::error::Result;
 use crate::models::QueueItem;
@@ -325,7 +325,10 @@ async fn get_queue_items_from_repo(
             document.next_reading_date,
             document.stability,
             document.difficulty,
-            document.priority_rating,
+            resolve_priority_slider(
+                document.priority_slider,
+                document.priority_rating,
+            ),
         );
 
         queue_items.push(QueueItem {
@@ -743,7 +746,10 @@ async fn get_due_queue_items_from_repo_at(
             document.next_reading_date,
             document.stability,
             document.difficulty,
-            document.priority_rating,
+            resolve_priority_slider(
+                document.priority_slider,
+                document.priority_rating,
+            ),
         );
 
         queue_items.push(QueueItem {
@@ -833,7 +839,10 @@ async fn get_due_documents_only_from_repo(
             document.next_reading_date,
             document.stability,
             document.difficulty,
-            document.priority_rating,
+            resolve_priority_slider(
+                document.priority_slider,
+                document.priority_rating,
+            ),
         );
 
         due_documents.push(QueueItem {
@@ -951,7 +960,10 @@ pub async fn get_queue_with_playlist_intersperse(
                             doc.next_reading_date,
                             doc.stability,
                             doc.difficulty,
-                            sub.priority_rating,
+                            // Playlist videos inherit the subscription's priority.
+                            // The subscription has only a rating, so resolve it to
+                            // a slider value the same way document fields are.
+                            resolve_priority_slider(0, sub.priority_rating),
                         );
 
                         playlist_queue_items.push(QueueItem {
