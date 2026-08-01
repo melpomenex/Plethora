@@ -20,6 +20,7 @@ import {
   List,
   MagnifyingGlass,
   Flag,
+  Pause,
   Plus,
   Sparkle,
   Stack,
@@ -71,6 +72,7 @@ import {
   updateDocument as updateDocumentApi,
 } from "../../api/documents";
 import { getYouTubeThumbnail, extractYouTubeTimestamp } from "../../api/youtube";
+import { bulkSuspendItems } from "../../api/queue";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
@@ -942,6 +944,40 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     }
   };
 
+  /**
+   * Suspend removes documents from the reading queue without archiving or
+   * deleting them (same reversible is_dismissed flag the Queue view's
+   * per-item Suspend uses). With no override this acts on the current
+   * selection and clears it afterward (toolbar button); a context-menu click
+   * on a document outside the selection passes an explicit single id instead
+   * and leaves the unrelated selection alone.
+   */
+  const handleBulkSuspend = async (idsOverride?: string[]) => {
+    const usingSelection = idsOverride === undefined;
+    const ids = idsOverride ?? Array.from(selectedIds);
+    if (ids.length === 0) return;
+    try {
+      const result = await bulkSuspendItems(ids);
+      if (usingSelection) {
+        finishBulkAction(
+          t("documentsView.suspend"),
+          result.succeeded,
+          result.failed.map((id, index) => ({ id, reason: result.errors[index] ?? id })),
+        );
+      } else if (result.failed.length > 0) {
+        toast.error(t("documentsView.suspend"), result.errors[0] ?? result.failed[0]);
+      } else {
+        toast.success(
+          t("documentsView.suspend"),
+          t("documentsView.bulkSucceeded", { count: result.succeeded.length }),
+        );
+      }
+      await loadDocuments();
+    } catch (error) {
+      toast.error(t("documentsView.suspend"), error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const handleSort = (key: DocumentSortKey) => {
     if (sortKey === key) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -966,6 +1002,15 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         searchRef.current?.focus();
+        return;
+      }
+
+      // Escape clears a multi-document selection (dismisses the bulk action bar).
+      if (event.key === "Escape" && selectedIds.size > 0) {
+        event.preventDefault();
+        setSelectedIds(new Set());
+        setSelectionAnchorId(null);
+        setSelectionToggledIds(new Set());
         return;
       }
 
@@ -1019,7 +1064,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeDocument, activeId, mode, onOpenDocument, sortedDocuments, updateDocument]);
+  }, [activeDocument, activeId, mode, onOpenDocument, selectedIds, sortedDocuments, updateDocument]);
 
   const handleSaveView = async () => {
     const name = (await modal.prompt(t("documentsView.nameViewPrompt")))?.trim();
@@ -1341,6 +1386,13 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                 {t("documentsView.reprioritize")}
               </button>
               <button
+                onClick={() => void handleBulkSuspend()}
+                className="px-3 py-1.5 bg-background border border-border rounded text-sm text-foreground hover:bg-muted flex items-center gap-1"
+              >
+                <Pause className="w-3 h-3" />
+                {t("documentsView.suspend")}
+              </button>
+              <button
                 onClick={handleBulkArchive}
                 className="px-3 py-1.5 bg-muted text-foreground rounded text-sm hover:bg-muted/80"
               >
@@ -1645,6 +1697,18 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                 >
                   <Flag className="h-3.5 w-3.5 text-muted-foreground" />
                   {t("priority.popupTitle")}
+                </button>
+                <button
+                  className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
+                  onClick={() => {
+                    const clicked = listCtxDoc.doc;
+                    setListCtxDoc(null);
+                    const inSelection = selectedIds.has(clicked.id);
+                    void handleBulkSuspend(inSelection ? undefined : [clicked.id]);
+                  }}
+                >
+                  <Pause className="h-3.5 w-3.5 text-muted-foreground" />
+                  {t("documentsView.suspend")}
                 </button>
                 <div className="h-px bg-border my-1" />
                 <button
