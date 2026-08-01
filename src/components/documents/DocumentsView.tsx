@@ -2974,7 +2974,7 @@ function LibraryDashboard({
     { label: "Total Items", value: totalItems, icon: <Stack className="w-4 h-4" /> },
     { label: "In Progress", value: inProgress, icon: <CircleNotch className="w-4 h-4" /> },
     { label: "Unprocessed", value: unprocessed, icon: <TextT className="w-4 h-4" /> },
-    { label: "Highlights", value: highlights, icon: <Sparkle className="w-4 h-4" /> },
+    { label: "Extracts", value: highlights, icon: <Sparkle className="w-4 h-4" /> },
     { label: "Ready to Review", value: readyToReview, icon: <BookOpen className="w-4 h-4" /> },
   ];
 
@@ -3349,7 +3349,7 @@ function LibraryCard({
           <h3 className="text-sm font-semibold text-foreground line-clamp-2 leading-tight">{doc.title}</h3>
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatRelativeTime(getLastTouched(doc))}</span>
-            {doc.extractCount > 0 && <span>{doc.extractCount} highlights</span>}
+            {doc.extractCount > 0 && <span>{doc.extractCount} extracts</span>}
             {doc.learningItemCount > 0 && <span>{doc.learningItemCount} cards</span>}
           </div>
           {(doc.extractCount > 0 || doc.learningItemCount > 0) && <ProgressBar doc={doc} />}

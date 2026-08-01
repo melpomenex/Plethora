@@ -5003,7 +5003,7 @@ export const en: Dict = {
   "documentsView.collections": "Collections",
   "documentsView.noCollections": "No collections yet",
   "documentsView.signals": "Signals",
-  "documentsView.hasHighlights": "Has highlights",
+  "documentsView.hasHighlights": "Has extracts",
   "documentsView.hasCards": "Has cards",
   "documentsView.showingDocuments": "Showing {shown} of {total}",
   "documentsView.noDocumentsInView": "No documents in this view",

@@ -113,7 +113,7 @@ export async function getExtract(id: string): Promise<Extract | null> {
  * (not loaded, or the count patch racing a reload) is a silent no-op rather
  * than an error, since the next real load will carry the correct count anyway.
  */
-async function patchDocumentExtractCount(documentId: string, delta: 1 | -1): Promise<void> {
+export async function patchDocumentExtractCount(documentId: string, delta: 1 | -1): Promise<void> {
   try {
     const { useDocumentStore } = await import("../stores/documentStore");
     useDocumentStore.getState().patchExtractCount(documentId, delta);

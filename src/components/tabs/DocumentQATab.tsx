@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useDocumentQAStore, useStudyDeckStore, type QAMessage, type QAToolCall } from "../../stores";
 import { chatWithContext, type LLMMessage } from "../../api/llm";
 import { getDocument, extractDocumentText } from "../../api/documents";
-import { getExtracts } from "../../api/extracts";
+import { getExtracts, patchDocumentExtractCount } from "../../api/extracts";
 import { callIncrementumMCPTool, getIncrementumMCPTools } from "../../api/mcp";
 import { getIntegrationSettings, notebooklmGetSettings } from "../../api/integrations";
 import {
@@ -1082,6 +1082,16 @@ export function DocumentQATab() {
             status: "success",
           });
           results.push({ name: call.name, status: "success" });
+        }
+
+        // The extract was created directly by the Rust-side MCP tool, bypassing
+        // api/extracts.ts's createExtract(), so patch the documentStore count
+        // here too or the Documents grid shows a stale extractCount.
+        if (call.name === "create_extract" && !result.isError) {
+          const documentId = parameters.document_id as string | undefined;
+          if (documentId) {
+            void patchDocumentExtractCount(documentId, 1);
+          }
         }
 
         // Sync deck creation to frontend store and track for card tagging

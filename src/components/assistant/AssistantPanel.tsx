@@ -41,7 +41,7 @@ import { copyToClipboard, generateSingleMessageMarkdown, type ConversationMessag
 import { useI18n } from "../../lib/i18n";
 import { useContextMenu, ContextMenu, ContextMenuItem, ContextMenuItemType } from "../common/ContextMenu";
 import { useToast } from "../common/Toast";
-import { createExtract } from "../../api/extracts";
+import { createExtract, patchDocumentExtractCount } from "../../api/extracts";
 import { getAssistantContextErrorMessage, type ResolvedAssistantContext } from "../../utils/assistantContext";
 import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 import { invokeCommand, isTauri } from "../../lib/tauri";
@@ -1488,6 +1488,16 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         } else {
           updateToolCall(messageId, index, { result, status: "success" });
           results.push({ name: call.name, status: "success" });
+        }
+
+        // The extract was created directly by the Rust-side MCP tool, bypassing
+        // api/extracts.ts's createExtract(), so patch the documentStore count
+        // here too or the Documents grid shows a stale extractCount.
+        if (call.name === "create_extract" && !result.isError) {
+          const documentId = parameters.document_id as string | undefined;
+          if (documentId) {
+            void patchDocumentExtractCount(documentId, 1);
+          }
         }
 
         // Sync deck creation to frontend store and track for card tagging
