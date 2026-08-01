@@ -142,7 +142,11 @@ export function Modal() {
       const firstElement = focusableElements[0];
       const lastElement = focusableElements[focusableElements.length - 1];
 
-      firstElement?.focus();
+      // Don't steal focus if the modal's own content already focused something
+      // on mount (e.g. an input that wants the cursor immediately for typing).
+      if (!modalRef.current.contains(document.activeElement)) {
+        firstElement?.focus();
+      }
 
       const handleTab = (e: KeyboardEvent) => {
         if (e.key !== "Tab") return;

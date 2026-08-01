@@ -245,7 +245,7 @@ export const DEFAULT_SHORTCUTS: ShortcutAction[] = [
     name: "Set Priority",
     description: "Open the priority slider for the selected document(s)",
     category: ShortcutCategory.Documents,
-    defaultCombo: { key: "p", shift: true },
+    defaultCombo: { key: "p", alt: true },
   },
 
   // General
@@ -638,8 +638,14 @@ export function formatKeyCombo(combo: KeyCombo): string {
  * Check if keyboard event matches key combo
  */
 export function eventMatchesCombo(event: KeyboardEvent, combo: KeyCombo): boolean {
-  const key = event.key.toLowerCase();
   const comboKey = combo.key.toLowerCase();
+  // macOS remaps Option+<letter> to a diacritic/symbol (e.g. Option+P -> "π"),
+  // so event.key won't match a plain letter combo when alt is held. Fall back
+  // to the physical, layout-independent event.code ("KeyP") in that case.
+  const key =
+    combo.alt && /^[a-z]$/.test(comboKey) && event.code === `Key${comboKey.toUpperCase()}`
+      ? comboKey
+      : event.key.toLowerCase();
   const isMac = typeof navigator !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0;
   const usesPrimaryModifier = !!combo.ctrl && !!combo.meta;
 

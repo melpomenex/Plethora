@@ -1176,6 +1176,7 @@ export function EPUBViewer({
             // Bind Cmd/Ctrl+K here so the command palette always opens while reading.
             contents.window.addEventListener("keydown", handleCommandPaletteHotkey, true);
             contents.window.addEventListener("keydown", handleExtractTextHotkey, true);
+            contents.window.addEventListener("keydown", handlePriorityHotkey, true);
             contents.window.addEventListener("keydown", (e: KeyboardEvent) => {
               if (handleEPUBKeyDownRef.current) {
                 handleEPUBKeyDownRef.current(e);
@@ -2368,6 +2369,14 @@ export function EPUBViewer({
     if (combo && eventMatchesCombo(e, combo)) {
       e.preventDefault();
       window.dispatchEvent(new CustomEvent("extract-text"));
+    }
+  }, []);
+
+  const handlePriorityHotkey = useCallback((e: KeyboardEvent) => {
+    const combo = getShortcutCombo("doc.priority");
+    if (combo && eventMatchesCombo(e, combo)) {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent("doc-priority-shortcut"));
     }
   }, []);
 

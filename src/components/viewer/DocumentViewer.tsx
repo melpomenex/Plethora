@@ -11,6 +11,7 @@ import {
   CornersOut,
   EyeSlash,
   FileCode,
+  Flag,
   Gear,
   Highlighter,
   Lightbulb,
@@ -53,7 +54,7 @@ import { EditExtractDialog } from "../extracts/EditExtractDialog";
 import type { PdfSelectionContext, SelectionContext, TextSelectionContext, EpubSelectionContext } from "../../types/selection";
 import { createExtract, type Extract } from "../../api/extracts";
 import { QueueNavigationControls } from "../queue/QueueNavigationControls";
-import { PriorityControl } from "./PriorityControl";
+import { resolveDisplaySlider, getPriorityInfo } from "../documents/usePriorityPopup";
 import { DocumentMinimap, type MinimapSegment } from "./DocumentMinimap";
 import { useInlineExtraction, flashAnimationStyles } from "../../hooks/useInlineExtraction";
 import { useToastExtract } from "../../hooks/useToastExtract";
@@ -306,6 +307,35 @@ const DEFAULT_VIEWER_SEARCH_STATE: ViewerSearchState = {
   totalMatches: 0,
   activeMatchIndex: 0,
 };
+
+function ReaderPriorityChip({
+  doc,
+  onOpenPopup,
+  className,
+}: {
+  doc: { prioritySlider?: number; priorityRating?: number };
+  onOpenPopup: () => void;
+  className?: string;
+}) {
+  const slider = resolveDisplaySlider(doc);
+  const info = getPriorityInfo(slider);
+
+  return (
+    <button
+      type="button"
+      onClick={onOpenPopup}
+      title={`Priority · ${slider}`}
+      aria-label="Set priority"
+      className={cn(
+        "flex items-center gap-1 px-2 h-8 rounded-md text-xs font-medium border border-border bg-muted/40 hover:bg-muted transition-colors flex-shrink-0",
+        className,
+      )}
+    >
+      <Flag className="h-3.5 w-3.5" style={{ color: info.color }} fill={info.color} />
+      <span style={{ color: info.color }}>{slider}</span>
+    </button>
+  );
+}
 
 export function DocumentViewer({
   documentId,
@@ -1514,6 +1544,18 @@ export function DocumentViewer({
     window.addEventListener("extract-text", handleExtractText);
     return () => window.removeEventListener("extract-text", handleExtractText);
   }, [documentId, handleInlineExtract]);
+
+  // Listen for the app-wide priority shortcut re-dispatched from inside the
+  // EPUB iframe (its keydown events never reach the main window listener).
+  useEffect(() => {
+    const handlePriorityShortcut = () => {
+      if (currentDocument) {
+        void priorityPopup.open([currentDocument.id], [currentDocument]);
+      }
+    };
+    window.addEventListener("doc-priority-shortcut", handlePriorityShortcut);
+    return () => window.removeEventListener("doc-priority-shortcut", handlePriorityShortcut);
+  }, [currentDocument, priorityPopup]);
 
   // Toast-based instant extract creation
   const [editExtractFromToast, setEditExtractFromToast] = useState<Extract | null>(null);
@@ -3453,7 +3495,7 @@ export function DocumentViewer({
         return;
       }
 
-      // Shift + P — open the priority popup for the open document.
+      // Alt + P — open the priority popup for the open document.
       // Registered through the primary shortcut store so it is discoverable and
       // rebindable, and honored consistently in the reader and the Documents view.
       {
@@ -5592,12 +5634,10 @@ export function DocumentViewer({
 
                   <div className="space-y-1">
                     <span className="text-xs text-muted-foreground font-medium">Document Priority</span>
-                    <PriorityControl
-                      documentId={currentDocument.id}
-                      prioritySlider={currentDocument.prioritySlider}
-                      priorityRating={currentDocument.priorityRating}
-                      variant="compact"
-                      className="w-full"
+                    <ReaderPriorityChip
+                      doc={currentDocument}
+                      onOpenPopup={() => void priorityPopup.open([currentDocument.id], [currentDocument])}
+                      className="w-full justify-center"
                     />
                   </div>
 
@@ -5820,11 +5860,9 @@ export function DocumentViewer({
           )}
           
           {/* Priority Control */}
-          <PriorityControl
-            documentId={currentDocument.id}
-            prioritySlider={currentDocument.prioritySlider}
-            priorityRating={currentDocument.priorityRating}
-            variant="compact"
+          <ReaderPriorityChip
+            doc={currentDocument}
+            onOpenPopup={() => void priorityPopup.open([currentDocument.id], [currentDocument])}
           />
 
           <div className="hidden sm:block h-6 w-px bg-border mx-1" />

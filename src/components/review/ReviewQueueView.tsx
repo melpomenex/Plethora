@@ -62,6 +62,8 @@ import { postponeItem } from "../../api/queue";
 import { dismissDocument } from "../../api/documents";
 import { useToast } from "../common/Toast";
 import { EmptyState } from "../common/EmptyState";
+import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
+import { usePriorityPopup } from "../documents/usePriorityPopup";
 import { getQueuePrimaryAction } from "./queueActions";
 import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
 import { getSessionStats, clearQueueSession } from "../../lib/queueSession";
@@ -155,6 +157,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const selectedIds = useQueueStore((state) => state.selectedIds);
   const customSubset = useQueueStore((state) => state.customSubset);
   const setCustomSubset = useQueueStore((state) => state.setCustomSubset);
+  const priorityPopup = usePriorityPopup();
   const [queueMode, setQueueMode] = useState<QueueMode>("reading");
   const [preset, setPreset] = useState<PriorityPreset>(
     useSettingsStore.getState().settings.smartQueue.queueStrategyPreset as PriorityPreset
@@ -777,6 +780,33 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         void bulkDelete();
         return;
       }
+      const priorityCombo = getShortcutCombo("doc.priority");
+      if (priorityCombo && eventMatchesCombo(event, priorityCombo)) {
+        event.preventDefault();
+        const targetItems =
+          selectedIds.size > 0
+            ? visibleItems.filter((item) => selectedIds.has(item.id))
+            : selectedItem
+              ? [selectedItem]
+              : [];
+        if (targetItems.length === 0) return;
+        const seenDocIds = new Set<string>();
+        const docs = targetItems
+          .filter((item) => {
+            if (seenDocIds.has(item.documentId)) return false;
+            seenDocIds.add(item.documentId);
+            return true;
+          })
+          .map((item) => ({
+            id: item.documentId,
+            prioritySlider: item.prioritySlider,
+            priorityRating: item.priorityRating,
+          }));
+        void priorityPopup.open(docs.map((d) => d.id), docs).then(({ committed }) => {
+          if (committed) void refreshQueue();
+        });
+        return;
+      }
       if (event.key.toLowerCase() === "i") {
         event.preventDefault();
         setInspectorOpen((prev) => !prev);
@@ -796,6 +826,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     selectAll,
     bulkDelete,
     isManualBrowseActive,
+    visibleItems,
+    selectedItem,
+    priorityPopup,
+    refreshQueue,
   ]);
 
   const handleQueueListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {

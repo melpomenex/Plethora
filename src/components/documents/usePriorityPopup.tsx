@@ -14,7 +14,7 @@
  * cancel footer. Cancelling applies no change and leaves any selection intact.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Flag } from "@phosphor-icons/react";
 import { useModal } from "../common/Modal";
 import { useI18n } from "../../lib/i18n";
@@ -159,6 +159,15 @@ function PriorityPopupBody({
   const { t } = useI18n();
   const [slider, setSlider] = useState(initial);
   const info = getPriorityInfo(slider);
+  const numberInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus + select the numeric input on open so the user can type a value
+  // immediately, without an extra click. Modal's own focus trap defers to
+  // whatever the content already focused, so this wins.
+  useEffect(() => {
+    numberInputRef.current?.focus();
+    numberInputRef.current?.select();
+  }, []);
 
   const commit = (v: number) => {
     const clamped = Math.max(0, Math.min(100, v));
@@ -202,11 +211,15 @@ function PriorityPopupBody({
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">{t("priority.adjust")}</span>
           <input
-            type="number"
-            min={0}
-            max={100}
+            ref={numberInputRef}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={slider}
-            onChange={(e) => commit(parseInt(e.target.value || "0", 10))}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/[^0-9]/g, "");
+              commit(digits ? parseInt(digits, 10) : 0);
+            }}
             className="w-16 px-2 py-1 text-sm text-center bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
             aria-label={t("priority.adjust")}
           />

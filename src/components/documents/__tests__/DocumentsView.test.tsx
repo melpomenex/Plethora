@@ -153,7 +153,7 @@ describe("DocumentsView", () => {
     render(<DocumentsView enableYouTubeImport={false} />);
     fireEvent.click(screen.getAllByText("Priority Doc")[0]);
 
-    fireEvent.keyDown(window, { key: "P", shiftKey: true });
+    fireEvent.keyDown(window, { key: "p", code: "KeyP", altKey: true });
 
     await waitFor(() => expect(modalMock.custom).toHaveBeenCalled());
     await waitFor(() =>
