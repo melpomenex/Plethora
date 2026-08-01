@@ -373,10 +373,17 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           if (queueMode === "review") {
             return item.itemType === "learning-item";
           }
-          // "Due All" explicitly promises every due item type. Keep the
-          // narrower document-only behavior for the other reading filters.
+          // "Due All" explicitly promises every due item type.
           if (queueFilterMode === "due-all") return true;
-          return item.itemType === "document";
+          // Other reading filters default to documents-only, but defer to
+          // the Customize Queue itemTypes toggles so enabling
+          // Extracts/Learning Items there actually surfaces them here too
+          // instead of being silently stripped before applyFilters runs.
+          const itemTypes = sessionCustomization.itemTypes;
+          if (item.itemType === "document") return itemTypes.documents;
+          if (item.itemType === "extract") return itemTypes.extracts;
+          if (item.itemType === "learning-item") return itemTypes.learningItems;
+          return false;
         });
     
     // Apply file type filter
