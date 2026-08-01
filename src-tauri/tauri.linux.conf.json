@@ -26,7 +26,8 @@
   "bundle": {
     "resources": [
       "scripts/anna_download.py",
-      "bin/*.so*"
+      "bin/*.so*",
+      "bin/notebooklm-runtime"
     ]
   }
 }

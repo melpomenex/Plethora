@@ -231,11 +231,16 @@ interface AppearanceSettings {
 /**
  * General Settings
  */
+/** Views the app can open on at startup. */
+export type DefaultStartupView = "queue" | "review" | "documents" | "analytics";
+
 interface GeneralSettings {
   language: string;
   startOfWeek: "sunday" | "monday";
   dateFormat: "us" | "iso" | "european";
   restoreSession: boolean;
+  /** Which view the app opens on when a session is not being restored. */
+  defaultView: DefaultStartupView;
 }
 
 /**
@@ -522,6 +527,7 @@ export const defaultSettings: Settings = {
     startOfWeek: "monday",
     dateFormat: "iso",
     restoreSession: true,
+    defaultView: "queue",
   },
   appearance: {
     theme: "system",

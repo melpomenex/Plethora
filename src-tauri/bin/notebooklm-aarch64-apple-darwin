@@ -2,6 +2,10 @@
 set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 RUNTIME_BASE="$SCRIPT_DIR/notebooklm-runtime/aarch64-apple-darwin"
+RESOURCE_RUNTIME_BASE="$SCRIPT_DIR/../Resources/bin/notebooklm-runtime/aarch64-apple-darwin"
+if [ -d "$RESOURCE_RUNTIME_BASE" ]; then
+  RUNTIME_BASE="$RESOURCE_RUNTIME_BASE"
+fi
 RUNTIME_PY="$RUNTIME_BASE/python/bin/python3"
 RUNTIME_SITE="$RUNTIME_BASE/site-packages"
 RUNTIME_PLAYWRIGHT="$RUNTIME_BASE/playwright"
@@ -11,7 +15,7 @@ if [ -x "$RUNTIME_PY" ] && [ -d "$RUNTIME_SITE" ]; then
   export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$RUNTIME_PLAYWRIGHT}"
   exec "$RUNTIME_PY" -m notebooklm.notebooklm_cli "$@"
 fi
-LEGACY_BUNDLED="$SCRIPT_DIR/notebooklm-runtime/aarch64-apple-darwin/.venv/bin/notebooklm"
+LEGACY_BUNDLED="$RUNTIME_BASE/.venv/bin/notebooklm"
 if [ -x "$LEGACY_BUNDLED" ]; then
   exec "$LEGACY_BUNDLED" "$@"
 fi
@@ -27,7 +31,6 @@ for CANDIDATE in "${HOME:-}/.local/bin/notebooklm" /usr/local/bin/notebooklm /us
     fi
   fi
 done
-
 RESOLVED_PATH=""
 OLD_IFS="$IFS"
 IFS=":"
@@ -40,7 +43,6 @@ for DIR in $PATH; do
   fi
 done
 IFS="$OLD_IFS"
-
 if [ -n "$RESOLVED_PATH" ]; then
   exec "$RESOLVED_PATH" "$@"
 else

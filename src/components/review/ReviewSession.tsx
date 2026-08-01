@@ -18,6 +18,7 @@ import { QueueNavigationControls } from "../queue/QueueNavigationControls";
 import { ReviewRating } from "../../api/review";
 import { ReviewFeedback } from "./ReviewFeedback";
 import { ReviewCardSkeleton } from "../common/Skeleton";
+import { useModal } from "../common/Modal";
 import { FSRSExplanationModal, useFSRSExplanation } from "../onboarding/FSRSExplanationModal";
 import { tourAnchor } from "../onboarding/tour/anchors";
 import { useSwipeGesture, getSwipeIndicatorStyle, SWIPE_RATINGS } from "../../hooks/useSwipeGesture";
@@ -106,9 +107,12 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     selectedOptionText?: string;
   } | null>(null);
   const { t, locale } = useI18n();
-  const requestExit = () => {
+  const modal = useModal();
+  const requestExit = async () => {
     if (useReviewStore.getState().pendingArenaReview) {
-      const discard = window.confirm(t("algorithmArena.discardConfirm"));
+      // window.confirm() is suppressed in the desktop WebView and returns
+      // false, so this always aborted the exit instead of asking.
+      const discard = await modal.confirm(t("algorithmArena.discardConfirm"));
       if (!discard) return;
       useReviewStore.getState().cancelArenaDecision();
     }
@@ -507,7 +511,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         // would also leave the whole session.
         if (isZenMode) return;
         e.preventDefault();
-        requestExit();
+        void requestExit();
         return;
       }
 

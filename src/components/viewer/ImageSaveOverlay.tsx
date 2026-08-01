@@ -9,6 +9,7 @@ import {
   base64ToBlob,
   captureAppWindowRegion,
 } from "../../utils/screenshotCapture";
+import { acquireImageAsset } from "../../utils/imageAcquisition";
 
 interface ImageHoverData {
   src: string;
@@ -74,67 +75,45 @@ export function ImageSaveOverlay() {
     };
   }, [hoverData?.src]);
 
-  const loadHoveredImageBlob = async (): Promise<Blob> => {
-    if (!hoverData) throw new Error("No image selected");
-    if (hoverData.src.startsWith("data:")) {
-      const response = await fetch(hoverData.src);
-      return response.blob();
-    }
-
-    try {
-      const response = await fetch(hoverData.src);
-      if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-      return response.blob();
-    } catch (fetchError) {
-      if (!isTauri()) throw fetchError;
-      const filePath = getFilePathFromUrl(hoverData.src);
-      if (!filePath) throw fetchError;
-      const fs = await import("@tauri-apps/plugin-fs");
-      const bytes = await fs.readFile(filePath);
-      const ext = filePath.split(".").pop()?.toLowerCase();
-      const mimeType =
-        ext === "jpg" || ext === "jpeg"
-          ? "image/jpeg"
-          : ext === "gif"
-            ? "image/gif"
-            : ext === "webp"
-              ? "image/webp"
-              : ext === "svg"
-                ? "image/svg+xml"
-                : "image/png";
-      return new Blob([bytes], { type: mimeType });
-    }
-  };
-
+  /**
+   * Single acquisition path shared by Save to Registry and Create Occlusion,
+   * so the two can never diverge again. Every strategy — including native
+   * ingestion and rendered-pixel capture — is available for every image source,
+   * not just public remote URLs.
+   */
   const ingestHoveredImage = async () => {
     if (!hoverData) throw new Error("No image selected");
-    if (isTauri() && isPublicRemoteImageUrl(hoverData.src)) {
-      try {
-        return await ingestRemoteImage(
-          hoverData.src,
-          getRemoteImageFileName(hoverData.src),
-          hoverData.referrerUrl,
-        );
-      } catch (downloadError) {
-        try {
+    return acquireImageAsset(
+      {
+        src: hoverData.src,
+        referrerUrl: hoverData.referrerUrl,
+        rect: hoverData.rect,
+      },
+      {
+        isTauri,
+        fetchBlob: async (src) => {
+          const response = await fetch(src);
+          if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+          return response.blob();
+        },
+        ingestBlob: ingestImageBlob,
+        ingestRemote: ingestRemoteImage,
+        readLocalFile: async (path) => {
+          const fs = await import("@tauri-apps/plugin-fs");
+          return fs.readFile(path);
+        },
+        captureRect: async (rect) => {
+          // The overlay's own buttons sit on top of the image being captured.
           if (overlayRef.current) overlayRef.current.style.visibility = "hidden";
-          await waitForNextPaint();
-          const base64 = await captureAppWindowRegion(hoverData.rect);
-          return await ingestImageBlob(
-            base64ToBlob(base64),
-            `captured-image-${Date.now()}.png`,
-          );
-        } catch (captureError) {
-          console.warn("Rendered-image capture fallback failed", captureError);
-          throw downloadError;
-        } finally {
-          if (overlayRef.current) overlayRef.current.style.visibility = "";
-        }
-      }
-    }
-    const blob = await loadHoveredImageBlob();
-    const fileExt = blob.type.split("/")[1] || "png";
-    return ingestImageBlob(blob, `saved-image-${Date.now()}.${fileExt}`);
+          try {
+            await waitForNextPaint();
+            return base64ToBlob(await captureAppWindowRegion(rect));
+          } finally {
+            if (overlayRef.current) overlayRef.current.style.visibility = "";
+          }
+        },
+      },
+    );
   };
 
   const handleSave = async (e: React.MouseEvent) => {
@@ -279,74 +258,7 @@ function waitForNextPaint(): Promise<void> {
   });
 }
 
-function isPublicRemoteImageUrl(src: string): boolean {
-  try {
-    const url = new URL(src);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    const host = url.hostname.toLowerCase();
-    return ![
-      "localhost",
-      "127.0.0.1",
-      "::1",
-      "asset.localhost",
-    ].includes(host);
-  } catch {
-    return false;
-  }
-}
 
-function getRemoteImageFileName(src: string): string | undefined {
-  try {
-    const name = decodeURIComponent(new URL(src).pathname.split("/").pop() || "").trim();
-    return name || undefined;
-  } catch {
-    return undefined;
-  }
-}
 
-function getFilePathFromUrl(src: string): string | null {
-  try {
-    const url = new URL(src);
-    if (url.protocol === "asset:" || url.host === "asset.localhost" || url.protocol === "file:") {
-      let pathname = decodeURIComponent(url.pathname);
-      // On Windows, pathname might be like "/C:/Users/..." or "/C:\Users\..."
-      // If we have a drive letter pattern "/[a-zA-Z]:", strip the leading slash
-      if (/^\/[a-zA-Z]:/.test(pathname)) {
-        pathname = pathname.substring(1);
-      }
-      return pathname;
-    }
-  } catch {
-    // If URL parsing fails, fall back to string parsing
-  }
-
-  // Fallback string matching
-  let cleanSrc = src.split("?")[0].split("#")[0];
-  const prefixes = [
-    "asset://localhost/",
-    "https://asset.localhost/",
-    "http://asset.localhost/",
-    "asset://",
-    "file:///",
-    "file://"
-  ];
-
-  for (const prefix of prefixes) {
-    if (cleanSrc.startsWith(prefix)) {
-      let path = decodeURIComponent(cleanSrc.substring(prefix.length));
-      if (/^[a-zA-Z]:/.test(path)) {
-        // Windows path style
-        return path;
-      }
-      // Absolute path or Unix path
-      if (!path.startsWith("/")) {
-        path = "/" + path;
-      }
-      return path;
-    }
-  }
-
-  return null;
-}
 
 export default ImageSaveOverlay;

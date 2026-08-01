@@ -137,12 +137,12 @@ export function NotebookLMPage() {
     }
   };
 
+  // Purely informational. This used to auto-connect whenever the login panel
+  // reported an authenticated CLI — and the panel reports on mount — so an
+  // explicit Disconnect was undone immediately by the next status check.
+  // Connecting is now always an explicit user action.
   const handleCLIAuthChange = (isAuthenticated: boolean) => {
     setIsCLIAvailable(isAuthenticated);
-    if (isAuthenticated) {
-      // Auto-connect when CLI becomes authenticated
-      handleConnect();
-    }
   };
 
   const handleDisconnect = async () => {
@@ -303,7 +303,7 @@ export function NotebookLMPage() {
     return (
       <div className="h-full flex flex-col bg-background">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-card">
+        <div className="px-6 py-4 border-b border-border flex flex-shrink-0 items-center justify-between bg-card">
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate(-1)}
@@ -319,8 +319,8 @@ export function NotebookLMPage() {
         </div>
 
         {/* Connection Form */}
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-md bg-card border border-border rounded-xl p-8">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6">
+          <div className="w-full max-w-md mx-auto my-4 sm:my-8 bg-card border border-border rounded-xl p-6 sm:p-8">
             <div className="text-center mb-8">
               <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
                 <Brain className="w-8 h-8 text-white" />
@@ -414,13 +414,21 @@ export function NotebookLMPage() {
           </div>
           <div>
             <h1 className="text-lg font-semibold text-foreground">{t("notebooklm.title")}</h1>
+            {/* A verified session with no notebooks is a healthy state; an
+                unverified one is not. This badge used to be hardcoded to
+                "Connected", so a session that had never authenticated still
+                showed a green check above an empty notebook list. */}
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Check className="w-3 h-3 text-green-500" />
                 {t("notebooklm.connected")}
               </span>
               <span>•</span>
-              <span>{t("notebooklm.notebooksCount", { count: notebooks.length })}</span>
+              <span>
+                {notebooks.length === 0
+                  ? t("notebooklm.noNotebooksYet")
+                  : t("notebooklm.notebooksCount", { count: notebooks.length })}
+              </span>
             </div>
           </div>
         </div>

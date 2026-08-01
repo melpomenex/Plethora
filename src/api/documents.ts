@@ -157,6 +157,24 @@ export async function bulkDeleteDocuments(documentIds: string[]): Promise<BulkOp
   return await invokeCommand<BulkOperationResult>("bulk_delete_documents", { documentIds });
 }
 
+/**
+ * Reassign documents to a collection.
+ *
+ * `updateDocument` cannot do this: the backend's UPDATE deliberately omits
+ * `collection_id` so partial updates can't move a document by accident.
+ * Returns succeeded/failed/errors so partial failures can be surfaced.
+ */
+export async function bulkMoveDocumentsToCollection(
+  documentIds: string[],
+  collectionId: string,
+): Promise<BulkOperationResult> {
+  const args = { documentIds, collectionId };
+  if (isWebMode()) {
+    return await browserInvoke<BulkOperationResult>("bulk_move_documents_to_collection", args);
+  }
+  return await invokeCommand<BulkOperationResult>("bulk_move_documents_to_collection", args);
+}
+
 export async function importDocument(filePath: string, collectionId?: string): Promise<Document> {
   const result = isWebMode()
     ? await browserInvoke<Document>("import_document", { filePath, collectionId: collectionId ?? null })

@@ -354,6 +354,10 @@ function renderNotebookLMLauncherScript(targetTriple) {
     'set -eu\n' +
     'SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"\n' +
     `RUNTIME_BASE="$SCRIPT_DIR/notebooklm-runtime/${targetTriple}"\n` +
+    `RESOURCE_RUNTIME_BASE="$SCRIPT_DIR/../Resources/bin/notebooklm-runtime/${targetTriple}"\n` +
+    'if [ -d "$RESOURCE_RUNTIME_BASE" ]; then\n' +
+    '  RUNTIME_BASE="$RESOURCE_RUNTIME_BASE"\n' +
+    'fi\n' +
     'RUNTIME_PY="$RUNTIME_BASE/python/bin/python3"\n' +
     'RUNTIME_SITE="$RUNTIME_BASE/site-packages"\n' +
     'RUNTIME_PLAYWRIGHT="$RUNTIME_BASE/playwright"\n' +
@@ -363,7 +367,7 @@ function renderNotebookLMLauncherScript(targetTriple) {
     '  export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$RUNTIME_PLAYWRIGHT}"\n' +
     '  exec "$RUNTIME_PY" -m notebooklm.notebooklm_cli "$@"\n' +
     'fi\n' +
-    `LEGACY_BUNDLED="$SCRIPT_DIR/notebooklm-runtime/${targetTriple}/.venv/bin/notebooklm"\n` +
+    'LEGACY_BUNDLED="$RUNTIME_BASE/.venv/bin/notebooklm"\n' +
     'if [ -x "$LEGACY_BUNDLED" ]; then\n' +
     '  exec "$LEGACY_BUNDLED" "$@"\n' +
     'fi\n' +
@@ -553,6 +557,16 @@ function buildPortablePocketTTSRuntime(targetTriple, pythonCmd) {
     recursive: true,
     filter: (source) => {
       const normalized = source.replace(/\\/g, '/');
+      // Some Python distributions (notably pyenv and Homebrew installs) place
+      // the host environment's site-packages inside the directory returned by
+      // sysconfig.get_path('stdlib'). Copying that directory would silently
+      // pull every globally installed package into the app bundle. Keep the
+      // portable stdlib isolated; the exact NotebookLM dependencies are
+      // installed into runtimeDir/site-packages below.
+      const pathParts = normalized.split('/');
+      if (pathParts.includes('site-packages') || pathParts.includes('dist-packages')) {
+        return false;
+      }
       if (normalized.includes('/test/') || normalized.endsWith('/test')) {
         return false;
       }
@@ -742,6 +756,16 @@ function buildPortableNotebookLMRuntime(targetTriple, pythonCmd) {
     recursive: true,
     filter: (source) => {
       const normalized = source.replace(/\\/g, '/');
+      // Some Python distributions (notably pyenv and Homebrew installs) place
+      // the host environment's site-packages inside the directory returned by
+      // sysconfig.get_path('stdlib'). Copying that directory would silently
+      // pull every globally installed package into the app bundle. Keep the
+      // portable stdlib isolated; the exact NotebookLM dependencies are
+      // installed into runtimeDir/site-packages below.
+      const pathParts = normalized.split('/');
+      if (pathParts.includes('site-packages') || pathParts.includes('dist-packages')) {
+        return false;
+      }
       if (normalized.includes('/test/') || normalized.endsWith('/test')) {
         return false;
       }
@@ -780,7 +804,10 @@ function buildPortableNotebookLMRuntime(targetTriple, pythonCmd) {
     stdio: 'inherit',
     env: process.env,
   });
-  execSync(`${pythonCmd} -m playwright install chromium`, {
+  // NotebookLM's bundled login flow launches Chromium headed. Do not ship
+  // Playwright's separate headless shell, which is only needed for headless
+  // browser automation and adds a large duplicate browser payload.
+  execSync(`${pythonCmd} -m playwright install chromium --no-shell`, {
     stdio: 'inherit',
     env: {
       ...process.env,
@@ -849,7 +876,7 @@ function ensureNotebookLMSidecar(targetTriple) {
       execSync(`${pythonCmd} -m venv "${venvPath}"`, { stdio: 'inherit' });
       execSync(`"${py}" -m pip install --upgrade pip`, { stdio: 'inherit' });
       execSync(`"${py}" -m pip install "notebooklm-py[browser]"`, { stdio: 'inherit' });
-      execSync(`"${py}" -m playwright install chromium`, {
+      execSync(`"${py}" -m playwright install chromium --no-shell`, {
         stdio: 'inherit',
         env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: '0' },
       });

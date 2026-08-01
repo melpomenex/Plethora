@@ -1158,22 +1158,47 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             </div>
           )}
 
-          {bulkOperationResult && (
-            <div className="p-3 bg-muted border border-border rounded-lg text-sm text-foreground flex items-center justify-between">
-              <span>
-                {t("queue.bulkUpdateResult", {
-                  succeeded: bulkOperationResult.succeeded.length,
-                  failed: bulkOperationResult.failed.length,
-                })}
-              </span>
-              <button
-                onClick={clearBulkResult}
-                className="px-2 py-1 text-xs bg-background border border-border rounded"
+          {bulkOperationResult && (() => {
+            // A result where nothing succeeded is an error, not a status line,
+            // and the reasons have to be reachable — a bare "0 succeeded,
+            // 2 failed" gave no way to tell what went wrong.
+            const failedCount = bulkOperationResult.failed.length;
+            const allFailed = failedCount > 0 && bulkOperationResult.succeeded.length === 0;
+            return (
+              <div
+                role={failedCount > 0 ? "alert" : undefined}
+                className={`p-3 border rounded-lg text-sm flex items-start justify-between gap-3 ${
+                  allFailed
+                    ? "bg-destructive/10 border-destructive/30 text-foreground"
+                    : "bg-muted border-border text-foreground"
+                }`}
               >
-                {t("queue.dismiss")}
-              </button>
-            </div>
-          )}
+                <div className="min-w-0">
+                  <span>
+                    {t("queue.bulkUpdateResult", {
+                      succeeded: bulkOperationResult.succeeded.length,
+                      failed: failedCount,
+                    })}
+                  </span>
+                  {bulkOperationResult.errors.length > 0 && (
+                    <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                      {bulkOperationResult.errors.map((error) => (
+                        <li key={error} className="break-words">
+                          {error}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <button
+                  onClick={clearBulkResult}
+                  className="px-2 py-1 text-xs bg-background border border-border rounded flex-shrink-0"
+                >
+                  {t("queue.dismiss")}
+                </button>
+              </div>
+            );
+          })()}
 
           {selectedIds.size > 0 && (
             <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-center justify-between">

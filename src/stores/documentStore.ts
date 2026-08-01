@@ -167,6 +167,7 @@ interface DocumentState {
   setCurrentDocument: (document: Document | null) => void;
   addDocument: (document: Document) => void;
   updateDocument: (id: string, updates: Partial<Document>) => void;
+  patchExtractCount: (documentId: string, delta: 1 | -1) => void;
   updateDocumentOptimistic: (id: string, updates: Partial<Document>) => Promise<{ success: boolean; error?: Error }>;
   deleteDocument: (id: string) => Promise<void>;
   deleteDocumentOptimistic: (id: string) => Promise<{ success: boolean; error?: Error; rollback?: () => void }>;
@@ -360,6 +361,18 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
           state.currentDocument?.id === id
             ? { ...state.currentDocument, ...resolvedUpdates }
             : state.currentDocument,
+      };
+    }),
+
+  patchExtractCount: (documentId, delta) =>
+    set((state) => {
+      const patch = (doc: Document) =>
+        doc.id === documentId
+          ? { ...doc, extractCount: Math.max(0, (doc.extractCount ?? 0) + delta) }
+          : doc;
+      return {
+        documents: state.documents.map(patch),
+        currentDocument: state.currentDocument ? patch(state.currentDocument) : null,
       };
     }),
 

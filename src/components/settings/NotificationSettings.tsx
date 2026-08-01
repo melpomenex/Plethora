@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { useModal } from "../common/Modal";
 import {
   Bell,
   BellRinging,
@@ -143,6 +144,7 @@ function BackgroundNotificationSettings({
  */
 export function NotificationSettings({ onChange }: NotificationSettingsProps) {
   const { t } = useI18n();
+  const modal = useModal();
   const hapticsSupported = supportsHaptics();
   const { settings, updateSettingsCategory, resetCategory } = useSettingsStore();
   const notificationSettings = settings.notifications;
@@ -174,8 +176,10 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
     onChange?.();
   };
 
-  const handleResetRecommended = () => {
-    if (!window.confirm(t("notificationSettings.resetConfirm"))) return;
+  const handleResetRecommended = async () => {
+    // window.confirm() is suppressed in the desktop WebView and returns false,
+    // which made this reset silently do nothing.
+    if (!(await modal.confirm(t("notificationSettings.resetConfirm")))) return;
     resetCategory("notifications");
     onChange?.();
   };

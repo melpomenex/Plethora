@@ -70,12 +70,48 @@ verify_binary_links() {
   return 0
 }
 
+verify_notebooklm_bundle() {
+  local app_bundle="$1"
+  local resources="$app_bundle/Contents/Resources"
+  local macos_dir="$app_bundle/Contents/MacOS"
+
+  local runtime
+  runtime="$(find "$resources" -type d -name 'notebooklm-runtime' | head -n 1 || true)"
+  if [[ -z "$runtime" ]]; then
+    echo "Missing NotebookLM runtime in $resources"
+    return 1
+  fi
+
+  local manifest
+  manifest="$(find "$runtime" -maxdepth 3 -type f -name 'runtime-manifest.json' | head -n 1 || true)"
+  local python
+  python="$(find "$runtime" -type f -path '*/python/bin/python3' | head -n 1 || true)"
+  local module
+  module="$(find "$runtime" -type d -path '*/site-packages/notebooklm' | head -n 1 || true)"
+  local playwright
+  playwright="$(find "$runtime" -type d -name 'playwright' | head -n 1 || true)"
+
+  [[ -n "$manifest" ]] || { echo "NotebookLM runtime manifest missing in $runtime"; return 1; }
+  [[ -n "$python" ]] || { echo "NotebookLM bundled Python missing in $runtime"; return 1; }
+  [[ -n "$module" ]] || { echo "NotebookLM Python package missing in $runtime"; return 1; }
+  [[ -n "$playwright" ]] || { echo "NotebookLM Playwright browser directory missing in $runtime"; return 1; }
+
+  local sidecar
+  sidecar="$(find "$macos_dir" -maxdepth 2 -type f \( -name 'notebooklm-*' -o -name 'notebooklm' \) | head -n 1 || true)"
+  [[ -n "$sidecar" ]] || { echo "NotebookLM sidecar missing in $macos_dir"; return 1; }
+
+  echo "Found complete NotebookLM runtime: $runtime"
+  echo "Found NotebookLM sidecar: $sidecar"
+}
+
 # First, try to find .app bundles directly (when building with --bundles app)
 # Bash 3 compatible alternative to mapfile
 resource_dirs=()
-while IFS= read -r line; do
-  resource_dirs+=("$line")
-done < <(find src-tauri/target -type d -path "*/release/bundle/macos/*.app/Contents/Resources" 2>/dev/null | sort)
+while IFS= read -r macos_bundle_dir; do
+  while IFS= read -r app_bundle; do
+    resource_dirs+=("$app_bundle/Contents/Resources")
+  done < <(find "$macos_bundle_dir" -mindepth 1 -maxdepth 1 -type d -name '*.app' 2>/dev/null | sort)
+done < <(find src-tauri/target -type d -path "*/release/bundle/macos" 2>/dev/null | sort)
 
 if [[ ${#resource_dirs[@]} -gt 0 ]]; then
   echo "Found ${#resource_dirs[@]} .app bundle(s) to verify"
@@ -87,10 +123,12 @@ if [[ ${#resource_dirs[@]} -gt 0 ]]; then
     # Check MacOS directory for external binaries first
     if [[ -d "$macos_dir" ]]; then
       verify_resources "$macos_dir"
+      verify_notebooklm_bundle "$app_dir"
       verify_binary_links "$app_dir"
     else
       # Fallback to Resources
       verify_resources "$resources"
+      verify_notebooklm_bundle "$app_dir"
       verify_binary_links "$app_dir"
     fi
   done
@@ -156,6 +194,7 @@ for dmg in "${dmg_files[@]}"; do
     # Fallback to Resources if MacOS doesn't exist
     verify_resources "$resources"
   fi
+  verify_notebooklm_bundle "$app_bundle"
   result=$?
   if [[ $result -eq 0 ]]; then
     verify_binary_links "$app_bundle"

@@ -13,7 +13,7 @@
  * - Immediate save on interaction
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { cn } from "../../utils";
 import { CaretDown, CaretUp, Flag } from "@phosphor-icons/react";
 import { updateDocumentPriority } from "../../api/documents";
@@ -68,6 +68,10 @@ export function PriorityControl({
   const { t } = useI18n();
 
   const currentInfo = getPriorityInfo(slider);
+
+  useEffect(() => {
+    setSlider(prioritySlider);
+  }, [documentId, prioritySlider]);
 
   const handleSliderChange = useCallback(async (newSlider: number) => {
     setSlider(newSlider);

@@ -1,7 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { DocumentsView } from "../DocumentsView";
 import type { Document } from "../../../types/document";
+
+const modalMock = vi.hoisted(() => ({
+  prompt: vi.fn<(message: string, defaultValue?: string, title?: string) => Promise<string | null>>(),
+  confirm: vi.fn(),
+  alert: vi.fn(),
+}));
+
+const documentsApiMock = vi.hoisted(() => ({
+  bulkMoveDocumentsToCollection: vi.fn(),
+  updateDocumentPriority: vi.fn(),
+}));
+
+const collectionsMock = vi.hoisted(() => ({
+  collections: [{ id: "col-1", name: "Reading" }],
+  createCollection: vi.fn(async (name: string) => ({ id: "col-new", name })),
+  activeCollectionId: "col-1",
+  switchCollection: vi.fn(),
+}));
 
 const mockStore = vi.hoisted(() => ({
   documents: [
@@ -55,6 +73,24 @@ vi.mock("../../../stores/documentStore", () => ({
   }),
 }));
 
+vi.mock("../../common/Modal", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useModal: () => modalMock,
+}));
+
+vi.mock("../../../api/documents", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  bulkMoveDocumentsToCollection: documentsApiMock.bulkMoveDocumentsToCollection,
+  updateDocumentPriority: documentsApiMock.updateDocumentPriority,
+}));
+
+vi.mock("../../../stores/collectionStore", () => ({
+  useCollectionStore: Object.assign(
+    (selector: (state: typeof collectionsMock) => unknown) => selector(collectionsMock),
+    { getState: () => collectionsMock, subscribe: vi.fn() },
+  ),
+}));
+
 vi.mock("../../../lib/pwa", () => ({
   getDeviceInfo: () => ({
     isMobile: false,
@@ -72,6 +108,10 @@ beforeEach(() => {
   window.localStorage.clear();
   mockStore.loadDocuments.mockClear();
   mockStore.updateDocument.mockClear();
+  modalMock.prompt.mockReset();
+  documentsApiMock.bulkMoveDocumentsToCollection.mockReset();
+  documentsApiMock.updateDocumentPriority.mockReset();
+  collectionsMock.createCollection.mockClear();
 });
 
 describe("DocumentsView", () => {
@@ -89,6 +129,26 @@ describe("DocumentsView", () => {
     expect(screen.getByText("Inspector")).toBeInTheDocument();
   });
 
+  it("adjusts the active document priority with the registered shortcut", async () => {
+    documentsApiMock.updateDocumentPriority.mockResolvedValue({
+      priorityRating: 5,
+      prioritySlider: 0,
+      priorityScore: 100,
+    });
+    render(<DocumentsView enableYouTubeImport={false} />);
+    fireEvent.click(screen.getAllByText("Priority Doc")[0]);
+
+    fireEvent.keyDown(window, { key: "P", shiftKey: true });
+
+    await waitFor(() =>
+      expect(documentsApiMock.updateDocumentPriority).toHaveBeenCalledWith("doc-1", 5, 0),
+    );
+    expect(mockStore.updateDocument).toHaveBeenCalledWith(
+      "doc-1",
+      expect.objectContaining({ priorityRating: 5, priorityScore: 100 }),
+    );
+  });
+
   it("supports reverse shift-click ranges in list mode", () => {
     window.localStorage.setItem("documentsViewMode", "list");
     render(<DocumentsView enableYouTubeImport={false} />);
@@ -101,6 +161,158 @@ describe("DocumentsView", () => {
     );
     expect(rowCheckboxes).toHaveLength(2);
     expect(rowCheckboxes.every((checkbox) => checkbox.checked)).toBe(true);
+  });
+
+  it("clears a selected document when its checkbox is clicked again", () => {
+    window.localStorage.setItem("documentsViewMode", "list");
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const checkbox = screen.getByLabelText("Select Priority Doc") as HTMLInputElement;
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it("dismisses the bulk action bar when the last document is deselected", () => {
+    window.localStorage.setItem("documentsViewMode", "list");
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const checkbox = screen.getByLabelText("Select Priority Doc") as HTMLInputElement;
+
+    fireEvent.click(checkbox);
+    expect(screen.getByText("Select All")).toBeInTheDocument();
+
+    fireEvent.click(checkbox);
+    expect(screen.queryByText("Select All")).toBeNull();
+  });
+
+  it("adds a second document via its checkbox without clearing the first", () => {
+    window.localStorage.setItem("documentsViewMode", "list");
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    const first = screen.getByLabelText("Select Priority Doc") as HTMLInputElement;
+    const second = screen.getByLabelText("Select Secondary Doc") as HTMLInputElement;
+
+    fireEvent.click(first);
+    fireEvent.click(second);
+
+    expect(first.checked).toBe(true);
+    expect(second.checked).toBe(true);
+  });
+
+  // These handlers used window.prompt(), which the desktop WebView suppresses.
+  describe("bulk actions", () => {
+    function selectFirstDocument() {
+      window.localStorage.setItem("documentsViewMode", "list");
+      render(<DocumentsView enableYouTubeImport={false} />);
+      fireEvent.click(screen.getByLabelText("Select Priority Doc"));
+    }
+
+    /** "Reprioritize"/"Tag" also appear outside the bulk bar, so scope to it. */
+    function clickBulkAction(label: string) {
+      const bar = screen.getByText("Select All").closest("div")!;
+      const button = within(bar).getByText(label);
+      fireEvent.click(button);
+    }
+
+    it("tags every selected document through the in-app prompt", async () => {
+      modalMock.prompt.mockResolvedValue("Physics");
+      selectFirstDocument();
+
+      clickBulkAction("Tag");
+
+      await waitFor(() =>
+        expect(mockStore.updateDocument).toHaveBeenCalledWith(
+          "doc-1",
+          expect.objectContaining({ tags: expect.arrayContaining(["Physics"]) }),
+        )
+      );
+    });
+
+    it("leaves documents untouched when the tag prompt is dismissed", async () => {
+      modalMock.prompt.mockResolvedValue(null);
+      selectFirstDocument();
+
+      clickBulkAction("Tag");
+
+      await waitFor(() => expect(modalMock.prompt).toHaveBeenCalled());
+      expect(mockStore.updateDocument).not.toHaveBeenCalled();
+      // Dismissing must not clear the selection.
+      expect((screen.getByLabelText("Select Priority Doc") as HTMLInputElement).checked).toBe(true);
+    });
+
+    it("reprioritizes through the in-app prompt", async () => {
+      modalMock.prompt.mockResolvedValue("3");
+      selectFirstDocument();
+
+      clickBulkAction("Reprioritize");
+
+      await waitFor(() =>
+        expect(mockStore.updateDocument).toHaveBeenCalledWith(
+          "doc-1",
+          expect.objectContaining({ priorityRating: 3, priorityScore: 60 }),
+        )
+      );
+    });
+
+    it("rejects a non-numeric priority without updating anything", async () => {
+      modalMock.prompt.mockResolvedValue("not a number");
+      selectFirstDocument();
+
+      clickBulkAction("Reprioritize");
+
+      await waitFor(() => expect(modalMock.prompt).toHaveBeenCalled());
+      expect(mockStore.updateDocument).not.toHaveBeenCalled();
+    });
+
+    it("moves documents into an existing collection", async () => {
+      modalMock.prompt.mockResolvedValue("Reading");
+      documentsApiMock.bulkMoveDocumentsToCollection.mockResolvedValue({
+        succeeded: ["doc-1"],
+        failed: [],
+        errors: [],
+      });
+      selectFirstDocument();
+
+      clickBulkAction("Move");
+
+      await waitFor(() =>
+        expect(documentsApiMock.bulkMoveDocumentsToCollection).toHaveBeenCalledWith(["doc-1"], "col-1")
+      );
+      expect(collectionsMock.createCollection).not.toHaveBeenCalled();
+    });
+
+    it("creates the collection first when the target does not exist", async () => {
+      modalMock.prompt.mockResolvedValue("Brand New");
+      documentsApiMock.bulkMoveDocumentsToCollection.mockResolvedValue({
+        succeeded: ["doc-1"],
+        failed: [],
+        errors: [],
+      });
+      selectFirstDocument();
+
+      clickBulkAction("Move");
+
+      await waitFor(() => expect(collectionsMock.createCollection).toHaveBeenCalledWith("Brand New"));
+      expect(documentsApiMock.bulkMoveDocumentsToCollection).toHaveBeenCalledWith(["doc-1"], "col-new");
+    });
+
+    it("releases the selection after a completed move", async () => {
+      modalMock.prompt.mockResolvedValue("Reading");
+      documentsApiMock.bulkMoveDocumentsToCollection.mockResolvedValue({
+        succeeded: ["doc-1"],
+        failed: [],
+        errors: [],
+      });
+      selectFirstDocument();
+
+      clickBulkAction("Move");
+
+      await waitFor(() => expect(screen.queryByText("Select All")).toBeNull());
+    });
   });
 
 });

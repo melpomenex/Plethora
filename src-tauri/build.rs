@@ -97,6 +97,17 @@ fn main() {
                     std::fs::write(&placeholder, []).ok();
                 }
             }
+
+            // macOS bundles declare `bin/*.dylib` as a resource. Keep local
+            // cargo/tauri-dev builds working when the optional native
+            // transcription libraries have not been downloaded yet; the real
+            // dylibs provisioned by download-sidecars.js replace this marker.
+            if target.contains("apple-darwin") {
+                let placeholder = bin_dir.join("libplaceholder.dylib");
+                if !placeholder.exists() {
+                    std::fs::write(&placeholder, []).ok();
+                }
+            }
         }
     }
 

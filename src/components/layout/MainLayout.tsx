@@ -221,12 +221,23 @@ export function MainLayout() {
             closable: false,
           });
 
-          // Add Queue tab (closable)
+          // Open the view chosen in Settings ▸ Default View. This preference
+          // was previously stored nowhere and read nowhere, so the app always
+          // opened on Queue regardless of what the user picked.
+          const defaultView = useSettingsStore.getState().settings.general.defaultView;
+          const startupTabs = {
+            queue: { title: "Queue", type: "queue" as const, content: QueueTab, icon: <ListChecks className="w-4 h-4" /> },
+            review: { title: "Review", type: "review" as const, content: ReviewTab, icon: <ListChecks className="w-4 h-4" /> },
+            documents: { title: "Documents", type: "documents" as const, content: DocumentsTab, icon: <SquaresFour className="w-4 h-4" /> },
+            analytics: { title: "Statistics", type: "analytics" as const, content: AnalyticsTab, icon: <SquaresFour className="w-4 h-4" /> },
+          };
+          const startupTab = startupTabs[defaultView] ?? startupTabs.queue;
+
           addTab({
-            title: "Queue",
-            icon: <ListChecks className="w-4 h-4" />,
-            type: "queue",
-            content: QueueTab,
+            title: startupTab.title,
+            icon: startupTab.icon,
+            type: startupTab.type,
+            content: startupTab.content,
             closable: true,
           });
         }

@@ -36,6 +36,7 @@ export const DEFAULT_SHORTCUTS: KeyboardShortcut[] = [
   { id: "view-text", action: "textView", keys: "Shift+Enter", description: "Temporary text view", category: "view" },
   { id: "view-next-mode", action: "nextViewMode", keys: "v", description: "Cycle view mode", category: "view" },
   { id: "toggle-sidebar", action: "toggleSidebar", keys: "b", description: "Toggle sidebar", category: "view" },
+  { id: "document-priority-increase", action: "increaseDocumentPriority", keys: "Shift+p", description: "Increase active document priority", category: "article" },
 
   // Training
   { id: "train-like", action: "trainLike", keys: "+", description: "Like (train intelligence)", category: "training" },

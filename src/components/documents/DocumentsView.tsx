@@ -19,6 +19,7 @@ import {
   Link,
   List,
   MagnifyingGlass,
+  Minus,
   Plus,
   Sparkle,
   Stack,
@@ -63,6 +64,7 @@ import {
   sortDocuments,
 } from "../../utils/documentsView";
 import {
+  bulkMoveDocumentsToCollection,
   importYouTubeVideo,
   resolveDocumentCover,
   setDocumentCover,
@@ -81,10 +83,13 @@ import { findCompanionDoc } from "../../utils/documentPairing";
 import { useTranscriptionQueueStore } from "../../stores/transcriptionQueueStore";
 import { enqueueAutoTranscription } from "../../api/transcription";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useKeyboardShortcutsStore } from "../../stores/keyboardShortcutsStore";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { useToast } from "../common/Toast";
+import { useModal } from "../common/Modal";
 import { AdaptiveContentHeader, AdaptiveInspector } from "../adaptive";
 import {
+  selectDocumentsByCheckbox,
   selectDocumentsByClick,
   uniqueDocumentIds,
   type DocumentSelectionModifiers,
@@ -93,6 +98,17 @@ import {
 const MODE_STORAGE_KEY = "documentsViewMode";
 const SAVED_VIEWS_KEY = "documentsSavedViews";
 const MAX_VISIBLE_TAGS = 3;
+
+function keyboardEventCombo(event: KeyboardEvent): string {
+  const parts: string[] = [];
+  if (event.ctrlKey || event.metaKey) parts.push("Ctrl");
+  if (event.shiftKey) parts.push("Shift");
+  if (event.altKey) parts.push("Alt");
+  if (!["Control", "Shift", "Alt", "Meta"].includes(event.key)) {
+    parts.push(event.key.length === 1 ? event.key.toLowerCase() : event.key);
+  }
+  return parts.join("+");
+}
 
 type CompactDocumentFilter = "all" | "priority" | "recent" | "active" | "parked" | "highlights" | "cards";
 
@@ -232,6 +248,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   // Confirmation dialog for destructive actions
   const confirmDialog = useConfirmDialog();
   const toast = useToast();
+  const modal = useModal();
 
   const isMobile = useMobileShell();
   const isActiveTab = useIsActiveTab();
@@ -653,20 +670,19 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   }, []);
 
   const handleSelectRow = (doc: Document, modifiers: DocumentSelectionModifiers = {}) => {
-    const next = selectDocumentsByClick(
-      {
-        selectedIds,
-        anchorId: selectionAnchorId,
-        toggledIds: selectionToggledIds,
-      },
-      orderedDocumentIds,
-      doc.id,
-      modifiers,
-    );
+    const current = {
+      selectedIds,
+      anchorId: selectionAnchorId,
+      toggledIds: selectionToggledIds,
+    };
+    const next = modifiers.checkbox
+      ? selectDocumentsByCheckbox(current, orderedDocumentIds, doc.id, modifiers)
+      : selectDocumentsByClick(current, orderedDocumentIds, doc.id, modifiers);
     setSelectedIds(next.selectedIds);
     setSelectionAnchorId(next.anchorId);
     setSelectionToggledIds(next.toggledIds);
-    setActiveId(doc.id);
+    // Unchecking a box should not promote that document in the inspector.
+    if (next.selectedIds.has(doc.id)) setActiveId(doc.id);
   };
 
   const handleBulkArchive = () => {
@@ -816,41 +832,129 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     }
   };
 
-  const handleBulkTag = () => {
-    if (selectedIds.size === 0) return;
-    const tag = window.prompt(t("documentsView.addTagPrompt"));
-    if (!tag) return;
-    selectedIds.forEach((id) => {
+  /**
+   * Report a bulk outcome and release the selection.
+   *
+   * Every bulk action funnels through here so a partial failure always names
+   * its reasons instead of finishing silently, and so the action bar cannot
+   * survive its own action.
+   */
+  const finishBulkAction = (
+    action: string,
+    succeeded: string[],
+    failures: { id: string; reason: string }[],
+  ) => {
+    clearDocumentSelection();
+    if (failures.length === 0) {
+      toast.success(action, t("documentsView.bulkSucceeded", { count: succeeded.length }));
+      return;
+    }
+    toast.error(
+      action,
+      `${t("documentsView.bulkDeletePartial", {
+        succeeded: succeeded.length,
+        total: succeeded.length + failures.length,
+        failed: failures.length,
+      })} ${failures.map((failure) => failure.reason).join("; ")}`,
+    );
+  };
+
+  /**
+   * Apply an update to every selected document, collecting per-document
+   * failures rather than aborting the batch on the first one.
+   */
+  const applyToSelection = async (
+    action: string,
+    apply: (doc: Document) => Promise<unknown> | unknown,
+  ) => {
+    const succeeded: string[] = [];
+    const failures: { id: string; reason: string }[] = [];
+    for (const id of Array.from(selectedIds)) {
       const doc = documents.find((item) => item.id === id);
-      if (!doc) return;
+      if (!doc) {
+        failures.push({ id, reason: `${id}: not found` });
+        continue;
+      }
+      try {
+        await apply(doc);
+        succeeded.push(id);
+      } catch (error) {
+        failures.push({
+          id,
+          reason: `${doc.title || id}: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+    finishBulkAction(action, succeeded, failures);
+  };
+
+  // These three used window.prompt(), which the desktop WebView suppresses
+  // entirely (wry implements no runJavaScriptTextInputPanel delegate), so the
+  // buttons appeared to do nothing at all. They now use the in-app modal.
+  const handleBulkTag = async () => {
+    if (selectedIds.size === 0) return;
+    const tag = (await modal.prompt(t("documentsView.addTagPrompt"), "", t("documentsView.tag")))?.trim();
+    if (!tag) return;
+    await applyToSelection(t("documentsView.tag"), (doc) => {
       const nextTags = new Set(doc.tags);
       nextTags.add(tag);
-      updateDocument(id, { tags: Array.from(nextTags) });
+      return updateDocument(doc.id, { tags: Array.from(nextTags) });
     });
   };
 
-  const handleBulkReprioritize = () => {
+  const handleBulkReprioritize = async () => {
     if (selectedIds.size === 0) return;
-    const value = window.prompt(t("documentsView.setPriorityPrompt"));
-    if (!value) return;
-    const nextRating = Number(value);
-    if (Number.isNaN(nextRating)) return;
-    selectedIds.forEach((id) => {
-      updateDocument(id, { priorityRating: nextRating, priorityScore: nextRating * 20 });
-    });
+    const value = await modal.prompt(
+      t("documentsView.setPriorityPrompt"),
+      "",
+      t("documentsView.reprioritize"),
+    );
+    if (value === null) return;
+    const nextRating = Number(value.trim());
+    if (!Number.isFinite(nextRating)) {
+      toast.error(t("documentsView.reprioritize"), t("documentsView.invalidPriority"));
+      return;
+    }
+    await applyToSelection(t("documentsView.reprioritize"), (doc) =>
+      updateDocument(doc.id, { priorityRating: nextRating, priorityScore: nextRating * 20 }),
+    );
   };
 
   const handleBulkMoveCollection = async () => {
     if (selectedIds.size === 0) return;
     const names = collections.map((collection) => collection.name).join(", ");
-    const targetName = window.prompt(t("documentsView.moveCollectionPrompt", { names }));
+    const targetName = (
+      await modal.prompt(
+        t("documentsView.moveCollectionPrompt", { names }),
+        "",
+        t("documentsView.move"),
+      )
+    )?.trim();
     if (!targetName) return;
-    const existing = collections.find(
-      (collection) => collection.name.toLowerCase() === targetName.toLowerCase()
-    );
-    const _target = existing ?? await createCollection(targetName);
-    // TODO: Update collection_id on selected documents via backend API
-    clearDocumentSelection();
+
+    const documentIds = Array.from(selectedIds);
+    try {
+      const existing = collections.find(
+        (collection) => collection.name.toLowerCase() === targetName.toLowerCase()
+      );
+      const target = existing ?? (await createCollection(targetName));
+      // update_document deliberately omits collection_id, so the move needs
+      // its own command rather than a spread through updateDocument.
+      const result = await bulkMoveDocumentsToCollection(documentIds, target.id);
+      finishBulkAction(
+        t("documentsView.move"),
+        result.succeeded,
+        result.failed.map((id, index) => ({ id, reason: result.errors[index] ?? id })),
+      );
+      await loadDocuments();
+    } catch (error) {
+      finishBulkAction(t("documentsView.move"), [], [
+        {
+          id: "",
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      ]);
+    }
   };
 
   const handleSort = (key: DocumentSortKey) => {
@@ -877,6 +981,30 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         searchRef.current?.focus();
+        return;
+      }
+
+      const priorityShortcut = useKeyboardShortcutsStore
+        .getState()
+        .shortcuts.find((shortcut) => shortcut.action === "increaseDocumentPriority");
+      if (priorityShortcut?.keys === keyboardEventCombo(event)) {
+        const doc = activeDocument ?? sortedDocuments[0];
+        if (!doc) return;
+        event.preventDefault();
+        const nextRating = Math.min(5, (doc.priorityRating ?? 0) + 1);
+        if (nextRating === doc.priorityRating) return;
+        void import("../../api/documents")
+          .then(({ updateDocumentPriority }) =>
+            updateDocumentPriority(doc.id, nextRating, doc.prioritySlider ?? 0)
+          )
+          .then((updated) => {
+            updateDocument(doc.id, {
+              priorityRating: updated.priorityRating,
+              priorityScore: updated.priorityScore,
+              prioritySlider: updated.prioritySlider,
+            });
+          })
+          .catch((error) => console.error("Failed to adjust document priority", error));
         return;
       }
 
@@ -912,10 +1040,10 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeDocument, activeId, mode, onOpenDocument, sortedDocuments]);
+  }, [activeDocument, activeId, mode, onOpenDocument, sortedDocuments, updateDocument]);
 
-  const handleSaveView = () => {
-    const name = window.prompt(t("documentsView.nameViewPrompt"));
+  const handleSaveView = async () => {
+    const name = (await modal.prompt(t("documentsView.nameViewPrompt")))?.trim();
     if (!name) return;
     const view: SavedView = {
       id: `${Date.now()}`,
@@ -1285,6 +1413,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                 onImport={handleImport}
                 onImportFolder={handleImportFolder}
                 onClearFilter={() => setCompactFilter("all")}
+                onUpdate={updateDocument}
               />
             ) : sortedDocuments.length === 0 ? (
               debouncedSearch ? (
@@ -1375,11 +1504,9 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                           onChange={(event) => event.stopPropagation()}
                           onClick={(event) => {
                             event.stopPropagation();
-                            handleSelectRow(doc, {
-                              shiftKey: event.shiftKey,
-                              toggleKey: event.metaKey || event.ctrlKey,
-                            });
+                            handleSelectRow(doc, { checkbox: true, shiftKey: event.shiftKey });
                           }}
+                          aria-label={`Select ${doc.title}`}
                           className="mt-1"
                         />
                         <div className="flex-1 min-w-0">
@@ -1942,6 +2069,77 @@ function PriorityBadge({ doc }: { doc: Document }) {
   );
 }
 
+/**
+ * Adjust a document's priority (1-5 rating scale) without opening it.
+ *
+ * Routes through the same `update_document_priority` backend command the
+ * detail inspector's own adjustment control uses, rather than reimplementing
+ * the rating→score formula locally — that keeps `priorityScore` correct
+ * (`calculate_document_priority_score` combines rating and slider) instead of
+ * drifting from whatever local approximation a second implementation might use.
+ */
+function PriorityStepper({
+  doc,
+  onUpdate,
+}: {
+  doc: Document;
+  onUpdate: (id: string, updates: Partial<Document>) => void;
+}) {
+  const { t } = useI18n();
+  const [pending, setPending] = useState(false);
+  const rating = doc.priorityRating ?? 0;
+
+  const adjust = async (event: React.MouseEvent, delta: -1 | 1) => {
+    event.stopPropagation();
+    event.preventDefault();
+    if (pending) return;
+    const nextRating = Math.min(5, Math.max(0, rating + delta));
+    if (nextRating === rating) return;
+
+    setPending(true);
+    try {
+      const { updateDocumentPriority } = await import("../../api/documents");
+      const updated = await updateDocumentPriority(doc.id, nextRating, doc.prioritySlider ?? 0);
+      onUpdate(doc.id, {
+        priorityRating: updated.priorityRating,
+        priorityScore: updated.priorityScore,
+        prioritySlider: updated.prioritySlider,
+      });
+    } catch (error) {
+      console.error("Failed to adjust document priority", error);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div
+      className="flex items-center gap-1"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={(event) => adjust(event, -1)}
+        disabled={pending || rating <= 0}
+        aria-label={t("documentsView.decreasePriority")}
+        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+      >
+        <Minus className="h-3 w-3" />
+      </button>
+      <PriorityBadge doc={doc} />
+      <button
+        type="button"
+        onClick={(event) => adjust(event, 1)}
+        disabled={pending || rating >= 5}
+        aria-label={t("documentsView.increasePriority")}
+        className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+      >
+        <Plus className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
 function ProgressBar({ doc }: { doc: Document }) {
   const { extracts, cards, total, extractRatio, cardRatio } = getProgressSegments(doc);
   return (
@@ -2084,6 +2282,7 @@ interface CompactLibraryViewProps {
   onImport: () => void;
   onImportFolder: () => void;
   onClearFilter: () => void;
+  onUpdate: (id: string, updates: Partial<Document>) => void;
 }
 
 function CompactLibraryView({
@@ -2093,6 +2292,7 @@ function CompactLibraryView({
   activeCollectionId,
   switchCollection,
   compactFilter,
+  onUpdate,
   setCompactFilter,
   selectedIds,
   activeId,
@@ -2314,6 +2514,7 @@ function CompactLibraryView({
                     showNextAction={showNextAction}
                     onSelect={(modifiers) => onSelectRow(doc, modifiers)}
                     onOpen={() => onOpenDocument?.(doc)}
+                    onUpdate={onUpdate}
                   />
                 ))}
               </div>
@@ -2386,6 +2587,7 @@ function CompactDocumentRow({
   showNextAction,
   onSelect,
   onOpen,
+  onUpdate,
 }: {
   doc: Document;
   selected: boolean;
@@ -2393,6 +2595,7 @@ function CompactDocumentRow({
   showNextAction: boolean;
   onSelect: (modifiers?: DocumentSelectionModifiers) => void;
   onOpen: () => void;
+  onUpdate: (id: string, updates: Partial<Document>) => void;
 }) {
   const { t } = useI18n();
   const coverUrl = getDocumentCoverUrl(doc);
@@ -2452,10 +2655,7 @@ function CompactDocumentRow({
           onChange={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.stopPropagation();
-            onSelect({
-              shiftKey: event.shiftKey,
-              toggleKey: event.metaKey || event.ctrlKey,
-            });
+            onSelect({ checkbox: true, shiftKey: event.shiftKey });
           }}
           aria-label={`Select ${doc.title}`}
           className="mt-1 rounded border-border text-primary focus:ring-primary"
@@ -2467,7 +2667,7 @@ function CompactDocumentRow({
               <div className="line-clamp-2 text-sm font-semibold leading-tight text-foreground">{doc.title}</div>
               <div className="mt-1 truncate text-xs text-muted-foreground">{sourceLabel}</div>
             </div>
-            <PriorityBadge doc={doc} />
+            <PriorityStepper doc={doc} onUpdate={onUpdate} />
           </div>
           <div className="mt-2 flex items-center gap-2">
             <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
@@ -2508,10 +2708,7 @@ function CompactDocumentRow({
             onChange={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
-              onSelect({
-                shiftKey: event.shiftKey,
-                toggleKey: event.metaKey || event.ctrlKey,
-              });
+              onSelect({ checkbox: true, shiftKey: event.shiftKey });
             }}
             aria-label={`Select ${doc.title}`}
             className="rounded border-border text-primary focus:ring-primary"
@@ -2545,7 +2742,7 @@ function CompactDocumentRow({
         <span className="font-mono text-xs tabular-nums text-muted-foreground">{doc.extractCount}</span>
         <span className="font-mono text-xs tabular-nums text-muted-foreground">{doc.learningItemCount}</span>
         <span className="truncate text-[11px] text-muted-foreground">{formatRelativeTime(getLastTouched(doc))}</span>
-        <PriorityBadge doc={doc} />
+        <PriorityStepper doc={doc} onUpdate={onUpdate} />
         <button
           type="button"
           onClick={(event) => {
@@ -2892,6 +3089,8 @@ function LibraryCard({
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
   isMobile: boolean;
 }) {
+  const modal = useModal();
+  const { t } = useI18n();
   const coverUrl = getDocumentCoverUrl(doc);
   const CoverIcon = getCoverFallbackIcon(doc.fileType);
   const progress = doc.progressPercent ?? 0;
@@ -2969,8 +3168,8 @@ function LibraryCard({
     {
       label: "Add Tag",
       icon: <Plus className="h-3.5 w-3.5 text-muted-foreground" />,
-      action: () => {
-        const tag = window.prompt("Add tag:");
+      action: async () => {
+        const tag = (await modal.prompt(t("documentsView.addTagPrompt"), "", "Add Tag"))?.trim();
         if (!tag) return;
         const next = new Set(doc.tags);
         next.add(tag);
@@ -3043,11 +3242,9 @@ function LibraryCard({
               onChange={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                onSelect({
-                  shiftKey: e.shiftKey,
-                  toggleKey: e.metaKey || e.ctrlKey,
-                });
+                onSelect({ checkbox: true, shiftKey: e.shiftKey });
               }}
+              aria-label={`Select ${doc.title}`}
               className="absolute top-2.5 right-2.5 w-4 h-4 rounded bg-background/80 backdrop-blur-sm border-border"
             />
           )}

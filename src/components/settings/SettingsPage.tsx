@@ -2,7 +2,7 @@
  * Settings page - Main settings UI with search functionality
  */
 
-import { useState, useMemo, useEffect, useCallback, lazy, Suspense } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import {
   ArrowLeft,
   ArrowsClockwise,
@@ -33,12 +33,14 @@ import {
   StickyActionBar,
 } from "../adaptive";
 import { useToast } from "../common/Toast";
+import { useModal } from "../common/Modal";
 import { NumericInput } from "../common";
 import { cn } from "../../utils";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { isTauri } from "../../lib/tauri";
 import { checkForUpdates, type UpdateInfo } from "../../utils/updateChecker";
 import { useSettingsStore, useTabsStore } from "../../stores";
+import type { DefaultStartupView } from "../../stores/settingsStore";
 import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { loadGoogleFont } from "../../utils/fonts";
 import { useI18n } from "../../lib/i18n";
@@ -380,6 +382,7 @@ export function SettingsPage() {
   const isMobile = useMobileShell();
   const initialTabKey = "incrementum_settings_initial_tab";
   const { t } = useI18n();
+  const modal = useModal();
   const tabs = useTabsStore((state) => state.tabs);
   const rootPane = useTabsStore((state) => state.rootPane);
   const activeTabHistory = useTabsStore((state) => state.activeTabHistory);
@@ -419,32 +422,53 @@ export function SettingsPage() {
       .sort((a, b) => b.score - a.score);
   }, [searchQuery]);
 
-  const confirmDiscardChanges = useCallback(() => {
-    if (!hasChanges) return true;
-    if (!window.confirm(t("settings.discardChangesConfirm"))) return false;
-    setHasChanges(false);
-    return true;
-  }, [hasChanges, t]);
+  // window.confirm() is suppressed in the desktop WebView (wry implements no
+  // runJavaScriptConfirmPanel delegate) and returns false, which made this
+  // guard reject every tab change and back navigation once anything had been
+  // touched. The in-app modal actually asks the user, but it is asynchronous —
+  // so guarded navigation keeps a synchronous path when there is nothing to
+  // discard, and defers only when a dialog genuinely has to be shown.
+  const confirmDiscardChanges = useCallback(
+    (proceed: () => void) => {
+      if (!hasChanges) {
+        proceed();
+        return;
+      }
+      void modal.confirm(t("settings.discardChangesConfirm")).then((discard) => {
+        if (!discard) return;
+        setHasChanges(false);
+        proceed();
+      });
+    },
+    [hasChanges, modal, t],
+  );
+
+  // A deferred continuation must read live layout state rather than whatever
+  // was captured when the back handler was registered.
+  const showMobileMenuRef = useRef(showMobileMenu);
+  showMobileMenuRef.current = showMobileMenu;
 
   const handleTabChange = (tab: SettingsTab) => {
-    if (!confirmDiscardChanges()) return;
-    setActiveTab(tab);
-    if (isMobile) {
-      setShowMobileMenu(false);
-    }
+    confirmDiscardChanges(() => {
+      setActiveTab(tab);
+      if (isMobile) {
+        setShowMobileMenu(false);
+      }
+    });
   };
 
   const attemptBack = useCallback((kind: "hierarchy" | "app") => {
-    if (!confirmDiscardChanges()) return true;
-
-    if (kind === "hierarchy" && isMobile && !showMobileMenu) {
-      setShowMobileMenu(true);
-      return true;
-    }
-
-    returnFromSettings();
+    confirmDiscardChanges(() => {
+      if (kind === "hierarchy" && isMobile && !showMobileMenuRef.current) {
+        setShowMobileMenu(true);
+        return;
+      }
+      returnFromSettings();
+    });
+    // Report the back as handled either way, so the caller does not also run
+    // its own fallback navigation while a discard prompt is open.
     return true;
-  }, [confirmDiscardChanges, isMobile, returnFromSettings, showMobileMenu]);
+  }, [confirmDiscardChanges, isMobile, returnFromSettings]);
 
   useEffect(
     () => registerContextualBackHandler(() => attemptBack("hierarchy"), 20),
@@ -455,9 +479,8 @@ export function SettingsPage() {
     setHasChanges(false);
   };
 
-  const handleReset = () => {
-    const confirm = window.confirm("Are you sure you want to reset all settings to default?");
-    if (confirm) {
+  const handleReset = async () => {
+    if (await modal.confirm(t("settings.resetAllConfirm"))) {
       setHasChanges(false);
     }
   };
@@ -821,8 +844,13 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         <SettingsRow label={t("settings.defaultView")} description={t("settings.defaultViewDesc")}>
           <select
             className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
-            onChange={onChange}
-            defaultValue="queue"
+            value={general.defaultView}
+            onChange={(e) => {
+              updateSettingsCategory("general", {
+                defaultView: e.target.value as DefaultStartupView,
+              });
+              onChange();
+            }}
           >
             <option value="queue">{t("settings.viewQueue")}</option>
             <option value="review">{t("settings.viewReview")}</option>
@@ -831,20 +859,21 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
           </select>
         </SettingsRow>
 
+        {/* Not implemented: there is no autosave interval to configure — the app
+            persists on change. Rendered disabled rather than silently discarding
+            the user's choice. */}
         <SettingsRow
           label={t("settings.autoSaveInterval")}
-          description={t("settings.autoSaveIntervalDesc")}
+          description={t("settings.notAvailableYet")}
         >
           <select
-            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
-            onChange={onChange}
-            defaultValue="30"
+            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px] opacity-50 cursor-not-allowed"
+            value="30"
+            disabled
+            aria-label={t("settings.autoSaveInterval")}
+            onChange={() => {}}
           >
-            <option value="5">{t("settings.autoSaveIntervalSeconds", { count: 5 })}</option>
-            <option value="15">{t("settings.autoSaveIntervalSeconds", { count: 15 })}</option>
             <option value="30">{t("settings.autoSaveIntervalSeconds", { count: 30 })}</option>
-            <option value="60">{t("settings.autoSaveIntervalMinutes", { count: 1 })}</option>
-            <option value="300">{t("settings.autoSaveIntervalMinutes", { count: 5 })}</option>
           </select>
         </SettingsRow>
 
@@ -910,24 +939,26 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
           </div>
         </SettingsRow>
 
+        {/* Not implemented — no backup-on-exit behavior exists. */}
         <SettingsRow
           label={t("settings.backupOnExit")}
-          description={t("settings.backupOnExitDesc")}
+          description={t("settings.notAvailableYet")}
         >
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" className="sr-only peer" onChange={onChange} defaultChecked />
+          <label className="relative inline-flex items-center opacity-50 cursor-not-allowed">
+            <input type="checkbox" className="sr-only peer" disabled checked={false} onChange={() => {}} aria-label={t("settings.backupOnExit")} />
             <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
           </label>
         </SettingsRow>
 
-        <SettingsRow label={t("settings.maxBackups")} description={t("settings.maxBackupsDesc")}>
+        {/* Not implemented — backups are not retained by count. */}
+        <SettingsRow label={t("settings.maxBackups")} description={t("settings.notAvailableYet")}>
           <input
             type="number"
-            min="1"
-            max="100"
-            defaultValue="10"
-            onChange={onChange}
-            className="w-full sm:w-24 px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
+            value={10}
+            disabled
+            readOnly
+            aria-label={t("settings.maxBackups")}
+            className="w-full sm:w-24 px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px] opacity-50 cursor-not-allowed"
           />
         </SettingsRow>
       </SettingsSection>
@@ -1204,16 +1235,16 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
           </div>
         </SettingsRow>
 
-        <SettingsRow label="Line Height" description="Line height for text content">
+        {/* Not implemented globally — line height is a per-reader setting. */}
+        <SettingsRow label="Line Height" description="Not available yet">
           <select
-            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
-            onChange={onChange}
-            defaultValue="1.5"
+            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px] opacity-50 cursor-not-allowed"
+            value="1.5"
+            disabled
+            aria-label="Line Height"
+            onChange={() => {}}
           >
-            <option value="1.25">Compact</option>
             <option value="1.5">Normal</option>
-            <option value="1.75">Relaxed</option>
-            <option value="2">Loose</option>
           </select>
         </SettingsRow>
       </SettingsSection>
@@ -1293,20 +1324,29 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow label="Compact Mode" description="Reduce spacing and padding for more content">
           <label className="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" className="sr-only peer" onChange={onChange} />
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.interface.compactMode}
+              onChange={(e) => {
+                updateSettingsCategory("interface", { compactMode: e.target.checked });
+                onChange();
+              }}
+            />
             <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
           </label>
         </SettingsRow>
 
-        <SettingsRow label="Sidebar Width" description="Width of the navigation sidebar">
+        {/* Not implemented — the sidebar has a fixed width. */}
+        <SettingsRow label="Sidebar Width" description="Not available yet">
           <select
-            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
-            onChange={onChange}
-            defaultValue="medium"
+            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px] opacity-50 cursor-not-allowed"
+            value="medium"
+            disabled
+            aria-label="Sidebar Width"
+            onChange={() => {}}
           >
-            <option value="narrow">Narrow</option>
             <option value="medium">Medium</option>
-            <option value="wide">Wide</option>
           </select>
         </SettingsRow>
       </SettingsSection>

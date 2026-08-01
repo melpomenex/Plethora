@@ -112,7 +112,13 @@ class PopupController {
       });
 
       if (response && response.success) {
-        this.showNotification('Current tab saved successfully!', 'success');
+        // A degraded save (content shed to fit the transport limit) carries
+        // its own explanatory message; an undegraded save gets the plain
+        // success text.
+        this.showNotification(
+          response.degraded ? response.message : 'Current tab saved successfully!',
+          response.degraded ? 'warning' : 'success'
+        );
       } else {
         this.showNotification(response?.error || 'Failed to save tab', 'error');
       }

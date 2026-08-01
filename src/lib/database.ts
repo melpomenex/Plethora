@@ -239,6 +239,12 @@ async function deleteById(storeName: string, id: string): Promise<void> {
 
 export interface Document {
     id: string;
+    /**
+     * Browser mode has no collection table; documents either carry the id of
+     * the single default collection or nothing at all. Declared so callers
+     * that read or assign it do not have to cast.
+     */
+    collection_id?: string;
     title: string;
     file_path: string;
     file_type: string;

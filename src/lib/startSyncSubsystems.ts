@@ -21,7 +21,7 @@
  */
 
 import { scheduleProgressiveSyncWork } from "./sync/progressiveScheduler";
-import { measureSyncPhase, installSyncLongTaskObserver, removeSyncLongTaskObserver } from "./sync/syncTelemetry";
+import { measureStartupPhase, installSyncLongTaskObserver, removeSyncLongTaskObserver } from "./sync/syncTelemetry";
 import { getSyncFeatureFlags } from "./sync/featureFlags";
 import { drainSyncOutboxBatch } from "./sync/syncJournal";
 import { registerSyncAdapter } from "./sync/coverageRegistry";
@@ -49,7 +49,7 @@ export function startSyncSubsystems(): Promise<void> {
       kind: "atomic",
       run: async (context) => {
         if (context.shouldYield()) await context.yield();
-        return measureSyncPhase("provider-setup", () => withTimeout(
+        return measureStartupPhase("provider-setup", () => withTimeout(
           getYjsSync(),
           4000,
           "[startSyncSubsystems] getYjsSync timed out (4s), continuing in degraded mode",
@@ -71,7 +71,7 @@ export function startSyncSubsystems(): Promise<void> {
     // Warm up the clock cache before replaying entity maps
     try {
       const { syncClockCache } = await import("./sync/clockCache");
-      await measureSyncPhase("clock-cache-init", () => syncClockCache.initialize());
+      await measureStartupPhase("clock-cache-init", () => syncClockCache.initialize());
     } catch (err) {
       console.warn("[startSyncSubsystems] clock cache warmup failed (non-fatal):", err);
     }
@@ -87,7 +87,7 @@ export function startSyncSubsystems(): Promise<void> {
       { ensureRssSyncReady },
       { ensurePodcastSyncReady },
       { ensureFileAvailabilityIntentReady },
-    ] = await Promise.all([
+    ] = await measureStartupPhase("module-imports", () => Promise.all([
       import("./useFileSync").then((m) => ({ ensureFileSyncReady: m.ensureFileSyncReady })),
       import("./documentReplication").then((m) => ({
         ensureDocumentReplicationReady: m.ensureDocumentReplicationReady,
@@ -111,7 +111,7 @@ export function startSyncSubsystems(): Promise<void> {
       import("./sync/fileAvailabilityIntent").then((m) => ({
         ensureFileAvailabilityIntentReady: m.ensureFileAvailabilityIntentReady,
       })),
-    ]);
+    ]));
 
     // 3. Run replicators through the scheduler in small waves. They all touch
     // the same Yjs document, so an unbounded Promise.all only compounds their
@@ -147,7 +147,7 @@ export function startSyncSubsystems(): Promise<void> {
         maxRetries: 0,
         run: async (context) => {
           if (context.shouldYield()) await context.yield();
-          await measureSyncPhase("map-ready", ensureReady);
+          await measureStartupPhase(`replicator:${label}`, ensureReady);
         },
       }).catch((err) => console.warn(`[startSyncSubsystems] ${label} init failed:`, err));
     for (let i = 0; i < replicators.length; i += 2) {
@@ -159,7 +159,7 @@ export function startSyncSubsystems(): Promise<void> {
       id: "sync:auto-download-watch",
       lane: "P2",
       kind: "sliceable",
-      run: (context) => startAutoFileSyncDownload(context),
+      run: (context) => measureStartupPhase("auto-download-watch", () => startAutoFileSyncDownload(context)),
     }).catch((err) =>
       console.warn("[startSyncSubsystems] auto-download init failed:", err),
     );
@@ -171,7 +171,7 @@ export function startSyncSubsystems(): Promise<void> {
       id: "sync:first-join-migration",
       lane: "P2",
       kind: "sliceable",
-      run: (context) => measureSyncPhase("migration", () => runSyncMigrationIfNeeded(undefined, context)),
+      run: (context) => measureStartupPhase("first-join-migration", () => runSyncMigrationIfNeeded(undefined, context)),
     }).catch((e) =>
       console.warn("[startSyncSubsystems] sync migration failed (non-fatal)", e),
     );
@@ -217,7 +217,9 @@ async function withTimeout<T>(
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       console.warn(warnMessage);
-      reject(new Error("timeout"));
+      const error = new Error("timeout");
+      error.name = "StartupTimeoutError";
+      reject(error);
     }, ms);
   });
 

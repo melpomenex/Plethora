@@ -44,6 +44,54 @@ pub async fn bulk_delete_documents(
     })
 }
 
+/// Reassign multiple documents to a collection.
+///
+/// This needs its own command because `Repository::update_document` deliberately
+/// omits `collection_id` from its UPDATE — every partial update funnels through
+/// that statement, so writing the column there would let any caller that spreads
+/// a stale document silently move it. The target collection is validated once so
+/// a bad id fails the whole batch instead of orphaning rows.
+#[tauri::command]
+pub async fn bulk_move_documents_to_collection(
+    document_ids: Vec<String>,
+    collection_id: String,
+    repo: State<'_, Repository>,
+) -> Result<BulkOperationResult> {
+    if repo.get_collection(&collection_id).await?.is_none() {
+        return Err(crate::error::IncrementumError::NotFound(format!(
+            "Collection {}",
+            collection_id
+        )));
+    }
+
+    let mut succeeded = Vec::new();
+    let mut failed = Vec::new();
+    let mut errors = Vec::new();
+
+    for document_id in &document_ids {
+        match repo
+            .set_document_collection(document_id, &collection_id)
+            .await
+        {
+            Ok(true) => succeeded.push(document_id.clone()),
+            Ok(false) => {
+                failed.push(document_id.clone());
+                errors.push(format!("{}: Document not found", document_id));
+            }
+            Err(e) => {
+                failed.push(document_id.clone());
+                errors.push(format!("{}: {}", document_id, e));
+            }
+        }
+    }
+
+    Ok(BulkOperationResult {
+        succeeded,
+        failed,
+        errors,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

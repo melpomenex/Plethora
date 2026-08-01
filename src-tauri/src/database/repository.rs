@@ -1259,6 +1259,30 @@ impl Repository {
             .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
     }
 
+    /// Reassign a document to a collection.
+    ///
+    /// Deliberately separate from `update_document`, whose UPDATE omits
+    /// `collection_id` so that a partial update spreading a stale document
+    /// cannot move it by accident. Returns whether a row was actually matched,
+    /// so callers can distinguish "moved" from "no such document".
+    pub async fn set_document_collection(&self, id: &str, collection_id: &str) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE documents SET
+                collection_id = ?1,
+                date_modified = ?2
+            WHERE id = ?3
+            "#,
+        )
+        .bind(collection_id)
+        .bind(Utc::now())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn update_document_cover(
         &self,
         id: &str,
@@ -2641,6 +2665,30 @@ impl Repository {
                 reference_count: r.try_get("reference_count").unwrap_or_default(),
             })
             .collect())
+    }
+
+    /// Rename an image asset's display name.
+    ///
+    /// Safe with respect to existing references: extracts and cards point at
+    /// `image_assets.id` (see the `image_asset_ids` JSON array on
+    /// `learning_items`), so `file_name` is a label only. Returns whether a row
+    /// matched.
+    pub async fn rename_image_asset(&self, id: &str, file_name: &str) -> Result<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE image_assets SET
+                file_name = ?1,
+                updated_at = ?2
+            WHERE id = ?3
+            "#,
+        )
+        .bind(file_name)
+        .bind(Utc::now())
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn delete_image_asset_if_unreferenced(&self, id: &str) -> Result<bool> {

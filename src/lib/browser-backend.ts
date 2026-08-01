@@ -1171,6 +1171,24 @@ const commandHandlers: Record<string, CommandHandler> = {
         return { succeeded, failed, errors };
     },
 
+    bulk_move_documents_to_collection: async (args) => {
+        const ids = (args.documentIds ?? args.document_ids ?? []) as string[];
+        const collectionId = (args.collectionId ?? args.collection_id) as string;
+        const succeeded: string[] = [];
+        const failed: string[] = [];
+        const errors: string[] = [];
+        for (const id of ids) {
+            try {
+                await db.updateDocument(id, { collection_id: collectionId });
+                succeeded.push(id);
+            } catch (e) {
+                failed.push(id);
+                errors.push(`${id}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+        }
+        return { succeeded, failed, errors };
+    },
+
     import_document: async (args) => {
         // In browser mode, file is passed as File object or base64
         const filePath = args.filePath as string;

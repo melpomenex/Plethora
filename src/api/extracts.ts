@@ -97,6 +97,32 @@ export async function getExtract(id: string): Promise<Extract | null> {
 }
 
 /**
+ * Patch a document's extractCount in the (already-loaded) documentStore, so
+ * the Documents view — list, grid, and compact — reflects a newly created or
+ * deleted extract without a full document reload.
+ *
+ * Lives here rather than in extractStore because most callers create/delete
+ * extracts by calling this module directly (DocumentViewer, ExtractCreator,
+ * CreateExtractDialog, AssistantPanel, ScrollModeArticleEditor, and others),
+ * bypassing useExtractStore entirely. This is the one choke point every
+ * caller — store-mediated or direct, desktop or browser/PWA (invokeCommand
+ * routes to browserInvoke there) — actually passes through.
+ *
+ * Dynamic import avoids pulling documentStore's dependency graph into this
+ * module's callers at load time; a document not present in the store yet
+ * (not loaded, or the count patch racing a reload) is a silent no-op rather
+ * than an error, since the next real load will carry the correct count anyway.
+ */
+async function patchDocumentExtractCount(documentId: string, delta: 1 | -1): Promise<void> {
+  try {
+    const { useDocumentStore } = await import("../stores/documentStore");
+    useDocumentStore.getState().patchExtractCount(documentId, delta);
+  } catch (error) {
+    console.warn("Failed to patch document extractCount locally", error);
+  }
+}
+
+/**
  * Create a new extract
  */
 export async function createExtract(input: CreateExtractInput): Promise<Extract> {
@@ -122,6 +148,9 @@ export async function createExtract(input: CreateExtractInput): Promise<Extract>
       console.warn("Failed to publish extract creation", e);
     }
   })();
+  if (normalized.document_id) {
+    void patchDocumentExtractCount(normalized.document_id, 1);
+  }
   return normalized;
 }
 
@@ -154,6 +183,12 @@ export async function updateExtract(input: UpdateExtractInput): Promise<Extract>
  * Delete an extract
  */
 export async function deleteExtract(id: string): Promise<void> {
+  // The delete command doesn't return the extract, so look up which document
+  // owns it BEFORE deleting — relying on whatever local cache happens to have
+  // it would silently skip the count patch when the cache is stale, which is
+  // the exact bug this function exists to fix.
+  const owner = await getExtract(id).catch(() => null);
+
   await invokeCommand("delete_extract", { id });
   void (async () => {
     try {
@@ -163,6 +198,9 @@ export async function deleteExtract(id: string): Promise<void> {
       console.warn("Failed to publish extract deletion", e);
     }
   })();
+  if (owner?.document_id) {
+    void patchDocumentExtractCount(owner.document_id, -1);
+  }
 }
 
 // Helper to publish an extract by fetching it first (for lifecycle updates that don't return the extract)

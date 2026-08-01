@@ -9,6 +9,21 @@ import { SettingsPage } from "../SettingsPage";
 
 const presentation = vi.hoisted(() => ({ mobile: false }));
 
+// The discard guard moved off window.confirm(), which the desktop WebView
+// suppresses (it returns false and blocked every navigation), onto the in-app
+// modal. That makes the guard async, so guarded transitions settle a microtask
+// after the click rather than synchronously.
+const modalMock = vi.hoisted(() => ({
+  confirm: vi.fn(async () => true),
+  prompt: vi.fn(async () => null),
+  alert: vi.fn(async () => true),
+}));
+
+vi.mock("../../common/Modal", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useModal: () => modalMock,
+}));
+
 vi.mock("../../../hooks/useMobileShell", () => ({
   useMobileShell: () => presentation.mobile,
 }));
@@ -58,6 +73,8 @@ describe("SettingsPage return navigation", () => {
       },
     }));
     vi.restoreAllMocks();
+    modalMock.confirm.mockReset();
+    modalMock.confirm.mockResolvedValue(true);
   });
 
   it("shows the prior destination on wide layouts and returns by keyboard-compatible button activation", () => {
@@ -100,10 +117,10 @@ describe("SettingsPage return navigation", () => {
     window.removeEventListener("navigate", navigate);
   });
 
-  it("keeps the current section and history when unsaved back is cancelled", () => {
+  it("keeps the current section and history when unsaved back is cancelled", async () => {
     presentation.mobile = true;
     const { settingsId } = openSettingsWithPrevious();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    modalMock.confirm.mockResolvedValue(false);
     render(<SettingsPage />);
     fireEvent.click(screen.getByRole("button", { name: "General" }));
     fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "review" } });
@@ -111,7 +128,7 @@ describe("SettingsPage return navigation", () => {
 
     expect(requestApplicationBack()).toBe(true);
 
-    expect(confirm).toHaveBeenCalledOnce();
+    await waitFor(() => expect(modalMock.confirm).toHaveBeenCalledOnce());
     expect((useTabsStore.getState().rootPane as any).activeTabId).toBe(settingsId);
     expect(useTabsStore.getState().activeTabHistory).toEqual(historyBefore);
     expect(screen.getByRole("button", { name: "Back to settings menu" })).toBeInTheDocument();
@@ -120,7 +137,7 @@ describe("SettingsPage return navigation", () => {
   it("performs exactly one guarded transition after unsaved back is confirmed", async () => {
     presentation.mobile = true;
     openSettingsWithPrevious();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    modalMock.confirm.mockResolvedValue(true);
     render(<SettingsPage />);
     fireEvent.click(screen.getByRole("button", { name: "General" }));
     fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "review" } });

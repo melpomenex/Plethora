@@ -64,7 +64,14 @@ use tower_http::{
 use tracing::{error, info, warn};
 use url::Url;
 
-/// Maximum payload size (10MB)
+/// Maximum payload size (10MB).
+///
+/// Mirrored in `browser_extension/shared.js` as
+/// `TRANSPORT_LIMITS.SERVER_MAX_REQUEST_BYTES`. The extension's own request
+/// budget (8 MB, `TRANSPORT_LIMITS.EXTENSION_REQUEST_BUDGET_BYTES`) stays
+/// strictly below this so its own shedding should always kick in first; this
+/// limit is a backstop, not the mechanism users are expected to hit.
+/// `browser_extension/tests/shared.test.cjs` asserts the two stay ordered.
 const MAX_PAYLOAD_SIZE: usize = 10 * 1024 * 1024;
 
 /// Server state shared across handlers
@@ -679,6 +686,9 @@ pub async fn start_server(
                 .allow_headers(tower_http::cors::Any),
         )
         .layer(RequestBodyLimitLayer::new(MAX_PAYLOAD_SIZE))
+        // Added after RequestBodyLimitLayer so it becomes the OUTER layer and
+        // runs first, ahead of that layer's own bare-413 rejection.
+        .layer(middleware::from_fn(annotate_oversized_request))
         .with_state(state);
 
     info!("Starting browser extension server on {}", addr);
@@ -1822,12 +1832,20 @@ fn is_public_browser_extension_endpoint(path: &str, method: &axum::http::Method)
         || (path == "/api/theme" && method == axum::http::Method::GET)
 }
 
+/// Bounds the *decoded* image. Mirrored in `browser_extension/shared.js` as
+/// `TRANSPORT_LIMITS.IMAGE_OCCLUSION_DECODED_MAX_BYTES`. Base64 encoding plus
+/// the surrounding JSON (question, answer, regions, ...) inflates the actual
+/// request by roughly a third, so the extension checks the SERIALIZED request
+/// against its general transport budget before sending, rather than trusting
+/// this decoded-bytes number alone.
+const IMAGE_OCCLUSION_DECODED_MAX_BYTES: usize = 7 * 1024 * 1024;
+
 async fn handle_image_occlusion_request(
     State(state): State<ServerState>,
     Json(payload): Json<ImageOcclusionRequest>,
 ) -> Response {
     let bytes = match general_purpose::STANDARD.decode(payload.image_base64.as_bytes()) {
-        Ok(bytes) if !bytes.is_empty() && bytes.len() <= 7 * 1024 * 1024 => bytes,
+        Ok(bytes) if !bytes.is_empty() && bytes.len() <= IMAGE_OCCLUSION_DECODED_MAX_BYTES => bytes,
         Ok(_) => {
             return error_response(
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -2090,6 +2108,68 @@ async fn handle_automation_submit_review(
 }
 
 /// Create error response
+/// Give a diagnosable JSON body to a request-body-too-large rejection,
+/// whichever layer produced it.
+///
+/// `RequestBodyLimitLayer` rejects an oversized request in one of two ways,
+/// and both previously returned an EMPTY body:
+///   - immediately, from the `Content-Length` header, before the body is read
+///     (the path a browser `fetch()` call always takes, since it sets
+///     `Content-Length` for a string/Blob body) — this is what produced the
+///     bare `Server error: 413` reported in issue #40;
+///   - mid-read, if the header was absent or understated, surfaced through
+///     axum's body extractors once the streamed limit is hit.
+/// This wraps both: it answers the `Content-Length` case itself before
+/// `RequestBodyLimitLayer` gets a chance to (it must be registered as the
+/// OUTER layer — added to the router after `RequestBodyLimitLayer`, since
+/// axum applies `.layer()` calls outermost-last), and rewrites the inner
+/// layer's own bare-413 response for the read-time case, where the exact
+/// size is not available and the message says so.
+async fn annotate_oversized_request(req: Request<Body>, next: Next) -> Response {
+    let endpoint = req.uri().path().to_string();
+    let declared_len = req
+        .headers()
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
+
+    if let Some(len) = declared_len {
+        if len > MAX_PAYLOAD_SIZE as u64 {
+            return payload_too_large_response(Some(len), &endpoint);
+        }
+    }
+
+    let response = next.run(req).await;
+    if response.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        return payload_too_large_response(None, &endpoint);
+    }
+    response
+}
+
+fn payload_too_large_response(received_bytes: Option<u64>, endpoint: &str) -> Response {
+    let message = match received_bytes {
+        Some(received) => format!(
+            "Request body is {} bytes, over the {} byte limit for {}.",
+            received, MAX_PAYLOAD_SIZE, endpoint
+        ),
+        None => format!(
+            "Request body exceeds the {} byte limit for {}.",
+            MAX_PAYLOAD_SIZE, endpoint
+        ),
+    };
+    (
+        StatusCode::PAYLOAD_TOO_LARGE,
+        Json(json!({
+            "success": false,
+            "error": message,
+            "received_bytes": received_bytes,
+            "limit_bytes": MAX_PAYLOAD_SIZE,
+            "endpoint": endpoint,
+        })),
+    )
+        .into_response()
+}
+
 fn error_response(status: StatusCode, message: &str) -> Response {
     (
         status,
@@ -4964,5 +5044,103 @@ mod browser_import_persistence_tests {
             normalize_browser_source_url(" https://EXAMPLE.com/article#selection "),
             "https://example.com/article"
         );
+    }
+}
+
+#[cfg(test)]
+mod oversized_request_diagnostics_tests {
+    use super::*;
+    use axum::body::{to_bytes, Bytes as AxumBytes};
+    use axum::http::Request;
+    use axum::routing::post;
+    use tower05::ServiceExt;
+
+    fn test_router() -> Router {
+        Router::new()
+            .route("/test", post(|_body: AxumBytes| async { StatusCode::OK }))
+            .layer(RequestBodyLimitLayer::new(MAX_PAYLOAD_SIZE))
+            // Same ordering as the real router: added after RequestBodyLimitLayer
+            // so it runs first, ahead of that layer's own bare-413 response.
+            .layer(middleware::from_fn(annotate_oversized_request))
+    }
+
+    async fn response_json(response: Response) -> serde_json::Value {
+        let bytes = to_bytes(response.into_body(), 64 * 1024 * 1024)
+            .await
+            .expect("read response body");
+        serde_json::from_slice(&bytes).expect("response body is JSON")
+    }
+
+    #[tokio::test]
+    async fn declared_content_length_over_the_limit_is_rejected_before_the_body_is_read() {
+        let declared = MAX_PAYLOAD_SIZE + 1;
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/test")
+                    .header(axum::http::header::CONTENT_LENGTH, declared.to_string())
+                    // The header lies; a real oversized upload never has to be
+                    // constructed in-memory for this path to be exercised.
+                    .body(Body::from(b"tiny body".to_vec()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let body = response_json(response).await;
+        assert_eq!(body["success"], false);
+        assert_eq!(body["received_bytes"], declared);
+        assert_eq!(body["limit_bytes"], MAX_PAYLOAD_SIZE);
+        assert_eq!(body["endpoint"], "/test");
+        let message = body["error"].as_str().expect("error is a string");
+        assert!(message.contains(&declared.to_string()));
+        assert!(message.contains(&MAX_PAYLOAD_SIZE.to_string()));
+        assert!(message.contains("/test"));
+    }
+
+    #[tokio::test]
+    async fn a_body_that_exceeds_the_limit_without_a_content_length_header_is_still_diagnosable() {
+        // No Content-Length: the fast pre-check cannot run, so
+        // RequestBodyLimitLayer only rejects once the handler's Bytes
+        // extractor actually reads the body. This is the path whose bare,
+        // empty-body 413 the reporter saw before this change.
+        let oversized = vec![b'x'; MAX_PAYLOAD_SIZE + 1];
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/test")
+                    .body(Body::from(oversized))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let body = response_json(response).await;
+        assert_eq!(body["success"], false);
+        assert!(body["received_bytes"].is_null());
+        assert_eq!(body["limit_bytes"], MAX_PAYLOAD_SIZE);
+        assert_eq!(body["endpoint"], "/test");
+        assert!(!body["error"].as_str().unwrap_or("").is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_request_within_the_limit_is_unaffected() {
+        let response = test_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/test")
+                    .header(axum::http::header::CONTENT_LENGTH, "5")
+                    .body(Body::from(b"hello".to_vec()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

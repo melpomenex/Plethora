@@ -385,6 +385,7 @@ function arrayBufferToBase64(buffer) {
 async function createImageOcclusionCard(data, senderTabId) {
   await loadSettings();
   try {
+    const shared = globalThis.IncrementumExtensionShared;
     const imageResponse = await fetch(data.imageUrl);
     if (!imageResponse.ok) {
       throw new Error(`Could not download image (${imageResponse.status})`);
@@ -393,8 +394,27 @@ async function createImageOcclusionCard(data, senderTabId) {
     if (blob.type && !blob.type.startsWith('image/')) {
       throw new Error('The selected resource is not a supported image.');
     }
-    if (blob.size > 7 * 1024 * 1024) {
+    if (blob.size > shared.TRANSPORT_LIMITS.IMAGE_OCCLUSION_DECODED_MAX_BYTES) {
       throw new Error('The selected image is larger than 7 MB.');
+    }
+
+    const requestBody = JSON.stringify({
+      image_base64: arrayBufferToBase64(await blob.arrayBuffer()),
+      mime_type: blob.type || undefined,
+      file_name: data.fileName,
+      question: data.question,
+      answer: data.answer || '',
+      regions: data.regions,
+      source_url: data.pageUrl
+    });
+
+    // The 7 MB check above bounds the DECODED image; base64 encoding alone
+    // inflates that to ~9.3 MB, leaving under 1 MB of headroom under the
+    // server's 10 MB hard limit before the question/answer/regions fields are
+    // even counted. Check what is actually about to go over the wire.
+    const budgetCheck = shared.checkRequestBudget(requestBody);
+    if (!budgetCheck.ok) {
+      throw new Error(`The occlusion card is too large to send. ${budgetCheck.message}`);
     }
 
     const controller = new AbortController();
@@ -405,23 +425,25 @@ async function createImageOcclusionCard(data, senderTabId) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
-        body: JSON.stringify({
-          image_base64: arrayBufferToBase64(await blob.arrayBuffer()),
-          mime_type: blob.type || undefined,
-          file_name: data.fileName,
-          question: data.question,
-          answer: data.answer || '',
-          regions: data.regions,
-          source_url: data.pageUrl
-        })
+        body: requestBody
       });
     } finally {
       clearTimeout(timeout);
     }
 
-    const result = await response.json().catch(() => ({}));
+    // A response body can only be read once, so parse it ourselves instead of
+    // calling response.json() (which would leave nothing for a text fallback
+    // to read if the body isn't valid JSON — e.g. a plain-text rejection from
+    // a layer other than the one this extension's own budget check covers).
+    const rawBody = await response.text().catch(() => '');
+    let result = {};
+    try {
+      result = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      result = {};
+    }
     if (!response.ok || !result.success) {
-      throw new Error(result.error || `Incrementum returned ${response.status}`);
+      throw new Error(result.error || rawBody || `Incrementum returned ${response.status}`);
     }
 
     const displayed = await sendAIStateToTab(senderTabId, {
@@ -576,7 +598,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             break;
           }
 
-          await sendInPageToast(toastTabId, response.success, 'Extract sent to Incrementum!');
+          await sendInPageToast(
+            toastTabId,
+            response.success,
+            response.success && response.degraded ? response.message : 'Extract sent to Incrementum!'
+          );
           sendResponse(response);
           break;
         }
@@ -682,7 +708,11 @@ async function saveCurrentTab(passedTab) {
     const result = await savePage(tab.url, tab.title, tab.id);
 
     if (result.success) {
-      await sendInPageToast(tab.id, result.success, 'Page saved to Incrementum!');
+      await sendInPageToast(
+        tab.id,
+        true,
+        result.degraded ? result.message : 'Page saved to Incrementum!'
+      );
     }
 
     return result;
@@ -719,6 +749,33 @@ async function saveAllTabs() {
   }
 }
 
+/**
+ * Read an error response body as a message a user can be shown.
+ *
+ * The desktop server returns a JSON body (`{success:false, error:"..."}`) for
+ * most rejections, but callers used to display the RAW response text
+ * verbatim — which meant a JSON-shaped error rendered as a stringified
+ * object in a toast. Also handles the one response that is legitimately
+ * empty: RequestBodyLimitLayer's own Content-Length pre-check, for a request
+ * that reaches it despite this extension's own budgeting (see
+ * annotate_oversized_request in browser_sync_server.rs, which gives that
+ * specific case a JSON body too — this function is the fallback for whatever
+ * that layer doesn't cover).
+ */
+async function readErrorMessage(response) {
+  const text = await response.text().catch(() => '');
+  if (!text) return '';
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed.error === 'string' && parsed.error) {
+      return parsed.error;
+    }
+  } catch {
+    // Not JSON; fall through to the raw text.
+  }
+  return text;
+}
+
 async function sendToIncrementum(data, options = {}) {
   try {
     await loadSettings();
@@ -726,7 +783,7 @@ async function sendToIncrementum(data, options = {}) {
     // Use the root endpoint as expected by BrowserSyncServer
     const endpoint = browserSyncEndpoint();
     const shared = globalThis.IncrementumExtensionShared;
-    const fitted = shared.fitPayloadToBudget(data);
+    let fitted = shared.fitPayloadToBudget(data);
     if (fitted.compactedHtml || fitted.droppedHtml || fitted.droppedImages || fitted.truncatedText) {
       console.warn('[Incrementum] Page payload was reduced to fit the desktop import limit.', {
         compactedHtml: fitted.compactedHtml,
@@ -772,11 +829,18 @@ async function sendToIncrementum(data, options = {}) {
       response = await postPayload(requestEndpoint, fitted.requestBody);
     }
 
-    // Retry oversized rich captures as text-only. The readable text is much
-    // smaller and more valuable than returning a 413 to the user.
-    if (response.status === 413 && (fitted.payload.html_content || fitted.payload.extracted_images)) {
-      const textOnly = shared.withoutRichContent(fitted.payload);
-      response = await postPayload(requestEndpoint, JSON.stringify(textOnly));
+    // Retry any oversized request with progressively reduced content. This is
+    // unconditional now — it used to be gated on html_content/extracted_images
+    // still being present in the first fit, so a request that overflowed for
+    // any other reason, or one that had already shed everything the
+    // extension's own 8 MB budget required, got no second chance and
+    // surfaced a bare 413. Re-fitting against a much smaller budget forces
+    // every shedding step (compact styles, drop html, drop images, truncate
+    // text) rather than assuming which step is still needed.
+    if (response.status === 413) {
+      const RETRY_BUDGET_BYTES = 512 * 1024;
+      fitted = shared.fitPayloadToBudget(data, RETRY_BUDGET_BYTES);
+      response = await postPayload(requestEndpoint, fitted.requestBody);
     }
 
     if (response.ok) {
@@ -784,9 +848,14 @@ async function sendToIncrementum(data, options = {}) {
       if (options.allowFlush !== false) {
         await flushQueuedExtractsIfPossible();
       }
-      return { success: true, message: 'Data sent successfully' };
+      const degradedMessage = shared.describeDegradation(fitted);
+      return {
+        success: true,
+        message: degradedMessage || 'Data sent successfully',
+        degraded: Boolean(degradedMessage)
+      };
     } else {
-      const errorText = await response.text();
+      const errorText = await readErrorMessage(response);
       console.error('Server response error:', errorText);
       return {
         success: false,
@@ -970,7 +1039,11 @@ async function createExtractFromSelection(selectedText, tab) {
       message: 'Extract cached locally and will sync when Incrementum launches.'
     };
   }
-  await sendInPageToast(tab?.id, result.success, 'Extract sent to Incrementum!');
+  await sendInPageToast(
+    tab?.id,
+    result.success,
+    result.success && result.degraded ? result.message : 'Extract sent to Incrementum!'
+  );
   return result;
 }
 
@@ -1234,32 +1307,41 @@ async function requestAIAnalysis(data) {
     await loadSettings();
     const endpoint = `${INCREMENTUM_BASE_URL}/ai/process`;
 
+    // Every request this extension sends should be fitted to the transport
+    // budget on principle, this one included — even though its only current
+    // callers bound `content` to a user's manual text selection, which is not
+    // a realistic overflow.
+    const shared = globalThis.IncrementumExtensionShared;
+    const fitted = shared.fitAiRequestToBudget({
+      content: data.content,
+      operation: data.operation || 'all',
+      max_words: data.max_words || 150,
+      count: data.count || 5,
+      save_flashcards: Boolean(data.save_flashcards),
+      card_types: Array.isArray(data.card_types) ? data.card_types : undefined,
+      url: data.url,
+      title: data.title
+    });
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       signal: controller.signal,
-      body: JSON.stringify({
-        content: data.content,
-        operation: data.operation || 'all',
-        max_words: data.max_words || 150,
-        count: data.count || 5,
-        save_flashcards: Boolean(data.save_flashcards),
-        card_types: Array.isArray(data.card_types) ? data.card_types : undefined,
-        url: data.url,
-        title: data.title
-      })
+      body: fitted.requestBody
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await readErrorMessage(response);
       console.error('[DEBUG] AI request failed:', response.status, errorText);
       return {
         success: false,
         error: response.status === 503
           ? 'AI is not configured. Please configure an AI provider in the desktop app settings.'
-          : `AI request failed: ${response.status}`
+          : response.status === 413
+            ? (errorText || 'The selected text is too large for Incrementum AI to process.')
+            : `AI request failed: ${response.status}`
       };
     }
 

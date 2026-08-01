@@ -698,6 +698,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       const result = await bulkSuspendItems(Array.from(selectedIds));
       set({ bulkOperationResult: result, bulkOperationLoading: false });
 
+      // Release the selection so the action bar does not survive its own
+      // action, matching bulkDelete.
+      set({ selectedIds: new Set<string>() });
       // Suspended items leave the queue: drop exactly the succeeded ids
       // locally instead of re-transferring the whole listing (design D2).
       get().removeItemsLocally(result.succeeded);
@@ -720,6 +723,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       const result = await bulkUnsuspendItems(Array.from(selectedIds));
       set({ bulkOperationResult: result, bulkOperationLoading: false });
 
+      // Release the selection so the action bar does not survive its own
+      // action, matching bulkDelete.
+      set({ selectedIds: new Set<string>() });
       // Reload queue to get updated data
       await get().loadQueue();
       await get().loadStats();

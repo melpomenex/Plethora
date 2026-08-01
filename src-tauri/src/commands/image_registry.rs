@@ -244,6 +244,40 @@ pub async fn get_image_asset(
     Ok(asset.map(|asset| to_dto_with_usage(asset, 0)))
 }
 
+/// Rename an image asset. The name is a display label; cards and extracts
+/// reference the asset by id, so renaming never breaks them.
+#[tauri::command]
+pub async fn rename_image_asset(
+    asset_id: String,
+    file_name: String,
+    repo: State<'_, Repository>,
+) -> Result<ImageAssetDto> {
+    let trimmed = file_name.trim();
+    if trimmed.is_empty() {
+        return Err(crate::error::IncrementumError::Internal(
+            "Image name cannot be empty".to_string(),
+        ));
+    }
+    if trimmed.chars().count() > 200 {
+        return Err(crate::error::IncrementumError::Internal(
+            "Image name is too long (max 200 characters)".to_string(),
+        ));
+    }
+
+    if !repo.rename_image_asset(&asset_id, trimmed).await? {
+        return Err(crate::error::IncrementumError::NotFound(format!(
+            "Image asset {}",
+            asset_id
+        )));
+    }
+
+    let asset = repo
+        .get_image_asset(&asset_id)
+        .await?
+        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Image asset {}", asset_id)))?;
+    Ok(to_dto(asset))
+}
+
 #[tauri::command]
 pub async fn delete_image_asset(
     asset_id: String,

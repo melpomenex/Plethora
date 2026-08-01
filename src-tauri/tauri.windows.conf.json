@@ -3,7 +3,8 @@
   "bundle": {
     "resources": [
       "scripts/anna_download.py",
-      "bin/*.dll"
+      "bin/*.dll",
+      "bin/notebooklm-runtime"
     ]
   }
 }

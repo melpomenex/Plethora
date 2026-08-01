@@ -44,10 +44,12 @@
     "externalBin": [
       "bin/whisper",
       "bin/sherpa-onnx",
-      "bin/pocket-tts"
+      "bin/pocket-tts",
+      "bin/notebooklm"
     ],
     "resources": [
-      "scripts/anna_download.py"
+      "scripts/anna_download.py",
+      "bin/notebooklm-runtime"
     ],
     "icon": [
       "icons/32x32.png",

@@ -6,6 +6,7 @@ use crate::models::{Document, LearningItem};
 use chrono::{Datelike, Duration, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
+use std::collections::HashMap;
 use tauri::State;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,6 +26,118 @@ pub struct BulkOperationResult {
     pub succeeded: Vec<String>,
     pub failed: Vec<String>,
     pub errors: Vec<String>,
+}
+
+/// What a queue item id actually points at.
+///
+/// `QueueItem::id` is the id of the underlying row, and which table that is
+/// depends on `item_type`: a document row for "document", an extract row for
+/// "extract", a learning item for "learning-item". Bulk operations used to
+/// assume every id was a learning item, so selecting documents in the Reading
+/// Queue and choosing Suspend always reported "Item not found".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QueueEntityKind {
+    LearningItem,
+    Document,
+    Extract,
+}
+
+/// Map every supplied id to the entity it refers to, using one query per table
+/// regardless of how many ids were supplied.
+///
+/// The previous implementation called `get_all_learning_items()` *inside* the
+/// per-id loop, so a fifty-item selection performed fifty full-table reads.
+async fn resolve_queue_entities(
+    repo: &Repository,
+    item_ids: &[String],
+) -> Result<HashMap<String, QueueEntityKind>> {
+    let mut resolved = HashMap::new();
+    if item_ids.is_empty() {
+        return Ok(resolved);
+    }
+
+    let placeholders = std::iter::repeat("?")
+        .take(item_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    for (table, kind) in [
+        ("learning_items", QueueEntityKind::LearningItem),
+        ("documents", QueueEntityKind::Document),
+        ("extracts", QueueEntityKind::Extract),
+    ] {
+        let sql = format!("SELECT id FROM {} WHERE id IN ({})", table, placeholders);
+        let mut query = sqlx::query(&sql);
+        for id in item_ids {
+            query = query.bind(id);
+        }
+        for row in query.fetch_all(repo.pool()).await? {
+            let id: String = row.get("id");
+            // Ids are UUIDs, so a collision across tables is not expected;
+            // resolve to the first table that claims it either way.
+            resolved.entry(id).or_insert(kind);
+        }
+    }
+
+    Ok(resolved)
+}
+
+/// Suspend or unsuspend every supplied queue item, whatever its type.
+///
+/// Learning items carry a real `is_suspended` column. Documents and extracts
+/// do not, but both have a reversible `is_dismissed` flag that the queue
+/// already filters on, which is the same observable behavior: the item leaves
+/// the queue and comes back when the flag is cleared.
+async fn set_queue_items_suspended(
+    repo: &Repository,
+    item_ids: &[String],
+    suspended: bool,
+    result: &mut BulkOperationResult,
+) {
+    let resolved = match resolve_queue_entities(repo, item_ids).await {
+        Ok(resolved) => resolved,
+        Err(e) => {
+            for item_id in item_ids {
+                result.failed.push(item_id.clone());
+                result.errors.push(format!("{}: {}", item_id, e));
+            }
+            return;
+        }
+    };
+
+    for item_id in item_ids {
+        let outcome: Result<()> = match resolved.get(item_id) {
+            Some(QueueEntityKind::LearningItem) => {
+                sqlx::query("UPDATE learning_items SET is_suspended = ?, date_modified = ? WHERE id = ?")
+                    .bind(suspended)
+                    .bind(Utc::now())
+                    .bind(item_id)
+                    .execute(repo.pool())
+                    .await
+                    .map(|_| ())
+                    .map_err(crate::error::IncrementumError::from)
+            }
+            Some(QueueEntityKind::Document) => repo
+                .update_document_dismiss(item_id, suspended)
+                .await
+                .map(|_| ()),
+            Some(QueueEntityKind::Extract) => {
+                repo.update_extract_dismissed(item_id, suspended).await
+            }
+            None => Err(crate::error::IncrementumError::NotFound(format!(
+                "Queue item {}",
+                item_id
+            ))),
+        };
+
+        match outcome {
+            Ok(()) => result.succeeded.push(item_id.clone()),
+            Err(e) => {
+                result.failed.push(item_id.clone());
+                result.errors.push(format!("{}: {}", item_id, e));
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -160,32 +273,7 @@ pub async fn bulk_suspend_items(
         errors: Vec::new(),
     };
 
-    for item_id in &item_ids {
-        match repo.get_all_learning_items().await {
-            Ok(all_items) => {
-                if let Some(mut item) = all_items.into_iter().find(|i| &i.id == item_id) {
-                    item.is_suspended = true;
-                    item.date_modified = Utc::now();
-
-                    match repo.update_learning_item(&item).await {
-                        Ok(_) => result.succeeded.push(item_id.clone()),
-                        Err(e) => {
-                            result.failed.push(item_id.clone());
-                            result.errors.push(format!("{}: {}", item_id, e));
-                        }
-                    }
-                } else {
-                    result.failed.push(item_id.clone());
-                    result.errors.push(format!("{}: Item not found", item_id));
-                }
-            }
-            Err(e) => {
-                result.failed.push(item_id.clone());
-                result.errors.push(format!("{}: {}", item_id, e));
-            }
-        }
-    }
-
+    set_queue_items_suspended(&repo, &item_ids, true, &mut result).await;
     Ok(result)
 }
 
@@ -201,32 +289,7 @@ pub async fn bulk_unsuspend_items(
         errors: Vec::new(),
     };
 
-    for item_id in &item_ids {
-        match repo.get_all_learning_items().await {
-            Ok(all_items) => {
-                if let Some(mut item) = all_items.into_iter().find(|i| &i.id == item_id) {
-                    item.is_suspended = false;
-                    item.date_modified = Utc::now();
-
-                    match repo.update_learning_item(&item).await {
-                        Ok(_) => result.succeeded.push(item_id.clone()),
-                        Err(e) => {
-                            result.failed.push(item_id.clone());
-                            result.errors.push(format!("{}: {}", item_id, e));
-                        }
-                    }
-                } else {
-                    result.failed.push(item_id.clone());
-                    result.errors.push(format!("{}: Item not found", item_id));
-                }
-            }
-            Err(e) => {
-                result.failed.push(item_id.clone());
-                result.errors.push(format!("{}: {}", item_id, e));
-            }
-        }
-    }
-
+    set_queue_items_suspended(&repo, &item_ids, false, &mut result).await;
     Ok(result)
 }
 
@@ -242,13 +305,34 @@ pub async fn bulk_delete_items(
         errors: Vec::new(),
     };
 
+    let resolved = match resolve_queue_entities(&repo, &item_ids).await {
+        Ok(resolved) => resolved,
+        Err(e) => return Err(e),
+    };
+
     for item_id in &item_ids {
-        match sqlx::query("DELETE FROM learning_items WHERE id = ?")
-            .bind(item_id)
-            .execute(repo.pool())
-            .await
-        {
-            Ok(_) => result.succeeded.push(item_id.clone()),
+        let outcome = match resolved.get(item_id) {
+            // A DELETE that matches no rows still returns Ok, so the previous
+            // learning-items-only delete reported success for every document
+            // and extract while removing nothing.
+            Some(QueueEntityKind::LearningItem) => {
+                sqlx::query("DELETE FROM learning_items WHERE id = ?")
+                    .bind(item_id)
+                    .execute(repo.pool())
+                    .await
+                    .map(|_| ())
+                    .map_err(crate::error::IncrementumError::from)
+            }
+            Some(QueueEntityKind::Document) => repo.delete_document(item_id).await,
+            Some(QueueEntityKind::Extract) => repo.delete_extract(item_id).await,
+            None => Err(crate::error::IncrementumError::NotFound(format!(
+                "Queue item {}",
+                item_id
+            ))),
+        };
+
+        match outcome {
+            Ok(()) => result.succeeded.push(item_id.clone()),
             Err(e) => {
                 result.failed.push(item_id.clone());
                 result.errors.push(format!("{}: {}", item_id, e));
@@ -533,4 +617,169 @@ pub async fn apply_easy_days(
     }
 
     Ok(LoadManagementResult { affected, skipped })
+}
+
+#[cfg(test)]
+mod bulk_item_tests {
+    use super::*;
+    use crate::database::connection::Database;
+    use crate::models::{Extract, FileType, ItemType};
+    use std::path::PathBuf;
+
+    async fn setup_repo() -> Repository {
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+        db.migrate().await.expect("migrate");
+        Repository::new(db.pool().clone())
+    }
+
+    async fn make_document(repo: &Repository, title: &str) -> String {
+        let doc = Document::new(title.to_string(), format!("/tmp/{}.pdf", title), FileType::Pdf);
+        repo.create_document(&doc).await.expect("create document").id
+    }
+
+    async fn make_extract(repo: &Repository, document_id: &str) -> String {
+        let extract = Extract::new(document_id.to_string(), "extract body".to_string());
+        repo.create_extract(&extract).await.expect("create extract").id
+    }
+
+    async fn make_learning_item(repo: &Repository) -> String {
+        let item = LearningItem::new(ItemType::Basic, "question?".to_string());
+        repo.create_learning_item(&item)
+            .await
+            .expect("create learning item")
+            .id
+    }
+
+    fn empty_result() -> BulkOperationResult {
+        BulkOperationResult {
+            succeeded: Vec::new(),
+            failed: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    async fn suspend(repo: &Repository, ids: &[String], suspended: bool) -> BulkOperationResult {
+        let mut result = empty_result();
+        set_queue_items_suspended(repo, ids, suspended, &mut result).await;
+        result
+    }
+
+    #[tokio::test]
+    async fn suspends_a_document_only_selection() {
+        let repo = setup_repo().await;
+        let a = make_document(&repo, "A").await;
+        let b = make_document(&repo, "B").await;
+
+        let result = suspend(&repo, &[a.clone(), b.clone()], true).await;
+
+        assert_eq!(result.succeeded.len(), 2, "errors: {:?}", result.errors);
+        assert!(result.failed.is_empty());
+        assert!(repo.get_document(&a).await.unwrap().unwrap().is_dismissed);
+        assert!(repo.get_document(&b).await.unwrap().unwrap().is_dismissed);
+    }
+
+    #[tokio::test]
+    async fn suspends_an_extract_only_selection() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+        let extract = make_extract(&repo, &doc).await;
+
+        let result = suspend(&repo, &[extract.clone()], true).await;
+
+        assert_eq!(result.succeeded, vec![extract.clone()], "errors: {:?}", result.errors);
+        assert!(repo.get_extract(&extract).await.unwrap().unwrap().is_dismissed);
+    }
+
+    #[tokio::test]
+    async fn suspends_a_learning_item_only_selection() {
+        let repo = setup_repo().await;
+        let item = make_learning_item(&repo).await;
+
+        let result = suspend(&repo, &[item.clone()], true).await;
+
+        assert_eq!(result.succeeded, vec![item.clone()], "errors: {:?}", result.errors);
+        assert!(
+            repo.get_learning_item_by_id(&item)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_suspended
+        );
+    }
+
+    #[tokio::test]
+    async fn suspends_a_mixed_selection() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+        let extract = make_extract(&repo, &doc).await;
+        let item = make_learning_item(&repo).await;
+
+        let result = suspend(&repo, &[doc.clone(), extract.clone(), item.clone()], true).await;
+
+        assert_eq!(result.succeeded.len(), 3, "errors: {:?}", result.errors);
+        assert!(result.failed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn unsuspending_reverses_every_type() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+        let extract = make_extract(&repo, &doc).await;
+        let item = make_learning_item(&repo).await;
+        let ids = vec![doc.clone(), extract.clone(), item.clone()];
+
+        suspend(&repo, &ids, true).await;
+        let result = suspend(&repo, &ids, false).await;
+
+        assert_eq!(result.succeeded.len(), 3, "errors: {:?}", result.errors);
+        assert!(!repo.get_document(&doc).await.unwrap().unwrap().is_dismissed);
+        assert!(!repo.get_extract(&extract).await.unwrap().unwrap().is_dismissed);
+        assert!(
+            !repo
+                .get_learning_item_by_id(&item)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_suspended
+        );
+    }
+
+    #[tokio::test]
+    async fn unresolvable_id_fails_without_aborting_the_batch() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+
+        let result = suspend(&repo, &["not-a-real-id".to_string(), doc.clone()], true).await;
+
+        assert_eq!(result.succeeded, vec![doc.clone()]);
+        assert_eq!(result.failed, vec!["not-a-real-id".to_string()]);
+        assert_eq!(result.errors.len(), 1);
+        assert!(repo.get_document(&doc).await.unwrap().unwrap().is_dismissed);
+    }
+
+    #[tokio::test]
+    async fn resolution_uses_one_query_per_table_regardless_of_selection_size() {
+        let repo = setup_repo().await;
+        let mut ids = Vec::new();
+        for index in 0..25 {
+            ids.push(make_document(&repo, &format!("Doc{}", index)).await);
+        }
+
+        // Three tables are probed; a per-id full-table read would instead scale
+        // with the selection. Correctness stands in for the query count here:
+        // every id resolves from a single batched lookup.
+        let resolved = resolve_queue_entities(&repo, &ids).await.expect("resolve");
+
+        assert_eq!(resolved.len(), 25);
+        assert!(resolved
+            .values()
+            .all(|kind| *kind == QueueEntityKind::Document));
+    }
+
+    #[tokio::test]
+    async fn empty_selection_resolves_to_nothing() {
+        let repo = setup_repo().await;
+        let resolved = resolve_queue_entities(&repo, &[]).await.expect("resolve");
+        assert!(resolved.is_empty());
+    }
 }

@@ -31,6 +31,14 @@ export async function deleteImageAsset(assetId: string): Promise<DeleteImageAsse
   return invokeCommand<DeleteImageAssetResult>("delete_image_asset", { assetId });
 }
 
+/**
+ * Rename an asset's display name. Cards and extracts reference assets by id,
+ * so renaming never breaks an existing reference.
+ */
+export async function renameImageAsset(assetId: string, fileName: string): Promise<ImageAsset> {
+  return invokeCommand<ImageAsset>("rename_image_asset", { assetId, fileName });
+}
+
 export async function ingestImageFile(file: File): Promise<ImageAsset> {
   const base64 = await fileToBase64(file);
   return invokeCommand<ImageAsset>("ingest_image_asset", {

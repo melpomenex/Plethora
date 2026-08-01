@@ -53,10 +53,10 @@ function Assert-RequiredSidecars {
     if ($notebooklmVenv) {
       Write-Host "$Label found NotebookLM runtime: $($notebooklmVenv.FullName)"
     } else {
-      Write-Host "$Label WARNING: NotebookLM runtime directory found but no executable detected"
+      throw "$Label NotebookLM runtime directory found but no executable detected"
     }
   } else {
-    Write-Host "$Label WARNING: NotebookLM runtime directory not found (may be installed on first use)"
+    throw "$Label missing bundled NotebookLM runtime under $RootPath"
   }
 
   # Check for notebooklm sidecar wrapper (alternative to venv)
@@ -66,6 +66,8 @@ function Assert-RequiredSidecars {
 
   if ($notebooklmSidecar) {
     Write-Host "$Label found NotebookLM sidecar: $($notebooklmSidecar.FullName)"
+  } else {
+    throw "$Label missing NotebookLM sidecar under $RootPath"
   }
 }
 

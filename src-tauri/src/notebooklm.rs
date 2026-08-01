@@ -721,6 +721,11 @@ fn is_cli_missing_error(err: &AppError) -> bool {
     lower.contains("no such file or directory")
         || lower.contains("os error 2")
         || lower.contains("command not found")
+        // The checked-in macOS/Linux wrapper is executable, but when its
+        // bundled runtime is absent it exits with this message. Treat that as
+        // a missing CLI so managed Python + Playwright bootstrap can run on a
+        // clean developer machine.
+        || lower.contains("notebooklm is not installed")
 }
 
 fn apply_notebooklm_command_env(
@@ -784,7 +789,12 @@ async fn run_notebooklm_command_internal(
             .arg("notebooklm.notebooklm_cli")
             .args(&effective_args)
             .env("PYTHONPATH", site_packages)
-            .env("PYTHONNOUSERSITE", "1");
+            .env("PYTHONNOUSERSITE", "1")
+            // Keep the CLI's browser profile beside the app-owned storage
+            // file.  A packaged app must not depend on a stale or locked
+            // ~/.notebooklm profile from another installation.
+            .env("NOTEBOOKLM_HOME", &ctx.app_dir)
+            .env("NOTEBOOKLM_PROFILE", "default");
         if let Some(home) = python_home {
             command.env("PYTHONHOME", home);
         }
@@ -803,7 +813,9 @@ async fn run_notebooklm_command_internal(
         command
             .arg("-m")
             .arg("notebooklm.notebooklm_cli")
-            .args(&effective_args);
+            .args(&effective_args)
+            .env("NOTEBOOKLM_HOME", &ctx.app_dir)
+            .env("NOTEBOOKLM_PROFILE", "default");
         apply_notebooklm_command_env(&mut command, path_override.as_deref(), None);
         return execute_notebooklm_command_with_input(&mut command, stdin_input, input_delay_ms)
             .await;
@@ -815,7 +827,10 @@ async fn run_notebooklm_command_internal(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| "notebooklm".to_string());
     let mut command = Command::new(&executable);
-    command.args(&effective_args);
+    command
+        .args(&effective_args)
+        .env("NOTEBOOKLM_HOME", &ctx.app_dir)
+        .env("NOTEBOOKLM_PROFILE", "default");
     apply_notebooklm_command_env(&mut command, path_override.as_deref(), None);
     match execute_notebooklm_command_with_input(&mut command, stdin_input, input_delay_ms).await {
         Ok(result) => return Ok(result),
@@ -837,7 +852,9 @@ async fn run_notebooklm_command_internal(
     managed_command
         .arg("-m")
         .arg("notebooklm.notebooklm_cli")
-        .args(&effective_args);
+        .args(&effective_args)
+        .env("NOTEBOOKLM_HOME", &ctx.app_dir)
+        .env("NOTEBOOKLM_PROFILE", "default");
     apply_notebooklm_command_env(
         &mut managed_command,
         path_override.as_deref(),
@@ -867,6 +884,191 @@ async fn run_notebooklm_command_no_bootstrap(
     args: &[String],
 ) -> Result<CliCommandResult, AppError> {
     run_notebooklm_command_internal(ctx, args, false, None, 0).await
+}
+
+/// Candidate persistent-browser profiles used by the bundled login flow.
+///
+/// New packaged installs keep this under the app data directory (because the
+/// child CLI receives NOTEBOOKLM_HOME). The two home-directory candidates are
+/// retained as a migration/read-only fallback so an existing notebooklm-py
+/// installation can be reused without forcing the user to sign in twice.
+fn notebooklm_browser_profile_candidates(ctx: &ProviderContext) -> Vec<PathBuf> {
+    let mut candidates = vec![
+        ctx.app_dir
+            .join("profiles")
+            .join("default")
+            .join("browser_profile"),
+    ];
+
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(
+            home.join(".notebooklm")
+                .join("profiles")
+                .join("default")
+                .join("browser_profile"),
+        );
+        candidates.push(home.join(".notebooklm").join("browser_profile"));
+    }
+
+    candidates.dedup();
+    candidates
+}
+
+/// Export cookies from a persistent Playwright profile into the app's
+/// storage_state.json. notebooklm-py's interactive login normally performs
+/// this itself, but a browser that is already authenticated can still leave
+/// the CLI waiting on Google's final redirect. Exporting the profile after
+/// that flow exits makes the one-click path resilient to that redirect race.
+async fn export_notebooklm_browser_profile(
+    ctx: &ProviderContext,
+    browser_profile: &Path,
+    storage_path: &Path,
+) -> Result<(), AppError> {
+    let Some(runtime_python) = ctx.notebooklm_runtime_python.as_ref() else {
+        return Err(AppError::IntegrationError(
+            "bundled NotebookLM Python runtime is unavailable".to_string(),
+        ));
+    };
+    let Some(playwright_path) = ctx.notebooklm_runtime_playwright.as_ref() else {
+        return Err(AppError::IntegrationError(
+            "bundled Playwright browser runtime is unavailable".to_string(),
+        ));
+    };
+
+    let Some(parent) = storage_path.parent() else {
+        return Err(AppError::IntegrationError(
+            "NotebookLM storage path has no parent directory".to_string(),
+        ));
+    };
+    fs::create_dir_all(parent)?;
+
+    // Use the installed headful Chromium binary explicitly and run it in
+    // headless mode. The portable bundle intentionally omits Playwright's
+    // separate headless-shell download, so relying on Playwright's default
+    // executable would fail on a clean packaged install.
+    let script = r#"
+import json
+import os
+import platform
+import sys
+import tempfile
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+profile = Path(sys.argv[1])
+storage = Path(sys.argv[2])
+playwright_root = Path(os.environ["PLAYWRIGHT_BROWSERS_PATH"])
+
+if not profile.is_dir():
+    raise SystemExit(f"browser profile does not exist: {profile}")
+
+if platform.system() == "Darwin":
+    candidates = list(playwright_root.glob(
+        "chromium-*/chrome-mac*/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+    ))
+elif platform.system() == "Windows":
+    candidates = list(playwright_root.glob("chromium-*/chrome-win*/chrome.exe"))
+else:
+    candidates = list(playwright_root.glob("chromium-*/chrome-linux*/chrome"))
+
+kwargs = {"headless": True, "args": ["--no-sandbox", "--password-store=basic"]}
+if candidates:
+    kwargs["executable_path"] = str(candidates[0])
+
+with sync_playwright() as playwright:
+    context = playwright.chromium.launch_persistent_context(str(profile), **kwargs)
+    state = context.storage_state()
+    context.close()
+
+# Keep the same Google-only cookie boundary as notebooklm-py's normal login
+# path. Cookies are credential-equivalent, so do not copy unrelated domains.
+state["cookies"] = [
+    cookie
+    for cookie in state.get("cookies", [])
+    if (
+        (domain := str(cookie.get("domain", "")).lstrip(".").lower()) == "google.com"
+        or domain.endswith(".google.com")
+    )
+]
+storage.parent.mkdir(parents=True, exist_ok=True)
+fd, temp_name = tempfile.mkstemp(prefix=f".{storage.name}.", suffix=".tmp", dir=storage.parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as output:
+        json.dump(state, output, indent=2, ensure_ascii=False)
+        output.flush()
+        os.fsync(output.fileno())
+    os.chmod(temp_name, 0o600)
+    os.replace(temp_name, storage)
+except Exception:
+    try:
+        os.unlink(temp_name)
+    except OSError:
+        pass
+    raise
+"#;
+
+    let python_home = runtime_python
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.to_path_buf());
+    let site_packages = ctx
+        .notebooklm_runtime_site_packages
+        .as_ref()
+        .ok_or_else(|| {
+            AppError::IntegrationError("bundled NotebookLM site-packages are unavailable".to_string())
+        })?;
+    let mut command = Command::new(runtime_python);
+    command
+        .arg("-c")
+        .arg(script)
+        .arg(browser_profile)
+        .arg(storage_path)
+        .env("PYTHONPATH", site_packages)
+        .env("PYTHONNOUSERSITE", "1")
+        .env("PLAYWRIGHT_BROWSERS_PATH", playwright_path)
+        .env("NOTEBOOKLM_HOME", &ctx.app_dir);
+    if let Some(home) = python_home {
+        command.env("PYTHONHOME", home);
+    }
+
+    execute_notebooklm_command(&mut command).await.map(|_| ())
+}
+
+async fn try_recover_notebooklm_browser_auth(
+    ctx: &ProviderContext,
+    storage_path: &Path,
+) -> Option<PathBuf> {
+    for profile in notebooklm_browser_profile_candidates(ctx) {
+        if !profile.is_dir() {
+            continue;
+        }
+
+        tracing::info!(profile = %profile.display(), "Trying to export NotebookLM browser profile");
+        if let Err(error) = export_notebooklm_browser_profile(ctx, &profile, storage_path).await {
+            tracing::debug!(profile = %profile.display(), %error, "NotebookLM browser profile export failed");
+            continue;
+        }
+
+        let verified = run_first_success_no_bootstrap(
+            ctx,
+            vec![vec![
+                "auth".to_string(),
+                "check".to_string(),
+                "--json".to_string(),
+            ]],
+        )
+        .await;
+        if verified
+            .as_ref()
+            .map(|result| stdout_reports_authenticated(&result.stdout))
+            .unwrap_or(false)
+        {
+            return Some(profile);
+        }
+    }
+
+    None
 }
 
 fn augmented_path_env() -> Option<String> {
@@ -1119,26 +1321,35 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         settings: &NotebookLMSettings,
         ctx: &ProviderContext,
     ) -> Result<NotebookLMHealth, AppError> {
-        if run_first_success_no_bootstrap(
+        let verification = run_first_success_no_bootstrap(
             ctx,
             vec![
+                vec![
+                    "auth".to_string(),
+                    "check".to_string(),
+                    "--json".to_string(),
+                ],
                 vec!["status".to_string(), "--json".to_string()],
                 vec!["status".to_string()],
             ],
         )
-        .await
-        .is_ok()
-        {
-            Ok(NotebookLMHealth {
-                connected: auth.connected,
-                provider: settings.provider.clone(),
-                active_notebook_id: settings.active_notebook_id.clone(),
-                message: "NotebookLM CLI reachable".to_string(),
-            })
-        } else {
-            Err(AppError::IntegrationError(
-                "NotebookLM CLI is not reachable".to_string(),
-            ))
+        .await;
+
+        match verification {
+            Ok(result) if stdout_reports_authenticated(&result.stdout) => {
+                Ok(NotebookLMHealth {
+                    connected: auth.connected,
+                    provider: settings.provider.clone(),
+                    active_notebook_id: settings.active_notebook_id.clone(),
+                    message: "NotebookLM CLI authenticated".to_string(),
+                })
+            }
+            Ok(_) => Err(AppError::IntegrationError(
+                "NotebookLM CLI is installed but not authenticated".to_string(),
+            )),
+            Err(error) => Err(AppError::IntegrationError(format!(
+                "NotebookLM CLI is not reachable: {error}"
+            ))),
         }
     }
 
@@ -2539,6 +2750,21 @@ fn save_auth(root: &Path, auth: &NotebookLMAuthState) -> Result<(), AppError> {
     write_json_secure(&auth_path(root), auth)
 }
 
+fn persist_cli_auth_state(root: &Path, storage: &Path) -> Result<(), AppError> {
+    let mut auth_state = load_auth(root)?;
+    auth_state.connected = true;
+    auth_state.last_connected_at = Some(Utc::now().to_rfc3339());
+    auth_state.provider = "cli".to_string();
+    auth_state.storage_path = Some(storage.to_string_lossy().to_string());
+    save_auth(root, &auth_state)?;
+
+    let mut settings = load_settings(root)?;
+    settings.enabled = true;
+    settings.provider = "cli".to_string();
+    save_settings(root, &settings)?;
+    Ok(())
+}
+
 fn load_jobs(root: &Path) -> Result<JobsFile, AppError> {
     let path = jobs_path(root);
     if !path.exists() {
@@ -2585,6 +2811,118 @@ fn resolve_notebook_id(
         .clone()
         .or_else(|| settings.active_notebook_id.clone())
         .ok_or_else(|| AppError::InvalidInput("No notebook selected".to_string()))
+}
+
+/// Decide whether a NotebookLM CLI status/auth response affirmatively reports
+/// an authenticated session.
+///
+/// This **fails closed**: only an explicit positive counts. Everything else —
+/// an unparseable body, a body with no recognizable field, ambiguous text — is
+/// treated as not authenticated.
+///
+/// The previous logic did the opposite in three places. It trusted the process
+/// exit status without reading the body (`auth check --json` exiting 0 while
+/// reporting `{"authenticated": false}` was read as success), and when a call
+/// failed it asked whether the error message *looked* like an auth error,
+/// so any unrecognized failure — CLI missing, Playwright browser absent,
+/// timeout, connection refused — was read as authenticated. That is what
+/// produced a green "Connected · 0 notebook(s)" over a session that had never
+/// logged in.
+fn stdout_reports_authenticated(stdout: &str) -> bool {
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        return json_reports_authenticated(&value);
+    }
+
+    let lower = trimmed.to_lowercase();
+    // Explicit negatives win over any positive-looking substring they contain.
+    const NEGATIVE: [&str; 7] = [
+        "not logged in",
+        "not authenticated",
+        "not signed in",
+        "no active session",
+        "unauthorized",
+        "please log in",
+        "please login",
+    ];
+    if NEGATIVE.iter().any(|marker| lower.contains(marker)) {
+        return false;
+    }
+
+    const POSITIVE: [&str; 3] = ["logged in as", "authenticated as", "signed in as"];
+    POSITIVE.iter().any(|marker| lower.contains(marker))
+}
+
+/// Look for an affirmative authenticated flag, or failing that a non-empty
+/// account identity, anywhere in the top level or one nesting level down.
+fn json_reports_authenticated(value: &serde_json::Value) -> bool {
+    const FLAGS: [&str; 6] = [
+        "authenticated",
+        "isAuthenticated",
+        "is_authenticated",
+        "loggedIn",
+        "logged_in",
+        "signedIn",
+    ];
+    for key in FLAGS {
+        if let Some(flag) = value.get(key).and_then(|v| v.as_bool()) {
+            return flag;
+        }
+    }
+
+    const IDENTITY: [&str; 3] = ["email", "account", "user"];
+    for key in IDENTITY {
+        if let Some(identity) = value.get(key).and_then(|v| v.as_str()) {
+            if !identity.trim().is_empty() {
+                return true;
+            }
+        }
+    }
+
+    // notebooklm-py auth check --json reports a successful cookie/session
+    // validation as `{ status: "ok", checks: { cookies_present: true,
+    // sid_cookie: true } }`; it does not include an `authenticated` field.
+    // Require both cookie checks so an unrelated `{status:"ok"}` response
+    // cannot be mistaken for an authenticated NotebookLM session.
+    if value.get("status").and_then(|v| v.as_str()) == Some("ok") {
+        let checks = value.get("checks");
+        let cookies_present = checks
+            .and_then(|v| v.get("cookies_present"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let sid_cookie = checks
+            .and_then(|v| v.get("sid_cookie"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if cookies_present && sid_cookie {
+            return true;
+        }
+    }
+
+    // Some CLI versions nest the payload; check one level down, but never
+    // treat a bare object with no recognizable field as authenticated.
+    for key in ["auth", "status", "data", "session"] {
+        if let Some(nested) = value.get(key) {
+            if nested.is_object() && json_reports_authenticated(nested) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Fail-closed wrapper for a CLI invocation whose result decides auth state.
+fn cli_result_reports_authenticated(result: &Result<CliCommandResult, AppError>) -> bool {
+    match result {
+        Ok(command) => stdout_reports_authenticated(&command.stdout),
+        // A failed invocation is never evidence of an authenticated session.
+        Err(_) => false,
+    }
 }
 
 fn is_auth_error(err: &str) -> bool {
@@ -3315,21 +3653,19 @@ pub async fn notebooklm_check_cli(app: tauri::AppHandle) -> Result<serde_json::V
             let status_result = run_first_success_no_bootstrap(
                 &ctx,
                 vec![
+                    vec![
+                        "auth".to_string(),
+                        "check".to_string(),
+                        "--json".to_string(),
+                    ],
                     vec!["status".to_string(), "--json".to_string()],
                     vec!["status".to_string()],
                 ],
             )
             .await;
 
-            let mut is_authenticated = match status_result {
-                Ok(_) => true,
-                Err(e) => {
-                    let err_str = e.to_string().to_lowercase();
-                    !err_str.contains("not logged in")
-                        && !err_str.contains("unauthorized")
-                        && !err_str.contains("401")
-                }
-            };
+            // Fail closed: only an affirmative status body counts as a session.
+            let mut is_authenticated = cli_result_reports_authenticated(&status_result);
 
             if !is_authenticated {
                 let app_storage = ctx.app_dir.join("storage_state.json");
@@ -3338,36 +3674,17 @@ pub async fn notebooklm_check_cli(app: tauri::AppHandle) -> Result<serde_json::V
                     let status_retry = run_first_success_no_bootstrap(
                         &ctx,
                         vec![
+                            vec![
+                                "auth".to_string(),
+                                "check".to_string(),
+                                "--json".to_string(),
+                            ],
                             vec!["status".to_string(), "--json".to_string()],
                             vec!["status".to_string()],
                         ],
                     )
                     .await;
-                    is_authenticated = match status_retry {
-                        Ok(_) => true,
-                        Err(e) => {
-                            let err_str = e.to_string().to_lowercase();
-                            !err_str.contains("not logged in")
-                                && !err_str.contains("unauthorized")
-                                && !err_str.contains("401")
-                        }
-                    };
-
-                    if is_authenticated {
-                        // Automatically connect in our auth/settings state
-                        let root = integration_root(&app)?;
-                        let mut auth_state = load_auth(&root)?;
-                        auth_state.connected = true;
-                        auth_state.last_connected_at = Some(Utc::now().to_rfc3339());
-                        auth_state.provider = "cli".to_string();
-                        auth_state.storage_path = Some(app_storage.to_string_lossy().to_string());
-                        let _ = save_auth(&root, &auth_state);
-
-                        let mut settings = load_settings(&root)?;
-                        settings.enabled = true;
-                        settings.provider = "cli".to_string();
-                        let _ = save_settings(&root, &settings);
-                    }
+                    is_authenticated = cli_result_reports_authenticated(&status_retry);
                 }
             }
 
@@ -3486,10 +3803,14 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
         .await;
 
         let auth_valid = match &verify {
-            Ok(_) => true,
+            // The body decides, not the exit status: `auth check --json` can
+            // exit 0 while reporting an unauthenticated session.
+            Ok(command) => stdout_reports_authenticated(&command.stdout),
             Err(verify_err) => {
                 let msg = verify_err.to_string();
-                // auth check might not exist in older CLI versions, so also try list
+                // `auth check` does not exist in older CLI versions. Falling
+                // back to a command that requires a session is legitimate
+                // evidence; any other failure is not.
                 if msg.contains("no such command") || msg.contains("No such command") {
                     run_first_success_no_bootstrap(
                         &ctx,
@@ -3498,7 +3819,7 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
                     .await
                     .is_ok()
                 } else {
-                    !is_auth_error(&msg)
+                    false
                 }
             }
         };
@@ -3529,10 +3850,29 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
         }
     }
 
+    // A previous login may have completed in Chromium without the CLI
+    // noticing Google's final redirect. Re-export the persistent browser
+    // profile before opening another window; this also migrates auth created
+    // by an older build that stored its profile under ~/.notebooklm.
+    if ctx.notebooklm_runtime_python.is_some() {
+        if let Some(profile) = try_recover_notebooklm_browser_auth(&ctx, &app_storage).await {
+            persist_cli_auth_state(&root, &app_storage)?;
+            tracing::info!(profile = %profile.display(), "Reused authenticated NotebookLM browser profile");
+            return Ok(serde_json::json!({
+                "success": true,
+                "message": "Logged in using the existing browser session",
+                "strategy": "browser_profile_reuse",
+                "output": format!("Captured auth from {}", profile.display()),
+            }));
+        }
+    }
+
     // ── Strategy 2: System CLI login (proper browser) ─────────────────────
     // Try to find system `notebooklm` on PATH and run login WITHOUT --storage
     // override, so it uses ~/.notebooklm/ natively and opens a proper Chromium
-    let system_cli_result = {
+    // The packaged runtime gets first chance below; this avoids an unrelated
+    // system CLI's two-minute stdin wait on a clean one-click install.
+    let system_cli_result = if ctx.notebooklm_runtime_python.is_none() {
         let path_override = augmented_path_env();
         let mut cmd = Command::new("notebooklm");
         cmd.arg("login")
@@ -3570,6 +3910,8 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
                 None // not found on PATH, skip to strategy 3
             }
         }
+    } else {
+        None
     };
 
     if let Some(cli_result) = system_cli_result {
@@ -3626,32 +3968,35 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
                 vec![vec!["list".to_string(), "--json".to_string()]],
             )
             .await;
+            // `list --json` requires a session, so a successful call is itself
+            // the affirmative evidence. Any failure — auth-shaped or not — means
+            // the login did not complete; connecting anyway is what produced a
+            // "Connected" state over a session that had never logged in.
             if let Err(verify_err) = verify {
-                let verify_msg = verify_err.to_string();
-                if is_auth_error(&verify_msg) {
-                    tracing::warn!(
-                        "Strategy 3: login flow ended but auth verification failed: {}",
-                        verify_msg
-                    );
-                    return Err(AppError::IntegrationError(
-                        "Login did not complete. Please try running 'notebooklm login' in a terminal first, then reconnect."
-                            .to_string(),
-                    ));
+                tracing::warn!(
+                    "Strategy 3: login flow ended but auth verification failed: {}",
+                    verify_err
+                );
+
+                if let Some(profile) =
+                    try_recover_notebooklm_browser_auth(&ctx, &app_storage).await
+                {
+                    persist_cli_auth_state(&root, &app_storage)?;
+                    return Ok(serde_json::json!({
+                        "success": true,
+                        "message": "Login successful using the browser session",
+                        "strategy": "browser_profile_recovery",
+                        "output": format!("Captured auth from {}", profile.display()),
+                    }));
                 }
+
+                return Err(AppError::IntegrationError(
+                    "Login did not complete. Please try running 'notebooklm login' in a terminal first, then reconnect."
+                        .to_string(),
+                ));
             }
 
-            // Auto-connect
-            let mut auth_state = load_auth(&root)?;
-            auth_state.connected = true;
-            auth_state.last_connected_at = Some(Utc::now().to_rfc3339());
-            auth_state.provider = "cli".to_string();
-            auth_state.storage_path = Some(app_storage.to_string_lossy().to_string());
-            save_auth(&root, &auth_state)?;
-
-            let mut settings = load_settings(&root)?;
-            settings.enabled = true;
-            settings.provider = "cli".to_string();
-            save_settings(&root, &settings)?;
+            persist_cli_auth_state(&root, &app_storage)?;
 
             tracing::info!("Strategy 3: bundled sidecar login completed successfully");
             Ok(serde_json::json!({
@@ -3665,12 +4010,13 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
             let err_str = e.to_string();
             tracing::error!("Strategy 3: bundled sidecar login failed: {}", err_str);
 
-            if err_str.contains("already logged in") || err_str.contains("already authenticated") {
+            if let Some(profile) = try_recover_notebooklm_browser_auth(&ctx, &app_storage).await {
+                persist_cli_auth_state(&root, &app_storage)?;
                 return Ok(serde_json::json!({
                     "success": true,
-                    "message": "Already logged in",
-                    "strategy": "bundled_sidecar",
-                    "output": err_str,
+                    "message": "Login successful using the browser session",
+                    "strategy": "browser_profile_recovery",
+                    "output": format!("Captured auth from {}", profile.display()),
                 }));
             }
 
@@ -3726,6 +4072,11 @@ pub async fn notebooklm_cli_status(app: tauri::AppHandle) -> Result<serde_json::
     let result = run_first_success_no_bootstrap(
         &ctx,
         vec![
+            vec![
+                "auth".to_string(),
+                "check".to_string(),
+                "--json".to_string(),
+            ],
             vec!["status".to_string(), "--json".to_string()],
             vec!["status".to_string()],
         ],
@@ -3734,12 +4085,11 @@ pub async fn notebooklm_cli_status(app: tauri::AppHandle) -> Result<serde_json::
 
     match result {
         Ok(output) => {
-            let stdout = output.stdout.to_lowercase();
-            let is_authenticated =
-                !stdout.contains("not logged in") && !stdout.contains("no active session");
-
+            // Fail closed. This previously treated any output that did not
+            // contain one of two exact phrases as an authenticated session, so
+            // empty output or an unrelated error line reported "logged in".
             Ok(serde_json::json!({
-                "is_authenticated": is_authenticated,
+                "is_authenticated": stdout_reports_authenticated(&output.stdout),
                 "status_output": output.stdout,
                 "error": null,
             }))
@@ -3812,6 +4162,104 @@ mod tests {
         assert!(is_auth_error("HTTP 401 Unauthorized"));
         assert!(is_auth_error("session expired"));
         assert!(!is_auth_error("network timeout"));
+    }
+
+    #[test]
+    fn affirmative_json_reports_authenticated() {
+        assert!(stdout_reports_authenticated(r#"{"authenticated": true}"#));
+        assert!(stdout_reports_authenticated(r#"{"loggedIn": true}"#));
+        assert!(stdout_reports_authenticated(r#"{"is_authenticated": true}"#));
+        assert!(stdout_reports_authenticated(
+            r#"{"email": "reader@example.com"}"#
+        ));
+        assert!(stdout_reports_authenticated(
+            r#"{"auth": {"authenticated": true}}"#
+        ));
+        assert!(stdout_reports_authenticated(
+            r#"{"status":"ok","checks":{"cookies_present":true,"sid_cookie":true}}"#
+        ));
+    }
+
+    #[test]
+    fn explicit_unauthenticated_json_is_not_authenticated() {
+        // The reported bug: the command exits 0 and the body says no.
+        assert!(!stdout_reports_authenticated(r#"{"authenticated": false}"#));
+        assert!(!stdout_reports_authenticated(r#"{"loggedIn": false}"#));
+        assert!(!stdout_reports_authenticated(
+            r#"{"auth": {"authenticated": false}}"#
+        ));
+        assert!(!stdout_reports_authenticated(
+            r#"{"status":"ok","checks":{"cookies_present":false,"sid_cookie":false}}"#
+        ));
+    }
+
+    #[test]
+    fn unrecognized_or_empty_output_is_not_authenticated() {
+        assert!(!stdout_reports_authenticated(""));
+        assert!(!stdout_reports_authenticated("   "));
+        // Valid JSON with nothing to go on must not be read as success.
+        assert!(!stdout_reports_authenticated("{}"));
+        assert!(!stdout_reports_authenticated(r#"{"version": "1.2.3"}"#));
+        assert!(!stdout_reports_authenticated(r#"{"email": ""}"#));
+        // Unrelated diagnostics previously counted as authenticated because
+        // they did not contain one of two exact phrases.
+        assert!(!stdout_reports_authenticated("Error: browser profile locked"));
+        assert!(!stdout_reports_authenticated(
+            "The browser window was closed during login."
+        ));
+    }
+
+    #[test]
+    fn plain_text_needs_an_explicit_positive() {
+        assert!(stdout_reports_authenticated("Logged in as reader@example.com"));
+        assert!(stdout_reports_authenticated("Signed in as someone"));
+        assert!(!stdout_reports_authenticated("Not logged in"));
+        assert!(!stdout_reports_authenticated("No active session"));
+        assert!(!stdout_reports_authenticated("Unauthorized"));
+        // A negative wins even when it contains a positive-looking substring.
+        assert!(!stdout_reports_authenticated("You are not authenticated"));
+    }
+
+    #[test]
+    fn a_failed_invocation_is_never_authenticated() {
+        // Timeout, missing CLI, connection refused — none are evidence of a
+        // session, and all were previously read as authenticated because they
+        // did not match the auth-error keyword list.
+        for message in [
+            "command not found: notebooklm",
+            "operation timed out",
+            "Connection refused (os error 61)",
+            "playwright browser is not installed",
+        ] {
+            let result: Result<CliCommandResult, AppError> =
+                Err(AppError::IntegrationError(message.to_string()));
+            assert!(
+                !cli_result_reports_authenticated(&result),
+                "{} must not report authenticated",
+                message
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_wrapper_missing_runtime_triggers_bootstrap() {
+        let error = AppError::IntegrationError(
+            "command `notebooklm login` failed (exit 1): error: notebooklm is not installed\nInstall it with: pip install notebooklm-py".to_string(),
+        );
+        assert!(is_cli_missing_error(&error));
+    }
+
+    #[test]
+    fn a_successful_invocation_still_needs_an_affirmative_body() {
+        let result: Result<CliCommandResult, AppError> = Ok(CliCommandResult {
+            stdout: r#"{"authenticated": false}"#.to_string(),
+        });
+        assert!(!cli_result_reports_authenticated(&result));
+
+        let result: Result<CliCommandResult, AppError> = Ok(CliCommandResult {
+            stdout: r#"{"authenticated": true}"#.to_string(),
+        });
+        assert!(cli_result_reports_authenticated(&result));
     }
 
     #[test]

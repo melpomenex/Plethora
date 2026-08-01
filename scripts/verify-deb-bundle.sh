@@ -25,7 +25,9 @@ for deb in "${debs[@]}"; do
     exit 1
   fi
 
-  # Check for NotebookLM runtime (optional but recommended)
+  # NotebookLM is bundled for desktop release artifacts. Fail if the runtime
+  # or its sidecar is absent so a release cannot silently regress to a
+  # first-run Python installation.
   if grep -Eq '/notebooklm-runtime' <<<"$listing"; then
     echo "NotebookLM runtime directory found in $deb"
 
@@ -33,10 +35,12 @@ for deb in "${debs[@]}"; do
     if grep -Eq '/notebooklm(-[^/ ]*)?$' <<<"$listing"; then
       echo "NotebookLM sidecar found in $deb"
     else
-      echo "WARNING: NotebookLM runtime directory found but no sidecar in $deb"
+      echo "Missing NotebookLM sidecar in $deb"
+      exit 1
     fi
   else
-    echo "WARNING: NotebookLM runtime not bundled in $deb (users need to install notebooklm-py separately)"
+    echo "Missing NotebookLM runtime in $deb"
+    exit 1
   fi
 done
 

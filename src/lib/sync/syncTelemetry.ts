@@ -13,6 +13,7 @@ export type SyncPhase =
   | "map-ready"
   | "projection"
   | "clock-cache-init"
+  | "startup-subsystem"
   | "projection-batch"
   | "tab-switch";
 
@@ -101,6 +102,20 @@ export async function measureSyncPhase<T>(phase: SyncPhase, work: () => Promise<
     throw error;
   } finally {
     end();
+  }
+}
+
+/** Measure one named phase of the sync boot chain for the diagnostics panel. */
+export async function measureStartupPhase<T>(name: string, work: () => Promise<T>): Promise<T> {
+  const end = markSyncPhaseStart("startup-subsystem");
+  try {
+    const result = await work();
+    end({ outcome: "ok", surface: name });
+    return result;
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === "StartupTimeoutError";
+    end({ outcome: timedOut ? "timeout" : "error", surface: name });
+    throw error;
   }
 }
 

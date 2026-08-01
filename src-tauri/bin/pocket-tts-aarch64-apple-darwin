@@ -1,12 +1,5 @@
 #!/bin/sh
-# Pocket TTS Wrapper Script for macOS (Apple Silicon)
-#
-# This script wraps the system-installed pocket-tts CLI for use as a Tauri sidecar.
-# The pocket-tts package should be installed via: uv tool install pocket-tts
-# or: pip install pocket-tts
-
 set -eu
-
 # Check for --text-file and transform into --text by reading the file
 TEXT_FILE=""
 skip=false
@@ -33,39 +26,31 @@ while [ $i -lt $argc ]; do
       ;;
   esac
 done
-
 if [ -n "$TEXT_FILE" ] && [ -f "$TEXT_FILE" ]; then
   set -- "$@" "--text" "$(cat "$TEXT_FILE")"
   rm -f "$TEXT_FILE"
 fi
-
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 RUNTIME_BASE="$SCRIPT_DIR/pocket-tts-runtime/aarch64-apple-darwin"
 RUNTIME_PY="$RUNTIME_BASE/python/bin/python3"
 RUNTIME_SITE="$RUNTIME_BASE/site-packages"
-
-# Try bundled runtime first
 if [ -x "$RUNTIME_PY" ] && [ -d "$RUNTIME_SITE" ]; then
   export PYTHONHOME="$RUNTIME_BASE/python"
   export PYTHONPATH="$RUNTIME_SITE"
   exec "$RUNTIME_PY" -m pocket_tts "$@"
 fi
-
-# Fall back to system-installed pocket-tts
 if [ -n "${HOME:-}" ] && [ -d "$HOME/.local/bin" ]; then
   PATH="$PATH:$HOME/.local/bin"
 fi
 PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH
-
-for CANDIDATE in "${HOME:-}/.local/bin/pocket-tts" /usr/local/bin/pocket-tts /usr/bin/pocket-tts /opt/homebrew/bin/pocket-tts; do
+for CANDIDATE in "${HOME:-}/.local/bin/pocket-tts" /usr/local/bin/pocket-tts /usr/bin/pocket-tts /bin/pocket-tts; do
   if [ -x "$CANDIDATE" ]; then
     if [ "$(dirname -- "$CANDIDATE")" != "$SCRIPT_DIR" ]; then
       exec "$CANDIDATE" "$@"
     fi
   fi
 done
-
 RESOLVED_PATH=""
 OLD_IFS="$IFS"
 IFS=":"
@@ -78,7 +63,6 @@ for DIR in $PATH; do
   fi
 done
 IFS="$OLD_IFS"
-
 if [ -n "$RESOLVED_PATH" ]; then
   exec "$RESOLVED_PATH" "$@"
 else

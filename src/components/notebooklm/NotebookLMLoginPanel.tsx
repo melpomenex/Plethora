@@ -93,22 +93,18 @@ export function NotebookLMLoginPanel({ onAuthChange }: NotebookLMLoginPanelProps
 
       setLoginProgress(80);
 
-      // Backend auto-connects on success, but verify via status check
-      try {
-        const auth = await notebooklmCLIStatus();
-        if (auth.is_authenticated) {
-          setAuthStatus(auth);
-          setStep("authenticated");
-          setLoginProgress(100);
-          onAuthChange?.(true);
-          return;
-        }
-      } catch {
-        // Status check failed, still treat login as successful since backend reported success
+      // The status check is the authority, not the login command's own report.
+      // This previously fell through to "authenticated" when the check failed
+      // or returned false, which is how a failed login still showed as
+      // connected.
+      const auth = await notebooklmCLIStatus();
+      if (!auth.is_authenticated) {
+        throw new Error(
+          "Login did not complete — NotebookLM still reports no active session.",
+        );
       }
 
-      // If we got here, login reported success but status check didn't confirm.
-      // Still transition to authenticated since the backend auto-connected.
+      setAuthStatus(auth);
       setStep("authenticated");
       setLoginProgress(100);
       onAuthChange?.(true);

@@ -106,6 +106,7 @@ src-tauri/bin/libwhisper*
 src-tauri/bin/libonnxruntime*
 src-tauri/bin/*.placeholder.dll
 src-tauri/bin/libplaceholder.so
+src-tauri/bin/libplaceholder.dylib
 
 # Android assets copied during build
 src-tauri/gen/android/app/src/main/assets/
