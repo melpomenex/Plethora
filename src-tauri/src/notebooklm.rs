@@ -2555,11 +2555,15 @@ async fn ensure_managed_notebooklm_runtime(
     )
     .await;
 
+    // Pin to the 0.8.0rc1 pre-release for the NotebookLM→Google Gemini rebrand
+    // login fix; the bare spec would otherwise resolve to the latest *stable*
+    // (0.7.3), which can no longer complete the login flow. Drop the pin once a
+    // stable 0.8.0 ships.
     let install_cli = vec![
         "-m".to_string(),
         "pip".to_string(),
         "install".to_string(),
-        "notebooklm-py[browser]".to_string(),
+        "notebooklm-py[browser]==0.8.0rc1".to_string(),
     ];
     run_command_required(
         &venv_python.to_string_lossy(),

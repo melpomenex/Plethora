@@ -800,7 +800,11 @@ function buildPortableNotebookLMRuntime(targetTriple, pythonCmd) {
   if (!runOptionalCommand(`${pythonCmd} -m pip --version`, process.env)) {
     runOptionalCommand(`${pythonCmd} -m ensurepip --upgrade`, process.env);
   }
-  execSync(`${pythonCmd} -m pip install --target "${sitePackages}" "notebooklm-py[browser]"`, {
+  // Pin to the 0.8.0rc1 pre-release for the NotebookLM→Google Gemini rebrand
+  // login fix; the bare spec would otherwise resolve to the latest *stable*
+  // (0.7.3), which can no longer complete the login flow. Drop the pin once a
+  // stable 0.8.0 ships.
+  execSync(`${pythonCmd} -m pip install --target "${sitePackages}" "notebooklm-py[browser]==0.8.0rc1"`, {
     stdio: 'inherit',
     env: process.env,
   });
@@ -875,7 +879,8 @@ function ensureNotebookLMSidecar(targetTriple) {
       fs.mkdirSync(runtimeDir, { recursive: true });
       execSync(`${pythonCmd} -m venv "${venvPath}"`, { stdio: 'inherit' });
       execSync(`"${py}" -m pip install --upgrade pip`, { stdio: 'inherit' });
-      execSync(`"${py}" -m pip install "notebooklm-py[browser]"`, { stdio: 'inherit' });
+      // Pin to 0.8.0rc1 for the rebrand login fix (see portable-runtime path above).
+      execSync(`"${py}" -m pip install "notebooklm-py[browser]==0.8.0rc1"`, { stdio: 'inherit' });
       execSync(`"${py}" -m playwright install chromium --no-shell`, {
         stdio: 'inherit',
         env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: '0' },
