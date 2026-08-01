@@ -8,6 +8,7 @@ export type SyncPhase =
   | "first-queue-data"
   | "background-hydration"
   | "indexeddb-replay"
+  | "indexeddb-compact"
   | "provider-setup"
   | "migration"
   | "map-ready"

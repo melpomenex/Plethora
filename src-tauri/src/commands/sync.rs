@@ -992,6 +992,122 @@ pub async fn upsert_synced_review_results_batch(
     Ok(())
 }
 
+/// The subset of a `learning_items` row that the queue auto-postpone engine
+/// reads. Returning a projected slice (instead of `SELECT *`) keeps the full
+/// card body — question/answer/cloze text, tags, image assets, interaction
+/// metadata — out of the WebView heap on the bulk postpone path.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PostponeLearningItem {
+    pub id: String,
+    pub interval: f64,
+    pub difficulty: f64,
+    pub ease_factor: f64,
+    pub review_count: i64,
+    pub lapses: i64,
+    pub last_review_date: Option<String>,
+    pub memory_state_stability: Option<f64>,
+    pub memory_state_difficulty: Option<f64>,
+}
+
+/// Server-side filter for learning items modified after an HLC timestamp.
+///
+/// `publishRecentlyModifiedCards` previously called `get_all_learning_items`
+/// (a full `SELECT *` of the table including cloze/answer/tags text) and then
+/// filtered client-side by `updated_at > since`. That pulled the entire library
+/// into the WebView heap on every bulk queue action. This returns only the ids
+/// newer than the cutoff (the `idx_learning_items_updated_at` index serves it),
+/// so the caller can re-fetch full rows for just the handful of survivors.
+#[tauri::command]
+pub async fn get_learning_item_ids_modified_since(
+    since_hlc: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<String>> {
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT id FROM learning_items WHERE updated_at > ?1 ORDER BY updated_at ASC")
+            .bind(since_hlc)
+            .fetch_all(repo.pool())
+            .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
+/// Fetch the projected scheduling fields for the given learning-item ids.
+///
+/// Used by the queue auto-postpone path, which previously called
+/// `get_all_learning_items` and built a Map of full rows (with all card text)
+/// just to read a few scheduling fields. This returns only those fields for the
+/// ids actually in the queue, so none of the heavy text columns cross the IPC
+/// boundary. An empty/missing id is simply absent from the result.
+#[tauri::command]
+pub async fn get_learning_items_for_postpone(
+    ids: Vec<String>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<PostponeLearningItem>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Bind a variable-length IN(...) via SQLite's json_each to stay within
+    // sqlx's bind limits regardless of queue size. Columns are read positionally
+    // as a tuple to match the get_all_learning_item_clocks house style.
+    let ids_json = serde_json::to_string(&ids)?;
+    let rows: Vec<(
+        String,
+        f64,
+        f64,
+        f64,
+        i64,
+        i64,
+        Option<String>,
+        Option<f64>,
+        Option<f64>,
+    )> = sqlx::query_as(
+        r#"
+        SELECT
+            li.id,
+            li.interval,
+            li.difficulty,
+            li.ease_factor,
+            li.review_count,
+            li.lapses,
+            li.last_review_date,
+            li.memory_state_stability,
+            li.memory_state_difficulty
+        FROM learning_items AS li
+        JOIN json_each(?1) AS j ON j.value = li.id
+        WHERE li.is_suspended = 0
+        "#,
+    )
+    .bind(ids_json)
+    .fetch_all(repo.pool())
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(
+                id,
+                interval,
+                difficulty,
+                ease_factor,
+                review_count,
+                lapses,
+                last_review_date,
+                memory_state_stability,
+                memory_state_difficulty,
+            )| PostponeLearningItem {
+                id,
+                interval,
+                difficulty,
+                ease_factor,
+                review_count,
+                lapses,
+                last_review_date,
+                memory_state_stability,
+                memory_state_difficulty,
+            },
+        )
+        .collect())
+}
+
 #[cfg(test)]
 mod arena_sync_tests {
     use super::SyncedReviewResult;

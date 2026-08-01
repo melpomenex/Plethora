@@ -103,6 +103,19 @@ export interface ReplicatedMapConfig<T extends { updatedAt: string }> {
   verbose?: boolean;
   /** Priority for replaying existing rows. Remote changes are always P0. */
   replayLane?: SyncLane;
+  /**
+   * For `append-only` maps only: prune entries whose `clockField` is older than
+   * this many days from the SHARED sync map during the init sweep. The local
+   * SQLite projection is untouched — once a row has been projected (its `apply`
+   * ran), it is permanent in each device's local database. This only bounds the
+   * size of the in-memory CRDT document / delivery buffer, which otherwise
+   * grows monotonically forever (append-only maps have no tombstone path, so
+   * the tombstone GC never touches them).
+   *
+   * The `clockField` value is parsed as an HLC (`"<epoch-ms>.<counter>"`); rows
+   * whose clock prefix predates the cutoff are deleted from the shared map.
+   */
+  maxAgeDays?: number;
 }
 
 export interface ApplyContext {
@@ -275,6 +288,50 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
             if (removed > 0) log("gc'd", removed, "tombstones");
           } catch (err) {
             log("tombstone gc failed", err);
+          }
+          // Append-only maps with a maxAgeDays bound: schedule a deferred
+          // prune of entries older than the cutoff. This must NOT run inline:
+          // the replay loop above only *enqueues* projection (the scheduler
+          // drains it asynchronously), and handleRemote re-reads the map entry
+          // at execution time — pruning inline would make those entries vanish
+          // before they reach SQLite. So we defer to a later task that itself
+          // only prunes entries already projected (in appliedClocks), leaving
+          // the rest for a subsequent sweep. Local SQLite is the permanent
+          // record; this only bounds the shared CRDT delivery buffer, which
+          // otherwise grows forever (append-only maps have no tombstone path).
+          if (mode === "append-only" && config.maxAgeDays && config.maxAgeDays > 0) {
+            const maxAgeDays = config.maxAgeDays;
+            const runPrune = (): void => {
+              try {
+                const result = pruneAgedAppendEntries(
+                  map,
+                  clockField,
+                  maxAgeDays,
+                  state.appliedClocks,
+                );
+                if (result.removed > 0) {
+                  log("pruned", result.removed, `aged append-only entries (>${maxAgeDays}d)`);
+                }
+                // If some aged entries are still pending projection (not yet in
+                // appliedClocks, e.g. batched writes still in their 50ms flush
+                // window), re-schedule after a short delay so they get pruned
+                // this session rather than waiting for the next cold boot.
+                if (result.pending > 0) {
+                  setTimeout(() => scheduler.enqueue({
+                    id: `${config.label}:prune-aged-retry`,
+                    lane: "P3",
+                    run: runPrune,
+                  }), 250);
+                }
+              } catch (err) {
+                log("append-only prune failed", err);
+              }
+            };
+            scheduler.enqueue({
+              id: `${config.label}:prune-aged`,
+              lane: "P3",
+              run: runPrune,
+            });
           }
           state.initialized = true;
         } catch (err) {
@@ -567,4 +624,56 @@ function gcTombstonesMap<T extends { updatedAt: string }>(
     }
   }
   return removed;
+}
+
+/**
+ * Prune entries from an append-only map whose clock field predates the age
+ * cutoff. Used to bound append-only maps (e.g. review history) that have no
+ * tombstone path and would otherwise grow the in-memory CRDT document forever.
+ *
+ * The clock field is an HLC string (`"<epoch-ms>.<counter>"`); we extract the
+ * 13-digit epoch-ms prefix (same parse the tombstone GC uses). Entries whose
+ * clock we cannot parse are left in place — never delete data we can't date.
+ *
+ * RACE-SAFETY: only deletes entries already projected to local SQLite (i.e.
+ * present in `appliedClocks`). `handleRemote` re-reads the map entry at
+ * execution time, so deleting an entry before its projection task runs would
+ * silently drop it from SQLite. Entries that haven't been projected yet are
+ * left for a subsequent sweep. Local SQLite is the permanent record; the
+ * shared map is only a delivery buffer.
+ */
+export interface AppendPruneResult {
+  /** Entries deleted from the shared map this pass. */
+  removed: number;
+  /** Aged entries left in place because they haven't projected to SQLite yet. */
+  pending: number;
+}
+
+function pruneAgedAppendEntries<T extends { updatedAt: string }>(
+  map: Y.Map<Tombstoned<T>>,
+  clockField: keyof T,
+  maxAgeDays: number,
+  appliedClocks: Map<string, string>,
+): AppendPruneResult {
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+  let removed = 0;
+  let pending = 0;
+  for (const key of Array.from(map.keys())) {
+    const value = map.get(key);
+    // Skip tombstones — those are the tombstone GC's responsibility.
+    if (isTombstone(value)) continue;
+    const rawClock = String((value as Record<string, unknown>)?.[clockField as string] ?? "");
+    const m = /^(\d{13})\./.exec(rawClock);
+    if (!m) continue; // can't date it — leave it
+    const ms = Number(m[1]);
+    if (Number.isNaN(ms) || ms >= cutoff) continue; // not aged — leave it
+    // Aged. Only delete if already projected; otherwise leave for a retry.
+    if (appliedClocks.has(key)) {
+      map.delete(key);
+      removed += 1;
+    } else {
+      pending += 1;
+    }
+  }
+  return { removed, pending };
 }

@@ -9,7 +9,9 @@ import { markSyncPhaseStart } from "./sync/syncTelemetry";
 type YjsSyncState = {
   doc: Y.Doc;
   provider: WebsocketProvider;
-  persistence: IndexeddbPersistence;
+  /** Null when IndexedDB is unavailable (some mobile WebViews) — sync then
+   *  runs in-memory only with no offline persistence. */
+  persistence: IndexeddbPersistence | null;
   url: string;
   room: string;
   encrypted: boolean;
@@ -20,8 +22,23 @@ type YjsSyncState = {
 
 const DEFAULT_SYNC_URL = "wss://sync.readsync.org";
 const ROOM_KEY = "incrementum_sync_room";
-const DB_NAME = "incrementum-yjs";
+const DB_NAME_PREFIX = "incrementum-yjs";
 const CORRUPTION_FLAG_KEY = "incrementum-yjs-corruption-detected";
+
+/**
+ * y-indexeddb scope per room. The library's auto-trim only fires for updates
+ * whose origin is not the persistence instance, so network-replayed updates
+ * never compact and a single shared update log grew unbounded across boots —
+ * the dominant cause of the multi-GB cold-start heap spike. Scoping the DB to
+ * the room id means the log can only ever contain this room's CRDT history,
+ * and a stale log from a previous room can never be replayed into the current
+ * room's doc. See yjsCompaction.ts for the snapshot-and-trim that bounds it.
+ */
+function dbNameForRoom(room: string): string {
+  // Sanitize so the room id (hex/random) can't break the IndexedDB name.
+  const safe = room.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64) || "default";
+  return `${DB_NAME_PREFIX}:${safe}`;
+}
 
 let instance: YjsSyncState | null = null;
 
@@ -81,34 +98,57 @@ export function createNewSyncRoomId(): string {
 }
 
 /**
- * Clear corrupted IndexedDB data for Yjs
+ * Clear corrupted IndexedDB data for Yjs.
+ *
+ * With per-room scoping this targets the current room's database (the one most
+ * likely to be corrupted). Pass an explicit room id to clear a different room,
+ * or pass `legacyOnly: true` to remove the pre-scoping shared database from
+ * older installs. Returns true if any deletion completed.
  */
-export async function clearYjsIndexedDB(): Promise<boolean> {
+export async function clearYjsIndexedDB(
+  opts?: { room?: string; legacyOnly?: boolean },
+): Promise<boolean> {
   if (typeof indexedDB === "undefined") return false;
 
-  try {
+  const targets: string[] = [];
+  if (opts?.legacyOnly) {
+    targets.push(DB_NAME_PREFIX);
+  } else {
+    const room = opts?.room ?? getSyncRoomId();
+    targets.push(dbNameForRoom(room));
+    // Also sweep the pre-scoping shared DB so an upgrade doesn't leave a stale
+    // multi-GB database sitting on disk forever.
+    targets.push(DB_NAME_PREFIX);
+  }
 
-    await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.deleteDatabase(DB_NAME);
-      request.onsuccess = () => {
-        resolve();
-      };
-      request.onerror = () => {
-        console.error("[YjsSync] Failed to clear IndexedDB:", request.error);
-        reject(request.error);
-      };
-      request.onblocked = () => {
-        console.warn("[YjsSync] Database deletion blocked");
-        resolve();
-      };
-    });
+  let any = false;
+  try {
+    for (const name of targets) {
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase(name);
+        request.onsuccess = () => {
+          resolve();
+        };
+        request.onerror = () => {
+          console.error("[YjsSync] Failed to clear IndexedDB:", request.error);
+          reject(request.error);
+        };
+        request.onblocked = () => {
+          console.warn("[YjsSync] Database deletion blocked");
+          resolve();
+        };
+      }).catch((e) => {
+        console.warn(`[YjsSync] Could not delete database ${name}:`, e);
+      });
+      any = true;
+    }
 
     // Clear the corruption flag
     localStorage.removeItem(CORRUPTION_FLAG_KEY);
-    return true;
+    return any;
   } catch (error) {
     console.error("[YjsSync] Error clearing IndexedDB:", error);
-    return false;
+    return any;
   }
 }
 
@@ -154,14 +194,15 @@ export async function getYjsSync(): Promise<YjsSyncState> {
           throw new Error("IndexedDB unavailable");
         }
         const endReplay = markSyncPhaseStart("indexeddb-replay");
-        persistence = new IndexeddbPersistence(DB_NAME, doc);
+        persistence = new IndexeddbPersistence(dbNameForRoom(room), doc);
 
-        persistence.on("sync", (isSynced: boolean) => {
-          if (isSynced) {
-            endReplay();
-            // Clear corruption flag on successful sync
-            localStorage.removeItem(CORRUPTION_FLAG_KEY);
-          }
+        // y-indexeddb emits "synced" (not "sync") once the initial fetchUpdates
+        // replay completes. Listening on "sync" silently swallowed this signal,
+        // leaving the replay phase unmeasured and the corruption flag uncleared.
+        persistence.on("synced", () => {
+          endReplay();
+          // Clear corruption flag on successful sync
+          localStorage.removeItem(CORRUPTION_FLAG_KEY);
         });
 
         persistence.on("error", async (error: Error) => {
@@ -382,9 +423,16 @@ async function buildProvider(
 }
 
 /**
- * Reset Yjs sync state and clear all data
+ * Reset Yjs sync state and clear the current room's persisted data.
+ *
+ * `wipeStorage` defaults to true (teardown + clear current room's IndexedDB),
+ * which is the historical behavior and what the recovery / "reset sync" paths
+ * expect. Pass `wipeStorage: false` from the room-switch flow, where each room
+ * now owns a separate database and nothing should be deleted.
  */
-export async function resetYjsSync(): Promise<void> {
+export async function resetYjsSync(opts?: { wipeStorage?: boolean }): Promise<void> {
+  const wipe = opts?.wipeStorage ?? true;
+  const roomToWipe = instance?.room;
   if (instance) {
     try {
       instance.provider.disconnect();
@@ -413,7 +461,11 @@ export async function resetYjsSync(): Promise<void> {
     }
     instance = null;
   }
-  await clearYjsIndexedDB();
+  if (wipe) {
+    // Clear the room we were just attached to (not whatever getSyncRoomId()
+    // returns now — rejoinRoom writes the new room id before calling us).
+    await clearYjsIndexedDB({ room: roomToWipe });
+  }
 }
 
 /**
@@ -425,10 +477,11 @@ export async function resetYjsSync(): Promise<void> {
  * current instance, writes the new room ID, and rebuilds the provider against
  * the new room in-process — the UX the scan-to-join flow needs.
  *
- * y-indexeddb uses ONE database (DB_NAME) shared across rooms, so switching
- * rooms must clear it first or the new room's doc would be seeded with the old
- * room's CRDT state. A no-op is returned early when rejoining the same room to
- * avoid that wipe.
+ * y-indexeddb is now scoped per room (dbNameForRoom), so switching rooms does
+ * NOT need to wipe any database — each room owns its own update log. We only
+ * tear down the provider/doc and rebuild against the new room, which loads the
+ * new room's own database. A no-op is returned early when rejoining the same
+ * room to avoid needless churn.
  *
  * Returns the new YjsSyncState. On any failure, the instance is left in the
  * best available state and an error is thrown so the caller can fall back to a
@@ -572,13 +625,12 @@ export async function rejoinRoom(
     return instance ?? (await getYjsSync());
   }
 
-  // Write the new room ID FIRST so getYjsSync() (called via resetYjsSync's
-  // clear + the fresh build below) reads it back.
+  // Write the new room ID FIRST so getYjsSync() reads it back when rebuilding.
   setSyncRoomId(roomId);
 
-  // resetYjsSync() disconnects, destroys the doc, nulls the singleton, and
-  // clears the shared IndexedDB so the new room starts clean.
-  await resetYjsSync();
+  // Tear down the current provider/doc WITHOUT wiping storage — each room now
+  // owns its own per-room IndexedDB database, so there is nothing to clear.
+  await resetYjsSync({ wipeStorage: false });
 
   // Rebuild against the new room. getYjsSync() reads the room ID we just wrote.
   const newState = await getYjsSync();

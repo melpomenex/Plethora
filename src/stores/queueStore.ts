@@ -11,7 +11,7 @@ import {
   type BulkOperationResult,
   type QueueStats
 } from "../api/queue";
-import { getAllLearningItems, getLearningItem } from "../api/learning-items";
+import { getLearningItem, getLearningItemsForPostpone } from "../api/learning-items";
 import { useCollectionStore } from "./collectionStore";
 import type { QueueItem, SortOptions, SearchFilters } from "../types";
 import { useDocumentStore } from "./documentStore";
@@ -586,8 +586,19 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       const docs = useDocumentStore.getState().documents;
       const docMap = new Map(docs.map((d) => [d.id, d]));
 
-      const allLearningItems = await getAllLearningItems();
-      const liMap = new Map(allLearningItems.map((li) => [li.id, li]));
+      // Fetch only the scheduling fields for the learning items that are
+      // actually in the filtered queue. The previous path called
+      // getAllLearningItems (a full SELECT * including all card text) and built
+      // a Map of full rows just to read a few fields — pulling the entire
+      // library into the heap. This projection returns only what the postpone
+      // engine reads.
+      const queueLearningItemIds = filteredItems
+        .map((qi) => qi.learningItemId)
+        .filter((id): id is string => !!id);
+      const postponeItems = queueLearningItemIds.length > 0
+        ? await getLearningItemsForPostpone(queueLearningItemIds)
+        : [];
+      const liMap = new Map(postponeItems.map((li) => [li.id, li]));
 
       const inputs: PostponeInput[] = [];
       const queueItemMap = new Map<string, QueueItem>();
@@ -622,8 +633,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           const item = liMap.get(qi.learningItemId);
           if (!item) continue;
 
-          const stability = item.memory_state?.stability ?? 1;
-          const difficulty = item.memory_state?.difficulty ?? item.difficulty ?? 3;
+          const stability = item.memory_state_stability ?? 1;
+          const difficulty = item.memory_state_difficulty ?? item.difficulty ?? 3;
           const lastReview = item.last_review_date ? new Date(item.last_review_date) : null;
           const daysSinceReview = lastReview
             ? Math.max(0, Math.floor((now.getTime() - lastReview.getTime()) / 86400000))

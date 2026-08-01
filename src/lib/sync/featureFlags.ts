@@ -12,6 +12,13 @@ export interface SyncFeatureFlags {
   shardedRooms: boolean;
   dualWriteMigration: boolean;
   compaction: boolean;
+  /**
+   * y-indexeddb update-log compaction on boot + a long-interval recurring
+   * sweep. This snapshots the live doc and trims the raw update log so cold
+   * boots replay one row instead of the entire accumulated CRDT history. It is
+   * a safe, in-place snapshot (no wire-format change), so it ships enabled.
+   */
+  yjsCompaction: boolean;
 }
 
 const STORAGE_KEY = "incrementum.sync.feature-flags";
@@ -22,6 +29,7 @@ const DEFAULT_FLAGS: SyncFeatureFlags = {
   shardedRooms: false,
   dualWriteMigration: false,
   compaction: false,
+  yjsCompaction: true,
 };
 
 function envFlag(name: string): boolean | undefined {
@@ -55,6 +63,7 @@ export function getSyncFeatureFlags(): SyncFeatureFlags {
     shardedRooms: "VITE_SYNC_SHARDED_ROOMS",
     dualWriteMigration: "VITE_SYNC_DUAL_WRITE_MIGRATION",
     compaction: "VITE_SYNC_COMPACTION",
+    yjsCompaction: "VITE_SYNC_YJS_COMPACTION",
   };
   for (const key of Object.keys(flags) as Array<keyof SyncFeatureFlags>) {
     const override = envFlag(envNames[key]);

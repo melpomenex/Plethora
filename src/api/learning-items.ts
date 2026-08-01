@@ -94,6 +94,50 @@ export async function getAllLearningItems(): Promise<LearningItem[]> {
 }
 
 /**
+ * Server-side-filtered id list for learning items modified after an HLC.
+ *
+ * Prefer this over `getAllLearningItems` + client-side filter: it runs the
+ * `updated_at > ?` predicate against the `idx_learning_items_updated_at` index
+ * in SQLite and returns only ids, so none of the heavy card text (question /
+ * answer / cloze / tags / metadata) is pulled into the WebView heap. Re-fetch
+ * full rows for the (typically small) survivor set via `getLearningItem`.
+ */
+export async function getLearningItemIdsModifiedSince(sinceHlc: string): Promise<string[]> {
+  return await invokeCommand<string[]>("get_learning_item_ids_modified_since", {
+    sinceHlc,
+  });
+}
+
+/**
+ * The scheduling-field projection of a learning item — everything the queue
+ * auto-postpone engine reads, and nothing else (no card body / tags / assets).
+ */
+export interface PostponeLearningItem {
+  id: string;
+  interval: number;
+  difficulty: number;
+  ease_factor: number;
+  review_count: number;
+  lapses: number;
+  last_review_date?: string | null;
+  memory_state_stability?: number | null;
+  memory_state_difficulty?: number | null;
+}
+
+/**
+ * Fetch only the scheduling fields for the given ids. Used by the bulk postpone
+ * path so the full card text never enters the heap. Ids not present locally
+ * (e.g. deleted) are simply omitted from the result.
+ */
+export async function getLearningItemsForPostpone(
+  ids: string[],
+): Promise<PostponeLearningItem[]> {
+  return await invokeCommand<PostponeLearningItem[]>("get_learning_items_for_postpone", {
+    ids,
+  });
+}
+
+/**
  * Create a new learning item
  */
 export async function createLearningItem(input: CreateLearningItemInput): Promise<LearningItem> {

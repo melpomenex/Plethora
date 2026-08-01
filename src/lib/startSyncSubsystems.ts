@@ -25,9 +25,14 @@ import { measureStartupPhase, installSyncLongTaskObserver, removeSyncLongTaskObs
 import { getSyncFeatureFlags } from "./sync/featureFlags";
 import { drainSyncOutboxBatch } from "./sync/syncJournal";
 import { registerSyncAdapter } from "./sync/coverageRegistry";
+import { compactYjsPersistence, needsCompaction } from "./sync/yjsCompaction";
 
 let startPromise: Promise<void> | null = null;
 let outboxDrainTimer: ReturnType<typeof setTimeout> | null = null;
+let compactionTimer: ReturnType<typeof setInterval> | null = null;
+
+/** How often the recurring compaction sweep runs while the app is open. */
+const COMPACTION_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
  * Run the sync subsystem boot chain exactly once per session. Subsequent calls
@@ -74,6 +79,24 @@ export function startSyncSubsystems(): Promise<void> {
       await measureStartupPhase("clock-cache-init", () => syncClockCache.initialize());
     } catch (err) {
       console.warn("[startSyncSubsystems] clock cache warmup failed (non-fatal):", err);
+    }
+
+    // Compact the y-indexeddb update log before the entity maps replay the doc.
+    // On a long-lived install the log can hold millions of update rows that
+    // fetchUpdates already materialized into the heap during getYjsSync();
+    // snapshotting now collapses them to a single row so every FUTURE cold boot
+    // replays one row instead of the whole history. Skipped when the log is
+    // small or the feature flag is off. Non-fatal and non-blocking.
+    if (getSyncFeatureFlags().yjsCompaction && sync.persistence) {
+      const persistence = sync.persistence;
+      await scheduleProgressiveSyncWork({
+        id: "sync:yjs-compaction",
+        lane: "P3",
+        kind: "sliceable",
+        run: () => compactYjsPersistence(persistence),
+      }).catch((err) =>
+        console.warn("[startSyncSubsystems] yjs compaction failed (non-fatal):", err),
+      );
     }
 
     // 2. Prepare all entity init modules in parallel (dynamic imports).
@@ -189,6 +212,26 @@ export function startSyncSubsystems(): Promise<void> {
       };
       drain();
     }
+
+    // Recurring y-indexeddb compaction sweep. Long-running sessions keep
+    // accumulating update rows (the library's auto-trim only fires for local
+    // non-persistence-origin updates, never for network replay). This collapses
+    // the log periodically so the NEXT cold boot stays cheap. The sweep no-ops
+    // when the log is under the threshold (see needsCompaction).
+    if (getSyncFeatureFlags().yjsCompaction && sync.persistence) {
+      const persistence = sync.persistence;
+      compactionTimer = setInterval(() => {
+        if (!needsCompaction(persistence)) return;
+        void scheduleProgressiveSyncWork({
+          id: "sync:yjs-compaction-recurring",
+          lane: "P3",
+          run: () => compactYjsPersistence(persistence),
+        }).catch((err) =>
+          console.warn("[startSyncSubsystems] recurring yjs compaction failed (non-fatal):", err),
+        );
+      }, COMPACTION_INTERVAL_MS);
+    }
+
     removeLongTaskObserver();
   })().catch((error) => {
     // Reset so a later caller can retry. The individual ensure*Ready() helpers
@@ -196,6 +239,10 @@ export function startSyncSubsystems(): Promise<void> {
     console.error("[startSyncSubsystems] sync subsystem initialization failed:", error);
     // A failed boot must not leave a PerformanceObserver attached forever.
     removeSyncLongTaskObserver();
+    if (compactionTimer) {
+      clearInterval(compactionTimer);
+      compactionTimer = null;
+    }
     startPromise = null;
     throw error;
   });

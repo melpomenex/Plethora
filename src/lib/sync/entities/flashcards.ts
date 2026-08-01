@@ -178,6 +178,12 @@ function getReviewsMap(): ReplicatedMap<SyncedReviewResult & { updatedAt: string
       // clockField irrelevant for append-only (apply always called), but the
       // factory requires updatedAt on the type — set it to the review timestamp.
       clockField: "updatedAt",
+      // Bound the shared sync map at 30 days. The local SQLite revlog (written
+      // by apply/applyBatch below) keeps full history forever on each device;
+      // this only prunes the in-memory CRDT delivery buffer so it can't grow
+      // without bound across months of reviews. The prune runs on the init
+      // sweep AFTER projection, so every entry is delivered locally first.
+      maxAgeDays: 30,
       apply: async (_key, row) => {
         await invokeCommand("upsert_synced_review_result", { review: row });
       },
@@ -330,19 +336,34 @@ export async function publishCards(cards: unknown[]): Promise<void> {
 /**
  * Find all learning items modified in the database since a specific HLC
  * timestamp and publish them.
+ *
+ * Uses the server-side `get_learning_item_ids_modified_since` filter so only the
+ * (typically small) modified id set is pulled across the IPC boundary, then
+ * re-fetches full rows for just those survivors. The previous implementation
+ * called `get_all_learning_items` (full `SELECT *` of the table including all
+ * card text) and filtered client-side, which pulled the entire library into the
+ * WebView heap on every bulk queue action.
  */
 export async function publishRecentlyModifiedCards(sinceHlc: string): Promise<void> {
   try {
-    const rawItems = await invokeCommand<unknown[]>("get_all_learning_items").catch(() => []);
-    if (!Array.isArray(rawItems)) return;
+    const ids = await invokeCommand<string[]>("get_learning_item_ids_modified_since", {
+      sinceHlc,
+    }).catch(() => [] as string[]);
+    if (!Array.isArray(ids) || ids.length === 0) return;
 
-    const modified = rawItems.filter((row: any) => {
-      const synced = toSyncedLearningItem(row as Record<string, unknown>);
-      return synced.updated_at && synced.updated_at > sinceHlc;
-    });
-
-    if (modified.length > 0) {
-      await publishCards(modified);
+    // Re-fetch full rows for the survivors only (publishCards needs the whole
+    // row — question/answer/cloze/tags all travel in the synced payload).
+    const BATCH = 50;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const slice = ids.slice(i, i + BATCH);
+      const rows = await Promise.all(
+        slice.map((id) =>
+          invokeCommand<Record<string, unknown> | null>("get_learning_item", { itemId: id })
+            .catch(() => null),
+        ),
+      );
+      const present = rows.filter((r): r is Record<string, unknown> => r != null);
+      if (present.length > 0) await publishCards(present);
     }
   } catch (err) {
     console.warn("[sync:flashcards] publishRecentlyModifiedCards failed", err);
