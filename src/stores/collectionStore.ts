@@ -22,6 +22,8 @@ interface CollectionState {
   loadCollections: () => Promise<void>;
   hydrateStartup: (collections: Collection[], activeCollectionId: string, dueCount: number) => void;
   createCollection: (name: string, icon?: string, color?: string) => Promise<Collection>;
+  /** Like createCollection, but doesn't switch into it or reload documents/queue/stats. */
+  createCollectionInBackground: (name: string, icon?: string, color?: string) => Promise<Collection>;
   renameCollection: (id: string, name: string) => Promise<void>;
   deleteCollection: (id: string) => Promise<void>;
   switchCollection: (id: string) => Promise<void>;
@@ -76,6 +78,12 @@ export const useCollectionStore = create<CollectionState>()((set, get) => ({
     return collection;
   },
 
+  createCollectionInBackground: async (name, icon, color) => {
+    const collection = await apiCreateCollection(name, icon, color);
+    set((state) => ({ collections: [...state.collections, collection] }));
+    return collection;
+  },
+
   renameCollection: async (id, name) => {
     const updated = await apiUpdateCollection(id, name);
     set((state) => ({
@@ -100,6 +108,12 @@ export const useCollectionStore = create<CollectionState>()((set, get) => ({
   switchCollection: async (id) => {
     set({ activeCollectionId: id });
     await apiSetActiveCollection(id);
+    // loadDocuments() itself is authoritative for the new scope (and safely
+    // discards a stale in-flight response if the user switches again before
+    // it resolves) — it doesn't need help here. Pre-emptively clearing
+    // documents before this fetch previously left the list stuck empty
+    // whenever the fetch failed or was slow, which looked like the
+    // collection's documents had vanished.
     useDocumentStore.getState().loadDocuments();
     useQueueStore.getState().loadQueue();
     useAnalyticsStore.getState().loadDashboardStats();

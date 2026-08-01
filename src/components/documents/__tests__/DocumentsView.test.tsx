@@ -20,6 +20,7 @@ const documentsApiMock = vi.hoisted(() => ({
 const collectionsMock = vi.hoisted(() => ({
   collections: [{ id: "col-1", name: "Reading" }],
   createCollection: vi.fn(async (name: string) => ({ id: "col-new", name })),
+  createCollectionInBackground: vi.fn(async (name: string) => ({ id: "col-new", name })),
   activeCollectionId: "col-1",
   switchCollection: vi.fn(),
 }));
@@ -124,6 +125,8 @@ beforeEach(() => {
   modalMock.custom.mockReset();
   modalMock.custom.mockResolvedValue(true);
   collectionsMock.createCollection.mockClear();
+  collectionsMock.createCollectionInBackground.mockClear();
+  collectionsMock.switchCollection.mockClear();
 });
 
 describe("DocumentsView", () => {
@@ -299,10 +302,10 @@ describe("DocumentsView", () => {
       await waitFor(() =>
         expect(documentsApiMock.bulkMoveDocumentsToCollection).toHaveBeenCalledWith(["doc-1"], "col-1")
       );
-      expect(collectionsMock.createCollection).not.toHaveBeenCalled();
+      expect(collectionsMock.createCollectionInBackground).not.toHaveBeenCalled();
     });
 
-    it("creates the collection first when the target does not exist", async () => {
+    it("creates the collection first when the target does not exist, without switching into it", async () => {
       modalMock.prompt.mockResolvedValue("Brand New");
       documentsApiMock.bulkMoveDocumentsToCollection.mockResolvedValue({
         succeeded: ["doc-1"],
@@ -313,8 +316,14 @@ describe("DocumentsView", () => {
 
       clickBulkAction("Move");
 
-      await waitFor(() => expect(collectionsMock.createCollection).toHaveBeenCalledWith("Brand New"));
+      await waitFor(() =>
+        expect(collectionsMock.createCollectionInBackground).toHaveBeenCalledWith("Brand New"),
+      );
       expect(documentsApiMock.bulkMoveDocumentsToCollection).toHaveBeenCalledWith(["doc-1"], "col-new");
+      // Creating the target collection must not switch the user's active
+      // collection or the created-and-switched flow used by "New Collection".
+      expect(collectionsMock.createCollection).not.toHaveBeenCalled();
+      expect(collectionsMock.switchCollection).not.toHaveBeenCalled();
     });
 
     it("releases the selection after a completed move", async () => {

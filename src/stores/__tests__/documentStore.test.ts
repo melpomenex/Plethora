@@ -22,8 +22,10 @@ vi.mock("../../api/segmentation", () => ({ segmentDocument: vi.fn() }));
 vi.mock("../settingsStore", () => ({
   useSettingsStore: { getState: () => ({ settings: { documents: {} } }) },
 }));
+// Mutable so tests can simulate switching the active collection mid-fetch.
+const collectionStoreState = { activeCollectionId: null as string | null };
 vi.mock("../collectionStore", () => ({
-  useCollectionStore: { getState: () => ({ activeCollectionId: null }) },
+  useCollectionStore: { getState: () => collectionStoreState },
 }));
 vi.mock("../../utils/documentImport", () => ({
   importFromUrl: vi.fn(),
@@ -162,6 +164,35 @@ describe("documentStore.hydrateDocument", () => {
 describe("documentStore.loadDocuments", () => {
   beforeEach(() => {
     getDocumentsMock.mockReset();
+    collectionStoreState.activeCollectionId = null;
+    useDocumentStore.setState({ documents: [] });
+  });
+
+  it("discards a response for a collection the user has since switched away from", async () => {
+    // Simulate: switch to collection B (slow fetch in flight) then quickly
+    // switch back to A (fast fetch, resolves first and repopulates state).
+    // B's stale response landing afterwards must not blend its documents
+    // back in — that's the bug where switching back to the original
+    // collection appeared to silently fail.
+    collectionStoreState.activeCollectionId = "col-b";
+    let resolveB!: (docs: Document[]) => void;
+    getDocumentsMock.mockReturnValueOnce(
+      new Promise<Document[]>((resolve) => {
+        resolveB = resolve;
+      }),
+    );
+    const pendingB = useDocumentStore.getState().loadDocuments();
+
+    collectionStoreState.activeCollectionId = "col-a";
+    getDocumentsMock.mockResolvedValueOnce([{ ...makeDoc("doc-a"), collectionId: "col-a" }]);
+    await useDocumentStore.getState().loadDocuments();
+
+    expect(useDocumentStore.getState().documents.map((d) => d.id)).toEqual(["doc-a"]);
+
+    resolveB([{ ...makeDoc("doc-b"), collectionId: "col-b" }]);
+    await pendingB;
+
+    expect(useDocumentStore.getState().documents.map((d) => d.id)).toEqual(["doc-a"]);
   });
 
   it("does not replace hydrated article content with a lightweight library summary", async () => {

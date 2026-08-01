@@ -226,22 +226,28 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     try {
       const collectionId = useCollectionStore.getState().activeCollectionId;
       const docs = await documentsApi.getDocuments(collectionId);
+      // If the active collection changed while this fetch was in flight, a
+      // newer loadDocuments() call (from that switch) is already authoritative
+      // for the current scope. Applying this stale response would re-merge
+      // documents from a collection the user has since switched away from —
+      // e.g. switching to collection B then quickly back to A could otherwise
+      // have B's now-stale fetch land after A's and blend B's docs back in.
+      if (useCollectionStore.getState().activeCollectionId !== collectionId) {
+        set({ isLoading: false });
+        return;
+      }
       set((state) => {
-        // Merge rather than replace: a concurrent loadDocuments()/loadDocumentsPage()
-        // call scoped to a different collection must not wipe out documents that
-        // this fetch's scope simply doesn't cover. Reconcile deletions only among
-        // entries that fall within the scope we just queried.
-        const fetchedIds = new Set(docs.map((d) => d.id));
+        // This fetch is authoritative for its scope (the stale-response check
+        // above already discarded it if a newer switch superseded it), so
+        // replace the list outright rather than merging — a scoped fetch
+        // must not leave a previous collection's documents lingering.
+        // Existing entries are still consulted so in-progress content/
+        // metadata hydration for a doc isn't clobbered by a lighter summary.
         const existingById = new Map(state.documents.map((doc) => [doc.id, doc]));
-        const retained = state.documents.filter((d) => {
-          if (fetchedIds.has(d.id)) return false; // superseded by fresh copy below
-          if (collectionId == null) return false; // full-scope fetch is authoritative
-          return d.collectionId !== collectionId; // outside this fetch's scope, keep as-is
-        });
         const mergedDocs = docs.map((summary) =>
           mergeDocumentSummary(existingById.get(summary.id), summary)
         );
-        return { documents: [...retained, ...mergedDocs], isLoading: false };
+        return { documents: mergedDocs, isLoading: false };
       });
       void registerExistingFilesSyncLazy(docs);
     } catch (error) {

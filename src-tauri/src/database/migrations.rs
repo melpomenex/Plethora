@@ -2127,6 +2127,20 @@ pub const MIGRATIONS: &[Migration] = &[
         WHERE file_path LIKE 'kindle://%' AND file_type = 'other';
         "#,
     ),
+    Migration::new(
+        "065_seed_default_collection",
+        r#"
+        -- Migration 023 created the collections table but never inserted a row
+        -- for the implicit default collection that migration 045 defaulted
+        -- documents/extracts/learning_items/etc. collection_id to. Without a
+        -- real row here, get_collections() never lists it, so once a user
+        -- switches to any other collection there is no way back to this one
+        -- through the collection switcher UI — even though its documents were
+        -- always correctly scoped to this id and never moved anywhere.
+        INSERT OR IGNORE INTO collections (id, name, collection_type, created_at, modified_at)
+        VALUES ('00000000-0000-0000-0000-000000000001', 'Personal', 'manual', datetime('now'), datetime('now'));
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

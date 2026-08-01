@@ -204,7 +204,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     segmentDocument,
   } = useDocumentStore();
   const collections = useCollectionStore((state) => state.collections);
-  const createCollection = useCollectionStore((state) => state.createCollection);
+  const createCollectionInBackground = useCollectionStore((state) => state.createCollectionInBackground);
   const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
   const switchCollection = useCollectionStore((state) => state.switchCollection);
 
@@ -924,7 +924,10 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
       const existing = collections.find(
         (collection) => collection.name.toLowerCase() === targetName.toLowerCase()
       );
-      const target = existing ?? (await createCollection(targetName));
+      // Creating the target must not switch the active collection out from
+      // under the user (createCollection does that; it's meant for the "New
+      // Collection" flow, not a side effect of moving documents elsewhere).
+      const target = existing ?? (await createCollectionInBackground(targetName));
       // update_document deliberately omits collection_id, so the move needs
       // its own command rather than a spread through updateDocument.
       const result = await bulkMoveDocumentsToCollection(documentIds, target.id);
