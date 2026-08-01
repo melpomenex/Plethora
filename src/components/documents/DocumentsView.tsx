@@ -1394,6 +1394,9 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                 onClearFilter={() => setCompactFilter("all")}
                 onUpdate={updateDocument}
                 onOpenPopup={(doc) => void priorityPopup.open([doc.id], [doc])}
+                onContextMenu={(doc, event) =>
+                  setListCtxDoc({ doc, pos: { x: event.clientX, y: event.clientY } })
+                }
               />
             ) : sortedDocuments.length === 0 ? (
               debouncedSearch ? (
@@ -1572,6 +1575,16 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                 onTranscribe={handleTranscribe}
                 onReadAlong={onReadAlong}
                 isMobile={isMobile}
+                onOpenPopup={(doc) => {
+                  // Selection-aware: if the right-clicked doc is part of the
+                  // current selection, mass-set the whole selection; else just it.
+                  const inSelection = selectedIds.has(doc.id);
+                  const ids = inSelection ? Array.from(selectedIds) : [doc.id];
+                  const docs = inSelection
+                    ? sortedDocuments.filter((d) => selectedIds.has(d.id))
+                    : [doc];
+                  void priorityPopup.open(ids, docs, { forceBulk: inSelection });
+                }}
               />
             )}
           </div>
@@ -1617,6 +1630,22 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                     Pair with...
                   </button>
                 )}
+                <button
+                  className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
+                  onClick={() => {
+                    const clicked = listCtxDoc.doc;
+                    setListCtxDoc(null);
+                    const inSelection = selectedIds.has(clicked.id);
+                    const ids = inSelection ? Array.from(selectedIds) : [clicked.id];
+                    const docs = inSelection
+                      ? sortedDocuments.filter((d) => selectedIds.has(d.id))
+                      : [clicked];
+                    void priorityPopup.open(ids, docs, { forceBulk: inSelection });
+                  }}
+                >
+                  <Flag className="h-3.5 w-3.5 text-muted-foreground" />
+                  {t("priority.popupTitle")}
+                </button>
                 <div className="h-px bg-border my-1" />
                 <button
                   className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
@@ -2254,6 +2283,7 @@ interface CompactLibraryViewProps {
   onClearFilter: () => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onOpenPopup?: (doc: Document) => void;
+  onContextMenu?: (doc: Document, event: React.MouseEvent) => void;
 }
 
 function CompactLibraryView({
@@ -2280,6 +2310,7 @@ function CompactLibraryView({
   onImportFolder,
   onClearFilter,
   onOpenPopup,
+  onContextMenu,
 }: CompactLibraryViewProps) {
   const { t } = useI18n();
   const now = Date.now();
@@ -2488,6 +2519,7 @@ function CompactLibraryView({
                     onOpen={() => onOpenDocument?.(doc)}
                     onUpdate={onUpdate}
                     onOpenPopup={onOpenPopup}
+                    onContextMenu={onContextMenu ? (e) => onContextMenu(doc, e) : undefined}
                   />
                 ))}
               </div>
@@ -2562,6 +2594,7 @@ function CompactDocumentRow({
   onOpen,
   onUpdate,
   onOpenPopup,
+  onContextMenu,
 }: {
   doc: Document;
   selected: boolean;
@@ -2571,6 +2604,7 @@ function CompactDocumentRow({
   onOpen: () => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onOpenPopup?: (doc: Document) => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }) {
   const { t } = useI18n();
   const coverUrl = getDocumentCoverUrl(doc);
@@ -2611,6 +2645,10 @@ function CompactDocumentRow({
     <div
       role="button"
       tabIndex={0}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onContextMenu?.(event);
+      }}
       onClick={(event) => {
         onSelect({
           shiftKey: event.shiftKey,
@@ -2794,6 +2832,7 @@ interface LibraryDashboardProps {
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onTranscribe?: (doc: Document) => void;
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
+  onOpenPopup?: (doc: Document) => void;
   isMobile: boolean;
 }
 
@@ -2809,6 +2848,7 @@ function LibraryDashboard({
   onUpdate,
   onTranscribe,
   onReadAlong,
+  onOpenPopup,
   isMobile,
 }: LibraryDashboardProps) {
   const rowRef1 = useRef<HTMLDivElement>(null);
@@ -2931,6 +2971,7 @@ function LibraryDashboard({
         onUpdate={onUpdate}
         onTranscribe={onTranscribe}
         onReadAlong={onReadAlong}
+        onOpenPopup={onOpenPopup}
         isMobile={isMobile}
         scrollRef={rowRef1}
         onScrollLeft={() => scrollRow(rowRef1, "left")}
@@ -2948,6 +2989,7 @@ function LibraryDashboard({
         onUpdate={onUpdate}
         onTranscribe={onTranscribe}
         onReadAlong={onReadAlong}
+        onOpenPopup={onOpenPopup}
         isMobile={isMobile}
         scrollRef={rowRef2}
         onScrollLeft={() => scrollRow(rowRef2, "left")}
@@ -2968,6 +3010,7 @@ interface HorizontalSectionProps {
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onTranscribe?: (doc: Document) => void;
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
+  onOpenPopup?: (doc: Document) => void;
   isMobile: boolean;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onScrollLeft: () => void;
@@ -2984,6 +3027,7 @@ function HorizontalSection({
   onUpdate,
   onTranscribe,
   onReadAlong,
+  onOpenPopup,
   isMobile,
   scrollRef,
   onScrollLeft,
@@ -3034,6 +3078,7 @@ function HorizontalSection({
             onUpdate={onUpdate}
             onTranscribe={onTranscribe ? () => onTranscribe(doc) : undefined}
             onReadAlong={onReadAlong}
+            onOpenPopup={onOpenPopup ? () => onOpenPopup(doc) : undefined}
             isMobile={isMobile}
           />
         ))}
@@ -3052,6 +3097,7 @@ function LibraryCard({
   onUpdate,
   onTranscribe,
   onReadAlong,
+  onOpenPopup,
   isMobile,
 }: {
   doc: Document;
@@ -3062,6 +3108,7 @@ function LibraryCard({
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onTranscribe?: () => void;
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
+  onOpenPopup?: () => void;
   isMobile: boolean;
 }) {
   const modal = useModal();
@@ -3151,6 +3198,11 @@ function LibraryCard({
         onUpdate(doc.id, { tags: Array.from(next) });
       },
     },
+    ...(onOpenPopup ? [{
+      label: t("priority.popupTitle"),
+      icon: <Flag className="h-3.5 w-3.5 text-muted-foreground" />,
+      action: () => onOpenPopup(),
+    } as { label: string; icon: React.ReactNode; color?: string; divider?: boolean; action: () => void }] : []),
     { label: "", icon: null, divider: true, action: () => {} },
     ...(doc.fileType === "audio" || doc.fileType === "video" ? [{
       label: "Transcribe",
@@ -3170,7 +3222,7 @@ function LibraryCard({
       color: "text-destructive",
       action: () => onDelete(doc),
     },
-  ]; }, [doc, onOpen, onDelete, onUpdate, onReadAlong]);
+  ]; }, [doc, onOpen, onDelete, onUpdate, onReadAlong, onOpenPopup, modal, t]);
 
   return (
     <div className="relative">
