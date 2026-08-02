@@ -3620,6 +3620,10 @@ export const fr: Dict = {
   "reviewHome.noDecks":
     "Aucun deck pour l'instant. Importez un fichier Anki `.apkg` ou créez un deck ci-dessous.",
   "reviewHome.countDue": "{count} dus",
+  "reviewHome.dueOfTotal": "{due} dus · {total} cartes",
+  "reviewHome.deckEmpty": "Pas encore de cartes",
+  "reviewHome.deckStatsLoading": "Chargement des statistiques...",
+  "reviewHome.failedToLoadDeckStats": "Impossible de charger les statistiques du paquet",
   "reviewHome.tagManagerTitle": "Gestionnaire d'étiquettes de deck",
   "reviewHome.tagManagerDesc":
     "Ajoutez des étiquettes pour associer des éléments non-Anki à chaque deck.",

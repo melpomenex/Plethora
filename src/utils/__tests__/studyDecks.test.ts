@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchesDeck } from "../studyDecks";
+import { computeDeckStats, matchesDeck } from "../studyDecks";
 import type { StudyDeck } from "../../types/study-decks";
 
 describe("matchesDeck", () => {
@@ -151,5 +151,77 @@ describe("matchesDeck", () => {
     expect(matchesDeck(subdeckTagCard, tagDeck)).toBe(true);
     expect(matchesDeck(slashSubdeckTagCard, tagDeck)).toBe(true);
     expect(matchesDeck(unrelatedTagCard, tagDeck)).toBe(false);
+  });
+});
+
+describe("computeDeckStats", () => {
+  const deck: StudyDeck = {
+    id: "deck-1",
+    name: "Biology",
+    tagFilters: ["Biology"],
+    filterType: "tags",
+  };
+
+  it("reports a non-zero total with 0 due for a deck whose cards are all not-yet-due", () => {
+    const oneWeekFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const items = [
+      { tags: ["Biology"], state: "New", due_date: oneWeekFromNow },
+      { tags: ["Biology"], state: "Review", due_date: oneWeekFromNow },
+    ];
+
+    const [stat] = computeDeckStats([deck], items);
+
+    expect(stat.total).toBe(2);
+    expect(stat.due).toBe(0);
+  });
+
+  it("reports total 0 for a deck with no matching cards", () => {
+    const items = [{ tags: ["Chemistry"], state: "New" }];
+
+    const [stat] = computeDeckStats([deck], items);
+
+    expect(stat.total).toBe(0);
+    expect(stat.due).toBe(0);
+    expect(stat.newCount).toBe(0);
+  });
+
+  it("classifies matched cards into new/learning/review buckets", () => {
+    const items = [
+      { tags: ["Biology"], state: "New" },
+      { tags: ["Biology"], state: "Learning" },
+      { tags: ["Biology"], state: "Relearning" },
+      { tags: ["Biology"], state: "Review" },
+      { tags: ["Chemistry"], state: "Review" },
+    ];
+
+    const [stat] = computeDeckStats([deck], items);
+
+    expect(stat.total).toBe(4);
+    expect(stat.newCount).toBe(1);
+    expect(stat.learningCount).toBe(2);
+    expect(stat.reviewCount).toBe(1);
+  });
+
+  it("counts a card as due when its due date is today or earlier, or missing", () => {
+    const items = [
+      { tags: ["Biology"], state: "Review", due_date: new Date(Date.now() - 100000).toISOString() },
+      { tags: ["Biology"], state: "New" },
+    ];
+
+    const [stat] = computeDeckStats([deck], items);
+
+    expect(stat.due).toBe(2);
+  });
+
+  it("produces identical totals for the same items/decks across repeated calls (list vs. modal parity)", () => {
+    const items = [
+      { tags: ["Biology"], state: "New" },
+      { tags: ["Biology"], state: "Review", due_date: new Date(Date.now() - 1000).toISOString() },
+    ];
+
+    const forDeckList = computeDeckStats([deck], items);
+    const forModal = computeDeckStats([deck], items);
+
+    expect(forModal).toEqual(forDeckList);
   });
 });

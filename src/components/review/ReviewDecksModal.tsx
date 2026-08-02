@@ -7,6 +7,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import type { StudyDeck } from "../../types/study-decks";
+import type { DeckStatEntry } from "../../utils/studyDecks";
 import { useI18n } from "../../lib/i18n";
 import { DeckItemContextMenu } from "./DeckItemContextMenu";
 
@@ -14,10 +15,7 @@ interface ReviewDecksModalProps {
   isOpen: boolean;
   onClose: () => void;
   decks: StudyDeck[];
-  deckStats: Array<{
-    deck: StudyDeck;
-    count: number;
-  }>;
+  deckStats: DeckStatEntry[];
   activeDeckIds: string[];
   onToggleDeck: (deckId: string | null) => void;
   onClearSelection: () => void;
@@ -72,7 +70,7 @@ export function ReviewDecksModal({
   }, []);
 
   const totalDueCount = useMemo(
-    () => deckStats.reduce((sum, item) => sum + item.count, 0),
+    () => deckStats.reduce((sum, item) => sum + item.due, 0),
     [deckStats]
   );
 
@@ -203,8 +201,10 @@ export function ReviewDecksModal({
               </div>
             )}
 
-            {filteredDeckStats.map(({ deck, count }) => {
+            {filteredDeckStats.map(({ deck, total, due, newCount, learningCount, reviewCount }) => {
               const isActive = activeDeckIds.includes(deck.id);
+              const isEmpty = total === 0;
+              const breakdownTotal = newCount + learningCount + reviewCount;
               return (
                 <div
                   key={deck.id}
@@ -229,10 +229,24 @@ export function ReviewDecksModal({
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-semibold text-foreground">{deck.name}</span>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <span>{t("reviewHome.countDue", { count })}</span>
+                      <span>{isEmpty ? t("reviewHome.deckEmpty") : t("reviewHome.dueOfTotal", { due, total })}</span>
                       {isActive && <Check className="h-4 w-4 text-primary" />}
                     </div>
                   </div>
+
+                  {breakdownTotal > 0 && (
+                    <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-muted">
+                      {newCount > 0 && (
+                        <div className="bg-blue-500" style={{ width: `${(newCount / breakdownTotal) * 100}%` }} />
+                      )}
+                      {learningCount > 0 && (
+                        <div className="bg-orange-500" style={{ width: `${(learningCount / breakdownTotal) * 100}%` }} />
+                      )}
+                      {reviewCount > 0 && (
+                        <div className="bg-green-600" style={{ width: `${(reviewCount / breakdownTotal) * 100}%` }} />
+                      )}
+                    </div>
+                  )}
 
                   <div className="mt-3 flex flex-wrap gap-2">
                     {deck.tagFilters.length > 0 ? (
@@ -259,7 +273,7 @@ export function ReviewDecksModal({
       {contextMenu && contextDeckInfo && (
         <DeckItemContextMenu
           deck={contextDeckInfo.deck}
-          cardCount={contextDeckInfo.count}
+          cardCount={contextDeckInfo.due}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={closeContextMenu}

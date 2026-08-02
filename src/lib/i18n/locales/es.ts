@@ -3603,6 +3603,10 @@ export const es: Dict = {
   "reviewHome.noDecks":
     "Aún no hay mazos. Importa un archivo `.apkg` de Anki o crea un mazo abajo.",
   "reviewHome.countDue": "{count} pendientes",
+  "reviewHome.dueOfTotal": "{due} pendientes · {total} tarjetas",
+  "reviewHome.deckEmpty": "Sin tarjetas todavía",
+  "reviewHome.deckStatsLoading": "Cargando estadísticas...",
+  "reviewHome.failedToLoadDeckStats": "No se pudieron cargar las estadísticas del mazo",
   "reviewHome.tagManagerTitle": "Gestor de etiquetas de mazos",
   "reviewHome.tagManagerDesc":
     "Añade etiquetas para vincular elementos que no sean de Anki a cada mazo.",

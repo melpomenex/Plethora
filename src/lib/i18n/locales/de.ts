@@ -3609,6 +3609,10 @@ export const de: Dict = {
   "reviewHome.noDecks":
     "Noch keine Decks. Importiere eine Anki-`.apkg`-Datei oder erstelle unten ein Deck.",
   "reviewHome.countDue": "{count} fällig",
+  "reviewHome.dueOfTotal": "{due} fällig · {total} Karten",
+  "reviewHome.deckEmpty": "Noch keine Karten",
+  "reviewHome.deckStatsLoading": "Statistiken werden geladen...",
+  "reviewHome.failedToLoadDeckStats": "Statistiken für das Deck konnten nicht geladen werden",
   "reviewHome.tagManagerTitle": "Deck-Tag-Manager",
   "reviewHome.tagManagerDesc": "Füge Tags hinzu, um nicht-Anki-Elemente jedem Deck zuzuordnen.",
   "reviewHome.createDeckPrompt": "Erstelle ein Deck, um mit dem Taggen zu beginnen.",

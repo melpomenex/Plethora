@@ -119,3 +119,64 @@ export function getDeckTagCandidates(tags: string[]): string[] {
     .filter((tag) => normalize(tag) !== "anki-import")
     .map((tag) => tag.trim());
 }
+
+export interface DeckStatEntry {
+  deck: StudyDeck;
+  /** Total cards matching the deck's filters, regardless of due status. */
+  total: number;
+  /** Cards matching the deck whose due date is today or earlier (or unset). */
+  due: number;
+  newCount: number;
+  learningCount: number;
+  reviewCount: number;
+}
+
+/**
+ * Computes total/due/state-breakdown counts per deck from a single item set.
+ * Shared by ReviewHome and ReviewDecksModal so the two surfaces can never
+ * disagree on a deck's numbers.
+ */
+export function computeDeckStats<
+  T extends {
+    tags: string[];
+    document_id?: string;
+    documentId?: string;
+    difficulty?: number;
+    state?: string;
+    due_date?: string;
+    dueDate?: string;
+  }
+>(decks: StudyDeck[], items: T[]): DeckStatEntry[] {
+  const now = new Date();
+  const todayOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  return decks.map((deck) => {
+    const matched = items.filter((item) => matchesDeck(item, deck));
+    let due = 0;
+    let newCount = 0;
+    let learningCount = 0;
+    let reviewCount = 0;
+
+    for (const item of matched) {
+      const state = item.state ? item.state.toLowerCase() : "";
+      if (state === "new") newCount += 1;
+      else if (state === "learning" || state === "relearning") learningCount += 1;
+      else if (state === "review") reviewCount += 1;
+
+      const dueRaw = item.due_date || item.dueDate;
+      if (!dueRaw) {
+        due += 1;
+        continue;
+      }
+      const parsed = new Date(dueRaw);
+      if (Number.isNaN(parsed.getTime())) {
+        due += 1;
+        continue;
+      }
+      const dueOnly = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+      if (dueOnly <= todayOnly) due += 1;
+    }
+
+    return { deck, total: matched.length, due, newCount, learningCount, reviewCount };
+  });
+}

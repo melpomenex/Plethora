@@ -10,12 +10,14 @@ import {
   Stack,
   Tag,
   Upload,
+  Warning,
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useReviewStore } from "../../stores/reviewStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { getDueItems, type LearningItem } from "../../api/review";
-import { filterByDecks, matchesDeck, normalizeTagList } from "../../utils/studyDecks";
+import { getAllLearningItems, type LearningItem as AllLearningItem } from "../../api/learning-items";
+import { computeDeckStats, filterByDecks, normalizeTagList } from "../../utils/studyDecks";
 import type { StudyDeck } from "../../types/study-decks";
 import { FlashcardStudioModal } from "./FlashcardStudioModal";
 import { ReviewDecksModal } from "./ReviewDecksModal";
@@ -82,8 +84,11 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   } = useStudyDeckStore();
 
   const [dueItems, setDueItems] = useState<LearningItem[]>([]);
+  const [allItems, setAllItems] = useState<AllLearningItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isStatsLoading, setIsStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [newDeckName, setNewDeckName] = useState("");
   const [newDeckTags, setNewDeckTags] = useState("");
   const [isFlashcardStudioOpen, setIsFlashcardStudioOpen] = useState(false);
@@ -127,8 +132,29 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
     }
   };
 
+  // Deck totals need the full card set, not just what's due, so an empty
+  // "due" list doesn't read as an empty deck. Fetched independently from
+  // loadStats() so a failure here shows its own error instead of silently
+  // rendering zero counts for every deck.
+  const loadDeckStats = async () => {
+    setIsStatsLoading(true);
+    setStatsError(null);
+    try {
+      const items = await getAllLearningItems();
+      setAllItems(items);
+    } catch (err) {
+      setStatsError(err instanceof Error ? err.message : t("reviewHome.failedToLoadDeckStats"));
+    } finally {
+      setIsStatsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isActiveTab) loadStats();
+  }, [activeCollectionId, isActiveTab]);
+
+  useEffect(() => {
+    if (isActiveTab) loadDeckStats();
   }, [activeCollectionId, isActiveTab]);
 
   useEffect(() => {
@@ -145,7 +171,10 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
     let t: ReturnType<typeof setTimeout> | null = null;
     const schedule = () => {
       if (t) clearTimeout(t);
-      t = setTimeout(() => { void loadStats(); }, 400);
+      t = setTimeout(() => {
+        void loadStats();
+        void loadDeckStats();
+      }, 400);
     };
     const events = ["incrementum:synced-card", "incrementum:synced-card-deleted"];
     for (const ev of events) window.addEventListener(ev, schedule);
@@ -185,12 +214,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
     );
   }, [decks]);
 
-  const deckStats = useMemo(() => {
-    return sortedDecks.map((deck) => ({
-      deck,
-      count: dueItems.filter((item) => matchesDeck(item, deck)).length,
-    }));
-  }, [sortedDecks, dueItems]);
+  const deckStats = useMemo(() => computeDeckStats(sortedDecks, allItems), [sortedDecks, allItems]);
 
   const handleAddDeck = () => {
     const name = newDeckName.trim();
@@ -237,6 +261,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
           toggleDeckSelection(deckIds[0]);
         }
         await loadStats();
+        await loadDeckStats();
         toast.success(
           t("reviewSession.deckImportComplete"),
           t("reviewSession.deckImportSummary", { cards: result.cards_imported, decks: 1 })
@@ -250,6 +275,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
           toggleDeckSelection(deckIds[0]);
         }
         await loadStats();
+        await loadDeckStats();
         toast.success(
           t("reviewSession.ankiImportComplete"),
           t("reviewSession.ankiImportSummary", { cards: imported.length, decks: deckNames.length || 1 })
@@ -295,7 +321,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
             }
             overflowActions={[
               { id: "view-decks", label: t("reviewHome.viewDecks"), icon: <Stack className="h-4 w-4" />, onSelect: () => setIsDecksModalOpen(true) },
-              { id: "refresh", label: t("common.refresh"), icon: <ArrowsClockwise className="h-4 w-4" />, onSelect: loadStats },
+              { id: "refresh", label: t("common.refresh"), icon: <ArrowsClockwise className="h-4 w-4" />, onSelect: () => { void loadStats(); void loadDeckStats(); } },
               { id: "create-flashcards", label: t("extracts.createFlashcards"), icon: <Sparkle className="h-4 w-4" />, onSelect: () => setIsFlashcardStudioOpen(true) },
               { id: "import-deck", label: isAnkiImporting ? t("review.importing") : t("review.importDeck"), icon: <Upload className="h-4 w-4" />, onSelect: handleImportDeck, disabled: isAnkiImporting },
               ...(onOpenDeckManager ? [{ id: "deck-manager", label: t("review.deckManager.title"), icon: <FolderPlus className="h-4 w-4" />, onSelect: onOpenDeckManager }] : []),
@@ -403,16 +429,25 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
               </button>
             </div>
 
+            {statsError && (
+              <div className="mt-4 flex items-center gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <Warning className="h-4 w-4 shrink-0" aria-hidden="true" />
+                {t("reviewHome.failedToLoadDeckStats")}
+              </div>
+            )}
+
             <div className="mt-4 grid gap-3">
               {!decks || decks.length === 0 && (
                 <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
                   {t("reviewHome.noDecks")}
                 </div>
               )}
-              {deckStats?.map(({ deck, count }) => {
+              {deckStats?.map(({ deck, total, due, newCount: deckNew, learningCount: deckLearning, reviewCount: deckReview }) => {
                 const parts = deck.name.split("::");
                 const displayName = parts[parts.length - 1];
                 const level = parts.length - 1;
+                const isEmpty = total === 0;
+                const breakdownTotal = deckNew + deckLearning + deckReview;
                 return (
                   <button
                     key={deck.id}
@@ -429,10 +464,56 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
                     }`}
                     style={{ marginLeft: `${level * 16}px` }}
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="text-base font-semibold text-foreground">{displayName}</span>
-                      <span className="text-xs text-muted-foreground">{t("reviewHome.countDue", { count })}</span>
+                      {isEmpty ? (
+                        <span className="text-xs text-muted-foreground">{t("reviewHome.deckEmpty")}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {t("reviewHome.dueOfTotal", { due, total })}
+                        </span>
+                      )}
                     </div>
+                    {isStatsLoading && isEmpty && !statsError && (
+                      <span className="text-xs text-muted-foreground">{t("reviewHome.deckStatsLoading")}</span>
+                    )}
+                    {breakdownTotal > 0 && (
+                      <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
+                        {deckNew > 0 && (
+                          <div
+                            className="bg-blue-500"
+                            style={{ width: `${(deckNew / breakdownTotal) * 100}%` }}
+                            title={t("reviewHome.newVsReviewValue", {
+                              newCount: deckNew,
+                              learningCount: deckLearning,
+                              reviewCount: deckReview,
+                            })}
+                          />
+                        )}
+                        {deckLearning > 0 && (
+                          <div
+                            className="bg-orange-500"
+                            style={{ width: `${(deckLearning / breakdownTotal) * 100}%` }}
+                            title={t("reviewHome.newVsReviewValue", {
+                              newCount: deckNew,
+                              learningCount: deckLearning,
+                              reviewCount: deckReview,
+                            })}
+                          />
+                        )}
+                        {deckReview > 0 && (
+                          <div
+                            className="bg-green-600"
+                            style={{ width: `${(deckReview / breakdownTotal) * 100}%` }}
+                            title={t("reviewHome.newVsReviewValue", {
+                              newCount: deckNew,
+                              learningCount: deckLearning,
+                              reviewCount: deckReview,
+                            })}
+                          />
+                        )}
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       {deck.tagFilters.map((tag) => (
                         <span key={tag} className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">

@@ -3536,6 +3536,10 @@ export const ja: Dict = {
   "reviewHome.noDecks":
     "まだデッキがありません。Anki の `.apkg` ファイルをインポートするか、下でデッキを作成してください。",
   "reviewHome.countDue": "{count} 件期限",
+  "reviewHome.dueOfTotal": "{due} 件期限 · 全 {total} 枚",
+  "reviewHome.deckEmpty": "カードはまだありません",
+  "reviewHome.deckStatsLoading": "統計を読み込み中...",
+  "reviewHome.failedToLoadDeckStats": "デッキの統計を読み込めませんでした",
   "reviewHome.tagManagerTitle": "デッキタグ管理",
   "reviewHome.tagManagerDesc": "各デッキに Anki 以外の項目を対応付けるタグを追加します。",
   "reviewHome.createDeckPrompt": "タグ付けを始めるにはデッキを作成してください。",
