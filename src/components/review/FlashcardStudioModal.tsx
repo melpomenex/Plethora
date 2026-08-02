@@ -87,6 +87,8 @@ import { useI18n } from "../../lib/i18n";
 import { isTauri, isMac } from "../../lib/tauri";
 import { cn } from "../../utils";
 import { buildChapterQAContext, getChapterTitles } from "../../utils/chapterUtils";
+import { resolveFlashcardTarget, type FlashcardTargetOverride } from "../../utils/flashcardTarget";
+import { NumericInput } from "../common";
 import type { ImageOcclusionRegion, MultipleChoiceOption } from "../../types/learningItemInteractions";
 import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
 import { ExtractBrowserPanel } from "./ExtractBrowserPanel";
@@ -231,7 +233,21 @@ const NOTEBOOKLM_PROVIDER_ID = "__notebooklm__";
 const COST_PER_1K_INPUT = 0.01;
 const COST_PER_1K_OUTPUT = 0.03;
 
-const SYSTEM_PROMPT = `You are an expert flashcard creation assistant specialized in spaced repetition and active recall learning.
+// Matches an explicit card-count instruction in the user's own message, e.g.
+// "give me 20 cards" or "12 flashcards please" — this takes precedence over
+// the configured/resolved target for that single generation.
+const EXPLICIT_CARD_COUNT_REGEX = /\b(\d{1,3})\s*(?:flash ?cards?|cards?)\b/i;
+
+/** Extracts an explicit card count the user asked for in free text, if any. */
+function extractExplicitCardCount(text: string): number | null {
+  const match = text.match(EXPLICIT_CARD_COUNT_REGEX);
+  if (!match) return null;
+  const value = parseInt(match[1], 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function buildSystemPrompt(targetCount: number): string {
+  return `You are an expert flashcard creation assistant specialized in spaced repetition and active recall learning.
 
 When creating flashcards, return them as JSON in a code block using this exact schema:
 
@@ -264,8 +280,9 @@ Rules for excellent flashcards:
 - Use clear, specific questions
 - Answers should be concise but complete
 - For cloze deletions, ensure the context makes the answer inferable
-- Create 3-7 cards per request unless specified otherwise
+- Generate approximately ${targetCount} card${targetCount === 1 ? "" : "s"} for this request, unless the user's message explicitly asks for a different number — in that case, follow the user's explicit number instead
 - If the user is just chatting, answer normally without JSON`;
+}
 
 const IMAGE_OCCLUSION_SYSTEM_PROMPT = `You create image occlusion flashcards from one or more study images.
 
@@ -2380,6 +2397,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const [bulkTagInput, setBulkTagInput] = useState("");
   const [isTagInputVisible, setIsTagInputVisible] = useState(false);
   const [contextSelection, setContextSelection] = useState<ContextSelection>(DEFAULT_CONTEXT_SELECTION);
+  // Session-local override of the flashcard generation target (undefined = use
+  // the global AI settings default). Resets to undefined on "New session".
+  const [sessionTargetOverride, setSessionTargetOverride] = useState<FlashcardTargetOverride | undefined>(undefined);
+  const [showTargetPanel, setShowTargetPanel] = useState(false);
   // Section-mention (`#`) popup state for the chat input. Mirrors the Assistant.
   const [showSectionPopup, setShowSectionPopup] = useState(false);
   const [sectionQuery, setSectionQuery] = useState("");
@@ -2485,10 +2506,12 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       setMessages([]);
       setDraftCards([]);
       setContextSelection(DEFAULT_CONTEXT_SELECTION);
+      setSessionTargetOverride(undefined);
       return;
     }
     setMessages(Array.isArray(session.messages) ? session.messages : []);
     setDraftCards(Array.isArray(session.draftCards) ? session.draftCards : []);
+    setSessionTargetOverride(session.flashcardTargetOverride);
     if (session.selectedProviderId) setSelectedProviderId(session.selectedProviderId);
     if (typeof session.selectedNotebookId === "string") setSelectedNotebookId(session.selectedNotebookId);
     setSelectedDocumentId(session.selectedDocumentId ?? null);
@@ -2521,6 +2544,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         draftCards,
         viewMode,
         documentName: doc?.title,
+        flashcardTargetOverride: sessionTargetOverride,
       });
       saveSessions([recovered, ...loadSessions()]);
       persistActiveSessionId(recovered.id);
@@ -2538,8 +2562,9 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       draftCards: draftCards.slice(0, 100),
       viewMode,
       documentName: doc?.title,
+      flashcardTargetOverride: sessionTargetOverride,
     });
-  }, [activeSessionId, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards, viewMode, documents]);
+  }, [activeSessionId, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards, viewMode, documents, sessionTargetOverride]);
 
   // Whether the active session has drafts that were never persisted to the
   // learning-item DB. Used to decide whether "New session" must confirm.
@@ -2567,6 +2592,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         draftCards: draftCards.slice(0, 100),
         viewMode,
         documentName: doc?.title,
+        flashcardTargetOverride: sessionTargetOverride,
       });
     }
     persistActiveSessionId(targetId);
@@ -2574,7 +2600,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     const target = getSession(targetId);
     hydrateFromSession(target);
     setSessionsCache(loadSessions());
-  }, [activeSessionId, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards, viewMode, documents, hydrateFromSession]);
+  }, [activeSessionId, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards, viewMode, documents, hydrateFromSession, sessionTargetOverride]);
 
   /**
    * Create a fresh empty session and switch to it. When `carryDrafts` is true,
@@ -2591,10 +2617,13 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     persistActiveSessionId(fresh.id);
     setActiveSessionId(fresh.id);
     // Hydrate to a clean slate (empty chat + default context), optionally
-    // carrying drafts.
+    // carrying drafts. The flashcard generation target always resets to the
+    // current global default on a new session — it never inherits a prior
+    // session's override.
     setMessages([]);
     setContextSelection({ ...DEFAULT_CONTEXT_SELECTION });
     setDraftCards(carriedDrafts);
+    setSessionTargetOverride(undefined);
     setViewMode("chat");
     setSessionsCache(loadSessions());
   }, [draftCards]);
@@ -2691,7 +2720,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     flushActiveSession();
     // Refresh the cached list so the Sessions view reflects live changes.
     setSessionsCache(loadSessions());
-  }, [isOpen, activeSessionId, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards, viewMode, flushActiveSession]);
+  }, [isOpen, activeSessionId, selectedProviderId, selectedNotebookId, selectedDocumentId, selectedDeckId, contextSelection, messages, draftCards, viewMode, flushActiveSession, sessionTargetOverride]);
 
   // Refresh the sessions list whenever the Sessions view is opened, so it
   // reflects any external changes (e.g. migration, or another tab's edits).
@@ -3075,6 +3104,16 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         return undefined;
     }
   }, [selectedDocument, selectedDocumentText, contextSelection, maxTokens]);
+
+  // The flashcard generation target currently in effect for this session:
+  // the session-local override if the user set one, otherwise the global AI
+  // settings default. Auto mode scales with the size of the selected context
+  // (falling back to the whole document when the exact context isn't
+  // resolvable yet, e.g. `sections` mode, which resolves at send time).
+  const effectiveFlashcardTarget = useMemo(
+    () => resolveFlashcardTarget(aiControls, contextContent ?? selectedDocumentText ?? "", sessionTargetOverride),
+    [aiControls, contextContent, selectedDocumentText, sessionTargetOverride]
+  );
 
   const contextValidationError = useMemo(() => {
     if (!selectedDocument) return null;
@@ -3463,7 +3502,20 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         .slice(-10)
         .map((m) => ({ role: m.role, content: m.content }));
 
-      const llmMessages: LLMMessage[] = [{ role: "system", content: SYSTEM_PROMPT }];
+      // An explicit count stated in the user's own message (e.g. "give me 20
+      // cards") takes precedence over the configured/resolved target for this
+      // one generation; otherwise use the effective (session or global) target,
+      // recomputed against the content actually being sent as context.
+      const explicitCount = extractExplicitCardCount(promptText);
+      const resolvedTarget = explicitCount
+        ? explicitCount
+        : resolveFlashcardTarget(
+            aiControls,
+            contextContent ?? selectedDocumentText ?? "",
+            sessionTargetOverride
+          ).count;
+
+      const llmMessages: LLMMessage[] = [{ role: "system", content: buildSystemPrompt(resolvedTarget) }];
       
       // Add context-specific system messages
       if (selectedDocument?.title) {
@@ -4573,6 +4625,119 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                     </button>
                   </div>
                   
+                  {/* Flashcard generation target */}
+                  <div className={cn("relative", isMobileShell ? "mt-2" : "mt-3")}>
+                    <button
+                      type="button"
+                      onClick={() => setShowTargetPanel((v) => !v)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                      title="Adjust how many flashcards are generated for this session"
+                    >
+                      <span>
+                        {effectiveFlashcardTarget.mode === "auto"
+                          ? `~${effectiveFlashcardTarget.count} cards (auto)`
+                          : `${effectiveFlashcardTarget.count} cards`}
+                      </span>
+                      {sessionTargetOverride && (
+                        <span className="rounded-full bg-primary/15 text-primary px-1.5 py-0.5 text-[10px] font-medium">
+                          session
+                        </span>
+                      )}
+                    </button>
+
+                    {showTargetPanel && (
+                      <div className="absolute z-10 bottom-full mb-2 left-0 w-64 rounded-xl border border-border bg-card shadow-lg p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-foreground">Cards for this session</span>
+                          {sessionTargetOverride && (
+                            <button
+                              type="button"
+                              onClick={() => setSessionTargetOverride(undefined)}
+                              className="text-[11px] text-primary hover:underline"
+                            >
+                              Reset to default
+                            </button>
+                          )}
+                        </div>
+                        <div className="inline-flex rounded-lg border border-border overflow-hidden w-full">
+                          {(["fixed", "auto"] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() =>
+                                setSessionTargetOverride({
+                                  mode,
+                                  fixedCount: sessionTargetOverride?.fixedCount ?? aiControls.flashcardFixedCount,
+                                  autoMin: sessionTargetOverride?.autoMin ?? aiControls.flashcardAutoMin,
+                                  autoMax: sessionTargetOverride?.autoMax ?? aiControls.flashcardAutoMax,
+                                })
+                              }
+                              className={cn(
+                                "flex-1 px-2 py-1 text-xs capitalize transition-colors",
+                                (sessionTargetOverride?.mode ?? aiControls.flashcardCountMode) === mode
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-background text-foreground hover:bg-muted"
+                              )}
+                            >
+                              {mode === "fixed" ? "Fixed" : "Auto"}
+                            </button>
+                          ))}
+                        </div>
+                        {(sessionTargetOverride?.mode ?? aiControls.flashcardCountMode) === "fixed" ? (
+                          <NumericInput
+                            min={1}
+                            max={100}
+                            value={sessionTargetOverride?.fixedCount ?? aiControls.flashcardFixedCount}
+                            onChange={(value) =>
+                              setSessionTargetOverride({
+                                mode: "fixed",
+                                fixedCount: value,
+                                autoMin: sessionTargetOverride?.autoMin ?? aiControls.flashcardAutoMin,
+                                autoMax: sessionTargetOverride?.autoMax ?? aiControls.flashcardAutoMax,
+                              })
+                            }
+                            className="w-full px-2 py-1.5 bg-background border border-border rounded-lg text-foreground text-xs"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <NumericInput
+                              min={1}
+                              max={sessionTargetOverride?.autoMax ?? aiControls.flashcardAutoMax}
+                              value={sessionTargetOverride?.autoMin ?? aiControls.flashcardAutoMin}
+                              onChange={(value) =>
+                                setSessionTargetOverride({
+                                  mode: "auto",
+                                  fixedCount: sessionTargetOverride?.fixedCount ?? aiControls.flashcardFixedCount,
+                                  autoMin: value,
+                                  autoMax: Math.max(value, sessionTargetOverride?.autoMax ?? aiControls.flashcardAutoMax),
+                                })
+                              }
+                              className="w-16 px-2 py-1.5 bg-background border border-border rounded-lg text-foreground text-xs"
+                            />
+                            <span className="text-[11px] text-muted-foreground">to</span>
+                            <NumericInput
+                              min={sessionTargetOverride?.autoMin ?? aiControls.flashcardAutoMin}
+                              max={100}
+                              value={sessionTargetOverride?.autoMax ?? aiControls.flashcardAutoMax}
+                              onChange={(value) =>
+                                setSessionTargetOverride({
+                                  mode: "auto",
+                                  fixedCount: sessionTargetOverride?.fixedCount ?? aiControls.flashcardFixedCount,
+                                  autoMin: Math.min(value, sessionTargetOverride?.autoMin ?? aiControls.flashcardAutoMin),
+                                  autoMax: value,
+                                })
+                              }
+                              className="w-16 px-2 py-1.5 bg-background border border-border rounded-lg text-foreground text-xs"
+                            />
+                          </div>
+                        )}
+                        <p className="text-[10px] text-muted-foreground leading-snug">
+                          Only affects this session. Change the default in Settings → AI.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Cost Estimator */}
                   <div className={isMobileShell ? "mt-2" : "mt-3"}>
                     <CostEstimator

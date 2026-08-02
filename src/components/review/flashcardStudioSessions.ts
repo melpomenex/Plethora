@@ -15,6 +15,7 @@
 
 import type { ChatMessage, ContextSelection, DraftCard } from "./FlashcardStudioModal";
 import { DEFAULT_CONTEXT_SELECTION, normalizeContextSelection } from "./FlashcardStudioModal";
+import type { FlashcardTargetOverride } from "../../utils/flashcardTarget";
 
 /** localStorage keys for the new sessions model. */
 export const STORAGE_KEYS = {
@@ -53,6 +54,11 @@ export interface FlashcardStudioSession {
   documentName?: string;
   /** Optional view mode restored on resume. */
   viewMode?: string;
+  /**
+   * Session-local override of the global flashcard generation target
+   * (Settings → AI). Undefined means "use the current global default".
+   */
+  flashcardTargetOverride?: FlashcardTargetOverride;
 }
 
 /**
@@ -174,6 +180,7 @@ export function createSession(
     cardCount: partial.cardCount ?? draftCards.length,
     documentName: partial.documentName,
     viewMode: partial.viewMode,
+    flashcardTargetOverride: partial.flashcardTargetOverride,
   };
 
   // If the caller left the title as the placeholder but provided enough signal,
@@ -220,6 +227,10 @@ function normalizeSession(value: unknown): FlashcardStudioSession | null {
     cardCount: typeof raw.cardCount === "number" ? raw.cardCount : draftCards.length,
     documentName: typeof raw.documentName === "string" ? raw.documentName : undefined,
     viewMode: typeof raw.viewMode === "string" ? raw.viewMode : undefined,
+    flashcardTargetOverride:
+      raw.flashcardTargetOverride && typeof raw.flashcardTargetOverride === "object"
+        ? (raw.flashcardTargetOverride as FlashcardTargetOverride)
+        : undefined,
   };
 }
 

@@ -90,8 +90,9 @@ impl FlashcardGenerator {
         &self,
         extract_content: &str,
         context: Option<&str>,
+        options: &FlashcardGenerationOptions,
     ) -> Result<Vec<GeneratedFlashcard>, String> {
-        let prompt = PromptBuilder::flashcard_from_extract(extract_content, context);
+        let prompt = PromptBuilder::flashcard_from_extract(extract_content, context, options.count);
 
         let (messages, temp, max_tokens) = prompt.build();
 
@@ -104,7 +105,7 @@ impl FlashcardGenerator {
 
         let response = self.provider.chat_completion(&request).await?;
 
-        self.parse_flashcards(&response.content, &FlashcardGenerationOptions::default())
+        self.parse_flashcards(&response.content, options)
     }
 
     /// Generate flashcards from document
@@ -180,8 +181,13 @@ impl BatchFlashcardGenerator {
     ) -> Result<Vec<(String, Vec<GeneratedFlashcard>)>, String> {
         let mut results = Vec::new();
 
+        let default_options = FlashcardGenerationOptions::default();
         for (id, content) in extracts {
-            match self.generator.generate_from_extract(&content, None).await {
+            match self
+                .generator
+                .generate_from_extract(&content, None, &default_options)
+                .await
+            {
                 Ok(flashcards) => {
                     if !flashcards.is_empty() {
                         results.push((id, flashcards));
@@ -241,12 +247,50 @@ mod tests {
         let generator = FlashcardGenerator::new(provider);
 
         let result = generator
-            .generate_from_extract("AI is a field of computer science.", None)
+            .generate_from_extract(
+                "AI is a field of computer science.",
+                None,
+                &FlashcardGenerationOptions::default(),
+            )
             .await
             .unwrap();
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].question, "What is AI?");
         assert_eq!(result[0].answer, "Artificial Intelligence");
+    }
+
+    #[tokio::test]
+    async fn test_generate_from_extract_respects_requested_count() {
+        let mock_response = r#"[{"question": "What is AI?", "answer": "Artificial Intelligence", "type": "basic"}]"#;
+        let provider = AIProvider::Mock(Box::new(MockProvider {
+            response: mock_response.to_string(),
+        }));
+        let generator = FlashcardGenerator::new(provider);
+
+        let options = FlashcardGenerationOptions {
+            count: 12,
+            ..FlashcardGenerationOptions::default()
+        };
+
+        // The prompt sent to the model should state the requested count.
+        let prompt = crate::ai::prompts::PromptBuilder::flashcard_from_extract(
+            "AI is a field of computer science.",
+            None,
+            options.count,
+        );
+        let (messages, _, _) = prompt.build();
+        let system_message = messages
+            .iter()
+            .find(|m| matches!(m.role, crate::ai::providers::MessageRole::System))
+            .expect("system message present");
+        assert!(system_message.content.contains("12"));
+
+        // And the call succeeds end-to-end with the custom options.
+        let result = generator
+            .generate_from_extract("AI is a field of computer science.", None, &options)
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
     }
 }

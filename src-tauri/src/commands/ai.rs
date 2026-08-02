@@ -298,7 +298,7 @@ pub async fn remove_api_key(
 #[tauri::command]
 pub async fn generate_flashcards_from_extract(
     extract_id: String,
-    _options: FlashcardGenerationOptions,
+    options: FlashcardGenerationOptions,
     repo: State<'_, Repository>,
     ai_state: State<'_, AIState>,
 ) -> Result<Vec<TauriGeneratedFlashcard>> {
@@ -321,7 +321,7 @@ pub async fn generate_flashcards_from_extract(
     // Generate flashcards
     let generator = FlashcardGenerator::new(provider);
     let flashcards = generator
-        .generate_from_extract(&extract.content, None)
+        .generate_from_extract(&extract.content, None, &options)
         .await?;
 
     Ok(flashcards

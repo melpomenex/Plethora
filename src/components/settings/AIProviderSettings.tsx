@@ -338,25 +338,94 @@ export function AISettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
 
         <SettingsRow
-          label="Cards per extract"
-          description="Number of flashcards to generate per extract (1-20)"
+          label="Flashcard generation target"
+          description={
+            settings.ai.aiControls.flashcardCountMode === "auto"
+              ? "Scales the number of cards with the size of the content being generated from, staying within the range below. Applies to both auto-generation and the Flashcard Studio."
+              : "Always generate exactly this many cards per request. Applies to both auto-generation and the Flashcard Studio."
+          }
         >
-          <NumericInput
-            min={1}
-            max={20}
-            value={settings.ai.aiControls.cardsPerExtract}
-            onChange={(value) => {
-              updateSettings({
-                ai: {
-                  ...settings.ai,
-                  aiControls: { ...settings.ai.aiControls, cardsPerExtract: value },
-                },
-              });
-              onChange();
-            }}
-            disabled={!settings.ai.aiControls.autoGenerate}
-            className="w-24 px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm disabled:opacity-50"
-          />
+          <div className="flex flex-col items-end gap-2">
+            <div className="inline-flex rounded-lg border border-border overflow-hidden">
+              {(["fixed", "auto"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => {
+                    updateSettings({
+                      ai: {
+                        ...settings.ai,
+                        aiControls: { ...settings.ai.aiControls, flashcardCountMode: mode },
+                      },
+                    });
+                    onChange();
+                  }}
+                  className={`px-3 py-1.5 text-sm capitalize transition-colors ${
+                    settings.ai.aiControls.flashcardCountMode === mode
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {mode === "fixed" ? "Fixed" : "Auto"}
+                </button>
+              ))}
+            </div>
+
+            {settings.ai.aiControls.flashcardCountMode === "fixed" ? (
+              <NumericInput
+                min={1}
+                max={100}
+                value={settings.ai.aiControls.flashcardFixedCount}
+                onChange={(value) => {
+                  updateSettings({
+                    ai: {
+                      ...settings.ai,
+                      aiControls: { ...settings.ai.aiControls, flashcardFixedCount: value },
+                    },
+                  });
+                  onChange();
+                }}
+                className="w-24 px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+              />
+            ) : (
+              <div className="flex items-center gap-2">
+                <NumericInput
+                  min={1}
+                  max={settings.ai.aiControls.flashcardAutoMax}
+                  value={settings.ai.aiControls.flashcardAutoMin}
+                  onChange={(value) => {
+                    const flashcardAutoMax = Math.max(value, settings.ai.aiControls.flashcardAutoMax);
+                    updateSettings({
+                      ai: {
+                        ...settings.ai,
+                        aiControls: { ...settings.ai.aiControls, flashcardAutoMin: value, flashcardAutoMax },
+                      },
+                    });
+                    onChange();
+                  }}
+                  className="w-20 px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                />
+                <span className="text-sm text-muted-foreground">to</span>
+                <NumericInput
+                  min={settings.ai.aiControls.flashcardAutoMin}
+                  max={100}
+                  value={settings.ai.aiControls.flashcardAutoMax}
+                  onChange={(value) => {
+                    const flashcardAutoMin = Math.min(value, settings.ai.aiControls.flashcardAutoMin);
+                    updateSettings({
+                      ai: {
+                        ...settings.ai,
+                        aiControls: { ...settings.ai.aiControls, flashcardAutoMax: value, flashcardAutoMin },
+                      },
+                    });
+                    onChange();
+                  }}
+                  className="w-20 px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+                />
+                <span className="text-sm text-muted-foreground">cards</span>
+              </div>
+            )}
+          </div>
         </SettingsRow>
 
         <SettingsRow

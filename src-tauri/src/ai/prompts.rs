@@ -139,15 +139,16 @@ impl PromptBuilder {
     }
 
     /// Create a prompt for generating flashcards from an extract
-    pub fn flashcard_from_extract(extract_content: &str, context: Option<&str>) -> Self {
+    pub fn flashcard_from_extract(extract_content: &str, context: Option<&str>, count: usize) -> Self {
         let builder = Self::new()
-            .with_system(
+            .with_system(format!(
                 "You are an expert at creating educational flashcards. \
-                Generate 1-3 high-quality flashcards from the given extract. \
+                Generate approximately {} high-quality flashcards from the given extract. \
                 Focus on key concepts, definitions, and relationships. \
                 Return the flashcards in JSON format with 'question', 'answer', and 'type' fields. \
                 The type can be 'basic' (Q&A), 'cloze' (fill-in-the-blank), or 'qa' (question-answer).",
-            );
+                count
+            ));
 
         let user_msg = if let Some(ctx) = context {
             format!("Context: {}\n\nExtract: {}", ctx, extract_content)

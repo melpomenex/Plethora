@@ -1,6 +1,7 @@
 import { useSettingsStore, type AIControlsSettings } from "../stores/settingsStore";
 import { generateFlashcardsFromExtract, summarizeContent, type GeneratedFlashcard } from "../api/ai";
 import { usePendingFlashcardsStore } from "../stores/pendingFlashcardsStore";
+import { resolveFlashcardTarget } from "./flashcardTarget";
 
 const SUMMARY_WORD_MAP: Record<AIControlsSettings["summaryLength"], number> = {
   short: 100,
@@ -19,8 +20,9 @@ export async function handleAutoGeneration(
   const settings = useSettingsStore.getState().settings.ai.aiControls;
   if (!settings.autoGenerate) return [];
 
+  const target = resolveFlashcardTarget(settings, content);
   const cards = await generateFlashcardsFromExtract(extractId, {
-    count: settings.cardsPerExtract,
+    count: target.count,
     include_cloze: true,
     include_qa: true,
   });

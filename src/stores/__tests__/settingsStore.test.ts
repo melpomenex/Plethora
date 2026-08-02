@@ -19,7 +19,7 @@ describe("settingsStore notification persistence", () => {
     });
 
     const stored = JSON.parse(localStorage.getItem("incrementum-settings") || "{}");
-    expect(stored.version).toBe(5);
+    expect(stored.version).toBe(6);
     expect(stored.state.settings.notifications).toMatchObject({
       enabled: true,
       reminderTime: "07:30",
@@ -41,6 +41,25 @@ describe("settingsStore notification persistence", () => {
     expect(notifications.reminderTime).toBe(defaultSettings.notifications.reminderTime);
     expect(notifications.showBadge).toBe(defaultSettings.notifications.showBadge);
     expect(notifications.feedbackSoundsEnabled).toBe(defaultSettings.notifications.feedbackSoundsEnabled);
+  });
+});
+
+describe("settingsStore flashcard generation target migration", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: cloneDefaults() });
+  });
+
+  it("seeds flashcardFixedCount from a previously persisted cardsPerExtract on migration", async () => {
+    localStorage.setItem("incrementum-settings", JSON.stringify({
+      state: { settings: { ai: { aiControls: { cardsPerExtract: 9 } } } },
+      version: 5,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const aiControls = useSettingsStore.getState().settings.ai.aiControls;
+    expect(aiControls.flashcardFixedCount).toBe(9);
   });
 });
 

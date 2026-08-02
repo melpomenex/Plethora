@@ -278,6 +278,7 @@ interface InterfaceSettings {
  */
 export interface AIControlsSettings {
   autoGenerate: boolean;
+  /** @deprecated Use flashcardFixedCount instead. Retained for migration only. */
   cardsPerExtract: number;
   qualityThreshold: number;
   requireApproval: boolean;
@@ -287,6 +288,14 @@ export interface AIControlsSettings {
   maxTokensPerRequest: number;
   contextFromRelatedCards: boolean;
   documentSnippetLength: number;
+  /** How the flashcard generation target card count is determined. */
+  flashcardCountMode: "fixed" | "auto";
+  /** Exact card count requested when flashcardCountMode is "fixed". */
+  flashcardFixedCount: number;
+  /** Lower bound on the computed target when flashcardCountMode is "auto". */
+  flashcardAutoMin: number;
+  /** Upper bound on the computed target when flashcardCountMode is "auto". */
+  flashcardAutoMax: number;
 }
 
 /**
@@ -679,6 +688,10 @@ export const defaultSettings: Settings = {
       maxTokensPerRequest: 4096,
       contextFromRelatedCards: false,
       documentSnippetLength: 2000,
+      flashcardCountMode: "fixed",
+      flashcardFixedCount: 5,
+      flashcardAutoMin: 3,
+      flashcardAutoMax: 25,
     },
     memoryEnabled: false,
   },
@@ -858,7 +871,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: "incrementum-settings",
-      version: 5,
+      version: 6,
       migrate: (persisted: unknown, version: number) => {
         const p = (persisted ?? {}) as Partial<Settings> & { settings?: Partial<Settings> };
         const root = p.settings ?? p;
@@ -890,6 +903,16 @@ export const useSettingsStore = create<SettingsState>()(
         if (version < 5) {
           if (root?.interface && isNativeMobile()) {
             root.interface.animationsEnabled = false;
+          }
+        }
+        // v5 -> v6: the flashcard generation target replaces the narrower
+        // `cardsPerExtract` field, which only ever fed extract auto-generation.
+        // Seed the new fixed-count field from the user's prior value so
+        // behavior is unchanged until they touch the new setting.
+        if (version < 6) {
+          const priorCards = root?.ai?.aiControls?.cardsPerExtract;
+          if (root?.ai?.aiControls && typeof priorCards === "number") {
+            root.ai.aiControls.flashcardFixedCount = priorCards;
           }
         }
         return persisted as SettingsState;
