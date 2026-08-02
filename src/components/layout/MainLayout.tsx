@@ -210,9 +210,8 @@ export function MainLayout() {
         // loadTabs() will restore the session if restoreSession is enabled
         const restored = await loadTabs();
 
-        // If still no tabs after loading, create defaults
+        // If still no tabs after loading, create the Dashboard as a base tab
         if (!restored && useTabsStore.getState().tabs.length === 0) {
-          // Add Dashboard tab (non-closable)
           addTab({
             title: "Dashboard",
             icon: <SquaresFour className="w-4 h-4" />,
@@ -220,27 +219,30 @@ export function MainLayout() {
             content: DashboardTab,
             closable: false,
           });
-
-          // Open the view chosen in Settings ▸ Default View. This preference
-          // was previously stored nowhere and read nowhere, so the app always
-          // opened on Queue regardless of what the user picked.
-          const defaultView = useSettingsStore.getState().settings.general.defaultView;
-          const startupTabs = {
-            queue: { title: "Queue", type: "queue" as const, content: QueueTab, icon: <ListChecks className="w-4 h-4" /> },
-            review: { title: "Review", type: "review" as const, content: ReviewTab, icon: <ListChecks className="w-4 h-4" /> },
-            documents: { title: "Documents", type: "documents" as const, content: DocumentsTab, icon: <SquaresFour className="w-4 h-4" /> },
-            analytics: { title: "Statistics", type: "analytics" as const, content: AnalyticsTab, icon: <SquaresFour className="w-4 h-4" /> },
-          };
-          const startupTab = startupTabs[defaultView] ?? startupTabs.queue;
-
-          addTab({
-            title: startupTab.title,
-            icon: startupTab.icon,
-            type: startupTab.type,
-            content: startupTab.content,
-            closable: true,
-          });
         }
+
+        // Open the view chosen in Settings ▸ Default View. Runs regardless of
+        // whether a session was restored: restoreSession decides which tabs
+        // exist, defaultView decides which one is focused on launch. addTab
+        // reuses (and activates) an existing tab of this type — queue/review/
+        // documents/analytics are single-instance — so a restored session's
+        // tabs are never duplicated or discarded, just refocused.
+        const defaultView = useSettingsStore.getState().settings.general.defaultView;
+        const startupTabs = {
+          queue: { title: "Queue", type: "queue" as const, content: QueueTab, icon: <ListChecks className="w-4 h-4" /> },
+          review: { title: "Review", type: "review" as const, content: ReviewTab, icon: <ListChecks className="w-4 h-4" /> },
+          documents: { title: "Documents", type: "documents" as const, content: DocumentsTab, icon: <SquaresFour className="w-4 h-4" /> },
+          analytics: { title: "Statistics", type: "analytics" as const, content: AnalyticsTab, icon: <SquaresFour className="w-4 h-4" /> },
+        };
+        const startupTab = startupTabs[defaultView] ?? startupTabs.queue;
+
+        addTab({
+          title: startupTab.title,
+          icon: startupTab.icon,
+          type: startupTab.type,
+          content: startupTab.content,
+          closable: true,
+        });
       }
     };
 
