@@ -286,6 +286,13 @@ function downloadFile(urls, outputPath, options = {}) {
         `curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time ${maxTime} ${shellQuote(url)} -o ${shellQuote(outputPath)}`,
         { stdio: 'inherit' },
       );
+      // A 200 response can still be a tiny error/maintenance page rather than
+      // the real archive (curl -f only catches non-2xx statuses). Reject
+      // anything implausibly small so we fall through to the next mirror
+      // instead of handing a garbage file to tar/unzip downstream.
+      if (options.minBytes && fs.statSync(outputPath).size < options.minBytes) {
+        throw new Error(`downloaded file is suspiciously small (< ${options.minBytes} bytes)`);
+      }
       return;
     } catch (error) {
       failures.push(`${url}: ${error.message}`);
@@ -1024,12 +1031,16 @@ async function main() {
     console.log('Downloading FFmpeg (Linux)...');
     const ffmpegArchive = `ffmpeg-linux-${isArm64 ? 'arm64' : 'x64'}.tar.xz`;
     const ffmpegUrls = isArm64
-      ? ['https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz']
+      ? [
+          'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz',
+          'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz',
+        ]
       : [
           'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz',
           'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz',
         ];
-    downloadFile(ffmpegUrls, ffmpegArchive);
+    // Static ffmpeg builds are tens of MB; anything under 1MB is an error page.
+    downloadFile(ffmpegUrls, ffmpegArchive, { minBytes: 1024 * 1024 });
     execSync(`tar -xf ${shellQuote(ffmpegArchive)}`);
     const extractedFolders = fs.readdirSync('.')
       .filter(f => f.startsWith('ffmpeg-') && fs.statSync(f).isDirectory());

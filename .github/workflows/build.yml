@@ -65,6 +65,10 @@ jobs:
           $configPath = "src-tauri\tauri.conf.json"
           $config = Get-Content $configPath -Raw | ConvertFrom-Json
           $config.plugins.updater.active = $false
+          # createUpdaterArtifacts triggers signing independently of the
+          # updater plugin's "active" flag — must also be disabled or `tauri
+          # build` still demands TAURI_SIGNING_PRIVATE_KEY.
+          $config.bundle.createUpdaterArtifacts = $false
           $config | ConvertTo-Json -Depth 32 | Set-Content $configPath
           Write-Host "Updater signing disabled for non-release build"
 
@@ -236,6 +240,11 @@ jobs:
           config.plugins ??= {};
           config.plugins.updater ??= {};
           config.plugins.updater.active = false;
+          // createUpdaterArtifacts triggers signing independently of the
+          // updater plugin's "active" flag — must also be disabled or `tauri
+          // build` still demands TAURI_SIGNING_PRIVATE_KEY.
+          config.bundle ??= {};
+          config.bundle.createUpdaterArtifacts = false;
           fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
           console.log("Updater signing disabled for non-release build");
           NODE
@@ -252,6 +261,8 @@ jobs:
           SQLX_OFFLINE: "true"
           TAURI_SIGNING_IDENTITY: "-"
           APPLE_SIGNING_IDENTITY: "-"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Verify Linux deb bundle includes NotebookLM runtime
         if: matrix.id == 'linux-x86_64'
@@ -431,6 +442,8 @@ jobs:
         env:
           TAURI_BUNDLE_APPIMAGE: "true"
           APPIMAGE_EXTRACT_AND_RUN: "1"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: List AppImage bundle (debug)
         shell: bash
