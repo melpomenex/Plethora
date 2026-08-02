@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.95.1] - 2026-08-02
+
+### Fixed & Improved
+
+- **Assistant PDF context fallback** — The Assistant threw "Document context is unavailable for this request." on PDFs that Document Q&A read without issue, because it read its document text from a viewer-supplied context prop that is frequently empty for PDFs (the live page-window text hasn't been emitted yet, or stored/OCR/extracted text came up empty) and aborted before calling the LLM. The Assistant now falls back to the same authoritative text source Document Q&A uses (stored document content, then the Rust text extractor) before throwing, so a PDF whose text can be extracted is sent to the LLM instead of erroring.
+
 ## [1.95.0] - 2026-08-02
 
 ### Added
