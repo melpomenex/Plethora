@@ -5307,6 +5307,38 @@ export function DocumentViewer({
     } catch { /* cross-origin guard */ }
   }, [viewMode]);
 
+  // Right-click context menu for selected text inside the HTML iframe (primary
+  // HTML document viewer and OCR HTML view). Attached to the iframe's own
+  // contentDocument in the iframe's onLoad handler — a React onContextMenu prop
+  // on the <iframe> element itself only fires for the iframe's chrome, not its
+  // document content, since the iframe is a separate document context. Mirrors
+  // the pattern already used by EPUBViewer for its contents.document listener.
+  const attachHtmlIframeContextMenuListener = useCallback(() => {
+    try {
+      const iframe = iframeRef.current;
+      const doc = iframe?.contentDocument;
+      if (!iframe || !doc) return;
+      doc.addEventListener("contextmenu", (e: Event) => {
+        const win = iframe.contentWindow;
+        const selection = win?.getSelection();
+        const text = selection?.toString().trim();
+        if (!text) return;
+        e.preventDefault();
+        const mouseEvent = e as unknown as MouseEvent;
+        const iframeRect = iframe.getBoundingClientRect();
+        setSelectedText(text);
+        lastSelectionRef.current = text;
+        setContextMenuState({
+          visible: true,
+          x: iframeRect.left + mouseEvent.clientX,
+          y: iframeRect.top + mouseEvent.clientY,
+          selectedText: text,
+          selectionContext: null,
+        });
+      });
+    } catch { /* cross-origin guard */ }
+  }, []);
+
   // Apply initial jump navigation (page/scroll/time) on document load.
   useEffect(() => {
     if (!currentDocument) return;
@@ -6347,6 +6379,7 @@ export function DocumentViewer({
                   onMouseUp={handleIframeMouseUp}
                   onLoad={() => {
                     injectHtmlViewerStyles();
+                    attachHtmlIframeContextMenuListener();
                   }}
                 />
               </div>
@@ -6755,6 +6788,7 @@ export function DocumentViewer({
               onLoad={() => {
                 const loadedFrame = iframeRef.current;
                 injectHtmlViewerStyles();
+                attachHtmlIframeContextMenuListener();
                 scrollHtmlFrameToInitialHit();
                 // Restore saved scroll position (skip if initialJump already scrolled)
                 const pending = htmlRestorationPendingRef.current;
