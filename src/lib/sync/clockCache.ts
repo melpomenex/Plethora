@@ -58,6 +58,17 @@ class ClockCache {
     const map = entityType === "learningItems" ? this.learningItems : this.documents;
     map.set(key, clock);
   }
+
+  /**
+   * Forget the cached clock for a key. Used when a tombstone is written
+   * out-of-band from the normal clock comparison (e.g. document delete): the
+   * next publish for this key must not be skipped as "unchanged" just because
+   * it carries the same pre-delete clock the cache still remembers.
+   */
+  clearClock(entityType: "learningItems" | "documents", key: string): void {
+    const map = entityType === "learningItems" ? this.learningItems : this.documents;
+    map.delete(key);
+  }
 }
 
 export const syncClockCache = new ClockCache();

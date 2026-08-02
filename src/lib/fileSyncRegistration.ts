@@ -140,6 +140,51 @@ export async function registerImportedFileSync(
  * Called at startup/load time so that the device can advertise and serve files
  * that were imported in previous sessions.
  */
+/**
+ * Per-session memory of which documents have already completed a full
+ * registration pass (manifest check, loader registration, background upload,
+ * publish), keyed by doc id and the clock ("dateModified"/"dateAdded") they
+ * were registered at. `loadDocuments()` calls `registerExistingFilesSync`
+ * with the *entire* library every time the Documents tab activates, so
+ * without this a library of hundreds of documents would redo the whole
+ * manifest/publish pass on every tab switch even though nothing changed.
+ * A doc is skipped only when its clock exactly matches what was last
+ * registered — any change re-processes it.
+ */
+const sessionRegisteredClocks = new Map<string, string>();
+
+function docSyncClock(doc: Document): string | null {
+  const raw = doc.dateModified || doc.dateAdded;
+  if (!raw) return null;
+  return typeof raw === "string" ? raw : new Date(raw).toISOString();
+}
+
+/**
+ * Yield to the main thread. Used to break up the per-document registration
+ * loop into batches so a large first-time pass (import, first boot, first
+ * tab activation) doesn't block scrolling/typing for as long as it takes to
+ * walk the whole library in one uninterrupted synchronous stretch.
+ */
+function yieldToMain(): Promise<void> {
+  return new Promise((resolve) => {
+    type IdleWindow = Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    };
+    if (typeof window === "undefined") {
+      setTimeout(resolve, 0);
+      return;
+    }
+    const win = window as IdleWindow;
+    if (typeof win.requestIdleCallback === "function") {
+      win.requestIdleCallback(() => resolve(), { timeout: 500 });
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+const REGISTRATION_BATCH_SIZE = 25;
+
 export async function registerExistingFilesSync(docs: Document[]): Promise<void> {
   if (!isTauri()) return;
   if (docs.length === 0) return;
@@ -157,6 +202,12 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
 
     const manifest = getFileManifest();
     const transferManager = getFileTransferManager();
+    // Build the membership index once per pass instead of calling
+    // manifest.getAllFiles().find(...) per document — that turned an O(n)
+    // pass over the library into O(n * manifestSize) work every time.
+    const manifestIds = new Set(manifest.getAllFiles().map((f) => f.id));
+
+    let processedSinceYield = 0;
 
     for (const doc of docs) {
       // Skip docs with no filePath, or whose filePath is a URL/identifier
@@ -169,6 +220,14 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
       // Skip audio and video files. Hashing and uploading large media files on
       // boot blocks the CPU and crashes WebViews due to high memory allocation.
       if (doc.fileType === "audio" || doc.fileType === "video") continue;
+
+      // Already fully registered this session at this exact clock — nothing
+      // changed since the last pass, so skip the manifest/loader/publish work
+      // entirely rather than redoing it on every Documents-tab activation.
+      const clockStr = docSyncClock(doc);
+      if (clockStr && sessionRegisteredClocks.get(doc.id) === clockStr) {
+        continue;
+      }
 
       let fileId = doc.fileId;
       let localInfo: { contentHash: string; sizeBytes: number } | null = null;
@@ -211,6 +270,7 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
               uploadedBy: getDeviceId(),
             };
             manifest.addFile(entry);
+            manifestIds.add(fileId);
           }
 
           doc.fileId = fileId;
@@ -225,8 +285,7 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
         }
       } else {
         // 2. If it has a fileId, ensure it has a manifest entry so other peers know about it
-        const inManifest = manifest.getAllFiles().find((f) => f.id === fileId);
-        if (!inManifest) {
+        if (!manifestIds.has(fileId)) {
           try {
             const info = await getLocalInfo();
             if (!info) continue;
@@ -241,6 +300,7 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
               uploadedBy: getDeviceId(),
             };
             manifest.addFile(entry);
+            manifestIds.add(fileId);
           } catch (hashErr) {
             console.warn("[fileSyncRegistration] failed to hash existing file for manifest", doc.id, hashErr);
           }
@@ -271,9 +331,22 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
       }
 
       // 4. Publish the document metadata row to Yjs so other devices replicate the row
+      // (publishDocument itself also skips the write if the clock is unchanged;
+      // this session cache additionally skips the manifest/loader/upload work above)
       await publishDocument(doc).catch((e) => {
         console.warn("[fileSyncRegistration] failed to publish existing document", doc.id, e);
       });
+
+      const registeredClock = docSyncClock(doc);
+      if (registeredClock) {
+        sessionRegisteredClocks.set(doc.id, registeredClock);
+      }
+
+      processedSinceYield += 1;
+      if (processedSinceYield >= REGISTRATION_BATCH_SIZE) {
+        processedSinceYield = 0;
+        await yieldToMain();
+      }
     }
   } catch (err) {
     console.warn("[fileSyncRegistration] failed to register existing files for sync", err);

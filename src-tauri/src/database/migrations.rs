@@ -2141,6 +2141,45 @@ pub const MIGRATIONS: &[Migration] = &[
         VALUES ('00000000-0000-0000-0000-000000000001', 'Personal', 'manual', datetime('now'), datetime('now'));
         "#,
     ),
+    Migration::new(
+        "066_backfill_document_extract_count",
+        r#"
+        -- create_extract / delete_extract now keep documents.extract_count in
+        -- sync at write time, but existing databases accumulated drift because
+        -- the count used to be patched only in-memory on the client (and was
+        -- then clobbered by every documents reload / collection switch). This
+        -- one-shot, idempotent recount repairs the Compact View "Has extracts"
+        -- signal filter and the EXTRACTS column for pre-existing rows.
+        UPDATE documents
+        SET extract_count = (
+            SELECT COUNT(*) FROM extracts WHERE extracts.document_id = documents.id
+        );
+        "#,
+    ),
+    Migration::new(
+        "067_add_document_priority_explicitly_set",
+        r#"
+        -- The Alt+P priority popup must seed from a document's real current
+        -- priority, including an explicit value of 0 (the Lowest preset). The
+        -- legacy schema stored priority_slider / priority_rating as NOT NULL
+        -- INTEGER DEFAULT 0, so a document the user deliberately set to 0 was
+        -- indistinguishable from one never touched, and the popup reseeded to
+        -- the neutral midpoint (50) instead of 0.
+        --
+        -- Rather than rebuild the documents table to make the two columns
+        -- nullable (which would re-activate the category FOREIGN KEY and break
+        -- the many existing rows whose category is a free-form tag rather than
+        -- a categories(id) row), we add a single explicit boolean sentinel.
+        -- `priority_explicitly_set = 1` means the user committed a priority via
+        -- update_document_priority (any value, including 0); `0` means never
+        -- touched. update_document_priority always flips this to 1 on commit,
+        -- and resolveDisplaySlider honors priority_slider as-is when it is set,
+        -- falling back to the rating-bucket / neutral midpoint only when it is
+        -- not. This carries the same information as a nullable column without
+        -- touching the existing columns or their constraints.
+        ALTER TABLE documents ADD COLUMN priority_explicitly_set INTEGER NOT NULL DEFAULT 0;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

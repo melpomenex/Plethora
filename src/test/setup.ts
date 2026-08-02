@@ -139,6 +139,37 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = function scrollIntoView() {};
 }
 
+// jsdom performs no real layout: every element reports 0 for
+// offsetWidth/offsetHeight, and there is no ResizeObserver.
+// @tanstack/react-virtual (used by the Documents view's virtualized list/
+// compact rows) treats a 0-height scroll container as "nothing is visible
+// yet" and renders zero rows (see calculateRange's `outerSize > 0` guard) —
+// so without this, any test that renders a virtualized list finds no rows at
+// all, even though real browsers measure a real, non-zero container. Stub a
+// fixed viewport-sized rect so virtualized components measure like they
+// would on an actual screen.
+if (typeof ResizeObserver === "undefined") {
+  class MockResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  window.ResizeObserver = MockResizeObserver;
+  global.ResizeObserver = MockResizeObserver;
+}
+if (typeof HTMLElement !== "undefined") {
+  const STUB_HEIGHT = 800;
+  const STUB_WIDTH = 1024;
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get() { return STUB_HEIGHT; },
+  });
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get() { return STUB_WIDTH; },
+  });
+}
+
 // Suppress console errors in tests (optional, for cleaner output)
 const originalError = console.error;
 beforeAll(() => {

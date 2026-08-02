@@ -596,6 +596,7 @@ pub async fn import_from_obsidian_internal(
         priority_rating: 0,
         priority_slider: 0,
         priority_score: 0.0,
+        priority_explicitly_set: false,
         is_archived: false,
         is_favorite: false,
         is_dismissed: false,

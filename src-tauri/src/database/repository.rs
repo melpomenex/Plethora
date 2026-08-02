@@ -544,6 +544,12 @@ impl Repository {
                     priority_rating: row.get("priority_rating"),
                     priority_slider: row.get("priority_slider"),
                     priority_score: row.get("priority_score"),
+                    priority_explicitly_set: row
+                        .try_get::<Option<i64>, _>("priority_explicitly_set")
+                        .ok()
+                        .flatten()
+                        .map(|v| v != 0)
+                        .unwrap_or(false),
                     is_archived: row.get("is_archived"),
                     is_favorite: row.get("is_favorite"),
                     is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -668,6 +674,12 @@ impl Repository {
                     priority_rating: row.get("priority_rating"),
                     priority_slider: row.get("priority_slider"),
                     priority_score: row.get("priority_score"),
+                    priority_explicitly_set: row
+                        .try_get::<Option<i64>, _>("priority_explicitly_set")
+                        .ok()
+                        .flatten()
+                        .map(|v| v != 0)
+                        .unwrap_or(false),
                     is_archived: row.get("is_archived"),
                     is_favorite: row.get("is_favorite"),
                     is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -730,6 +742,12 @@ impl Repository {
                 priority_rating: row.get("priority_rating"),
                 priority_slider: row.get("priority_slider"),
                 priority_score: row.get("priority_score"),
+                priority_explicitly_set: row
+                    .try_get::<Option<i64>, _>("priority_explicitly_set")
+                    .ok()
+                    .flatten()
+                    .map(|v| v != 0)
+                    .unwrap_or(false),
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -794,6 +812,12 @@ impl Repository {
                 priority_rating: row.get("priority_rating"),
                 priority_slider: row.get("priority_slider"),
                 priority_score: row.get("priority_score"),
+                priority_explicitly_set: row
+                    .try_get::<Option<i64>, _>("priority_explicitly_set")
+                    .ok()
+                    .flatten()
+                    .map(|v| v != 0)
+                    .unwrap_or(false),
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -829,7 +853,7 @@ impl Repository {
              total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, \
              position_json, progress_percent, category, tags, date_added, date_modified, \
              date_last_reviewed, extract_count, learning_item_count, priority_rating, \
-             priority_slider, priority_score, is_archived, is_favorite, is_dismissed, \
+             priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, \
              NULL AS metadata, cover_image_url, cover_image_source, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, \
              consecutive_count \
@@ -871,6 +895,12 @@ impl Repository {
                 priority_rating: row.get("priority_rating"),
                 priority_slider: row.get("priority_slider"),
                 priority_score: row.get("priority_score"),
+                priority_explicitly_set: row
+                    .try_get::<Option<i64>, _>("priority_explicitly_set")
+                    .ok()
+                    .flatten()
+                    .map(|v| v != 0)
+                    .unwrap_or(false),
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -905,7 +935,7 @@ impl Repository {
              total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, \
              position_json, progress_percent, category, tags, date_added, date_modified, \
              date_last_reviewed, extract_count, learning_item_count, priority_rating, \
-             priority_slider, priority_score, is_archived, is_favorite, is_dismissed, \
+             priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, \
              NULL AS metadata, cover_image_url, cover_image_source, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, \
              consecutive_count \
@@ -948,6 +978,12 @@ impl Repository {
                 priority_rating: row.get("priority_rating"),
                 priority_slider: row.get("priority_slider"),
                 priority_score: row.get("priority_score"),
+                priority_explicitly_set: row
+                    .try_get::<Option<i64>, _>("priority_explicitly_set")
+                    .ok()
+                    .flatten()
+                    .map(|v| v != 0)
+                    .unwrap_or(false),
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -988,7 +1024,7 @@ impl Repository {
                     current_page, current_scroll_percent, current_cfi, current_view_state,
                     position_json, progress_percent, category, tags, date_added, date_modified,
                     date_last_reviewed, extract_count, learning_item_count, priority_rating,
-                    priority_slider, priority_score, is_archived, is_favorite, is_dismissed,
+                    priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed,
                     next_reading_date, reading_count, stability, difficulty, reps,
                     total_time_spent, consecutive_count
              FROM documents
@@ -1032,6 +1068,12 @@ impl Repository {
                     priority_rating: row.try_get("priority_rating").unwrap_or(0),
                     priority_slider: row.try_get("priority_slider").unwrap_or(0),
                     priority_score: row.try_get("priority_score").unwrap_or(0.0),
+                    priority_explicitly_set: row
+                        .try_get::<Option<i64>, _>("priority_explicitly_set")
+                        .ok()
+                        .flatten()
+                        .map(|v| v != 0)
+                        .unwrap_or(false),
                     is_archived: row.try_get("is_archived").unwrap_or(false),
                     is_favorite: row.try_get("is_favorite").unwrap_or(false),
                     is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -1054,7 +1096,7 @@ impl Repository {
             "SELECT id, title, file_path, file_type, content_hash, total_pages, current_page, \
              current_scroll_percent, current_cfi, current_view_state, position_json, \
              progress_percent, category, tags, date_added, date_modified, date_last_reviewed, \
-             extract_count, learning_item_count, priority_rating, priority_slider, priority_score, \
+             extract_count, learning_item_count, priority_rating, priority_slider, priority_score, priority_explicitly_set, \
              is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, \
              collection_id \
@@ -1100,6 +1142,12 @@ impl Repository {
                 priority_rating: row.get("priority_rating"),
                 priority_slider: row.get("priority_slider"),
                 priority_score: row.get("priority_score"),
+                priority_explicitly_set: row
+                    .try_get::<Option<i64>, _>("priority_explicitly_set")
+                    .ok()
+                    .flatten()
+                    .map(|v| v != 0)
+                    .unwrap_or(false),
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -1193,6 +1241,12 @@ impl Repository {
                 priority_rating: row.get("priority_rating"),
                 priority_slider: row.get("priority_slider"),
                 priority_score: row.get("priority_score"),
+                priority_explicitly_set: row
+                    .try_get::<Option<i64>, _>("priority_explicitly_set")
+                    .ok()
+                    .flatten()
+                    .map(|v| v != 0)
+                    .unwrap_or(false),
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -1388,12 +1442,17 @@ impl Repository {
     ) -> Result<Document> {
         let now = Utc::now();
 
+        // Flip priority_explicitly_set to 1 so the Alt+P popup can distinguish a
+        // user-committed priority (including an explicit 0) from a never-touched
+        // document. This is the single source of truth for "was this set?" —
+        // every commit through the popup (single or bulk) flows through here.
         sqlx::query(
             r#"
             UPDATE documents SET
                 priority_rating = ?1,
                 priority_slider = ?2,
                 priority_score = ?3,
+                priority_explicitly_set = 1,
                 date_modified = ?4
             WHERE id = ?5
             "#,
@@ -1612,6 +1671,14 @@ impl Repository {
             .map(serde_json::to_string)
             .transpose()?;
 
+        // Insert the extract and bump the owning document's `extract_count` in
+        // the same transaction. Persisting the count here (rather than patching
+        // it in-memory on the client) is what keeps the Compact View "Has
+        // extracts" signal filter and the EXTRACTS column correct across
+        // reloads / collection switches — the in-memory patch was previously
+        // clobbered by `mergeDocumentSummary` on every loadDocuments() call.
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query(
             r#"
             INSERT INTO extracts (
@@ -1650,8 +1717,17 @@ impl Repository {
         .bind(&extract.source_hash)
         .bind(extract.priority_score)
         .bind(extract.is_dismissed)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        sqlx::query(
+            "UPDATE documents SET extract_count = extract_count + 1 WHERE id = ?1",
+        )
+        .bind(&extract.document_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
 
         Ok(extract.clone())
     }
@@ -2010,10 +2086,33 @@ impl Repository {
     }
 
     pub async fn delete_extract(&self, id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM extracts WHERE id = ?")
+        // Look up the owning document before the delete, then decrement that
+        // document's persisted `extract_count` (floored at 0) in the same
+        // transaction as the row removal — mirror of create_extract's increment.
+        let mut tx = self.pool.begin().await?;
+
+        let document_id: Option<String> =
+            sqlx::query_as::<_, (Option<String>,)>("SELECT document_id FROM extracts WHERE id = ?1")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .and_then(|(d,)| d);
+
+        sqlx::query("DELETE FROM extracts WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+
+        if let Some(doc_id) = document_id {
+            sqlx::query(
+                "UPDATE documents SET extract_count = MAX(extract_count - 1, 0) WHERE id = ?1",
+            )
+            .bind(&doc_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 
@@ -5587,6 +5686,12 @@ impl Repository {
                 priority_rating: row.get("priority_rating"),
                 priority_slider: row.get("priority_slider"),
                 priority_score: row.get("priority_score"),
+                priority_explicitly_set: row
+                    .try_get::<Option<i64>, _>("priority_explicitly_set")
+                    .ok()
+                    .flatten()
+                    .map(|v| v != 0)
+                    .unwrap_or(false),
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
@@ -7868,6 +7973,9 @@ mod tests {
         assert_eq!(read.tags, vec!["tag1".to_string(), "tag2".to_string()]);
         assert_eq!(read.category.as_deref(), Some("science"));
         assert_eq!(read.priority_rating, 3);
+        // create_document goes through the default (priority_explicitly_set = 0);
+        // only update_document_priority flips it to true.
+        assert!(!read.priority_explicitly_set);
     }
 
     #[tokio::test]
@@ -7900,6 +8008,48 @@ mod tests {
         assert_eq!(read.notes.as_deref(), Some("key concept"));
         assert_eq!(read.highlight_color.as_deref(), Some("yellow"));
     }
+
+    #[tokio::test]
+    async fn extract_count_is_persisted_on_create_and_delete() {
+        // Regression test for the Compact View "Has extracts" signal drift:
+        // create_extract / delete_extract must keep documents.extract_count in
+        // sync at write time so the count (and the filter) survives a reload.
+        let repo = setup_repo().await;
+        let doc = repo
+            .create_document(&Document::new(
+                "Src".to_string(),
+                "/tmp/count.epub".to_string(),
+                FileType::Epub,
+            ))
+            .await
+            .expect("doc");
+        let doc_id = doc.id.clone();
+
+        let reload_count = || async {
+            repo.get_document(&doc_id)
+                .await
+                .expect("get")
+                .expect("found")
+                .extract_count
+        };
+
+        let mut a = Extract::new(doc.id.clone(), "first".to_string());
+        a.id = "ext-a".to_string();
+        let mut b = Extract::new(doc.id.clone(), "second".to_string());
+        b.id = "ext-b".to_string();
+
+        repo.create_extract(&a).await.expect("create a");
+        repo.create_extract(&b).await.expect("create b");
+        assert_eq!(reload_count().await, 2, "two creates should persist count 2");
+
+        repo.delete_extract(&a.id).await.expect("delete a");
+        assert_eq!(reload_count().await, 1, "delete should persist count 1");
+
+        // Deleting the last extract floors at 0, never negative.
+        repo.delete_extract(&b.id).await.expect("delete b");
+        assert_eq!(reload_count().await, 0, "final delete should persist count 0");
+    }
+
 
     #[tokio::test]
     async fn learning_item_create_read_roundtrip() {
@@ -8019,7 +8169,9 @@ mod tests {
             .await
             .expect("dismiss");
 
-        // Update priority (requires rating, slider, score)
+        // Update priority (requires rating, slider, score). An explicit slider
+        // of 0 must both persist and flip priority_explicitly_set so the Alt+P
+        // popup seeds 0 rather than the neutral midpoint.
         repo.update_document_priority(&doc.id, 4, 0, 0.0)
             .await
             .expect("priority");
@@ -8034,6 +8186,8 @@ mod tests {
         assert_eq!(read.tags, vec!["a".to_string(), "b".to_string()]);
         assert!(read.is_dismissed);
         assert_eq!(read.priority_rating, 4);
+        assert_eq!(read.priority_slider, 0);
+        assert!(read.priority_explicitly_set);
     }
 
     #[tokio::test]

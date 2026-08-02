@@ -18,18 +18,9 @@ const mockToast = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../api/image-registry", () => mockApi);
-const mockModal = vi.hoisted(() => ({
-  prompt: vi.fn(),
-  confirm: vi.fn(),
-  alert: vi.fn(),
-}));
 
 vi.mock("../../common/Toast", () => ({
   useToast: () => mockToast,
-}));
-vi.mock("../../common/Modal", async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  useModal: () => mockModal,
 }));
 
 describe("ImageRegistryLibrary", () => {
@@ -39,7 +30,6 @@ describe("ImageRegistryLibrary", () => {
     mockApi.ingestImageBlob.mockReset();
     mockApi.deleteImageAsset.mockReset();
     mockApi.renameImageAsset.mockReset();
-    mockModal.prompt.mockReset();
     mockToast.success.mockReset();
     mockToast.error.mockReset();
     mockToast.warning.mockReset();
@@ -125,9 +115,11 @@ describe("ImageRegistryLibrary", () => {
       data_url: "data:image/png;base64,AAA",
     };
 
+    // Rename is inline (like a file manager), not a modal prompt: clicking
+    // "Rename" only enters edit mode; the new name is typed into the
+    // revealed <input> and committed with Enter (or discarded with Escape).
     it("persists a new name and shows it", async () => {
       mockApi.listImageAssets.mockResolvedValue([referencedAsset]);
-      mockModal.prompt.mockResolvedValue("nervous-system-diagram.png");
       mockApi.renameImageAsset.mockResolvedValue({
         ...referencedAsset,
         file_name: "nervous-system-diagram.png",
@@ -135,6 +127,10 @@ describe("ImageRegistryLibrary", () => {
 
       render(<ImageRegistryLibrary />);
       fireEvent.click(await screen.findByRole("button", { name: "Rename" }));
+
+      const input = await screen.findByDisplayValue(referencedAsset.file_name);
+      fireEvent.change(input, { target: { value: "nervous-system-diagram.png" } });
+      fireEvent.keyDown(input, { key: "Enter" });
 
       await waitFor(() =>
         expect(mockApi.renameImageAsset).toHaveBeenCalledWith("asset-1", "nervous-system-diagram.png")
@@ -146,12 +142,15 @@ describe("ImageRegistryLibrary", () => {
 
     it("keeps the asset id stable so existing references survive", async () => {
       mockApi.listImageAssets.mockResolvedValue([referencedAsset]);
-      mockModal.prompt.mockResolvedValue("renamed.png");
       mockApi.renameImageAsset.mockResolvedValue({ ...referencedAsset, file_name: "renamed.png" });
 
       const onAssetsChange = vi.fn();
       render(<ImageRegistryLibrary onAssetsChange={onAssetsChange} />);
       fireEvent.click(await screen.findByRole("button", { name: "Rename" }));
+
+      const input = await screen.findByDisplayValue(referencedAsset.file_name);
+      fireEvent.change(input, { target: { value: "renamed.png" } });
+      fireEvent.keyDown(input, { key: "Enter" });
 
       await waitFor(() => expect(mockApi.renameImageAsset).toHaveBeenCalled());
       // Renaming must not mint a new id, or the 3 cards referencing it break.
@@ -160,14 +159,22 @@ describe("ImageRegistryLibrary", () => {
       expect(lastAssets[0].reference_count).toBe(3);
     });
 
-    it("does nothing when the rename prompt is dismissed", async () => {
+    it("does nothing when the rename edit is cancelled", async () => {
       mockApi.listImageAssets.mockResolvedValue([referencedAsset]);
-      mockModal.prompt.mockResolvedValue(null);
 
       render(<ImageRegistryLibrary />);
       fireEvent.click(await screen.findByRole("button", { name: "Rename" }));
 
-      await waitFor(() => expect(mockModal.prompt).toHaveBeenCalled());
+      const input = await screen.findByDisplayValue(referencedAsset.file_name);
+      fireEvent.change(input, { target: { value: "should-not-save.png" } });
+      fireEvent.keyDown(input, { key: "Escape" });
+
+      // Escape exits edit mode without committing: the input is gone, the
+      // original name is shown again, and no API call was made.
+      await waitFor(() =>
+        expect(screen.queryByDisplayValue("should-not-save.png")).not.toBeInTheDocument()
+      );
+      expect(screen.getAllByText(referencedAsset.file_name).length).toBeGreaterThan(0);
       expect(mockApi.renameImageAsset).not.toHaveBeenCalled();
     });
   });

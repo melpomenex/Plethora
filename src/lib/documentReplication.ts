@@ -153,6 +153,25 @@ export async function publishDocument(doc: Document): Promise<void> {
   try {
     await ensureDocumentReplicationReady();
     if (!documentsMap) return;
+    // Skip the write entirely when this doc's clock hasn't advanced since the
+    // last publish/remote-apply we recorded for it. Without this, callers that
+    // re-publish the whole library unconditionally (e.g. registerExistingFilesSync
+    // on every Documents-tab activation) turn every unchanged document into a
+    // Yjs write, which in turn fires documentsMap.observe() and re-enqueues
+    // handleRemoteDocument for that key — hundreds of no-op round trips for a
+    // library that hasn't changed at all. syncClockCache already tracks the
+    // last-known clock per doc id (updated both here and on remote apply), so
+    // reuse isStale as an "unchanged" check: not stale means the clock we'd be
+    // writing is not newer than what's already recorded, i.e. nothing to publish.
+    const rawClock = doc.dateModified || doc.dateAdded;
+    const clockStr = rawClock
+      ? typeof rawClock === "string"
+        ? rawClock
+        : new Date(rawClock).toISOString()
+      : null;
+    if (clockStr && !syncClockCache.isStale("documents", doc.id, clockStr)) {
+      return;
+    }
     // Drop fields that are large and either regenerable or device-specific, so
     // the shared CRDT document stays small. The Yjs doc grows monotonically
     // (deletes are permanent tombstones), so publishing a few hundred-KB
@@ -191,6 +210,11 @@ export async function deleteDocumentSync(docId: string): Promise<void> {
     await ensureDocumentReplicationReady();
     if (!documentsMap) return;
     writeTombstone(documentsMap, docId, getDeviceId());
+    // Forget the cached clock: a later undo/restore publishes the document
+    // with its pre-delete dateModified, which would otherwise look
+    // "unchanged" to publishDocument's clock-skip check and never overwrite
+    // the tombstone we just wrote.
+    syncClockCache.clearClock("documents", docId);
   } catch (err) {
     console.warn("[documentReplication] delete publish failed", docId, err);
   }

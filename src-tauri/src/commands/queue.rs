@@ -325,10 +325,7 @@ async fn get_queue_items_from_repo(
             document.next_reading_date,
             document.stability,
             document.difficulty,
-            resolve_priority_slider(
-                document.priority_slider,
-                document.priority_rating,
-            ),
+            resolve_priority_slider(document.priority_slider, document.priority_rating),
         );
 
         queue_items.push(QueueItem {
@@ -746,10 +743,7 @@ async fn get_due_queue_items_from_repo_at(
             document.next_reading_date,
             document.stability,
             document.difficulty,
-            resolve_priority_slider(
-                document.priority_slider,
-                document.priority_rating,
-            ),
+            resolve_priority_slider(document.priority_slider, document.priority_rating),
         );
 
         queue_items.push(QueueItem {
@@ -839,10 +833,7 @@ async fn get_due_documents_only_from_repo(
             document.next_reading_date,
             document.stability,
             document.difficulty,
-            resolve_priority_slider(
-                document.priority_slider,
-                document.priority_rating,
-            ),
+            resolve_priority_slider(document.priority_slider, document.priority_rating),
         );
 
         due_documents.push(QueueItem {

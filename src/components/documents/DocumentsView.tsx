@@ -1,5 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   BookOpen,
   CaretLeft,
@@ -22,6 +23,7 @@ import {
   Flag,
   Pause,
   Plus,
+  SortAscending,
   Sparkle,
   Stack,
   TextT,
@@ -226,6 +228,11 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listCtxDoc, setListCtxDoc] = useState<{ doc: Document; pos: { x: number; y: number } } | null>(null);
   const listCtxRef = useRef<HTMLDivElement>(null);
+  // The single page-level scroll container shared by every library layout
+  // (grid dashboard, compact view, list mode). Virtualized rows (list mode,
+  // CompactLibraryView's table) measure their offset within this element so
+  // they can be windowed without needing their own nested scroll region.
+  const documentsScrollRef = useRef<HTMLDivElement>(null);
   // Ref to the document currently being long-pressed (set on touchstart so the
   // long-press timer's callback knows which doc to open the menu for).
   const longPressDocRef = useRef<Document | null>(null);
@@ -390,6 +397,22 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     () => uniqueDocumentIds(sortedDocuments.map((doc) => doc.id)),
     [sortedDocuments]
   );
+
+  // Windowed rendering for the legacy "list" mode's card rows (below), which
+  // otherwise mounts every document in sortedDocuments unconditionally. Rows
+  // vary in height (wrapping tags/badges), so measureElement is used instead
+  // of a fixed estimateSize.
+  const listModeListRef = useRef<HTMLDivElement>(null);
+  const listModeScrollMargin = useScrollMargin(documentsScrollRef, listModeListRef, [
+    sortedDocuments.length,
+  ]);
+  const listModeVirtualizer = useVirtualizer({
+    count: sortedDocuments.length,
+    getScrollElement: () => documentsScrollRef.current,
+    estimateSize: () => 84,
+    overscan: 8,
+    scrollMargin: listModeScrollMargin,
+  });
 
   // Track which doc IDs we've already processed for cover resolution.
   // This prevents re-firing resolveDocumentCover on every sortedDocuments change.
@@ -1413,7 +1436,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
         )}
 
         <div className="flex-1 flex overflow-hidden documents-layout">
-          <div className="flex-1 overflow-auto p-4 documents-content">
+          <div ref={documentsScrollRef} className="flex-1 overflow-auto p-4 documents-content">
             {isLoading ? (
               mode === "list" || compactDocumentsView ? (
                 <div className="space-y-2">
@@ -1452,6 +1475,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                 onContextMenu={(doc, event) =>
                   setListCtxDoc({ doc, pos: { x: event.clientX, y: event.clientY } })
                 }
+                scrollContainerRef={documentsScrollRef}
               />
             ) : sortedDocuments.length === 0 ? (
               debouncedSearch ? (
@@ -1504,10 +1528,26 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                   </label>
                 </div>
 
-                <div className="space-y-2">
-                  {sortedDocuments.map((doc) => (
+                <div
+                  ref={listModeListRef}
+                  style={{ height: listModeVirtualizer.getTotalSize(), position: "relative" }}
+                >
+                  {listModeVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const doc = sortedDocuments[virtualRow.index];
+                    if (!doc) return null;
+                    return (
                     <div
                       key={doc.id}
+                      data-index={virtualRow.index}
+                      ref={listModeVirtualizer.measureElement}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${virtualRow.start - listModeScrollMargin}px)`,
+                        paddingBottom: 8,
+                      }}
                       onClick={(event) => {
                         if (isMobile) {
                           onOpenDocument?.(doc);
@@ -1613,7 +1653,8 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -2351,6 +2392,37 @@ interface CompactLibraryViewProps {
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onOpenPopup?: (doc: Document) => void;
   onContextMenu?: (doc: Document, event: React.MouseEvent) => void;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+}
+
+/**
+ * Offset (in px) of `listRef`'s content from the top of `scrollContainerRef`'s
+ * scrollable content — i.e. how far the virtualized list starts below
+ * whatever headers/filters/sidebars render above it in the SAME shared page
+ * scroll container. `@tanstack/react-virtual`'s `scrollMargin` option needs
+ * this to translate its internal (list-relative) offsets into the shared
+ * container's coordinate space, since these views don't have their own
+ * nested scroll region — they scroll together with the rest of the page.
+ * Recomputed via getBoundingClientRect (not offsetTop) because offsetTop is
+ * relative to the nearest *positioned* ancestor, which is not guaranteed to
+ * be the scroll container.
+ */
+function useScrollMargin(
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>,
+  listRef: React.RefObject<HTMLDivElement | null>,
+  deps: React.DependencyList,
+): number {
+  const [scrollMargin, setScrollMargin] = useState(0);
+  useLayoutEffect(() => {
+    const scrollEl = scrollContainerRef.current;
+    const listEl = listRef.current;
+    if (!scrollEl || !listEl) return;
+    const listRect = listEl.getBoundingClientRect();
+    const scrollRect = scrollEl.getBoundingClientRect();
+    setScrollMargin(listRect.top - scrollRect.top + scrollEl.scrollTop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return scrollMargin;
 }
 
 function CompactLibraryView({
@@ -2378,21 +2450,27 @@ function CompactLibraryView({
   onClearFilter,
   onOpenPopup,
   onContextMenu,
+  scrollContainerRef,
 }: CompactLibraryViewProps) {
   const { t } = useI18n();
-  const now = Date.now();
-  const recentCutoff = now - 7 * 24 * 60 * 60 * 1000;
-  const filterCounts: Record<CompactDocumentFilter, number> = {
-    all: documents.length,
-    priority: documents.filter((doc) => !doc.isArchived && getPriorityTier(doc) === "high").length,
-    recent: documents.filter((doc) => new Date(doc.dateAdded).getTime() >= recentCutoff).length,
-    active: documents.filter(
-      (doc) => (doc.progressPercent ?? 0) > 0 || doc.extractCount > 0 || doc.learningItemCount > 0
-    ).length,
-    parked: documents.filter((doc) => doc.isArchived || getPriorityTier(doc) === "low").length,
-    highlights: documents.filter((doc) => doc.extractCount > 0).length,
-    cards: documents.filter((doc) => doc.learningItemCount > 0).length,
-  };
+  const filterCounts: Record<CompactDocumentFilter, number> = useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return {
+      all: documents.length,
+      priority: documents.filter((doc) => !doc.isArchived && getPriorityTier(doc) === "high").length,
+      recent: documents.filter((doc) => new Date(doc.dateAdded).getTime() >= cutoff).length,
+      active: documents.filter(
+        (doc) => (doc.progressPercent ?? 0) > 0 || doc.extractCount > 0 || doc.learningItemCount > 0
+      ).length,
+      parked: documents.filter((doc) => doc.isArchived || getPriorityTier(doc) === "low").length,
+      highlights: documents.filter((doc) => doc.extractCount > 0).length,
+      cards: documents.filter((doc) => doc.learningItemCount > 0).length,
+    };
+    // documents.length alone isn't sufficient (same-length filter/priority
+    // updates must still recompute), so key on the array identity itself —
+    // sortedDocuments/documents are only re-created when their contents change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documents]);
 
   const filters: Array<{
     id: CompactDocumentFilter;
@@ -2505,6 +2583,47 @@ function CompactLibraryView({
             </button>
           ))}
         </div>
+
+        {/* Quick sort shortcuts — deliberately visually distinct from the
+            Signals filters above: a sort/arrow icon instead of the signal
+            icon, and no count badge, so "sort by extract count" is not
+            confused with "filter to only docs with extracts". Both feed the
+            shared sortKey/sortDirection state, so List/Grid stay in sync. */}
+        <div className="mb-2 mt-4 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {t("documentsView.sortBy")}
+        </div>
+        <div className="space-y-1">
+          {(["extracts", "cards"] as const).map((key) => {
+            const active = sortKey === key;
+            const label =
+              key === "extracts"
+                ? t("documentsView.sortExtracts")
+                : t("documentsView.sortCards");
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onSort(key)}
+                aria-current={active ? "page" : undefined}
+                aria-label={`${t("documentsView.sortBy")} ${label}`}
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                  active
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                }`}
+              >
+                <SortAscending className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {/* Direction indicator only — never a filter-style count badge. */}
+                {active && (
+                  <span className="font-mono text-[10px]" aria-hidden="true">
+                    {sortDirection === "asc" ? "↑" : "↓"}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </aside>
 
       <section className="min-w-0 flex-1">
@@ -2574,22 +2693,18 @@ function CompactLibraryView({
                 <span className="text-right">{t("documentsView.actions")}</span>
               </div>
 
-              <div className="divide-y divide-border/70">
-                {sortedDocuments.map((doc) => (
-                  <CompactDocumentRow
-                    key={doc.id}
-                    doc={doc}
-                    selected={selectedIds.has(doc.id)}
-                    active={activeId === doc.id}
-                    showNextAction={showNextAction}
-                    onSelect={(modifiers) => onSelectRow(doc, modifiers)}
-                    onOpen={() => onOpenDocument?.(doc)}
-                    onUpdate={onUpdate}
-                    onOpenPopup={onOpenPopup}
-                    onContextMenu={onContextMenu ? (e) => onContextMenu(doc, e) : undefined}
-                  />
-                ))}
-              </div>
+              <VirtualizedDocumentTableBody
+                sortedDocuments={sortedDocuments}
+                selectedIds={selectedIds}
+                activeId={activeId}
+                showNextAction={showNextAction}
+                onSelectRow={onSelectRow}
+                onOpenDocument={onOpenDocument}
+                onUpdate={onUpdate}
+                onOpenPopup={onOpenPopup}
+                onContextMenu={onContextMenu}
+                scrollContainerRef={scrollContainerRef}
+              />
             </>
           ) : (
             <CompactLibraryEmptyState
@@ -2603,6 +2718,85 @@ function CompactLibraryView({
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+/**
+ * Windowed row list for CompactLibraryView's table layout. Only mounts rows
+ * near the viewport instead of every document in `sortedDocuments` — with a
+ * few hundred documents, mounting every `CompactDocumentRow` (each computing
+ * priority tier/reason, relative time, a transcription-store read, etc. on
+ * every render) is the dominant rendering cost. Shares the page-level scroll
+ * container (`scrollContainerRef`) rather than owning its own nested scroll
+ * region, via `useScrollMargin`.
+ */
+function VirtualizedDocumentTableBody({
+  sortedDocuments,
+  selectedIds,
+  activeId,
+  showNextAction,
+  onSelectRow,
+  onOpenDocument,
+  onUpdate,
+  onOpenPopup,
+  onContextMenu,
+  scrollContainerRef,
+}: {
+  sortedDocuments: Document[];
+  selectedIds: Set<string>;
+  activeId: string | null;
+  showNextAction: boolean;
+  onSelectRow: (doc: Document, modifiers?: DocumentSelectionModifiers) => void;
+  onOpenDocument?: (doc: Document) => void;
+  onUpdate: (id: string, updates: Partial<Document>) => void;
+  onOpenPopup?: (doc: Document) => void;
+  onContextMenu?: (doc: Document, event: React.MouseEvent) => void;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const scrollMargin = useScrollMargin(scrollContainerRef, listRef, [sortedDocuments.length]);
+
+  const virtualizer = useVirtualizer({
+    count: sortedDocuments.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 68,
+    overscan: 8,
+    scrollMargin,
+  });
+
+  return (
+    <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+      {virtualizer.getVirtualItems().map((virtualRow) => {
+        const doc = sortedDocuments[virtualRow.index];
+        if (!doc) return null;
+        return (
+          <div
+            key={doc.id}
+            data-index={virtualRow.index}
+            ref={virtualizer.measureElement}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+            }}
+          >
+            <CompactDocumentRow
+              doc={doc}
+              selected={selectedIds.has(doc.id)}
+              active={activeId === doc.id}
+              showNextAction={showNextAction}
+              onSelect={(modifiers) => onSelectRow(doc, modifiers)}
+              onOpen={() => onOpenDocument?.(doc)}
+              onUpdate={onUpdate}
+              onOpenPopup={onOpenPopup}
+              onContextMenu={onContextMenu ? (e) => onContextMenu(doc, e) : undefined}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2724,7 +2918,7 @@ function CompactDocumentRow({
         if (event.detail > 1) onOpen();
       }}
       onKeyDown={handleKeyDown}
-      className={`group cursor-pointer px-3 py-3 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/60 ${
+      className={`group cursor-pointer border-t border-border/70 px-3 py-3 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/60 ${
         selected || active ? "bg-primary/5" : "hover:bg-muted/40"
       }`}
     >

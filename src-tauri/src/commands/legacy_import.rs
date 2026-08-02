@@ -556,6 +556,12 @@ fn parse_document_row(row: &sqlx::sqlite::SqliteRow) -> Result<Document> {
         priority_rating: row.try_get::<i64, _>("priority_rating").unwrap_or(0) as i32,
         priority_slider: row.try_get::<i64, _>("priority_slider").unwrap_or(0) as i32,
         priority_score: row.try_get("priority_score").unwrap_or(0.0),
+        priority_explicitly_set: row
+            .try_get::<Option<i64>, _>("priority_explicitly_set")
+            .ok()
+            .flatten()
+            .map(|v| v != 0)
+            .unwrap_or(false),
         is_archived: row.try_get::<i64, _>("is_archived").unwrap_or(0) != 0,
         is_favorite: row.try_get::<i64, _>("is_favorite").unwrap_or(0) != 0,
         is_dismissed: row.try_get::<i64, _>("is_dismissed").unwrap_or(0) != 0,

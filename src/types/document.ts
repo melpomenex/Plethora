@@ -36,6 +36,14 @@ export interface Document {
   priorityRating: number;
   prioritySlider: number;
   priorityScore: number;
+  /**
+   * True once the user has explicitly committed a priority for this document
+   * via the priority popup. While false, an explicit slider/rating of 0 is
+   * treated as "unset" and resolveDisplaySlider seeds from the rating bucket /
+   * neutral midpoint; once true, the slider value (including 0) is the real
+   * current priority. Optional for backwards-compat with older cached state.
+   */
+  priorityExplicitlySet?: boolean;
   isArchived: boolean;
   isFavorite: boolean;
   isDismissed?: boolean;

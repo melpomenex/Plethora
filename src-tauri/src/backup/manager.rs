@@ -487,6 +487,12 @@ impl BackupManager {
                 priority_rating: row.get("priority_rating"),
                 priority_slider: row.get("priority_slider"),
                 priority_score: row.get("priority_score"),
+                priority_explicitly_set: row
+                    .try_get::<Option<i64>, _>("priority_explicitly_set")
+                    .ok()
+                    .flatten()
+                    .map(|v| v != 0)
+                    .unwrap_or(false),
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),

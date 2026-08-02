@@ -33,6 +33,13 @@ pub struct Document {
     pub priority_rating: i32,
     pub priority_slider: i32,
     pub priority_score: f64,
+    /// True once the user has explicitly committed a priority for this document
+    /// via update_document_priority. While false, an explicit slider/rating
+    /// value of 0 is treated as "unset" and the Alt+P popup seeds from the
+    /// rating bucket / neutral midpoint; once true, the slider value (including
+    /// 0) is the real current priority. Carries the information a nullable
+    /// priority column would, without altering the existing columns.
+    pub priority_explicitly_set: bool,
     pub is_archived: bool,
     pub is_favorite: bool,
     pub is_dismissed: bool,
@@ -88,6 +95,7 @@ pub struct StartupDocumentSummary {
     pub priority_rating: i32,
     pub priority_slider: i32,
     pub priority_score: f64,
+    pub priority_explicitly_set: bool,
     pub is_archived: bool,
     pub is_favorite: bool,
     pub is_dismissed: bool,
@@ -190,6 +198,7 @@ impl Document {
             priority_rating: 0,
             priority_slider: 0,
             priority_score: 0.0,
+            priority_explicitly_set: false,
             is_archived: false,
             is_favorite: false,
             is_dismissed: false,

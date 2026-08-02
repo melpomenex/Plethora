@@ -41,8 +41,23 @@ export function getPriorityInfo(slider: number) {
   return PRIORITY_PRESETS[0];
 }
 
-/** Resolve a document's slider field for display (mirrors backend resolve). */
-export function resolveDisplaySlider(doc: { prioritySlider?: number; priorityRating?: number }): number {
+/**
+ * Resolve a document's slider field for display (mirrors backend resolve).
+ *
+ * Honors `priorityExplicitlySet`: once the user has committed a priority via
+ * the popup, the slider value is the real current priority — including an
+ * explicit `0` (the Lowest preset). Only for a never-touched document do we
+ * fall back to the rating-bucket mapping, then to the neutral midpoint (50).
+ */
+export function resolveDisplaySlider(doc: {
+  prioritySlider?: number;
+  priorityRating?: number;
+  priorityExplicitlySet?: boolean;
+}): number {
+  if (doc.priorityExplicitlySet) {
+    // Real user-set value — use it verbatim, even 0. Clamp defensively.
+    return Math.max(0, Math.min(100, doc.prioritySlider ?? 0));
+  }
   if ((doc.prioritySlider ?? 0) > 0) return doc.prioritySlider!;
   const rating = doc.priorityRating ?? 0;
   if (rating > 0) {
@@ -74,7 +89,12 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
   const open = useCallback(
     async (
       ids: string[],
-      docs: { id: string; prioritySlider?: number; priorityRating?: number }[],
+      docs: {
+        id: string;
+        prioritySlider?: number;
+        priorityRating?: number;
+        priorityExplicitlySet?: boolean;
+      }[],
       options?: { forceBulk?: boolean },
     ): Promise<PriorityPopupResult> => {
       if (ids.length === 0) return { committed: false, slider: null };
@@ -133,6 +153,10 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
           priorityRating: updated.priorityRating,
           prioritySlider: updated.prioritySlider,
           priorityScore: updated.priorityScore,
+          // The backend flips this to true on every commit; mirror it locally so
+          // the next Alt+P open seeds from the just-committed value (incl. 0)
+          // without waiting for a reload.
+          priorityExplicitlySet: true,
         });
       }
 
