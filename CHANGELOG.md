@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.96.1] - 2026-08-02
+
+### Fixed & Improved
+
+- **Release CI: Linux/Windows builds no longer fail on updater signing** — The release build for Linux (`.deb`) and Windows (`nsis`) targets requires signing update artifacts, but the workflow never passed `TAURI_SIGNING_PRIVATE_KEY`/`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` through to the build step, so every release build for those platforms failed with "no private key" and only macOS ever completed. Non-release builds hit the same error because disabling the updater plugin (`plugins.updater.active`) doesn't stop Tauri from demanding a signing key — that's gated by the separate `bundle.createUpdaterArtifacts` flag, which is now also disabled for fast/PR builds.
+- **Linux ffmpeg sidecar download hardened** — `download-sidecars.js` now rejects implausibly small downloads (an error page served with a 200 status) and falls through to a GitHub-hosted mirror instead of handing `tar` a corrupt archive, matching the existing Windows fallback logic. ARM64 Linux builds also gained a fallback mirror.
+
 ## [1.96.0] - 2026-08-02
 
 ### Added
