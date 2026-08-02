@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.95.0] - 2026-08-02
+
+### Added
+
+- **Document priority system** — Documents get an explicit priority that drives real reading-queue ordering. A continuous-slider popup (opened from the document card or reader) replaces the old stepped control and supports mass-setting priority across a selection, and a right-click **Set Priority** entry is added to all three documents layouts (grid, list, table). Queue ordering now reflects priority instead of being purely chronological.
+- **Bulk Suspend action** — A **Suspend** bulk action is added to Documents and Collections so you can take items out of the reading/review rotation without deleting them, with selection cleared via Escape. The bulk action joins the existing selection toolbar and respects the same permissions as individual suspend.
+- **Inline rename in the Image Registry** — Renaming an image asset is now inline and file-manager-style: click the pencil or double-click the name, the base name (not the extension) is pre-selected so typing doesn't clobber the file type, Enter commits, Escape cancels, and blur commits. Replaces the modal prompt; cards and extracts are unaffected since they reference assets by id.
+- **Broader vision-model recognition in Flashcard Studio** — The image-occlusion generator's model detection now recognizes gpt-5, o1/o3, gemma-3, grok, llama-3.1/4, phi, pixtral, mistral, and a dedicated **gemini** provider branch. Because aggregators like OpenRouter can point at any current or future vision model, an unrecognized model now only downgrades the button to a soft amber warning with a descriptive message instead of hard-disabling it, and a new "no model configured" state covers providers with no model set.
+
+### Fixed & Improved
+
+- **Multi-GB cold-start RAM spike from sync** — The y-indexeddb-backed sync layer no longer spikes to multiple gigabytes of RSS on cold start. Loading is streamed instead of materializing the whole index up front, so the app opens at a normal memory footprint on machines that previously saw the spike.
+- **Default View preference honored after a restored session** — Settings ▸ Default View only took effect on a true cold boot; because `restoreSession` defaults to true and a session is saved after the first tab opens, on every subsequent launch the restored-session branch ran and defaultView was silently ignored. The preference is now applied on every launch — `restoreSession` decides which tabs exist, `defaultView` decides which one is focused — and `addTab`'s single-instance reuse means a restored session's tabs are refocused rather than duplicated or discarded. A regression test seeds a restored Documents tab and asserts both that it survives and that the configured default (Analytics) becomes the active pane.
+- **Priority toolbar and shortcut** — The reader toolbar's priority control routes to the new continuous-slider popup, and its shortcut is rebound off Shift+P (which collided with another binding) to its own dedicated combination.
+- **Collections robustness** — A missing default-collection row is seeded on startup instead of leaving the app without one, the bulk Suspend action is wired into Collections, and collection switching is hardened against races that could leave the wrong collection active.
+- **Reading Queue respects Customize toggles** — The Customize Queue `itemTypes` toggles (documents/extracts/flashcards) are now honored by the reading queue itself, not just the schedule view, so disabled item types no longer appear in the queue.
+- **Documents grid extract counts** — AI-created extracts now sync into the Documents grid's count, and the grid's "Highlights" label is renamed to **Extracts** to match the rest of the app.
+- **NotebookLM login on the Gemini rebrand** — `notebooklm-py` is pinned to 0.8.0rc1, which carries the Gemini rebrand login fix, restoring authentication.
+
 ## [1.94.0] - 2026-07-31
 
 ### Added
