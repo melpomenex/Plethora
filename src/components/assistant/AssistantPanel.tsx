@@ -1204,12 +1204,34 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         if (lastUserIdx >= 0) llmMessages[lastUserIdx] = { role: "user", content: request.userPromptContent };
       }
 
-      const contextContent = typeof finalResolvedContent === "string"
+      let contextContent = typeof finalResolvedContent === "string"
         ? finalResolvedContent.trim()
         : typeof resolvedContext.content === "string"
           ? resolvedContext.content.trim()
           : "";
-      if (resolvedContext.status !== "ready" || !contextContent) {
+
+      // The viewer-supplied context is frequently unusable for PDFs — the
+      // page-window text may not have been emitted yet (status "loading") or
+      // the live/stored/OCR text came up empty (status "unavailable"). In that
+      // case, fall back to the same authoritative text source Document Q&A
+      // uses: stored document content, then the Rust text extractor. Without
+      // this, the Assistant throws "Document context is unavailable..." on
+      // PDFs that Document Q&A reads without issue.
+      let usedDocumentFallback = false;
+      if ((!contextContent || resolvedContext.status !== "ready")
+          && llmContext?.type === "document" && llmContext.documentId) {
+        const fallbackText = (await loadDocumentQaText(
+          llmContext.documentId,
+          { getDocument, extractDocumentText },
+        )).trim();
+        if (fallbackText) {
+          finalResolvedContent = fallbackText;
+          contextContent = fallbackText;
+          usedDocumentFallback = true;
+        }
+      }
+
+      if ((!usedDocumentFallback && resolvedContext.status !== "ready") || !contextContent) {
         throw new Error(resolvedContext.message || getAssistantContextErrorMessage(llmContext?.status));
       }
 
