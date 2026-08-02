@@ -1587,6 +1587,8 @@ export const en: Dict = {
   "flashcardStudio.imageOcclusionVisionUnsupported": "Current model does not support image input",
   "flashcardStudio.imageOcclusionVisionUnsupportedDesc":
     "Select a model that supports image understanding (vision).",
+  "flashcardStudio.imageOcclusionNoModelDesc": "No model is configured for this provider. Choose one in AI Provider settings.",
+  "flashcardStudio.imageOcclusionModelUnsupportedDesc": "\"{{model}}\" may not support image input. Choose a vision-capable model in AI Provider settings, or try anyway.",
   "flashcardStudio.noImageSelected": "No images selected",
   "flashcardStudio.noImageSelectedDesc": "Select one or more registry images first.",
   "flashcardStudio.imageOcclusionGenerationFailed": "Failed to generate image occlusions",

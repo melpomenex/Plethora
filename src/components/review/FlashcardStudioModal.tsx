@@ -414,16 +414,20 @@ function modelSupportsImageInput(provider: string, model?: string, baseUrl?: str
   }
 
   if (provider === "openai") {
-    return /gpt-4o|gpt-4\.1|gpt-4-turbo|vision|vl|llava|glm-4v|qwen.*vl|minicpm-v|gemma3|llama-3\.2-vision/.test(normalizedModel)
-      || (normalizedBaseUrl.includes("localhost") && /llava|vision|vl|glm-4v|qwen.*vl|minicpm-v|gemma3/.test(normalizedModel));
+    return /gpt-4o|gpt-4\.1|gpt-5|gpt-4-turbo|\bo1\b|\bo3\b|vision|vl|llava|glm-4v|qwen.*vl|minicpm-v|gemma-?3|llama-3\.2-vision/.test(normalizedModel)
+      || (normalizedBaseUrl.includes("localhost") && /llava|vision|vl|glm-4v|qwen.*vl|minicpm-v|gemma-?3/.test(normalizedModel));
   }
 
   if (provider === "openrouter") {
-    return /gpt-4o|claude|gemini|vision|vl|llava|pixtral|glm-4v|qwen.*vl|minicpm-v|gemma3|llama-3\.2-vision/.test(normalizedModel);
+    return /gpt-4o|gpt-4\.1|gpt-5|\bo1\b|\bo3\b|claude|gemini|gemma-?3|grok-4|grok-2-vision|vision|vl|llava|pixtral|glm-4v|qwen.*vl|minicpm-v|llama-3\.1|llama-3\.2|llama-4|mistral-small|phi-3\.5-vision|phi-4/.test(normalizedModel);
   }
 
   if (provider === "ollama") {
-    return /llava|bakllava|vision|vl|qwen.*vl|minicpm-v|gemma3|llama-3\.2-vision/.test(normalizedModel);
+    return /llava|bakllava|vision|vl|qwen.*vl|minicpm-v|gemma-?3|llama-3\.2-vision/.test(normalizedModel);
+  }
+
+  if (provider === "gemini") {
+    return /gemini/.test(normalizedModel);
   }
 
   return false;
@@ -2804,7 +2808,11 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     return enabledProviders.find((p) => p.id === selectedProviderId) || null;
   }, [enabledProviders, selectedProviderId]);
   const isNotebookProviderSelected = selectedProviderId === NOTEBOOKLM_PROVIDER_ID;
-  const canUseVisionOcclusion = useMemo(
+  // OpenRouter (and other aggregator/custom-model setups) can point at any current or
+  // future vision-capable model; the name-based heuristic below is necessarily incomplete,
+  // so it only downgrades to a soft warning instead of hard-disabling the button.
+  const hasModelConfigured = Boolean(currentProvider && currentProvider.model?.trim());
+  const isRecognizedVisionModel = useMemo(
     () =>
       Boolean(
         currentProvider &&
@@ -2816,6 +2824,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       ),
     [currentProvider]
   );
+  const canUseVisionOcclusion = hasModelConfigured;
 
   const currentModelPricing = useMemo(() => {
     if (!currentProvider?.model || !currentProvider?.modelPricing) return undefined;
@@ -4347,12 +4356,20 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                 selectedImageAssetIds.length === 0
                   ? t("flashcardStudio.noImageSelectedDesc")
                   : !canUseVisionOcclusion
-                  ? t("flashcardStudio.imageOcclusionVisionUnsupportedDesc")
+                  ? t("flashcardStudio.imageOcclusionNoModelDesc")
+                  : !isRecognizedVisionModel
+                  ? t("flashcardStudio.imageOcclusionModelUnsupportedDesc", { model: currentProvider?.model ?? "" })
                   : t("flashcardStudio.generateImageOcclusions")
               }
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-50"
             >
-              {isSending ? <CircleNotch className="w-3.5 h-3.5 animate-spin" /> : <Sparkle className="w-3.5 h-3.5" />}
+              {isSending ? (
+                <CircleNotch className="w-3.5 h-3.5 animate-spin" />
+              ) : !isRecognizedVisionModel && canUseVisionOcclusion ? (
+                <WarningCircle className="w-3.5 h-3.5 text-amber-500" />
+              ) : (
+                <Sparkle className="w-3.5 h-3.5" />
+              )}
               {t("flashcardStudio.generateImageOcclusions")}
             </button>
             <button
