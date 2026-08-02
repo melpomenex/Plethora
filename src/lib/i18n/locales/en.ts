@@ -4774,6 +4774,7 @@ export const en: Dict = {
   "imageRegistry.rename": "Rename",
   "imageRegistry.renamePrompt": "New name for this image",
   "imageRegistry.renamed": "Renamed to {name}",
+  "imageRegistry.renameTooLong": "Image name is too long (max 200 characters).",
   "imageRegistry.referenceCount": "Used in {count} flashcard(s)",
   "imageRegistry.notReferenced": "Not attached to any flashcards yet",
   "imageRegistry.selected": "Selected",

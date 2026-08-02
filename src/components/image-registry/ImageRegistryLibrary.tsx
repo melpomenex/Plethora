@@ -24,7 +24,6 @@ import {
 import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils";
 import { useToast } from "../common/Toast";
-import { useModal } from "../common/Modal";
 
 type SortMode = "newest" | "oldest" | "name" | "size";
 
@@ -59,8 +58,8 @@ export function ImageRegistryLibrary({
 }: ImageRegistryLibraryProps) {
   const { t } = useI18n();
   const toast = useToast();
-  const modal = useModal();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   const [assets, setAssets] = useState<ImageAsset[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
@@ -69,6 +68,9 @@ export function ImageRegistryLibrary({
   const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [isBusy, setIsBusy] = useState(false);
+  const [renamingAssetId, setRenamingAssetId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
 
   useEffect(() => {
     setSelectedIds(initialSelectedIds);
@@ -220,15 +222,53 @@ export function ImageRegistryLibrary({
    * Ingested images get a generated name (`saved-image-<timestamp>.png`), which
    * is unusable for finding anything later. Renaming is display-only: cards and
    * extracts reference the asset by id, so an existing reference cannot break.
+   *
+   * Rename is inline (like a file manager) rather than a modal prompt: on start,
+   * only the base name is pre-selected so typing doesn't clobber the extension.
    */
-  const handleRenameAsset = useCallback(async (assetId: string, currentName: string) => {
-    const nextName = (await modal.prompt(
-      t("imageRegistry.renamePrompt"),
-      currentName,
-      t("imageRegistry.rename"),
-    ))?.trim();
-    if (!nextName || nextName === currentName) return;
+  // Escape removes the (focused) input from the DOM, which can synchronously fire a
+  // native blur event; this flag stops that blur from re-committing after cancel.
+  const renameCancelingRef = useRef(false);
 
+  const startRenameAsset = useCallback((assetId: string, currentName: string) => {
+    setRenamingAssetId(assetId);
+    setRenameValue(currentName);
+  }, []);
+
+  const cancelRenameAsset = useCallback(() => {
+    renameCancelingRef.current = true;
+    setRenamingAssetId(null);
+    setRenameValue("");
+  }, []);
+
+  useEffect(() => {
+    if (!renamingAssetId) return;
+    const input = renameInputRef.current;
+    if (!input) return;
+    input.focus();
+    const lastDot = renameValue.lastIndexOf(".");
+    const baseNameEnd = lastDot > 0 ? lastDot : renameValue.length;
+    input.setSelectionRange(0, baseNameEnd);
+    // Only run when entering edit mode, not on every renameValue keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renamingAssetId]);
+
+  const commitRenameAsset = useCallback(async (assetId: string, currentName: string) => {
+    if (renameCancelingRef.current) {
+      renameCancelingRef.current = false;
+      return;
+    }
+    const nextName = renameValue.trim();
+    if (!nextName || nextName === currentName) {
+      cancelRenameAsset();
+      return;
+    }
+    if (nextName.length > 200) {
+      toast.error(t("imageRegistry.rename"), t("imageRegistry.renameTooLong"));
+      return;
+    }
+
+    setRenameSaving(true);
     try {
       const updated = await renameImageAsset(assetId, nextName);
       setAssets((prev) => {
@@ -238,14 +278,16 @@ export function ImageRegistryLibrary({
         onAssetsChange?.(next);
         return next;
       });
-      toast.success(t("imageRegistry.rename"), t("imageRegistry.renamed", { name: nextName }));
+      cancelRenameAsset();
     } catch (error) {
       toast.error(
         t("imageRegistry.rename"),
         error instanceof Error ? error.message : String(error),
       );
+    } finally {
+      setRenameSaving(false);
     }
-  }, [modal, onAssetsChange, t, toast]);
+  }, [cancelRenameAsset, onAssetsChange, renameValue, t, toast]);
 
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.length === 0) return;
@@ -499,22 +541,49 @@ export function ImageRegistryLibrary({
               <div className="border-b border-border/70 p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-semibold text-foreground">
-                        {previewAsset.file_name || t("imageRegistry.untitled")}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleRenameAsset(previewAsset.id, previewAsset.file_name ?? "")
-                        }
-                        title={t("imageRegistry.rename")}
-                        aria-label={t("imageRegistry.rename")}
-                        className="flex-shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      >
-                        <PencilSimple className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                    {renamingAssetId === previewAsset.id ? (
+                      <input
+                        ref={renameInputRef}
+                        type="text"
+                        value={renameValue}
+                        disabled={renameSaving}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        onBlur={() => void commitRenameAsset(previewAsset.id, previewAsset.file_name ?? "")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void commitRenameAsset(previewAsset.id, previewAsset.file_name ?? "");
+                          } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelRenameAsset();
+                          }
+                        }}
+                        maxLength={200}
+                        className="w-full rounded border border-primary/60 bg-background px-1.5 py-0.5 text-sm font-semibold text-foreground outline-none ring-1 ring-primary/30 disabled:opacity-60"
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="cursor-text truncate text-sm font-semibold text-foreground"
+                          onDoubleClick={() =>
+                            startRenameAsset(previewAsset.id, previewAsset.file_name ?? "")
+                          }
+                        >
+                          {previewAsset.file_name || t("imageRegistry.untitled")}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            startRenameAsset(previewAsset.id, previewAsset.file_name ?? "")
+                          }
+                          title={t("imageRegistry.rename")}
+                          aria-label={t("imageRegistry.rename")}
+                          className="flex-shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          <PencilSimple className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
                     <div className="text-xs text-muted-foreground">
                       {previewAsset.is_referenced
                         ? t("imageRegistry.referenceCount", { count: previewAsset.reference_count || 0 })
