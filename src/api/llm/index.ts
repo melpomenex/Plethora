@@ -5,7 +5,7 @@
 
 import { invokeCommand, listen, type UnlistenFn } from "../../lib/tauri";
 
-export type LLMProvider = "openai" | "anthropic" | "gemini" | "ollama" | "openrouter";
+export type LLMProvider = "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter";
 
 export interface LLMTextContentPart {
   type: "text";
@@ -40,6 +40,11 @@ export interface LLMResponse {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    // DeepSeek only: how many prompt tokens were served from DeepSeek's
+    // automatic prompt cache (billed at the model's discounted cache_read
+    // rate) vs. freshly processed. Undefined for other providers.
+    promptCacheHitTokens?: number;
+    promptCacheMissTokens?: number;
   };
 }
 
@@ -318,6 +323,12 @@ export const PROVIDER_CONFIGS = {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     defaultModel: "gemini-3.5-flash",
     models: ["gemini-3.5-flash", "gemini-3.5-pro"],
+  },
+  deepseek: {
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    defaultModel: "deepseek-chat",
+    models: ["deepseek-chat", "deepseek-reasoner"],
   },
   ollama: {
     name: "Ollama",

@@ -7,7 +7,7 @@ import { invokeCommand, isTauri } from '../lib/tauri';
 
 export interface LLMProviderConfig {
   id: string;
-  provider: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'openrouter';
+  provider: 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'ollama' | 'openrouter';
   name: string;
   apiKey: string;
   baseUrl?: string;
@@ -27,7 +27,7 @@ interface LLMProvidersState {
   removeProvider: (id: string) => void;
   getProvider: (id: string) => LLMProviderConfig | undefined;
   getEnabledProviders: () => LLMProviderConfig[];
-  getProvidersByType: (type: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'openrouter') => LLMProviderConfig[];
+  getProvidersByType: (type: 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'ollama' | 'openrouter') => LLMProviderConfig[];
 }
 
 export async function syncPrimaryProviderToNativeAI(
@@ -36,7 +36,10 @@ export async function syncPrimaryProviderToNativeAI(
   if (typeof window === 'undefined' || !isTauri()) return;
 
   const provider = providers.find((candidate) => candidate.enabled);
-  if (!provider || provider.provider === 'gemini') return;
+  // Gemini and DeepSeek are only wired into the assistant chat path
+  // (commands/llm.rs); they are not part of the native AI provider enum
+  // used by flashcard generation, Q&A, and summarization.
+  if (!provider || provider.provider === 'gemini' || provider.provider === 'deepseek') return;
 
   try {
     if (provider.provider !== 'ollama' && provider.apiKey.trim()) {

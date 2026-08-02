@@ -22,7 +22,7 @@ import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 
 export interface LLMProviderConfig {
   id: string;
-  provider: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter";
+  provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter";
   name: string;
   apiKey: string;
   baseUrl?: string;
@@ -73,6 +73,14 @@ const PROVIDER_INFO = {
     icon: "✨",
     models: ["gemini-3.5-flash", "gemini-3.5-pro"],
   },
+  deepseek: {
+    name: "DeepSeek",
+    description: "DeepSeek Chat (V3) and Reasoner (R1), with automatic prompt caching",
+    baseUrl: "https://api.deepseek.com/v1",
+    defaultModel: "deepseek-chat",
+    icon: "🐋",
+    models: ["deepseek-chat", "deepseek-reasoner"],
+  },
   ollama: {
     name: "Ollama",
     description: "Local LLM models (Llama, Mistral, etc.)",
@@ -112,7 +120,7 @@ export function LLMProviderSettings({
   const { t } = useI18n();
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingProvider, setEditingProvider] = useState<LLMProviderConfig | null>(null);
-  const [newProviderType, setNewProviderType] = useState<"openai" | "anthropic" | "gemini" | "ollama" | "openrouter">("openai");
+  const [newProviderType, setNewProviderType] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">("openai");
   const [newProviderName, setNewProviderName] = useState("");
   const [newProviderApiKey, setNewProviderApiKey] = useState("");
   const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
@@ -128,7 +136,7 @@ export function LLMProviderSettings({
   const [ollamaStatus, setOllamaStatus] = useState<string | null>(null);
 
   const isEditing = editingProvider !== null;
-  const resolvedBaseUrl = (providerType: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter", baseUrl: string) =>
+  const resolvedBaseUrl = (providerType: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter", baseUrl: string) =>
     baseUrl || PROVIDER_INFO[providerType].baseUrl;
   const newProviderNeedsApiKey = providerRequiresApiKey(
     newProviderType,
@@ -476,7 +484,7 @@ export function LLMProviderSettings({
               Provider Type
             </label>
             <div className="grid grid-cols-2 gap-3">
-              {(["openai", "anthropic", "gemini", "ollama", "openrouter"] as const).map((type) => {
+              {(["openai", "anthropic", "gemini", "deepseek", "ollama", "openrouter"] as const).map((type) => {
                 const info = PROVIDER_INFO[type];
                 return (
                   <button

@@ -188,12 +188,12 @@ export function AISettings({ onChange }: { onChange: () => void }) {
     return true;
   };
 
-  const handleAddProvider = (provider: Omit<{ id: string; provider: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter"; name: string; apiKey: string; baseUrl?: string; model: string; enabled: boolean; temperature: number; maxTokens: number; systemPrompt?: string }, "id">) => {
+  const handleAddProvider = (provider: Omit<{ id: string; provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter"; name: string; apiKey: string; baseUrl?: string; model: string; enabled: boolean; temperature: number; maxTokens: number; systemPrompt?: string }, "id">) => {
     addProvider(provider);
     onChange();
   };
 
-  const handleUpdateProvider = (id: string, updates: Partial<{ id: string; provider: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter"; name: string; apiKey: string; baseUrl?: string; model: string; enabled: boolean; temperature: number; maxTokens: number; systemPrompt?: string }>) => {
+  const handleUpdateProvider = (id: string, updates: Partial<{ id: string; provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter"; name: string; apiKey: string; baseUrl?: string; model: string; enabled: boolean; temperature: number; maxTokens: number; systemPrompt?: string }>) => {
     updateProvider(id, updates);
     onChange();
   };

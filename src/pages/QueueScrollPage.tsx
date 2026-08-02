@@ -17,6 +17,7 @@ import {
   TextT,
   Translate,
   WarningCircle,
+  Waves,
 } from "@phosphor-icons/react";
 import { lookupDictionary, type DictionaryResult } from "../utils/dictionaryLookup";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -317,9 +318,9 @@ export function QueueScrollPage() {
   const transcriptCacheRef = useRef<Map<string, string>>(new Map());
   const transcriptFetchInFlightRef = useRef<Set<string>>(new Set());
 
-  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "ollama" | "openrouter">(() => {
+  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">(() => {
     const stored = localStorage.getItem("assistant-llm-provider");
-    if (stored === "openai" || stored === "anthropic" || stored === "gemini" || stored === "ollama" || stored === "openrouter") {
+    if (stored === "openai" || stored === "anthropic" || stored === "gemini" || stored === "deepseek" || stored === "ollama" || stored === "openrouter") {
       return stored;
     }
     return "openai";
@@ -370,6 +371,7 @@ export function QueueScrollPage() {
     { id: "openai", name: "OpenAI", icon: Sparkle, color: "text-green-500" },
     { id: "anthropic", name: "Anthropic", icon: ChatCircle, color: "text-orange-500" },
     { id: "gemini", name: "Gemini", icon: Sparkle, color: "text-blue-400" },
+    { id: "deepseek", name: "DeepSeek", icon: Waves, color: "text-blue-500" },
     { id: "ollama", name: "Ollama", icon: Code, color: "text-blue-500" },
     { id: "openrouter", name: "OpenRouter", icon: Sliders, color: "text-purple-500" },
   ] as const;
@@ -2135,7 +2137,7 @@ export function QueueScrollPage() {
         const summary = (
           await Promise.race([
             chatWithLLM({
-              provider: providerType as "openai" | "anthropic" | "gemini" | "ollama" | "openrouter",
+              provider: providerType as "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter",
               model: model as string | undefined,
               messages,
               maxTokens: Math.max(tokenLimit * 4, 2048),

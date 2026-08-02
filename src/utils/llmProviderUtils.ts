@@ -1,4 +1,4 @@
-export type ConfiguredLLMProvider = "openai" | "anthropic" | "gemini" | "ollama" | "openrouter";
+export type ConfiguredLLMProvider = "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter";
 
 const LOCAL_HOSTS = new Set([
   "localhost",

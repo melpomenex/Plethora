@@ -3341,7 +3341,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         const apiKey = args.apiKey as string | undefined;
         const baseUrl = args.baseUrl as string | undefined;
 
-        if (providerRequiresApiKey(provider as 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'openrouter', baseUrl) && !apiKey) {
+        if (providerRequiresApiKey(provider as 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'ollama' | 'openrouter', baseUrl) && !apiKey) {
             throw new Error('API key is required');
         }
 
@@ -3350,12 +3350,13 @@ const commandHandlers: Record<string, CommandHandler> = {
             openrouter: { url: baseUrl || 'https://openrouter.ai/api/v1', defaultModel: 'anthropic/claude-3.5-sonnet' },
             openai: { url: baseUrl || 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
             gemini: { url: baseUrl || 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-3.5-flash' },
+            deepseek: { url: baseUrl || 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
             anthropic: { url: baseUrl || 'https://api.anthropic.com/v1', defaultModel: 'claude-3-5-sonnet-20241022' },
         };
 
         const config = providerConfig[provider];
         if (!config) {
-            throw new Error(`Provider '${provider}' is not supported in browser mode. Supported: openrouter, openai, gemini, anthropic`);
+            throw new Error(`Provider '${provider}' is not supported in browser mode. Supported: openrouter, openai, gemini, deepseek, anthropic`);
         }
 
         const actualModel = model || config.defaultModel;
@@ -3434,6 +3435,9 @@ const commandHandlers: Record<string, CommandHandler> = {
                 promptTokens: data.usage.prompt_tokens,
                 completionTokens: data.usage.completion_tokens,
                 totalTokens: data.usage.total_tokens,
+                // DeepSeek only: automatic prompt-cache hit/miss token counts.
+                promptCacheHitTokens: data.usage.prompt_cache_hit_tokens,
+                promptCacheMissTokens: data.usage.prompt_cache_miss_tokens,
             } : undefined,
         };
     },
@@ -3541,7 +3545,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         const baseUrl = args.baseUrl as string | undefined;
 
         // Helper to create model info with pricing
-        const createModelInfo = (id: string, name: string, contextLength?: number, pricing?: { prompt?: number; completion?: number }) => ({
+        const createModelInfo = (id: string, name: string, contextLength?: number, pricing?: { prompt?: number; completion?: number; cacheRead?: number }) => ({
             id,
             name,
             context_length: contextLength,
@@ -3551,7 +3555,7 @@ const commandHandlers: Record<string, CommandHandler> = {
                 request: undefined,
                 image: undefined,
                 web_search: undefined,
-                cache_read: undefined,
+                cache_read: pricing.cacheRead,
                 cache_write: undefined,
             } : undefined,
         });
@@ -3573,6 +3577,10 @@ const commandHandlers: Record<string, CommandHandler> = {
                 createModelInfo('gemini-3.5-flash', 'Gemini 3.5 Flash', 1000000),
                 createModelInfo('gemini-3.5-pro', 'Gemini 3.5 Pro', 1000000),
             ],
+            deepseek: [
+                createModelInfo('deepseek-chat', 'DeepSeek Chat (V3)', 64000, { prompt: 0.00027, completion: 0.0011, cacheRead: 0.00007 }),
+                createModelInfo('deepseek-reasoner', 'DeepSeek Reasoner (R1)', 64000, { prompt: 0.00055, completion: 0.00219, cacheRead: 0.00014 }),
+            ],
             ollama: [
                 createModelInfo('llama3.2', 'Llama 3.2', 128000),
                 createModelInfo('mistral', 'Mistral', 32000),
@@ -3593,11 +3601,13 @@ const commandHandlers: Record<string, CommandHandler> = {
             ],
         };
 
-        if ((provider === 'openai' || provider === 'gemini') && (apiKey?.trim() || !providerRequiresApiKey(provider, baseUrl))) {
+        if ((provider === 'openai' || provider === 'gemini' || provider === 'deepseek') && (apiKey?.trim() || !providerRequiresApiKey(provider, baseUrl))) {
             try {
                 const url = baseUrl || (provider === 'gemini'
                     ? 'https://generativelanguage.googleapis.com/v1beta/openai'
-                    : 'https://api.openai.com/v1');
+                    : provider === 'deepseek'
+                        ? 'https://api.deepseek.com/v1'
+                        : 'https://api.openai.com/v1');
                 const headers: Record<string, string> = {};
                 if (apiKey?.trim()) {
                     headers['Authorization'] = `Bearer ${apiKey}`;

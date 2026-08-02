@@ -1669,7 +1669,7 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
 
         const summary = (await Promise.race([
           chatWithLLM({
-            provider: providerType as "openai" | "anthropic" | "gemini" | "ollama" | "openrouter",
+            provider: providerType as "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter",
             model: model as string | undefined,
             messages,
             maxTokens: Math.max(tokenLimit * 4, 2048),

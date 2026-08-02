@@ -27,6 +27,7 @@ import {
   FileText,
   ChatCircleText,
   ArrowsClockwise,
+  Waves,
 } from "@phosphor-icons/react";
 import { compressImage, readFileAsDataUrl } from "../../utils/imageCompression";
 import { supportsVision } from "../../utils/visionCapability";
@@ -122,8 +123,8 @@ interface AssistantPanelProps {
   onWidthChange?: (width: number) => void;
   position?: AssistantPosition;
   onPositionChange?: (position: AssistantPosition) => void;
-  selectedProvider?: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter";
-  onProviderChange?: (provider: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter") => void;
+  selectedProvider?: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter";
+  onProviderChange?: (provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter") => void;
   appendContextMessages?: boolean;
 }
 
@@ -275,9 +276,9 @@ export function AssistantPanel({
   const assistantContextMenu = useContextMenu("assistant-panel-context-menu");
   const toast = useToast();
   const [availableTools, setAvailableTools] = useState<MCPTool[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "ollama" | "openrouter">(() => {
+  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">(() => {
     const stored = localStorage.getItem("assistant-llm-provider");
-    if (stored === "openai" || stored === "anthropic" || stored === "gemini" || stored === "ollama" || stored === "openrouter") {
+    if (stored === "openai" || stored === "anthropic" || stored === "gemini" || stored === "deepseek" || stored === "ollama" || stored === "openrouter") {
       return stored;
     }
     return "openai";
@@ -346,6 +347,7 @@ export function AssistantPanel({
       if (providerId === "openai") return "GPT-4o";
       if (providerId === "anthropic") return "Claude 3.5 Sonnet";
       if (providerId === "gemini") return "Gemini 3.5 Flash";
+      if (providerId === "deepseek") return "DeepSeek Chat";
       if (providerId === "ollama") return "Llama 3.2";
       if (providerId === "openrouter") return "Claude 3.5 Sonnet";
       return "Select Model";
@@ -376,7 +378,8 @@ export function AssistantPanel({
     if (modelLower.includes("google/gemini-2.5-pro")) return "Gemini 2.5 Pro";
     if (modelLower.includes("google/gemini-2.0-flash")) return "Gemini 2.0 Flash";
     if (modelLower.includes("google/gemini")) return "Gemini Model";
-    if (modelLower.includes("deepseek/deepseek-chat") || modelLower.includes("deepseek-v3")) return "DeepSeek V3";
+    if (modelLower.includes("deepseek-chat") || modelLower.includes("deepseek/deepseek-chat") || modelLower.includes("deepseek-v3")) return "DeepSeek Chat";
+    if (modelLower.includes("deepseek-reasoner")) return "DeepSeek Reasoner";
     if (modelLower.includes("deepseek/deepseek-coder")) return "DeepSeek Coder";
     if (modelLower.includes("meta-llama/llama-3.3-70b")) return "Llama 3.3 70B";
     if (modelLower.includes("meta-llama/llama-3.1-405b")) return "Llama 3.1 405B";
@@ -407,7 +410,7 @@ export function AssistantPanel({
   };
 
   // Provider configuration active status checker
-  const getProviderStatus = (providerId: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter") => {
+  const getProviderStatus = (providerId: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter") => {
     const config = configuredProvidersList.find(p => p.provider === providerId);
     if (!config) return "not-configured";
     if (!config.enabled) return "disabled";
@@ -550,13 +553,21 @@ export function AssistantPanel({
       gradient: "from-cyan-500/15 to-blue-500/5 hover:from-cyan-500/20",
       breathingDot: "bg-cyan-500 shadow-[0_0_8px_#06b6d4]",
     },
-    { 
-      id: "openrouter", 
-      name: "OpenRouter", 
-      icon: Gear, 
+    {
+      id: "openrouter",
+      name: "OpenRouter",
+      icon: Gear,
       color: "text-purple-500",
       gradient: "from-purple-500/15 to-pink-500/5 hover:from-purple-500/20",
       breathingDot: "bg-purple-500 shadow-[0_0_8px_#a855f7]",
+    },
+    {
+      id: "deepseek",
+      name: "DeepSeek",
+      icon: Waves,
+      color: "text-blue-500",
+      gradient: "from-blue-500/15 to-sky-500/5 hover:from-blue-500/20",
+      breathingDot: "bg-blue-500 shadow-[0_0_8px_#3b82f6]",
     },
   ];
 
@@ -2304,7 +2315,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
   const currentProvider = providers.find((p) => p.id === effectiveProvider);
 
-  const handleProviderChange = (providerId: "openai" | "anthropic" | "gemini" | "ollama" | "openrouter") => {
+  const handleProviderChange = (providerId: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter") => {
     setSelectedProvider(providerId);
     onProviderChange?.(providerId);
   };

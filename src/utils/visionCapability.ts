@@ -5,7 +5,7 @@
  * across all providers, we use model ID pattern matching.
  */
 
-export type LLMProvider = "openai" | "anthropic" | "gemini" | "ollama" | "openrouter";
+export type LLMProvider = "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter";
 
 /**
  * Check whether a given provider/model combination likely supports vision inputs.

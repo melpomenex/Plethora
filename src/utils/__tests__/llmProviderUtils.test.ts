@@ -14,4 +14,10 @@ describe("llmProviderUtils", () => {
     expect(providerRequiresApiKey("anthropic", "https://api.anthropic.com/v1")).toBe(true);
     expect(providerRequiresApiKey("ollama", "http://localhost:11434/v1")).toBe(false);
   });
+
+  it("always requires an API key for DeepSeek, even against a local-looking base URL", () => {
+    expect(providerRequiresApiKey("deepseek", "https://api.deepseek.com/v1")).toBe(true);
+    expect(providerRequiresApiKey("deepseek", "http://localhost:8080/v1")).toBe(true);
+    expect(providerRequiresApiKey("deepseek", undefined)).toBe(true);
+  });
 });

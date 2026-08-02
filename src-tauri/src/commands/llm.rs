@@ -106,6 +106,13 @@ struct OpenAIUsage {
     prompt_tokens: usize,
     completion_tokens: usize,
     total_tokens: usize,
+    // DeepSeek-specific: present only on DeepSeek responses. Reports how many
+    // of `prompt_tokens` were served from DeepSeek's automatic disk-based
+    // prompt cache (billed at a steep discount) vs. freshly processed.
+    #[serde(default)]
+    prompt_cache_hit_tokens: Option<usize>,
+    #[serde(default)]
+    prompt_cache_miss_tokens: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -268,7 +275,7 @@ pub async fn llm_chat(
     }
 
     let result = match provider.as_str() {
-        "openai" | "gemini" => {
+        "openai" | "gemini" | "deepseek" => {
             call_openai_with_key(
                 &client,
                 &model,
@@ -478,7 +485,7 @@ pub async fn llm_stream_chat(
     }
 
     match provider.as_str() {
-        "openai" | "gemini" => {
+        "openai" | "gemini" | "deepseek" => {
             stream_openai(
                 &app,
                 &client,
@@ -910,6 +917,54 @@ pub async fn llm_get_models(
             let url = normalize_base_url(base_url, "gemini");
             fetch_openai_compatible_models(&client, &url, Some(&api_key)).await
         }
+        "deepseek" => {
+            let normalized_api_key = normalize_api_key(api_key);
+            let client = Client::new();
+            let url = normalize_base_url(base_url, "deepseek");
+            let fallback_models = || {
+                Ok(vec![
+                    ModelInfo {
+                        id: "deepseek-chat".to_string(),
+                        name: "DeepSeek Chat (V3)".to_string(),
+                        context_length: Some(64000),
+                        pricing: Some(ModelPricing {
+                            prompt: Some(0.00027),
+                            completion: Some(0.0011),
+                            request: None,
+                            image: None,
+                            web_search: None,
+                            cache_read: Some(0.00007),
+                            cache_write: None,
+                        }),
+                    },
+                    ModelInfo {
+                        id: "deepseek-reasoner".to_string(),
+                        name: "DeepSeek Reasoner (R1)".to_string(),
+                        context_length: Some(64000),
+                        pricing: Some(ModelPricing {
+                            prompt: Some(0.00055),
+                            completion: Some(0.00219),
+                            request: None,
+                            image: None,
+                            web_search: None,
+                            cache_read: Some(0.00014),
+                            cache_write: None,
+                        }),
+                    },
+                ])
+            };
+
+            match normalized_api_key {
+                // With a key present, this is a live "Refresh Models" request: report the
+                // real fetch error instead of silently masking it behind the fallback list,
+                // which would otherwise look like a successful refresh while actually
+                // showing stale, hardcoded model names.
+                Some(api_key) => {
+                    fetch_openai_compatible_models(&client, &url, Some(&api_key)).await
+                }
+                None => fallback_models(),
+            }
+        }
         "openai" => {
             let normalized_api_key = normalize_api_key(api_key.clone());
             if normalized_api_key.is_some()
@@ -1321,7 +1376,7 @@ pub async fn llm_test_connection(
     }
 
     let result = match provider.as_str() {
-        "openai" | "gemini" => {
+        "openai" | "gemini" | "deepseek" => {
             test_openai_connection(
                 &client,
                 &base_url,
@@ -1394,6 +1449,8 @@ async fn call_openai_with_key(
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
+            prompt_cache_hit_tokens: u.prompt_cache_hit_tokens,
+            prompt_cache_miss_tokens: u.prompt_cache_miss_tokens,
         }),
     })
 }
@@ -1457,6 +1514,8 @@ async fn call_anthropic_with_key(
             prompt_tokens: u.input_tokens,
             completion_tokens: u.output_tokens,
             total_tokens: u.input_tokens + u.output_tokens,
+            prompt_cache_hit_tokens: None,
+            prompt_cache_miss_tokens: None,
         }),
     })
 }
@@ -1511,6 +1570,8 @@ async fn call_ollama_with_url(
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
+            prompt_cache_hit_tokens: None,
+            prompt_cache_miss_tokens: None,
         }),
     })
 }
@@ -1571,6 +1632,8 @@ async fn call_openrouter_with_key(
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
+            prompt_cache_hit_tokens: None,
+            prompt_cache_miss_tokens: None,
         }),
     })
 }
@@ -2091,6 +2154,7 @@ fn get_default_base_url(provider: &str) -> String {
         "openai" => "https://api.openai.com/v1".to_string(),
         "anthropic" => "https://api.anthropic.com/v1".to_string(),
         "gemini" => "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
+        "deepseek" => "https://api.deepseek.com/v1".to_string(),
         "ollama" => "http://localhost:11434/v1".to_string(),
         "openrouter" => "https://openrouter.ai/api/v1".to_string(),
         _ => "".to_string(),
@@ -2526,6 +2590,10 @@ pub struct LLMUsage {
     pub prompt_tokens: usize,
     pub completion_tokens: usize,
     pub total_tokens: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_hit_tokens: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_miss_tokens: Option<usize>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
