@@ -48,6 +48,10 @@ export async function ensureFileSyncReady(): Promise<void> {
         const sync = await getYjsSync();
         if (!manifestInstance) {
           manifestInstance = new FileManifest(sync.doc);
+          // Hydrate the durable cache from SQLite so reads return data even
+          // before any transport delivers a fresh manifest (and so a no-Yjs
+          // build has the manifest on boot). Non-fatal; best-effort.
+          await manifestInstance.hydrateFromSqlite();
         }
         if (!transferManagerInstance) {
           transferManagerInstance = new FileTransferManager(sync.provider, manifestInstance);

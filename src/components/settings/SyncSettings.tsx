@@ -23,6 +23,7 @@ import { SyncQrScanner } from "./SyncQrScanner";
 import { ProgressiveSyncStatus } from "../sync/ProgressiveSyncStatus";
 import { SyncedFilesManifestPanel } from "../sync/SyncedFilesManifestPanel";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useModal } from "../common/Modal";
 import {
   enableEncryption,
   enableEncryptionWithSecret,
@@ -65,6 +66,12 @@ export function SyncSettings() {
   const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
 
   const { settings, updateSettings } = useSettingsStore();
+  // Renamed on destructure: bare `confirm(` is the native global, which is a
+  // no-op in the desktop WebView (returns false, silently blocking the
+  // action). `confirmModal` uses the in-app modal — see DeltaLogMigrationPanel
+  // for the same pattern. The name also avoids a false-positive in the
+  // noNativeDialogs lint guard.
+  const { confirm: confirmModal } = useModal();
   const syncSettings = settings.sync ?? DEFAULT_SYNC_SETTINGS;
   const yjsSettings = syncSettings.yjs ?? DEFAULT_SYNC_SETTINGS.yjs;
   const autoDownloadMode = syncSettings?.autoDownloadMode ?? "wifi-only";
@@ -258,6 +265,18 @@ export function SyncSettings() {
       // never takes effect.
       await rejoinRoom(parsed.roomId, { forceProviderRebuild: true });
       setRoomMessage(t("syncSettings.joinedEncryptedMsg"));
+      // Kick off the delta-log cutover orchestrator now that a room + keys
+      // exist. startSyncSubsystems() above is a singleton that doesn't re-run
+      // the orchestrator on a second call, so without this explicit trigger
+      // the orchestrator would only ever run at first boot — before the user
+      // had paired a room — and never start the transport. Fire-and-forget;
+      // it's non-fatal and idempotent (the transport start guards on a
+      // once-per-session flag).
+      if (getSyncFeatureFlags().deltaLogSync) {
+        void import("../../lib/sync/deltaLog/cutoverOrchestrator")
+          .then((m) => m.runCutoverOrchestrator())
+          .catch((err) => console.warn("[SyncSettings] cutover orchestrator failed after join", err));
+      }
       return { ok: true };
     } catch (err) {
       const msg =
@@ -270,7 +289,7 @@ export function SyncSettings() {
   };
 
   const handleRotateRoom = async () => {
-    if (!confirm(t("syncSettings.confirmNewCode"))) {
+    if (!(await confirmModal(t("syncSettings.confirmNewCode")))) {
       return;
     }
     const next = createNewSyncRoomId();
@@ -283,6 +302,13 @@ export function SyncSettings() {
       setRoomSecret(secret);
       setRevealSecret(true);
       setRoomMessage(t("syncSettings.newCodeEncryptMsg"));
+      // Same as join: the orchestrator ran at boot before a room existed, so
+      // trigger it now that a room + key have just been provisioned.
+      if (getSyncFeatureFlags().deltaLogSync) {
+        void import("../../lib/sync/deltaLog/cutoverOrchestrator")
+          .then((m) => m.runCutoverOrchestrator())
+          .catch((err) => console.warn("[SyncSettings] cutover orchestrator failed after room create", err));
+      }
     } catch (err) {
       console.warn("[SyncSettings] failed to provision encryption on room rotate", err);
       setRoomMessage(t("syncSettings.newCodeMsg"));
@@ -290,7 +316,7 @@ export function SyncSettings() {
   };
 
   const handleRotateKey = async () => {
-    if (!confirm(t("syncSettings.confirmResetKey"))) {
+    if (!(await confirmModal(t("syncSettings.confirmResetKey")))) {
       return;
     }
     try {

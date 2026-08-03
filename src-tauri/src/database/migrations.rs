@@ -2209,6 +2209,28 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    // Migration 069: file_manifest_entries — a SQLite projection for the
+    // file-manifest sync domain. Historically FileManifest kept its
+    // authoritative state in the Yjs `fileManifest` map with no durability,
+    // so a restart (or a no-Yjs build) lost it. This table is what lets the
+    // manifest survive without the Yjs document: the delta-log domain handler
+    // upserts here on apply, and FileManifest hydrates its in-memory cache
+    // from here on construction. One row per (room, file id); the payload is
+    // the full manifest entry JSON, same shape the wire/outbox carries.
+    Migration::new(
+        "069_add_file_manifest_entries",
+        r#"
+        CREATE TABLE IF NOT EXISTS file_manifest_entries (
+            id TEXT NOT NULL,
+            room TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (room, id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_file_manifest_entries_room
+            ON file_manifest_entries(room);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

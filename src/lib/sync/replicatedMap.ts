@@ -347,9 +347,12 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
   async function publish(key: string, row: T): Promise<void> {
     if (!isTauri()) return; // web/PWA doesn't publish via this path (v1).
     try {
-      await ensureReady();
-      if (!state.map) return;
       const wire = (config.strip ? config.strip(row) : row) as Tombstoned<T>;
+      // Enqueue to the durable outbox BEFORE touching the Yjs map. The outbox
+      // is what reaches the delta-log transport (and survives a future where
+      // Yjs is removed); doing this first means a publish still drains to the
+      // server even if the Yjs map isn't bound yet (state.map null) — the
+      // previous ordering silently dropped the enqueue in that case.
       if (getSyncFeatureFlags().journaledProjection) {
         void enqueueSyncOperation({
           domain: config.name,
@@ -359,11 +362,14 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
           clock: String(row[clockField] ?? ""),
         });
       }
-      // P5 cutover (task 6.6): stop writing to Yjs once the delta log is
-      // verified, without touching the journaled-projection/outbox publish
-      // above — that already reaches the delta log independently.
-      if (!isYjsPublishSuppressed()) {
-        state.map.set(key, wire);
+      await ensureReady();
+      if (state.map) {
+        // P5 cutover (task 6.6): stop writing to Yjs once the delta log is
+        // verified, without touching the journaled-projection/outbox publish
+        // above — that already reaches the delta log independently.
+        if (!isYjsPublishSuppressed()) {
+          state.map.set(key, wire);
+        }
       }
       const clock = String(row[clockField] ?? "");
       if (clock && (config.name === "learningItems" || config.name === "documents")) {
@@ -404,8 +410,9 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
   async function del(key: string): Promise<void> {
     if (!isTauri()) return;
     try {
-      await ensureReady();
-      if (!state.map) return;
+      // Same reasoning as publish(): the durable outbox enqueue must precede
+      // the Yjs map write so a tombstone still reaches the delta-log server
+      // even when the map isn't bound.
       if (getSyncFeatureFlags().journaledProjection) {
         void enqueueSyncOperation({
           domain: config.name,
@@ -415,7 +422,8 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
           clock: new Date().toISOString(),
         });
       }
-      if (!isYjsPublishSuppressed()) {
+      await ensureReady();
+      if (state.map && !isYjsPublishSuppressed()) {
         writeTombstoneHelper(state.map, key);
       }
       log("tombstoned", key);

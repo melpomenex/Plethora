@@ -111,7 +111,7 @@ describe("P1 drain (task 6.2)", () => {
     expect(await getCutoverPhase("room-drain-1")).toBe("drained");
   });
 
-  it("does not advance the phase if the scheduler never quiesces within the timeout", async () => {
+  it("advances past a perpetually-busy scheduler: global-idle gate removed — a shared scheduler that never empties no longer blocks the drain, as long as no dead-letters were recorded", async () => {
     const store = makeCutoverStateStore();
     mocks.invokeCommand.mockImplementation(async (cmd, args) => store.handle(cmd, args));
 
@@ -122,13 +122,17 @@ describe("P1 drain (task 6.2)", () => {
     const result = await runDrainPhase(
       "room-drain-2",
       targets,
-      () => ({ queued: 3, running: true }), // never idle
+      () => ({ queued: 3, running: true }), // perpetually busy (replicators/hydration)
       { pollIntervalMs: 5, timeoutMs: 30 },
     );
 
-    expect(result.outcome).toBe("retry");
-    expect(result.quiesced).toBe(false);
-    expect(await getCutoverPhase("room-drain-2")).toBe("not_started"); // unchanged
+    // The drain now advances after the settle period regardless of global
+    // scheduler state — the old global-idle gate could never be satisfied on
+    // a real library (the scheduler is shared with replicators + hydration).
+    // Dead-letters are the only thing that blocks advancement.
+    expect(result.outcome).toBe("drained");
+    expect(result.quiesced).toBe(true);
+    expect(await getCutoverPhase("room-drain-2")).toBe("drained");
   });
 
   it("does not advance the phase if any dead-letter was recorded during the drain window", async () => {

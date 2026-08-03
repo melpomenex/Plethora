@@ -46,7 +46,13 @@ async function invokeOrNull<T>(command: string, args: Record<string, unknown>): 
 export async function enqueueSyncOperation(
   operation: Omit<SyncOutboxOperation, "operationId"> & { operationId?: string },
 ): Promise<string | null> {
-  if (!getSyncFeatureFlags().journaledProjection) return null;
+  // The outbox is also the delta-log write path: the cutover seed phase (P2)
+  // enqueues its rows here, and delta-log outbox publishers turn them into
+  // POST /ops pushes. So the gate is journaled projection OR an active
+  // delta-log cutover — otherwise a room opted into delta-log without the
+  // older journaled-projection flag would silently drop every seed row.
+  const flags = getSyncFeatureFlags();
+  if (!flags.journaledProjection && !flags.deltaLogSync) return null;
   const id = operation.operationId ?? operationId();
   if (operation.payload != null && !isSyncPayloadSafe(operation.payload)) {
     console.warn(`[sync-journal] rejected unsafe payload for ${operation.domain}`);

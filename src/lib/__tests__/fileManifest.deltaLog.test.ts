@@ -31,6 +31,10 @@ describe("FileManifest delta-log integration (task 5.6)", () => {
     localStorage.clear();
     localStorage.setItem(DEVICE_ID_KEY, "device-local");
     mocks.invokeCommand.mockReset();
+    // invokeCommand is async in production (returns a Promise); the manifest's
+    // fire-and-forget SQLite projection calls .catch() on it, so the mock must
+    // resolve rather than return undefined.
+    mocks.invokeCommand.mockResolvedValue(null);
     __resetSyncFeatureFlagsForTest();
   });
 

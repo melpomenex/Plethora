@@ -1108,6 +1108,84 @@ pub async fn get_learning_items_for_postpone(
         .collect())
 }
 
+/// Wire shape for a file-manifest entry arriving over either transport. The
+/// payload is the full manifest-entry JSON (same shape the outbox carries);
+/// SQLite stores it verbatim so FileManifest can hydrate its in-memory cache
+/// without the Yjs document (migrate-sync-to-delta-log Phase 9 prep).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SyncedFileManifestEntry {
+    pub id: String,
+    pub room: String,
+    pub payload: serde_json::Value,
+}
+
+/// Upsert a synced file-manifest entry into the SQLite projection
+/// (migration 069). `INSERT OR REPLACE` is correct here: conflict resolution
+/// already happened on the caller side, and identity is the (room, id) pair.
+#[tauri::command]
+pub async fn upsert_synced_file_manifest(
+    entry: SyncedFileManifestEntry,
+    repo: State<'_, Repository>,
+) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let payload_str = serde_json::to_string(&entry.payload).unwrap_or_else(|_| "null".into());
+    sqlx::query(
+        r#"INSERT OR REPLACE INTO file_manifest_entries
+           (id, room, payload, updated_at)
+           VALUES (?1, ?2, ?3, ?4)"#,
+    )
+    .bind(&entry.id)
+    .bind(&entry.room)
+    .bind(&payload_str)
+    .bind(&now)
+    .execute(repo.pool())
+    .await?;
+    Ok(())
+}
+
+/// Remove a synced file-manifest entry (tombstone projection).
+#[tauri::command]
+pub async fn delete_synced_file_manifest(
+    id: String,
+    room: String,
+    repo: State<'_, Repository>,
+) -> Result<()> {
+    sqlx::query(r#"DELETE FROM file_manifest_entries WHERE id = ?1 AND room = ?2"#)
+        .bind(&id)
+        .bind(&room)
+        .execute(repo.pool())
+        .await?;
+    Ok(())
+}
+
+/// Read every file-manifest entry for a room, decoded back into JSON.
+/// FileManifest calls this on construction to hydrate its in-memory cache.
+#[tauri::command]
+pub async fn get_file_manifest_entries(
+    room: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<serde_json::Value>> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        r#"SELECT id, payload FROM file_manifest_entries WHERE room = ?1"#,
+    )
+    .bind(&room)
+    .fetch_all(repo.pool())
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(id, payload_str)| {
+            let mut value: serde_json::Value =
+                serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::Null);
+            // Ensure the id is present on the decoded object even if an older
+            // writer omitted it from the payload.
+            if let Some(obj) = value.as_object_mut() {
+                obj.entry("id").or_insert(serde_json::Value::String(id.clone()));
+            }
+            Some(value)
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod arena_sync_tests {
     use super::SyncedReviewResult;

@@ -3274,6 +3274,32 @@ export const en: Dict = {
   "syncSettings.endpointHint":
     "Leave blank to use the default server (wss://sync.readsync.org). If using a self-hosted yjs-sync server, specify your websocket endpoint.",
 
+  "syncSettings.deltaLog.title": "Sync engine migration",
+  "syncSettings.deltaLog.loading": "Loading migration status…",
+  "syncSettings.deltaLog.refresh": "Refresh",
+  "syncSettings.deltaLog.domain": "Domain",
+  "syncSettings.deltaLog.drained": "Drained",
+  "syncSettings.deltaLog.seeded": "Seeded",
+  "syncSettings.deltaLog.deviceRoster": "Devices",
+  "syncSettings.deltaLog.noDevices": "No devices have checked in yet.",
+  "syncSettings.deltaLog.finishMigration": "Finish migration",
+  "syncSettings.deltaLog.finishHint":
+    "\"Finish migration\" becomes available once every device in this room has confirmed it holds the same data (phase: verified).",
+  "syncSettings.deltaLog.finishConfirm":
+    "This stops sending updates to any device that hasn't upgraded yet — they will fall behind until they update. Continue?",
+  "syncSettings.deltaLog.finishedMsg": "Migration finished — this device now uses the new sync service.",
+  "syncSettings.deltaLog.retryStuck": "Retry pending operations",
+  "syncSettings.deltaLog.retryResultMsg": "Retried pending operations: {sent} sent, {failed} still failing.",
+  "syncSettings.deltaLog.retireTitle": "Retire the old sync engine",
+  "syncSettings.deltaLog.retireDesc":
+    "This permanently deletes the old sync data on this device and cannot be undone. Back up first (Settings → Backup).",
+  "syncSettings.deltaLog.backedUpCheckbox": "I have backed up my data",
+  "syncSettings.deltaLog.retireButton": "Retire old sync",
+  "syncSettings.deltaLog.retireConfirm":
+    "This permanently deletes the old sync data on this device. This cannot be undone. Have you backed up your data (Settings → Backup)?",
+  "syncSettings.deltaLog.retireNeedsBackup": "Confirm you have a backup before retiring the old sync.",
+  "syncSettings.deltaLog.retiredMsg": "Old sync retired.",
+
   "ttsSettings.title": "Text To Speech",
   "ttsSettings.desc": "Provider-backed speech generation with built-in and custom voices.",
   "ttsSettings.provider": "Provider",

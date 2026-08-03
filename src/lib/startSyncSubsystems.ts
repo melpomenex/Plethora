@@ -184,8 +184,63 @@ export function startSyncSubsystems(): Promise<void> {
       kind: "sliceable",
       run: (context) => measureStartupPhase("auto-download-watch", () => startAutoFileSyncDownload(context)),
     }).catch((err) =>
-      console.warn("[startSyncSubsystems] auto-download init failed:", err),
+      console.warn("[startSyncSubsystems] auto-download init failed", err),
     );
+
+    // 4b. Delta-log cutover orchestrator (migrate-sync-to-delta-log Phase 6).
+    // Only runs when the user has opted a room in (deltaLogSync flag). It
+    // starts the delta-log transport (pull loop, presence, outbox publishers)
+    // and advances the room's cutover state machine one phase per boot up to
+    // `verified`; P5+ stay user-driven from the migration panel. Purely
+    // additive — when the flag is off this is a complete no-op and the Yjs
+    // path is untouched, so rollback stays safe. Placed after the replicators
+    // so the drain targets (each replicated map) are initialized, and before
+    // the first-join backfill so a fresh room seeds into both transports.
+    if (getSyncFeatureFlags().deltaLogSync) {
+      try {
+        // Register drain targets from the already-initialized adapters so
+        // runDrainPhase can enumerate every domain. count() is diagnostic-only
+        // (the gate is scheduler quiescence + zero dead-letters, not count),
+        // and the live map size isn't exposed without threading accessors
+        // through every entity module — report 0, which the drain result still
+        // records as a per-domain placeholder.
+        const { registerCutoverDrainTarget } = await import("./sync/cutoverTargets");
+        const drainAdapter: Array<[string, () => Promise<void>]> = [
+          ["documents", ensureDocumentReplicationReady],
+          ["collections", ensureCollectionSyncReady],
+          ["extracts", ensureExtractSyncReady],
+          ["learningItems", ensureFlashcardSyncReady],
+          ["assistantConversations", ensureConversationSyncReady],
+          ["rssFeeds", ensureRssSyncReady],
+          ["podcastFeeds", ensurePodcastSyncReady],
+          ["fileAvailabilityIntent", ensureFileAvailabilityIntentReady],
+        ];
+        for (const [domain, ensureReady] of drainAdapter) {
+          registerCutoverDrainTarget({ domain, ensureReady, count: () => 0 });
+        }
+      } catch (err) {
+        console.warn("[startSyncSubsystems] cutover drain-target registration failed (non-fatal)", err);
+      }
+      // Fire-and-forget: the orchestrator must NOT block the boot chain. It
+      // reads ~thousands of SQLite rows during the P2 seed phase, and awaiting
+      // it here made first-paint stall ~19s (the seed ran on the critical
+      // path instead of in the background). Schedule it and move on — the
+      // transport start + phase advance happen asynchronously after the UI is
+      // interactive. The scheduler still yields to input between slices.
+      void scheduleProgressiveSyncWork({
+        id: "sync:delta-log-cutover",
+        lane: "P2",
+        kind: "sliceable",
+        run: async (context) => {
+          if (context.shouldYield()) await context.yield();
+          await measureStartupPhase("delta-log-cutover", () =>
+            import("./sync/deltaLog/cutoverOrchestrator").then((m) => m.runCutoverOrchestrator()),
+          );
+        },
+      }).catch((err) =>
+        console.warn("[startSyncSubsystems] delta-log cutover orchestrator failed (non-fatal)", err),
+      );
+    }
 
     // 5. First-join backfill: publish the local library into the shared doc so
     //    other devices receive it. Background, non-fatal.
@@ -198,7 +253,12 @@ export function startSyncSubsystems(): Promise<void> {
     }).catch((e) =>
       console.warn("[startSyncSubsystems] sync migration failed (non-fatal)", e),
     );
-    if (getSyncFeatureFlags().journaledProjection) {
+    // The outbox drain loop runs when journaled projection is on OR when the
+    // delta-log cutover is active — the seed phase (P2) enqueues its rows
+    // through the same outbox, and the delta-log outbox publishers (registered
+    // by the orchestrator's transport start) are what turn those rows into
+    // POST /ops pushes. Without a running drain, seed rows would sit pending.
+    if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
       const drain = () => {
         void scheduleProgressiveSyncWork({
           id: "sync:outbox-drain",

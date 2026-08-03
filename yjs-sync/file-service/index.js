@@ -29,7 +29,15 @@ function allowOrigin(req, res) {
 app.use((req, res, next) => {
   allowOrigin(req, res);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  // The delta-log sync client signs every request with X-Sync-* headers
+  // (timestamp, signature, room-key) and sends Content-Type. Without listing
+  // them here the browser/WebView CORS preflight rejects the actual request
+  // with "TypeError: Load failed" — this was blocking the entire delta-log
+  // transport from any webview client.
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, X-Sync-Timestamp, X-Sync-Signature, X-Sync-Room-Key",
+  );
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 });

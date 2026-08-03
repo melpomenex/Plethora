@@ -182,15 +182,31 @@ export function DeltaLogMigrationPanel() {
         <button
           type="button"
           onClick={() => void refresh()}
-          className="px-2 py-1 bg-muted text-foreground rounded text-xs flex items-center gap-1"
+          className="px-2.5 py-1.5 sm:py-1 bg-muted text-foreground rounded text-xs flex items-center gap-1 shrink-0"
         >
-          <ArrowsClockwise className="w-3 h-3" /> {t("syncSettings.deltaLog.refresh") || "Refresh"}
+          <ArrowsClockwise className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">{t("syncSettings.deltaLog.refresh") || "Refresh"}</span>
         </button>
       </div>
 
       {domainProgress.length > 0 && (
         <div className="rounded border border-border/70 overflow-hidden">
-          <table className="w-full text-xs text-left">
+          {/* Responsive: a grid of per-domain cards on mobile (stacks
+              vertically), a table on sm+ screens. The table overflows badly
+              on a phone's narrow viewport — the grid reflows each domain
+              into its own bordered cell with inline labels. */}
+          <div className="grid grid-cols-1 sm:hidden divide-y divide-border/50">
+            {domainProgress.map((row) => (
+              <div key={row.domain} className="px-2 py-1.5 text-xs">
+                <p className="font-mono text-foreground truncate">{row.domain}</p>
+                <div className="flex items-center gap-3 text-muted-foreground mt-0.5">
+                  <span>{t("syncSettings.deltaLog.drained") || "Drained"}: {row.drainedCount}</span>
+                  <span>{t("syncSettings.deltaLog.seeded") || "Seeded"}: {row.seededCount}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <table className="hidden sm:table w-full text-xs text-left">
             <thead className="bg-muted/40 text-muted-foreground">
               <tr>
                 <th className="py-1.5 px-2">{t("syncSettings.deltaLog.domain") || "Domain"}</th>
@@ -222,32 +238,35 @@ export function DeltaLogMigrationPanel() {
           <p className="text-xs text-muted-foreground">{t("syncSettings.deltaLog.noDevices") || "No devices have checked in yet."}</p>
         )}
         {!rosterError && devices && devices.length > 0 && (
-          <ul className="text-xs text-muted-foreground space-y-1">
+          <ul className="text-xs text-muted-foreground space-y-1.5">
             {devices.map((device) => (
-              <li key={device.deviceTag} className="flex items-center gap-2">
-                <CheckCircle className="w-3 h-3 text-emerald-500" />
-                <span className="font-mono">{device.deviceTag.slice(0, 12)}…</span>
-                <span>cursor {device.cursor}</span>
-                <span>· {new Date(device.seenAt).toLocaleString()}</span>
+              <li key={device.deviceTag} className="flex flex-col gap-0.5">
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle className="w-3 h-3 text-emerald-500 shrink-0" />
+                  <span className="font-mono truncate">{device.deviceTag.slice(0, 12)}…</span>
+                </span>
+                <span className="pl-4.5 text-muted-foreground">
+                  cursor {device.cursor} · {new Date(device.seenAt).toLocaleString()}
+                </span>
               </li>
             ))}
           </ul>
         )}
       </div>
 
-      <div className="flex flex-wrap gap-2 pt-1">
+      <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-1">
         <button
           type="button"
           disabled={phase !== "verified"}
           onClick={() => void handleFinishMigration()}
-          className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+          className="px-3 py-2 sm:py-1.5 bg-primary text-primary-foreground rounded text-xs disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {t("syncSettings.deltaLog.finishMigration") || "Finish migration"}
         </button>
         <button
           type="button"
           onClick={() => void handleRetryStuckOps()}
-          className="px-3 py-1.5 bg-muted text-foreground rounded text-xs"
+          className="px-3 py-2 sm:py-1.5 bg-muted text-foreground rounded text-xs"
         >
           {t("syncSettings.deltaLog.retryStuck") || "Retry pending operations"}
         </button>

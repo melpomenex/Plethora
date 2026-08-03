@@ -168,8 +168,6 @@ export async function ensureDocumentReplicationReady(): Promise<void> {
 export async function publishDocument(doc: Document): Promise<void> {
   if (!isTauri()) return;
   try {
-    await ensureDocumentReplicationReady();
-    if (!documentsMap) return;
     // Skip the write entirely when this doc's clock hasn't advanced since the
     // last publish/remote-apply we recorded for it. Without this, callers that
     // re-publish the whole library unconditionally (e.g. registerExistingFilesSync
@@ -207,13 +205,11 @@ export async function publishDocument(doc: Document): Promise<void> {
       currentViewState: _currentViewState,
       ...lightweight
     } = doc;
-    if (!isYjsPublishSuppressed()) {
-      documentsMap.set(doc.id, lightweight as Document);
-    }
-    // documentReplication predates the journaled-projection/outbox
-    // mechanism (task 5.4/6.4) — every other entity's publish() already
-    // does this. Without it, documents would have no delta-log write path
-    // at all, breaking dual-run for the single most important domain.
+    // Enqueue to the durable outbox BEFORE the Yjs map write and before the
+    // map-binding await. The outbox reaches the delta-log transport
+    // independently and must survive a future where the Yjs map is absent
+    // (state/map null) — previously this sat after `if (!documentsMap) return`
+    // and silently dropped every document write when the map wasn't bound.
     if (getSyncFeatureFlags().journaledProjection) {
       const clockForJournal = doc.dateModified || doc.dateAdded;
       void enqueueSyncOperation({
@@ -227,6 +223,10 @@ export async function publishDocument(doc: Document): Promise<void> {
             : new Date(clockForJournal).toISOString()
           : nowHLC(),
       });
+    }
+    await ensureDocumentReplicationReady();
+    if (documentsMap && !isYjsPublishSuppressed()) {
+      documentsMap.set(doc.id, lightweight as Document);
     }
     const clock = doc.dateModified || doc.dateAdded;
     if (clock) {
@@ -244,11 +244,9 @@ export async function publishDocument(doc: Document): Promise<void> {
 export async function deleteDocumentSync(docId: string): Promise<void> {
   if (!isTauri()) return;
   try {
-    await ensureDocumentReplicationReady();
-    if (!documentsMap) return;
-    if (!isYjsPublishSuppressed()) {
-      writeTombstone(documentsMap, docId, getDeviceId());
-    }
+    // Enqueue the tombstone to the outbox before the Yjs map write, mirroring
+    // publishDocument — the durable delete must reach the delta-log server
+    // even when the Yjs map isn't bound.
     if (getSyncFeatureFlags().journaledProjection) {
       void enqueueSyncOperation({
         domain: "documents",
@@ -257,6 +255,10 @@ export async function deleteDocumentSync(docId: string): Promise<void> {
         payload: null,
         clock: nowHLC(),
       });
+    }
+    await ensureDocumentReplicationReady();
+    if (documentsMap && !isYjsPublishSuppressed()) {
+      writeTombstone(documentsMap, docId, getDeviceId());
     }
     // Forget the cached clock: a later undo/restore publishes the document
     // with its pre-delete dateModified, which would otherwise look

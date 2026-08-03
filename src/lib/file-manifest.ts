@@ -14,6 +14,8 @@ import { nowHLC } from "./sync/syncClock";
 import { reportCursor, head as fetchHead, type DeltaLogClientConfig } from "./sync/deltaLog/client";
 import { encodePresenceBlob, decodePresenceBlob } from "./sync/deltaLog/presence";
 import type { SubKeys } from "./sync/encryption";
+import { invokeCommand, isTauri } from "./tauri";
+import { getSyncRoomId } from "./yjsSync";
 
 /**
  * Metadata for a file in the sync manifest
@@ -102,9 +104,21 @@ export class FileManifest {
   private filesMap: Y.Map<Record<string, unknown>>;
   private devicesMap: Y.Map<Record<string, unknown>>;
 
+  /**
+   * Durable in-memory cache of file-manifest entries, hydrated from SQLite
+   * (migration 069) on construction and kept in sync by the domain handler +
+   * addFile/removeFile. This is what lets reads (getFile/getAllFiles/findByHash)
+   * return data without the Yjs document — the Yjs map is now a transport
+   * mirror, not the authoritative store. Phase 9 prep: a no-Yjs build hydrates
+   * this cache on boot and never touches filesMap.
+   */
+  private cache: Map<string, FileManifestEntry> = new Map();
+  private room: string;
+
   constructor(doc: Y.Doc) {
     this.doc = doc;
     this.deviceId = getDeviceId();
+    this.room = getSyncRoomId();
 
     this.filesMap = doc.getMap("fileManifest") as Y.Map<Record<string, unknown>>;
     this.devicesMap = doc.getMap("devicePresence") as Y.Map<Record<string, unknown>>;
@@ -151,20 +165,28 @@ export class FileManifest {
       });
     });
 
-    // Task 5.6: register so a delta-log-sourced op for this domain applies
-    // directly into the same filesMap readers already use (getFile/
-    // getAllFiles/findByHash) — no separate SQLite projection exists for
-    // file manifest entries, so "apply" here just means "put it in the map",
-    // same as what map.observe already does for a Yjs-delivered entry.
-    // devicePresence is NOT registered here — see addFile/removeFile and the
-    // module-level note on why it stays Yjs-only for now.
+    // Delta-log domain handler: applies a decrypted op for this domain into
+    // the cache + SQLite projection (and the Yjs map, when present). This is
+    // the apply path the delta-log router dispatches to; it must keep the
+    // durable cache in sync so reads work without Yjs.
     registerDomainHandler("fileManifest", async (key, remote) => {
       if (!remote || typeof remote !== "object") return;
       if ((remote as { _deleted?: unknown })._deleted === true) {
+        this.cache.delete(key);
         this.filesMap.delete(key);
+        if (isTauri()) {
+          void invokeCommand("delete_synced_file_manifest", { id: key, room: this.room }).catch(() => undefined);
+        }
         return;
       }
+      const entry = remote as unknown as FileManifestEntry;
+      this.cache.set(key, entry);
       this.filesMap.set(key, remote as Record<string, unknown>);
+      if (isTauri()) {
+        void invokeCommand("upsert_synced_file_manifest", {
+          entry: { id: key, room: this.room, payload: remote },
+        }).catch(() => undefined);
+      }
     });
   }
 
@@ -178,14 +200,33 @@ export class FileManifest {
   }
 
   /**
+   * Hydrate the in-memory cache from the SQLite projection (migration 069).
+   * Call once after construction. Safe to call on every boot — it overwrites
+   * the cache with whatever SQLite holds, so a restart picks up the durable
+   * state even before any transport delivers a fresh copy. No-op off-Tauri.
+   */
+  async hydrateFromSqlite(): Promise<void> {
+    if (!isTauri()) return;
+    try {
+      const rows = (await invokeCommand<Record<string, unknown>[]>("get_file_manifest_entries", {
+        room: this.room,
+      })) ?? [];
+      this.cache = new Map();
+      for (const row of rows) {
+        const id = String(row.id ?? "");
+        if (id) this.cache.set(id, row as unknown as FileManifestEntry);
+      }
+    } catch (err) {
+      console.warn("[FileManifest] hydrateFromSqlite failed (non-fatal)", err);
+    }
+  }
+
+  /**
    * Add a file to the manifest
    */
   addFile(entry: FileManifestEntry): void {
-    if (!isYjsPublishSuppressed()) {
-      this.doc.transact(() => {
-        this.filesMap.set(entry.id, entry as unknown as Record<string, unknown>);
-      });
-    }
+    // Enqueue to the durable outbox first so the delta-log transport receives
+    // the entry even when Yjs publishing is suppressed or the map is absent.
     if (getSyncFeatureFlags().journaledProjection) {
       void enqueueSyncOperation({
         domain: "fileManifest",
@@ -195,17 +236,25 @@ export class FileManifest {
         clock: nowHLC(),
       });
     }
+    if (!isYjsPublishSuppressed()) {
+      this.doc.transact(() => {
+        this.filesMap.set(entry.id, entry as unknown as Record<string, unknown>);
+      });
+    }
+    // Keep the in-memory cache + SQLite projection in sync immediately so
+    // reads (getFile/getAllFiles) see the entry before the outbox drains.
+    this.cache.set(entry.id, entry);
+    if (isTauri()) {
+      void invokeCommand("upsert_synced_file_manifest", {
+        entry: { id: entry.id, room: this.room, payload: entry },
+      }).catch(() => undefined);
+    }
   }
 
   /**
    * Remove a file from the manifest
    */
   removeFile(fileId: string): void {
-    if (!isYjsPublishSuppressed()) {
-      this.doc.transact(() => {
-        this.filesMap.delete(fileId);
-      });
-    }
     if (getSyncFeatureFlags().journaledProjection) {
       void enqueueSyncOperation({
         domain: "fileManifest",
@@ -215,23 +264,45 @@ export class FileManifest {
         clock: nowHLC(),
       });
     }
+    if (!isYjsPublishSuppressed()) {
+      this.doc.transact(() => {
+        this.filesMap.delete(fileId);
+      });
+    }
+    this.cache.delete(fileId);
+    if (isTauri()) {
+      void invokeCommand("delete_synced_file_manifest", { id: fileId, room: this.room }).catch(() => undefined);
+    }
   }
 
   /**
-   * Get a file entry by ID
+   * Get a file entry by ID. Reads from the durable cache first (hydrated from
+   * SQLite, kept in sync by the domain handler + addFile/removeFile), then
+   * falls back to the Yjs map for entries that arrived over Yjs but haven't
+   * been projected yet. Both paths see the same data eventually.
    */
   getFile(fileId: string): FileManifestEntry | null {
+    const cached = this.cache.get(fileId);
+    if (cached) return cached;
     const data = this.filesMap.get(fileId);
     return data ? (data as unknown as FileManifestEntry) : null;
   }
 
   /**
-   * Get all files in the manifest
+   * Get all files in the manifest. Merges the cache with any Yjs-only entries
+   * so the union is returned regardless of which transport populated what.
    */
   getAllFiles(): FileManifestEntry[] {
     const files: FileManifestEntry[] = [];
-    this.filesMap.forEach((value) => {
-      files.push(value as unknown as FileManifestEntry);
+    const seen = new Set<string>();
+    for (const entry of this.cache.values()) {
+      files.push(entry);
+      seen.add(entry.id);
+    }
+    this.filesMap.forEach((value, key) => {
+      if (!seen.has(key)) {
+        files.push(value as unknown as FileManifestEntry);
+      }
     });
     return files;
   }
@@ -244,7 +315,32 @@ export class FileManifest {
   }
 
   /**
-   * Update this device's presence and which files it has
+   * Optional delta-log presence source. When set (by the cutover orchestrator
+   * or useFileSync once delta-log is active), presence is reported to and read
+   * from the delta-log device roster instead of the Yjs devicePresence map —
+   * the path that works without Yjs. Until set, the Yjs map remains the source
+   * (unchanged behavior).
+   */
+  private deltaLogPresence: { config: DeltaLogClientConfig; fileKey: SubKeys["fileKey"] } | null = null;
+
+  /**
+   * Enable delta-log-backed presence. After this call, updateMyPresence
+   * reports to the roster and getOnlineDevices prefers the roster over the
+   * Yjs devicePresence map. The pull cursor is read live at report time so
+   * the roster always sees the latest position.
+   */
+  setDeltaLogPresenceSource(
+    config: DeltaLogClientConfig,
+    fileKey: SubKeys["fileKey"],
+  ): void {
+    this.deltaLogPresence = { config, fileKey };
+  }
+
+  /**
+   * Update this device's presence and which files it has. Writes to the Yjs
+   * devicePresence map (the legacy path) and, when a delta-log presence
+   * source is configured, also reports to the delta-log roster so peers on
+   * either transport see this device.
    */
   updateMyPresence(hasFiles: string[]): void {
     const presence: DevicePresence = {
@@ -252,7 +348,23 @@ export class FileManifest {
       lastSeen: new Date().toISOString(),
       hasFiles,
     };
-    this.devicesMap.set(this.deviceId, presence as unknown as Record<string, unknown>);
+    if (!isYjsPublishSuppressed()) {
+      this.devicesMap.set(this.deviceId, presence as unknown as Record<string, unknown>);
+    }
+    if (this.deltaLogPresence) {
+      const { config, fileKey } = this.deltaLogPresence;
+      // Pull cursor is read live so the report stays current; failures are
+      // non-fatal (the next presence tick retries).
+      void (async () => {
+        try {
+          const { getRoomCursor } = await import("./sync/deltaLog/checkpoints");
+          const cursor = await getRoomCursor();
+          await this.reportPresenceViaDeltaLog(config, fileKey, hasFiles, cursor);
+        } catch (err) {
+          console.warn("[FileManifest] delta-log presence report failed", err);
+        }
+      })();
+    }
   }
 
   /**
@@ -325,6 +437,28 @@ export class FileManifest {
       }
     });
     return devices;
+  }
+
+  /**
+   * Pull the delta-log device roster and merge it into the local devicesMap
+   * so getOnlineDevices (and the file-transfer peer discovery that reads it)
+   * sees peers that reported via the delta-log presence path. This bridges
+   * the roster into the existing synchronous read path without changing any
+   * caller's signature — the path that works once Yjs is gone is "call this
+   * periodically" (e.g. from the presence tick). No-op when no delta-log
+   * presence source is configured.
+   */
+  async refreshOnlineDevicesFromDeltaLog(): Promise<void> {
+    if (!this.deltaLogPresence) return;
+    const { config, fileKey } = this.deltaLogPresence;
+    try {
+      const roster = await FileManifest.getOnlineDevicesViaDeltaLog(config, fileKey);
+      for (const presence of roster) {
+        this.devicesMap.set(presence.deviceId, presence as unknown as Record<string, unknown>);
+      }
+    } catch (err) {
+      console.warn("[FileManifest] delta-log roster refresh failed", err);
+    }
   }
 
   /**
