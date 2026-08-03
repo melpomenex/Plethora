@@ -31,15 +31,30 @@
 
 import * as Y from "yjs";
 import { invokeCommand, isTauri } from "./tauri";
-import { getYjsSync } from "./yjsSync";
+import { getYjsSync, getSyncRoomId } from "./yjsSync";
+import { recordYjsActivity } from "./sync/cutover";
 import { getProgressiveSyncScheduler } from "./sync/progressiveScheduler";
 import type { Document } from "../types";
 import { useDocumentStore } from "../stores/documentStore";
 import { getDocument, getDocuments } from "../api/documents";
-import { writeTombstone, isTombstone } from "./sync/tombstone";
+import { writeTombstone, isTombstone, type Tombstoned } from "./sync/tombstone";
 import { getDeviceId } from "./file-manifest";
 import { syncClockCache } from "./sync/clockCache";
 import { recordSyncWorkSize } from "./sync/syncTelemetry";
+import { registerDomainHandler } from "./sync/deltaLog/domainRegistry";
+import { getSyncFeatureFlags } from "./sync/featureFlags";
+import { enqueueSyncOperation } from "./sync/syncJournal";
+import { isYjsPublishSuppressed } from "./sync/deltaLog/yjsPublishGate";
+import { nowHLC } from "./sync/syncClock";
+
+// Task 5.4: documents predates createReplicatedMap/createProjector and has
+// bespoke conflict logic (fileId dedup, filePath/cover-image preservation)
+// that doesn't fit the generic row-lww shape, so it isn't retargeted onto
+// the projector — instead it registers its own handler directly, in the
+// same domain registry, so the delta-log router can reach it identically.
+registerDomainHandler("documents", (key, remote) =>
+  handleRemoteDocument(key, remote as Tombstoned<Document> | undefined),
+);
 
 let initialized = false;
 let initPromise: Promise<void> | null = null;
@@ -97,6 +112,8 @@ export async function ensureDocumentReplicationReady(): Promise<void> {
         const sync = await getYjsSync();
         documentsMap = sync.doc.getMap<Document>("documents");
         documentsMap.observe((event) => {
+          // P6 quiesce tracking (task 6.6) — see the same call in replicatedMap.ts.
+          void recordYjsActivity(getSyncRoomId());
           for (const key of event.keysChanged) {
             // Don't re-process our own writes: handleRemoteDocument checks
             // dateModified against local and no-ops if we're already current.
@@ -190,7 +207,27 @@ export async function publishDocument(doc: Document): Promise<void> {
       currentViewState: _currentViewState,
       ...lightweight
     } = doc;
-    documentsMap.set(doc.id, lightweight as Document);
+    if (!isYjsPublishSuppressed()) {
+      documentsMap.set(doc.id, lightweight as Document);
+    }
+    // documentReplication predates the journaled-projection/outbox
+    // mechanism (task 5.4/6.4) — every other entity's publish() already
+    // does this. Without it, documents would have no delta-log write path
+    // at all, breaking dual-run for the single most important domain.
+    if (getSyncFeatureFlags().journaledProjection) {
+      const clockForJournal = doc.dateModified || doc.dateAdded;
+      void enqueueSyncOperation({
+        domain: "documents",
+        entityKey: doc.id,
+        operation: "upsert",
+        payload: lightweight,
+        clock: clockForJournal
+          ? typeof clockForJournal === "string"
+            ? clockForJournal
+            : new Date(clockForJournal).toISOString()
+          : nowHLC(),
+      });
+    }
     const clock = doc.dateModified || doc.dateAdded;
     if (clock) {
       const clockStr = typeof clock === "string" ? clock : new Date(clock).toISOString();
@@ -209,7 +246,18 @@ export async function deleteDocumentSync(docId: string): Promise<void> {
   try {
     await ensureDocumentReplicationReady();
     if (!documentsMap) return;
-    writeTombstone(documentsMap, docId, getDeviceId());
+    if (!isYjsPublishSuppressed()) {
+      writeTombstone(documentsMap, docId, getDeviceId());
+    }
+    if (getSyncFeatureFlags().journaledProjection) {
+      void enqueueSyncOperation({
+        domain: "documents",
+        entityKey: docId,
+        operation: "delete",
+        payload: null,
+        clock: nowHLC(),
+      });
+    }
     // Forget the cached clock: a later undo/restore publishes the document
     // with its pre-delete dateModified, which would otherwise look
     // "unchanged" to publishDocument's clock-skip check and never overwrite
@@ -319,9 +367,15 @@ export function republishDocumentPosition(docOrId: Document | string): void {
  * the library reflects it. Skips our own writes (handled by dateModified check
  * — our publish stamped the same timestamp we'd be receiving back).
  */
-async function handleRemoteDocument(docId: string): Promise<void> {
-  if (!isTauri() || !documentsMap) return;
-  const remote = documentsMap.get(docId);
+async function handleRemoteDocument(
+  docId: string,
+  remoteOverride?: Tombstoned<Document>,
+): Promise<void> {
+  if (!isTauri()) return;
+  // The Yjs path (map.observe/replay) omits remoteOverride and re-reads the
+  // map at execution time, matching the original behavior. The delta-log
+  // router (Phase 5.4) supplies the decrypted value directly instead.
+  const remote = remoteOverride !== undefined ? remoteOverride : documentsMap?.get(docId);
   if (!remote) return; // entry was deleted; deletion sync is out of scope here.
 
   const localDocs = useDocumentStore.getState().documents ?? [];

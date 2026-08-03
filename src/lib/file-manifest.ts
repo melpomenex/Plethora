@@ -6,6 +6,14 @@
  */
 
 import * as Y from "yjs";
+import { getSyncFeatureFlags } from "./sync/featureFlags";
+import { enqueueSyncOperation } from "./sync/syncJournal";
+import { registerDomainHandler } from "./sync/deltaLog/domainRegistry";
+import { isYjsPublishSuppressed } from "./sync/deltaLog/yjsPublishGate";
+import { nowHLC } from "./sync/syncClock";
+import { reportCursor, head as fetchHead, type DeltaLogClientConfig } from "./sync/deltaLog/client";
+import { encodePresenceBlob, decodePresenceBlob } from "./sync/deltaLog/presence";
+import type { SubKeys } from "./sync/encryption";
 
 /**
  * Metadata for a file in the sync manifest
@@ -142,6 +150,22 @@ export class FileManifest {
         }
       });
     });
+
+    // Task 5.6: register so a delta-log-sourced op for this domain applies
+    // directly into the same filesMap readers already use (getFile/
+    // getAllFiles/findByHash) — no separate SQLite projection exists for
+    // file manifest entries, so "apply" here just means "put it in the map",
+    // same as what map.observe already does for a Yjs-delivered entry.
+    // devicePresence is NOT registered here — see addFile/removeFile and the
+    // module-level note on why it stays Yjs-only for now.
+    registerDomainHandler("fileManifest", async (key, remote) => {
+      if (!remote || typeof remote !== "object") return;
+      if ((remote as { _deleted?: unknown })._deleted === true) {
+        this.filesMap.delete(key);
+        return;
+      }
+      this.filesMap.set(key, remote as Record<string, unknown>);
+    });
   }
 
   /**
@@ -157,18 +181,40 @@ export class FileManifest {
    * Add a file to the manifest
    */
   addFile(entry: FileManifestEntry): void {
-    this.doc.transact(() => {
-      this.filesMap.set(entry.id, entry as unknown as Record<string, unknown>);
-    });
+    if (!isYjsPublishSuppressed()) {
+      this.doc.transact(() => {
+        this.filesMap.set(entry.id, entry as unknown as Record<string, unknown>);
+      });
+    }
+    if (getSyncFeatureFlags().journaledProjection) {
+      void enqueueSyncOperation({
+        domain: "fileManifest",
+        entityKey: entry.id,
+        operation: "upsert",
+        payload: entry,
+        clock: nowHLC(),
+      });
+    }
   }
 
   /**
    * Remove a file from the manifest
    */
   removeFile(fileId: string): void {
-    this.doc.transact(() => {
-      this.filesMap.delete(fileId);
-    });
+    if (!isYjsPublishSuppressed()) {
+      this.doc.transact(() => {
+        this.filesMap.delete(fileId);
+      });
+    }
+    if (getSyncFeatureFlags().journaledProjection) {
+      void enqueueSyncOperation({
+        domain: "fileManifest",
+        entityKey: fileId,
+        operation: "delete",
+        payload: null,
+        clock: nowHLC(),
+      });
+    }
   }
 
   /**
@@ -214,6 +260,49 @@ export class FileManifest {
    */
   goOffline(): void {
     this.devicesMap.delete(this.deviceId);
+  }
+
+  /**
+   * Report this device's presence via the delta-log server's device roster
+   * (task 5.6) instead of the Yjs devicePresence map. Additive: does not
+   * replace updateMyPresence/the Yjs devicesMap — that wiring (deciding
+   * which transport is authoritative, and when) belongs to the cutover
+   * machinery (Phase 6), not here. `cursor` is this device's current
+   * delta-log pull cursor (see deltaLog/checkpoints.ts::getRoomCursor).
+   */
+  async reportPresenceViaDeltaLog(
+    config: DeltaLogClientConfig,
+    fileKey: SubKeys["fileKey"],
+    hasFiles: string[],
+    cursor: number,
+  ): Promise<void> {
+    const blob = await encodePresenceBlob(
+      { deviceId: this.deviceId, hasFiles, lastSeen: new Date().toISOString() },
+      fileKey,
+    );
+    const deviceTag = deviceIdToWireTag(this.deviceId);
+    await reportCursor(config, deviceTag, cursor, blob);
+  }
+
+  /**
+   * Read the delta-log device roster and decode every device's presence
+   * blob. Devices that haven't reported one (older client, or sync-only
+   * cursor report) or whose blob fails to decrypt are omitted rather than
+   * failing the whole read.
+   */
+  static async getOnlineDevicesViaDeltaLog(
+    config: DeltaLogClientConfig,
+    fileKey: SubKeys["fileKey"],
+  ): Promise<DevicePresence[]> {
+    const { devices } = await fetchHead(config);
+    const results: DevicePresence[] = [];
+    for (const device of devices) {
+      if (!device.presenceBlob) continue;
+      const decoded = await decodePresenceBlob(device.presenceBlob, fileKey);
+      if (!decoded) continue;
+      results.push({ deviceId: decoded.deviceId, lastSeen: decoded.lastSeen, hasFiles: decoded.hasFiles });
+    }
+    return results;
   }
 
   /**
@@ -284,6 +373,16 @@ export class FileManifest {
     if (!Number.isFinite(lastSeenMs)) return false;
     return Date.now() - lastSeenMs <= DEVICE_PRESENCE_TTL_MS;
   }
+}
+
+/**
+ * Wire-level device tag for the delta-log device roster. Doesn't need to be
+ * secret (it's not a decryption key, just an index into device_cursor rows —
+ * the actual presence payload is what's encrypted), but is base64-encoded
+ * for consistency with every other identifier on that wire format.
+ */
+function deviceIdToWireTag(deviceId: string): string {
+  return btoa(deviceId);
 }
 
 /**

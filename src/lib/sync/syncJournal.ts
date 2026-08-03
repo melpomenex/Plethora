@@ -131,6 +131,64 @@ export async function setSyncCheckpoint(args: {
   return invokeOrNull("set_sync_checkpoint", args);
 }
 
+interface RawCutoverStateRow {
+  room: string;
+  phase: string;
+  updated_at: string;
+}
+
+export async function getSyncCutoverState(room: string): Promise<{ room: string; phase: string; updatedAt: string } | null> {
+  const row = await invokeOrNull<RawCutoverStateRow>("get_sync_cutover_state", { room });
+  return row ? { room: row.room, phase: row.phase, updatedAt: row.updated_at } : null;
+}
+
+export async function setSyncCutoverState(
+  room: string,
+  phase: string,
+): Promise<{ room: string; phase: string; updatedAt: string } | null> {
+  const row = await invokeOrNull<RawCutoverStateRow>("set_sync_cutover_state", { room, phase });
+  return row ? { room: row.room, phase: row.phase, updatedAt: row.updated_at } : null;
+}
+
+interface RawCutoverDomainProgressRow {
+  room: string;
+  domain: string;
+  drained_count: number;
+  seeded_count: number;
+  updated_at: string;
+}
+
+export async function recordSyncCutoverDomainProgress(args: {
+  room: string;
+  domain: string;
+  drainedDelta?: number;
+  seededDelta?: number;
+}): Promise<{ domain: string; drainedCount: number; seededCount: number } | null> {
+  const row = await invokeOrNull<RawCutoverDomainProgressRow>("record_sync_cutover_domain_progress", {
+    room: args.room,
+    domain: args.domain,
+    drainedDelta: args.drainedDelta ?? 0,
+    seededDelta: args.seededDelta ?? 0,
+  });
+  return row ? { domain: row.domain, drainedCount: row.drained_count, seededCount: row.seeded_count } : null;
+}
+
+export async function getSyncCutoverDomainProgress(
+  room: string,
+): Promise<Array<{ domain: string; drainedCount: number; seededCount: number; updatedAt: string }>> {
+  const rows = (await invokeOrNull<RawCutoverDomainProgressRow[]>("get_sync_cutover_domain_progress", { room })) ?? [];
+  return rows.map((row) => ({
+    domain: row.domain,
+    drainedCount: row.drained_count,
+    seededCount: row.seeded_count,
+    updatedAt: row.updated_at,
+  }));
+}
+
+export async function countSyncDeadLettersSince(sinceIso: string): Promise<number> {
+  return (await invokeOrNull<number>("count_sync_dead_letters_since", { since: sinceIso })) ?? 0;
+}
+
 export async function deadLetterSyncOperation(args: {
   operationId: string;
   domain: string;
@@ -152,33 +210,48 @@ export interface JournalRow {
 }
 
 type OutboxRow = JournalRow & { clock: string; payload_hash?: string | null };
-const outboxPublishers = new Map<string, (row: OutboxRow, payload: unknown | null) => Promise<void>>();
+type OutboxPublisher = (row: OutboxRow, payload: unknown | null) => Promise<void>;
+// Fan-out, not single-slot (task 6.4): during P3 dual-run, a domain needs
+// BOTH its Yjs mirror publisher (registered by createReplicatedMap) and its
+// delta-log publisher (registered by deltaLog/outboxPublisher.ts) active at
+// once. A single-publisher-per-domain map would let the second registration
+// silently replace the first, breaking one transport without any error.
+const outboxPublishers = new Map<string, Set<OutboxPublisher>>();
 
-export function registerSyncOutboxPublisher(
-  domain: string,
-  publisher: (row: OutboxRow, payload: unknown | null) => Promise<void>,
-): () => void {
-  outboxPublishers.set(domain, publisher);
+export function registerSyncOutboxPublisher(domain: string, publisher: OutboxPublisher): () => void {
+  let set = outboxPublishers.get(domain);
+  if (!set) {
+    set = new Set();
+    outboxPublishers.set(domain, set);
+  }
+  set.add(publisher);
   return () => {
-    if (outboxPublishers.get(domain) === publisher) outboxPublishers.delete(domain);
+    set!.delete(publisher);
+    if (set!.size === 0) outboxPublishers.delete(domain);
   };
 }
 
-/** Drain a bounded outbox batch. Unknown domains remain pending for a newer adapter. */
+/**
+ * Drain a bounded outbox batch. Unknown domains remain pending for a newer
+ * adapter. A row is marked sent only once EVERY registered publisher for
+ * its domain has succeeded (dual-run: a row that reached Yjs but failed to
+ * reach the delta log must stay pending and retry, not be dropped as if
+ * fully delivered).
+ */
 export async function drainSyncOutboxBatch(limit = 50): Promise<{ sent: number; deferred: number; failed: number }> {
   const rows = (await getPendingOutbox(Math.min(100, Math.max(1, limit)))) as OutboxRow[];
   const sentIds: string[] = [];
   let deferred = 0;
   let failed = 0;
   for (const row of rows) {
-    const publisher = outboxPublishers.get(row.domain);
-    if (!publisher) {
+    const publishers = outboxPublishers.get(row.domain);
+    if (!publishers || publishers.size === 0) {
       deferred += 1;
       continue;
     }
     try {
       const payload = row.payload == null ? null : JSON.parse(row.payload);
-      await publisher(row, payload);
+      await Promise.all(Array.from(publishers, (publisher) => publisher(row, payload)));
       sentIds.push(row.operation_id);
     } catch (error) {
       failed += 1;

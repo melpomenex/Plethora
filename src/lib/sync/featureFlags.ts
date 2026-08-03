@@ -19,6 +19,19 @@ export interface SyncFeatureFlags {
    * a safe, in-place snapshot (no wire-format change), so it ships enabled.
    */
   yjsCompaction: boolean;
+  /**
+   * migrate-sync-to-delta-log: read/write through the delta-log transport
+   * (src/lib/sync/deltaLog/) instead of Yjs. Off by default until the
+   * cutover machinery (Phase 6) exists to drive rooms through it safely.
+   */
+  deltaLogSync: boolean;
+  /**
+   * migrate-sync-to-delta-log P3: publish every mutation to BOTH the Yjs
+   * relay and the delta log (design.md §6). Only meaningful alongside
+   * deltaLogSync; lets not-yet-upgraded devices keep receiving writes during
+   * a staged rollout.
+   */
+  deltaLogDualWrite: boolean;
 }
 
 const STORAGE_KEY = "incrementum.sync.feature-flags";
@@ -30,6 +43,8 @@ const DEFAULT_FLAGS: SyncFeatureFlags = {
   dualWriteMigration: false,
   compaction: false,
   yjsCompaction: true,
+  deltaLogSync: false,
+  deltaLogDualWrite: false,
 };
 
 function envFlag(name: string): boolean | undefined {
@@ -64,6 +79,8 @@ export function getSyncFeatureFlags(): SyncFeatureFlags {
     dualWriteMigration: "VITE_SYNC_DUAL_WRITE_MIGRATION",
     compaction: "VITE_SYNC_COMPACTION",
     yjsCompaction: "VITE_SYNC_YJS_COMPACTION",
+    deltaLogSync: "VITE_SYNC_DELTA_LOG",
+    deltaLogDualWrite: "VITE_SYNC_DELTA_LOG_DUAL_WRITE",
   };
   for (const key of Object.keys(flags) as Array<keyof SyncFeatureFlags>) {
     const override = envFlag(envNames[key]);

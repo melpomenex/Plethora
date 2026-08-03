@@ -161,8 +161,42 @@ function enforceCap (dir) {
   }
 }
 
+/**
+ * Streaming counterpart to {@link readFrames} (task 0.6): yields frames one
+ * at a time instead of materializing the whole room log into an array first.
+ * Used by the replay path in utils.js, where a room log can be large and the
+ * relay must stay within a small resident-memory budget. Same ordering and
+ * expiry behavior as readFrames.
+ *
+ * @param {string} room
+ */
+function * readFramesStream (room) {
+  if (!enabled) return
+  const dir = roomDir(room)
+  let files
+  try { files = fs.readdirSync(dir) } catch (e) { return }
+
+  const cutoff = Date.now() - FRAME_LOG_MAX_DAYS * MS_PER_DAY
+  for (const name of files.sort()) {
+    if (!name.endsWith('.frame')) continue
+    const full = path.join(dir, name)
+    try {
+      const st = fs.statSync(full)
+      if (st.mtimeMs < cutoff) {
+        fs.unlinkSync(full) // expired
+        continue
+      }
+      const buf = fs.readFileSync(full)
+      yield new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+    } catch (e) {
+      // A vanished/unreadable file between readdir and read — skip it.
+    }
+  }
+}
+
 exports.appendFrame = appendFrame
 exports.readFrames = readFrames
+exports.readFramesStream = readFramesStream
 
 // --- test hooks -------------------------------------------------------------
 exports._test = {

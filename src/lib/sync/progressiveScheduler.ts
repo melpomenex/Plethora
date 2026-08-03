@@ -70,6 +70,10 @@ export class ProgressiveSyncScheduler {
   private lastHeartbeatAt = 0;
   private readonly quarantinedDomains = new Set<string>();
   private bytesInFlight = 0;
+  // Set-backed index of queued ids (task 5.3): `enqueue` is called once per
+  // remote key change during a cold-start replay, and a per-call linear scan
+  // of every other lane's queue made that O(n²) across a large room.
+  private readonly queuedIds = new Set<string>();
 
   constructor(options: ProgressiveSchedulerOptions = {}) {
     this.sliceMs = options.sliceMs ?? 4;
@@ -93,7 +97,8 @@ export class ProgressiveSyncScheduler {
     if (this.quarantinedDomains.has(this.domainOf(item.id))) return;
     const queue = this.queues[item.lane];
     // Idempotent task IDs prevent repeated boot triggers from multiplying work.
-    if (queue.some((existing) => existing.id === item.id)) return;
+    if (this.queuedIds.has(item.id)) return;
+    this.queuedIds.add(item.id);
     queue.push({ ...item, enqueuedAt: item.enqueuedAt ?? this.now() });
     this.schedule();
   }
@@ -107,6 +112,7 @@ export class ProgressiveSyncScheduler {
       const index = this.queues[lane].findIndex((item) => item.id === id);
       if (index >= 0) {
         this.queues[lane].splice(index, 1);
+        this.queuedIds.delete(id);
         return true;
       }
     }
@@ -137,6 +143,7 @@ export class ProgressiveSyncScheduler {
     this.disposed = true;
     this.controller.abort();
     for (const lane of LANES) this.queues[lane].length = 0;
+    this.queuedIds.clear();
     this.wake?.();
     this.wake = null;
   }
@@ -183,6 +190,7 @@ export class ProgressiveSyncScheduler {
     }
     if (!selected) return undefined;
     this.queues[selected.lane].shift();
+    this.queuedIds.delete(selected.id);
     return selected;
   }
 

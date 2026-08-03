@@ -13,6 +13,8 @@ describe("sync feature flags", () => {
     expect(flags.shardedRooms).toBe(false);
     expect(flags.dualWriteMigration).toBe(false);
     expect(flags.compaction).toBe(false);
+    expect(flags.deltaLogSync).toBe(false);
+    expect(flags.deltaLogDualWrite).toBe(false);
   });
 
   it("accepts a local JSON override for controlled rollout testing", () => {

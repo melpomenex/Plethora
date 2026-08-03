@@ -94,10 +94,8 @@ async function testOpaqueForwarding(port) {
       new Promise((r) => receiver.addEventListener('open', r, { once: true })),
     ])
 
-    // The server sends a sync-step-1 message on connect; drain it so it
-    // doesn't pollute later assertions.
-    const drain = nextMessage(receiver, (b) => b.length > 0).catch(() => null)
-    await drain
+    // Task 0.3: the relay no longer sends its own sync-step-1 on connect, so
+    // there is nothing to drain here.
 
     // Construct an unknown-type frame: type byte 0x10 (encrypted-sync in
     // our wrapper protocol), followed by some opaque payload bytes the
@@ -123,9 +121,11 @@ async function testOpaqueForwarding(port) {
 
 async function testUnknownTypeNotAppliedToServerDoc(port) {
   // Send a frame with an unknown type to a room, then connect a fresh
-  // client to the same room. The fresh client's initial sync-step-1 from
-  // the server should report an EMPTY doc — proving the unknown-type
-  // frame was forwarded without being applied to the server's Yjs state.
+  // client to the same room. Since task 0.3, the relay sends nothing of its
+  // own on connect (no more auto sync-step-1), so the assertion becomes:
+  // a solo observer, with no peer to forward from, receives NOTHING within
+  // a short window — proving the unknown-type frame was neither applied to
+  // server-side doc state nor echoed back through some other path.
   const sender = connect(port, '/test-room-not-applied')
   await new Promise((r) => sender.addEventListener('open', r, { once: true }))
 
@@ -137,25 +137,13 @@ async function testUnknownTypeNotAppliedToServerDoc(port) {
   const observer = connect(port, '/test-room-not-applied')
   try {
     await new Promise((r) => observer.addEventListener('open', r, { once: true }))
-    const firstMessage = await nextMessage(observer, (b) => b.length > 0, 2000)
-
-    // Server's first message is sync-step-1 (type 0). The sync step 1
-    // payload is just a state vector; for an empty doc it's a tiny
-    // encoding. The key assertion: this is a sync-type message (byte 0),
-    // NOT our unknown-type 0x10. If the server had applied our garbage
-    // frame to its Yjs doc, the doc state would be corrupted and the
-    // sync-step-1 response would either fail or be enormous.
-    if (firstMessage[0] !== 0x00) {
+    const gotMessage = await nextMessage(observer, () => true, 500).then(
+      () => true,
+      () => false,
+    )
+    if (gotMessage) {
       throw new Error(
-        `expected sync-step-1 (type 0) as first message, got type ${firstMessage[0]}`,
-      )
-    }
-    // Sanity: state vector of an empty doc encodes to exactly 1 byte (the
-    // type byte) since there are no clients. Allow some slack for the
-    // encoder's length prefix, but anything huge means doc state leaked in.
-    if (firstMessage.length > 16) {
-      throw new Error(
-        `sync-step-1 response suspiciously large (${firstMessage.length} bytes) — server may have applied the unknown-type frame`,
+        'observer received an unexpected message — server may hold applied/leaked state',
       )
     }
   } finally {
@@ -179,10 +167,7 @@ async function testPlaintextSyncRefused(port) {
       new Promise((r) => receiver.addEventListener('open', r, { once: true })),
     ])
 
-    // Drain the server's initial sync-step-1 so it doesn't get confused with
-    // a forwarded plaintext frame.
-    await nextMessage(receiver, (b) => b.length > 0).catch(() => null)
-    await nextMessage(sender, (b) => b.length > 0).catch(() => null)
+    // Task 0.3: no more auto sync-step-1 to drain.
 
     // Construct a type-0 (messageSync) sync-step-2 frame carrying a real Yjs
     // update. Format: [0x00 (messageSync), 0x02 (sync-step-2), <update bytes>].
@@ -215,19 +200,18 @@ async function testPlaintextSyncRefused(port) {
       throw new Error('relay forwarded a plaintext sync frame to a peer (expected refused)')
     }
 
-    // 2) Connect a fresh observer and confirm the server's doc is still
-    //    empty — proving the plaintext update was not applied.
+    // 2) Connect a fresh observer and confirm nothing arrives unsolicited —
+    //    the relay sends no auto sync-step-1 (task 0.3) and never applied
+    //    the plaintext update, so there is nothing for it to leak.
     const observer = connect(port, '/test-room-plaintext-refused')
     try {
       await new Promise((r) => observer.addEventListener('open', r, { once: true }))
-      const firstMessage = await nextMessage(observer, (b) => b.length > 0, 2000)
-      if (firstMessage[0] !== 0x00) {
-        throw new Error(`expected sync-step-1 (type 0), got type ${firstMessage[0]}`)
-      }
-      if (firstMessage.length > 16) {
-        throw new Error(
-          `sync-step-1 suspiciously large (${firstMessage.length} bytes) — server may have applied the plaintext frame`,
-        )
+      const gotMessage = await nextMessage(observer, () => true, 500).then(
+        () => true,
+        () => false,
+      )
+      if (gotMessage) {
+        throw new Error('observer received an unexpected message — plaintext frame may have been applied')
       }
     } finally {
       observer.close()

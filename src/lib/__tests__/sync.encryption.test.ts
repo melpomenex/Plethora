@@ -13,6 +13,9 @@ import {
   decryptChunk,
   hmacManifest,
   verifyManifestHmac,
+  keyTag,
+  signRequest,
+  verifyRequestSignature,
   sha256,
   __test,
 } from '../sync/encryption';
@@ -371,6 +374,133 @@ describe('manifest HMAC (HMAC-SHA256)', () => {
     const entry = new TextEncoder().encode('test');
     const mac = await hmacManifest(entry, keys1.manifestAuthKey);
     expect(await verifyManifestHmac(entry, mac, keys2.manifestAuthKey)).toBe(false);
+  });
+});
+
+describe('keyTag (delta-log room-index HMAC)', () => {
+  it('is stable for the same (domain, entityKey) within a room', async () => {
+    const { roomIndexKey } = await deriveKeys();
+    const t1 = await keyTag('documents', 'doc-123', roomIndexKey);
+    const t2 = await keyTag('documents', 'doc-123', roomIndexKey);
+    expect(toHex(t1)).toBe(toHex(t2));
+  });
+
+  it('differs across entity keys', async () => {
+    const { roomIndexKey } = await deriveKeys();
+    const t1 = await keyTag('documents', 'doc-123', roomIndexKey);
+    const t2 = await keyTag('documents', 'doc-456', roomIndexKey);
+    expect(toHex(t1)).not.toBe(toHex(t2));
+  });
+
+  it('differs across domains for the same entity key (no domain/entity ambiguity)', async () => {
+    const { roomIndexKey } = await deriveKeys();
+    const t1 = await keyTag('documents', 'same-key', roomIndexKey);
+    const t2 = await keyTag('extracts', 'same-key', roomIndexKey);
+    expect(toHex(t1)).not.toBe(toHex(t2));
+  });
+
+  it('is not correlatable across rooms (same entity, different room -> different tag)', async () => {
+    const keysA = await deriveKeys('shared-pass', 'room-A');
+    const keysB = await deriveKeys('shared-pass', 'room-B');
+    const tA = await keyTag('documents', 'doc-123', keysA.roomIndexKey);
+    const tB = await keyTag('documents', 'doc-123', keysB.roomIndexKey);
+    expect(toHex(tA)).not.toBe(toHex(tB));
+  });
+
+  it('produces a 32-byte tag', async () => {
+    const { roomIndexKey } = await deriveKeys();
+    const tag = await keyTag('documents', 'doc-123', roomIndexKey);
+    expect(tag.length).toBe(32);
+  });
+});
+
+describe('signRequest / verifyRequestSignature (delta-log request auth)', () => {
+  it('verify(sign(x)) === true', async () => {
+    const { manifestAuthKey } = await deriveKeys();
+    const signed = await signRequest('POST', '/rooms/abc/ops', '{"ops":[]}', manifestAuthKey);
+    expect(
+      await verifyRequestSignature('POST', '/rooms/abc/ops', '{"ops":[]}', signed, manifestAuthKey),
+    ).toBe(true);
+  });
+
+  it('rejects a tampered method', async () => {
+    const { manifestAuthKey } = await deriveKeys();
+    const signed = await signRequest('POST', '/rooms/abc/ops', 'body', manifestAuthKey);
+    expect(
+      await verifyRequestSignature('GET', '/rooms/abc/ops', 'body', signed, manifestAuthKey),
+    ).toBe(false);
+  });
+
+  it('rejects a tampered path', async () => {
+    const { manifestAuthKey } = await deriveKeys();
+    const signed = await signRequest('POST', '/rooms/abc/ops', 'body', manifestAuthKey);
+    expect(
+      await verifyRequestSignature('POST', '/rooms/xyz/ops', 'body', signed, manifestAuthKey),
+    ).toBe(false);
+  });
+
+  it('rejects a tampered body', async () => {
+    const { manifestAuthKey } = await deriveKeys();
+    const signed = await signRequest('POST', '/rooms/abc/ops', 'body', manifestAuthKey);
+    expect(
+      await verifyRequestSignature('POST', '/rooms/abc/ops', 'tampered', signed, manifestAuthKey),
+    ).toBe(false);
+  });
+
+  it('rejects a tampered timestamp', async () => {
+    const { manifestAuthKey } = await deriveKeys();
+    const signed = await signRequest('POST', '/rooms/abc/ops', 'body', manifestAuthKey);
+    const tampered = { ...signed, timestamp: signed.timestamp + 1000 };
+    expect(
+      await verifyRequestSignature('POST', '/rooms/abc/ops', 'body', tampered, manifestAuthKey),
+    ).toBe(false);
+  });
+
+  it('rejects a signature produced under a different room key', async () => {
+    const keys1 = await deriveKeys('passphrase-A');
+    const keys2 = await deriveKeys('passphrase-B');
+    const signed = await signRequest('POST', '/rooms/abc/ops', 'body', keys1.manifestAuthKey);
+    expect(
+      await verifyRequestSignature('POST', '/rooms/abc/ops', 'body', signed, keys2.manifestAuthKey),
+    ).toBe(false);
+  });
+
+  it('rejects a request outside the replay window', async () => {
+    const { manifestAuthKey } = await deriveKeys();
+    const signed = await signRequest('POST', '/rooms/abc/ops', 'body', manifestAuthKey, 0);
+    // 10 minutes after the signed timestamp, default 5-minute skew window.
+    const now = 10 * 60 * 1000;
+    expect(
+      await verifyRequestSignature('POST', '/rooms/abc/ops', 'body', signed, manifestAuthKey, {
+        now,
+      }),
+    ).toBe(false);
+  });
+
+  it('accepts a request within the replay window', async () => {
+    const { manifestAuthKey } = await deriveKeys();
+    const signed = await signRequest('POST', '/rooms/abc/ops', 'body', manifestAuthKey, 0);
+    const now = 60 * 1000; // 1 minute later, within default 5-minute skew
+    expect(
+      await verifyRequestSignature('POST', '/rooms/abc/ops', 'body', signed, manifestAuthKey, {
+        now,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe('op blob format (delta-log transport interchangeability)', () => {
+  it('encryptState/decryptState payload format is unchanged: nonce(12) || ciphertext+tag', async () => {
+    const { stateKey } = await deriveKeys();
+    const row = new TextEncoder().encode('{"id":"doc-1","title":"hello"}');
+    const blob = await encryptState(row, stateKey);
+    // Same packed format as before this change: nonce prefix + AES-GCM
+    // ciphertext+tag, decryptable with the same call used by the Yjs
+    // transport today — this is what makes a blob interchangeable between
+    // transports during dual-run (design.md §6 P3).
+    expect(blob.length).toBe(__test.AES_GCM_NONCE_BYTES + row.length + 16);
+    const decrypted = await decryptState(blob, stateKey);
+    expect(toHex(decrypted)).toBe(toHex(row));
   });
 });
 

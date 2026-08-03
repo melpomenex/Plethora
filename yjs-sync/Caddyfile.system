@@ -46,6 +46,13 @@ sync.readsync.org {
 	@files {
 		path /files/*
 	}
+	# migrate-sync-to-delta-log: the new sync-log service is folded into
+	# file-service (same port 8787). This matcher routes both its HTTP
+	# endpoints and the /rooms/{room} WebSocket upgrade there; everything
+	# else still falls through to the y-websocket relay below unchanged.
+	@sync_log {
+		path /rooms/*
+	}
 
 	# 100MB per file upload
 	request_body @files {
@@ -53,6 +60,7 @@ sync.readsync.org {
 	}
 
 	reverse_proxy @files 127.0.0.1:8787
+	reverse_proxy @sync_log 127.0.0.1:8787
 
 	# y-websocket relay: both HTTP and WebSocket upgrade proxy to the broker.
 	reverse_proxy 127.0.0.1:1234 {

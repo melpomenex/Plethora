@@ -63,7 +63,12 @@ async function withServer(fn) {
   const port = pickPort()
   const dataDir = makeTempDir()
   const child = spawn(process.execPath, [SERVER_PATH], {
-    env: { ...process.env, PORT: String(port), FILES_DATA_DIR: dataDir },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      FILES_DATA_DIR: dataDir,
+      SYNC_LOG_DB_PATH: require('path').join(dataDir, '..', 'sync-log.sqlite'),
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   const stderr = []

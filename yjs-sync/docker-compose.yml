@@ -8,7 +8,7 @@ services:
           npm init -y >/dev/null 2>&1;
         fi;
         npm install --no-save y-websocket@^1.5.4 >/dev/null 2>&1;
-        PORT=1234 HOST=0.0.0.0 node --max-old-space-size=4096 server.js
+        PORT=1234 HOST=0.0.0.0 node --max-old-space-size=384 server.js
       "
     environment:
       - PORT=1234
@@ -42,10 +42,13 @@ services:
     environment:
       - PORT=8787
       - FILES_DATA_DIR=/data/files
+      # Delta-log sync service (design.md), folded into this process.
+      - SYNC_LOG_DB_PATH=/data/sync-log/sync-log.sqlite
       # Optional. If unset, allows all origins.
       # - CORS_ORIGINS=https://readsync.org,http://localhost:5173
     volumes:
       - yjs_files:/data/files
+      - yjs_sync_log:/data/sync-log
     networks:
       - internal
     restart: unless-stopped
@@ -103,6 +106,7 @@ volumes:
   yjs_data:
   yjs_app:
   yjs_files:
+  yjs_sync_log:
   caddy_data:
   caddy_config:
   transcript_cache:

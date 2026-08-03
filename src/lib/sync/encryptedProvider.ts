@@ -138,14 +138,18 @@ export class EncryptedWebsocketProvider {
       return buf;
     }
 
-    // Everything after the leading message-type byte is the sync payload
-    // (sub-type + Yjs state). Encrypt it whole so the sub-type is also hidden.
-    // MESSAGE_SYNC (0) fits in a single varuint byte, so pos is 1 here.
+    // Pull the sync sub-type (step1=0 / step2=1 / update=2, see
+    // y-protocols/sync.js) out into the plaintext envelope. Everything after
+    // it — the actual Yjs state — is what gets encrypted. This lets the relay
+    // decide whether a frame is worth persisting (never persist step1 queries)
+    // without decrypting anything; only the sub-type is exposed.
+    const subType = decoding.readVarUint(decoder);
     const plaintext = buf.subarray(decoder.pos);
     const ciphertext = await encryptState(plaintext, this.stateKey);
 
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_ENCRYPTED_SYNC);
+    encoding.writeVarUint(encoder, subType);
     encoding.writeVarUint8Array(encoder, ciphertext);
     return encoding.toUint8Array(encoder);
   }
@@ -163,6 +167,7 @@ export class EncryptedWebsocketProvider {
       return buf;
     }
 
+    const subType = decoding.readVarUint(decoder);
     const ciphertext = decoding.readVarUint8Array(decoder);
     let plaintext: Uint8Array;
     try {
@@ -179,10 +184,11 @@ export class EncryptedWebsocketProvider {
       throw err;
     }
 
-    // Reconstruct the original sync frame: message-type 0, then the decrypted
-    // sync payload verbatim (sub-type + state).
+    // Reconstruct the original sync frame: message-type 0, then the sub-type
+    // (carried in plaintext), then the decrypted state.
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
+    encoding.writeVarUint(encoder, subType);
     encoding.writeUint8Array(encoder, plaintext);
     return encoding.toUint8Array(encoder);
   }
@@ -352,10 +358,21 @@ function makeEncryptingWebSocketPolyfill(
     );
   }
 
+  // Cap on concurrent in-flight inbound decrypt operations. Bounds how many
+  // decrypted buffers can be alive at once when frames arrive faster than
+  // they can be projected (task 0.4) — a stand-in for pause/resume, since a
+  // browser WebSocket has no true flow-control hook.
+  const MAX_INBOUND_PENDING = 64;
+
   // tslint:disable-next-line max-classes-per-file
   class EncryptingWebSocket {
     private real: WebSocket;
     private messageHandler: ((this: WebSocket, ev: MessageEvent) => unknown) | null = null;
+    // Outbound encrypt+send is serialized through this promise chain instead
+    // of fire-and-forget, so only one ciphertext buffer is ever in flight.
+    private outboundQueue: Promise<void> = Promise.resolve();
+    private inboundPending = 0;
+    private inboundWaiters: Array<() => void> = [];
 
     static readonly CONNECTING = 0 as const;
     static readonly OPEN = 1 as const;
@@ -404,18 +421,48 @@ function makeEncryptingWebSocketPolyfill(
           );
           return;
         }
-        decrypt(bytes)
-          .then((decrypted) => {
-            if (decrypted === null) return;
-            enqueueInbound(decrypted.buffer, (queued) => this.deliver(queued));
-          })
-          .catch((err) => {
-            console.error(
-              "[EncryptedWebsocketProvider] inbound decrypt pipeline failed",
-              err,
-            );
-          });
+        void this.handleInboundBinary(bytes, enqueueInbound);
       };
+    }
+
+    private async handleInboundBinary(
+      bytes: Uint8Array,
+      enqueueInbound: (data: ArrayBuffer | string, deliver: (data: ArrayBuffer | string) => void) => void,
+    ): Promise<void> {
+      await this.acquireInboundSlot();
+      try {
+        const decrypted = await decrypt(bytes);
+        if (decrypted === null) return;
+        enqueueInbound(decrypted.buffer, (queued) => this.deliver(queued));
+      } catch (err) {
+        console.error(
+          "[EncryptedWebsocketProvider] inbound decrypt pipeline failed",
+          err,
+        );
+      } finally {
+        this.releaseInboundSlot();
+      }
+    }
+
+    /** Resolves immediately while under MAX_INBOUND_PENDING; otherwise waits
+     * for a slot to free up (backpressure). */
+    private acquireInboundSlot(): Promise<void> {
+      if (this.inboundPending < MAX_INBOUND_PENDING) {
+        this.inboundPending++;
+        return Promise.resolve();
+      }
+      return new Promise((resolve) => {
+        this.inboundWaiters.push(() => {
+          this.inboundPending++;
+          resolve();
+        });
+      });
+    }
+
+    private releaseInboundSlot(): void {
+      this.inboundPending--;
+      const next = this.inboundWaiters.shift();
+      if (next) next();
     }
 
     private deliver(data: ArrayBuffer | string): void {
@@ -465,7 +512,10 @@ function makeEncryptingWebSocketPolyfill(
           (data as ArrayBufferView).byteLength,
         );
       }
-      encrypt(bytes)
+      // Chain onto the outbound queue rather than firing independently, so
+      // encrypt+send happens one buffer at a time in send order (task 0.4).
+      this.outboundQueue = this.outboundQueue
+        .then(() => encrypt(bytes))
         .then((ciphertext) => {
           if (this.real.readyState === RealWebSocket.OPEN) {
             this.real.send(ciphertext);

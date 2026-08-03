@@ -4,6 +4,11 @@ import multer from "multer";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs/promises";
+import { WebSocketServer } from "ws";
+import { openDb } from "./syncLog/db.js";
+import { createSyncLogRouter } from "./syncLog/routes.js";
+import { attachSyncLogWs } from "./syncLog/ws.js";
+import { startGcLoop } from "./syncLog/gc.js";
 
 const app = express();
 
@@ -258,8 +263,24 @@ async function runCleanup() {
   }
 }
 
-app.listen(PORT, async () => {
+// Delta-log sync service (design.md), folded into this process per the
+// migrate-sync-to-delta-log change: one process, one disk budget, one auth
+// story, sharing the 1-core/1GB box with the file blobs above.
+const syncDb = openDb();
+app.use(createSyncLogRouter(syncDb));
+startGcLoop(syncDb);
+
+const wss = new WebSocketServer({ noServer: true });
+const syncWs = attachSyncLogWs(wss, syncDb);
+
+const server = app.listen(PORT, async () => {
   await fs.mkdir(DATA_DIR, { recursive: true });
   runCleanup();
   setInterval(runCleanup, 24 * 60 * 60 * 1000);
+});
+
+server.on("upgrade", (req, socket, head) => {
+  if (!syncWs.handleUpgrade(req, socket, head)) {
+    socket.destroy();
+  }
 });

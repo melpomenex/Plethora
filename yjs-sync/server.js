@@ -11,15 +11,14 @@
 
 const WebSocket = require('ws')
 const http = require('http')
-// Set an explicit, generous max payload. The `ws` default is large but not
-// infinite, and a Yjs room that has accumulated CRDT history (deleted entries
-// live on as tombstones) can produce sync updates of several MB — e.g. stale
-// base64 cover-image values pushed through the localStorage-sync layer. An
-// oversized frame would otherwise close the connection with 1009
-// MESSAGE_TOO_BIG, which y-websocket surfaces as an endless reconnect loop
-// and silently breaks replication. 256 MiB comfortably bounds any plausible
-// sync exchange while still rejecting genuinely pathological frames.
-const MAX_PAYLOAD_BYTES = 256 * 1024 * 1024
+// Task 0.5: bound max payload well under the box's memory, not just under
+// "implausible". Target deployment is a 1-core / 1 GB VPS shared with the
+// file-service; 256 MiB was itself most of that budget for a single frame.
+// FRAME_LOG_MAX_FRAME_BYTES (16 MiB, see frameLog.js) already caps what the
+// relay will persist, so bound the wire payload to match — anything bigger
+// could never be replayed anyway, and closing with 1009 MESSAGE_TOO_BIG for
+// a genuinely pathological frame is preferable to accepting it into memory.
+const MAX_PAYLOAD_BYTES = 16 * 1024 * 1024
 const wss = new WebSocket.Server({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES })
 const setupWSConnection = require('./utils.js').setupWSConnection
 

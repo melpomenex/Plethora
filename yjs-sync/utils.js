@@ -236,16 +236,28 @@ const messageListener = (conn, doc, message) => {
       // forwarder for anything it doesn't recognize.
       //
       // Persistence: the raw frame is also appended to the room's rolling
-      // encrypted-frame log (frameLog.js) so a peer connecting later — after
-      // every live peer has disconnected, or after a relay restart — receives
-      // the backlog on connect. This is what makes async encrypted sync work
-      // (device A writes at 9am, device B downloads at noon). No-op when
-      // FRAME_LOG_DIR is unset.
+      // encrypted-frame log (frameLog.js), but ONLY for step2/update
+      // sub-types (task 0.2). The client's encryptedProvider now carries the
+      // sync sub-type in plaintext right after this message-type byte (see
+      // encryptedProvider.ts encryptOutbound), so we can read it without
+      // decrypting anything. step1 (empty state-vector queries) are never
+      // persisted: replaying them to a later joiner is exactly what forces a
+      // full-document re-encode on the answering peer (K -> 0 in the design
+      // doc's amplification-loop analysis). No-op when FRAME_LOG_DIR is unset.
       default: {
         doc.conns.forEach((_, c) => {
           if (c !== conn) send(doc, c, message)
         })
-        try { frameLog.appendFrame(doc.name, message) } catch (e) { /* persistence is best-effort */ }
+        try {
+          const subDecoder = decoding.createDecoder(message)
+          decoding.readVarUint(subDecoder) // re-consume the message-type byte
+          const subType = decoding.readVarUint(subDecoder)
+          // messageYjsSyncStep1 = 0 (see y-protocols/sync.js); everything
+          // else (step2 = 1, update = 2) is worth persisting.
+          if (subType !== 0) {
+            frameLog.appendFrame(doc.name, message)
+          }
+        } catch (e) { /* persistence is best-effort */ }
       }
     }
   } catch (err) {
@@ -259,10 +271,19 @@ const closeConn = (doc, conn) => {
     const controlledIds = doc.conns.get(conn)
     doc.conns.delete(conn)
     awarenessProtocol.removeAwarenessStates(doc.awareness, Array.from(controlledIds), null)
-    if (doc.conns.size === 0 && persistence !== null) {
-      persistence.writeState(doc.name, doc).then(() => {
+    // FORK (task 0.7): always tear down an empty room, not only when
+    // `persistence !== null`. YPERSISTENCE is deliberately unset for
+    // zero-knowledge operation (see docker-compose.yml), so the original
+    // `&& persistence !== null` guard meant `docs` NEVER shrank — every room
+    // leaked a WSSharedDoc + Awareness forever.
+    if (doc.conns.size === 0) {
+      if (persistence !== null) {
+        persistence.writeState(doc.name, doc).then(() => {
+          doc.destroy()
+        })
+      } else {
         doc.destroy()
-      })
+      }
       docs.delete(doc.name)
     }
   }
@@ -280,6 +301,32 @@ const send = (doc, conn, m) => {
   }
 }
 
+// High-water mark for a connection's outbound buffer during frame-log replay
+// (task 0.6). A large room's log can be many MB; without this, replay blasts
+// every frame onto the socket regardless of how much is still unsent,
+// building unbounded buffered writes in front of a possibly slow client.
+const REPLAY_BUFFERED_HIGH_WATER = 4 * 1024 * 1024
+const REPLAY_BACKPRESSURE_POLL_MS = 20
+
+/** Replay a room's persisted frame log to a newly-joined connection, reading
+ * it lazily (frameLog.readFramesStream) and pausing whenever the socket's
+ * own buffer is over the high-water mark, resuming once it drains. */
+const replayFrameLog = async (doc, conn, docName) => {
+  if (!frameLog.frameLogEnabled()) return
+  try {
+    for (const frame of frameLog.readFramesStream(docName)) {
+      if (!doc.conns.has(conn)) return // connection closed mid-replay
+      while (conn.bufferedAmount > REPLAY_BUFFERED_HIGH_WATER) {
+        await new Promise(resolve => setTimeout(resolve, REPLAY_BACKPRESSURE_POLL_MS))
+        if (!doc.conns.has(conn)) return
+      }
+      send(doc, conn, frame)
+    }
+  } catch (e) {
+    console.warn(`[frameLog] replay failed for room ${docName}: ${e.message}`)
+  }
+}
+
 const pingTimeout = 30000
 
 exports.setupWSConnection = (conn, req, { docName = req.url.slice(1).split('?')[0], gc = true } = {}) => {
@@ -294,16 +341,9 @@ exports.setupWSConnection = (conn, req, { docName = req.url.slice(1).split('?')[
   // offline — the core async-sync path. Each frame is forwarded verbatim (the
   // client's encryptedProvider decrypts). Best-effort: if the read fails or
   // the log is disabled, sync proceeds with the standard handshake only.
-  try {
-    if (frameLog.frameLogEnabled()) {
-      const frames = frameLog.readFrames(docName)
-      for (const frame of frames) {
-        send(doc, conn, frame)
-      }
-    }
-  } catch (e) {
-    console.warn(`[frameLog] replay failed for room ${docName}: ${e.message}`)
-  }
+  // Fire-and-forget: replay is async (streamed, backpressured) but
+  // setupWSConnection itself is not.
+  void replayFrameLog(doc, conn, docName)
 
   let pongReceived = true
   const pingInterval = setInterval(() => {
@@ -329,11 +369,15 @@ exports.setupWSConnection = (conn, req, { docName = req.url.slice(1).split('?')[
   conn.on('pong', () => {
     pongReceived = true
   })
+  // FORK: do NOT send our own writeSyncStep1 (task 0.3). The relay's Yjs doc
+  // is permanently empty (messageSync is refused above), so its state vector
+  // is always empty — sending it provokes every peer's y-websocket to reply
+  // with Y.encodeStateAsUpdate(doc), i.e. a whole-document upload to a server
+  // that discards it. This is half of the amplification loop in design.md
+  // §1.1. Peers still handshake with EACH OTHER through opaque forwarding
+  // (their own syncStep1/step2 frames pass straight through); only the
+  // relay-initiated query is removed.
   {
-    const encoder = encoding.createEncoder()
-    encoding.writeVarUint(encoder, messageSync)
-    syncProtocol.writeSyncStep1(encoder, doc)
-    send(doc, conn, encoding.toUint8Array(encoder))
     const awarenessStates = doc.awareness.getStates()
     if (awarenessStates.size > 0) {
       const encoder = encoding.createEncoder()

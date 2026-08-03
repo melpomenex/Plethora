@@ -15,11 +15,19 @@ const NONCE_COUNTER_BYTES = AES_GCM_NONCE_BYTES - NONCE_DEVICE_PREFIX_BYTES;
 const HKDF_INFO_STATE = new TextEncoder().encode('incrementum-sync/state-v1');
 const HKDF_INFO_FILES = new TextEncoder().encode('incrementum-sync/files-v1');
 const HKDF_INFO_AUTH = new TextEncoder().encode('incrementum-sync/auth-v1');
+const HKDF_INFO_INDEX = new TextEncoder().encode('incrementum-sync/index-v1');
 
 export interface SubKeys {
   stateKey: CryptoKey;
   fileKey: CryptoKey;
   manifestAuthKey: CryptoKey;
+  /**
+   * Delta-log key-tag key (design.md §3). Used only to compute
+   * `keyTag(domain, entityKey)` — a keyed hash the server can use to order
+   * and compact operations without ever seeing the entity id or domain.
+   * Never leaves the device.
+   */
+  roomIndexKey: CryptoKey;
 }
 
 export interface EncryptedChunk {
@@ -172,13 +180,14 @@ export async function deriveSubKeys(
 
   const salt = new TextEncoder().encode(roomId);
 
-  const [stateRaw, fileRaw, authRaw] = await Promise.all([
+  const [stateRaw, fileRaw, authRaw, indexRaw] = await Promise.all([
     hkdfSha256(roomKey, salt, HKDF_INFO_STATE, SUB_KEY_BYTES),
     hkdfSha256(roomKey, salt, HKDF_INFO_FILES, SUB_KEY_BYTES),
     hkdfSha256(roomKey, salt, HKDF_INFO_AUTH, SUB_KEY_BYTES),
+    hkdfSha256(roomKey, salt, HKDF_INFO_INDEX, SUB_KEY_BYTES),
   ]);
 
-  const [stateKey, fileKey, manifestAuthKey] = await Promise.all([
+  const [stateKey, fileKey, manifestAuthKey, roomIndexKey] = await Promise.all([
     crypto.subtle.importKey('raw', stateRaw, { name: 'AES-GCM', length: 256 }, false, [
       'encrypt',
       'decrypt',
@@ -187,16 +196,30 @@ export async function deriveSubKeys(
       'encrypt',
       'decrypt',
     ]),
+    // manifestAuthKey is extractable, unlike the other three sub-keys: the
+    // delta-log server has no other way to learn what to verify requests
+    // against (design.md §4.2 has no separate provisioning endpoint), so the
+    // trust-on-first-use registration path (deltaLog/client.ts::registerRoom)
+    // exports and sends these raw bytes once. It never decrypts content —
+    // unlike stateKey/fileKey/roomIndexKey, its exposure only affects
+    // request authentication, not confidentiality.
     crypto.subtle.importKey(
       'raw',
       authRaw,
+      { name: 'HMAC', hash: 'SHA-256' },
+      true,
+      ['sign', 'verify'],
+    ),
+    crypto.subtle.importKey(
+      'raw',
+      indexRaw,
       { name: 'HMAC', hash: 'SHA-256' },
       false,
       ['sign', 'verify'],
     ),
   ]);
 
-  return { stateKey, fileKey, manifestAuthKey };
+  return { stateKey, fileKey, manifestAuthKey, roomIndexKey };
 }
 
 let stateCounter = randomUint64();
@@ -387,6 +410,129 @@ export async function decryptChunk(
   } catch {
     throw new DecryptError('decryptChunk: decryption failed (wrong key or tampering)');
   }
+}
+
+/**
+ * Delta-log key tag (design.md §3): `HMAC-SHA256(roomIndexKey, domain ||
+ * 0x00 || entityKey)`. Stable for a given (room, domain, entityKey) triple,
+ * opaque, and non-correlatable across rooms since each room derives its own
+ * `roomIndexKey`. The server uses this — and only this — to order and
+ * compact operations for one entity without ever learning what that entity
+ * is or which domain it belongs to.
+ */
+export async function keyTag(
+  domain: string,
+  entityKey: string,
+  roomIndexKey: CryptoKey,
+): Promise<Uint8Array> {
+  const message = concatBytes(
+    new TextEncoder().encode(domain),
+    new Uint8Array([0]),
+    new TextEncoder().encode(entityKey),
+  );
+  return new Uint8Array(await crypto.subtle.sign('HMAC', roomIndexKey, message));
+}
+
+export interface SignedRequest {
+  timestamp: number;
+  signature: string;
+}
+
+const DEFAULT_REQUEST_MAX_SKEW_MS = 5 * 60 * 1000;
+
+/**
+ * Sign a delta-log request: `HMAC(manifestAuthKey, method || path || body ||
+ * timestamp)`. Every field the server can observe is covered, so tampering
+ * with any of them (including the timestamp, which anchors the replay
+ * window — see {@link verifyRequestSignature}) invalidates the signature.
+ */
+export async function signRequest(
+  method: string,
+  path: string,
+  body: Uint8Array | string,
+  manifestAuthKey: CryptoKey,
+  timestamp: number = Date.now(),
+): Promise<SignedRequest> {
+  const message = buildSignedRequestMessage(method, path, toBytes(body), timestamp);
+  const mac = await crypto.subtle.sign('HMAC', manifestAuthKey, message);
+  return { timestamp, signature: bytesToHex(new Uint8Array(mac)) };
+}
+
+/**
+ * Verify a signed delta-log request. Rejects if the signature doesn't match
+ * (tampered method/path/body/timestamp) or if `timestamp` is outside
+ * `maxSkewMs` of `now` (default 5 minutes) — the replay window: a captured
+ * request cannot be replayed indefinitely, only within that skew.
+ */
+export async function verifyRequestSignature(
+  method: string,
+  path: string,
+  body: Uint8Array | string,
+  signed: SignedRequest,
+  manifestAuthKey: CryptoKey,
+  options: { now?: number; maxSkewMs?: number } = {},
+): Promise<boolean> {
+  const now = options.now ?? Date.now();
+  const maxSkewMs = options.maxSkewMs ?? DEFAULT_REQUEST_MAX_SKEW_MS;
+  if (Math.abs(now - signed.timestamp) > maxSkewMs) return false;
+
+  const message = buildSignedRequestMessage(method, path, toBytes(body), signed.timestamp);
+  let signatureBytes: Uint8Array;
+  try {
+    signatureBytes = hexToBytes(signed.signature);
+  } catch {
+    return false;
+  }
+  return crypto.subtle.verify('HMAC', manifestAuthKey, signatureBytes, message);
+}
+
+function buildSignedRequestMessage(
+  method: string,
+  path: string,
+  body: Uint8Array,
+  timestamp: number,
+): Uint8Array {
+  return concatBytes(
+    new TextEncoder().encode(method.toUpperCase()),
+    new Uint8Array([0]),
+    new TextEncoder().encode(path),
+    new Uint8Array([0]),
+    new TextEncoder().encode(String(timestamp)),
+    new Uint8Array([0]),
+    body,
+  );
+}
+
+function toBytes(body: Uint8Array | string): Uint8Array {
+  return typeof body === 'string' ? new TextEncoder().encode(body) : body;
+}
+
+function concatBytes(...parts: Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  let s = '';
+  for (const b of bytes) s += b.toString(16).padStart(2, '0');
+  return s;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  if (hex.length % 2 !== 0) throw new Error('hexToBytes: odd-length string');
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    const byte = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    if (Number.isNaN(byte)) throw new Error('hexToBytes: invalid hex');
+    out[i] = byte;
+  }
+  return out;
 }
 
 export async function sha256(data: Uint8Array): Promise<Uint8Array> {

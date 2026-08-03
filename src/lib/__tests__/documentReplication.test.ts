@@ -22,7 +22,7 @@ vi.mock("../tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../tauri")>();
   return { ...actual, isTauri: () => true, invokeCommand: mocks.invokeCommand };
 });
-vi.mock("../yjsSync", () => ({ getYjsSync: mocks.getYjsSync }));
+vi.mock("../yjsSync", () => ({ getYjsSync: mocks.getYjsSync, getSyncRoomId: () => "test-room" }));
 vi.mock("../../stores/documentStore", () => ({
   useDocumentStore: {
     getState: () => ({

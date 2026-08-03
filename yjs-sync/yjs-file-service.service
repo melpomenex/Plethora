@@ -14,6 +14,9 @@ RestartSec=5
 Environment=PORT=8787
 Environment=FILES_DATA_DIR=/home/leisrich/yjs-sync/data/files
 Environment=NODE_ENV=production
+# migrate-sync-to-delta-log: default (/data/sync-log/...) isn't under
+# ReadWritePaths below, so it must be pointed at the writable data dir.
+Environment=SYNC_LOG_DB_PATH=/home/leisrich/yjs-sync/data/sync-log/sync-log.sqlite
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

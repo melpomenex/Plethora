@@ -100,4 +100,35 @@ describe("ProgressiveSyncScheduler", () => {
     scheduler.resetCircuit("rss");
     expect(scheduler.health().quarantinedDomains).not.toContain("rss");
   });
+
+  it("dedup is Set-backed, not an O(n) scan (task 5.3): a large cold-start replay enqueues fast and each id runs once", async () => {
+    const scheduler = new ProgressiveSyncScheduler({
+      inputPending: () => false,
+      visible: () => true,
+    });
+    const runs: string[] = [];
+    const N = 5000;
+
+    const start = performance.now();
+    for (let i = 0; i < N; i++) {
+      scheduler.enqueue({ id: `documents:replay:${i}`, lane: "P1", run: () => { runs.push(`documents:replay:${i}`); } });
+    }
+    // Duplicate enqueue of every id, as a repeated boot trigger would do.
+    for (let i = 0; i < N; i++) {
+      scheduler.enqueue({ id: `documents:replay:${i}`, lane: "P1", run: () => { runs.push(`duplicate:${i}`); } });
+    }
+    const elapsedMs = performance.now() - start;
+
+    expect(scheduler.stats().queued).toBe(N);
+    // Generous bound: an O(n^2) scan over 10,000 enqueue calls against
+    // growing per-lane arrays would take orders of magnitude longer than this.
+    expect(elapsedMs).toBeLessThan(500);
+
+    const deadline = Date.now() + 15_000;
+    while (runs.length < N && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(runs.length).toBe(N);
+    expect(runs.every((id) => id.startsWith("documents:replay:"))).toBe(true);
+  }, 20_000);
 });

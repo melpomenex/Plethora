@@ -16,7 +16,15 @@ export type SyncPhase =
   | "clock-cache-init"
   | "startup-subsystem"
   | "projection-batch"
-  | "tab-switch";
+  | "tab-switch"
+  // migrate-sync-to-delta-log (task 7.6): the delta-log transport's phases,
+  // additive alongside the Yjs-era ones above (indexeddb-replay,
+  // indexeddb-compact, provider-setup) — those are removed from this union
+  // only at Phase 9 retirement, once the code that emits them is deleted.
+  | "delta-log-pull-page"
+  | "delta-log-projection"
+  | "delta-log-cursor-advance"
+  | "delta-log-push-drain";
 
 export interface SyncPhaseSample {
   phase: SyncPhase;

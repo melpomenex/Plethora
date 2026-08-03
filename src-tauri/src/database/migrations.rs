@@ -2180,6 +2180,35 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE documents ADD COLUMN priority_explicitly_set INTEGER NOT NULL DEFAULT 0;
         "#,
     ),
+    // Migration 068: migrate-sync-to-delta-log cutover state (design.md §6)
+    //
+    // Per-domain pull/push cursors for the delta-log transport reuse the
+    // existing sync_checkpoints table (migration 056) — one row per domain,
+    // keyed the same way the Yjs-era adapters already use it. What's new
+    // here is the phase state machine (drained -> seeded -> dual -> verified
+    // -> cutover -> quiesced -> retired) that governs the migration itself,
+    // which has no existing home: it is a single row per room, not per
+    // domain, and needs per-domain progress counters nested under it for the
+    // P1 drain / P2 seed gates (task 6.2, 6.3).
+    Migration::new(
+        "068_add_sync_cutover_state",
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_cutover_state (
+            room TEXT PRIMARY KEY,
+            phase TEXT NOT NULL DEFAULT 'not_started',
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS sync_cutover_domain_progress (
+            room TEXT NOT NULL,
+            domain TEXT NOT NULL,
+            drained_count INTEGER NOT NULL DEFAULT 0,
+            seeded_count INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (room, domain)
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

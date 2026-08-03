@@ -210,6 +210,116 @@ pub async fn get_sync_checkpoint(
     .await?)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SyncCutoverState {
+    pub room: String,
+    pub phase: String,
+    pub updated_at: String,
+}
+
+/// Set the migrate-sync-to-delta-log cutover phase for a room (design.md §6:
+/// drained -> seeded -> dual -> verified -> cutover -> quiesced -> retired).
+/// One row per room, distinct from the per-domain sync_checkpoints cursors.
+#[tauri::command]
+pub async fn set_sync_cutover_state(
+    room: String,
+    phase: String,
+    repo: State<'_, Repository>,
+) -> Result<SyncCutoverState> {
+    let updated_at = Utc::now().to_rfc3339();
+    sqlx::query("INSERT INTO sync_cutover_state (room, phase, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(room) DO UPDATE SET phase = excluded.phase, updated_at = excluded.updated_at")
+        .bind(&room).bind(&phase).bind(&updated_at).execute(repo.pool()).await?;
+    Ok(sqlx::query_as::<_, SyncCutoverState>(
+        "SELECT room, phase, updated_at FROM sync_cutover_state WHERE room = ?1",
+    )
+    .bind(room)
+    .fetch_one(repo.pool())
+    .await?)
+}
+
+#[tauri::command]
+pub async fn get_sync_cutover_state(
+    room: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<SyncCutoverState>> {
+    Ok(sqlx::query_as::<_, SyncCutoverState>(
+        "SELECT room, phase, updated_at FROM sync_cutover_state WHERE room = ?1",
+    )
+    .bind(room)
+    .fetch_optional(repo.pool())
+    .await?)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct SyncCutoverDomainProgress {
+    pub room: String,
+    pub domain: String,
+    pub drained_count: i64,
+    pub seeded_count: i64,
+    pub updated_at: String,
+}
+
+/// Record P1 drain / P2 seed progress for one domain within a room (task
+/// 6.2/6.3's completeness gate: every domain must be accounted for before
+/// the phase advances). `drainedDelta`/`seededDelta` are added to the
+/// running counts, not overwritten, so callers can report incrementally.
+#[tauri::command]
+pub async fn record_sync_cutover_domain_progress(
+    room: String,
+    domain: String,
+    drained_delta: i64,
+    seeded_delta: i64,
+    repo: State<'_, Repository>,
+) -> Result<SyncCutoverDomainProgress> {
+    let updated_at = Utc::now().to_rfc3339();
+    sqlx::query(
+        "INSERT INTO sync_cutover_domain_progress (room, domain, drained_count, seeded_count, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5) \
+         ON CONFLICT(room, domain) DO UPDATE SET \
+           drained_count = drained_count + excluded.drained_count, \
+           seeded_count = seeded_count + excluded.seeded_count, \
+           updated_at = excluded.updated_at",
+    )
+    .bind(&room).bind(&domain).bind(drained_delta).bind(seeded_delta).bind(&updated_at)
+    .execute(repo.pool()).await?;
+    Ok(sqlx::query_as::<_, SyncCutoverDomainProgress>(
+        "SELECT room, domain, drained_count, seeded_count, updated_at FROM sync_cutover_domain_progress WHERE room = ?1 AND domain = ?2",
+    )
+    .bind(room)
+    .bind(domain)
+    .fetch_one(repo.pool())
+    .await?)
+}
+
+#[tauri::command]
+pub async fn get_sync_cutover_domain_progress(
+    room: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<SyncCutoverDomainProgress>> {
+    Ok(sqlx::query_as::<_, SyncCutoverDomainProgress>(
+        "SELECT room, domain, drained_count, seeded_count, updated_at FROM sync_cutover_domain_progress WHERE room = ?1",
+    )
+    .bind(room)
+    .fetch_all(repo.pool())
+    .await?)
+}
+
+/// Count unresolved dead-letters recorded at or after `since` (RFC3339).
+/// Used by the migrate-sync-to-delta-log P1 drain gate (task 6.2): drain
+/// cannot advance if any domain dead-lettered during the drain window.
+#[tauri::command]
+pub async fn count_sync_dead_letters_since(
+    since: String,
+    repo: State<'_, Repository>,
+) -> Result<i64> {
+    Ok(sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sync_dead_letters WHERE created_at >= ?1 AND resolved_at IS NULL",
+    )
+    .bind(since)
+    .fetch_one(repo.pool())
+    .await?)
+}
+
 #[tauri::command]
 pub async fn dead_letter_sync_operation(
     operation_id: String,

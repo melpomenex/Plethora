@@ -34,6 +34,9 @@ import {
   isSyncQrPayload,
   InvalidQrPayloadError,
 } from "../../lib/sync/qrFormat";
+import { getSyncFeatureFlags } from "../../lib/sync/featureFlags";
+import { deriveDeltaLogUrls } from "../../lib/sync/deltaLog/urls";
+import { DeltaLogMigrationPanel } from "../sync/DeltaLogMigrationPanel";
 
 const DEFAULT_SYNC_SETTINGS = {
   enabled: false,
@@ -108,6 +111,21 @@ export function SyncSettings() {
   };
 
   const [customUrl, setCustomUrl] = useState(yjsSettings.url || "");
+
+  // Task 7.5: settings.sync.yjs.url stays the single endpoint value the user
+  // edits (same field, same label) — deltaLogSync just means it now resolves
+  // to a delta-log service base instead of the Yjs relay. A custom
+  // self-hosted value is preserved as-is; only its *meaning* changes. This
+  // preview never touches the field's stored value or the Apply-URL flow.
+  const deltaLogSyncEnabled = getSyncFeatureFlags().deltaLogSync;
+  const derivedDeltaLogUrls = useMemo(() => {
+    if (!deltaLogSyncEnabled) return null;
+    try {
+      return deriveDeltaLogUrls(customUrl || "wss://sync.readsync.org");
+    } catch {
+      return null;
+    }
+  }, [deltaLogSyncEnabled, customUrl]);
 
   useEffect(() => {
     setCustomUrl(yjsSettings.url || "");
@@ -607,6 +625,16 @@ export function SyncSettings() {
               <p className="text-xs text-muted-foreground">
                 {t("syncSettings.endpointHint")}
               </p>
+              {deltaLogSyncEnabled && derivedDeltaLogUrls && (
+                <p className="text-xs text-muted-foreground font-mono">
+                  → {derivedDeltaLogUrls.httpBase}
+                </p>
+              )}
+              {deltaLogSyncEnabled && (
+                <div className="mt-4 pt-4 border-t border-border">
+                  <DeltaLogMigrationPanel />
+                </div>
+              )}
             </div>
           )}
         </div>

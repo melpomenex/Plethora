@@ -1,0 +1,38 @@
+[Unit]
+Description=Incrementum Yjs Sync Relay (forked y-websocket)
+Documentation=https://github.com/melpachenX/Incrementum
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=leisrich
+Group=leisrich
+WorkingDirectory=/home/leisrich/yjs-sync
+ExecStart=/home/leisrich/.nvm/versions/node/v20.20.2/bin/node server.js
+Restart=on-failure
+RestartSec=5
+Environment=HOST=127.0.0.1
+Environment=PORT=1234
+Environment=NODE_ENV=production
+# Task 0.5: bound heap well under the 1 GB box budget. Not passed via
+# --max-old-space-size on ExecStart (systemd doesn't expand that into the
+# command line the way a shell wrapper would) — NODE_OPTIONS works because
+# node reads it directly at startup, same effect.
+Environment=NODE_OPTIONS=--max-old-space-size=384
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/leisrich/yjs-sync/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/yjs-sync.service.d/frame-log.conf
+[Service]
+Environment=FRAME_LOG_DIR=/home/leisrich/yjs-sync/data/frame-log

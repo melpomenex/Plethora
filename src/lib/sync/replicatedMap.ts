@@ -31,26 +31,33 @@
  */
 
 import type * as Y from "yjs";
-import { getYjsSync, registerRoomChangeListener } from "../yjsSync";
+import { getYjsSync, registerRoomChangeListener, getSyncRoomId } from "../yjsSync";
+import { recordYjsActivity } from "./cutover";
 import { isTauri } from "../tauri";
-import { isNewer, compareClock } from "./syncClock";
 import { getProgressiveSyncScheduler, type SyncLane } from "./progressiveScheduler";
-import { measureSyncPhase, recordSyncWorkSize } from "./syncTelemetry";
 import { getSyncFeatureFlags } from "./featureFlags";
-import {
-  enqueueSyncOperation,
-  registerSyncOutboxPublisher,
-  recordIncomingSyncOperation,
-  markIncomingApplied,
-} from "./syncJournal";
+import { enqueueSyncOperation, registerSyncOutboxPublisher } from "./syncJournal";
+import { recordSyncWorkSize } from "./syncTelemetry";
 import {
   isTombstone,
   writeTombstone as writeTombstoneHelper,
   type Tombstoned,
 } from "./tombstone";
 import { syncClockCache } from "./clockCache";
+import {
+  createProjector,
+  mergeFieldLww,
+  type MergeMode,
+  type Projector,
+  type ApplyContext,
+} from "./projector";
+import { registerDomainHandler } from "./deltaLog/domainRegistry";
+import { isYjsPublishSuppressed } from "./deltaLog/yjsPublishGate";
 
-export type MergeMode = "row-lww" | "append-only" | "field-lww";
+export type { MergeMode, ApplyContext };
+// Re-exported for existing importers — canonical home is now projector.ts
+// (task 5.1: it is transport-neutral and used by both Yjs and delta-log).
+export { mergeFieldLww };
 
 export interface ReplicatedMapConfig<T extends { updatedAt: string }> {
   /** Yjs map name, e.g. "learningItems". */
@@ -118,17 +125,10 @@ export interface ReplicatedMapConfig<T extends { updatedAt: string }> {
   maxAgeDays?: number;
 }
 
-export interface ApplyContext {
-  /** True when the receiver should treat this as a tombstone delete. */
-}
-
 interface InternalState<T> {
   map: Y.Map<Tombstoned<T>> | null;
   initialized: boolean;
   initPromise: Promise<void> | null;
-    appliedTombstones: Set<string>;
-    appliedTombstoneClocks: Map<string, string>;
-  appliedClocks: Map<string, string>;
   pendingPublish: Map<string, ReturnType<typeof setTimeout>>;
   unregisterRoomChange: (() => void) | null;
   unregisterOutboxPublisher: (() => void) | null;
@@ -161,60 +161,34 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
     ? (...a: unknown[]) => console.debug(`[replicatedMap:${config.label}]`, ...a)
     : () => {};
 
-  const batchQueue: Array<{ key: string; row: T; clock: string; journalId: string | null }> = [];
-  let batchTimer: ReturnType<typeof setTimeout> | null = null;
+  // Transport-neutral merge/conflict logic (task 5.1). This Yjs adapter's
+  // only jobs are: feed it remote values from map.observe/replay, and let it
+  // drive map.set/tombstone writes on the publish side (below).
+  const projector: Projector<T> = createProjector({
+    name: config.name,
+    label: config.label,
+    mode: config.mode,
+    clockField: config.clockField,
+    fieldClocks: config.fieldClocks,
+    apply: config.apply,
+    applyBatch: config.applyBatch,
+    applyDelete: config.applyDelete,
+    getLocal: config.getLocal,
+    verbose: config.verbose,
+  });
 
-  async function enqueueBatch(key: string, row: T, clock: string, journalId: string | null): Promise<void> {
-    const prev = state.appliedClocks.get(key);
-    if (prev && compareClock(clock, prev) <= 0) {
-      return;
-    }
-    batchQueue.push({ key, row, clock, journalId });
-    if (!batchTimer) {
-      batchTimer = setTimeout(flushBatch, 50);
-    }
-  }
-
-  async function flushBatch(): Promise<void> {
-    batchTimer = null;
-    const items = [...batchQueue];
-    batchQueue.length = 0;
-    if (items.length === 0) return;
-
-    if (config.applyBatch) {
-      try {
-        const rows = items.map(item => [item.key, item.row] as [string, T]);
-        await measureSyncPhase("projection-batch", () => config.applyBatch!(rows));
-        for (const item of items) {
-          state.appliedClocks.set(item.key, item.clock);
-          if (config.name === "learningItems" || config.name === "documents") {
-            syncClockCache.updateClock(config.name, item.key, item.clock);
-          }
-          if (item.journalId) {
-            await markIncomingApplied({ operationId: item.journalId, domain: config.name, entityKey: item.key });
-          }
-          log("applied (batch)", item.key);
-        }
-      } catch (err) {
-        console.warn(`[replicatedMap:${config.label}] applyBatch failed, falling back to individual writes`, err);
-        for (const item of items) {
-          await runApply(item.key, item.row, item.clock, item.journalId);
-        }
-      }
-    } else {
-      for (const item of items) {
-        await runApply(item.key, item.row, item.clock, item.journalId);
-      }
-    }
-  }
+  // Task 5.4: register so the delta-log router (deltaLog/router.ts) can
+  // dispatch a decrypted op for this domain to the exact same merge logic
+  // the Yjs path uses — same appliedClocks/appliedTombstoneClocks instance,
+  // so double-delivery across transports during dual-run is a no-op.
+  const unregisterDomainHandler = registerDomainHandler(config.name, (key, remote) =>
+    projector.handleRemote(key, remote as Tombstoned<T> | undefined),
+  );
 
   const state: InternalState<T> = {
     map: null,
     initialized: false,
     initPromise: null,
-    appliedTombstones: new Set(),
-    appliedTombstoneClocks: new Map(),
-    appliedClocks: new Map(),
     pendingPublish: new Map(),
     unregisterRoomChange: null,
     unregisterOutboxPublisher: null,
@@ -240,9 +214,7 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       state.initialized = false;
       state.initPromise = null;
       state.map = null;
-      state.appliedTombstones.clear();
-      state.appliedTombstoneClocks.clear();
-      state.appliedClocks.clear();
+      projector.reset();
     }
 
     if (!state.initPromise) {
@@ -252,6 +224,12 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
           const map = sync.doc.getMap<Tombstoned<T>>(config.name);
           state.map = map;
           map.observe((event) => {
+            // P6 quiesce tracking (task 6.6): an observe firing means a
+            // change actually arrived over Yjs, as opposed to the boot-time
+            // replay below (which just catches up on existing state, not
+            // "someone is still writing via Yjs"). Fire-and-forget — this
+            // must never add latency to the hot remote-apply path.
+            void recordYjsActivity(getSyncRoomId());
             for (const key of event.keysChanged) {
               scheduler.enqueue({
                 id: `${config.label}:remote:${key}`,
@@ -263,6 +241,14 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
               });
             }
           });
+          // handleRemote wraps the transport-neutral projector: it re-reads
+          // the map at execution time (not the value captured when the
+          // scheduler item was enqueued), matching the original behavior —
+          // by the time this runs, the map may have moved on again.
+          function handleRemote(key: string): Promise<void> {
+            if (!isTauri() || !state.map) return Promise.resolve();
+            return projector.handleRemote(key, state.map.get(key));
+          }
           // Replay existing entries (e.g. rows published before this device joined).
           let replayBytes = 0;
           let replayRecords = 0;
@@ -307,7 +293,7 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
                   map,
                   clockField,
                   maxAgeDays,
-                  state.appliedClocks,
+                  projector.appliedClocks,
                 );
                 if (result.removed > 0) {
                   log("pruned", result.removed, `aged append-only entries (>${maxAgeDays}d)`);
@@ -373,7 +359,12 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
           clock: String(row[clockField] ?? ""),
         });
       }
-      state.map.set(key, wire);
+      // P5 cutover (task 6.6): stop writing to Yjs once the delta log is
+      // verified, without touching the journaled-projection/outbox publish
+      // above — that already reaches the delta log independently.
+      if (!isYjsPublishSuppressed()) {
+        state.map.set(key, wire);
+      }
       const clock = String(row[clockField] ?? "");
       if (clock && (config.name === "learningItems" || config.name === "documents")) {
         syncClockCache.updateClock(config.name, key, clock);
@@ -424,7 +415,9 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
           clock: new Date().toISOString(),
         });
       }
-      writeTombstoneHelper(state.map, key);
+      if (!isYjsPublishSuppressed()) {
+        writeTombstoneHelper(state.map, key);
+      }
       log("tombstoned", key);
     } catch (err) {
       console.warn(`[replicatedMap:${config.label}] delete failed`, key, err);
@@ -444,124 +437,11 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
     state.unregisterOutboxPublisher = null;
     for (const t of state.pendingPublish.values()) clearTimeout(t);
     state.pendingPublish.clear();
+    void projector.flushBatch();
+    unregisterDomainHandler();
     state.map = null;
     state.initialized = false;
     state.initPromise = null;
-  }
-
-  async function handleRemote(key: string): Promise<void> {
-    if (!isTauri() || !state.map) return;
-    const remote = state.map.get(key);
-    if (!remote) return; // absent — nothing to do (delete already applied or never existed)
-    const journalId = getSyncFeatureFlags().journaledProjection
-      ? `${config.name}:${key}:${String(isTombstone(remote) ? remote.deletedAt : remote[clockField] ?? "remote")}`
-      : null;
-    if (journalId) {
-      await recordIncomingSyncOperation({
-        operationId: journalId,
-        domain: config.name,
-        entityKey: key,
-        operation: isTombstone(remote) ? "delete" : mode === "append-only" ? "append" : "upsert",
-        payload: remote,
-      });
-    }
-
-    if (isTombstone(remote)) {
-      // Idempotent: only apply the delete once per tombstone (keyed by deletedAt).
-      const marker = `${key}:${remote.deletedAt}`;
-      if (state.appliedTombstones.has(marker)) return;
-      if (!config.applyDelete) return; // entity doesn't replicate deletes
-      state.appliedTombstones.add(marker);
-      state.appliedTombstoneClocks.set(key, remote.deletedAt);
-      try {
-        await measureSyncPhase("projection", () => config.applyDelete!(key, {}));
-        if (journalId) {
-          await markIncomingApplied({ operationId: journalId, domain: config.name, entityKey: key });
-        }
-        log("applied delete", key);
-      } catch (err) {
-        state.appliedTombstones.delete(marker); // allow retry
-        console.warn(`[replicatedMap:${config.label}] applyDelete failed`, key, err);
-      }
-      return;
-    }
-
-    const remoteClock = String(remote[clockField] ?? "");
-    const tombstoneClock = state.appliedTombstoneClocks.get(key);
-    if (tombstoneClock && compareClock(remoteClock, tombstoneClock) <= 0) {
-      return; // stale offline update must not resurrect a deleted entity
-    }
-
-    if (mode === "append-only") {
-      // Reviews: always upsert by deterministic id; INSERT OR IGNORE dedupes.
-      if (config.applyBatch) {
-        await enqueueBatch(key, remote, remoteClock, journalId);
-      } else {
-        await runApply(key, remote, remoteClock, journalId);
-      }
-      return;
-    }
-
-    if (mode === "field-lww") {
-      // Fetch local once, then decide per-field.
-      const local = config.getLocal ? await safeGetLocal(key) : null;
-      const merged = local ? mergeFieldLww(local, remote, config.fieldClocks ?? []) : remote;
-      if (config.applyBatch) {
-        await enqueueBatch(key, merged, remoteClock, journalId);
-      } else {
-        await runApply(key, merged, remoteClock, journalId);
-      }
-      return;
-    }
-
-    // row-lww
-    const local = config.getLocal ? await safeGetLocal(key) : null;
-    if (local) {
-      const localClock = String(local[clockField] ?? "");
-      if (!isNewer(remoteClock, localClock)) {
-        return; // local is at least as new — don't clobber (echo guard lives here too)
-      }
-    }
-    if (config.applyBatch) {
-      await enqueueBatch(key, remote, remoteClock, journalId);
-    } else {
-      await runApply(key, remote, remoteClock, journalId);
-    }
-  }
-
-  async function runApply(key: string, row: T, clock: string, journalId: string | null = null): Promise<void> {
-    // Idempotency for rapid re-broadcasts: skip if we already applied this clock.
-    const prev = state.appliedClocks.get(key);
-    if (prev && compareClock(clock, prev) <= 0) {
-      return;
-    }
-    try {
-      try {
-        recordSyncWorkSize(JSON.stringify(row).length, 1);
-      } catch {
-        // Diagnostic sizing must never make a valid sync row fail.
-      }
-      await measureSyncPhase("projection", () => config.apply(key, row, {}));
-      state.appliedClocks.set(key, clock);
-      if (config.name === "learningItems" || config.name === "documents") {
-        syncClockCache.updateClock(config.name, key, clock);
-      }
-      if (journalId) {
-        await markIncomingApplied({ operationId: journalId, domain: config.name, entityKey: key });
-      }
-      log("applied", key);
-    } catch (err) {
-      console.warn(`[replicatedMap:${config.label}] apply failed`, key, err);
-    }
-  }
-
-  async function safeGetLocal(key: string): Promise<T | null> {
-    try {
-      return (await config.getLocal!(key)) ?? null;
-    } catch (err) {
-      log("getLocal failed", key, err);
-      return null;
-    }
   }
 
   return {
@@ -573,38 +453,6 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
     teardown,
     getMap: () => state.map,
   };
-}
-
-/**
- * Merge remote fields into a local row under field-level LWW. For each
- * `[valueField, clockField]` pair, the remote value wins only if its clock is
- * newer than the local clock. Fields not listed are taken from the row whose
- * `updatedAt` is newer (so non-churn metadata still converges via row-LWW).
- */
-export function mergeFieldLww<T extends { updatedAt: string }>(
-  local: T,
-  remote: T,
-  fieldClocks: Array<[keyof T, keyof T]>,
-): T {
-  const rowNewer = isNewer(remote.updatedAt, local.updatedAt);
-  const base = (rowNewer ? { ...remote } : { ...local }) as T;
-
-  for (const [valueField, clockField] of fieldClocks) {
-    const remoteFieldClock = String(remote[clockField] ?? "");
-    const localFieldClock = String(local[clockField] ?? "");
-    // Take the remote value if its per-field clock is newer, OR if local has
-    // no clock for this field yet (newly added by a migration).
-    if (isNewer(remoteFieldClock, localFieldClock) || (!localFieldClock && remoteFieldClock)) {
-      (base as Record<string, unknown>)[valueField as string] =
-        remote[valueField as unknown as keyof T];
-      (base as Record<string, unknown>)[clockField as string] = remoteFieldClock;
-    } else {
-      (base as Record<string, unknown>)[valueField as string] =
-        local[valueField as unknown as keyof T];
-      (base as Record<string, unknown>)[clockField as string] = localFieldClock;
-    }
-  }
-  return base;
 }
 
 function gcTombstonesMap<T extends { updatedAt: string }>(

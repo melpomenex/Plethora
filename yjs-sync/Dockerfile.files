@@ -2,13 +2,19 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# better-sqlite3 (delta-log storage, folded in per migrate-sync-to-delta-log)
+# is a native module; alpine needs a toolchain to build it from source.
+RUN apk add --no-cache python3 make g++
+
 COPY file-service/package.json ./package.json
 RUN npm install --omit=dev
 
 COPY file-service/index.js ./index.js
+COPY file-service/syncLog ./syncLog
 
 ENV PORT=8787
 ENV FILES_DATA_DIR=/data/files
+ENV SYNC_LOG_DB_PATH=/data/sync-log/sync-log.sqlite
 
 EXPOSE 8787
 

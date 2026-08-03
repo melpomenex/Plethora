@@ -296,6 +296,9 @@ describe("EncryptedWebsocketProvider", () => {
       crypto.getRandomValues(garbagePayload);
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, __encryptedSyncMessageType);
+      // Sub-type byte (task 0.1's envelope): 1 = sync-step-2, arbitrary here
+      // since the point of this test is a ciphertext that fails to decrypt.
+      encoding.writeVarUint(encoder, 1);
       encoding.writeVarUint8Array(encoder, garbagePayload);
       attacker.send(encoding.toUint8Array(encoder));
 

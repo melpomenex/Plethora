@@ -1,5 +1,10 @@
 import { getYjsSync, registerRoomChangeListener } from "./yjsSync";
 import { getProgressiveSyncScheduler } from "./sync/progressiveScheduler";
+import { getSyncFeatureFlags } from "./sync/featureFlags";
+import { enqueueSyncOperation } from "./sync/syncJournal";
+import { registerDomainHandler } from "./sync/deltaLog/domainRegistry";
+import { isYjsPublishSuppressed } from "./sync/deltaLog/yjsPublishGate";
+import { nowHLC } from "./sync/syncClock";
 
 type SyncEntry = {
   value: string | null;
@@ -185,6 +190,35 @@ export async function initLocalStorageSync(): Promise<void> {
       }
     };
 
+    // Task 5.5: delta-log read-path adapter. A pulled op for this domain
+    // arrives either as the SyncEntry itself (kind=0 upsert — the payload IS
+    // {value, updatedAt}, published verbatim below) or as the router's
+    // synthetic tombstone shape {_deleted, deletedAt} (kind=1 delete). Either
+    // way, normalize to a SyncEntry and reuse applyRemote unchanged — same
+    // isApplyingRemote guard, same lastApplied bookkeeping, same blocklist
+    // enforcement (checked by the caller before this ever runs).
+    const normalizeRemoteEntry = (remote: unknown): SyncEntry | undefined => {
+      if (!remote || typeof remote !== "object") return undefined;
+      if ((remote as { _deleted?: unknown })._deleted === true) {
+        const deletedAt = String((remote as { deletedAt?: unknown }).deletedAt ?? "");
+        const msPrefix = /^(\d{13})\./.exec(deletedAt)?.[1];
+        return { value: null, updatedAt: msPrefix ? Number(msPrefix) : Date.now() };
+      }
+      const entry = remote as Partial<SyncEntry>;
+      if (typeof entry.updatedAt !== "number") return undefined;
+      return { value: entry.value ?? null, updatedAt: entry.updatedAt };
+    };
+
+    const unregisterDeltaLogHandler = registerDomainHandler("localStorage", async (key, remote) => {
+      if (isBlockedKey(key)) return;
+      const entry = normalizeRemoteEntry(remote);
+      if (!entry) return;
+      const last = lastApplied.get(key);
+      if (last !== undefined && last >= entry.updatedAt) return; // not newer — echo guard
+      applyRemote(key, entry);
+    });
+    void unregisterDeltaLogHandler; // torn down implicitly on module reload only; no explicit teardown path exists for this singleton today.
+
     const flushPendingWrites = () => {
       flushTimer = null;
 
@@ -202,8 +236,27 @@ export async function initLocalStorageSync(): Promise<void> {
         }
 
         const now = Date.now();
-        map.set(key, { value, updatedAt: now });
+        const entry: SyncEntry = { value, updatedAt: now };
+        if (!isYjsPublishSuppressed()) {
+          map.set(key, entry);
+        }
         lastApplied.set(key, now);
+        if (getSyncFeatureFlags().journaledProjection) {
+          // The outbox/delta-log clock is a separate HLC string from this
+          // entry's own numeric `updatedAt` (kept as a plain ms number for
+          // the Yjs-path echo guard above) — nowHLC()'s leading 13 digits
+          // are still an ms-epoch prefix, which is what lets the delta-log
+          // router (router.ts) and normalizeRemoteEntry above reconstruct a
+          // comparable timestamp for a tombstone, whose payload carries no
+          // SyncEntry at all.
+          void enqueueSyncOperation({
+            domain: "localStorage",
+            entityKey: key,
+            operation: value === null ? "delete" : "upsert",
+            payload: entry,
+            clock: nowHLC(),
+          });
+        }
       });
 
       pendingWrites.clear();
