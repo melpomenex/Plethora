@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.98.0] - 2026-08-03
+
+### Added
+
+- **Delta-log sync transport (feature-flagged)** — A new encrypted, cursor-addressed delta-log sync path is introduced behind the `deltaLogSync` / `deltaLogDualWrite` feature flags (off by default). Each entity ships as an AES-GCM blob plus a small plaintext envelope keyed by `key_tag = HMAC(roomIndexKey, domain || entityKey)`, so the server deduplicates to the newest row per key without ever decrypting — collapsing server storage and client cold-start from O(accumulated history) to O(live rows). Cold start is now paged and resumable (`sync_checkpoints` cursor) instead of materializing the whole document into the WebView heap at once.
+- **Authenticated sync-log server** — The new `yjs-sync/file-service/syncLog/` service adds an ops table with push/pull/head/cursor endpoints, WebSocket seq notifications, and minimum-device-cursor garbage collection that deletes append rows and tombstones only once every registered device has read past them — removing the 30-day frame-TTL cliff that silently desynced any device offline longer than that. Every request is authenticated with an HMAC under the existing `manifestAuthKey`; the previous relay had no authentication at all.
+- **Sync migration panel** — Sync Settings gains a migration status panel showing device check-in state and an explicit "finish migration" action, driven by a drain → seed → dual-run → verify → retire cutover state machine that seeds the delta log from SQLite (never from the Yjs document) and carries HLCs verbatim so seeding is idempotent.
+
+### Fixed & Improved
+
+- **Cold-start memory spike mitigation (Phase-0 stop-gap)** — Cross-device cold start previously spiked to roughly 20 GB of WebView heap because the stateless relay still sent `writeSyncStep1` with an empty state vector, causing y-websocket to encode the entire document on every connect, with every replayed query provoking another whole-document encode/seal/send. The relay no longer persists or sends `syncStep1` frames and the outbound encrypt path is bounded — cutting the spike while the delta-log migration proceeds. Independently revertible when Yjs is retired.
+
 ## [1.97.0] - 2026-08-02
 
 ### Added
