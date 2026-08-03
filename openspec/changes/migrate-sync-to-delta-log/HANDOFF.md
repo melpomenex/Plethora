@@ -292,53 +292,65 @@ dead-letters.** The CORS fix below is already deployed server-side.
    strings → added to `en.ts`.
 9. Migration panel didn't scale on mobile → responsive Tailwind breakpoints.
 
-### Known bug NOT yet fixed: Android auth-key intermittency
+### Known bug NOT yet fixed: orchestrator pull loop doesn't reliably start
 
-**Symptom:** the Android device (Pixel 9 Pro XL) sometimes gets
-`DeltaLogHttpError: registerRoom failed: 401` on boot, even though it
-authenticated and synced successfully on a previous boot (it appears in the
-server's `device_cursor` roster at the correct cursor). The 401 is
-intermittent: the phone joined, pulled all 1401 rows, converged, and
-appeared in the roster — then on a later restart, `registerRoom` fails.
+**UPDATE (2026-08-03, debug-APK session):** The previously-suspected
+"Android auth-key intermittency" was **disproven**. A debuggable APK build
+(`tauri android build --debug`) + instrumented key derivation confirmed
+both devices derive the **identical** `manifestAuthKey`
+(`0c80ee7705cafb54` — first 8 bytes match exactly). The earlier 401s were
+stale room-key state from broken joins, NOT a keychain round-trip bug.
+A fresh install + re-join clears it permanently. **There is no auth bug.**
 
-**Root cause (suspected, not confirmed):** the phone derives a different
-`manifestAuthKey` on some boots than it did during the join. The key chain
-is `secret → Argon2id(secret, roomId) → roomKey → HKDF → manifestAuthKey`.
-Both Argon2id (hash-wasm, deterministic WASM) and HKDF are deterministic, so
-a mismatch means the **input** to derivation differs — i.e., the `room-key`
-read back from the Android keychain on a cold boot isn't always the same
-bytes that were written during `enableEncryptionWithSecret`. The mac does
-NOT exhibit this (it re-registers fine every boot).
+**The actual remaining bug:** the orchestrator's pull loop does not
+reliably start on every boot. It was made fire-and-forget (`void
+scheduleProgressiveSyncWork`) to fix the 19s startup lag (bug #4 above),
+but this traded one problem for another: on some boots the deferred
+scheduler task never executes, so `runDeltaLogPullLoop` never runs, no
+ops are projected, and the phone's SQLite stays partial. Evidence:
+- Phone SQLite has 1097/1215 learning_items, 0/273 documents, 0/41
+  extracts — entire domains missing despite the server having all 1401+
+  ops and the cursor reporting "caught up" (from a prior boot's pull).
+- On boots where the orchestrator DOES start, `handleRemoteDocument` is
+  never called (0 invocations logged) — because the pull loop that feeds
+  the router never ran on that boot.
+- The mac does NOT exhibit this (it re-runs reliably every boot).
 
-**Why it's hard to diagnose from here:** the release APK is not debuggable
-(`run-as` rejected: "package not debuggable"), so the phone's SQLite DB and
-keychain can't be inspected directly. Confirming the root cause needs either:
-- A **debuggable APK** (`tauri android build --debug`) so `run-as` works and
-  the `room-key` keychain entry can be read/dumped, OR
-- **Instrumented key derivation** — log the derived `manifestAuthKey`'s
-  first 8 hex bytes at `buildConfig` time on both platforms and compare. If
-  they differ on the failing boot, the input to Argon2id/HKDF differs.
+**Suspected cause:** `scheduleProgressiveSyncWork` with `void` (fire-and-
+forget) may be getting orphaned when the boot chain's `await`ed section
+completes and returns — the scheduler may not drain a task that nothing is
+awaiting, especially on Android where the WebView's event loop behaves
+differently. The mac's WKWebView may be more aggressive about draining
+microtasks/queued work.
 
-**Impact:** the phone can't reliably advance past its current phase (it's
-stuck restarting at the `registerRoom` gate). This blocks driving the room
-to `verified` and beyond. The transport itself is sound — when auth
-succeeds, data flows correctly.
+**How to investigate next:** The orchestrator should NOT be fire-and-forget
+on the critical path — but it also must not block startup (the 19s lag).
+The right fix is likely: run the orchestrator in a detached but reliably-
+scheduled context (e.g., `setTimeout(..., 0)` after boot completes, or a
+dedicated `requestIdleCallback`, or await it but AFTER the UI is interactive
+— i.e., move it past `removeLongTaskObserver()`). The key constraint: it
+must run after the replicators register their handlers (so the router has
+somewhere to dispatch), but not block first-paint. Test by adding
+`orchLog("orchestrator task executing")` at the very top of the
+`scheduleProgressiveSyncWork` `run` callback and confirming it fires on
+every boot.
 
-**Where to look:** `src/lib/sync/secureStorage.ts::getCachedRoomKey` (the
-Android keychain round-trip), `src/lib/sync/roomCrypto.ts::getCachedSubKeys`
-(caches the derived subkeys in memory — if the cache is cold on boot and
-the keychain read returns different bytes, the re-derived key won't match),
-and `src/lib/sync/deltaLog/client.ts::registerRoom` (the failing call).
-Also check whether `setCachedRoomKey` (the write path) and `getCachedRoomKey`
-(the read path) agree on encoding (base64 vs raw bytes) on Android.
+**Secondary issue (also contributes to disagreement):** even when the pull
+loop DOES run, document projection is slow because `handleRemoteDocument`
+does per-row `getDocuments()` calls for fileId dedup. A `persistedDocsCache`
+fix was added (caches the snapshot for the pull burst) but wasn't fully
+validated because the orchestrator-startup bug masks it. Keep this fix; it's
+correct, just unproven at scale due to the upstream blocker.
 
-### Cutover state of the test room (as of the test)
+### Cutover state of the test room (as of the debug session)
 
 Room `3655fe084dd61a51b0d577181d5254e5`, secret `0Y19j4Hdy5UdKJvrcQO9H9WDKXqW2wk77np1SJqd6qA`:
-- Mac: phase `dual` (advanced through drain → seed → dual).
-- Phone: behind (auth-key intermittency blocks reliable advancement).
-- Server: 1408 ops, 2 devices in roster at cursor 1408 (proves both
-  authenticated and converged before the intermittency resurfaced).
+- Mac: phase `dual`.
+- Phone: phase `dual` (reached it on one boot), but data is partial
+  (1097/1215 cards, 0/273 docs) because the pull loop didn't fully drain.
+- Server: ~1429 ops, 2 active devices in roster (a stale 3rd was manually
+  deleted from `device_cursor` during the test).
+- Digests disagree on every domain because the phone's SQLite is incomplete.
 
 ### Server state after the test
 
@@ -352,13 +364,18 @@ restarted by the user via `sudo systemctl restart yjs-file-service.service`.
 
 ### What the next session should do (in priority order)
 
-1. **Fix the Android auth-key intermittency** (the known bug above). This is
-   the blocker for any multi-device cutover. Start with a debuggable APK +
-   instrumented key derivation to confirm the root cause.
-2. **Drive the test room to `verified`** — once auth is reliable, restart
-   both devices until both reach `dual`, then the next boot runs P4 verify.
-   If digests match, `verified` is reached and "Finish migration" lights up.
-3. **Do NOT delete Yjs (Phase 9)** until (a) the auth bug is fixed, (b) at
-   least one real room reaches `quiesced` after 14 days, AND (c) there's a
-   plan for users whose rooms haven't retired — deleting Yjs in a release
-   breaks sync for every room not yet past P7.
+1. **Fix the orchestrator-startup reliability** (the known bug above). The
+   fire-and-forget `void scheduleProgressiveSyncWork` doesn't reliably
+   execute on Android. Move the orchestrator to a context that always runs
+   after boot completes without blocking first-paint. Confirm with
+   `orchLog("orchestrator task executing")` at the top of the run callback.
+2. **Once the pull loop reliably starts**, the phone should fully project
+   all domains. Then drive both devices to `verified` (restart until digests
+   converge — they should match once the phone has all rows).
+3. **Clean up stale device_cursor entries** — the server's GC
+   (`DEVICE_STALE_DAYS`) should eventually exclude abandoned devices, but
+   during testing it was manually deleted. Verify the GC works or lower the
+   threshold for test rooms.
+4. **Do NOT delete Yjs (Phase 9)** until (a) the orchestrator reliably
+   starts, (b) at least one real room reaches `quiesced` after 14 days,
+   AND (c) there's a plan for users whose rooms haven't retired.

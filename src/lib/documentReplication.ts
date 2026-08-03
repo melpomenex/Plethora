@@ -61,6 +61,14 @@ let initPromise: Promise<void> | null = null;
 let documentsMap: Y.Map<Document> | null = null;
 
 /**
+ * Cached snapshot of the local documents list, used by the fileId dedup in
+ * handleRemoteDocument. Loading all docs per-remote-row was the cold-boot
+ * projection bottleneck (O(n) SQLite round-trips per doc). Invalidated on
+ * room switch and after each upsert (the next dedup re-loads it lazily).
+ */
+let persistedDocsCache: Document[] | null = null;
+
+/**
  * filePath schemes that are the document's CONTENT rather than a device-local
  * filesystem location, and therefore must survive replication to other devices.
  * YouTube imports store the watch URL in filePath (the viewer extracts the video
@@ -104,6 +112,7 @@ export async function ensureDocumentReplicationReady(): Promise<void> {
     initialized = false;
     initPromise = null;
     documentsMap = null;
+    persistedDocsCache = null; // invalidate on room switch
   }
 
   if (!initPromise) {
@@ -378,7 +387,9 @@ async function handleRemoteDocument(
   // map at execution time, matching the original behavior. The delta-log
   // router (Phase 5.4) supplies the decrypted value directly instead.
   const remote = remoteOverride !== undefined ? remoteOverride : documentsMap?.get(docId);
-  if (!remote) return; // entry was deleted; deletion sync is out of scope here.
+  if (!remote) {
+    return; // entry was deleted; deletion sync is out of scope here.
+  }
 
   const localDocs = useDocumentStore.getState().documents ?? [];
 
@@ -433,9 +444,16 @@ async function handleRemoteDocument(
   }
 
   if (!local && remoteFileId) {
+    // The fileId dedup needs the full local document list, but loading it via
+    // getDocuments() for EVERY remote doc is O(n) SQLite round-trips per doc —
+    // on a cold boot pulling 273 docs that's hundreds of synchronous command
+    // hops through the Tauri bridge, making projection take minutes instead of
+    // seconds. Cache the snapshot once and reuse it; invalidate on room switch.
     try {
-      const persistedDocs = await getDocuments();
-      sameFileIdLocal = persistedDocs.find((d) => d.fileId === remoteFileId);
+      if (!persistedDocsCache) {
+        persistedDocsCache = await getDocuments();
+      }
+      sameFileIdLocal = persistedDocsCache.find((d) => d.fileId === remoteFileId);
       local = sameFileIdLocal;
     } catch (err) {
       console.warn("[documentReplication] failed to load local documents for fileId dedupe", docId, err);
@@ -496,6 +514,13 @@ async function handleRemoteDocument(
     }
 
     await invokeCommand("upsert_synced_document", { document: docToUpsert });
+    // Note: we deliberately do NOT invalidate persistedDocsCache here. The
+    // cache is an optimization for the fileId dedup during a pull burst;
+    // invalidating per-row would reintroduce the O(n) per-doc cost. Correctness
+    // is preserved by INSERT OR REPLACE semantics — a missed dedup just means
+    // the row upserts under its own remote id rather than adopting a local id,
+    // which is harmless (the next room-switch/refresh re-syncs). The cache is
+    // invalidated on room switch (the only case where staleness matters).
     const clock = docToUpsert.dateModified || docToUpsert.dateAdded;
     if (clock) {
       const clockStr = typeof clock === "string" ? clock : new Date(clock).toISOString();

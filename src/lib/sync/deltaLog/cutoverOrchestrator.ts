@@ -429,10 +429,12 @@ async function readPeerDigests(
       break;
     }
     if (page.ops.length === 0) break;
+    let verifyFoundThisPage = 0;
     for (const op of page.ops) {
       try {
         const decoded = await decodeOp(op, subKeys);
         if (decoded.domain !== "__verify") continue;
+        verifyFoundThisPage++;
         const key = decoded.entityKey;
         const sep = key.indexOf(":");
         if (sep < 0) continue;
@@ -448,9 +450,11 @@ async function readPeerDigests(
         // skip undecodable verify op
       }
     }
+    orchLog(`readPeerDigests[${domain}] page ${i}: ${page.ops.length} ops, ${verifyFoundThisPage} __verify, since ${since}→${page.ops[page.ops.length - 1].seq}, head=${page.head}, peers found=${digestByDevice.size}`);
     since = page.ops[page.ops.length - 1].seq;
     if (since >= page.head) break;
   }
+  orchLog(`readPeerDigests[${domain}] done: ${digestByDevice.size} peer digests (ownTag=${ownDeviceTag.slice(0, 12)}…)`);
   return digestByDevice;
 }
 

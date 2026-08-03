@@ -74,7 +74,8 @@ export async function getCachedRoomKey(): Promise<Uint8Array | null> {
         account: KEYRING_ACCOUNT_KEY,
       });
       if (!value) return null;
-      return base64ToBytes(value);
+      const bytes = base64ToBytes(value);
+      return bytes;
     } catch (err) {
       console.warn('[secureStorage] native keychain get failed; falling back to IndexedDB:', err);
     }
