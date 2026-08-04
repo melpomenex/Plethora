@@ -389,17 +389,12 @@ async function buildProvider(
   room: string,
   doc: Y.Doc,
 ): Promise<WebsocketProvider> {
-  let subKeys = await getCachedSubKeys(room).catch((err) => {
-    console.warn("[YjsSync] failed to load cached sub-keys; will re-provision", err);
-    return null;
-  });
-  if (!subKeys) {
-    // Encryption is mandatory for sync to function. Provision a key on this
-    // device if one isn't cached, then re-read. The secret is returned but
-    // not needed here — it's surfaced via the SyncSettings UI for pairing.
-    await ensureEncryptionEnabled(room);
-    subKeys = await getCachedSubKeys(room);
-  }
+  // Besides provisioning fresh installs, this validates the cheap binding
+  // between the shareable secret and cached derived key. Legacy installs that
+  // were split by the old localStorage-wrapper sync bug repair once here;
+  // healthy installs avoid Argon2 and continue immediately.
+  await ensureEncryptionEnabled(room);
+  const subKeys = await getCachedSubKeys(room);
   if (!subKeys) {
     throw new Error(
       "[YjsSync] failed to establish an encryption key for the room; sync cannot start",

@@ -353,7 +353,7 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       // Yjs is removed); doing this first means a publish still drains to the
       // server even if the Yjs map isn't bound yet (state.map null) — the
       // previous ordering silently dropped the enqueue in that case.
-      if (getSyncFeatureFlags().journaledProjection) {
+      if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
         void enqueueSyncOperation({
           domain: config.name,
           entityKey: key,
@@ -413,7 +413,7 @@ export function createReplicatedMap<T extends { updatedAt: string }>(
       // Same reasoning as publish(): the durable outbox enqueue must precede
       // the Yjs map write so a tombstone still reaches the delta-log server
       // even when the map isn't bound.
-      if (getSyncFeatureFlags().journaledProjection) {
+      if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
         void enqueueSyncOperation({
           domain: config.name,
           entityKey: key,

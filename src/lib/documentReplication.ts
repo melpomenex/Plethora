@@ -46,6 +46,7 @@ import { getSyncFeatureFlags } from "./sync/featureFlags";
 import { enqueueSyncOperation } from "./sync/syncJournal";
 import { isYjsPublishSuppressed } from "./sync/deltaLog/yjsPublishGate";
 import { nowHLC } from "./sync/syncClock";
+import { isPortableFilePath } from "./sync/filePathPortability";
 
 // Task 5.4: documents predates createReplicatedMap/createProjector and has
 // bespoke conflict logic (fileId dedup, filePath/cover-image preservation)
@@ -68,6 +69,86 @@ let documentsMap: Y.Map<Document> | null = null;
  */
 let persistedDocsCache: Document[] | null = null;
 
+const DEFAULT_COLLECTION_ID = "00000000-0000-0000-0000-000000000001";
+const SYNCED_DOCUMENT_FILE_TYPES = new Set<Document["fileType"]>([
+  "pdf",
+  "epub",
+  "markdown",
+  "html",
+  "youtube",
+  "audio",
+  "video",
+  "other",
+]);
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function syncedDocumentDate(value: unknown, fallback: unknown): string {
+  for (const candidate of [value, fallback]) {
+    if (typeof candidate !== "string" && !(candidate instanceof Date)) continue;
+    const parsed = new Date(candidate);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  return new Date().toISOString();
+}
+
+/**
+ * Convert a potentially old journal/Yjs document shape into the complete DTO
+ * required by Rust's `Document` command argument. Several Rust fields were
+ * added after document sync first shipped while the TypeScript interface kept
+ * them optional for compatibility. Passing an old compacted row through
+ * unchanged makes Tauri reject the command before its Rust body runs.
+ */
+function normalizeSyncedDocument(document: Document): Document {
+  const raw = document as Document & Record<string, unknown>;
+  const dateAdded = syncedDocumentDate(raw.dateAdded, raw.dateModified);
+  const dateModified = syncedDocumentDate(raw.dateModified, dateAdded);
+  const fileId =
+    (typeof raw.fileId === "string" && raw.fileId) ||
+    (typeof raw.metadata?.fileId === "string" && raw.metadata.fileId) ||
+    undefined;
+  const currentViewState = raw.currentViewState;
+
+  return {
+    ...document,
+    id: typeof raw.id === "string" ? raw.id : "",
+    collectionId:
+      typeof raw.collectionId === "string" && raw.collectionId
+        ? raw.collectionId
+        : DEFAULT_COLLECTION_ID,
+    title: typeof raw.title === "string" ? raw.title : "",
+    filePath: typeof raw.filePath === "string" ? raw.filePath : "",
+    fileType: SYNCED_DOCUMENT_FILE_TYPES.has(raw.fileType as Document["fileType"])
+      ? (raw.fileType as Document["fileType"])
+      : "other",
+    tags: Array.isArray(raw.tags)
+      ? raw.tags.filter((tag): tag is string => typeof tag === "string")
+      : [],
+    dateAdded,
+    dateModified,
+    extractCount: finiteNumber(raw.extractCount),
+    learningItemCount: finiteNumber(raw.learningItemCount),
+    priorityRating: finiteNumber(raw.priorityRating),
+    prioritySlider: finiteNumber(raw.prioritySlider),
+    priorityScore: finiteNumber(raw.priorityScore),
+    priorityExplicitlySet: raw.priorityExplicitlySet === true,
+    isArchived: raw.isArchived === true,
+    isFavorite: raw.isFavorite === true,
+    isDismissed: raw.isDismissed === true,
+    readingCount: finiteNumber(raw.readingCount),
+    currentViewState:
+      currentViewState && typeof currentViewState === "object"
+        ? JSON.stringify(currentViewState)
+        : currentViewState,
+    fileId,
+    metadata: fileId
+      ? { ...(raw.metadata ?? {}), fileId }
+      : raw.metadata,
+  };
+}
+
 /**
  * filePath schemes that are the document's CONTENT rather than a device-local
  * filesystem location, and therefore must survive replication to other devices.
@@ -76,28 +157,13 @@ let persistedDocsCache: Document[] | null = null;
  * screenshot/bundle imports use their own schemes. Absolute paths (/home/...,
  * C:\...) and bare filenames are device-local and excluded — those docs reach
  * peers through the file-sync layer, not via filePath.
+ *
+ * Lives in its own dependency-free module (filePathPortability.ts) so
+ * seedReaders.ts can use this exact same check without pulling in this
+ * file's full module graph (stores, Yjs, i18n) — re-exported here so
+ * existing importers of `isPortableFilePath` from this module keep working.
  */
-const PORTABLE_FILEPATH_SCHEMES = [
-  "http://",
-  "https://",
-  "browser-fetched://",
-  "clipboard://",
-  "screenshot://",
-  "bundle://",
-];
-
-export function isPortableFilePath(
-  filePath: string | undefined,
-  fileType?: string,
-): boolean {
-  if (!filePath) return false;
-  // The "youtube" / "video" fileTypes are URL-backed by construction
-  // (importYouTubeVideo / import_twitter_video store the source URL in filePath).
-  if (fileType === "youtube") return true;
-  return PORTABLE_FILEPATH_SCHEMES.some((scheme) =>
-    filePath.startsWith(scheme),
-  );
-}
+export { isPortableFilePath } from "./sync/filePathPortability";
 
 /**
  * Initialize the replication layer: attach to the shared yjs doc's `documents`
@@ -174,7 +240,10 @@ export async function ensureDocumentReplicationReady(): Promise<void> {
  * No-op outside Tauri (web/PWA has no docs to share via this path). Strips the
  * large `content` field (regenerable extracted text) to keep the wire small.
  */
-export async function publishDocument(doc: Document): Promise<void> {
+export async function publishDocument(
+  doc: Document,
+  options: { force?: boolean } = {},
+): Promise<void> {
   if (!isTauri()) return;
   try {
     // Skip the write entirely when this doc's clock hasn't advanced since the
@@ -193,7 +262,7 @@ export async function publishDocument(doc: Document): Promise<void> {
         ? rawClock
         : new Date(rawClock).toISOString()
       : null;
-    if (clockStr && !syncClockCache.isStale("documents", doc.id, clockStr)) {
+    if (!options.force && clockStr && !syncClockCache.isStale("documents", doc.id, clockStr)) {
       return;
     }
     // Drop fields that are large and either regenerable or device-specific, so
@@ -214,12 +283,30 @@ export async function publishDocument(doc: Document): Promise<void> {
       currentViewState: _currentViewState,
       ...lightweight
     } = doc;
+    // A device-local filePath (the common case: an imported PDF/EPUB) must
+    // not go out on the wire at all — the outbox's privacy filter
+    // (syncPrivacy.ts) rejects the WHOLE payload if it does, silently
+    // dropping the entire document rather than just the path. Only a
+    // portable filePath (a YouTube/web/clipboard/screenshot URL, which IS
+    // meaningful content on the receiver) is worth sending; a local path is
+    // meaningless there anyway (see the module doc comment above) and
+    // omitting the key lets handleRemoteDocument's existing "keep local
+    // filePath" fallback apply.
+    if (!isPortableFilePath(lightweight.filePath, lightweight.fileType)) {
+      delete (lightweight as { filePath?: string }).filePath;
+    }
+    // Never put `metadata: null` on the wire. An explicit null reads to the
+    // receiver as "blank your metadata", which unlinks its fileId; omitting
+    // the key lets the receiver keep what it has. See handleRemoteDocument.
+    if (lightweight.metadata == null) {
+      delete (lightweight as { metadata?: unknown }).metadata;
+    }
     // Enqueue to the durable outbox BEFORE the Yjs map write and before the
     // map-binding await. The outbox reaches the delta-log transport
     // independently and must survive a future where the Yjs map is absent
     // (state/map null) — previously this sat after `if (!documentsMap) return`
     // and silently dropped every document write when the map wasn't bound.
-    if (getSyncFeatureFlags().journaledProjection) {
+    if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
       const clockForJournal = doc.dateModified || doc.dateAdded;
       void enqueueSyncOperation({
         domain: "documents",
@@ -256,7 +343,7 @@ export async function deleteDocumentSync(docId: string): Promise<void> {
     // Enqueue the tombstone to the outbox before the Yjs map write, mirroring
     // publishDocument — the durable delete must reach the delta-log server
     // even when the Yjs map isn't bound.
-    if (getSyncFeatureFlags().journaledProjection) {
+    if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
       void enqueueSyncOperation({
         domain: "documents",
         entityKey: docId,
@@ -414,6 +501,7 @@ async function handleRemoteDocument(
       }
     } catch (err) {
       console.warn("[documentReplication] failed to apply remote delete", docId, err);
+      throw err;
     }
     return;
   }
@@ -425,7 +513,7 @@ async function handleRemoteDocument(
   // id). Instead, adopt the local row's id so `INSERT OR REPLACE` updates the
   // existing row in place, and preserve device-local state (filePath, reading
   // position). Falls back to the remote id when there's no local match.
-  const remoteFileId = remote.fileId;
+  const remoteFileId = remote.fileId ?? remote.metadata?.fileId;
   let sameFileIdLocal = remoteFileId
     ? localDocs.find((d) => d.fileId === remoteFileId)
     : undefined;
@@ -465,6 +553,22 @@ async function handleRemoteDocument(
     const localMs = Date.parse(local.dateModified || local.dateAdded);
     const remoteMs = Date.parse(remote.dateModified || remote.dateAdded);
     if (!Number.isNaN(localMs) && !Number.isNaN(remoteMs) && remoteMs <= localMs) {
+      // The row clock can already be current while its file-manifest linkage
+      // is missing locally. Older receivers persisted only `metadata` through
+      // Rust but the wire document carried `fileId` at the top level, so the
+      // initial projection silently lost that linkage. A cursor replay then
+      // used to return here forever, leaving auto-download unable to map any
+      // manifest entry to its document. Reconcile only the missing fileId from
+      // the remote row while retaining every other local field.
+      if (remoteFileId && local.fileId !== remoteFileId) {
+        const linkedLocal = normalizeSyncedDocument({
+          ...local,
+          fileId: remoteFileId,
+          metadata: { ...local.metadata, fileId: remoteFileId },
+        });
+        await invokeCommand("upsert_synced_document", { document: linkedLocal });
+        scheduleDocumentStoreReload();
+      }
       return; // local is at least as new — don't clobber.
     }
   }
@@ -512,8 +616,30 @@ async function handleRemoteDocument(
       if (local.coverImageSource) docToUpsert.coverImageSource = local.coverImageSource;
       if (local.currentViewState) docToUpsert.currentViewState = local.currentViewState;
     }
+    // `fileId` lives only inside `metadata` (the documents table has no
+    // file_id column) and it is the ONLY link between a document row and its
+    // file-manifest entry — without it auto-download can never match a
+    // manifest entry to a document, so the file bytes never arrive and the
+    // viewer falls back to "preview coming soon".
+    //
+    // Whole-row LWW made that link fragile: a publisher whose own copy had
+    // lost `metadata` would overwrite everyone else's link at an equal clock,
+    // and `publishDocument`'s unchanged-clock skip then stopped any device
+    // from ever putting it back (dateModified never advances). Treat the link
+    // as absent → present only: a remote row that carries no fileId must
+    // never unlink what this device already has.
+    const localFileId = local?.fileId ?? local?.metadata?.fileId;
+    if (!remoteFileId && localFileId) {
+      docToUpsert.fileId = localFileId;
+      docToUpsert.metadata = { ...(local?.metadata ?? {}), ...(docToUpsert.metadata ?? {}), fileId: localFileId };
+    } else if (local?.metadata && (docToUpsert.metadata === undefined || docToUpsert.metadata === null)) {
+      // Same reasoning for the whole object: a publisher that sends no
+      // metadata at all must not blank the receiver's.
+      docToUpsert.metadata = local.metadata;
+    }
 
-    await invokeCommand("upsert_synced_document", { document: docToUpsert });
+    const normalizedDocument = normalizeSyncedDocument(docToUpsert);
+    await invokeCommand("upsert_synced_document", { document: normalizedDocument });
     // Note: we deliberately do NOT invalidate persistedDocsCache here. The
     // cache is an optimization for the fileId dedup during a pull burst;
     // invalidating per-row would reintroduce the O(n) per-doc cost. Correctness
@@ -521,10 +647,10 @@ async function handleRemoteDocument(
     // the row upserts under its own remote id rather than adopting a local id,
     // which is harmless (the next room-switch/refresh re-syncs). The cache is
     // invalidated on room switch (the only case where staleness matters).
-    const clock = docToUpsert.dateModified || docToUpsert.dateAdded;
+    const clock = normalizedDocument.dateModified || normalizedDocument.dateAdded;
     if (clock) {
       const clockStr = typeof clock === "string" ? clock : new Date(clock).toISOString();
-      syncClockCache.updateClock("documents", docToUpsert.id, clockStr);
+      syncClockCache.updateClock("documents", normalizedDocument.id, clockStr);
     }
     // Coalesce the in-memory library refresh: reload once after the burst
     // settles, not once per row. Each incoming row previously triggered its own
@@ -533,5 +659,6 @@ async function handleRemoteDocument(
     scheduleDocumentStoreReload();
   } catch (err) {
     console.warn("[documentReplication] upsert failed", docId, err);
+    throw err;
   }
 }

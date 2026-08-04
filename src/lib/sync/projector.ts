@@ -148,6 +148,11 @@ export function createProjector<T extends { updatedAt: string }>(
       log("applied", key);
     } catch (err) {
       console.warn(`[projector:${config.label}] apply failed`, key, err);
+      // The transport must know the row was not projected. In particular the
+      // delta-log cursor may only advance after a success or after the failed
+      // row has been durably deferred; swallowing here previously lost child
+      // rows (notably extracts whose parent document had not arrived yet).
+      throw err;
     }
   }
 
@@ -191,6 +196,7 @@ export function createProjector<T extends { updatedAt: string }>(
       } catch (err) {
         appliedTombstones.delete(marker); // allow retry
         console.warn(`[projector:${config.label}] applyDelete failed`, key, err);
+        throw err;
       }
       return;
     }

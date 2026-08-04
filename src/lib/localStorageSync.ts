@@ -15,6 +15,19 @@ const BLOCKED_KEYS = new Set([
   "incrementum_auth_token",
   "incrementum_user",
   "incrementum_last_sync_version",
+  // Device identity and HLC state must be unique per installation. Syncing
+  // either identity made two peers impersonate the same device; file
+  // auto-download then skipped remote files as self-authored, and encrypted
+  // state risked sharing a nonce prefix. The init purge below removes copies
+  // written to the shared map by older builds.
+  "incrementum_device_id",
+  "incrementum_sync_device_id",
+  "incrementum_sync_hlc_counter",
+  // This secret encrypts the room key cached in IndexedDB and must remain
+  // per-install. Replicating it lets a peer overwrite the local wrapper key;
+  // the next boot can no longer decrypt the shared room key, silently rotates
+  // encryption, and then downloads server ciphertext as if it were a file.
+  "incrementum_secure_storage_dev_secret",
   "incrementum_youtube_cookies",
   "incrementum_sync_room",
   "llm-providers-storage",
@@ -241,7 +254,7 @@ export async function initLocalStorageSync(): Promise<void> {
           map.set(key, entry);
         }
         lastApplied.set(key, now);
-        if (getSyncFeatureFlags().journaledProjection) {
+        if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
           // The outbox/delta-log clock is a separate HLC string from this
           // entry's own numeric `updatedAt` (kept as a plain ms number for
           // the Yjs-path echo guard above) — nowHLC()'s leading 13 digits

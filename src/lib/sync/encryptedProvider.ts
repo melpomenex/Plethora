@@ -204,7 +204,7 @@ export class EncryptedWebsocketProvider {
     if (this.replayScheduled) return;
     this.replayScheduled = true;
     void scheduleProgressiveSyncWork({
-      id: `sync:encrypted-frame-replay:${this.replayProviderId}`,
+      id: `encrypted-frame-replay:${this.replayProviderId}`,
       lane: "P1",
       kind: "sliceable",
       maxRetries: 0,
@@ -235,7 +235,15 @@ export class EncryptedWebsocketProvider {
       // diagnostic-only until resume semantics can identify a frame in the
       // relay log without changing the wire format.
       await context.checkpoint(String(this.inboundReplayFrames));
-      if (this.inboundReplayQueue.length > 0) await context.yield();
+      if (this.inboundReplayQueue.length === 0) break;
+      // Returning (rather than yielding in place) is what actually releases
+      // the scheduler: `yield()` hands control back to the host but keeps this
+      // item inside the drain loop, so looping here until the queue empties
+      // starves every other lane — including the P0 boot items that bind the
+      // sync domain handlers. The `.finally` in scheduleInboundReplay
+      // re-enqueues us for the next slice, preserving progress.
+      if (context.shouldYield()) return;
+      await context.yield();
     }
   }
   // --- Lifecycle pass-throughs so callers can treat this like a provider ---

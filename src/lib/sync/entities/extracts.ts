@@ -51,6 +51,19 @@ function getExtractsMap(): ReplicatedMap<SyncedExtract> {
         }
       },
       apply: async (_key, row) => {
+        // Extracts have a real SQLite FK to documents. Both transports may
+        // deliver a child before its parent (or retain an old extract whose
+        // document was later deleted). Preflight the dependency so the
+        // projector/router can defer the logical operation without first
+        // invoking a command that is guaranteed to emit a noisy SQLite 787
+        // rejection. Once the parent arrives, the durable-inbox replay calls
+        // this function again and the upsert proceeds normally.
+        const parent = await invokeCommand<{ id: string } | null>("get_document", {
+          id: row.document_id,
+        });
+        if (!parent) {
+          throw new Error(`extract parent document is not available yet: ${row.document_id}`);
+        }
         const input = fromSyncedExtract(row);
         await invokeCommand("upsert_synced_extract", { extract: input });
         try {

@@ -264,7 +264,11 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
       return await tauriInvoke(command, args) as T;
     } catch (error) {
       console.error(`Tauri command "${command}" failed:`, error);
-      throw coerceError(error);
+      // Tauri frequently rejects with a plain structured object. Preserve the
+      // command name in the Error itself (not only the preceding console
+      // entry), so global unhandled-rejection reports identify the failing
+      // boundary instead of showing only a generic SQLite/serde message.
+      throw coerceError(error, `Tauri command "${command}" failed`);
     }
   } else {
     // Browser/PWA environment - use IndexedDB backend

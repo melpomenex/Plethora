@@ -86,6 +86,21 @@ describe("localStorageSync delta-log integration (task 5.5)", () => {
     expect(localStorage.getItem("incrementum_auth_token")).toBeNull();
   });
 
+  it.each([
+    "incrementum_device_id",
+    "incrementum_sync_device_id",
+    "incrementum_sync_hlc_counter",
+    "incrementum_secure_storage_dev_secret",
+  ])("never replicates device-local identity state: %s", async (key) => {
+    const { initLocalStorageSync } = await import("../localStorageSync");
+    const { getDomainHandler } = await import("../sync/deltaLog/domainRegistry");
+    await initLocalStorageSync();
+
+    const handler = getDomainHandler("localStorage")!;
+    await handler(key, { value: "remote-device-state", updatedAt: Date.now() });
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+
   it("echo guard: does not reapply a remote entry no newer than what was already applied", async () => {
     const { initLocalStorageSync } = await import("../localStorageSync");
     const { getDomainHandler } = await import("../sync/deltaLog/domainRegistry");

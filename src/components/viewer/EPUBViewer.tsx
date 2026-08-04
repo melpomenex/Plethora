@@ -790,7 +790,13 @@ export function EPUBViewer({
 
         // Prefer URL source in Tauri to avoid heavy base64 decode on the renderer thread.
         // Fall back to in-memory bytes when URL is unavailable.
-        const epubBook = fileUrl ? ePub(fileUrl) : ePub(fileData!.slice().buffer);
+        // Force loopback URL sources to open as archived EPUBs. epub.js's URL
+        // type inference treats our query-backed stream URL as a directory on
+        // Android and otherwise requests `/epub/META-INF/container.xml`
+        // instead of fetching the ZIP bytes from `/epub/book.epub`.
+        const epubBook = fileUrl
+          ? ePub(fileUrl, { openAs: "epub" })
+          : ePub(fileData!.slice().buffer);
         bookInstance = epubBook;
         setBook(epubBook);
 

@@ -1,18 +1,14 @@
-### Added
-
-- **Delta-log sync transport (live, opt-out)** — the new zero-knowledge sync engine is now enabled by default (`VITE_SYNC_DELTA_LOG=true`). It drives each room through a cutover state machine (drain → seed → dual → verified → cutover → quiesced → retired), seeds the local library to the delta-log server, and pulls/converges across devices. Validated end-to-end on a real two-device room (mac + Android): 1401 rows pushed and converged, both devices at cursor head.
-- **Boot-time cutover orchestrator** — `runCutoverOrchestrator` builds the delta-log config, registers the room (TOFU), starts the pull loop + WebSocket notifications + presence heartbeat, and advances the room one phase per boot up to `verified`. Triggered at boot and on room join/create.
-- **Per-domain seed readers** — read every SQLite row for each synced domain carrying its existing HLC verbatim, so seeding is idempotent and order-independent under last-writer-wins.
-- **File-manifest SQLite projection** (migration 069) — `FileManifest` now hydrates from a durable SQLite cache and keeps it in sync, so the manifest survives a restart without the Yjs document.
-- **Delta-log presence wiring** — `reportPresenceViaDeltaLog` / `refreshOnlineDevicesFromDeltaLog` are now called from the orchestrator's presence tick, bridging the device roster into the existing peer-discovery read path.
-
 ### Fixed & Improved
 
-- **CORS preflight blocked the delta-log API** — the server only allowed `Content-Type`, rejecting the `X-Sync-*` auth headers every signed request carries; fixed and deployed server-side.
-- **"New room" did nothing on desktop** — `SyncSettings` used the native `confirm()` (a no-op in WKWebView); switched to the in-app modal.
-- **Orchestrator silently no-op'd** — empty sync URL with no default fallback; now falls back to `wss://sync.readsync.org`.
-- **Startup lag when sync enabled** — the seed (1400+ rows) ran on the boot critical path (~19s stall); now fire-and-forget, startup is back to <1s.
-- **Drain gate never satisfied** — it polled the *global* scheduler to idle, but the scheduler is shared with replicators that never stop; relaxed to a bounded settle period gated on dead-letters only.
-- **Orchestrator behavior invisible in logs** — webview `console.*` doesn't surface in Rust stdout; routed through `@tauri-apps/plugin-log`.
-- **Missing i18n keys** — all 21 `syncSettings.deltaLog.*` labels rendered as raw key strings; added to the English locale.
-- **Migration panel didn't scale on mobile** — the domain table overflowed and the device roster wrapped badly; rebuilt with responsive Tailwind breakpoints (card grid on phone, table on desktop).
+- **QR scan-to-join silently failed on Android** — `scanner.start()` was rejected with a `play()`-interrupted `AbortError` that surfaced as a permanent scan failure; the camera start is now retried so joining a room by QR works on Android.
+- **QR scan failures were invisible** — errors from the scanner were swallowed silently; they now surface to the user instead of leaving the scan modal hanging.
+- **Auto-download never triggered on Android** — `isOnWifi` returned false inside the Android WebView (the Network Information API isn't available there), so file auto-download was blocked; Wi-Fi detection now works on Android.
+- **EPUB files failed to download from sync** — the `encryptedMetadata` field used Rust serde casing the TS side didn't send, and metadata wasn't included in the file summary; both fixed so EPUBs transfer correctly.
+- **Duplicate documents on re-download** — the document `fileId` dedup check re-read the whole library on every candidate; now cached, eliminating repeated full scans during sync download.
+- **Per-device room key could desync from the shareable secret** — older builds replicated the derived room key, which could leave the cached key and secret out of sync; a non-secret binding digest now lets `roomCrypto` detect that state on every boot and deterministically repair the key from the shareable secret.
+- **Native secure-storage calls starved the async worker pool** — `keyring` calls are blocking OS/Keystore IPC; running them inline in `async fn`s starved the Tokio worker pool and stalled the boot chain on Android. They now run via `spawn_blocking`.
+- **Old document rows were rejected by Rust on sync** — several Rust `Document` fields were added after sync first shipped while the TS interface kept them optional; passing a stale compacted row through made Tauri reject the command. Synced documents are now normalized to the full DTO before invoke.
+- **Device-local file paths leaked into replicated payloads** — `filePath` portability is now a single shared check (`isPortableFilePath`) used by both publish and seed paths, so only URL-backed content replicates.
+- **fileManifest rows never left the outbox** — its domain lacked a registered delta-log publisher, so `drainSyncOutboxBatch` left every row "pending" forever and peers never discovered files to download. A publisher is now registered for it.
+- **Pending delta-log inbox wasn't replayed** — messages received before the router was ready were dropped; the inbox is now replayed on boot so cold-start converges.
+- **Delta-log router and progressive scheduler hardening** — additional replay/queue robustness, checkpoint settle improvements, and bounded progressive-pull scheduling to keep cold-start memory bounded.

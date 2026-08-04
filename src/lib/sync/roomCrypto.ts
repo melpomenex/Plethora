@@ -24,9 +24,13 @@ import {
   clearAllCachedSyncCrypto,
   setCachedRoomSecret,
   getCachedRoomSecret,
+  setCachedRoomBinding,
+  getCachedRoomBinding,
+  clearCachedRoomBinding,
 } from './secureStorage';
 
 const GENERATED_SECRET_BYTES = 32;
+const BINDING_CONTEXT = new TextEncoder().encode('incrementum-sync/room-binding-v1');
 
 /**
  * Generate a fresh 32-byte room secret, base64url-encoded for display/QR.
@@ -69,8 +73,15 @@ export async function enableEncryptionWithSecret(
 
 async function persistSecretAndKey(secret: string, roomId: string): Promise<void> {
   const roomKey = await deriveRoomKey(secret, roomId);
+  const binding = await computeRoomBinding(secret, roomId, roomKey);
+
+  // Invalidate the commit marker before changing either record. If the app is
+  // killed between writes, the next boot sees the missing/mismatched binding
+  // and deterministically rebuilds the key from the shareable secret.
+  await clearCachedRoomBinding();
   await setCachedRoomSecret(secret);
   await setCachedRoomKey(roomKey);
+  await setCachedRoomBinding(binding);
 }
 
 /**
@@ -108,8 +119,27 @@ export async function isEncryptionEnabled(): Promise<boolean> {
  */
 export async function ensureEncryptionEnabled(roomId: string): Promise<string> {
   if (!roomId) throw new Error('ensureEncryptionEnabled: roomId is required');
-  const existing = await getCachedRoomSecret();
-  if (existing) return existing;
+  const [existingSecret, existingKey, existingBinding] = await Promise.all([
+    getCachedRoomSecret(),
+    getCachedRoomKey(),
+    getCachedRoomBinding(),
+  ]);
+
+  if (existingSecret && existingKey && existingBinding) {
+    const expectedBinding = await computeRoomBinding(existingSecret, roomId, existingKey);
+    if (constantTimeEqual(existingBinding, expectedBinding)) {
+      return existingSecret;
+    }
+  }
+
+  if (existingSecret) {
+    console.warn(
+      '[roomCrypto] cached room secret/key binding missing or inconsistent; repairing derived key',
+    );
+    await persistSecretAndKey(existingSecret, roomId);
+    return existingSecret;
+  }
+
   return enableEncryption(roomId);
 }
 
@@ -140,4 +170,34 @@ function bytesToBase64url(bytes: Uint8Array): string {
   let s = '';
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function computeRoomBinding(
+  secret: string,
+  roomId: string,
+  roomKey: Uint8Array,
+): Promise<Uint8Array> {
+  const roomBytes = new TextEncoder().encode(roomId);
+  const secretBytes = new TextEncoder().encode(secret);
+  const payload = new Uint8Array(
+    BINDING_CONTEXT.length + roomBytes.length + secretBytes.length + roomKey.length + 3,
+  );
+  let offset = 0;
+  payload.set(BINDING_CONTEXT, offset);
+  offset += BINDING_CONTEXT.length + 1;
+  payload.set(roomBytes, offset);
+  offset += roomBytes.length + 1;
+  payload.set(secretBytes, offset);
+  offset += secretBytes.length + 1;
+  payload.set(roomKey, offset);
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', payload));
+}
+
+function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
 }

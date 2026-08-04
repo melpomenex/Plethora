@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { FileManifest } from "../file-manifest";
+import { __syncClockTest, warmDeviceId } from "../sync/syncClock";
 
 const DEVICE_ID_KEY = "incrementum_device_id";
 
@@ -11,9 +12,20 @@ function setPresence(doc: Y.Doc, deviceId: string, lastSeen: string, hasFiles: s
 
 describe("FileManifest device availability", () => {
   beforeEach(() => {
+    __syncClockTest.reset();
     localStorage.clear();
     localStorage.setItem(DEVICE_ID_KEY, "device-local");
     vi.useRealTimers();
+  });
+
+  it("uses the warmed backend identity instead of a stale replicated file identity", () => {
+    localStorage.setItem(DEVICE_ID_KEY, "copied-from-peer");
+    warmDeviceId("backend-device-local");
+
+    const manifest = new FileManifest(new Y.Doc());
+
+    expect(manifest.getDeviceId()).toBe("backend-device-local");
+    expect(localStorage.getItem(DEVICE_ID_KEY)).toBe("backend-device-local");
   });
 
   it("can exclude the current device from file availability", () => {

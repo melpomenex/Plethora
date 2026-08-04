@@ -31,15 +31,17 @@ export function runDeltaLogPullLoop(
   applyPage: (ops: DeltaLogOpRow[]) => Promise<void>,
 ): Promise<DeltaLogPullResult> {
   return scheduleProgressiveSyncWork<DeltaLogPullResult>({
-    id: `sync:delta-log:pull:${config.room}`,
-    lane: "P1",
+    id: `delta-log-pull:${config.room}`,
+    // Durable catch-up must not wait behind thousands of legacy Yjs replay
+    // projections during dual-run.
+    lane: "P0",
     kind: "sliceable",
     maxRetries: 3,
     checkpoint: async (value) => {
-      await setRoomCursor(Number(value));
+      await setRoomCursor(Number(value), config.room);
     },
     run: async (context) => {
-      let since = await getRoomCursor();
+      let since = await getRoomCursor(config.room);
       let pagesApplied = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {

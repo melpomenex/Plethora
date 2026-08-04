@@ -28,12 +28,14 @@ import { invokeCommand } from '../tauri.js';
 const KEYRING_SERVICE = 'incrementum-sync';
 const KEYRING_ACCOUNT_KEY = 'room-key';
 const KEYRING_ACCOUNT_SECRET = 'room-secret';
+const KEYRING_ACCOUNT_BINDING = 'room-binding-v1';
 
 const WEB_DB_NAME = 'incrementum-secure-storage';
 const WEB_DB_VERSION = 1;
 const WEB_STORE_NAME = 'kv';
 const WEB_KEY_RECORD = 'room-key';
 const WEB_SECRET_RECORD = 'room-secret';
+const WEB_BINDING_RECORD = 'room-binding-v1';
 
 const DEV_SECRET_KEY = 'incrementum_secure_storage_dev_secret';
 const DEV_SECRET_BYTES = 32;
@@ -167,11 +169,72 @@ export async function clearCachedRoomSecret(): Promise<void> {
 }
 
 /**
+ * Store a non-secret binding digest proving that the cached room secret and
+ * derived room key were written as one logical crypto identity. Older builds
+ * could leave those two records out of sync after the per-device wrapper key
+ * was accidentally replicated. The digest lets roomCrypto detect that state
+ * cheaply on every boot and perform Argon2 repair only when needed.
+ */
+export async function setCachedRoomBinding(binding: Uint8Array): Promise<void> {
+  if (binding.length !== 32) {
+    throw new Error(`setCachedRoomBinding: expected 32-byte binding, got ${binding.length}`);
+  }
+  if (shouldUseNativeSecureStorage()) {
+    try {
+      await invokeCommand('secure_storage_set', {
+        service: KEYRING_SERVICE,
+        account: KEYRING_ACCOUNT_BINDING,
+        value: bytesToBase64(binding),
+      });
+      return;
+    } catch (err) {
+      console.warn('[secureStorage] native binding set failed; falling back to IndexedDB:', err);
+    }
+  }
+  await webSet(WEB_BINDING_RECORD, binding);
+}
+
+export async function getCachedRoomBinding(): Promise<Uint8Array | null> {
+  if (shouldUseNativeSecureStorage()) {
+    try {
+      const value = await invokeCommand<string | null>('secure_storage_get', {
+        service: KEYRING_SERVICE,
+        account: KEYRING_ACCOUNT_BINDING,
+      });
+      if (!value) return null;
+      return base64ToBytes(value);
+    } catch (err) {
+      console.warn('[secureStorage] native binding get failed; falling back to IndexedDB:', err);
+    }
+  }
+  return webGet(WEB_BINDING_RECORD);
+}
+
+export async function clearCachedRoomBinding(): Promise<void> {
+  if (shouldUseNativeSecureStorage()) {
+    try {
+      await invokeCommand('secure_storage_clear', {
+        service: KEYRING_SERVICE,
+        account: KEYRING_ACCOUNT_BINDING,
+      });
+      return;
+    } catch (err) {
+      console.warn('[secureStorage] native binding clear failed; falling back to IndexedDB:', err);
+    }
+  }
+  await webClear(WEB_BINDING_RECORD);
+}
+
+/**
  * Convenience: clear both the derived key and the secret. Call this on
  * "disable encryption" or "rotate room key" flows.
  */
 export async function clearAllCachedSyncCrypto(): Promise<void> {
-  await Promise.all([clearCachedRoomKey(), clearCachedRoomSecret()]);
+  await Promise.all([
+    clearCachedRoomKey(),
+    clearCachedRoomSecret(),
+    clearCachedRoomBinding(),
+  ]);
 }
 
 // ── Web/PWA backend ───────────────────────────────────────────────────────
@@ -333,6 +396,7 @@ export const __secureStorageTest = {
   WEB_DB_NAME,
   WEB_STORE_NAME,
   WEB_KEY_RECORD,
+  WEB_BINDING_RECORD,
   async readRawBlob(): Promise<PackedBlob | undefined> {
     const db = await openSecureDB();
     try {

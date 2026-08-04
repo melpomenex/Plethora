@@ -169,6 +169,29 @@ function getCardsMap(): ReplicatedMap<SyncedLearningItem> {
   return cardsMap;
 }
 
+/**
+ * Project one immutable review event after resolving its local-only
+ * dependencies. Review sessions are not a synced domain: a session id created
+ * on the source device therefore cannot satisfy the receiver's SQLite FK and
+ * must not be carried into the receiver's row. The reviewed learning item *is*
+ * synced, so a missing item means delivery order has put the child first; throw
+ * before the FK-constrained command so the delta-log inbox can retry it after
+ * the card arrives.
+ */
+async function projectSyncedReview(
+  row: SyncedReviewResult & { updatedAt: string },
+): Promise<void> {
+  const parent = await invokeCommand<SyncedLearningItem | null>("get_synced_learning_item", {
+    id: row.item_id,
+  });
+  if (!parent) {
+    throw new Error(`review parent learning item is not available yet: ${row.item_id}`);
+  }
+  await invokeCommand("upsert_synced_review_result", {
+    review: { ...row, session_id: null },
+  });
+}
+
 function getReviewsMap(): ReplicatedMap<SyncedReviewResult & { updatedAt: string }> {
   if (!reviewsMap) {
     reviewsMap = createReplicatedMap<SyncedReviewResult & { updatedAt: string }>({
@@ -184,13 +207,11 @@ function getReviewsMap(): ReplicatedMap<SyncedReviewResult & { updatedAt: string
       // without bound across months of reviews. The prune runs on the init
       // sweep AFTER projection, so every entry is delivered locally first.
       maxAgeDays: 30,
-      apply: async (_key, row) => {
-        await invokeCommand("upsert_synced_review_result", { review: row });
-      },
-      applyBatch: async (entries) => {
-        const rows = entries.map(([_, row]) => row);
-        await invokeCommand("upsert_synced_review_results_batch", { reviews: rows });
-      },
+      apply: async (_key, row) => projectSyncedReview(row),
+      // Do not use the projector's delayed batch path here. Delta-log cursor
+      // advancement must await this dependency check so a child-before-parent
+      // review can be durably deferred instead of being acknowledged before
+      // the eventual batch discovers the FK failure.
       // Reviews are never deleted in normal use (they're an immutable log); no
       // applyDelete.
     });
@@ -459,4 +480,5 @@ export const __flashcardsSyncTest = {
   },
   deterministicReviewId,
   buildSyncedReviewPayload,
+  projectSyncedReview,
 };

@@ -171,6 +171,25 @@ describe("EPUBViewer", () => {
     expect(screen.getAllByText("Aa")).toHaveLength(1);
   });
 
+  it("forces streamed URLs to open as archived EPUBs", async () => {
+    render(
+      <EPUBViewer
+        embedded
+        documentId="doc-epub"
+        doc={{ id: "doc-epub", title: "Test EPUB" } as any}
+        fileName="test.epub"
+        fileUrl="http://127.0.0.1:1234/epub/book.epub?path=%2Ftmp%2Fbook"
+      />
+    );
+
+    await waitFor(() =>
+      expect(ePub).toHaveBeenCalledWith(
+        "http://127.0.0.1:1234/epub/book.epub?path=%2Ftmp%2Fbook",
+        { openAs: "epub" },
+      ),
+    );
+  });
+
   it("does not render the old mobile bottom toolbar when standalone", () => {
     render(
       <EPUBViewer

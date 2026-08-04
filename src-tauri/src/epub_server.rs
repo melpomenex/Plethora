@@ -23,7 +23,7 @@
 //! `ePub(fileData.slice().buffer)` path.
 
 use crate::media_server::{
-    canonical_path_within_roots, path_label, parse_range, response_with_body, MediaServerState,
+    canonical_path_within_roots, parse_range, path_label, response_with_body, MediaServerState,
 };
 use axum::{
     body::Body,
@@ -43,6 +43,7 @@ use tokio_util::io::ReaderStream;
 /// `Content-Type` for EPUB resources. EPUBs are ZIP containers; the registered
 /// media type is `application/epub+zip` (RFC 4839).
 const EPUB_CONTENT_TYPE: &str = "application/epub+zip";
+const EPUB_ZIP_LOCAL_FILE_HEADER: [u8; 4] = [0x50, 0x4b, 0x03, 0x04];
 
 #[derive(serde::Deserialize)]
 struct EpubParams {
@@ -52,7 +53,13 @@ struct EpubParams {
 /// Build the `/epub` route, meant to be merged into the shared media-server
 /// `Router` (see `media_server::start`).
 pub(crate) fn router() -> Router<MediaServerState> {
-    Router::new().route("/epub", get(epub_handler))
+    Router::new()
+        .route("/epub", get(epub_handler))
+        // epub.js decides whether a URL is an archived EPUB or an unpacked
+        // directory from the URL pathname.  Keep the legacy route above for
+        // compatibility, but advertise this extension-bearing route so it
+        // opens the streamed ZIP instead of requesting /META-INF/container.xml.
+        .route("/epub/book.epub", get(epub_handler))
 }
 
 /// Serve a local `.epub` file with complete or single-range responses.
@@ -111,11 +118,7 @@ async fn epub_handler(
                 error,
                 started.elapsed().as_millis()
             );
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "cannot stat epub file",
-            )
-                .into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, "cannot stat epub file").into_response();
         }
     };
 
@@ -123,11 +126,8 @@ async fn epub_handler(
         let (start, end) = match parse_range(range_header, total) {
             Ok(range) => range,
             Err(()) => {
-                let mut response = (
-                    StatusCode::RANGE_NOT_SATISFIABLE,
-                    "invalid epub range",
-                )
-                    .into_response();
+                let mut response =
+                    (StatusCode::RANGE_NOT_SATISFIABLE, "invalid epub range").into_response();
                 response.headers_mut().insert(
                     header::CONTENT_RANGE,
                     HeaderValue::from_str(&format!("bytes */{total}"))
@@ -154,11 +154,7 @@ async fn epub_handler(
                 error,
                 started.elapsed().as_millis()
             );
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "epub seek failed",
-            )
-                .into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, "epub seek failed").into_response();
         }
 
         tracing::info!(
@@ -251,7 +247,27 @@ fn mirror_epub_into_app_storage(
         .map_err(|error| format!("Cannot resolve staged epub path: {error}"))
 }
 
-/// Return an `http://127.0.0.1:<port>/epub?path=<encoded>` URL for an EPUB
+/// Reject payloads that cannot possibly be EPUB archives before handing them
+/// to epub.js. A malformed/ciphertext file can leave JSZip's asynchronous open
+/// unresolved on Android, which presents as an infinite "Loading EPUB" screen.
+/// EPUB 3 requires the uncompressed `mimetype` entry to be the first ZIP local
+/// file entry, so a valid EPUB begins with the standard PK\x03\x04 signature.
+fn validate_epub_archive(path: &std::path::Path) -> Result<(), String> {
+    let mut file =
+        std::fs::File::open(path).map_err(|error| format!("Cannot open epub file: {error}"))?;
+    let mut signature = [0_u8; 4];
+    std::io::Read::read_exact(&mut file, &mut signature)
+        .map_err(|error| format!("Invalid EPUB archive: cannot read ZIP signature: {error}"))?;
+    if signature != EPUB_ZIP_LOCAL_FILE_HEADER {
+        return Err(
+            "Invalid EPUB archive: file does not start with the required ZIP signature. Re-download the synced file."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Return an `http://127.0.0.1:<port>/epub/book.epub?path=<encoded>` URL for an EPUB
 /// file. Starts the shared media/epub server on first call.
 ///
 /// Mirrors `media_server::get_media_stream_url`; the URL it returns is handed
@@ -266,14 +282,15 @@ pub async fn get_epub_stream_url(
     let roots = crate::media_server::allowed_media_roots(&app_handle)?;
     let source_canonical = std::fs::canonicalize(&file_path)
         .map_err(|error| format!("Cannot stat epub file: {error}"))?;
+    validate_epub_archive(&source_canonical)?;
 
     let canonical = match canonical_path_within_roots(&source_canonical, &roots) {
         Ok(path) => path,
         Err(_) => mirror_epub_into_app_storage(&app_handle, &source_canonical)?,
     };
 
-    let metadata = std::fs::metadata(&canonical)
-        .map_err(|error| format!("Cannot stat epub file: {error}"))?;
+    let metadata =
+        std::fs::metadata(&canonical).map_err(|error| format!("Cannot stat epub file: {error}"))?;
     let port = crate::media_server::start(&app_handle).await?;
     let canonical_string = canonical.to_string_lossy().into_owned();
     let encoded = urlencoding::encode(&canonical_string);
@@ -283,7 +300,9 @@ pub async fn get_epub_stream_url(
         metadata.len(),
         port
     );
-    Ok(format!("http://127.0.0.1:{port}/epub?path={encoded}"))
+    Ok(format!(
+        "http://127.0.0.1:{port}/epub/book.epub?path={encoded}"
+    ))
 }
 
 #[cfg(test)]
@@ -308,6 +327,50 @@ mod tests {
         let path = root.join("fixture.epub");
         fs::write(&path, bytes).expect("write test epub");
         (root, path)
+    }
+
+    #[test]
+    fn archive_validation_accepts_epub_zip_signature() {
+        let (root, path) = temp_epub(b"PK\x03\x04fixture");
+        assert_eq!(validate_epub_archive(&path), Ok(()));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn archive_validation_rejects_ciphertext_payload() {
+        let (root, path) = temp_epub(&[0x0e, 0x65, 0xfe, 0x6c, 0xc8, 0x67]);
+        let error = validate_epub_archive(&path).expect_err("ciphertext must not open as EPUB");
+        assert!(error.contains("required ZIP signature"));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn extension_bearing_route_streams_archived_epub() {
+        let bytes = b"PK fixture";
+        let (root, path) = temp_epub(bytes);
+        let response = router()
+            .with_state(test_state(&root))
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/epub/book.epub?path={}",
+                        urlencoding::encode(&path.to_string_lossy())
+                    ))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/epub+zip"
+        );
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+            bytes
+        );
+        fs::remove_dir_all(root).expect("cleanup");
     }
 
     #[tokio::test]

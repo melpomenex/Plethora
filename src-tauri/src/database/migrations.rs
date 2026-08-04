@@ -2231,6 +2231,67 @@ pub const MIGRATIONS: &[Migration] = &[
             ON file_manifest_entries(room);
         "#,
     ),
+    // Migration 070: builds before the durable delta-log projection retry
+    // path could advance the room cursor after a failed child-row upsert. The
+    // live failure was extracts arriving while their parent documents were
+    // absent: SQLite correctly rejected the FK, but the cursor moved on and
+    // never delivered those extracts again. Replaying the compacted live set
+    // once is bounded and idempotent, and recovers already-affected devices.
+    Migration::new(
+        "070_replay_delta_log_after_projection_fix",
+        r#"
+        UPDATE sync_checkpoints
+        SET cursor = '0'
+        WHERE domain = 'deltaLog:room'
+           OR domain LIKE 'deltaLog:domain:%';
+        "#,
+    ),
+    // Migration 071: migration 070 may already have replayed and checkpointed
+    // the room on an affected device before the document receiver learned to
+    // reconcile a top-level wire `fileId` into SQLite metadata for an
+    // equal/older-clock local row. Replay once more so those existing rows
+    // gain their manifest linkage and auto-download can resolve fileId -> doc.
+    Migration::new(
+        "071_replay_delta_log_after_document_file_link_fix",
+        r#"
+        UPDATE sync_checkpoints
+        SET cursor = '0'
+        WHERE domain = 'deltaLog:room'
+           OR domain LIKE 'deltaLog:domain:%';
+        "#,
+    ),
+    // Migration 072: append-only review projection previously acknowledged a
+    // delta-log op as soon as it was queued for a delayed SQLite batch. If the
+    // batch later hit a foreign key (source-local review session or a card
+    // delivered after its review), the cursor had already advanced and the
+    // failed row was not placed in the durable inbox. The receiver now
+    // projects each review synchronously, strips the non-portable session id,
+    // and defers a missing-card child. Replay the compacted live set once to
+    // recover review events consumed by the old asynchronous path.
+    Migration::new(
+        "072_replay_delta_log_after_review_projection_fix",
+        r#"
+        UPDATE sync_checkpoints
+        SET cursor = '0'
+        WHERE domain = 'deltaLog:room'
+           OR domain LIKE 'deltaLog:domain:%';
+        "#,
+    ),
+    // Migration 073: the runtime migration chain created `collections` in
+    // migration 023 without the `is_default` column that the Collection model
+    // and synced upsert have always expected. Standalone SQL migration files
+    // contain the column, but this application uses the in-code migration
+    // registry above, so live databases never received it. Add it in place and
+    // restore the canonical Personal collection marker.
+    Migration::new(
+        "073_add_collections_is_default",
+        r#"
+        ALTER TABLE collections ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
+        UPDATE collections
+        SET is_default = 1
+        WHERE id = '00000000-0000-0000-0000-000000000001';
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

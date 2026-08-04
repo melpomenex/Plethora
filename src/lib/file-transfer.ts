@@ -655,6 +655,9 @@ export class FileTransferManager {
   unregisterLocalFile(fileId: string): void {
     this.dropCachedBlob(fileId);
     this.fileRegistry.delete(fileId);
+    void deleteCachedFile(fileId).catch((err) => {
+      console.warn("[FileTransferManager] failed to delete unregistered cached file", fileId, err);
+    });
     this.refreshPresence();
   }
 

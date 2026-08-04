@@ -43,6 +43,17 @@ type SchedulerWindow = Window & {
 const LANES: SyncLane[] = ["P0", "P1", "P2", "P3"];
 const LANE_WEIGHT: Record<SyncLane, number> = { P0: 8, P1: 4, P2: 2, P3: 1 };
 
+/** Why an `enqueue` call did not accept the item. */
+export type DropReason = "disposed" | "quarantined" | "duplicate";
+
+/** Error raised by `scheduleProgressiveSyncWork` when the item was not queued. */
+export class SchedulerDroppedError extends Error {
+  constructor(readonly reason: DropReason, readonly itemId: string) {
+    super(`[progressive-sync] work item "${itemId}" was not queued (${reason})`);
+    this.name = "SchedulerDroppedError";
+  }
+}
+
 /**
  * Small cooperative queue used to keep the existing sync adapters off the
  * critical render path. It deliberately has no dependency on Yjs or Tauri so
@@ -92,15 +103,23 @@ export class ProgressiveSyncScheduler {
     this.onQuarantine = options.onQuarantine;
   }
 
-  enqueue(item: SyncWorkItem): void {
-    if (this.disposed) return;
-    if (this.quarantinedDomains.has(this.domainOf(item.id))) return;
+  /**
+   * Queue one work item. Returns `null` when accepted, or the reason it was
+   * dropped. Callers that await the item's completion MUST inspect this — a
+   * dropped enqueue means `run` will never be called, so anything waiting on
+   * it would otherwise wait forever (see `scheduleProgressiveSyncWork`, which
+   * turns a drop into a rejection rather than an unbounded hang).
+   */
+  enqueue(item: SyncWorkItem): DropReason | null {
+    if (this.disposed) return "disposed";
+    if (this.quarantinedDomains.has(this.domainOf(item.id))) return "quarantined";
     const queue = this.queues[item.lane];
     // Idempotent task IDs prevent repeated boot triggers from multiplying work.
-    if (this.queuedIds.has(item.id)) return;
+    if (this.queuedIds.has(item.id)) return "duplicate";
     this.queuedIds.add(item.id);
     queue.push({ ...item, enqueuedAt: item.enqueuedAt ?? this.now() });
     this.schedule();
+    return null;
   }
 
   enqueueMany(items: SyncWorkItem[]): void {
@@ -148,16 +167,47 @@ export class ProgressiveSyncScheduler {
     this.wake = null;
   }
 
+  /**
+   * Host priority for the next drain.
+   *
+   * `background` is deliberately never used. Measured on Android WebView 150
+   * (Pixel 9 Pro XL): a `scheduler.postTask(cb, {priority:"background"})`
+   * callback does not run at all while the page has work — >5s with no
+   * invocation, against 0ms for `user-blocking` and 31ms for `user-visible`.
+   * Because `schedule()` latches `this.scheduled` until its callback fires,
+   * one such task permanently wedged the ENTIRE scheduler: every later
+   * `schedule()` returned early and nothing ever drained again. That is what
+   * left P0 boot items (the ones that bind the delta-log domain handlers)
+   * un-run for minutes.
+   *
+   * Staying off the critical path is enforced where it actually belongs — the
+   * ~4ms slice budget, the `visible()`/`inputPending()` checks in `drain`, and
+   * the cooperative `shouldYield()` contract — not by a host priority that the
+   * host is free to never schedule.
+   */
+  private hostPriority(): string {
+    return this.queues.P0.length > 0 ? "user-blocking" : "user-visible";
+  }
+
+  /** Upper bound on how long a scheduled drain may wait on the host. */
+  private static readonly SCHEDULE_WATCHDOG_MS = 250;
+
   private schedule(): void {
     if (this.scheduled || this.disposed) return;
     this.scheduled = true;
     const callback = () => {
+      // Idempotent: the watchdog below and the host callback may both fire.
+      if (!this.scheduled) return;
       this.scheduled = false;
       void this.drain();
     };
     const schedulerWindow = typeof window !== "undefined" ? window as SchedulerWindow : null;
     if (schedulerWindow?.scheduler?.postTask) {
-      void schedulerWindow.scheduler.postTask(callback, { priority: "background" });
+      void Promise.resolve(
+        schedulerWindow.scheduler.postTask(callback, { priority: this.hostPriority() }),
+      ).catch(() => {
+        // Aborted/unsupported options: the watchdog still covers us.
+      });
     } else if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
       window.requestIdleCallback(callback, { timeout: 1000 });
     } else if (typeof MessageChannel !== "undefined" && !isTestRuntime()) {
@@ -166,7 +216,13 @@ export class ProgressiveSyncScheduler {
       channel.port2.postMessage(undefined);
     } else {
       setTimeout(callback, 0);
+      return;
     }
+
+    // Watchdog. Whatever the host decides to do with the task posted above,
+    // the drain must eventually happen — a single callback the host never
+    // invokes must not strand every queued item for the rest of the session.
+    setTimeout(callback, ProgressiveSyncScheduler.SCHEDULE_WATCHDOG_MS);
   }
 
   private pickNext(): SyncWorkItem | undefined {
@@ -207,6 +263,10 @@ export class ProgressiveSyncScheduler {
         if (!item) break;
         if (item.lane !== "P0" && (!this.visible() || this.inputPending())) {
           this.queues[item.lane].unshift(item);
+          // pickNext already removed the id from the index; put it back so a
+          // later enqueue of the same id is still recognised as a duplicate
+          // rather than silently queuing a second copy.
+          this.queuedIds.add(item.id);
           break;
         }
         const deadline = this.now() + sliceBudget;
@@ -217,7 +277,17 @@ export class ProgressiveSyncScheduler {
           lane: item.lane,
           deadline,
           signal: this.controller.signal,
-          shouldYield: () => this.controller.signal.aborted || this.now() >= deadline || (item.lane !== "P0" && this.inputPending()),
+          // `yield()` only yields to the host — the drain loop stays inside
+          // `await item.run(context)`, so nothing else in the queue can run
+          // until this item RETURNS. A sliceable item that loops until its own
+          // work is exhausted therefore blocks every other lane, including P0.
+          // Higher-priority queued work is part of the yield signal so such an
+          // item stops and re-enqueues itself instead of holding the loop.
+          shouldYield: () =>
+            this.controller.signal.aborted ||
+            this.now() >= deadline ||
+            this.hasHigherPriorityWork(item.lane) ||
+            (item.lane !== "P0" && this.inputPending()),
           yield: () => {
             yielded = true;
             return this.yieldToHost();
@@ -243,6 +313,10 @@ export class ProgressiveSyncScheduler {
           } else {
             const domain = this.domainOf(item.id);
             this.quarantinedDomains.add(domain);
+            console.warn(
+              `[progressive-sync] quarantining domain "${domain}" after ${attempts} failed attempts of "${item.id}"; ` +
+                "every future enqueue under this domain is rejected until resetCircuit() is called",
+            );
             void this.onQuarantine?.(domain, item, error);
           }
         } finally {
@@ -261,6 +335,15 @@ export class ProgressiveSyncScheduler {
       this.running = false;
       if (!this.disposed && this.stats().queued > 0) this.schedule();
     }
+  }
+
+  /** Whether a lane strictly above `lane` currently has queued work. */
+  private hasHigherPriorityWork(lane: SyncLane): boolean {
+    for (const candidate of LANES) {
+      if (candidate === lane) return false;
+      if (this.queues[candidate].length > 0) return true;
+    }
+    return false;
   }
 
   private domainOf(id: string): string {
@@ -353,7 +436,7 @@ export function scheduleProgressiveSyncWork<T>(
 ): Promise<T> {
   const scheduler = getProgressiveSyncScheduler();
   return new Promise<T>((resolve, reject) => {
-    scheduler.enqueue({
+    const dropped = scheduler.enqueue({
       ...item,
       run: async (context) => {
         try {
@@ -364,5 +447,11 @@ export function scheduleProgressiveSyncWork<T>(
         }
       },
     });
+    // A dropped enqueue used to leave this promise pending forever. Every
+    // `await scheduleProgressiveSyncWork(...)` on the boot chain then hung
+    // indefinitely with no error anywhere — the failure mode that made the
+    // delta-log cutover unreproducible for several sessions. Fail loudly
+    // instead: the caller's existing `.catch` turns it into a degraded step.
+    if (dropped) reject(new SchedulerDroppedError(dropped, item.id));
   });
 }

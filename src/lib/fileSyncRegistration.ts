@@ -184,6 +184,35 @@ function yieldToMain(): Promise<void> {
 }
 
 const REGISTRATION_BATCH_SIZE = 25;
+// Bump to re-run the bounded one-time forced republish of file-linked
+// documents on every device that owns files. v2: the rows already on the
+// server had their `metadata` (and therefore `fileId`) blanked by whole-row
+// LWW writes from devices whose local copy had lost it, leaving peers with
+// documents that no manifest entry could ever match — see
+// handleRemoteDocument's absent→present fileId rule, which stops it
+// recurring but cannot repair rows that are already wrong.
+const FILE_ID_REPUBLISH_REPAIR_VERSION = "v2";
+
+function fileIdRepublishRepairKey(): string {
+  return `incrementum:sync:file-id-republish:${FILE_ID_REPUBLISH_REPAIR_VERSION}:${getSyncRoomId()}`;
+}
+
+function needsFileIdRepublishRepair(): boolean {
+  try {
+    return localStorage.getItem(fileIdRepublishRepairKey()) !== "complete";
+  } catch {
+    return true;
+  }
+}
+
+function markFileIdRepublishRepairComplete(): void {
+  try {
+    localStorage.setItem(fileIdRepublishRepairKey(), "complete");
+  } catch {
+    // A blocked localStorage write only means this bounded repair may run on
+    // the next boot too; publish/upsert are idempotent.
+  }
+}
 
 export async function registerExistingFilesSync(docs: Document[]): Promise<void> {
   if (!isTauri()) return;
@@ -202,6 +231,14 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
 
     const manifest = getFileManifest();
     const transferManager = getFileTransferManager();
+    // Older phone builds republished document rows without carrying the
+    // top-level fileId into SQLite metadata, then those incomplete rows won
+    // server compaction. The manifest survived but most document -> fileId
+    // links disappeared. A source device that still owns the files must
+    // republish its linked rows once even when their ordinary document clock
+    // is unchanged. The receiver's equal-clock reconciliation restores only
+    // the missing linkage, preserving local reading state.
+    const repairFileIdLinks = needsFileIdRepublishRepair();
     // Build the membership index once per pass instead of calling
     // manifest.getAllFiles().find(...) per document — that turned an O(n)
     // pass over the library into O(n * manifestSize) work every time.
@@ -333,7 +370,7 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
       // 4. Publish the document metadata row to Yjs so other devices replicate the row
       // (publishDocument itself also skips the write if the clock is unchanged;
       // this session cache additionally skips the manifest/loader/upload work above)
-      await publishDocument(doc).catch((e) => {
+      await publishDocument(doc, { force: repairFileIdLinks && Boolean(fileId) }).catch((e) => {
         console.warn("[fileSyncRegistration] failed to publish existing document", doc.id, e);
       });
 
@@ -348,6 +385,7 @@ export async function registerExistingFilesSync(docs: Document[]): Promise<void>
         await yieldToMain();
       }
     }
+    markFileIdRepublishRepairComplete();
   } catch (err) {
     console.warn("[fileSyncRegistration] failed to register existing files for sync", err);
   }
@@ -417,6 +455,7 @@ export async function saveReceivedFileSync(
   blob: Blob,
   fileType: string,
   filename: string,
+  expected?: { sizeBytes?: number; contentHash?: string },
 ): Promise<string | null> {
   if (!isTauri()) return null;
 
@@ -430,16 +469,26 @@ export async function saveReceivedFileSync(
       if (blob.size === 0) {
         throw new Error("Refusing to save an empty synced file");
       }
+      if (expected?.sizeBytes != null && blob.size !== expected.sizeBytes) {
+        throw new Error(
+          `Synced file payload size mismatch: expected ${expected.sizeBytes}, got ${blob.size}`,
+        );
+      }
 
       const storedPath = await persistReceivedBytes(blob, filename, fileType);
       if (!storedPath) return null;
 
-      const [, storedSize] = await invokeCommand<[string, number]>(
+      const [storedHash, storedSize] = await invokeCommand<[string, number]>(
         "hash_document_file",
         { filePath: storedPath },
       );
       if (storedSize !== blob.size) {
         throw new Error(`Synced file persisted with wrong size: expected ${blob.size}, got ${storedSize}`);
+      }
+      if (expected?.contentHash && storedHash !== expected.contentHash) {
+        throw new Error(
+          `Synced file content hash mismatch: expected ${expected.contentHash}, got ${storedHash}`,
+        );
       }
 
       await invokeCommand("update_document_file_path", {

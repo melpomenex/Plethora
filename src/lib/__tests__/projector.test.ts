@@ -82,6 +82,25 @@ describe("projector (transport-neutral, task 5.1/5.2)", () => {
     expect(applied.length).toBe(1);
   });
 
+  it("propagates an apply failure so the transport can defer the row instead of advancing past it", async () => {
+    const projector = createProjector<Row>({
+      name: "extracts",
+      label: "extracts",
+      apply: async () => {
+        throw new Error("FOREIGN KEY constraint failed");
+      },
+    });
+
+    const remote: Row = {
+      id: "extract-1",
+      title: "child",
+      updatedAt: "0000000000001.000001",
+    };
+    await expect(projector.handleRemote("extract-1", remote)).rejects.toThrow(
+      "FOREIGN KEY constraint failed",
+    );
+  });
+
   it("row-lww: a tombstone deletes once and blocks a stale resurrecting update", async () => {
     const appliedDeletes: string[] = [];
     const applied: Array<[string, Row]> = [];

@@ -77,18 +77,186 @@ describe("deltaLog domain registry + router (task 5.4)", () => {
     expect(applied[0][1]).toEqual({ _deleted: true, deletedAt: "0000000000002.000001" });
   });
 
-  it("drops an op for an unregistered domain instead of throwing", async () => {
+  it("defers an op for an unregistered domain instead of dropping it, and applies it once the handler registers", async () => {
     const roomKey = await deriveRoomKey("secret", "room-router-3");
     const subKeys = await deriveSubKeys(roomKey, "room-router-3");
+
+    const pending = new Map<string, Record<string, unknown>>();
+    mocks.invokeCommand.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "record_sync_inbox") {
+        pending.set(String(args?.operationId), {
+          operation_id: String(args?.operationId),
+          domain: String(args?.domain),
+          entity_key: String(args?.entityKey),
+          operation: args?.operation,
+          payload: String(args?.payload),
+        });
+        return true;
+      }
+      if (command === "get_pending_sync_inbox") return [...pending.values()];
+      if (command === "mark_sync_inbox_applied") {
+        pending.delete(String(args?.operationId));
+        return true;
+      }
+      return null;
+    });
+
+    const op = await buildOp(
+      { domain: "documents", entityKey: "doc-late", operation: "upsert", row: { a: 1 } },
+      "0000000000001.000001",
+      subKeys,
+    );
+    const opRow: DeltaLogOpRow = { seq: 1, ...op };
+
+    // Simulates the real failure: the pull ran before documentReplication.ts
+    // had been imported, so no handler existed for the domain yet.
+    await expect(applyDeltaLogPage([opRow], subKeys)).resolves.toBeUndefined();
+    expect([...pending.values()]).toHaveLength(1);
+    expect([...pending.values()][0].domain).toBe("documents");
+
+    // The cursor has already advanced past this op — the only way it can still
+    // land is the durable inbox retry.
+    const applied: Array<[string, unknown]> = [];
+    registerDomainHandler("documents", async (key, remote) => {
+      applied.push([key, remote]);
+    });
+    const { replayPendingDeltaLogInbox } = await import("../sync/deltaLog/router");
+    await replayPendingDeltaLogInbox();
+
+    expect(applied).toEqual([["doc-late", { a: 1 }]]);
+    expect(pending.size).toBe(0);
+  });
+
+  it("keeps a genuinely unknown future domain pending rather than stalling the page", async () => {
+    const roomKey = await deriveRoomKey("secret", "room-router-3b");
+    const subKeys = await deriveSubKeys(roomKey, "room-router-3b");
+
+    const pending = new Map<string, Record<string, unknown>>();
+    mocks.invokeCommand.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "record_sync_inbox") {
+        pending.set(String(args?.operationId), {
+          operation_id: String(args?.operationId),
+          domain: String(args?.domain),
+          entity_key: String(args?.entityKey),
+          operation: args?.operation,
+          payload: String(args?.payload),
+        });
+        return true;
+      }
+      if (command === "get_pending_sync_inbox") return [...pending.values()];
+      return null;
+    });
 
     const op = await buildOp(
       { domain: "someFutureDomain", entityKey: "x", operation: "upsert", row: { a: 1 } },
       "0000000000001.000001",
       subKeys,
     );
-    const opRow: DeltaLogOpRow = { seq: 1, ...op };
 
-    await expect(applyDeltaLogPage([opRow], subKeys)).resolves.toBeUndefined();
+    await expect(applyDeltaLogPage([{ seq: 1, ...op }], subKeys)).resolves.toBeUndefined();
+    expect(pending.size).toBe(1);
+  });
+
+  it("never defers reserved control-plane domains (__verify digests have no projection)", async () => {
+    const roomKey = await deriveRoomKey("secret", "room-router-3c");
+    const subKeys = await deriveSubKeys(roomKey, "room-router-3c");
+
+    const recorded: unknown[] = [];
+    mocks.invokeCommand.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "record_sync_inbox") { recorded.push(args); return true; }
+      if (command === "get_pending_sync_inbox") return [];
+      return null;
+    });
+
+    // __verify ops are published once per device per domain on every verify
+    // run; deferring them would grow sync_inbox without bound and re-run on
+    // every page for the rest of the session.
+    const op = await buildOp(
+      { domain: "__verify", entityKey: "documents:deviceA", operation: "append", row: { digest: "abc" } },
+      "0000000000001.000001",
+      subKeys,
+    );
+
+    await expect(applyDeltaLogPage([{ seq: 1, ...op }], subKeys)).resolves.toBeUndefined();
+    expect(recorded).toHaveLength(0);
+  });
+
+  it("durably defers a child projection until its parent applies, then retries it before advancing", async () => {
+    const roomKey = await deriveRoomKey("secret", "room-router-dependency");
+    const subKeys = await deriveSubKeys(roomKey, "room-router-dependency");
+    const pending: Array<{
+      operation_id: string;
+      domain: string;
+      entity_key: string;
+      operation: "upsert";
+      payload: string;
+    }> = [];
+    mocks.invokeCommand.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "record_sync_inbox") {
+        pending.push({
+          operation_id: String(args?.operationId),
+          domain: String(args?.domain),
+          entity_key: String(args?.entityKey),
+          operation: "upsert",
+          payload: String(args?.payload),
+        });
+        return true;
+      }
+      if (command === "get_pending_sync_inbox") return [...pending];
+      if (command === "mark_sync_inbox_applied") {
+        const index = pending.findIndex((row) => row.operation_id === args?.operationId);
+        if (index >= 0) pending.splice(index, 1);
+        return true;
+      }
+      return null;
+    });
+
+    let parentApplied = false;
+    const calls: string[] = [];
+    registerDomainHandler("extracts", async () => {
+      calls.push("extract");
+      if (!parentApplied) throw new Error("FOREIGN KEY constraint failed");
+    });
+    registerDomainHandler("documents", async () => {
+      calls.push("document");
+      parentApplied = true;
+    });
+
+    const extract = await buildOp(
+      {
+        domain: "extracts",
+        entityKey: "extract-1",
+        operation: "upsert",
+        row: { id: "extract-1", document_id: "doc-1" },
+      },
+      "0000000000001.000001",
+      subKeys,
+    );
+    const document = await buildOp(
+      {
+        domain: "documents",
+        entityKey: "doc-1",
+        operation: "upsert",
+        row: { id: "doc-1", title: "Parent" },
+      },
+      "0000000000002.000001",
+      subKeys,
+    );
+
+    await applyDeltaLogPage(
+      [
+        { seq: 1, ...extract },
+        { seq: 2, ...document },
+      ],
+      subKeys,
+    );
+
+    expect(calls).toEqual(["extract", "document", "extract"]);
+    expect(pending).toEqual([]);
+    expect(mocks.invokeCommand).toHaveBeenCalledWith(
+      "record_sync_inbox",
+      expect.objectContaining({ domain: "extracts", entityKey: "extract-1" }),
+    );
   });
 
   it("a projector registered via createReplicatedMap-style wiring receives delta-log ops through the SAME instance as the Yjs path — proving dual-run double-delivery is a no-op", async () => {

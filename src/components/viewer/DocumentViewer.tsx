@@ -1986,6 +1986,14 @@ export function DocumentViewer({
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error("[DocumentViewer] Failed to resolve EPUB stream URL:", error);
+            if (doc.fileId && errorMessage.includes("Invalid EPUB archive")) {
+              await clearInvalidSyncedFilePath(
+                doc.id,
+                doc.fileId,
+                "EPUB archive signature validation failed",
+              );
+              updateDocument(doc.id, { filePath: "", dateModified: doc.dateModified });
+            }
             setMediaError(
               `Unable to open this EPUB${doc.title ? ` (${doc.title})` : ""}. ${errorMessage}`,
             );
@@ -6906,9 +6914,16 @@ export function DocumentViewer({
                 {docType !== "epub" && currentDocument.filePath?.endsWith(".epub") && " (fileType was empty, inferred from extension)"}
               </p>
               {docType === "epub" && !fileData && !epubUrl && (
-                <p className="text-sm text-orange-500 mb-4">
-                  {t("viewer.epubDetectedButNotLoaded")}
-                </p>
+                <>
+                  <p className="text-sm text-orange-500 mb-4">
+                    {t("viewer.epubDetectedButNotLoaded")}
+                  </p>
+                  {mediaError && (
+                    <p className="text-sm text-muted-foreground mb-4">
+                      {mediaError}
+                    </p>
+                  )}
+                </>
               )}
               {currentDocument && <ReaderFileDownload doc={currentDocument} />}
             </div>

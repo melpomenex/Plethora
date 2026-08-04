@@ -102,6 +102,47 @@ describe("documentReplication conflict resolution", () => {
     });
   });
 
+  it("normalizes an older partial sync row to the complete Rust Document contract", async () => {
+    map.set("doc-legacy", {
+      id: "doc-legacy",
+      title: "Legacy document",
+      fileType: "epub",
+      dateAdded: "2025-04-03T02:01:00Z",
+      metadata: { fileId: "legacy-file-id" },
+      currentViewState: { page: 7, zoom: 1.25 },
+    } as unknown as Document);
+
+    await vi.waitFor(() => {
+      const call = mocks.invokeCommand.mock.calls.find(
+        (c) =>
+          c[0] === "upsert_synced_document" &&
+          (c[1] as { document: Document }).document?.id === "doc-legacy",
+      );
+      expect(call).toBeTruthy();
+      const doc = (call![1] as { document: Document }).document;
+      expect(doc).toMatchObject({
+        collectionId: "00000000-0000-0000-0000-000000000001",
+        filePath: "",
+        tags: [],
+        extractCount: 0,
+        learningItemCount: 0,
+        priorityRating: 0,
+        prioritySlider: 0,
+        priorityScore: 0,
+        priorityExplicitlySet: false,
+        isArchived: false,
+        isFavorite: false,
+        isDismissed: false,
+        readingCount: 0,
+        fileId: "legacy-file-id",
+        metadata: { fileId: "legacy-file-id" },
+      });
+      expect(doc.dateAdded).toBe("2025-04-03T02:01:00.000Z");
+      expect(doc.dateModified).toBe("2025-04-03T02:01:00.000Z");
+      expect(doc.currentViewState).toBe('{"page":7,"zoom":1.25}');
+    });
+  });
+
   it("preserves a local SQLite filePath when the store has not loaded yet", async () => {
     mocks.getDocument.mockResolvedValueOnce(makeDoc("doc-sqlite", {
       filePath: "/local/doc-sqlite.epub",
@@ -131,6 +172,40 @@ describe("documentReplication conflict resolution", () => {
       (c) => (c[1] as { document: Document }).document?.id === "doc-skip",
     );
     expect(calls.length).toBe(0);
+  });
+
+  it("backfills a missing local fileId even when the local row clock is newer", async () => {
+    mocks.localDocuments = [
+      makeDoc("doc-file-link", {
+        title: "Keep local title",
+        filePath: "/local/doc-file-link.epub",
+        dateModified: "2026-06-01T00:00:00.000Z",
+      }),
+    ];
+
+    map.set(
+      "doc-file-link",
+      makeDoc("doc-file-link", {
+        title: "Older remote title",
+        fileId: "manifest-file-123",
+        dateModified: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+
+    await vi.waitFor(() => {
+      const call = mocks.invokeCommand.mock.calls.find(
+        (c) =>
+          c[0] === "upsert_synced_document" &&
+          (c[1] as { document: Document }).document?.id === "doc-file-link",
+      );
+      expect(call).toBeTruthy();
+      const doc = (call![1] as { document: Document }).document;
+      expect(doc.title).toBe("Keep local title");
+      expect(doc.filePath).toBe("/local/doc-file-link.epub");
+      expect(doc.dateModified).toBe("2026-06-01T00:00:00.000Z");
+      expect(doc.fileId).toBe("manifest-file-123");
+      expect(doc.metadata?.fileId).toBe("manifest-file-123");
+    });
   });
 
   it("upserts remote reading-position fields (currentCfi, positionJson, progressPercent) into local SQLite", async () => {
@@ -383,6 +458,33 @@ describe("republishDocumentPosition", () => {
   });
 });
 
+describe("publishDocument force option", () => {
+  it("republishes an unchanged row when a one-time repair requests it", async () => {
+    const doc = makeDoc("doc-force-file-link", {
+      fileId: "file-force-1",
+      metadata: { fileId: "file-force-1" },
+      dateModified: "2026-07-01T00:00:00.000Z",
+    });
+    mocks.localDocuments = [doc];
+    const { publishDocument } = await import("../documentReplication");
+    const { syncClockCache } = await import("../sync/clockCache");
+    await syncClockCache.initialize();
+    syncClockCache.clearClock("documents", doc.id);
+
+    await publishDocument(doc);
+    const writesAfterFirstPublish = vi.spyOn(map, "set");
+    await publishDocument(doc);
+    expect(writesAfterFirstPublish).not.toHaveBeenCalled();
+
+    await publishDocument(doc, { force: true });
+    expect(writesAfterFirstPublish).toHaveBeenCalledWith(
+      "doc-force-file-link",
+      expect.objectContaining({ fileId: "file-force-1" }),
+    );
+    writesAfterFirstPublish.mockRestore();
+  });
+});
+
 describe("store reload coalescing", () => {
   // Regression for the startup-lag root cause: handleRemoteDocument used to end
   // with `await loadDocuments()` per incoming row, so the init map-replay over
@@ -395,6 +497,35 @@ describe("store reload coalescing", () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("never unlinks a local fileId when a newer remote row carries no metadata", async () => {
+    // fileId lives only in metadata and is the ONLY link between a document
+    // and its file-manifest entry. A publisher whose own copy lost metadata
+    // used to blank it for everyone at a newer clock, after which no device
+    // could download the file and the viewer showed "preview coming soon".
+    mocks.localDocuments = [
+      makeDoc("doc-linked", {
+        dateModified: "2026-01-01T00:00:00.000Z",
+        fileId: "file-abc",
+        metadata: { fileId: "file-abc", author: "local" },
+      } as Partial<Document>),
+    ];
+
+    map.set("doc-linked", makeDoc("doc-linked", { dateModified: "2026-06-01T00:00:00.000Z" }));
+
+    await vi.waitFor(() => {
+      const call = mocks.invokeCommand.mock.calls.find(
+        (c) =>
+          c[0] === "upsert_synced_document" &&
+          (c[1] as { document: Document }).document?.id === "doc-linked",
+      );
+      expect(call).toBeTruthy();
+      const doc = (call![1] as { document: Document }).document;
+      expect(doc.dateModified).toBe("2026-06-01T00:00:00.000Z"); // remote row won, as it should
+      expect(doc.fileId).toBe("file-abc"); // ...but the link survived
+      expect(doc.metadata?.fileId).toBe("file-abc");
+    });
   });
 
   it("collapses a burst of document upserts into a single store reload", async () => {
@@ -419,5 +550,27 @@ describe("store reload coalescing", () => {
     // no matter how many rows arrived during the window.
     await vi.advanceTimersByTimeAsync(150);
     expect(mocks.loadDocuments).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("isPortableFilePath", () => {
+  // Regression: publishDocument and readDocumentSeedRows (seedReaders.ts) both
+  // decide whether to include `filePath` on the outbox wire payload using this
+  // function. A device-local path must never go out (the outbox's privacy
+  // filter — syncPrivacy.ts — rejects the WHOLE document if it does, silently
+  // dropping it from sync entirely, not just the path), while a portable URL
+  // IS the document's content on the receiver and must survive.
+  it("treats a device-local path as non-portable", async () => {
+    const { isPortableFilePath } = await import("../documentReplication");
+    expect(isPortableFilePath("/Users/example/book.pdf", "epub")).toBe(false);
+    expect(isPortableFilePath("C:\\Users\\example\\book.pdf", "pdf")).toBe(false);
+    expect(isPortableFilePath(undefined, "epub")).toBe(false);
+  });
+
+  it("treats known URL schemes and youtube fileType as portable", async () => {
+    const { isPortableFilePath } = await import("../documentReplication");
+    expect(isPortableFilePath("https://www.youtube.com/watch?v=abc", "youtube")).toBe(true);
+    expect(isPortableFilePath("browser-fetched://example.com/article", "web")).toBe(true);
+    expect(isPortableFilePath("clipboard://note-1", "text")).toBe(true);
   });
 });

@@ -14,7 +14,12 @@
  */
 
 import { useCallback } from "react";
-import { useFileSyncStatus, ensureFileSyncReady, getFileTransferManager } from "./useFileSync";
+import {
+  useFileSyncStatus,
+  ensureFileSyncReady,
+  getFileManifest,
+  getFileTransferManager,
+} from "./useFileSync";
 import { saveReceivedFileSync } from "./fileSyncRegistration";
 import type { Document } from "../types";
 import { useDocumentStore } from "../stores/documentStore";
@@ -40,8 +45,16 @@ export function useDocumentFileSync(doc: Document | null | undefined): DocumentF
       await ensureFileSyncReady();
       const transferManager = getFileTransferManager();
       const blob = await transferManager.requestFile(fileId);
+      const entry = getFileManifest().getFile(fileId);
       // Persist to disk + update the document's filePath so the viewer can open it.
-      const storedPath = await saveReceivedFileSync(docId, fileId, blob, fileType, title);
+      const storedPath = await saveReceivedFileSync(
+        docId,
+        fileId,
+        blob,
+        fileType,
+        title,
+        entry ? { sizeBytes: entry.sizeBytes, contentHash: entry.contentHash } : undefined,
+      );
       if (storedPath) {
         // Update the store so the UI reflects the now-local file immediately.
         useDocumentStore.setState((state) => {

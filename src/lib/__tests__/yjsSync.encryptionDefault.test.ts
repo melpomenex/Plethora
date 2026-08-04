@@ -122,17 +122,19 @@ describe("encryption by default", () => {
 
     expect(encryptedConstructionCount).toBe(1);
     expect(state.encrypted).toBe(true);
-    // Cached key present → no provisioning needed.
-    expect(roomCryptoMocks.ensureEncryptionEnabled).not.toHaveBeenCalled();
+    // Every provider build runs the cheap secret/key binding validation. A
+    // healthy cache returns immediately without re-running Argon2.
+    expect(roomCryptoMocks.ensureEncryptionEnabled).toHaveBeenCalledTimes(1);
   });
 
   it("auto-provisions a key (exactly once) and builds encrypted when no key is cached", async () => {
-    // First call (before provisioning) returns null; second call (after
-    // provisioning) returns sub-keys. This mirrors the real two-step read in
-    // buildProvider.
-    roomCryptoMocks.getCachedSubKeys
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ stateKey: {}, fileKey: {}, manifestAuthKey: {} });
+    // ensureEncryptionEnabled owns both fresh provisioning and consistency
+    // repair, so the provider reads the resulting sub-keys once.
+    roomCryptoMocks.getCachedSubKeys.mockResolvedValue({
+      stateKey: {},
+      fileKey: {},
+      manifestAuthKey: {},
+    });
 
     const { getYjsSync } = await import("../yjsSync");
     const state = await getYjsSync();
@@ -147,9 +149,11 @@ describe("encryption by default", () => {
     // created are the ones inside the encrypted wrapper. The plaintext
     // fallback (`new WebsocketProvider(url, room, doc, { connect: true })`)
     // must not fire — count == encrypted count guarantees that.
-    roomCryptoMocks.getCachedSubKeys
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ stateKey: {}, fileKey: {}, manifestAuthKey: {} });
+    roomCryptoMocks.getCachedSubKeys.mockResolvedValue({
+      stateKey: {},
+      fileKey: {},
+      manifestAuthKey: {},
+    });
 
     const { getYjsSync } = await import("../yjsSync");
     await getYjsSync();
@@ -159,8 +163,8 @@ describe("encryption by default", () => {
   });
 
   it("throws rather than fall back to plaintext if provisioning fails", async () => {
-    // getCachedSubKeys returns null twice (provisioning produced nothing) —
-    // buildProvider must throw instead of silently using a plaintext provider.
+    // A failed consistency/provisioning check must abort before any plaintext
+    // provider can be constructed.
     roomCryptoMocks.getCachedSubKeys.mockResolvedValue(null);
     roomCryptoMocks.ensureEncryptionEnabled.mockRejectedValue(
       new Error("keychain unavailable"),

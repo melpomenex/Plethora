@@ -21,6 +21,7 @@
 
 import { invokeCommand, isTauri } from "../../tauri";
 import type { SeedRow } from "../cutover";
+import { isPortableFilePath } from "../filePathPortability";
 import { toSyncedLearningItem } from "../entities/flashcards";
 import { toSyncedCollection } from "../entities/collections";
 import { toSyncedExtract } from "../entities/extracts";
@@ -50,17 +51,37 @@ async function readRows<T>(
   return rows;
 }
 
-/** documents — clock is `dateModified` (or `dateAdded`). */
+/**
+ * documents — clock is `dateModified` (or `dateAdded`).
+ *
+ * Strips the same fields `publishDocument` (documentReplication.ts) strips
+ * from its live-write payload: `content` (regenerable extracted text) and
+ * `coverImageUrl` (often a 100KB+ base64 data-URL) blow past the outbox's
+ * 256KB payload cap (syncPrivacy.ts), and `currentViewState` is device-local.
+ * Without this, every seeded document silently failed `isSyncPayloadSafe`
+ * and never reached the outbox at all.
+ */
 export function readDocumentSeedRows(): Promise<SeedRow[]> {
   return readRows<Record<string, unknown>>("get_documents", undefined, (raw) => {
     const id = String(raw.id ?? "");
     if (!id) return null;
     const clock = String(raw.dateModified ?? raw.date_modified ?? raw.dateAdded ?? raw.date_added ?? "");
+    const { content: _content, coverImageUrl: _coverImageUrl, currentViewState: _currentViewState, ...lightweight } = raw;
+    // A device-local filePath (the common case: an imported PDF/EPUB) must
+    // not go out on the wire — the outbox's privacy filter (syncPrivacy.ts)
+    // rejects the WHOLE payload if it does, silently dropping the entire
+    // document. Mirrors the same omission in publishDocument.
+    if (!isPortableFilePath(lightweight.filePath as string | undefined, lightweight.fileType as string | undefined)) {
+      delete lightweight.filePath;
+    }
+    // Mirrors publishDocument: an explicit `metadata: null` reads as "blank
+    // your metadata" on the receiver and unlinks its fileId.
+    if (lightweight.metadata == null) delete lightweight.metadata;
     return {
       entityKey: id,
       hlc: clock || new Date().toISOString(),
       operation: "upsert",
-      payload: raw,
+      payload: lightweight,
     };
   });
 }

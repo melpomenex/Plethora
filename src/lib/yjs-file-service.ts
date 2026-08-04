@@ -171,7 +171,14 @@ export async function downloadRoomFile(room: string, id: string): Promise<Blob> 
 
   // Encrypted path: server returned an encMetadata header → decrypt the bytes
   // and recover the original content-type so callers (which key off blob.type)
-  // keep working without changes.
+  // keep working without changes. Never return tagged ciphertext to callers:
+  // persistence cannot distinguish it from a real file and would otherwise
+  // save it to disk, where EPUB/PDF readers hang on an invalid payload.
+  if (encMetadataHeader && !fileKey) {
+    throw new DecryptError(
+      "Encrypted file is available, but this device has no usable room key. Re-pair sync before downloading.",
+    );
+  }
   if (fileKey && encMetadataHeader) {
     let plaintext: Uint8Array;
     let contentType = "application/octet-stream";
@@ -188,10 +195,9 @@ export async function downloadRoomFile(room: string, id: string): Promise<Blob> 
       plaintext = await decryptFile(packed, fileKey);
     } catch (err) {
       if (err instanceof DecryptError) {
-        // Likely a legacy plaintext blob written before encryption was enabled,
-        // or a wrong key. Return the raw bytes so the caller can decide.
-        console.warn("[yjs-file-service] file decrypt failed; returning raw bytes (legacy?)", err);
-        return new Blob([packed], { type: contentType });
+        throw new DecryptError(
+          "Encrypted file could not be decrypted with this device's room key. Re-pair sync before downloading.",
+        );
       }
       throw err;
     }
@@ -216,5 +222,4 @@ export async function checkRoomFileExists(room: string, id: string): Promise<boo
     return false;
   }
 }
-
 

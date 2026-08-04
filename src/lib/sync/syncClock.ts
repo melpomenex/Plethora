@@ -116,16 +116,10 @@ export function isNewer(a: string | null | undefined, b: string | null | undefin
 export async function getDeviceId(): Promise<string> {
   if (cachedDeviceId) return cachedDeviceId;
 
-  // Check localStorage synchronously first (fast path).
-  if (typeof window !== "undefined" && window.localStorage) {
-    const local = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY);
-    if (local) {
-      cachedDeviceId = local;
-      return local;
-    }
-  }
-
-  // Try the Tauri backend (single source of truth, survives cache clears).
+  // On native builds the SQLite value is authoritative. Older versions
+  // accidentally replicated the localStorage mirror across devices, so using
+  // that mirror as the fast path made multiple installations share one id.
+  // Always ask the backend first and overwrite any stale mirrored value.
   let deviceId: string | null = null;
   try {
     // Lazy import to avoid loading the Tauri shim in non-Tauri contexts.
@@ -135,6 +129,11 @@ export async function getDeviceId(): Promise<string> {
     }
   } catch {
     // Non-Tauri or command missing — fall through to local generation.
+  }
+
+  // Browser/PWA and degraded native fallback.
+  if (!deviceId && typeof window !== "undefined" && window.localStorage) {
+    deviceId = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY);
   }
 
   if (!deviceId) {

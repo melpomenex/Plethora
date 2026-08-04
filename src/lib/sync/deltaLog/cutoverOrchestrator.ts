@@ -42,7 +42,7 @@ import {
   type DeltaLogDeviceEntry,
 } from "./client";
 import { runDeltaLogPullLoop } from "./pullLoop";
-import { applyDeltaLogPage } from "./router";
+import { applyDeltaLogPage, replayPendingDeltaLogInbox } from "./router";
 import { getRoomCursor } from "./checkpoints";
 import { registerDeltaLogOutboxPublishers } from "./outboxPublisher";
 import {
@@ -87,7 +87,10 @@ function orchLog(message: string): void {
           nativeLog = log.info
             ? (m: string) => {
                 try {
-                  log.info(m);
+                  // plugin-log returns a promise; a sync try/catch cannot
+                  // catch a rejected invoke in tests or during early Tauri
+                  // startup. Logging must never become an unhandled rejection.
+                  void log.info(m).catch(() => undefined);
                 } catch {
                   /* non-Tauri env; swallow */
                 }
@@ -109,12 +112,36 @@ function orchLog(message: string): void {
 /** Domains whose digests are compared in P4 verify (the durable row-domains). */
 const VERIFY_DOMAINS = SEED_DOMAIN_READERS.map((r) => r.domain);
 
+/**
+ * Domains that get a delta-log outbox publisher. Deliberately broader than
+ * VERIFY_DOMAINS: `fileManifest` is excluded from SEED_DOMAIN_READERS by
+ * design (seedReaders.ts — it's derived/recomputed state, not authoritative
+ * library data worth re-seeding), but that exclusion has nothing to do with
+ * whether its LIVE writes (file-manifest.ts's addFile/removeFile) should
+ * reach the server. Without a registered publisher for its domain,
+ * drainSyncOutboxBatch leaves every fileManifest row "pending" forever (see
+ * syncJournal.ts: "Unknown domains remain pending for a newer adapter") —
+ * every file a peer needs to discover and download silently never left the
+ * outbox.
+ */
+const OUTBOX_PUBLISHER_DOMAINS = [...VERIFY_DOMAINS, "fileManifest"];
+
 // --- transport lifecycle (started once per session) ------------------------
 
 let transportStarted = false;
 let activeSubscription: DeltaLogSubscription | null = null;
 let presenceTimer: ReturnType<typeof setInterval> | null = null;
 let unregisterOutbox: (() => void) | null = null;
+
+interface PreparedDeltaLogTransport {
+  room: string;
+  config: DeltaLogClientConfig;
+  subKeys: SubKeys;
+  deviceTag: string;
+}
+
+let preparedTransport: PreparedDeltaLogTransport | null = null;
+let transportPreparePromise: Promise<PreparedDeltaLogTransport | null> | null = null;
 
 /**
  * Start the delta-log read path + presence + dual-write outbox publishers
@@ -132,10 +159,13 @@ function startDeltaLogTransport(
 
   // Read path: pull loop (cold start / catch-up) feeds the same projector the
   // Yjs path uses (router.ts), then a WS subscription re-pulls on head advance.
-  void runDeltaLogPullLoop(config, (ops) => applyDeltaLogPage(ops, subKeys)).catch((err) =>
-    orchLog(`initial pull loop failed (will retry via WS): ${err}`),
-  );
-  void getRoomCursor().then((since) => {
+  // Retry rows durably deferred by an earlier projection failure before the
+  // cursor pull. This also runs when the server is already at head, so a child
+  // row does not need a new remote write to be retried after its parent lands.
+  void replayPendingDeltaLogInbox()
+    .then(() => runDeltaLogPullLoop(config, (ops) => applyDeltaLogPage(ops, subKeys)))
+    .catch((err) => orchLog(`initial pull loop failed (will retry via WS): ${err}`));
+  void getRoomCursor(config.room).then((since) => {
     activeSubscription = subscribe(config, since, () => {
       void runDeltaLogPullLoop(config, (ops) => applyDeltaLogPage(ops, subKeys)).catch((err) =>
         orchLog(`WS-triggered pull failed: ${err}`),
@@ -151,7 +181,7 @@ function startDeltaLogTransport(
   const tick = (): void => {
     void (async () => {
       try {
-        const since = await getRoomCursor();
+        const since = await getRoomCursor(config.room);
         await reportCursor(config, deviceTag, since);
       } catch (err) {
         orchLog(`presence report failed: ${err}`);
@@ -192,7 +222,7 @@ function startDeltaLogTransport(
   // pushes. Registered here (rather than only inside startDualRun) so that
   // the seed rows enqueued during P2 — which go through the same outbox —
   // have a publisher to drain through as soon as the drain loop runs.
-  unregisterOutbox = registerDeltaLogOutboxPublishers(VERIFY_DOMAINS, config, subKeys);
+  unregisterOutbox = registerDeltaLogOutboxPublishers(OUTBOX_PUBLISHER_DOMAINS, config, subKeys);
 }
 
 /**
@@ -213,6 +243,8 @@ export function stopDeltaLogTransport(): void {
     unregisterOutbox = null;
   }
   transportStarted = false;
+  preparedTransport = null;
+  transportPreparePromise = null;
 }
 
 // --- phase drivers ---------------------------------------------------------
@@ -249,6 +281,70 @@ async function buildConfig(room: string): Promise<{ config: DeltaLogClientConfig
 async function getDeviceTag(): Promise<string> {
   const { getDeviceId } = await import("../../file-manifest");
   return btoa(getDeviceId());
+}
+
+/**
+ * Establish the live delta-log transport without advancing the cutover phase.
+ *
+ * Startup calls this as soon as every domain handler is registered. Keeping
+ * transport readiness separate from phase work prevents a large legacy Yjs
+ * replay from freezing the durable cursor and outbox for minutes.
+ */
+async function prepareDeltaLogTransport(): Promise<PreparedDeltaLogTransport | null> {
+  if (preparedTransport) return preparedTransport;
+  if (transportPreparePromise) return transportPreparePromise;
+
+  transportPreparePromise = (async () => {
+    if (!isTauri()) {
+      orchLog(`not running: not Tauri`);
+      return null;
+    }
+    if (!getSyncFeatureFlags().deltaLogSync) {
+      orchLog(`not running: deltaLogSync flag off`);
+      return null;
+    }
+
+    const room = getSyncRoomId();
+    if (!room) {
+      orchLog(`not running: no room id`);
+      return null;
+    }
+
+    const built = await buildConfig(room);
+    if (!built) {
+      orchLog(`not running: buildConfig returned null (no subkeys or no endpoint)`);
+      return null;
+    }
+
+    try {
+      await registerRoom(built.config);
+    } catch (err) {
+      orchLog(`room registration failed (will retry): ${err}`);
+      return null;
+    }
+
+    const deviceTag = await getDeviceTag();
+    startDeltaLogTransport(built.config, built.subKeys, deviceTag);
+    preparedTransport = {
+      room,
+      config: built.config,
+      subKeys: built.subKeys,
+      deviceTag,
+    };
+    return preparedTransport;
+  })();
+
+  try {
+    return await transportPreparePromise;
+  } finally {
+    // A failed registration/config lookup may retry later in this session.
+    transportPreparePromise = null;
+  }
+}
+
+/** Start only the live transport; cutover phase advancement stays background work. */
+export async function ensureDeltaLogTransportReady(): Promise<boolean> {
+  return (await prepareDeltaLogTransport()) !== null;
 }
 
 /**
@@ -468,48 +564,10 @@ async function readPeerDigests(
  * Returns the phase reached this boot (mainly for tests/diagnostics).
  */
 export async function runCutoverOrchestrator(): Promise<CutoverPhase | null> {
-  if (!isTauri()) {
-    orchLog(`not running: not Tauri`);
-    return null;
-  }
-  if (!getSyncFeatureFlags().deltaLogSync) {
-    orchLog(`not running: deltaLogSync flag off`);
-    return null;
-  }
-
-  const room = getSyncRoomId();
-  if (!room) {
-    orchLog(`not running: no room id`);
-    return null;
-  }
-  orchLog(`running for room ${room}`);
-
-  const built = await buildConfig(room);
-  if (!built) {
-    // Encryption not provisioned yet, or no endpoint — wait for the user to
-    // finish pairing. This is not an error.
-    orchLog(`not running: buildConfig returned null (no subkeys or no endpoint)`);
-    return null;
-  }
-  orchLog(`config built, registering room...`);
-  const { config, subKeys } = built;
-
-  // TOFU registration: registerRoom is a no-op-ish GET /head that records
-  // this device's manifestAuthKey on first contact. If the room is already
-  // registered it simply succeeds; if it 401s we can't proceed this boot but
-  // should not crash the app.
-  try {
-    await registerRoom(config);
-  } catch (err) {
-    orchLog(`room registration failed (will retry next boot): ${err}`);
-    return null;
-  }
-
-  const deviceTag = await getDeviceTag();
-
-  // Start the transport once. This must happen before the seed phase so that
-  // enqueued seed rows have a publisher to drain through.
-  startDeltaLogTransport(config, subKeys, deviceTag);
+  const prepared = await prepareDeltaLogTransport();
+  if (!prepared) return null;
+  const { room, config, subKeys, deviceTag } = prepared;
+  orchLog(`running phase advancement for room ${room}`);
 
   const entryPhase = await getCutoverPhase(room);
   const reached = await advanceOnePhase(room, config, subKeys, deviceTag, entryPhase);
@@ -519,4 +577,6 @@ export async function runCutoverOrchestrator(): Promise<CutoverPhase | null> {
 /** Test-only: reset transport state between tests. */
 export function __resetCutoverOrchestratorForTest(): void {
   stopDeltaLogTransport();
+  preparedTransport = null;
+  transportPreparePromise = null;
 }

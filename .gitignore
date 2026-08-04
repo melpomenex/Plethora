@@ -14,6 +14,7 @@ lerna-debug.log*
 
 # Local scratch/scratchpad scripts — not part of the app.
 scratch/
+HANDOFF.md
 handoff.md
 .claude/launch.json
 
@@ -96,6 +97,8 @@ incrementum-tauri
 # Kept un-ignored: whisper-wrapper.sh, notebooklm-* launchers, pocket-tts-* launchers.
 src-tauri/bin/ffmpeg-*
 src-tauri/bin/whisper-aarch64-*
+src-tauri/bin/whisper-armv7-*
+src-tauri/bin/whisper-i686-*
 src-tauri/bin/whisper-linux
 src-tauri/bin/whisper-macos
 src-tauri/bin/whisper-universal-*

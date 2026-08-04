@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   reportCursor: vi.fn(async () => undefined),
   pullLoop: vi.fn(async () => ({ pagesApplied: 0, finalCursor: 0 })),
   applyDeltaLogPage: vi.fn(async () => undefined),
+  replayPendingDeltaLogInbox: vi.fn(async () => ({ applied: 0, pending: 0 })),
   push: vi.fn(async () => ({ head: 0 })),
   pull: vi.fn(async () => ({ ops: [], head: 0 })),
   getRoomCursor: vi.fn(async () => 0),
@@ -49,7 +50,10 @@ vi.mock("../sync/deltaLog/client", () => ({
   DeltaLogHttpError: class extends Error {},
 }));
 vi.mock("../sync/deltaLog/pullLoop", () => ({ runDeltaLogPullLoop: mocks.pullLoop }));
-vi.mock("../sync/deltaLog/router", () => ({ applyDeltaLogPage: mocks.applyDeltaLogPage }));
+vi.mock("../sync/deltaLog/router", () => ({
+  applyDeltaLogPage: mocks.applyDeltaLogPage,
+  replayPendingDeltaLogInbox: mocks.replayPendingDeltaLogInbox,
+}));
 vi.mock("../sync/deltaLog/checkpoints", () => ({
   getRoomCursor: mocks.getRoomCursor,
   setRoomCursor: vi.fn(async () => undefined),
@@ -274,8 +278,10 @@ describe("cutover orchestrator", () => {
     store.setPhase(ROOM, "verified"); // no phase advance, but transport should start
     await runCutoverOrchestrator();
     await runCutoverOrchestrator(); // second call same session
-    expect(mocks.registerRoom).toHaveBeenCalledTimes(2); // called each boot
-    // But the transport (pull loop / subscribe) only starts once.
+    // Transport preparation (including TOFU registration) is shared within a
+    // session; phase advancement may be invoked repeatedly without rebuilding
+    // the live transport.
+    expect(mocks.registerRoom).toHaveBeenCalledTimes(1);
     expect(mocks.subscribe).toHaveBeenCalledTimes(1);
     expect(mocks.registerDeltaLogOutboxPublishers).toHaveBeenCalledTimes(1);
   });

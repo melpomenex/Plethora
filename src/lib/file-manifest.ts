@@ -10,7 +10,7 @@ import { getSyncFeatureFlags } from "./sync/featureFlags";
 import { enqueueSyncOperation } from "./sync/syncJournal";
 import { registerDomainHandler } from "./sync/deltaLog/domainRegistry";
 import { isYjsPublishSuppressed } from "./sync/deltaLog/yjsPublishGate";
-import { nowHLC } from "./sync/syncClock";
+import { getDeviceIdSync, nowHLC } from "./sync/syncClock";
 import { reportCursor, head as fetchHead, type DeltaLogClientConfig } from "./sync/deltaLog/client";
 import { encodePresenceBlob, decodePresenceBlob } from "./sync/deltaLog/presence";
 import type { SubKeys } from "./sync/encryption";
@@ -79,6 +79,16 @@ export function getDeviceId(): string {
     return `server-${Date.now()}`;
   }
 
+  // startSyncSubsystems warms the backend-authoritative sync identity before
+  // constructing file sync. Reuse it here so every subsystem has one truly
+  // per-install identity, and overwrite the legacy file-sync mirror that old
+  // localStorage replication may have copied from another device.
+  const authoritativeId = getDeviceIdSync();
+  if (authoritativeId) {
+    localStorage.setItem(DEVICE_ID_KEY, authoritativeId);
+    return authoritativeId;
+  }
+
   let deviceId = localStorage.getItem(DEVICE_ID_KEY);
   if (!deviceId) {
     const bytes = new Uint8Array(8);
@@ -126,7 +136,7 @@ export class FileManifest {
     // Observe changes to files
     this.filesMap.observe((event) => {
       event.changes.keys.forEach((change, key) => {
-        if (change.action === "add") {
+        if (change.action === "add" || change.action === "update") {
           const entry = this.getFile(key);
           if (entry) {
             this.emit({ type: "file-added", entry, sourceDeviceId: entry.uploadedBy });
@@ -227,7 +237,7 @@ export class FileManifest {
   addFile(entry: FileManifestEntry): void {
     // Enqueue to the durable outbox first so the delta-log transport receives
     // the entry even when Yjs publishing is suppressed or the map is absent.
-    if (getSyncFeatureFlags().journaledProjection) {
+    if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
       void enqueueSyncOperation({
         domain: "fileManifest",
         entityKey: entry.id,
@@ -255,7 +265,7 @@ export class FileManifest {
    * Remove a file from the manifest
    */
   removeFile(fileId: string): void {
-    if (getSyncFeatureFlags().journaledProjection) {
+    if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
       void enqueueSyncOperation({
         domain: "fileManifest",
         entityKey: fileId,

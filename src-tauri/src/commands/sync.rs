@@ -289,7 +289,11 @@ pub async fn upsert_synced_review_result(
     )
     .bind(&review.id)
     .bind(&review.collection_id)
-    .bind(&review.session_id)
+    // Review sessions are device-local and are not a synced domain. Keeping a
+    // source-device session id on the receiver would reference a row that can
+    // never arrive and violate review_results.session_id's SQLite FK. Preserve
+    // the immutable review event itself, but detach it from the remote session.
+    .bind(Option::<String>::None)
     .bind(&review.item_id)
     .bind(review.rating)
     .bind(review.time_taken)
@@ -968,7 +972,9 @@ pub async fn upsert_synced_review_results_batch(
         )
         .bind(&review.id)
         .bind(&review.collection_id)
-        .bind(&review.session_id)
+        // See the single-row command above: source review-session ids are not
+        // meaningful on this receiver and would violate its local FK.
+        .bind(Option::<String>::None)
         .bind(&review.item_id)
         .bind(review.rating)
         .bind(review.time_taken)

@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
       calls.push("getYjsSync");
       return Promise.resolve({});
     }),
+    getDeviceId: record("getDeviceId"),
     ensureFileSyncReady: record("ensureFileSyncReady"),
     startAutoFileSyncDownload: record("startAutoFileSyncDownload"),
     ensureDocumentReplicationReady: record("ensureDocumentReplicationReady"),
@@ -37,6 +38,8 @@ const mocks = vi.hoisted(() => {
     ensureRssSyncReady: record("ensureRssSyncReady"),
     ensurePodcastSyncReady: record("ensurePodcastSyncReady"),
     ensureFileAvailabilityIntentReady: record("ensureFileAvailabilityIntentReady"),
+    ensureDeltaLogTransportReady: record("ensureDeltaLogTransportReady"),
+    runCutoverOrchestrator: record("runCutoverOrchestrator"),
     runSyncMigrationIfNeeded: record("runSyncMigrationIfNeeded"),
   };
 });
@@ -47,6 +50,7 @@ vi.mock("../yjsSync", () => ({
   getYjsSync: mocks.getYjsSync,
   registerRoomChangeListener: vi.fn(() => () => {}),
 }));
+vi.mock("../sync/syncClock", () => ({ getDeviceId: mocks.getDeviceId }));
 vi.mock("../useFileSync", () => ({ ensureFileSyncReady: mocks.ensureFileSyncReady }));
 vi.mock("../autoFileSyncDownload", () => ({
   startAutoFileSyncDownload: mocks.startAutoFileSyncDownload,
@@ -73,6 +77,10 @@ vi.mock("../sync/entities/podcasts", () => ({
 vi.mock("../sync/fileAvailabilityIntent", () => ({
   ensureFileAvailabilityIntentReady: mocks.ensureFileAvailabilityIntentReady,
 }));
+vi.mock("../sync/deltaLog/cutoverOrchestrator", () => ({
+  ensureDeltaLogTransportReady: mocks.ensureDeltaLogTransportReady,
+  runCutoverOrchestrator: mocks.runCutoverOrchestrator,
+}));
 vi.mock("../sync/migrate", () => ({
   // runSyncMigrationIfNeeded is wrapped in .catch() by the chain, so even when
   // it rejects it must not abort the rest. Default resolves; one test overrides.
@@ -88,6 +96,7 @@ import {
 beforeEach(() => {
   calls.length = 0;
   __resetSyncSubsystemsForTest();
+  localStorage.removeItem("incrementum.sync.feature-flags");
   // Restore the default (resolving) implementation in case a test replaced it.
   mocks.runSyncMigrationIfNeeded.mockImplementation(() => {
     calls.push("runSyncMigrationIfNeeded");
@@ -106,6 +115,7 @@ describe("startSyncSubsystems", () => {
     // → first-join backfill. The scheduler keeps the first surfaces ahead of
     // lower-priority feeds while still initializing every adapter once.
     expect(calls).toEqual([
+      "getDeviceId",
       "getYjsSync",
       "ensureCollectionSyncReady",
       "ensureDocumentReplicationReady",
@@ -134,6 +144,20 @@ describe("startSyncSubsystems", () => {
 
     expect(mocks.ensureFlashcardSyncReady).toHaveBeenCalledTimes(1);
     expect(isSyncSubsystemsStarted()).toBe(true);
+  });
+
+  it("starts the delta transport before lower-priority auto-download work", async () => {
+    localStorage.setItem("incrementum.sync.feature-flags", JSON.stringify({ deltaLogSync: true }));
+
+    await startSyncSubsystems();
+
+    expect(mocks.ensureDeltaLogTransportReady).toHaveBeenCalledTimes(1);
+    expect(calls.indexOf("ensureDeltaLogTransportReady")).toBeGreaterThan(
+      calls.indexOf("ensureFileAvailabilityIntentReady"),
+    );
+    expect(calls.indexOf("ensureDeltaLogTransportReady")).toBeLessThan(
+      calls.indexOf("startAutoFileSyncDownload"),
+    );
   });
 
   it("does not let a failed first-join backfill abort replication observers", async () => {
