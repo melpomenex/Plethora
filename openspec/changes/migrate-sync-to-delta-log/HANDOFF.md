@@ -1613,3 +1613,88 @@ console.log("register:",r.status);})();'
 
 Do not start Phase 9 — the delta-log path is proven for metadata but file
 byte download is not yet live-confirmed on a device.
+
+## Update (2026-08-04, fourth continuation): EPUB file-byte download PROVEN end-to-end — two more real bugs found and fixed
+
+Following the third continuation's fresh-room cutover, two more bugs blocked
+the final step (downloading actual EPUB bytes from the server to the phone).
+Both are fixed and the full chain is live-confirmed: an EPUB downloads from
+the file-service, decrypts to valid `PK\x03\x04` plaintext, saves to disk,
+and the document's `file_path` is set.
+
+### Bug #12 (fixed, committed): `YjsFileDownload.encrypted_metadata` serde casing mismatch
+
+`src-tauri/src/commands/yjs_file.rs`: the `YjsFileDownload` struct field is
+`encrypted_metadata` (snake_case). Without a `#[serde(rename_all)]` or
+per-field rename, Tauri serializes it as `encrypted_metadata` over IPC. But
+the TS layer (`yjs-file-service.ts:161`) reads `dl.encryptedMetadata`
+(camelCase). The field was **always null** in the JS, so the receiver never
+got the decryption sidecar — `downloadRoomFile` fell through to the
+plaintext branch, returning raw ciphertext (which `saveReceivedFileSync`
+would have saved as a corrupt "EPUB"). Verified: a 77 MB download returned
+`firstBytes = 3f2f6143` (`?/aC`, ciphertext), not `504b0304` (`PK`).
+
+**Fix:** `#[serde(rename = "encryptedMetadata", alias = "encrypted_metadata")]`
+on the field. Verified via CDP: the response now has `encryptedMetadata`
+(272 chars, the AES-GCM nonce+contentType sidecar), and the bytes decrypt to
+`PK\x03\x04`. The header itself (`x-encrypted-metadata`, sent by the server)
+was always correct — `reqwest`'s case-insensitive `headers().get()` read it
+fine; only the IPC field name was wrong.
+
+### Bug #13 (fixed, committed): `list_documents_summary` NULLed out metadata, hiding fileId from auto-download
+
+`src-tauri/src/database/repository.rs`: both `list_documents_summary` and
+`list_documents_summary_by_collection` used `NULL AS metadata` in the SELECT
+(to shrink IPC payloads — content/content_hash are genuinely large). But the
+auto-download reconciler (`autoFileSyncDownload.ts:82`) builds its
+`fileId → document` index from `getDocuments()` → `doc.metadata.fileId`.
+With metadata NULLed, **every synced document had `fileId: undefined`** in
+JS — the reconciler could never match manifest entries to documents, so no
+download ever fired. Verified: SQLite held 171 docs with `fileId` in their
+metadata column, but `get_documents` returned `metadata: null` for all of
+them (`withFileId: 0`).
+
+**Fix:** include the `metadata` column in the summary SELECT (it is small
+JSON — the sparse DocumentMetadata object — unlike content/content_hash
+which stay NULL). Parse it into `Option<DocumentMetadata>` and populate the
+struct field. Verified: `get_documents` now returns `withFileId: 171`.
+
+(Note: there are TWO `list_documents_summary` implementations —
+`document_repository.rs:367` and `repository.rs:852`. The one `get_documents`
+actually calls is `repository.rs` via `State<'_, Repository>`. The
+`document_repository.rs` copy is a separate/unused path. Only `repository.rs`
+was changed.)
+
+### Live end-to-end proof (room 21d60302..., 2026-08-04 23:20)
+
+Triggered via CDP for document "The Law Book" (`465f6308...`,
+fileId `9f547325...`):
+- `yjs_file_download` → 77,137,093 bytes + `encryptedMetadata` (272 chars)
+- decrypt with room `fileKey` (HKDF `files-v1`, salt=roomId) → plaintext
+  77,137,065 bytes, **first4 = `504b0304`** (valid ZIP/EPUB)
+- `save_synced_file` →
+  `/data/user/0/com.incrementum.app/incrementum/documents/1785820803-The Law Book...epub`
+- `ls` confirms 77 MB on disk; `od` confirms `50 4b 03 04` magic
+- `update_document_file_path` → `get_document` confirms `filePath` set
+
+### Still open: auto-download does not fire automatically on boot
+
+The download works when triggered manually, but the phone's
+`startAutoFileSyncDownload` reconciler is not firing on cold boot (the
+`boot-auto-download-watch` scheduler phase never appears in the logcat).
+The `startSyncSubsystems` boot chain completes (`outbox drain loop STARTED`
+per boot-trace), but the auto-download-watch step — scheduled after the
+delta transport — is not producing telemetry. The startup reconcile at
+`autoFileSyncDownload.ts:178` (`for (const entry of manifest.getAllFiles())`)
+should add all manifest entries to `pendingAutoDownloads` and call
+`maybeAutoDownload`, but it's not running. Next session: trace why
+`startAutoFileSyncDownload` isn't reached on boot (it's scheduled as
+`boot-auto-download-watch` P2 in startSyncSubsystems.ts:255 — check whether
+that scheduler task is dropped/quarantined, or whether the function returns
+early at the `ensureFileSyncReady` / `isYjsSyncEnabled` gates).
+
+### Fixes committed
+
+Commit `2b613913` on main: Bug #12 + #13 + boot-trace diagnostics + this
+HANDOFF update. The boot-trace probes in `startSyncSubsystems.ts` are
+diagnostic-only (route via plugin-log) — strip before final merge.
