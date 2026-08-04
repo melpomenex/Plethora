@@ -145,6 +145,11 @@ pub async fn yjs_file_upload(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YjsFileDownload {
     pub bytes: Vec<u8>,
+    // Tauri IPC: the TS layer reads `encryptedMetadata` (camelCase). Without
+    // this rename the field serializes as `encrypted_metadata` and the
+    // receiver silently gets null, dropping the decryption sidecar and
+    // leaving the downloaded bytes as undecryptable ciphertext.
+    #[serde(rename = "encryptedMetadata", alias = "encrypted_metadata")]
     pub encrypted_metadata: Option<String>,
 }
 

@@ -29,10 +29,54 @@ import { compactYjsPersistence, needsCompaction } from "./sync/yjsCompaction";
 
 let startPromise: Promise<void> | null = null;
 let outboxDrainTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Boot diagnostic tracer. Plain webview console.* calls do NOT surface in
+ * Incrementum.log (the Rust stdout); routing through @tauri-apps/plugin-log
+ * makes each boot step visible there, mirroring how syncTelemetry emits its
+ * [sync-telemetry] lines. Lazy-loaded so tests/non-Tauri envs are unaffected.
+ */
+let bootLogWriter: ((m: string) => void) | null | undefined;
+function bootLog(message: string): void {
+  console.log(`[boot-trace] ${message}`);
+  if (bootLogWriter === undefined) {
+    bootLogWriter = null;
+    void import("@tauri-apps/plugin-log")
+      .then((log) => {
+        try {
+          bootLogWriter = (m: string) => {
+            try { void log.info(m).catch(() => undefined); } catch { /* swallow */ }
+          };
+        } catch { bootLogWriter = null; }
+      })
+      .catch(() => { bootLogWriter = null; });
+  }
+  try { bootLogWriter?.(`[boot-trace] ${message}`); } catch { /* swallow */ }
+}
+let outboxDrainStarted = false;
 let compactionTimer: ReturnType<typeof setInterval> | null = null;
 
 /** How often the recurring compaction sweep runs while the app is open. */
 const COMPACTION_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+function startOutboxDrainLoop(): void {
+  if (outboxDrainStarted) return;
+  outboxDrainStarted = true;
+  const drain = () => {
+    void scheduleProgressiveSyncWork({
+      id: "boot-outbox-drain",
+      // Current durable writes must not sit behind a multi-thousand-row Yjs
+      // replay. Keep each urgent slice small so it remains bounded.
+      lane: "P0",
+      run: () => drainSyncOutboxBatch(10),
+    })
+      .catch((e) => console.warn("[startSyncSubsystems] outbox drain failed", e))
+      .finally(() => {
+        outboxDrainTimer = setTimeout(drain, 1500);
+      });
+  };
+  drain();
+}
 
 /**
  * Run the sync subsystem boot chain exactly once per session. Subsequent calls
@@ -40,19 +84,40 @@ const COMPACTION_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
  * and a failure in one entity must not prevent the others from initializing.
  */
 export function startSyncSubsystems(): Promise<void> {
-  if (startPromise) return startPromise;
+  if (startPromise) {
+    bootLog("startSyncSubsystems: returning cached startPromise (singleton)");
+    return startPromise;
+  }
+  bootLog("startSyncSubsystems: entering fresh boot chain");
 
   startPromise = (async () => {
     const removeLongTaskObserver = installSyncLongTaskObserver();
+    // Warm the backend-authoritative per-install identity before loading the
+    // encrypted provider or file-sync modules. Older builds replicated the
+    // localStorage mirrors, causing peers to share an id and auto-download to
+    // treat remote uploads as local. This also guarantees encryption derives a
+    // device-unique nonce prefix for the session.
+    try {
+      const { getDeviceId } = await import("./sync/syncClock");
+      await withTimeout(
+        getDeviceId(),
+        5000,
+        "[startSyncSubsystems] getDeviceId timed out (5s), continuing without warm identity",
+      );
+    } catch (err) {
+      console.warn("[startSyncSubsystems] device identity warmup failed (non-fatal):", err);
+    }
     // 1. Shared Yjs doc + websocket provider + IndexedDB persistence.
     //    Everything below depends on the doc, so this runs first.
     const { getYjsSync } = await import("./yjsSync");
+    bootLog("about to schedule boot-provider-setup");
     const sync = await scheduleProgressiveSyncWork({
-      id: "sync:provider-setup",
+      id: "boot-provider-setup",
       lane: "P1",
       maxRetries: 0,
       kind: "atomic",
       run: async (context) => {
+        bootLog("boot-provider-setup: run() entered");
         if (context.shouldYield()) await context.yield();
         return measureStartupPhase("provider-setup", () => withTimeout(
           getYjsSync(),
@@ -61,17 +126,21 @@ export function startSyncSubsystems(): Promise<void> {
         ));
       },
     }).catch((err) => {
+      bootLog(`boot-provider-setup FAILED/DROPPED: ${err?.name || err}: ${err?.message || err}`);
       console.warn("[startSyncSubsystems] getYjsSync failed, sync will be unavailable:", err);
       return null;
     });
+    bootLog(`boot-provider-setup settled, sync=${sync ? "present" : "null"}`);
 
     if (!sync) {
       // getYjsSync failed — nothing below can work. Return early so the
       // startPromise is marked resolved; the caller (main.tsx) continues
       // normally without sync. A later room-join / toggle will retry.
+      bootLog("EARLY RETURN: sync is null (getYjsSync failed/timed out), skipping delta transport + outbox");
       removeLongTaskObserver();
       return;
     }
+    bootLog("sync present, continuing to clock cache + module imports");
 
     // Warm up the clock cache before replaying entity maps
     try {
@@ -89,8 +158,17 @@ export function startSyncSubsystems(): Promise<void> {
     // small or the feature flag is off. Non-fatal and non-blocking.
     if (getSyncFeatureFlags().yjsCompaction && sync.persistence) {
       const persistence = sync.persistence;
-      await scheduleProgressiveSyncWork({
-        id: "sync:yjs-compaction",
+      // Fire-and-forget. This is a pure cold-boot optimization whose result
+      // nothing below reads, and it runs in P3 — the lowest lane, which only
+      // wins a slot once every P0/P1/P2 item has drained. Awaiting it put a
+      // background-lane task on the boot critical path, so on a device with a
+      // busy scheduler (a large encrypted-frame replay is enough) the chain
+      // stopped here forever: no entity modules imported, no domain handlers
+      // registered, no delta-log transport. That is the "startSyncSubsystems
+      // hangs indefinitely" bug, and it is why remote documents were pulled
+      // and then dropped for want of a handler.
+      void scheduleProgressiveSyncWork({
+        id: "boot-yjs-compaction",
         lane: "P3",
         kind: "sliceable",
         run: () => compactYjsPersistence(persistence),
@@ -162,24 +240,59 @@ export function startSyncSubsystems(): Promise<void> {
       ["fileSync", ensureFileSyncReady],
       ["fileAvailabilityIntent", ensureFileAvailabilityIntentReady],
     ];
-    const runReplicator = ([label, ensureReady]: [string, () => Promise<void>]) =>
-      scheduleProgressiveSyncWork({
-        id: `sync:replicator:${label}`,
-        lane: "P2",
-        kind: "sliceable",
-        maxRetries: 0,
-        run: async (context) => {
-          if (context.shouldYield()) await context.yield();
-          await measureStartupPhase(`replicator:${label}`, ensureReady);
-        },
-      }).catch((err) => console.warn(`[startSyncSubsystems] ${label} init failed:`, err));
-    for (let i = 0; i < replicators.length; i += 2) {
-      await Promise.all(replicators.slice(i, i + 2).map(runReplicator));
+    // Bind every handler in one urgent item before the scheduler drains the P1
+    // replay work each ensureReady() enqueues. Separate P2 initializer items
+    // allowed the first large legacy map to starve all later handlers.
+    await scheduleProgressiveSyncWork({
+      id: "boot-replicators-bind",
+      lane: "P0",
+      kind: "atomic",
+      maxRetries: 0,
+      run: async () => {
+        for (let i = 0; i < replicators.length; i += 2) {
+          await Promise.all(
+            replicators.slice(i, i + 2).map(([label, ensureReady]) =>
+              measureStartupPhase(`replicator:${label}`, ensureReady).catch((err) =>
+                console.warn(`[startSyncSubsystems] ${label} init failed:`, err),
+              ),
+            ),
+          );
+        }
+      },
+    }).catch((err) => {
+      console.error("[startSyncSubsystems] boot-replicators-bind failed:", err);
+      throw err;
+    });
+
+    // Bring up the durable transport immediately after its handlers exist.
+    // In dual-run mode, do not drain until the delta publisher is registered;
+    // otherwise an operation could be marked sent after reaching Yjs alone.
+    if (getSyncFeatureFlags().deltaLogSync) {
+      bootLog("deltaLogSync flag ON: starting delta-log transport");
+      const transportReady = await measureStartupPhase("delta-log-transport", () =>
+        import("./sync/deltaLog/cutoverOrchestrator").then((m) =>
+          m.ensureDeltaLogTransportReady(),
+        ),
+      ).catch((err) => {
+        bootLog(`delta-log transport FAILED: ${err?.message || err}`);
+        console.warn("[startSyncSubsystems] delta-log transport start failed (non-fatal)", err);
+        return false;
+      });
+      bootLog(`delta-log transport ready=${transportReady}`);
+      if (transportReady) {
+        startOutboxDrainLoop();
+        bootLog("outbox drain loop STARTED");
+      }
+    } else if (getSyncFeatureFlags().journaledProjection) {
+      bootLog("deltaLogSync OFF but journaledProjection ON: starting outbox drain");
+      startOutboxDrainLoop();
+    } else {
+      bootLog("neither deltaLogSync nor journaledProjection enabled — outbox will NOT drain");
     }
 
     // 4. Auto-download watcher — needs file sync ready.
     await scheduleProgressiveSyncWork({
-      id: "sync:auto-download-watch",
+      id: "boot-auto-download-watch",
       lane: "P2",
       kind: "sliceable",
       run: (context) => measureStartupPhase("auto-download-watch", () => startAutoFileSyncDownload(context)),
@@ -228,7 +341,7 @@ export function startSyncSubsystems(): Promise<void> {
       // transport start + phase advance happen asynchronously after the UI is
       // interactive. The scheduler still yields to input between slices.
       void scheduleProgressiveSyncWork({
-        id: "sync:delta-log-cutover",
+        id: "cutover-orchestrator",
         lane: "P2",
         kind: "sliceable",
         run: async (context) => {
@@ -246,32 +359,15 @@ export function startSyncSubsystems(): Promise<void> {
     //    other devices receive it. Background, non-fatal.
     const { runSyncMigrationIfNeeded } = await import("./sync/migrate");
     await scheduleProgressiveSyncWork({
-      id: "sync:first-join-migration",
+      id: "boot-first-join-migration",
       lane: "P2",
       kind: "sliceable",
       run: (context) => measureStartupPhase("first-join-migration", () => runSyncMigrationIfNeeded(undefined, context)),
     }).catch((e) =>
       console.warn("[startSyncSubsystems] sync migration failed (non-fatal)", e),
     );
-    // The outbox drain loop runs when journaled projection is on OR when the
-    // delta-log cutover is active — the seed phase (P2) enqueues its rows
-    // through the same outbox, and the delta-log outbox publishers (registered
-    // by the orchestrator's transport start) are what turn those rows into
-    // POST /ops pushes. Without a running drain, seed rows would sit pending.
-    if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
-      const drain = () => {
-        void scheduleProgressiveSyncWork({
-          id: "sync:outbox-drain",
-          lane: "P2",
-          run: () => drainSyncOutboxBatch(50),
-        })
-          .catch((e) => console.warn("[startSyncSubsystems] outbox drain failed", e))
-          .finally(() => {
-            outboxDrainTimer = setTimeout(drain, 1500);
-          });
-      };
-      drain();
-    }
+    // The outbox loop starts above as soon as its required publisher(s) exist,
+    // rather than after lower-priority replay and backfill work.
 
     // Recurring y-indexeddb compaction sweep. Long-running sessions keep
     // accumulating update rows (the library's auto-trim only fires for local
@@ -283,7 +379,7 @@ export function startSyncSubsystems(): Promise<void> {
       compactionTimer = setInterval(() => {
         if (!needsCompaction(persistence)) return;
         void scheduleProgressiveSyncWork({
-          id: "sync:yjs-compaction-recurring",
+          id: "boot-yjs-compaction-recurring",
           lane: "P3",
           run: () => compactYjsPersistence(persistence),
         }).catch((err) =>
@@ -350,4 +446,7 @@ export function isSyncSubsystemsStarted(): boolean {
 /** Test-only: reset the singleton so a fresh chain can be exercised. */
 export function __resetSyncSubsystemsForTest(): void {
   startPromise = null;
+  if (outboxDrainTimer) clearTimeout(outboxDrainTimer);
+  outboxDrainTimer = null;
+  outboxDrainStarted = false;
 }

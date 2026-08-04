@@ -412,16 +412,18 @@ impl Repository {
         sqlx::query(
             r#"
             INSERT INTO documents (
-                id, title, file_path, file_type, content, content_hash,
+                id, collection_id, title, file_path, file_type, content, content_hash,
                 total_pages, current_page, current_scroll_percent, current_cfi, current_view_state,
                 position_json, progress_percent,
                 category, tags,
                 date_added, date_modified, date_last_reviewed,
                 extract_count, learning_item_count, priority_rating, priority_slider, priority_score,
-                is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source,
+                priority_explicitly_set, is_archived, is_favorite, is_dismissed,
+                metadata, cover_image_url, cover_image_source,
                 next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38)
             ON CONFLICT(id) DO UPDATE SET
+                collection_id = excluded.collection_id,
                 title = excluded.title,
                 file_path = excluded.file_path,
                 file_type = excluded.file_type,
@@ -444,6 +446,7 @@ impl Repository {
                 priority_rating = excluded.priority_rating,
                 priority_slider = excluded.priority_slider,
                 priority_score = excluded.priority_score,
+                priority_explicitly_set = excluded.priority_explicitly_set,
                 is_archived = excluded.is_archived,
                 is_favorite = excluded.is_favorite,
                 is_dismissed = excluded.is_dismissed,
@@ -460,6 +463,7 @@ impl Repository {
             "#,
         )
         .bind(&document.id)
+        .bind(&document.collection_id)
         .bind(&document.title)
         .bind(&document.file_path)
         .bind(&file_type_str)
@@ -482,6 +486,7 @@ impl Repository {
         .bind(document.priority_rating)
         .bind(document.priority_slider)
         .bind(document.priority_score)
+        .bind(document.priority_explicitly_set)
         .bind(document.is_archived)
         .bind(document.is_favorite)
         .bind(document.is_dismissed)
@@ -845,8 +850,11 @@ impl Repository {
     /// code is identical to `list_documents` (it already treats these columns
     /// as optional), so callers simply see `content: None`, etc.
     pub async fn list_documents_summary(&self) -> Result<Vec<Document>> {
-        // NOTE: content / content_hash / metadata are intentionally NULLed out
-        // here to keep the IPC payload small; the library list never needs them.
+        // NOTE: content / content_hash are intentionally NULLed out here to keep
+        // the IPC payload small; the library list never needs them. metadata IS
+        // included (it is small JSON) because the auto-download reconciler
+        // matches documents to manifest entries via metadata.fileId — nulling it
+        // here made every freshly-synced document invisible to file download.
         let rows = sqlx::query(
             "SELECT id, collection_id, title, file_path, file_type, \
              NULL AS content, NULL AS content_hash, \
@@ -854,7 +862,7 @@ impl Repository {
              position_json, progress_percent, category, tags, date_added, date_modified, \
              date_last_reviewed, extract_count, learning_item_count, priority_rating, \
              priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, \
-             NULL AS metadata, cover_image_url, cover_image_source, \
+             metadata, cover_image_url, cover_image_source, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, \
              consecutive_count \
              FROM documents ORDER BY date_added DESC",
@@ -867,6 +875,9 @@ impl Repository {
             let file_type: String = row.get("file_type");
             let tags_json: String = row.get("tags");
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+            let metadata_json: Option<String> = row.try_get("metadata").ok();
+            let metadata: Option<crate::models::DocumentMetadata> =
+                metadata_json.and_then(|json| serde_json::from_str(&json).ok());
 
             docs.push(Document {
                 id: row.get("id"),
@@ -904,7 +915,7 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
-                metadata: None,
+                metadata,
                 cover_image_url: row.try_get("cover_image_url").ok(),
                 cover_image_source: row.try_get("cover_image_source").ok(),
                 // Scheduling fields - use try_get for compatibility with existing databases
@@ -922,13 +933,14 @@ impl Repository {
     }
 
     /// Collection-scoped variant of [`list_documents_summary`](Self::list_documents_summary).
-    /// See that method for why `content`/`content_hash`/`metadata` are NULLed.
+    /// See that method for why `content`/`content_hash` are NULLed (metadata is included
+    /// so the auto-download reconciler can resolve fileId).
     pub async fn list_documents_summary_by_collection(
         &self,
         collection_id: &str,
     ) -> Result<Vec<Document>> {
-        // NOTE: content / content_hash / metadata are intentionally NULLed out
-        // here to keep the IPC payload small; the library list never needs them.
+        // NOTE: content / content_hash are intentionally NULLed out here to keep
+        // the IPC payload small. metadata IS included (small JSON) for fileId.
         let rows = sqlx::query(
             "SELECT id, collection_id, title, file_path, file_type, \
              NULL AS content, NULL AS content_hash, \
@@ -936,7 +948,7 @@ impl Repository {
              position_json, progress_percent, category, tags, date_added, date_modified, \
              date_last_reviewed, extract_count, learning_item_count, priority_rating, \
              priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, \
-             NULL AS metadata, cover_image_url, cover_image_source, \
+             metadata, cover_image_url, cover_image_source, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, \
              consecutive_count \
              FROM documents WHERE collection_id = ? ORDER BY date_added DESC",
@@ -950,6 +962,9 @@ impl Repository {
             let file_type: String = row.get("file_type");
             let tags_json: String = row.get("tags");
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+            let metadata_json: Option<String> = row.try_get("metadata").ok();
+            let metadata: Option<crate::models::DocumentMetadata> =
+                metadata_json.and_then(|json| serde_json::from_str(&json).ok());
 
             docs.push(Document {
                 id: row.get("id"),
@@ -987,7 +1002,7 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
-                metadata: None,
+                metadata,
                 cover_image_url: row.try_get("cover_image_url").ok(),
                 cover_image_source: row.try_get("cover_image_source").ok(),
                 // Scheduling fields - use try_get for compatibility with existing databases
