@@ -2531,6 +2531,7 @@ export const ja: Dict = {
   "settings.syncQrInstruction":
     "デスクトップ Web アプリに表示されている QR コードにカメラを向けてください。",
   "settings.syncQrInvalidCode": "そのコードは有効な同期コードではありません。同期設定に表示されている QR コードにかざしてください。",
+  "settings.syncQrDecodeError": "スキャナーに問題があります — 近づくか光を増やしてください。続く場合はこの画面を開き直してください。",
   "settings.syncQrScanCode": "同期コードをスキャン",
   "settings.themeAnimated": "アニメーション",
   "settings.themeCount": "{count} 個のテーマが利用可能",

@@ -186,45 +186,62 @@ describe("SyncSettings scan-to-join", () => {
     expect(mocks.startSyncSubsystems).toHaveBeenCalled();
   });
 
-  it("rejects a bare room id (no encryption secret) and keeps the scanner open", async () => {
+  it("rejects a bare room id (no encryption secret) by throwing a visible reason", async () => {
     // Encryption is mandatory, so a bare room id can't join — the device would
     // auto-provision its own key and be unable to decrypt the peer's frames.
+    // The scan handler now THROWS on rejection (instead of returning false) so
+    // SyncQrScanner renders the reason inline — this is the fix for the
+    // "point at the code and nothing happens" symptom, where a rejected scan
+    // previously left the camera open with zero feedback.
     mocks.isNativeMobile.mockReturnValue(true);
 
     render(React.createElement(SyncSettings));
     const scanButtons = screen.getAllByRole("button", { name: /scan/i });
     await act(async () => {
-      scanButtons[0]?.click();
+      scanButtons[0].click();
     });
     await waitFor(() => expect(lastOnDetected).not.toBeNull());
 
-    let accepted = true;
+    let thrown: unknown = null;
+    let resolved: unknown = "did-not-resolve";
     await act(async () => {
-      accepted = !!(await lastOnDetected!("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"));
+      try {
+        resolved = await lastOnDetected!("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6");
+      } catch (err) {
+        thrown = err;
+      }
     });
 
-    expect(accepted).toBe(false);
+    // Must throw (not resolve to false) so the scanner surfaces the reason.
+    expect(thrown).toBeInstanceOf(Error);
+    expect(resolved).toBe("did-not-resolve");
+    // The thrown message carries the rejection reason (needs-invite-code).
+    expect((thrown as Error).message).toMatch(/invite|sync code|valid/i);
     expect(mocks.setSyncRoomId).not.toHaveBeenCalled();
     expect(mocks.rejoinRoom).not.toHaveBeenCalled();
     expect(mocks.enableEncryptionWithSecret).not.toHaveBeenCalled();
   });
 
-  it("returns false (keeps scanner open) for an empty scanned value", async () => {
+  it("throws a visible reason for an empty scanned value", async () => {
     mocks.isNativeMobile.mockReturnValue(true);
 
     render(React.createElement(SyncSettings));
     const scanButtons = screen.getAllByRole("button", { name: /scan/i });
     await act(async () => {
-      scanButtons[0]?.click();
+      scanButtons[0].click();
     });
     await waitFor(() => expect(lastOnDetected).not.toBeNull());
 
-    let accepted = true;
+    let thrown = false;
     await act(async () => {
-      accepted = !!(await lastOnDetected!("   "));
+      try {
+        await lastOnDetected!("   ");
+      } catch {
+        thrown = true;
+      }
     });
 
-    expect(accepted).toBe(false);
+    expect(thrown).toBe(true);
     expect(mocks.setSyncRoomId).not.toHaveBeenCalled();
     expect(mocks.rejoinRoom).not.toHaveBeenCalled();
   });

@@ -670,9 +670,16 @@ export function SyncSettings() {
         <SyncQrScanner
           onDetected={async (value) => {
             const result = await handleJoinRoom(value);
-            // Returning true closes the scanner; false keeps it open so the
-            // user can re-scan after an invalid code.
-            return result.ok;
+            if (result.ok) {
+              // Returning true closes the scanner.
+              return true;
+            }
+            // Throwing (rather than returning false) makes SyncQrScanner render
+            // result.error inline, so the user sees WHY the scan was rejected
+            // (e.g. "needs invite code", "invalid code") instead of the camera
+            // silently staying open with no feedback — the original "nothing
+            // happens" bug. The scanner catches this and keeps scanning.
+            throw new Error(result.error || t("syncSettings.invalidCodeMsg", { error: "unknown" }));
           }}
           onClose={() => setShowScanner(false)}
         />

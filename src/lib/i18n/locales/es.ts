@@ -2573,6 +2573,7 @@ export const es: Dict = {
   "settings.syncQrInstruction":
     "Apunta tu cámara al código QR que se muestra en la app web de escritorio.",
   "settings.syncQrInvalidCode": "Ese código no es un código de sincronización válido. Apunta al código QR mostrado en los ajustes de sincronización.",
+  "settings.syncQrDecodeError": "Problema del escáner: acércate o añade luz. Si persiste, vuelve a abrir esta pantalla.",
   "settings.syncQrScanCode": "Escanear código de sincronización",
   "settings.themeAnimated": "animado",
   "settings.themeCount": "{count} temas disponibles",

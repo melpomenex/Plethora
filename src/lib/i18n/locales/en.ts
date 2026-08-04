@@ -3762,6 +3762,8 @@ export const en: Dict = {
   "settings.syncQrInstruction": "Point your camera at the QR code shown on the desktop web app.",
   "settings.syncQrInvalidCode":
     "That code isn't a valid sync code. Aim at the QR shown in Sync settings.",
+  "settings.syncQrDecodeError":
+    "Scanner trouble — try moving closer or adding light. If it persists, reopen this screen.",
 
   "settings.themeAnimated": "animated",
   "settings.themeGalleryTitle": "Theme Gallery",

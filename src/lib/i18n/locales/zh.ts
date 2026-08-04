@@ -2653,6 +2653,7 @@ export const zh: Dict = {
   "settings.syncQrCameraFailed": "启动相机失败",
   "settings.syncQrInstruction": "将相机对准桌面网页应用上显示的二维码。",
   "settings.syncQrInvalidCode": "该代码不是有效的同步代码。请对准同步设置中显示的二维码。",
+  "settings.syncQrDecodeError": "扫描器异常——试着靠近一些或增加光线。若持续，请重新打开此界面。",
   "settings.syncQrScanCode": "扫描同步代码",
   "settings.themeAnimated": "动画",
   "settings.themeCount": "{count} 个主题可用",

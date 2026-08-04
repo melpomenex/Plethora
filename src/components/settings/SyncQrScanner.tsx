@@ -2,6 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import QrScanner from "qr-scanner";
 import { useI18n } from "../../lib/i18n";
 
+// qr-scanner's per-frame decode invokes onDecodeError with NO_QR_CODE_FOUND
+// whenever a frame simply contained no QR code — the overwhelmingly common
+// case while aiming, which must NOT be surfaced (it would flash on every empty
+// frame). Anything else means the decode engine itself is failing (worker
+// blocked, Blob worker refused by CSP, requestVideoFrameCallback never firing,
+// etc.). Without surfacing those, the camera plays forever with zero feedback
+// — the exact "I point it at the code and nothing happens" symptom.
+const NO_QR_CODE_FOUND = QrScanner.NO_QR_CODE_FOUND;
+
 type SyncQrScannerProps = {
   /**
    * Called with each decoded value. May be async. Return `true` to accept and
@@ -30,6 +39,12 @@ export function SyncQrScanner({ onDetected, onClose }: SyncQrScannerProps) {
   useEffect(() => {
     let scanner: QrScanner | null = null;
     let cancelled = false;
+    // The decode engine fires onDecodeError on every frame it can't process.
+    // "No QR code found" is the normal aiming case and is filtered out below;
+    // any OTHER error indicates the engine itself is broken (worker refused,
+    // Blob blocked, rVFC dead). Debounce by message so a steady stream of the
+    // same engine error doesn't re-render the banner every frame.
+    let lastEngineError = "";
 
     const start = async () => {
       if (!videoRef.current) {
@@ -47,8 +62,9 @@ export function SyncQrScanner({ onDetected, onClose }: SyncQrScannerProps) {
                 onCloseRef.current();
               }
               // If not accepted, the scanner keeps running so the user can
-              // re-scan. The caller is responsible for surfacing why (via
-              // throw → we set `error` below, or its own UI).
+              // re-scan. The caller surfaces why by throwing (→ we set
+              // `error` below); a bare `false` return is intentionally silent
+              // for callers that prefer to keep the scanner quiet.
             } catch (err) {
               const msg = err instanceof Error ? err.message : tRef.current("settings.syncQrInvalidCode");
               setError(msg);
@@ -59,6 +75,18 @@ export function SyncQrScanner({ onDetected, onClose }: SyncQrScannerProps) {
             highlightScanRegion: true,
             highlightCodeOutline: true,
             preferredCamera: "environment",
+            // CRITICAL: without this, the library's default onDecodeError only
+            // console.log's engine errors. On Android those vanish from view,
+            // so a dead decode loop looks identical to "just hasn't seen a QR
+            // yet" — the user points at the code forever and nothing happens.
+            onDecodeError: (error) => {
+              const msg = typeof error === "string" ? error : error.message;
+              if (!msg || msg === NO_QR_CODE_FOUND) return;
+              if (msg === lastEngineError) return;
+              lastEngineError = msg;
+              console.warn("[SyncQrScanner] decode engine error", error);
+              setError(tRef.current("settings.syncQrDecodeError"));
+            },
           }
         );
 
