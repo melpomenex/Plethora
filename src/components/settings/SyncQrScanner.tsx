@@ -11,6 +11,19 @@ import { useI18n } from "../../lib/i18n";
 // — the exact "I point it at the code and nothing happens" symptom.
 const NO_QR_CODE_FOUND = QrScanner.NO_QR_CODE_FOUND;
 
+// Chromium throws this AbortError when video.play() is interrupted by an
+// intervening pause() — e.g. React cleanup racing the async start, or the
+// WebChromeClient permission bridge tearing the stream momentarily on Android.
+// The MediaStream is already attached when this fires, so a retry of start()
+// succeeds without re-requesting the camera. Match on name + the stable
+// fragment of the message (the goo.gl URL varies) so this stays robust.
+const PLAY_INTERRUPTED_FRAGMENT = "play() request was interrupted";
+function isPlayInterruptedAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name !== "AbortError") return false;
+  return err.message.includes(PLAY_INTERRUPTED_FRAGMENT);
+}
+
 type SyncQrScannerProps = {
   /**
    * Called with each decoded value. May be async. Return `true` to accept and
@@ -45,62 +58,123 @@ export function SyncQrScanner({ onDetected, onClose }: SyncQrScannerProps) {
     // Blob blocked, rVFC dead). Debounce by message so a steady stream of the
     // same engine error doesn't re-render the banner every frame.
     let lastEngineError = "";
+    // Tracks whether qr-scanner's per-frame decode has EVER run. The scan loop
+    // is driven by requestVideoFrameCallback (rVFC); on some Android WebView
+    // versions rVFC is reported present but NEVER fires, so neither onDecode
+    // nor onDecodeError runs and the camera sits forever with zero feedback —
+    // the exact reported symptom ("nothing happens"). The watchdog below turns
+    // that silent stall into a visible, distinguishable message so the on-device
+    // test is conclusive rather than ambiguous.
+    let anyDecodeRan = false;
+    let watchdog: ReturnType<typeof setTimeout> | null = null;
 
     const start = async () => {
       if (!videoRef.current) {
         return;
       }
 
-      try {
-        scanner = new QrScanner(
-          videoRef.current,
-          async (result) => {
-            setError(null);
-            try {
-              const accepted = await onDetectedRef.current(result.data);
-              if (accepted) {
-                onCloseRef.current();
+      // Tries to build + start the scanner. Returns true on success.
+      // On the Android WebView, scanner.start() races video.play() against an
+      // intervening pause() (triggered by React re-render cleanup, the
+      // WebChromeClient permission bridge, or autoplay policy). Chromium throws
+      // an AbortError: "The play() request was interrupted by a call to
+      // pause()." When that happens the camera stream is ALREADY attached to
+      // the <video> — so a single retry of start() (not getUserMedia) succeeds.
+      // Without this retry the rejection was surfaced as an error and the scan
+      // loop never began, which from the user's side looked exactly like
+      // "I point it at the code and nothing happens."
+      const tryStart = async (): Promise<boolean> => {
+        if (!scanner) {
+          scanner = new QrScanner(
+            videoRef.current!,
+            async (result) => {
+              anyDecodeRan = true;
+              setError(null);
+              try {
+                const accepted = await onDetectedRef.current(result.data);
+                if (accepted) {
+                  onCloseRef.current();
+                }
+                // If not accepted, the scanner keeps running so the user can
+                // re-scan. The caller surfaces why by throwing (→ we set
+                // `error` below); a bare `false` return is intentionally silent
+                // for callers that prefer to keep the scanner quiet.
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : tRef.current("settings.syncQrInvalidCode");
+                setError(msg);
               }
-              // If not accepted, the scanner keeps running so the user can
-              // re-scan. The caller surfaces why by throwing (→ we set
-              // `error` below); a bare `false` return is intentionally silent
-              // for callers that prefer to keep the scanner quiet.
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : tRef.current("settings.syncQrInvalidCode");
-              setError(msg);
-            }
-          },
-          {
-            returnDetailedScanResult: true,
-            highlightScanRegion: true,
-            highlightCodeOutline: true,
-            preferredCamera: "environment",
-            // CRITICAL: without this, the library's default onDecodeError only
-            // console.log's engine errors. On Android those vanish from view,
-            // so a dead decode loop looks identical to "just hasn't seen a QR
-            // yet" — the user points at the code forever and nothing happens.
-            onDecodeError: (error) => {
-              const msg = typeof error === "string" ? error : error.message;
-              if (!msg || msg === NO_QR_CODE_FOUND) return;
-              if (msg === lastEngineError) return;
-              lastEngineError = msg;
-              console.warn("[SyncQrScanner] decode engine error", error);
-              setError(tRef.current("settings.syncQrDecodeError"));
             },
-          }
-        );
+            {
+              returnDetailedScanResult: true,
+              highlightScanRegion: true,
+              highlightCodeOutline: true,
+              preferredCamera: "environment",
+              // CRITICAL: without this, the library's default onDecodeError only
+              // console.log's engine errors. On Android those vanish from view,
+              // so a dead decode loop looks identical to "just hasn't seen a QR
+              // yet" — the user points at the code forever and nothing happens.
+              onDecodeError: (error) => {
+                anyDecodeRan = true;
+                const msg = typeof error === "string" ? error : error.message;
+                if (!msg || msg === NO_QR_CODE_FOUND) return;
+                if (msg === lastEngineError) return;
+                lastEngineError = msg;
+                console.warn("[SyncQrScanner] decode engine error", error);
+                setError(tRef.current("settings.syncQrDecodeError"));
+              },
+            }
+          );
+        }
 
         await scanner.start();
+        return true;
+      };
+
+      try {
+        let started = false;
+        try {
+          started = await tryStart();
+        } catch (err) {
+          // The "play() was interrupted by pause()" AbortError. The MediaStream
+          // is already attached from the failed attempt, so retrying start()
+          // resolves immediately instead of re-requesting the camera. Limit to
+          // one retry so a genuine failure still surfaces.
+          if (isPlayInterruptedAbortError(err) && !cancelled) {
+            console.warn("[SyncQrScanner] start() interrupted by pause(); retrying once", err);
+            started = await tryStart();
+          } else {
+            throw err;
+          }
+        }
+        if (!started) return;
+
         // Guard against a teardown that raced ahead while start() was awaiting
         // camera permission + MediaStream setup. Without this, the cleanup's
         // stop()/destroy() runs, then the resolved promise continues with a
-        // "ghost" scanner whose video has already been torn down — the next
-        // play() throws "play() request was interrupted by pause()".
+        // "ghost" scanner whose video has already been torn down.
         if (cancelled) {
           scanner.stop();
           scanner.destroy();
           scanner = null;
+          return;
         }
+        // If no per-frame decode has run within 6s of a successful start, the
+        // rVFC-driven scan loop is dead (a known Android WebView failure mode).
+        // Surface a distinct diagnostic so the on-device test is conclusive.
+        watchdog = setTimeout(() => {
+          if (!cancelled && !anyDecodeRan) {
+            const hasRvfc = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
+            console.error(
+              "[SyncQrScanner] scan loop never fired after 6s",
+              { hasRvfc, readyState: videoRef.current?.readyState, paused: videoRef.current?.paused },
+            );
+            setError(
+              hasRvfc
+                ? `Scan loop stuck (rVFC present but never fired; readyState=${videoRef.current?.readyState}). Tap Close and reopen.`
+                : `Scan loop stuck (no rVFC; using rAF which produced no frames in 6s). Tap Close and reopen.`,
+            );
+          }
+        }, 6000);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : tRef.current("settings.syncQrCameraFailed"));
@@ -112,6 +186,7 @@ export function SyncQrScanner({ onDetected, onClose }: SyncQrScannerProps) {
 
     return () => {
       cancelled = true;
+      if (watchdog) clearTimeout(watchdog);
       scanner?.stop();
       scanner?.destroy();
       scanner = null;

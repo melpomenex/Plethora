@@ -208,4 +208,45 @@ describe("SyncQrScanner failure surfacing", () => {
       QrScannerModule.prototype.start = originalStart;
     }
   });
+
+  it("retries start() once when the play()-interrupted AbortError fires, then succeeds", async () => {
+    // Regression guard for the real on-device root cause: on the Android
+    // WebView, video.play() inside scanner.start() races an intervening
+    // pause() and rejects with AbortError "The play() request was interrupted
+    // by a call to pause()." The stream is already attached, so a single retry
+    // of start() succeeds — without the retry, the camera opened but no QR was
+    // ever decoded ("nothing happens").
+    const QrScannerModule = (await import("qr-scanner")).default as {
+      prototype: { start: () => Promise<void> };
+    };
+    const originalStart = QrScannerModule.prototype.start;
+    const abortErr = new Error(
+      "The play() request was interrupted by a call to pause(). https://goo.gl/LdLk22",
+    );
+    abortErr.name = "AbortError";
+
+    let calls = 0;
+    QrScannerModule.prototype.start = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw abortErr;
+      // Second call succeeds (stream already attached).
+    }) as unknown as () => Promise<void>;
+
+    try {
+      const { onClose } = await renderScanner({ onDetected: async () => true, onClose: vi.fn() });
+      // start() was invoked twice: first rejected with the AbortError, then
+      // retried and succeeded.
+      await waitFor(() => expect(calls).toBe(2));
+      // Scanner is live (no error banner). Simulate a successful decode and
+      // confirm the scanner closes — i.e. the retry produced a working scanner.
+      await act(async () => {
+        await captured!.onDecode({ data: "incrementum-sync:v1:room:secret" });
+      });
+      expect(onClose).toHaveBeenCalledTimes(1);
+      // No error surfaced.
+      expect(screen.queryByText(/interrupted/i)).toBeNull();
+    } finally {
+      QrScannerModule.prototype.start = originalStart;
+    }
+  });
 });
