@@ -27,6 +27,8 @@ import {
 } from "./sync/fileAvailabilityIntent";
 import { scheduleProgressiveSyncWork, type SyncWorkContext } from "./sync/progressiveScheduler";
 import type { Document } from "../types";
+import { getDocuments } from "../api/documents";
+import { invokeCommand, isTauri } from "./tauri";
 
 let started = false;
 let unsubscribe: (() => void) | null = null;
@@ -35,6 +37,16 @@ let activeManifest: FileManifest | null = null;
 let intentListenerRegistered = false;
 const inFlightDownloads = new Set<string>();
 const pendingIntents = new Map<string, { fileId: string; requestedByDevice: string }>();
+// Manifest rows and document rows are projected independently. A manifest can
+// therefore arrive (or be hydrated from SQLite) before its document exists in
+// the Zustand store. Keep those candidates until the document projection
+// catches up instead of dropping the only download trigger.
+const pendingManifestDocuments = new Map<string, string>();
+// The Zustand document list is scoped to the currently loaded collection/page
+// and can be empty on a cold mobile boot. File sync must resolve manifest
+// entries against durable SQLite, not require the user to visit Documents
+// first. This bounded index is refreshed once when the watcher starts.
+const durableDocumentsByFileId = new Map<string, Document>();
 let documentStoreListenerRegistered = false;
 let lastPrefetchSignature = "";
 let queuedPrefetchPromise: Promise<void> | null = null;
@@ -66,7 +78,20 @@ export async function startAutoFileSyncDownload(context?: SyncWorkContext): Prom
     return;
   }
 
+  try {
+    const durableDocuments = await getDocuments();
+    durableDocumentsByFileId.clear();
+    for (const doc of durableDocuments) {
+      if (doc.fileId) durableDocumentsByFileId.set(doc.fileId, doc);
+    }
+  } catch (err) {
+    // A document-index refresh failure should not disable future manifest
+    // events; the in-memory store path can still resolve rows that are loaded.
+    console.warn("[autoFileSyncDownload] durable document index unavailable, continuing", err);
+  }
+
   const manifest = getFileManifest();
+  await reconcileDurableLocalFiles(manifest, getFileTransferManager(), context);
   if (context?.shouldYield()) await context.yield();
 
   if (!intentListenerRegistered) {
@@ -74,10 +99,19 @@ export async function startAutoFileSyncDownload(context?: SyncWorkContext): Prom
     if (!documentStoreListenerRegistered) {
       documentStoreListenerRegistered = true;
       useDocumentStore.subscribe((state) => {
+        for (const doc of state.documents) {
+          if (doc.fileId) durableDocumentsByFileId.set(doc.fileId, doc);
+        }
         for (const intent of pendingIntents.values()) {
-          if (state.documents.some((doc) => doc.fileId === intent.fileId)) {
+          if (state.documents.some((doc) => doc.fileId === intent.fileId) || durableDocumentsByFileId.has(intent.fileId)) {
             pendingIntents.delete(intent.fileId);
             void maybeAutoDownloadIntent(intent);
+          }
+        }
+        for (const [fileId, sourceDeviceId] of pendingManifestDocuments) {
+          if (state.documents.some((doc) => doc.fileId === fileId) || durableDocumentsByFileId.has(fileId)) {
+            pendingManifestDocuments.delete(fileId);
+            void maybeAutoDownload([fileId], sourceDeviceId);
           }
         }
       });
@@ -111,12 +145,22 @@ export async function startAutoFileSyncDownload(context?: SyncWorkContext): Prom
     }
   }
 
+  // A rebuilt manifest belongs to a new room/doc. Do not let candidates from
+  // the previous instance leak into it.
+  pendingAutoDownloads.clear();
+  pendingManifestDocuments.clear();
+
   activeManifest = manifest;
   started = true;
 
   unsubscribe = manifest.subscribe((event: FileManifestEvent) => {
     if (event.type === "file-added") {
       void maybeAutoDownload([event.entry.id], event.sourceDeviceId);
+      return;
+    }
+    if (event.type === "file-removed") {
+      pendingAutoDownloads.delete(event.fileId);
+      pendingManifestDocuments.delete(event.fileId);
       return;
     }
     if (event.type !== "device-online" && event.type !== "device-files-updated") {
@@ -127,6 +171,14 @@ export async function startAutoFileSyncDownload(context?: SyncWorkContext): Prom
     // user can toggle it without a restart.
     void maybeAutoDownload(event.hasFiles, event.deviceId);
   });
+
+  // Subscriptions only observe future changes. Reconcile the cache that was
+  // hydrated from SQLite before this watcher attached, otherwise a caught-up
+  // device can have a complete manifest and still never request any bytes.
+  for (const entry of manifest.getAllFiles()) {
+    pendingAutoDownloads.set(entry.id, entry.uploadedBy);
+  }
+  if (pendingAutoDownloads.size > 0) void maybeAutoDownload([], "");
 }
 
 async function maybeAutoDownload(availableFileIds: string[], sourceDeviceId: string): Promise<void> {
@@ -148,11 +200,14 @@ async function maybeAutoDownload(availableFileIds: string[], sourceDeviceId: str
         const manifest = getFileManifest();
         const transferManager = getFileTransferManager();
         const candidates = work.flatMap(([fileId, sourceDeviceId]) => {
-          if (sourceDeviceId === manifest.getDeviceId() || transferManager.hasFileLocal(fileId)) return [];
+          if (sourceDeviceId === manifest.getDeviceId()) return [];
           const inManifest = manifest.getAllFiles().some((f) => f.id === fileId);
           if (!inManifest && !manifest.isFileAvailable(fileId, { excludeDeviceId: manifest.getDeviceId() })) return [];
-          const doc = documents.find((d) => d.fileId === fileId);
-          return doc ? [{ doc, fileId }] : [];
+          const doc = documents.find((d) => d.fileId === fileId) ?? durableDocumentsByFileId.get(fileId);
+          if (!doc) { pendingManifestDocuments.set(fileId, sourceDeviceId); return []; }
+          pendingManifestDocuments.delete(fileId);
+          if (doc.filePath) return [];
+          return [{ doc, fileId }];
         });
 
         let next = 0;
@@ -162,7 +217,7 @@ async function maybeAutoDownload(availableFileIds: string[], sourceDeviceId: str
             const candidate = candidates[index];
             const estimate = manifest.getFile(candidate.fileId)?.sizeBytes;
             await scheduleProgressiveSyncWork({
-              id: `sync:auto-download:${candidate.fileId}`,
+              id: `auto-download:${candidate.fileId}`,
               lane: "P2",
               kind: "sliceable",
               estimatedBytes: Number.isFinite(estimate) ? estimate : undefined,
@@ -190,6 +245,11 @@ async function maybeAutoDownloadIntent(intent: {
   requestedByDevice: string;
 }): Promise<void> {
   if (!useDocumentStore.getState().documents.some((doc) => doc.fileId === intent.fileId)) {
+    if (durableDocumentsByFileId.has(intent.fileId)) {
+      pendingIntents.delete(intent.fileId);
+      await maybeAutoDownload([intent.fileId], intent.requestedByDevice);
+      return;
+    }
     pendingIntents.set(intent.fileId, intent);
     return;
   }
@@ -203,11 +263,21 @@ async function downloadDocumentFile(
   fileId: string,
   transferManager = getFileTransferManager(),
 ): Promise<void> {
-  if (inFlightDownloads.has(fileId) || transferManager.hasFileLocal(fileId)) return;
+  if (inFlightDownloads.has(fileId)) return;
   inFlightDownloads.add(fileId);
   try {
     const blob = await transferManager.requestFile(fileId);
-    const storedPath = await saveReceivedFileSync(doc.id, fileId, blob, doc.fileType, doc.title);
+    const entry = getFileManifest().getFile(fileId);
+    const storedPath = await saveReceivedFileSync(
+      doc.id,
+      fileId,
+      blob,
+      doc.fileType,
+      doc.title,
+      entry
+        ? { sizeBytes: entry.sizeBytes, contentHash: entry.contentHash }
+        : undefined,
+    );
     if (storedPath) {
       useDocumentStore.setState((state) => {
         const updatedDocs = state.documents.map((d) =>
@@ -232,6 +302,57 @@ async function downloadDocumentFile(
 }
 
 /**
+ * Verify app-managed paths against the manifest's plaintext size/hash before
+ * treating them as local files. This repairs older builds that persisted
+ * encrypted server payloads after losing their room key: the bytes are left
+ * on disk for recoverability, but the document path and IndexedDB cache are
+ * detached so a correctly paired session can download a verified replacement.
+ */
+async function reconcileDurableLocalFiles(
+  manifest: FileManifest,
+  transferManager = getFileTransferManager(),
+  context?: SyncWorkContext,
+): Promise<void> {
+  if (!isTauri()) return;
+  for (const entry of manifest.getAllFiles()) {
+    const doc = durableDocumentsByFileId.get(entry.id);
+    if (!doc?.filePath) continue;
+    let valid = false;
+    try {
+      const [hash, size] = await invokeCommand<[string, number]>("hash_document_file", {
+        filePath: doc.filePath,
+      });
+      valid = size === entry.sizeBytes && (!entry.contentHash || hash === entry.contentHash);
+    } catch {
+      valid = false;
+    }
+    if (valid) continue;
+
+    console.warn(
+      "[autoFileSyncDownload] detaching invalid local file before retry",
+      entry.id,
+      doc.filePath,
+    );
+    transferManager.unregisterLocalFile(entry.id);
+    await invokeCommand("update_document_file_path", {
+      documentId: doc.id,
+      filePath: "",
+    });
+    durableDocumentsByFileId.set(entry.id, { ...doc, filePath: "" });
+    useDocumentStore.setState((state) => ({
+      documents: state.documents.map((candidate) =>
+        candidate.id === doc.id ? { ...candidate, filePath: "" } : candidate
+      ),
+      currentDocument:
+        state.currentDocument?.id === doc.id
+          ? { ...state.currentDocument, filePath: "" }
+          : state.currentDocument,
+    }));
+    if (context?.shouldYield()) await context.yield();
+  }
+}
+
+/**
  * Publish and prefetch the current queue horizon. This is intentionally
  * bounded and cooperative: queue navigation remains local-first, and the
  * existing auto-download policy still decides whether bytes may transfer.
@@ -245,7 +366,7 @@ export async function prefetchQueuedDocuments(documents: Document[]): Promise<vo
   lastPrefetchSignature = signature;
 
   queuedPrefetchPromise = scheduleProgressiveSyncWork({
-    id: `sync:queue-prefetch:${signature || "empty"}`,
+    id: `queue-prefetch:${signature || "empty"}`,
     lane: "P2",
     maxRetries: 0,
     run: async () => {
@@ -287,8 +408,10 @@ export async function prefetchQueuedDocuments(documents: Document[]): Promise<vo
 async function isOnWifi(): Promise<boolean> {
   const conn = (navigator as unknown as { connection?: { type?: string; effectiveType?: string } }).connection;
   if (conn) {
-    // 'type' is the most explicit (experimental but supported in Chromium WebView).
-    if (conn.type) return conn.type === "wifi";
+    // 'type' is the most explicit signal when the platform actually knows.
+    // Android WebView reports "unknown" (not "wifi") even on WiFi, so only
+    // trust a definitive non-wifi type — never block on "unknown".
+    if (conn.type && conn.type !== "unknown") return conn.type === "wifi";
     // effectiveType ('4g' etc.) is a rough proxy — treat anything not cellular
     // as wifi-friendly. Conservative: only block on known slow cellular.
     if (conn.effectiveType) {
