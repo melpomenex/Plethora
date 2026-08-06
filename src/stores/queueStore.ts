@@ -283,6 +283,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   // Set the queue filter mode and reload accordingly
   setQueueFilterMode: async (mode: QueueFilterMode) => {
+    // No-op when the mode isn't actually changing. Callers that re-run this
+    // on every tab-focus change (e.g. returning from Scroll Mode) would
+    // otherwise force a full backend refetch — and thus a visible
+    // reload/reorder of the list — for a selection that never changed.
+    if (get().queueFilterMode === mode) return;
     set({ queueFilterMode: mode });
     // Reload queue based on the new filter mode
     switch (mode) {
