@@ -5,6 +5,14 @@ vi.mock("../tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../tauri")>();
   return { ...actual, isTauri: () => true, invokeCommand: mocks.invokeCommand };
 });
+// drainSyncOutboxBatch early-returns when Yjs sync is disabled (the global
+// sync-off kill switch). These tests cover the publisher fan-out registry,
+// which is only reachable past that gate, so force the gate open here. The
+// fan-out logic itself has no server dependency.
+vi.mock("../yjsSync", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../yjsSync")>();
+  return { ...actual, isYjsSyncEnabled: () => true };
+});
 
 import { registerSyncOutboxPublisher, drainSyncOutboxBatch } from "../sync/syncJournal";
 
