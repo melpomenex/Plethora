@@ -250,6 +250,16 @@ pub async fn rate_document(
         result.scheduling_reason = format!("{}; {}", result.scheduling_reason, reason);
     }
 
+    let modifier = document.interval_modifier;
+    if (modifier - 1.0).abs() > f64::EPSILON {
+        let modified = (result.interval_days as f64 * modifier).round() as i64;
+        let modified = modified.max(1);
+        result.interval_days = modified;
+        result.next_review = Utc::now() + Duration::days(modified);
+        result.stability = modified as f64;
+        result.scheduling_reason = format!("{}; interval_modifier={:.1}x", result.scheduling_reason, modifier);
+    }
+
     let new_reps = document.reps.unwrap_or(0) + 1;
     let new_time_spent = document.total_time_spent.unwrap_or(0) + request.time_taken.unwrap_or(0);
 
@@ -263,6 +273,16 @@ pub async fn rate_document(
         Some(result.consecutive_count),
     )
     .await?;
+
+    if document.first_reviewed_at.is_none() {
+        let _ = sqlx::query(
+            "UPDATE documents SET first_reviewed_at = ?1 WHERE id = ?2 AND first_reviewed_at IS NULL",
+        )
+        .bind(Utc::now())
+        .bind(&document.id)
+        .execute(repo.pool())
+        .await;
+    }
 
     Ok(DocumentRatingResponse {
         next_review_date: result.next_review.to_rfc3339(),
@@ -335,6 +355,16 @@ pub async fn rate_document_engaging(
         result.scheduling_reason = format!("{}; {}", result.scheduling_reason, reason);
     }
 
+    let modifier = document.interval_modifier;
+    if (modifier - 1.0).abs() > f64::EPSILON {
+        let modified = (result.interval_days as f64 * modifier).round() as i64;
+        let modified = modified.max(1);
+        result.interval_days = modified;
+        result.next_review = Utc::now() + Duration::days(modified);
+        result.stability = modified as f64;
+        result.scheduling_reason = format!("{}; interval_modifier={:.1}x", result.scheduling_reason, modifier);
+    }
+
     let new_reps = review_count + 1;
     let new_time_spent = document.total_time_spent.unwrap_or(0) + request.time_taken.unwrap_or(0);
 
@@ -355,6 +385,16 @@ pub async fn rate_document_engaging(
         Some(consecutive_count),
     )
     .await?;
+
+    if document.first_reviewed_at.is_none() {
+        let _ = sqlx::query(
+            "UPDATE documents SET first_reviewed_at = ?1 WHERE id = ?2 AND first_reviewed_at IS NULL",
+        )
+        .bind(Utc::now())
+        .bind(&document.id)
+        .execute(repo.pool())
+        .await;
+    }
 
     Ok(DocumentRatingResponse {
         next_review_date: result.next_review.to_rfc3339(),

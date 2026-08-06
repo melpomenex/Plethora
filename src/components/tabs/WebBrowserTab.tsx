@@ -38,7 +38,8 @@ import { useI18n } from "../../lib/i18n";
 import { getShortcutCombo } from "../common/KeyboardShortcuts";
 import { createExtract, type CreateExtractInput } from "../../api/extracts";
 import { createLearningItem } from "../../api/learning-items";
-import { createDocument } from "../../api/documents";
+import { createDocument, fetchUrlContent, readDocumentFile } from "../../api/documents";
+import { processHtmlContent } from "../../utils/documentImport";
 import { AssistantPanel, type AssistantContext } from "../assistant/AssistantPanel";
 import { useToast } from "../common/Toast";
 import { useIsActiveTab } from "../common/Tabs";
@@ -370,6 +371,8 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
   const [savedExtracts, setSavedExtracts] = useState<WebExtract[]>([]);
   const [showAssistant, setShowAssistant] = useState(false);
   const [iframeStatus, setIframeStatus] = useState<"idle" | "loading" | "loaded" | "blocked">("idle");
+  const [readerContent, setReaderContent] = useState<{ html: string; title: string } | null>(null);
+  const [isLoadingReader, setIsLoadingReader] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const webviewRef = useRef<WebviewType | null>(null);
   const webviewContainerRef = useRef<HTMLDivElement | null>(null);
@@ -395,6 +398,7 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
 
     setIsLoading(true);
     setWebviewError(null);
+    setReaderContent(null);
     setCurrentUrl(formattedUrl);
     setUrl(formattedUrl);
     if (!isTauri()) {
@@ -470,6 +474,31 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
     setIsLoading(false);
     setIframeStatus("blocked");
   };
+
+  const handleLoadReaderView = useCallback(async (targetUrl?: string) => {
+    const urlToFetch = targetUrl || currentUrl;
+    if (!urlToFetch) return;
+    setIsLoadingReader(true);
+    try {
+      const fetched = await fetchUrlContent(urlToFetch);
+      let html = "";
+      if (fetched.html) {
+        html = fetched.html;
+      } else if (fetched.file_path) {
+        const bytes = await readDocumentFile(fetched.file_path);
+        html = new TextDecoder("utf-8").decode(bytes);
+      }
+      if (html) {
+        const processed = processHtmlContent(html, urlToFetch, fetched.title || pageTitle || urlToFetch, true);
+        setReaderContent({ html: processed, title: fetched.title || pageTitle || new URL(urlToFetch).hostname });
+        setPageTitle(fetched.title || pageTitle || new URL(urlToFetch).hostname);
+      }
+    } catch (err) {
+      toast.error("Failed to load reader view", err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setIsLoadingReader(false);
+    }
+  }, [currentUrl, pageTitle, toast]);
 
   const handleAddBookmark = () => {
     if (currentUrl && !bookmarks.includes(currentUrl)) {
@@ -1237,6 +1266,14 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
             <BookmarkSimple className="w-4 h-4" />
           </button>
           <button
+            onClick={() => readerContent ? setReaderContent(null) : handleLoadReaderView()}
+            disabled={!currentUrl || isLoadingReader}
+            className={`p-2 rounded-lg transition-colors ${readerContent ? "bg-primary text-primary-foreground" : "hover:bg-muted"} disabled:opacity-50`}
+            title={readerContent ? "Close reader view" : "Reader view"}
+          >
+            <BookOpen className="w-4 h-4" />
+          </button>
+          <button
             onClick={() => setShowSidebar(!showSidebar)}
             className={`p-2 rounded-lg transition-colors ${showSidebar ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
             title="Toggle sidebar"
@@ -1446,19 +1483,53 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
                   </div>
                 </div>
               )}
-              {!isTauri() && iframeStatus === "blocked" && (
+              {!isTauri() && iframeStatus === "blocked" && !readerContent && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/90 z-50">
                   <div className="text-center max-w-md px-4 space-y-3">
                     <p className="text-sm text-foreground font-semibold">
                       This site prevents embedding in an iframe.
                     </p>
-                    <button
-                      onClick={handleOpenInBrowser}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm"
-                    >
-                      <ArrowSquareOut className="w-4 h-4" />
-                      Open in Browser
-                    </button>
+                    <div className="flex items-center justify-center gap-3">
+                      <button
+                        onClick={() => handleLoadReaderView()}
+                        disabled={isLoadingReader}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
+                      >
+                        <BookOpen className="w-4 h-4" />
+                        {isLoadingReader ? "Loading..." : "Reader View"}
+                      </button>
+                      <button
+                        onClick={handleOpenInBrowser}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm"
+                      >
+                        <ArrowSquareOut className="w-4 h-4" />
+                        Open in Browser
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {readerContent && (
+                <div className="absolute inset-0 overflow-y-auto bg-background z-40">
+                  <div className="max-w-3xl mx-auto px-6 py-8">
+                    <div className="flex items-center justify-between mb-6">
+                      <h1 className="text-xl font-bold text-foreground">{readerContent.title}</h1>
+                      <button
+                        onClick={() => setReaderContent(null)}
+                        className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+                        title="Close reader view"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="text-xs text-muted-foreground mb-4 flex items-center gap-1">
+                      <ArrowSquareOut className="w-3 h-3" />
+                      <a href={currentUrl} target="_blank" rel="noopener noreferrer" className="hover:underline truncate">{currentUrl}</a>
+                    </div>
+                    <article
+                      className="prose prose-sm dark:prose-invert max-w-none"
+                      dangerouslySetInnerHTML={{ __html: readerContent.html }}
+                    />
                   </div>
                 </div>
               )}

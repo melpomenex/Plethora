@@ -58,6 +58,8 @@ export interface Document {
   totalTimeSpent?: number;
   consecutiveCount?: number;
   collectionId?: string;
+  intervalModifier?: number;
+  firstReviewedAt?: string;
 }
 
 export interface DocumentMetadata {
@@ -151,6 +153,7 @@ export interface LearningItem {
   isSuspended: boolean;
   tags: string[];
   imageAssetIds?: string[];
+  firstReviewedAt?: string;
 }
 
 export interface Category {

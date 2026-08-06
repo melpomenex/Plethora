@@ -72,6 +72,7 @@ pub struct LearningItem {
     /// until next review. `None` here means "not yet synced".
     #[serde(default)]
     pub updated_at: Option<String>,
+    pub first_reviewed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -123,6 +124,7 @@ impl LearningItem {
             algorithm_type: "fsrs".to_string(),
             algorithm_state: None,
             updated_at: None,
+            first_reviewed_at: None,
         }
     }
 

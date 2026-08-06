@@ -63,6 +63,10 @@ pub struct Document {
     /// Consecutive rating count for incremental scheduler
     /// Positive = consecutive good/easy ratings, Negative = consecutive again/hard ratings
     pub consecutive_count: Option<i32>,
+    /// Per-document interval multiplier (0.1–5.0) applied after FSRS scheduling
+    pub interval_modifier: f64,
+    /// Timestamp of the first review for any learning item in this document
+    pub first_reviewed_at: Option<DateTime<Utc>>,
 }
 
 /// Bounded document projection used by the startup snapshot.
@@ -106,6 +110,8 @@ pub struct StartupDocumentSummary {
     pub reps: Option<i32>,
     pub total_time_spent: Option<i32>,
     pub consecutive_count: Option<i32>,
+    pub interval_modifier: f64,
+    pub first_reviewed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -213,6 +219,8 @@ impl Document {
             reps: None,
             total_time_spent: None,
             consecutive_count: None,
+            interval_modifier: 1.0,
+            first_reviewed_at: None,
         }
     }
 }

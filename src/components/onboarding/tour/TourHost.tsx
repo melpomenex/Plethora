@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useI18n } from "../../../lib/i18n";
 import { usePresentation } from "../../../contexts/PresentationContext";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import { TOUR_CHAPTERS } from "./steps";
 import { TourOverlay } from "./TourOverlay";
 import { TourIllustration } from "./TourIllustration";
@@ -77,33 +78,50 @@ export function TourHost({
       }
       footer={
         <>
-          <button
-            type="button"
-            className="tour-btn-skip"
-            onClick={() => api.close("skip")}
-            data-tour-key="skip"
-          >
-            {t("onboarding.tour.skip")}
-          </button>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {!isFirst && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
                 type="button"
-                onClick={api.back}
-                disabled={isFirst}
-                data-tour-key="back"
+                className="tour-btn-skip"
+                onClick={() => api.close("skip")}
+                data-tour-key="skip"
               >
-                {t("onboarding.tour.back")}
+                {t("onboarding.tour.skip")}
               </button>
-            )}
-            <button
-              type="button"
-              className="tour-btn-primary"
-              onClick={() => (isLast ? api.close("done") : api.next())}
-              data-tour-key="next"
-            >
-              {isLast ? t("onboarding.tour.done") : t("onboarding.tour.next")}
-            </button>
+              <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--tour-muted)", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      useSettingsStore.getState().updateSettingsCategory("general", { showFeaturePopups: false });
+                      api.close("skip");
+                    }
+                  }}
+                  style={{ width: 12, height: 12 }}
+                />
+                {t("onboarding.tour.dontShowAgain") || "Don't show again"}
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {!isFirst && (
+                <button
+                  type="button"
+                  onClick={api.back}
+                  disabled={isFirst}
+                  data-tour-key="back"
+                >
+                  {t("onboarding.tour.back")}
+                </button>
+              )}
+              <button
+                type="button"
+                className="tour-btn-primary"
+                onClick={() => (isLast ? api.close("done") : api.next())}
+                data-tour-key="next"
+              >
+                {isLast ? t("onboarding.tour.done") : t("onboarding.tour.next")}
+              </button>
+            </div>
           </div>
         </>
       }

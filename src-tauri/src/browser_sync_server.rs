@@ -1389,6 +1389,8 @@ async fn handle_import_request(
         reps: None,
         total_time_spent: None,
         consecutive_count: None,
+        interval_modifier: 1.0,
+        first_reviewed_at: None,
     };
 
     let created = state.repo.create_document(&document).await?;
@@ -1529,6 +1531,8 @@ async fn handle_extract_request(
             reps: None,
             total_time_spent: None,
             consecutive_count: None,
+            interval_modifier: 1.0,
+            first_reviewed_at: None,
         };
 
         let created = state.repo.create_document(&document).await?;

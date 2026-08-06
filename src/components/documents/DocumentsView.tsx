@@ -33,6 +33,7 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
+import { useShallow } from "zustand/react/shallow";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { AnnaArchiveSearch } from "../import/AnnaArchiveSearch";
@@ -204,7 +205,23 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
     deleteDocument,
     bulkDelete,
     segmentDocument,
-  } = useDocumentStore();
+  } = useDocumentStore(useShallow(s => ({
+    documents: s.documents,
+    isLoading: s.isLoading,
+    isImporting: s.isImporting,
+    isSegmenting: s.isSegmenting,
+    importProgress: s.importProgress,
+    error: s.error,
+    loadDocuments: s.loadDocuments,
+    loadDocumentsPage: s.loadDocumentsPage,
+    openFilePickerAndImport: s.openFilePickerAndImport,
+    importFromFiles: s.importFromFiles,
+    importFromFolder: s.importFromFolder,
+    updateDocument: s.updateDocument,
+    deleteDocument: s.deleteDocument,
+    bulkDelete: s.bulkDelete,
+    segmentDocument: s.segmentDocument,
+  })));
   const collections = useCollectionStore((state) => state.collections);
   const createCollectionInBackground = useCollectionStore((state) => state.createCollectionInBackground);
   const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
@@ -1609,6 +1626,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                             <span className="px-2 py-0.5 rounded bg-muted/60 text-muted-foreground">
                               {doc.fileType}
                             </span>
+                            <DueDateBadge doc={doc} />
                             <DocumentFileSyncBadge doc={doc} />
                             {(doc.fileType === 'audio' || doc.fileType === 'video') && (() => {
                               const store = useTranscriptionQueueStore.getState();
@@ -2245,6 +2263,25 @@ function PriorityStepper({
       <span style={{ color: info.color }}>{slider}</span>
     </button>
   );
+}
+
+function DueDateBadge({ doc }: { doc: Document }) {
+  if (!doc.nextReadingDate) return null;
+  const due = new Date(doc.nextReadingDate);
+  if (Number.isNaN(due.getTime())) return null;
+  const diffDays = Math.round((due.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  if (diffDays > 7) return null;
+  const label = diffDays < 0
+    ? `Overdue ${Math.abs(diffDays)}d`
+    : diffDays === 0
+    ? "Due today"
+    : `Due in ${diffDays}d`;
+  const color = diffDays < 0
+    ? "bg-red-500/10 text-red-600 dark:text-red-400"
+    : diffDays === 0
+    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    : "bg-blue-500/10 text-blue-600 dark:text-blue-300";
+  return <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${color}`}>{label}</span>;
 }
 
 function ProgressBar({ doc }: { doc: Document }) {
@@ -2954,6 +2991,7 @@ function CompactDocumentRow({
             <span>{doc.extractCount} {t("documentsView.extractsShort")}</span>
             <span>{doc.learningItemCount} {t("documentsView.cardsShort")}</span>
             <span>{formatRelativeTime(getLastTouched(doc))}</span>
+            <DueDateBadge doc={doc} />
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <TagsInline tags={doc.tags} />
@@ -2999,7 +3037,10 @@ function CompactDocumentRow({
                 {doc.fileType}
               </span>
             </div>
-            <div className="mt-1 truncate text-[10px] text-muted-foreground">{doc.tags.slice(0, 3).join(" · ") || t("documentsView.noTags")}</div>
+            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span className="truncate">{doc.tags.slice(0, 3).join(" · ") || t("documentsView.noTags")}</span>
+              <DueDateBadge doc={doc} />
+            </div>
           </div>
         </div>
 

@@ -2292,6 +2292,57 @@ pub const MIGRATIONS: &[Migration] = &[
         WHERE id = '00000000-0000-0000-0000-000000000001';
         "#,
     ),
+    Migration::new(
+        "074_add_composite_indexes",
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_documents_collection_state ON documents(collection_id, is_archived);
+        CREATE INDEX IF NOT EXISTS idx_documents_due ON documents(next_reading_date);
+        CREATE INDEX IF NOT EXISTS idx_learning_items_document_state ON learning_items(document_id, state);
+        CREATE INDEX IF NOT EXISTS idx_learning_items_due ON learning_items(due_date);
+        CREATE INDEX IF NOT EXISTS idx_learning_items_type ON learning_items(item_type);
+        CREATE INDEX IF NOT EXISTS idx_review_log_item ON review_log(item_id, timestamp);
+        "#,
+    ),
+    Migration::new(
+        "075_add_interval_modifier",
+        r#"
+        ALTER TABLE documents ADD COLUMN interval_modifier REAL NOT NULL DEFAULT 1.0;
+        "#,
+    ),
+    Migration::new(
+        "076_add_first_reviewed_at",
+        r#"
+        ALTER TABLE documents ADD COLUMN first_reviewed_at TEXT;
+        ALTER TABLE learning_items ADD COLUMN first_reviewed_at TEXT;
+        "#,
+    ),
+    Migration::new(
+        "077_backfill_first_reviewed_at",
+        r#"
+        UPDATE learning_items
+        SET first_reviewed_at = (
+            SELECT MIN(rr.timestamp)
+            FROM review_results rr
+            WHERE rr.item_id = learning_items.id
+        )
+        WHERE first_reviewed_at IS NULL
+          AND EXISTS (SELECT 1 FROM review_results rr WHERE rr.item_id = learning_items.id);
+
+        UPDATE documents
+        SET first_reviewed_at = (
+            SELECT MIN(rr.timestamp)
+            FROM review_results rr
+            JOIN learning_items li ON rr.item_id = li.id
+            WHERE li.document_id = documents.id
+        )
+        WHERE first_reviewed_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM review_results rr
+            JOIN learning_items li ON rr.item_id = li.id
+            WHERE li.document_id = documents.id
+          );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

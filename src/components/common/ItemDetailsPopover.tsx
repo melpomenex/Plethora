@@ -64,6 +64,8 @@ interface ItemDetailsData {
   raw?: Record<string, unknown> | null;
   isDismissed?: boolean;
   algorithmType?: string | null;
+  intervalModifier?: number | null;
+  firstReviewedAt?: string | null;
 }
 
 interface ItemDetailsPopoverProps {
@@ -91,6 +93,8 @@ const EMPTY_DETAILS: ItemDetailsData = {
   previewIntervals: null,
   raw: null,
   algorithmType: null,
+  intervalModifier: null,
+  firstReviewedAt: null,
 };
 
 function formatMaybeNumber(value?: number | null, suffix?: string): string {
@@ -169,6 +173,8 @@ async function loadItemDetails(target: ItemDetailsTarget): Promise<ItemDetailsDa
       previewIntervals: null,
       isDismissed: document?.isDismissed ?? false,
       raw: document ? { ...document } : null,
+      intervalModifier: document?.intervalModifier ?? 1.0,
+      firstReviewedAt: document?.firstReviewedAt ?? null,
     };
   }
 
@@ -197,6 +203,8 @@ export function ItemDetailsPopover({
   const [isSavingTag, setIsSavingTag] = useState(false);
   const [isPostponing, setIsPostponing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [localModifier, setLocalModifier] = useState<string>("");
+  const [isSavingModifier, setIsSavingModifier] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const modal = useModal();
@@ -282,6 +290,12 @@ export function ItemDetailsPopover({
       setLocalTags(rawTags.filter((tag): tag is string => typeof tag === "string"));
     }
   }, [details.raw]);
+
+  useEffect(() => {
+    if (details.intervalModifier != null) {
+      setLocalModifier(details.intervalModifier.toFixed(1));
+    }
+  }, [details.intervalModifier]);
 
   const handleToggle = () => {
     setIsOpen((prev) => !prev);
@@ -405,6 +419,33 @@ export function ItemDetailsPopover({
       );
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleSaveModifier = async (overrideValue?: number) => {
+    if (target.type !== "document") return;
+    const value = overrideValue ?? parseFloat(localModifier);
+    if (Number.isNaN(value) || value < 0.1 || value > 5.0) {
+      toast.error(t("itemDetails.invalidModifier") || "Invalid value", "Must be between 0.1 and 5.0");
+      return;
+    }
+    const rounded = Math.round(value * 10) / 10;
+    setIsSavingModifier(true);
+    try {
+      const rawDoc = details.raw as unknown as import("../../types/document").Document | null;
+      if (!rawDoc) throw new Error("Document details not loaded yet");
+      await updateDocument(target.id, { ...rawDoc, intervalModifier: rounded });
+      setDetails((prev) => ({ ...prev, intervalModifier: rounded }));
+      setLocalModifier(rounded.toFixed(1));
+      toast.success(t("itemDetails.modifierSaved") || "Interval modifier saved");
+    } catch (err) {
+      console.error("Failed to save interval modifier", err);
+      toast.error(
+        t("itemDetails.modifierSaveFailed") || "Failed to save",
+        err instanceof Error ? err.message : t("itemDetails.pleaseTryAgain")
+      );
+    } finally {
+      setIsSavingModifier(false);
     }
   };
 
@@ -579,6 +620,51 @@ export function ItemDetailsPopover({
                       <div className="font-semibold text-foreground">{formatMaybeNumber(details.lapses)}</div>
                     </div>
                   </div>
+
+                  {target.type === "document" && details.intervalModifier != null && (
+                    <div className="space-y-1.5">
+                      <div className="text-xs text-muted-foreground">Interval Modifier</div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="0.1"
+                          max="5.0"
+                          step="0.1"
+                          value={localModifier}
+                          onChange={(e) => setLocalModifier(e.target.value)}
+                          onBlur={() => void handleSaveModifier()}
+                          onKeyDown={(e) => { if (e.key === "Enter") void handleSaveModifier(); }}
+                          disabled={isSavingModifier}
+                          className="w-20 px-2 py-1 text-xs rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                        />
+                        <span className="text-xs text-muted-foreground">x</span>
+                        {isSavingModifier && <CircleNotch className="w-3 h-3 animate-spin text-muted-foreground" />}
+                        {parseFloat(localModifier) !== 1.0 && (
+                          <button
+                            type="button"
+                            onClick={() => { setLocalModifier("1.0"); void handleSaveModifier(1.0); }}
+                            className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                          >
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                      {(() => {
+                        const v = parseFloat(localModifier);
+                        if (!Number.isNaN(v) && (v <= 0.3 || v >= 3.0)) {
+                          return <div className="text-[10px] text-amber-500">Extreme value — intervals will be significantly {v < 1 ? "shorter" : "longer"}</div>;
+                        }
+                        return null;
+                      })()}
+                    </div>
+                  )}
+
+                  {details.firstReviewedAt && (
+                    <div className="text-xs">
+                      <div className="text-muted-foreground">First Reviewed</div>
+                      <div className="font-semibold text-foreground">{formatDate(details.firstReviewedAt)}</div>
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <div className="text-xs text-muted-foreground">{t("itemDetails.previewIntervals")}</div>

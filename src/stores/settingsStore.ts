@@ -241,6 +241,7 @@ interface GeneralSettings {
   restoreSession: boolean;
   /** Which view the app opens on when a session is not being restored. */
   defaultView: DefaultStartupView;
+  showFeaturePopups: boolean;
 }
 
 /**
@@ -537,6 +538,7 @@ export const defaultSettings: Settings = {
     dateFormat: "iso",
     restoreSession: true,
     defaultView: "queue",
+    showFeaturePopups: true,
   },
   appearance: {
     theme: "system",
@@ -882,15 +884,21 @@ export const useSettingsStore = create<SettingsState>()(
         if (root?.ai && version < 3) {
           root.ai.pwaAssistantButtonEnabled = false;
         }
-        // v3 -> v4: ensure the yjs sync settings field exists with defaults.
-        // The onRehydrateStorage merge already applies defaults, but we
+        // v3 -> v4: ensure the yjs sync settings field exists with the right
+        // shape. The onRehydrateStorage merge already applies defaults, but we
         // explicitly seed it here so the toggle renders correctly even if a
         // user opens Settings before the rehydration callback fires.
+        // NOTE: real-time sync is OPT-IN — we deliberately do NOT auto-enable
+        // it here. We preserve whatever the user previously chose (defaulting
+        // to false when unset), so existing users who never opted in stay
+        // opted out and the app does not start syncing on its own.
         if (version < 4) {
           if (root?.sync) {
+            const existingEnabled = root.sync.yjs?.enabled ?? false;
+            const existingUrl = root.sync.yjs?.url ?? "";
             root.sync = {
               ...root.sync,
-              yjs: { enabled: true },
+              yjs: { enabled: existingEnabled, url: existingUrl },
             };
           }
         }

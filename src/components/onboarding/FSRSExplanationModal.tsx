@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { useSettingsStore } from "../../stores/settingsStore";
 import {
   ArrowCounterClockwise,
   BookOpen,
@@ -384,7 +385,8 @@ export function useFSRSExplanation() {
   useEffect(() => {
     const shown = localStorage.getItem(STORAGE_KEY);
     if (!shown) {
-      setShouldShow(true);
+      const showPopups = useSettingsStore.getState().settings.general.showFeaturePopups;
+      setShouldShow(showPopups !== false);
     }
   }, []);
 

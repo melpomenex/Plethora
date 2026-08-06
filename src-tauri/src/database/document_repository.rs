@@ -224,6 +224,8 @@ impl DocumentRepository {
                     reps: row.try_get("reps").ok(),
                     total_time_spent: row.try_get("total_time_spent").ok(),
                     consecutive_count: row.try_get("consecutive_count").ok(),
+                    interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                    first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
                 }))
             }
             None => Ok(None),
@@ -285,6 +287,8 @@ impl DocumentRepository {
                     reps: row.try_get("reps").ok(),
                     total_time_spent: row.try_get("total_time_spent").ok(),
                     consecutive_count: row.try_get("consecutive_count").ok(),
+                    interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                    first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
                 }))
             }
             None => Ok(None),
@@ -357,6 +361,8 @@ impl DocumentRepository {
                 reps: row.try_get("reps").ok(),
                 total_time_spent: row.try_get("total_time_spent").ok(),
                 consecutive_count: row.try_get("consecutive_count").ok(),
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
             });
         }
 
@@ -420,6 +426,8 @@ impl DocumentRepository {
                 reps: None,
                 total_time_spent: None,
                 consecutive_count: None,
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: None,
             });
         }
 

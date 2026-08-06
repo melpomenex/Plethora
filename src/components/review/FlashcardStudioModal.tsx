@@ -297,7 +297,7 @@ Return a JSON code block with this exact schema:
       "question": "What is hidden here?",
       "answer": "Short reveal explanation",
       "regions": [
-        { "x": 12.5, "y": 18.2, "width": 24.0, "height": 10.4, "label": "optional short label" }
+        { "bbox": [ymin, xmin, ymax, xmax], "label": "optional short label" }
       ]
     }
   ]
@@ -307,7 +307,7 @@ Return a JSON code block with this exact schema:
 Rules:
 - Return ONLY the JSON code block.
 - Use the provided imageAssetId values exactly as given.
-- Regions use percentages from 0 to 100 relative to the full image.
+- bbox is [ymin, xmin, ymax, xmax] with each value in the range 0–1000, normalized to the full image dimensions.
 - Create 1-4 useful hidden regions per image when the image supports it.
 - Hide labels, terms, callouts, diagram parts, answers, or key visual anchors.
 - Do not create tiny unusable boxes. Keep regions readable and reasonably tight.
@@ -401,14 +401,25 @@ function normalizeOcclusionRegions(value: unknown): ImageOcclusionRegion[] {
   if (!Array.isArray(value)) return [];
   const normalized: ImageOcclusionRegion[] = [];
   value.forEach((entry, index) => {
-      const region = entry as Partial<ImageOcclusionRegion>;
-      const x = clampPercent(Number(region.x));
-      const y = clampPercent(Number(region.y));
-      const width = clampPercent(Number(region.width));
-      const height = clampPercent(Number(region.height));
+      const region = entry as Record<string, unknown>;
+      let x: number, y: number, width: number, height: number;
+
+      if (Array.isArray(region.bbox) && region.bbox.length >= 4) {
+        const [ymin, xmin, ymax, xmax] = (region.bbox as number[]).map(Number);
+        x = clampPercent(xmin / 10);
+        y = clampPercent(ymin / 10);
+        width = clampPercent((xmax - xmin) / 10);
+        height = clampPercent((ymax - ymin) / 10);
+      } else {
+        x = clampPercent(Number(region.x));
+        y = clampPercent(Number(region.y));
+        width = clampPercent(Number(region.width));
+        height = clampPercent(Number(region.height));
+      }
+
       if (width <= 0 || height <= 0) return;
       normalized.push({
-        id: region.id || `region-${index + 1}`,
+        id: (typeof region.id === "string" ? region.id : null) || `region-${index + 1}`,
         x,
         y,
         width: Math.min(width, 100 - x),
@@ -1651,18 +1662,54 @@ function ImageOcclusionEditor({
 }) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
   const [draftRegion, setDraftRegion] = useState<ImageOcclusionRegion | null>(null);
+  const [imgBounds, setImgBounds] = useState<{ offsetX: number; offsetY: number; width: number; height: number } | null>(null);
+
+  const computeImgBounds = useCallback(() => {
+    const img = imgRef.current;
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+    const containerW = img.clientWidth;
+    const containerH = img.clientHeight;
+    const scale = Math.min(containerW / img.naturalWidth, containerH / img.naturalHeight);
+    const renderedW = img.naturalWidth * scale;
+    const renderedH = img.naturalHeight * scale;
+    setImgBounds({
+      offsetX: (containerW - renderedW) / 2,
+      offsetY: (containerH - renderedH) / 2,
+      width: renderedW,
+      height: renderedH,
+    });
+  }, []);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img) return;
+    if (img.complete) computeImgBounds();
+    img.addEventListener("load", computeImgBounds);
+    const ro = new ResizeObserver(computeImgBounds);
+    ro.observe(img);
+    return () => { img.removeEventListener("load", computeImgBounds); ro.disconnect(); };
+  }, [asset, computeImgBounds]);
 
   const clamp = (value: number) => Math.max(0, Math.min(100, value));
 
   const getPoint = (event: React.PointerEvent<HTMLDivElement>) => {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return null;
+    const cx = event.clientX - rect.left;
+    const cy = event.clientY - rect.top;
+    if (imgBounds) {
+      return {
+        x: clamp(((cx - imgBounds.offsetX) / imgBounds.width) * 100),
+        y: clamp(((cy - imgBounds.offsetY) / imgBounds.height) * 100),
+      };
+    }
     return {
-      x: clamp(((event.clientX - rect.left) / rect.width) * 100),
-      y: clamp(((event.clientY - rect.top) / rect.height) * 100),
+      x: clamp((cx / rect.width) * 100),
+      y: clamp((cy / rect.height) * 100),
     };
   };
 
@@ -1725,16 +1772,16 @@ function ImageOcclusionEditor({
           <FrameCorners className="h-3 w-3" />
           {t("flashcardStudio.expandImage")}
         </button>
-        <img src={asset.data_url} alt={asset.file_name || t("flashcardStudio.occlusionEditor")} className="w-full object-contain select-none" />
-        {[...regions, ...(draftRegion ? [draftRegion] : [])].map((region, index) => (
+        <img ref={imgRef} src={asset.data_url} alt={asset.file_name || t("flashcardStudio.occlusionEditor")} className="w-full object-contain select-none" />
+        {imgBounds && [...regions, ...(draftRegion ? [draftRegion] : [])].map((region, index) => (
           <div
             key={region.id || `${region.x}-${region.y}-${index}`}
             className="absolute rounded border border-white/40 bg-slate-950/75"
             style={{
-              left: `${region.x}%`,
-              top: `${region.y}%`,
-              width: `${region.width}%`,
-              height: `${region.height}%`,
+              left: `${imgBounds.offsetX + (region.x / 100) * imgBounds.width}px`,
+              top: `${imgBounds.offsetY + (region.y / 100) * imgBounds.height}px`,
+              width: `${(region.width / 100) * imgBounds.width}px`,
+              height: `${(region.height / 100) * imgBounds.height}px`,
             }}
           />
         ))}
@@ -1775,6 +1822,35 @@ function ImageOcclusionLightbox({
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const lbImgRef = useRef<HTMLImageElement>(null);
+  const [lbImgBounds, setLbImgBounds] = useState<{ offsetX: number; offsetY: number; width: number; height: number } | null>(null);
+
+  const computeLbBounds = useCallback(() => {
+    const img = lbImgRef.current;
+    if (!img || !img.naturalWidth || !img.naturalHeight) return;
+    const containerW = img.clientWidth;
+    const containerH = img.clientHeight;
+    const scale = Math.min(containerW / img.naturalWidth, containerH / img.naturalHeight);
+    const renderedW = img.naturalWidth * scale;
+    const renderedH = img.naturalHeight * scale;
+    setLbImgBounds({
+      offsetX: (containerW - renderedW) / 2,
+      offsetY: (containerH - renderedH) / 2,
+      width: renderedW,
+      height: renderedH,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const img = lbImgRef.current;
+    if (!img) return;
+    if (img.complete) computeLbBounds();
+    img.addEventListener("load", computeLbBounds);
+    const ro = new ResizeObserver(computeLbBounds);
+    ro.observe(img);
+    return () => { img.removeEventListener("load", computeLbBounds); ro.disconnect(); };
+  }, [isOpen, asset, computeLbBounds]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1819,19 +1895,20 @@ function ImageOcclusionLightbox({
         <div className="min-h-0 flex-1 overflow-auto p-5">
           <div className="relative mx-auto w-full overflow-hidden rounded-2xl bg-black/40">
             <img
+              ref={lbImgRef}
               src={asset.data_url}
               alt={asset.file_name || title}
               className="mx-auto block max-h-[calc(92vh-8rem)] w-full object-contain"
             />
-            {regions.map((region, index) => (
+            {lbImgBounds && regions.map((region, index) => (
               <div
                 key={region.id || `${region.x}-${region.y}-${index}`}
                 className="absolute rounded border border-white/50 bg-slate-950/75"
                 style={{
-                  left: `${region.x}%`,
-                  top: `${region.y}%`,
-                  width: `${region.width}%`,
-                  height: `${region.height}%`,
+                  left: `${lbImgBounds.offsetX + (region.x / 100) * lbImgBounds.width}px`,
+                  top: `${lbImgBounds.offsetY + (region.y / 100) * lbImgBounds.height}px`,
+                  width: `${(region.width / 100) * lbImgBounds.width}px`,
+                  height: `${(region.height / 100) * lbImgBounds.height}px`,
                 }}
               />
             ))}

@@ -103,6 +103,12 @@ vi.mock("pdfjs-dist", () => ({
   })),
 }));
 
+vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
+  EventBus: vi.fn(),
+  PDFPageView: vi.fn(),
+  AbortException: class AbortException extends Error {},
+}));
+
 // Mock window.__TAURI__ for Tauri 2.0
 Object.defineProperty(window, "__TAURI__", {
   value: {

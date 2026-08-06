@@ -119,11 +119,26 @@ describe("ReviewQueueView", () => {
     expect(screen.getAllByText("Reading Item").length).toBeGreaterThan(0);
   });
 
-  it("routes optimal session to scroll mode when available", () => {
+  it("routes optimal session to scroll mode with optimal mode option", () => {
     const onOpenScrollMode = vi.fn();
     render(<ReviewQueueView onOpenScrollMode={onOpenScrollMode} />);
     fireEvent.click(screen.getByText("Start Optimal Session"));
     expect(onOpenScrollMode).toHaveBeenCalledTimes(1);
+    expect(onOpenScrollMode).toHaveBeenCalledWith({ mode: "optimal" });
+  });
+
+  it("routes scroll mode button to scroll mode with visible items and queue-list mode option", () => {
+    const onOpenScrollMode = vi.fn();
+    render(<ReviewQueueView onOpenScrollMode={onOpenScrollMode} />);
+    fireEvent.click(screen.getByText("Scroll Mode"));
+    expect(onOpenScrollMode).toHaveBeenCalledTimes(1);
+    expect(onOpenScrollMode).toHaveBeenCalledWith({
+      items: expect.arrayContaining([
+        expect.objectContaining({ id: "item-1", documentId: "doc-1" }),
+        expect.objectContaining({ id: "item-3", documentId: "doc-3" }),
+      ]),
+      mode: "queue-list",
+    });
   });
 
   it("starts the planned flashcard queue when Review Queue is selected", () => {

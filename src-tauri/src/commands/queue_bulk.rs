@@ -226,9 +226,11 @@ pub async fn postpone_item(
                 crate::error::IncrementumError::NotFound(format!("Document {}", item_id))
             })?;
 
+            let modified_days = (days as f64 * doc.interval_modifier).round() as i64;
+            let modified_days = modified_days.max(1);
             let new_date = match doc.next_reading_date {
-                Some(d) => d + Duration::days(days as i64),
-                None => Utc::now() + Duration::days(days as i64),
+                Some(d) => d + Duration::days(modified_days),
+                None => Utc::now() + Duration::days(modified_days),
             };
             repo.update_document_scheduling(
                 &item_id,

@@ -169,6 +169,7 @@ impl Repository {
             algorithm_type,
             algorithm_state,
             updated_at: row.try_get("updated_at").ok(),
+            first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
         })
     }
 
@@ -569,6 +570,8 @@ impl Repository {
                     reps: row.try_get("reps").ok(),
                     total_time_spent: row.try_get("total_time_spent").ok(),
                     consecutive_count: row.try_get("consecutive_count").ok(),
+                    interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                    first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
                 }))
             }
             None => Ok(None),
@@ -699,6 +702,8 @@ impl Repository {
                     reps: row.try_get("reps").ok(),
                     total_time_spent: row.try_get("total_time_spent").ok(),
                     consecutive_count: row.try_get("consecutive_count").ok(),
+                    interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                    first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
                 }))
             }
             None => Ok(None),
@@ -767,6 +772,8 @@ impl Repository {
                 reps: row.try_get("reps").ok(),
                 total_time_spent: row.try_get("total_time_spent").ok(),
                 consecutive_count: row.try_get("consecutive_count").ok(),
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
             });
         }
 
@@ -836,6 +843,8 @@ impl Repository {
                 reps: row.try_get("reps").ok(),
                 total_time_spent: row.try_get("total_time_spent").ok(),
                 consecutive_count: row.try_get("consecutive_count").ok(),
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
             });
         }
 
@@ -926,6 +935,8 @@ impl Repository {
                 reps: row.try_get("reps").ok(),
                 total_time_spent: row.try_get("total_time_spent").ok(),
                 consecutive_count: row.try_get("consecutive_count").ok(),
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
             });
         }
 
@@ -1013,6 +1024,8 @@ impl Repository {
                 reps: row.try_get("reps").ok(),
                 total_time_spent: row.try_get("total_time_spent").ok(),
                 consecutive_count: row.try_get("consecutive_count").ok(),
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
             });
         }
 
@@ -1099,6 +1112,8 @@ impl Repository {
                     reps: row.try_get("reps").ok(),
                     total_time_spent: row.try_get("total_time_spent").ok(),
                     consecutive_count: row.try_get("consecutive_count").ok(),
+                    interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                    first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
                 }
             })
             .collect();
@@ -1176,6 +1191,8 @@ impl Repository {
                 reps: row.try_get("reps").ok(),
                 total_time_spent: row.try_get("total_time_spent").ok(),
                 consecutive_count: row.try_get("consecutive_count").ok(),
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
             });
         }
 
@@ -1275,6 +1292,8 @@ impl Repository {
                 reps: row.try_get("reps").ok(),
                 total_time_spent: row.try_get("total_time_spent").ok(),
                 consecutive_count: row.try_get("consecutive_count").ok(),
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
             });
         }
 
@@ -2580,7 +2599,8 @@ impl Repository {
                 last_review_date = ?7, date_modified = ?8,
                 memory_state_stability = ?9, memory_state_difficulty = ?10,
                 interaction_metadata = ?12, algorithm_type = ?13, algorithm_state = ?14,
-                updated_at = COALESCE(?15, updated_at), tags = ?16, difficulty = ?17
+                updated_at = COALESCE(?15, updated_at), tags = ?16, difficulty = ?17,
+                first_reviewed_at = COALESCE(first_reviewed_at, ?18)
             WHERE id = ?11
             "#,
         )
@@ -2601,6 +2621,7 @@ impl Repository {
         .bind(&item.updated_at)
         .bind(&tags_json)
         .bind(item.difficulty)
+        .bind(item.first_reviewed_at)
         .execute(&self.pool)
         .await?;
 
@@ -5720,6 +5741,8 @@ impl Repository {
                 reps: row.try_get("reps").ok(),
                 total_time_spent: row.try_get("total_time_spent").ok(),
                 consecutive_count: row.try_get("consecutive_count").ok(),
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
             };
             map.insert(doc.id.clone(), doc);
         }

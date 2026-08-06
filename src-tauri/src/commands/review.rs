@@ -514,6 +514,10 @@ pub async fn apply_review(
         return Ok(item);
     }
 
+    if item.first_reviewed_at.is_none() {
+        item.first_reviewed_at = Some(Utc::now());
+    }
+
     repo.update_learning_item(&item).await?;
     repo.create_review_result(
         &review_result_id,
@@ -2357,6 +2361,7 @@ mod tests {
             algorithm_type: "fsrs".into(),
             algorithm_state: None, // no persisted SM-20 state → fallback branch
             updated_at: None,
+            first_reviewed_at: None,
         };
 
         // D=0.0 must be coerced away from the degenerate edge bucket.

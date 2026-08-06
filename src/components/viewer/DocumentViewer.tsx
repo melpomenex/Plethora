@@ -30,6 +30,7 @@ import {
 } from "@phosphor-icons/react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useDocumentStore, useTabsStore, useQueueStore } from "../../stores";
+import { useShallow } from "zustand/react/shallow";
 import { convertFileSrc, isNativeMobile, isTauri } from "../../lib/tauri";
 import { shouldUseNativeMobilePdfSource } from "./pdfFeatureFlags";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
@@ -361,12 +362,13 @@ export function DocumentViewer({
   const toast = useToast();
   const { t } = useI18n();
   const { theme } = useTheme();
-  const { documents, hydrateDocument, setCurrentDocument, currentDocument: globalCurrentDocument, updateDocument } = useDocumentStore();
+  const { hydrateDocument, setCurrentDocument, updateDocument } = useDocumentStore(
+    useShallow(s => ({ hydrateDocument: s.hydrateDocument, setCurrentDocument: s.setCurrentDocument, updateDocument: s.updateDocument }))
+  );
+  const localDocument = useDocumentStore(s => s.documents.find(d => d.id === documentId));
+  const globalCurrentDocument = useDocumentStore(s => s.currentDocument);
   const priorityPopup = usePriorityPopup({ updateDocument });
-  
-  // Use local document lookup by documentId prop instead of global currentDocument
-  // This allows multiple DocumentViewers to show different documents in split panes
-  const localDocument = documents.find((d) => d.id === documentId);
+
   // A tab may render while another document is still the store's shared
   // currentDocument. Never let that unrelated document determine this
   // viewer's type or loading state; the tab must stay keyed to its own id.
@@ -383,7 +385,8 @@ export function DocumentViewer({
     currentDocument?.metadata?.url ||
     (currentDocument?.filePath?.startsWith("http") ? currentDocument.filePath : undefined);
   const { closeTab, tabs, updateTab, setActiveTab, findPaneContainingTab } = useTabsStore();
-  const { items: queueItems, loadQueue } = useQueueStore();
+  const queueItems = useQueueStore(s => s.items);
+  const loadQueue = useQueueStore(s => s.loadQueue);
   const { settings, updateSettings } = useSettingsStore();
 
   const paneId = usePaneId();
@@ -412,6 +415,7 @@ export function DocumentViewer({
   const [, setPagesRendered] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode ?? "document");
   const [isPaletteMode, setIsPaletteMode] = useState(false);
+  const [isExtractMode, setIsExtractMode] = useState(false);
   const [videoContext, setVideoContext] = useState<{
     videoId: string;
     title?: string;
@@ -2280,12 +2284,16 @@ export function DocumentViewer({
   }, [openFilePath, documentId, currentDocument, fileData, epubUrl, isTabActive, loadDocumentData]);
 
   useEffect(() => {
+    if (focusedExtractId) {
+      setViewMode("extracts");
+      return;
+    }
     if (initialViewMode) {
       setViewMode(initialViewMode);
       return;
     }
     setViewMode("document");
-  }, [documentId, initialViewMode]);
+  }, [documentId, initialViewMode, focusedExtractId]);
 
   useEffect(() => {
     if (docType !== "pdf") return;
@@ -3079,10 +3087,13 @@ export function DocumentViewer({
     restoreScrollTimeoutRef.current = window.setTimeout(attemptVerify, 200);
   }, [docType, isLoading, pageNumber, restoreState, viewMode]);
 
-  useEffect(() => {
-    loadQueue();
-  }, [loadQueue]);
-
+  // NOTE: a previous effect unconditionally called loadQueue() on every
+  // DocumentViewer mount. In Scroll Mode, a new DocumentViewer mounts on every
+  // item advance, so this re-fetched and re-sorted the shared queue store
+  // constantly — reshuffling the background queue list while the user read. The
+  // queue is already loaded by the queue views on first activation and by the
+  // explicit Toolbar refresh; the post-action reload after archiving (below)
+  // remains. Removing this mount-reload keeps the queue order stable.
   // Note: visibilitychange handling is done in the effect above with restoration logic
 
   useEffect(() => {
@@ -4072,7 +4083,7 @@ export function DocumentViewer({
       const nextItem = currentIndex >= 0 ? documentQueueItems[currentIndex + 1] : undefined;
 
       if (nextItem) {
-        const nextDoc = documents.find((doc) => doc.id === nextItem.documentId);
+        const nextDoc = useDocumentStore.getState().documents.find((doc) => doc.id === nextItem.documentId);
         const currentTab = tabs.find((tab) => tab.data?.documentId === documentId);
 
         if (currentTab && nextDoc) {
@@ -5905,6 +5916,26 @@ export function DocumentViewer({
             onOpenPopup={() => void priorityPopup.open([currentDocument.id], [currentDocument])}
           />
 
+          {/* Due date badge */}
+          {(() => {
+            const nrd = currentDocument.nextReadingDate;
+            if (!nrd) return null;
+            const due = new Date(nrd);
+            if (Number.isNaN(due.getTime())) return null;
+            const diff = Math.round((due.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+            if (diff > 7) return null;
+            const label = diff < 0 ? `Overdue ${Math.abs(diff)}d` : diff === 0 ? "Due today" : `Due in ${diff}d`;
+            const color = diff < 0 ? "bg-red-500/10 text-red-600 dark:text-red-400" : diff === 0 ? "bg-amber-500/10 text-amber-600" : "bg-blue-500/10 text-blue-600";
+            return <span className={`hidden sm:inline text-[10px] font-medium px-2 py-1 rounded ${color}`}>{label}</span>;
+          })()}
+
+          {/* Interval modifier indicator */}
+          {currentDocument.intervalModifier != null && currentDocument.intervalModifier !== 1.0 && (
+            <span className="hidden sm:inline text-[10px] font-medium px-2 py-1 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
+              {currentDocument.intervalModifier.toFixed(1)}x
+            </span>
+          )}
+
           <div className="hidden sm:block h-6 w-px bg-border mx-1" />
 
           {/* View Mode Toggle */}
@@ -5946,6 +5977,29 @@ export function DocumentViewer({
               <Brain className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Extract Mode Toggle */}
+          {viewMode === "document" && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setIsExtractMode((prev) => !prev)}
+                className={cn(
+                  "p-2 rounded-md transition-colors",
+                  isExtractMode
+                    ? "bg-amber-500/15 text-amber-600 ring-1 ring-amber-500/30"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                )}
+                title={isExtractMode ? "Exit extract mode" : "Enter extract mode (auto-extract selections)"}
+              >
+                <Highlighter className="w-4 h-4" />
+              </button>
+              {isExtractMode && (
+                <span className="hidden sm:inline text-[10px] font-semibold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                  EXTRACT
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex min-w-0 max-w-full flex-[1_1_24rem] flex-wrap items-center justify-end gap-1 overflow-x-auto pr-1 sm:gap-2 sm:pr-0">
@@ -6256,6 +6310,7 @@ export function DocumentViewer({
         data-document-content="true"
         className={cn(
           "flex-1 bg-muted/30 relative min-h-0",
+          isExtractMode && viewMode === "document" && "cursor-crosshair",
           // Avoid nested scrolling when a child viewer owns its own internal scroll
           // containers.  PDFs restore against their own scroll element; YouTube has
           // transcript/chat panes.  Markdown/HTML/EPUB each have their own scroll

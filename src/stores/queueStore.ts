@@ -307,6 +307,10 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     }),
 
   hydrateStartupQueue: (items) => {
+    const existing = get().items;
+    if (existing.length > items.length && items.length <= 50) {
+      return;
+    }
     set({ items, filteredItems: items, isLoading: false, error: null });
     get().applyFilters();
   },

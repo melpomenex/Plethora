@@ -506,6 +506,8 @@ impl BackupManager {
                 reps: row.try_get("reps").ok(),
                 total_time_spent: row.try_get("total_time_spent").ok(),
                 consecutive_count: row.try_get("consecutive_count").ok(),
+                interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+                first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
             };
 
             let src_path = StdPath::new(&doc.file_path);

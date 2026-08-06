@@ -576,6 +576,8 @@ fn parse_document_row(row: &sqlx::sqlite::SqliteRow) -> Result<Document> {
         reps: row.try_get("reps").ok(),
         total_time_spent: row.try_get("total_time_spent").ok(),
         consecutive_count: row.try_get("consecutive_count").ok(),
+        interval_modifier: row.try_get("interval_modifier").unwrap_or(1.0),
+        first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
     })
 }
 
@@ -711,6 +713,7 @@ fn parse_learning_item_row(row: &sqlx::sqlite::SqliteRow) -> Result<LearningItem
         algorithm_type: "fsrs".to_string(),
         algorithm_state: None,
         updated_at: None,
+        first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
     })
 }
 

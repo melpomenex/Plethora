@@ -77,12 +77,22 @@ export function hashSectionContent(str: string): string {
 const hashString = hashSectionContent;
 
 function cleanPreview(text: string): string {
+  return stripMarkup(text).slice(0, 80);
+}
+
+function stripMarkup(text: string): string {
   return text
     .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
     .replace(/[#*_`>[\]()]/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
+    .trim();
 }
 
 export function parseMarkdownHeadings(content: string): HeadingInfo[] {
@@ -402,7 +412,7 @@ export function buildSectionFocusedContext(
       const sliced = sliceWithNeighbors(fullContent, sec.startChar, sec.endChar, radiusChars);
       body = `Section: ${breadcrumbStr}\n${sliced.formatted}`;
     } else {
-      body = `Section: ${breadcrumbStr}\n\n${sec.content}`;
+      body = `Section: ${breadcrumbStr}\n\n${stripMarkup(sec.content)}`;
     }
 
     if (totalChars + body.length > maxChars && blocks.length > 0) {
@@ -434,7 +444,9 @@ function rangeIsCurrent(section: SectionNode, fullContent: string): boolean {
     return false;
   }
   const current = fullContent.slice(startChar, endChar).trim();
-  return current.length > 0 && current === section.content.trim();
+  if (current.length === 0) return false;
+  if (current === section.content.trim()) return true;
+  return stripMarkup(current) === stripMarkup(section.content);
 }
 
 function findStructuralMatch(
@@ -467,7 +479,11 @@ function recoverOutlineRangeFromText(
   fullContent: string,
 ): SectionNode | undefined {
   if (section.source !== "pdf-outline" && section.source !== "epub-toc") return undefined;
-  const titlePattern = new RegExp(`^\\s*(?:#{1,6}\\s*)?${escapeRegExp(section.title.trim())}\\s*$`, "gim");
+  const cleanTitle = escapeRegExp(section.title.trim());
+  const titlePattern = new RegExp(
+    `(?:^\\s*(?:#{1,6}\\s*)?${cleanTitle}\\s*$|<h[1-6][^>]*>\\s*(?:<[^>]*>)*\\s*${cleanTitle}\\s*(?:<[^>]*>)*\\s*<\\/h[1-6]\\s*>)`,
+    "gim"
+  );
   const occurrences = [...fullContent.matchAll(titlePattern)];
   if (occurrences.length === 0) return undefined;
 
@@ -606,7 +622,8 @@ export function resolveSectionFocusedContext(
   const perGroupBudget = Math.max(96, Math.floor(bodyBudget / Math.max(1, groups.length)));
   let truncated = false;
   const blocks = groups.map((group) => {
-    const body = fullContent.slice(group.start, group.end).trim();
+    const raw = fullContent.slice(group.start, group.end).trim();
+    const body = stripMarkup(raw);
     const sliced = truncateAtBoundary(body, perGroupBudget);
     truncated ||= sliced.truncated;
     return `Section: ${group.labels.join("; ")}\n[Focused]\n${sliced.text}`;

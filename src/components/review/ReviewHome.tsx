@@ -14,6 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useReviewStore } from "../../stores/reviewStore";
+import { useShallow } from "zustand/react/shallow";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { getDueItems, type LearningItem } from "../../api/review";
 import { getAllLearningItems, type LearningItem as AllLearningItem } from "../../api/learning-items";
@@ -69,8 +70,11 @@ function inferAnkiDeckNames(imported: unknown[]): string[] {
 }
 
 export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps) {
-  const { documents, loadDocuments } = useDocumentStore();
-  const { loadStreak, streak, streakLoading } = useReviewStore();
+  const documents = useDocumentStore(s => s.documents);
+  const loadDocuments = useDocumentStore(s => s.loadDocuments);
+  const { loadStreak, streak, streakLoading } = useReviewStore(useShallow(s => ({
+    loadStreak: s.loadStreak, streak: s.streak, streakLoading: s.streakLoading,
+  })));
   const { activeCollectionId } = useCollectionStore();
   const {
     decks,
