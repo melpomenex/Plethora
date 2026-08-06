@@ -276,9 +276,45 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   useEffect(() => {
   }, [queueMode, onOpenScrollMode]);
 
+  // `ensureStartup`'s snapshot caps the queue at 50 items (a bounded preview
+  // for a fast first paint — see startup.rs DEFAULT_QUEUE_LIMIT). Reusing it
+  // after the real, unbounded queue has already loaded would silently
+  // truncate it back down to 50, which the user sees as the queue
+  // reordering/shrinking out from under them. Track whether this view has
+  // completed its first load so only that first run is allowed to take the
+  // fast, bounded path — every later run always fetches the full queue.
+  const isFirstQueueLoadRef = useRef(true);
+  // This effect's dependencies include `isActiveTab` so a Queue tab that
+  // mounts in the background still loads once it becomes active. But that
+  // means simply switching away (e.g. into Scroll Mode or an Optimal
+  // Session) and back flips `isActiveTab` and re-runs this effect even
+  // though nothing about the query changed — refetching would visibly
+  // reload and re-sort an already-correct list for no reason. Skip the
+  // reload unless the actual query parameters changed since the last run.
+  const lastQueueLoadKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!isActiveTab) return;
-    if (queueMode === "reading" && queueFilterMode === "due-all" && !sessionCustomization.semanticStudy?.enabled) {
+
+    const loadKey = JSON.stringify([
+      queueMode,
+      queueFilterMode,
+      activeCollectionId,
+      sessionCustomization.semanticStudy?.enabled,
+      sessionCustomization.semanticStudy?.focalTopic,
+    ]);
+    if (lastQueueLoadKeyRef.current === loadKey) return;
+    lastQueueLoadKeyRef.current = loadKey;
+
+    const isFirstLoad = isFirstQueueLoadRef.current;
+    isFirstQueueLoadRef.current = false;
+
+    if (
+      isFirstLoad &&
+      queueMode === "reading" &&
+      queueFilterMode === "due-all" &&
+      !sessionCustomization.semanticStudy?.enabled
+    ) {
       void ensureStartup("queue").finally(() => {
         if (isActiveTab) void loadStats();
       });

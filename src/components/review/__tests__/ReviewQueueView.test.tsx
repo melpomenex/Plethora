@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { ReviewQueueView } from "../ReviewQueueView";
+import { TabContent } from "../../common/Tabs/TabContent";
+import type { Tab } from "../../../stores/tabsStore";
 import type { QueueItem } from "../../../types/queue";
 
 const mockStore = vi.hoisted(() => {
@@ -164,6 +166,31 @@ describe("ReviewQueueView", () => {
     expect(screen.getByLabelText("Queue position 1 of 2")).toBeInTheDocument();
     expect(screen.getByLabelText("Queue position 2 of 2")).toBeInTheDocument();
     expect(screen.getByText("Up next · #1 of 2")).toBeInTheDocument();
+  });
+});
+
+describe("Queue tab focus does not force a reload", () => {
+  function Placeholder() {
+    return null;
+  }
+
+  it("does not reload the queue merely from regaining focus (e.g. returning from Scroll Mode)", () => {
+    mockStore.queueFilterMode = "all-items";
+    const tabs: Tab[] = [
+      { id: "other", title: "Other", icon: null, type: "dashboard", content: Placeholder, closable: true },
+      { id: "queue", title: "Queue", icon: null, type: "queue", content: ReviewQueueView, closable: true },
+    ];
+
+    const view = render(<TabContent tabs={tabs} activeTabId="queue" />);
+    expect(mockStore.loadQueue).toHaveBeenCalledTimes(1);
+
+    // Simulate opening Scroll Mode / an Optimal Session (a different tab
+    // becomes active) and returning to the Queue tab without anything about
+    // the filter/mode/collection actually changing.
+    view.rerender(<TabContent tabs={tabs} activeTabId="other" />);
+    view.rerender(<TabContent tabs={tabs} activeTabId="queue" />);
+
+    expect(mockStore.loadQueue).toHaveBeenCalledTimes(1);
   });
 });
 
