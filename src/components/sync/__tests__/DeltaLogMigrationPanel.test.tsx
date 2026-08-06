@@ -49,7 +49,9 @@ describe("DeltaLogMigrationPanel", () => {
   it("shows the current phase and per-domain progress, hiding synthetic bookkeeping domains", async () => {
     render(React.createElement(DeltaLogMigrationPanel));
     await waitFor(() => expect(screen.getByText(/Dual-running/)).toBeInTheDocument());
-    expect(screen.getByText("documents")).toBeInTheDocument();
+    // The domain name renders in more than one place (label + table cell), so
+    // use getAllByText to assert presence without requiring uniqueness.
+    expect(screen.getAllByText("documents").length).toBeGreaterThan(0);
     expect(screen.queryByText("__yjs-activity")).toBeNull();
   });
 

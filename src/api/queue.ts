@@ -380,3 +380,65 @@ export async function getQueueWithPlaylistIntersperse(randomness?: number): Prom
   }
   return items.map(convertQueueItem);
 }
+
+/** Lifecycle transitions accepted by `bulk_set_item_lifecycle`. */
+export type LifecycleTransition = "done" | "dismiss" | "forget";
+
+/**
+ * Set one priority slider value (0-100) across a mixed selection.
+ *
+ * Flashcards have no priority column, so any learning-item ids come back in
+ * `failed` rather than being silently skipped.
+ */
+export async function bulkUpdateItemPriorities(
+  itemIds: string[],
+  slider: number,
+): Promise<BulkOperationResult> {
+  return await invokeCommand<BulkOperationResult>("bulk_update_item_priorities", {
+    itemIds,
+    slider,
+  });
+}
+
+/** Push a mixed selection out by a fixed number of days. */
+export async function bulkPostponeItems(
+  itemIds: string[],
+  days: number,
+): Promise<BulkOperationResult> {
+  return await invokeCommand<BulkOperationResult>("bulk_postpone_items", { itemIds, days });
+}
+
+/** Reassign a mixed selection to an existing collection. Never creates one. */
+export async function bulkMoveItemsToCollection(
+  itemIds: string[],
+  collectionId: string,
+): Promise<BulkOperationResult> {
+  return await invokeCommand<BulkOperationResult>("bulk_move_items_to_collection", {
+    itemIds,
+    collectionId,
+  });
+}
+
+/** Add and/or remove tags across a mixed selection. Both lists may be empty. */
+export async function bulkUpdateItemTags(
+  itemIds: string[],
+  add: string[],
+  remove: string[],
+): Promise<BulkOperationResult> {
+  return await invokeCommand<BulkOperationResult>("bulk_update_item_tags", {
+    itemIds,
+    add,
+    remove,
+  });
+}
+
+/** Apply a lifecycle transition (done / dismiss / forget) across a selection. */
+export async function bulkSetItemLifecycle(
+  itemIds: string[],
+  transition: LifecycleTransition,
+): Promise<BulkOperationResult> {
+  return await invokeCommand<BulkOperationResult>("bulk_set_item_lifecycle", {
+    itemIds,
+    transition,
+  });
+}

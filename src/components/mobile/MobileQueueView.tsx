@@ -210,12 +210,19 @@ export function MobileQueueView({
   // and on a large queue a transition-triggered reload cycles the item count.
   // We reload on first activation and when the quick filter genuinely changes
   // (an explicit user action). Genuine refresh also via pull-to-refresh.
-  const loadedQuickFilterRef = useRef<string | null>(null);
+  //
+  // The "which quick filter is currently loaded" state lives in the QUEUE
+  // STORE's `loadedQueryKey` (namespaced `mobile:` so it doesn't collide with
+  // the desktop view's key) rather than a component ref: a ref resets on tab
+  // unmount, so closing/reopening the mobile queue tab re-ran the first-load
+  // path over an already-loaded queue. See design decision D3.
   useEffect(() => {
     if (!isActiveTab) return;
     // Skip when the quick filter is unchanged (returning to the same tab).
-    if (loadedQuickFilterRef.current === quickFilter) return;
-    loadedQuickFilterRef.current = quickFilter;
+    const mobileKey = `mobile:${quickFilter}`;
+    const storeState = useQueueStore.getState();
+    if (storeState.loadedQueryKey === mobileKey) return;
+    storeState.setLoadedQueryKey(mobileKey);
     if (quickFilter === "today") {
       void ensureStartup("queue", { queueMode: "due-today" }).then(() => {
         if (useQueueStore.getState().items.length <= 50) {
@@ -232,7 +239,7 @@ export function MobileQueueView({
         setQueueFilterMode("new-only");
         break;
     }
-  }, [quickFilter, ensureStartup, isActiveTab, setQueueFilterMode]);
+  }, [quickFilter, ensureStartup, isActiveTab, setQueueFilterMode, loadDueQueueItems]);
 
   // Filter items
   const filteredItems = useMemo(() => {
@@ -485,6 +492,20 @@ export function MobileQueueView({
     clearSelection();
     setSelectionMode(false);
   }, [clearSelection]);
+
+  // Touch-first surface, but the PWA also runs on desktop browsers where a
+  // hardware Escape is the expected way out of a selection.
+  useEffect(() => {
+    if (!selectionMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      event.preventDefault();
+      exitSelection();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectionMode, exitSelection]);
 
   const handleBulkSuspend = useCallback(async () => {
     await bulkSuspend();

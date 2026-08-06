@@ -71,9 +71,11 @@ export const useCollectionStore = create<CollectionState>()((set, get) => ({
       activeCollectionId: collection.id,
     }));
     await apiSetActiveCollection(collection.id);
-    // Reload data for the new (empty) collection so stale documents don't linger
+    // Reload data for the new (empty) collection so stale documents don't linger.
+    // Route through the shared, mode-aware chokepoint so the reload re-issues
+    // the ACTIVE filter mode's query (see queueStore.reloadForCurrentMode).
     useDocumentStore.getState().loadDocuments();
-    useQueueStore.getState().loadQueue();
+    useQueueStore.getState().reloadForCurrentMode();
     useAnalyticsStore.getState().loadDashboardStats();
     return collection;
   },
@@ -115,7 +117,12 @@ export const useCollectionStore = create<CollectionState>()((set, get) => ({
     // whenever the fetch failed or was slow, which looked like the
     // collection's documents had vanished.
     useDocumentStore.getState().loadDocuments();
-    useQueueStore.getState().loadQueue();
+    // Route through the shared, mode-aware chokepoint so a collection switch
+    // re-issues the ACTIVE filter mode's query rather than a raw loadQueue()
+    // (see queueStore.reloadForCurrentMode). The view's load effect also
+    // reconciles on activeCollectionId change; concurrent calls coalesce via
+    // dedupeLoad.
+    useQueueStore.getState().reloadForCurrentMode();
     useAnalyticsStore.getState().loadDashboardStats();
   },
 

@@ -38,6 +38,10 @@ function normalizeContent(input: unknown): string {
   if (typeof input === "string") return input;
   if (input instanceof Uint8Array) {
     try {
+      // ponytail: byte input is truncated to 10KB, so any caller passing raw
+      // bytes gets sections for only the first 10KB of the document and no
+      // warning. Both current callers pass a decoded string, which is why this
+      // has not bitten. Decode fully here if a byte-passing caller appears.
       return new TextDecoder().decode(input.slice(0, 10000));
     } catch {
       return "";
@@ -61,8 +65,13 @@ function hashContent(content: unknown): string {
   const str = normalizeContent(content);
   if (!str) return "empty";
   let h = 0;
-  const len = Math.min(str.length, 2000);
-  for (let i = 0; i < len; i++) {
+  // Sample across the whole string rather than hashing only the first 2000
+  // chars: this value is a cache key, and a prefix-only hash returns stale
+  // sections for any edit past that offset that leaves the length unchanged.
+  // Striding keeps it O(2000) regardless of document size.
+  const samples = 2000;
+  const stride = Math.max(1, Math.floor(str.length / samples));
+  for (let i = 0; i < str.length; i += stride) {
     h = (h * 31 + str.charCodeAt(i)) >>> 0;
   }
   return `${str.length}-${h}`;

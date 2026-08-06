@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { ArrowCounterClockwise, ArrowRight, ClockCountdown, Sparkle } from "@phosphor-icons/react";
 import type { SM20ArenaGradePreview } from "../../api/review";
 import { getSm20ArenaStats } from "../../api/review";
@@ -67,7 +68,22 @@ export function AlgorithmArenaDecision({
     cancelArenaDecision,
     retryArenaPreview,
     scheduleArenaAutomatically,
-  } = useReviewStore();
+  } = useReviewStore(
+    // Explicit property selector: a bare useReviewStore() re-renders this
+    // component on every unrelated store write (timers, previews, arena state).
+    useShallow((state) => ({
+      previewIntervals: state.previewIntervals,
+      reviewPhase: state.reviewPhase,
+      pendingArenaReview: state.pendingArenaReview,
+      arenaPreviewError: state.arenaPreviewError,
+      error: state.error,
+      selectArenaChoice: state.selectArenaChoice,
+      confirmArenaSelection: state.confirmArenaSelection,
+      cancelArenaDecision: state.cancelArenaDecision,
+      retryArenaPreview: state.retryArenaPreview,
+      scheduleArenaAutomatically: state.scheduleArenaAutomatically,
+    }))
+  );
   const [customUnit, setCustomUnit] = useState<DayUnit>("days");
   const [coachStep, setCoachStep] = useState(0);
   const [rMetric, setRMetric] = useState<number | null>(null);

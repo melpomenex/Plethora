@@ -35,6 +35,6 @@ export interface SearchFilters {
 }
 
 export interface SortOptions {
-  field: "title" | "dateAdded" | "dateModified" | "priority" | "dueDate";
+  field: "title" | "dateAdded" | "dateModified" | "priority" | "dueDate" | "overdue";
   direction: "asc" | "desc";
 }
