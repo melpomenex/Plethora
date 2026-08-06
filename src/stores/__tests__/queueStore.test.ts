@@ -119,3 +119,32 @@ describe("queueStore local delta application (queue-ipc-efficiency)", () => {
     expect(loadQueue).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("queueStore setQueueFilterMode idempotency", () => {
+  it("re-selecting the already-active filter mode does not reload the queue", async () => {
+    const loadQueue = vi.fn().mockResolvedValue(undefined);
+    const loadDueDocumentsOnly = vi.fn().mockResolvedValue(undefined);
+    const loadDueQueueItems = vi.fn().mockResolvedValue(undefined);
+    useQueueStore.setState({
+      queueFilterMode: "due-today",
+      loadQueue,
+      loadDueDocumentsOnly,
+      loadDueQueueItems,
+    });
+
+    // Re-selecting the mode the store is already in — e.g. a caller (like
+    // MobileQueueView) re-running this on every tab-focus change — must not
+    // trigger a fresh backend fetch, since that would visibly reload/reorder
+    // an already-correct list for no reason.
+    await useQueueStore.getState().setQueueFilterMode("due-today");
+    expect(loadDueDocumentsOnly).not.toHaveBeenCalled();
+    expect(loadDueQueueItems).not.toHaveBeenCalled();
+    expect(loadQueue).not.toHaveBeenCalled();
+
+    // A genuine mode change still reloads via the matching loader.
+    await useQueueStore.getState().setQueueFilterMode("due-all");
+    expect(loadDueQueueItems).toHaveBeenCalledTimes(1);
+    expect(loadDueDocumentsOnly).not.toHaveBeenCalled();
+    expect(useQueueStore.getState().queueFilterMode).toBe("due-all");
+  });
+});
