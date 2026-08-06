@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => ({
   registerDeltaLogOutboxPublishers: vi.fn(() => () => undefined),
   getCachedSubKeys: vi.fn(),
   getDeviceId: vi.fn(() => "test-device-id"),
-  settingsState: { settings: { sync: { yjs: { url: "" } } } } as { settings: { sync: { yjs: { url: string } } } },
+  settingsState: { settings: { sync: { yjs: { enabled: true, url: "" } } } } as { settings: { sync: { yjs: { enabled: boolean; url: string } } } },
   roomId: "test-room-orchestrator",
 }));
 
@@ -65,7 +65,10 @@ vi.mock("../sync/deltaLog/outboxPublisher", () => ({
 }));
 vi.mock("../sync/roomCrypto", () => ({ getCachedSubKeys: mocks.getCachedSubKeys }));
 vi.mock("../file-manifest", () => ({ getDeviceId: mocks.getDeviceId }));
-vi.mock("../yjsSync", () => ({ getSyncRoomId: () => mocks.roomId }));
+vi.mock("../yjsSync", () => ({
+  getSyncRoomId: () => mocks.roomId,
+  isYjsSyncEnabled: () => mocks.settingsState.settings.sync?.yjs?.enabled ?? false,
+}));
 
 import { runCutoverOrchestrator, __resetCutoverOrchestratorForTest } from "../sync/deltaLog/cutoverOrchestrator";
 import { __clearCutoverTargetsForTest, registerCutoverDrainTarget } from "../sync/cutoverTargets";
@@ -284,5 +287,16 @@ describe("cutover orchestrator", () => {
     expect(mocks.registerRoom).toHaveBeenCalledTimes(1);
     expect(mocks.subscribe).toHaveBeenCalledTimes(1);
     expect(mocks.registerDeltaLogOutboxPublishers).toHaveBeenCalledTimes(1);
+  });
+
+  it("is a complete no-op when real-time sync is disabled", async () => {
+    __resetCutoverOrchestratorForTest();
+    setFlags({ deltaLogSync: true });
+    setSyncUrl("wss://sync.readsync.org");
+    mocks.settingsState.settings.sync.yjs.enabled = false;
+    const phase = await runCutoverOrchestrator();
+    expect(phase).toBeNull();
+    expect(mocks.registerRoom).not.toHaveBeenCalled();
+    expect(mocks.subscribe).not.toHaveBeenCalled();
   });
 });

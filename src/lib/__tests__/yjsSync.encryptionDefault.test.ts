@@ -100,12 +100,17 @@ beforeEach(async () => {
     },
   });
 
-  const { resetYjsSync } = await import("../yjsSync");
+  // Production hard-disables real-time sync (see isYjsSyncEnabled). These
+  // suites cover the encryption contract on the *enabled* path, so lift the
+  // guard for the duration of the suite and restore it after each test.
+  const { __setYjsSyncForceDisabledForTest, resetYjsSync } = await import("../yjsSync");
+  __setYjsSyncForceDisabledForTest(false);
   await resetYjsSync();
 });
 
 afterEach(async () => {
-  const { resetYjsSync } = await import("../yjsSync");
+  const { __setYjsSyncForceDisabledForTest, resetYjsSync } = await import("../yjsSync");
+  __setYjsSyncForceDisabledForTest(true);
   await resetYjsSync();
 });
 

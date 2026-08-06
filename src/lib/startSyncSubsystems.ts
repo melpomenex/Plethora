@@ -18,6 +18,11 @@
  *     memory spike off the critical path.
  *   - `SyncSettings.tsx`: when the user toggles real-time sync ON or joins a
  *     room, so the subsystems come up immediately on a first-time enable.
+ *
+ * The delta-log cutover orchestrator (step 4a) and the outbox drain loop (step
+ * 6) are additionally gated on `isYjsSyncEnabled()`, so with real-time sync OFF
+ * they never start and emit no telemetry; the drain loop also re-checks the
+ * flag every tick so toggling OFF mid-session halts it within one tick.
  */
 
 import { scheduleProgressiveSyncWork } from "./sync/progressiveScheduler";
@@ -29,10 +34,26 @@ import { compactYjsPersistence, needsCompaction } from "./sync/yjsCompaction";
 
 let startPromise: Promise<void> | null = null;
 let outboxDrainTimer: ReturnType<typeof setTimeout> | null = null;
+let outboxDrainActive = false;
 let compactionTimer: ReturnType<typeof setInterval> | null = null;
 
 /** How often the recurring compaction sweep runs while the app is open. */
 const COMPACTION_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Stop the outbox drain loop and clear its pending timer. Called from the
+ * sync-off path (stopDeltaLogTransport) so that toggling real-time sync off
+ * mid-session halts every recurring sync activity within one tick — including
+ * the delta-log-push-drain telemetry the drain emits on every iteration.
+ * Safe to call when the loop was never started (no-op).
+ */
+export function stopOutboxDrainLoop(): void {
+  outboxDrainActive = false;
+  if (outboxDrainTimer) {
+    clearTimeout(outboxDrainTimer);
+    outboxDrainTimer = null;
+  }
+}
 
 /**
  * Run the sync subsystem boot chain exactly once per session. Subsequent calls
@@ -46,7 +67,7 @@ export function startSyncSubsystems(): Promise<void> {
     const removeLongTaskObserver = installSyncLongTaskObserver();
     // 1. Shared Yjs doc + websocket provider + IndexedDB persistence.
     //    Everything below depends on the doc, so this runs first.
-    const { getYjsSync } = await import("./yjsSync");
+    const { getYjsSync, isYjsSyncEnabled } = await import("./yjsSync");
     const sync = await scheduleProgressiveSyncWork({
       id: "sync:provider-setup",
       lane: "P1",
@@ -177,17 +198,7 @@ export function startSyncSubsystems(): Promise<void> {
       await Promise.all(replicators.slice(i, i + 2).map(runReplicator));
     }
 
-    // 4. Auto-download watcher — needs file sync ready.
-    await scheduleProgressiveSyncWork({
-      id: "sync:auto-download-watch",
-      lane: "P2",
-      kind: "sliceable",
-      run: (context) => measureStartupPhase("auto-download-watch", () => startAutoFileSyncDownload(context)),
-    }).catch((err) =>
-      console.warn("[startSyncSubsystems] auto-download init failed", err),
-    );
-
-    // 4b. Delta-log cutover orchestrator (migrate-sync-to-delta-log Phase 6).
+    // 4a. Delta-log cutover orchestrator (migrate-sync-to-delta-log Phase 6).
     // Only runs when the user has opted a room in (deltaLogSync flag). It
     // starts the delta-log transport (pull loop, presence, outbox publishers)
     // and advances the room's cutover state machine one phase per boot up to
@@ -196,7 +207,7 @@ export function startSyncSubsystems(): Promise<void> {
     // path is untouched, so rollback stays safe. Placed after the replicators
     // so the drain targets (each replicated map) are initialized, and before
     // the first-join backfill so a fresh room seeds into both transports.
-    if (getSyncFeatureFlags().deltaLogSync) {
+    if (getSyncFeatureFlags().deltaLogSync && isYjsSyncEnabled()) {
       try {
         // Register drain targets from the already-initialized adapters so
         // runDrainPhase can enumerate every domain. count() is diagnostic-only
@@ -242,6 +253,16 @@ export function startSyncSubsystems(): Promise<void> {
       );
     }
 
+    // 4b. Auto-download watcher — needs file sync ready.
+    await scheduleProgressiveSyncWork({
+      id: "sync:auto-download-watch",
+      lane: "P2",
+      kind: "sliceable",
+      run: (context) => measureStartupPhase("auto-download-watch", () => startAutoFileSyncDownload(context)),
+    }).catch((err) =>
+      console.warn("[startSyncSubsystems] auto-download init failed", err),
+    );
+
     // 5. First-join backfill: publish the local library into the shared doc so
     //    other devices receive it. Background, non-fatal.
     const { runSyncMigrationIfNeeded } = await import("./sync/migrate");
@@ -258,8 +279,21 @@ export function startSyncSubsystems(): Promise<void> {
     // through the same outbox, and the delta-log outbox publishers (registered
     // by the orchestrator's transport start) are what turn those rows into
     // POST /ops pushes. Without a running drain, seed rows would sit pending.
-    if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
+    // The loop RE-CHECKS isYjsSyncEnabled() on every iteration (and before
+    // re-arming) so toggling real-time sync OFF mid-session halts the drain —
+    // and its delta-log-push-drain telemetry — within one tick instead of
+    // firing forever.
+    if ((getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) && isYjsSyncEnabled()) {
+      outboxDrainActive = true;
       const drain = () => {
+        if (!outboxDrainActive || !isYjsSyncEnabled()) {
+          outboxDrainActive = false;
+          if (outboxDrainTimer) {
+            clearTimeout(outboxDrainTimer);
+            outboxDrainTimer = null;
+          }
+          return;
+        }
         void scheduleProgressiveSyncWork({
           id: "sync:outbox-drain",
           lane: "P2",
@@ -267,6 +301,13 @@ export function startSyncSubsystems(): Promise<void> {
         })
           .catch((e) => console.warn("[startSyncSubsystems] outbox drain failed", e))
           .finally(() => {
+            if (!outboxDrainActive || !isYjsSyncEnabled()) {
+              if (outboxDrainTimer) {
+                clearTimeout(outboxDrainTimer);
+                outboxDrainTimer = null;
+              }
+              return;
+            }
             outboxDrainTimer = setTimeout(drain, 1500);
           });
       };
@@ -350,4 +391,5 @@ export function isSyncSubsystemsStarted(): boolean {
 /** Test-only: reset the singleton so a fresh chain can be exercised. */
 export function __resetSyncSubsystemsForTest(): void {
   startPromise = null;
+  stopOutboxDrainLoop();
 }

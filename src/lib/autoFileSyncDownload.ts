@@ -17,7 +17,7 @@ import { getFileManifest, ensureFileSyncReady, getFileTransferManager } from "./
 import { saveReceivedFileSync } from "./fileSyncRegistration";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useDocumentStore } from "../stores/documentStore";
-import { registerRoomChangeListener } from "./yjsSync";
+import { registerRoomChangeListener, isYjsSyncEnabled } from "./yjsSync";
 import {
   ensureFileAvailabilityIntentReady,
   listActiveFileAvailabilityIntents,
@@ -192,6 +192,7 @@ async function maybeAutoDownload(availableFileIds: string[], sourceDeviceId: str
       while (pendingAutoDownloads.size > 0) {
         const work = Array.from(pendingAutoDownloads.entries());
         pendingAutoDownloads.clear();
+        if (!isYjsSyncEnabled()) continue;
         const mode = useSettingsStore.getState().settings.sync?.autoDownloadMode ?? "wifi-only";
         if (mode === "manual") continue;
         if (mode === "wifi-only" && !(await isOnWifi())) continue;
@@ -373,6 +374,7 @@ export async function prefetchQueuedDocuments(documents: Document[]): Promise<vo
       try {
         await ensureFileSyncReady();
         await ensureFileAvailabilityIntentReady();
+        if (!isYjsSyncEnabled()) return;
         await syncQueueFileAvailabilityIntents(documents);
 
         const mode = useSettingsStore.getState().settings.sync?.autoDownloadMode ?? "wifi-only";

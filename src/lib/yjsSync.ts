@@ -5,6 +5,7 @@ import { EncryptedWebsocketProvider } from "./sync/encryptedProvider";
 import { getCachedSubKeys, ensureEncryptionEnabled } from "./sync/roomCrypto";
 import { useSettingsStore } from "../stores/settingsStore";
 import { markSyncPhaseStart } from "./sync/syncTelemetry";
+import { getSyncFeatureFlags } from "./sync/featureFlags";
 
 type YjsSyncState = {
   doc: Y.Doc;
@@ -49,15 +50,46 @@ function isSyncDebugEnabled(): boolean {
   return localStorage.getItem("incrementum.debug.network") === "1";
 }
 
-/** Read the user's preference for Yjs CRDT sync from the settings store.
- *  Defaults to false if the setting is missing or the store isn't ready yet. */
+/**
+ * Whether remote real-time (Yjs CRDT) sync is active.
+ *
+ * HARD-DISABLED in production: real-time sync was removed because it caused
+ * severe startup and runtime lag (continuous delta-log-push-drain cycles,
+ * WebSocket connections, presence heartbeats). When disabled this returns
+ * false so that:
+ *   - getYjsSync() creates an OFFLINE-ONLY doc (WebsocketProvider with
+ *     `{ connect: false }`) — local IndexedDB persistence still works, but no
+ *     network connection is ever made.
+ *   - The delta-log cutover orchestrator, outbox drain loop, pull loop, and
+ *     presence heartbeat never start.
+ *   - drainSyncOutboxBatch / auto-download / file-sync-registration all
+ *     short-circuit.
+ *
+ * Local data persistence (y-indexeddb) is unaffected — it is the app's offline
+ * data layer, not a network feature.
+ *
+ * `__forceDisabled` defaults to true so production can never accidentally opt
+ * back in via a stale persisted `sync.yjs.enabled = true` (a prior migration
+ * force-set that value for every existing user). The test-only setter below
+ * lets the encryption/transport suites exercise the enabled path without
+ * touching that production guarantee. To fully re-enable remote sync, flip the
+ * default to false (or restore the direct settings-store read).
+ */
+let __forceDisabled = true;
+
 export function isYjsSyncEnabled(): boolean {
+  if (__forceDisabled) return false;
   try {
     const state = useSettingsStore.getState();
     return state?.settings?.sync?.yjs?.enabled ?? false;
   } catch {
     return false;
   }
+}
+
+/** @internal Test-only: lift the production hard-disable to exercise the enabled path. */
+export function __setYjsSyncForceDisabledForTest(value: boolean): void {
+  __forceDisabled = value;
 }
 
 function generateRoomId(): string {
@@ -428,6 +460,14 @@ async function buildProvider(
 export async function resetYjsSync(opts?: { wipeStorage?: boolean }): Promise<void> {
   const wipe = opts?.wipeStorage ?? true;
   const roomToWipe = instance?.room;
+  try {
+    const { stopDeltaLogTransport } = await import("./sync/deltaLog/cutoverOrchestrator");
+    // Await so the outbox drain loop is stopped before we tear down the doc —
+    // otherwise a drain iteration could schedule work against a destroyed doc.
+    await stopDeltaLogTransport();
+  } catch {
+    // non-fatal if cutoverOrchestrator unavailable
+  }
   if (instance) {
     try {
       instance.provider.disconnect();
@@ -498,8 +538,8 @@ export async function updateYjsSyncStatus(): Promise<YjsSyncState> {
     return getYjsSync();
   }
 
+  const yjsEnabled = isYjsSyncEnabled();
   const state = useSettingsStore.getState();
-  const yjsEnabled = state?.settings?.sync?.yjs?.enabled ?? true;
   const targetUrl = state?.settings?.sync?.yjs?.url || import.meta.env.VITE_YJS_SYNC_URL || DEFAULT_SYNC_URL;
 
   console.info(`[YjsSync] Updating sync connection state. Enabled: ${yjsEnabled}, URL: ${targetUrl}`);
@@ -577,6 +617,22 @@ export async function updateYjsSyncStatus(): Promise<YjsSyncState> {
     };
 
     resetIdleTimer();
+
+    if (getSyncFeatureFlags().deltaLogSync) {
+      void import("./sync/deltaLog/cutoverOrchestrator")
+        .then((m) => m.runCutoverOrchestrator())
+        .catch((err) => console.warn("[YjsSync] cutover orchestrator failed after sync enable", err));
+    }
+  } else {
+    try {
+      const { stopDeltaLogTransport } = await import("./sync/deltaLog/cutoverOrchestrator");
+      // Await so the outbox drain loop (and its delta-log-push-drain
+      // telemetry) is actually stopped within this tick before we notify
+      // room-change listeners that sync is fully torn down.
+      await stopDeltaLogTransport();
+    } catch {
+      // non-fatal
+    }
   }
 
   // Notify listeners

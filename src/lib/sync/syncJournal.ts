@@ -1,6 +1,7 @@
 import { invokeCommand, isTauri } from "../tauri";
 import { isSyncPayloadSafe } from "./syncPrivacy";
 import { getSyncFeatureFlags } from "./featureFlags";
+import { isYjsSyncEnabled } from "../yjsSync";
 
 export type SyncOperationKind = "upsert" | "delete" | "append" | "review";
 
@@ -245,6 +246,9 @@ export function registerSyncOutboxPublisher(domain: string, publisher: OutboxPub
  * fully delivered).
  */
 export async function drainSyncOutboxBatch(limit = 50): Promise<{ sent: number; deferred: number; failed: number }> {
+  if (!isYjsSyncEnabled()) {
+    return { sent: 0, deferred: 0, failed: 0 };
+  }
   const rows = (await getPendingOutbox(Math.min(100, Math.max(1, limit)))) as OutboxRow[];
   const sentIds: string[] = [];
   let deferred = 0;

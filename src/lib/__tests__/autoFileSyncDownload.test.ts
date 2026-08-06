@@ -68,6 +68,7 @@ vi.mock("../../stores/documentStore", () => ({
 
 vi.mock("../yjsSync", () => ({
   registerRoomChangeListener: vi.fn(() => () => undefined),
+  isYjsSyncEnabled: vi.fn(() => true),
 }));
 
 vi.mock("../sync/fileAvailabilityIntent", () => ({

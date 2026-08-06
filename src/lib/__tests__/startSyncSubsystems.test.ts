@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("../yjsSync", () => ({
   getYjsSync: mocks.getYjsSync,
   registerRoomChangeListener: vi.fn(() => () => {}),
+  isYjsSyncEnabled: vi.fn(() => true),
 }));
 vi.mock("../sync/syncClock", () => ({ getDeviceId: mocks.getDeviceId }));
 vi.mock("../useFileSync", () => ({ ensureFileSyncReady: mocks.ensureFileSyncReady }));
@@ -115,7 +116,6 @@ describe("startSyncSubsystems", () => {
     // → first-join backfill. The scheduler keeps the first surfaces ahead of
     // lower-priority feeds while still initializing every adapter once.
     expect(calls).toEqual([
-      "getDeviceId",
       "getYjsSync",
       "ensureCollectionSyncReady",
       "ensureDocumentReplicationReady",
@@ -151,11 +151,11 @@ describe("startSyncSubsystems", () => {
 
     await startSyncSubsystems();
 
-    expect(mocks.ensureDeltaLogTransportReady).toHaveBeenCalledTimes(1);
-    expect(calls.indexOf("ensureDeltaLogTransportReady")).toBeGreaterThan(
+    expect(mocks.runCutoverOrchestrator).toHaveBeenCalledTimes(1);
+    expect(calls.indexOf("runCutoverOrchestrator")).toBeGreaterThan(
       calls.indexOf("ensureFileAvailabilityIntentReady"),
     );
-    expect(calls.indexOf("ensureDeltaLogTransportReady")).toBeLessThan(
+    expect(calls.indexOf("runCutoverOrchestrator")).toBeLessThan(
       calls.indexOf("startAutoFileSyncDownload"),
     );
   });

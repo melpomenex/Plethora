@@ -28,7 +28,7 @@
 */
 
 import { isTauri } from "../../tauri";
-import { getSyncRoomId } from "../../yjsSync";
+import { getSyncRoomId, isYjsSyncEnabled } from "../../yjsSync";
 import { getSyncFeatureFlags } from "../featureFlags";
 import { getCachedSubKeys } from "../roomCrypto";
 import { deriveDeltaLogUrls } from "./urls";
@@ -60,7 +60,7 @@ import {
 } from "../cutover";
 import { listCutoverDrainTargets } from "../cutoverTargets";
 import { SEED_DOMAIN_READERS } from "./seedReaders";
-import { getProgressiveSyncScheduler } from "../progressiveScheduler";
+import { getProgressiveSyncScheduler, SchedulerDroppedError } from "../progressiveScheduler";
 import { enqueueSyncOperation } from "../syncJournal";
 import type { SubKeys } from "../encryption";
 
@@ -167,9 +167,12 @@ function startDeltaLogTransport(
     .catch((err) => orchLog(`initial pull loop failed (will retry via WS): ${err}`));
   void getRoomCursor(config.room).then((since) => {
     activeSubscription = subscribe(config, since, () => {
-      void runDeltaLogPullLoop(config, (ops) => applyDeltaLogPage(ops, subKeys)).catch((err) =>
-        orchLog(`WS-triggered pull failed: ${err}`),
-      );
+      void runDeltaLogPullLoop(config, (ops) => applyDeltaLogPage(ops, subKeys)).catch((err) => {
+        if (err instanceof SchedulerDroppedError && err.reason === "duplicate") {
+          return;
+        }
+        orchLog(`WS-triggered pull failed: ${err}`);
+      });
     });
   });
 
@@ -226,10 +229,17 @@ function startDeltaLogTransport(
 }
 
 /**
- * Stop the transport (room switch / sync disabled). Safe to call when not
- * started. Exposed for the room-change listener, not called automatically.
+ * Stop the transport (sync disabled / room switch / full teardown). Safe to
+ * call when not started. Called from `yjsSync.updateYjsSyncStatus` (disable
+ * branch) and `resetYjsSync` (full teardown); room-change listeners are
+ * notified separately by the caller after this returns.
+ *
+ * Also stops the outbox drain loop in startSyncSubsystems — otherwise it keeps
+ * re-arming every 1500ms and emitting delta-log-push-drain telemetry after the
+ * user has disabled real-time sync. Now async because that stop call lives in a
+ * module dynamically imported by this one (to avoid a circular import).
  */
-export function stopDeltaLogTransport(): void {
+export async function stopDeltaLogTransport(): Promise<void> {
   if (activeSubscription) {
     activeSubscription.close();
     activeSubscription = null;
@@ -245,6 +255,14 @@ export function stopDeltaLogTransport(): void {
   transportStarted = false;
   preparedTransport = null;
   transportPreparePromise = null;
+  // Stop the outbox drain loop too — otherwise it keeps re-arming and
+  // emitting delta-log-push-drain telemetry after the user disables sync.
+  try {
+    const { stopOutboxDrainLoop } = await import("../../startSyncSubsystems");
+    stopOutboxDrainLoop();
+  } catch {
+    /* startSyncSubsystems not yet loaded — nothing to stop */
+  }
 }
 
 // --- phase drivers ---------------------------------------------------------
@@ -301,6 +319,10 @@ async function prepareDeltaLogTransport(): Promise<PreparedDeltaLogTransport | n
     }
     if (!getSyncFeatureFlags().deltaLogSync) {
       orchLog(`not running: deltaLogSync flag off`);
+      return null;
+    }
+    if (!isYjsSyncEnabled()) {
+      orchLog(`not running: real-time sync disabled`);
       return null;
     }
 
@@ -576,7 +598,12 @@ export async function runCutoverOrchestrator(): Promise<CutoverPhase | null> {
 
 /** Test-only: reset transport state between tests. */
 export function __resetCutoverOrchestratorForTest(): void {
-  stopDeltaLogTransport();
+  // stopDeltaLogTransport is now async (it lazily imports startSyncSubsystems
+  // to halt the outbox drain loop). The synchronous cleanup it performs before
+  // the first await is all the test state we care about here, so fire-and-
+  // forget the promise. The deferred import is a no-op in these unit tests
+  // (startSyncSubsystems is never loaded).
+  void stopDeltaLogTransport();
   preparedTransport = null;
   transportPreparePromise = null;
 }
