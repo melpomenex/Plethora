@@ -8,6 +8,12 @@ import {
   bulkSuspendItems,
   bulkUnsuspendItems,
   bulkDeleteItems,
+  bulkUpdateItemPriorities,
+  bulkPostponeItems,
+  bulkMoveItemsToCollection,
+  bulkUpdateItemTags,
+  bulkSetItemLifecycle,
+  type LifecycleTransition,
   type BulkOperationResult,
   type QueueStats
 } from "../api/queue";
@@ -71,6 +77,30 @@ function getArchivedDismissedSets(documents: DocRef[]) {
   return { archived, dismissed };
 }
 
+/**
+ * Snapshot the fields a bulk action is about to overwrite, for exactly the ids
+ * it touches. Rolling back from this is cheaper and more precise than cloning
+ * the whole `items` array: on a partial failure only the ids the backend
+ * reported as failed get restored.
+ */
+function snapshotFields(
+  items: QueueItem[],
+  ids: string[],
+  fields: (keyof QueueItem)[],
+): Map<string, Partial<QueueItem>> {
+  const wanted = new Set(ids);
+  const snapshot = new Map<string, Partial<QueueItem>>();
+  for (const item of items) {
+    if (!wanted.has(item.id)) continue;
+    const before: Partial<QueueItem> = {};
+    for (const field of fields) {
+      (before as Record<string, unknown>)[field as string] = item[field];
+    }
+    snapshot.set(item.id, before);
+  }
+  return snapshot;
+}
+
 async function parallelWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
   const results: T[] = new Array(tasks.length);
   let index = 0;
@@ -87,11 +117,34 @@ async function parallelWithLimit<T>(tasks: (() => Promise<T>)[], limit: number):
 }
 
 
+/** Modifier keys that decide what a click does to the selection. */
+export interface SelectionModifiers {
+  /** Shift — extend from the anchor to the clicked row. */
+  shift?: boolean;
+  /** Cmd on macOS, Ctrl elsewhere — toggle one row, leave the rest. */
+  meta?: boolean;
+}
+
 interface QueueState {
   // Data
   items: QueueItem[];
   filteredItems: QueueItem[];
   selectedIds: Set<string>;
+  /**
+   * Anchor for Shift+Click ranges, held as an item id rather than a list index.
+   * The queue surfaces do not render the same list — ReviewQueueView layers
+   * session-customization filters on top of `filteredItems` — so an index owned
+   * by the store would address a different row depending on who asked. Callers
+   * pass their own rendered id order to `setSelectionFromClick` instead.
+   */
+  lastSelectedId: string | null;
+  /**
+   * Selection as it stood when the anchor was last set. Shift+Click unions the
+   * range onto *this*, not onto the live selection, which is what makes
+   * successive Shift+Clicks re-derive the range (shrinking as well as growing)
+   * while still preserving rows an earlier Cmd+Click picked out.
+   */
+  selectionBase: Set<string>;
   stats: QueueStats | null;
   customSubset: QueueItem[] | null;
 
@@ -102,6 +155,22 @@ interface QueueState {
   filters: SearchFilters;
   sortOptions: SortOptions;
   queueFilterMode: QueueFilterMode; // FSRS queue filter mode
+  /**
+   * Canonical key (JSON of the active query identity) of the query whose
+   * results are currently in `items`, or null before the first load. Lives in
+   * the store — not in component refs — so closing and reopening the Queue tab
+   * does NOT reset it and re-run the first-load path (incl. the bounded startup
+   * snapshot) against an already-loaded queue. See design decision D3.
+   */
+  loadedQueryKey: string | null;
+  /**
+   * True once the queue has completed its first load for the current session.
+   * Gates the bounded startup-snapshot fast-path so it runs only on a genuine
+   * first load — never re-applied over an already-loaded queue after a tab
+   * close/reopen. Lives in the store (not a component ref) for the same reason
+   * as `loadedQueryKey`: refs reset on unmount. See design D3.
+   */
+  hasCompletedFirstLoad: boolean;
   bulkOperationLoading: boolean;
   bulkOperationResult: BulkOperationResult | null;
 
@@ -122,6 +191,11 @@ interface QueueState {
    * the item, re-run filters/sort, and mark the store for focus reconcile.
    */
   applyItemDelta: (id: string, updates: Partial<QueueItem>) => void;
+  /**
+   * Batched `applyItemDelta`: one array pass and one `applyFilters()` for the
+   * whole set, instead of one of each per item.
+   */
+  applyItemDeltas: (ids: string[], updates: Partial<QueueItem>) => void;
   /** Remove items from local queue state (suspend/delete mutations). */
   removeItemsLocally: (ids: string[]) => void;
   /** Full reload iff local deltas were applied since the last load. */
@@ -132,10 +206,30 @@ interface QueueState {
   loadDueDocumentsOnly: () => Promise<void>;
   loadDueQueueItems: () => Promise<void>;
   setQueueFilterMode: (mode: QueueFilterMode) => void;
+  /**
+   * The single shared, mode-aware chokepoint for reloading the queue after a
+   * mutation or navigation. Re-issues the ACTIVE filter mode's query (not some
+   * other query's result set) by delegating to the existing mode-specific
+   * loader. Every post-mutation / reconcile reload MUST route through here
+   * instead of calling `loadQueue()` directly — `loadQueue()` is mode-aware but
+   * its intent is implicit, and a raw `loadQueue()` in a reconcile context is
+   * exactly what has repeatedly swapped the displayed list out from under the
+   * user (see openspec/changes/stabilize-queue-order-on-reactivation).
+   */
+  reloadForCurrentMode: () => Promise<void>;
+  /** Record the canonical query key now loaded into `items` (see D3). */
+  setLoadedQueryKey: (key: string | null) => void;
+  /** Mark that the first load has completed, gating the startup snapshot path. */
+  setHasCompletedFirstLoad: (done: boolean) => void;
   loadStats: () => Promise<void>;
   setItems: (items: QueueItem[]) => void;
   hydrateStartupQueue: (items: QueueItem[]) => void;
   setSelected: (id: string, selected: boolean) => void;
+  /**
+   * Resolve a row click into a new selection. `renderedIds` is the caller's own
+   * visible row order — the store stays agnostic about how each surface filters.
+   */
+  setSelectionFromClick: (id: string, renderedIds: string[], mods?: SelectionModifiers) => void;
   selectAll: () => void;
   clearSelection: () => void;
   setCustomSubset: (items: QueueItem[] | null) => void;
@@ -154,6 +248,17 @@ interface QueueState {
   bulkSuspend: () => Promise<void>;
   bulkUnsuspend: () => Promise<void>;
   bulkDelete: () => Promise<void>;
+  /** Internal: shared optimistic-patch + dispatch + partial-rollback path. */
+  runBulkPatch: (
+    fields: (keyof QueueItem)[],
+    optimistic: Partial<QueueItem>,
+    dispatch: (ids: string[]) => Promise<BulkOperationResult>,
+  ) => Promise<BulkOperationResult>;
+  bulkSetPriority: (slider: number) => Promise<BulkOperationResult>;
+  bulkPostpone: (days: number) => Promise<BulkOperationResult>;
+  bulkMoveToCollection: (collectionId: string) => Promise<BulkOperationResult>;
+  bulkUpdateTags: (add: string[], remove: string[]) => Promise<BulkOperationResult>;
+  bulkSetLifecycle: (transition: LifecycleTransition) => Promise<BulkOperationResult>;
   clearBulkResult: () => void;
 }
 
@@ -162,6 +267,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   items: [],
   filteredItems: [],
   selectedIds: new Set<string>(),
+  lastSelectedId: null,
+  selectionBase: new Set<string>(),
   stats: null,
   customSubset: null,
   isLoading: false,
@@ -173,6 +280,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     direction: "desc",
   },
   queueFilterMode: "due-all", // Default to due-only to avoid resurfacing reviewed items
+  loadedQueryKey: null,
+  hasCompletedFirstLoad: false,
   bulkOperationLoading: false,
   bulkOperationResult: null,
   postponeLoading: false,
@@ -206,6 +315,10 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           isLoading: false,
           // A fresh listing is server truth; clear the focus-reconcile flag.
           hasLocalDeltas: false,
+          // ...and the rows it replaces, so a stale selection can't outlive them.
+          selectedIds: new Set<string>(),
+          lastSelectedId: null,
+          selectionBase: new Set<string>(),
         });
         get().applyFilters();
 
@@ -249,6 +362,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         set({
           items,
           isLoading: false,
+          selectedIds: new Set<string>(),
+          lastSelectedId: null,
+          selectionBase: new Set<string>(),
         });
         get().applyFilters();
       } catch (error) {
@@ -270,6 +386,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         set({
           items,
           isLoading: false,
+          selectedIds: new Set<string>(),
+          lastSelectedId: null,
+          selectionBase: new Set<string>(),
         });
         get().applyFilters();
       } catch (error) {
@@ -289,8 +408,19 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     // reload/reorder of the list — for a selection that never changed.
     if (get().queueFilterMode === mode) return;
     set({ queueFilterMode: mode });
-    // Reload queue based on the new filter mode
-    switch (mode) {
+    // Reload queue based on the new filter mode, through the shared chokepoint
+    // so the mode→loader mapping lives in exactly one place.
+    await get().reloadForCurrentMode();
+  },
+
+  // The single shared, mode-aware reload chokepoint. Delegates to the loader
+  // for the ACTIVE filter mode so a post-mutation / navigation reconcile always
+  // re-issues the current query — never a different query's result set, which
+  // is what has repeatedly reordered the list out from under the user.
+  // Concurrent callers are safe: each underlying loader coalesces via
+  // dedupeLoad. See design decision D1.
+  reloadForCurrentMode: async () => {
+    switch (get().queueFilterMode) {
       case "due-today":
         await get().loadDueDocumentsOnly();
         break;
@@ -304,6 +434,12 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         break;
     }
   },
+
+  // Record the canonical key of the query whose results are now in `items`.
+  // Computed by the view (it owns the inputs — queueMode, collection, semantic
+  // study) and persisted here so it survives tab unmount. See design D3.
+  setLoadedQueryKey: (key: string | null) => set({ loadedQueryKey: key }),
+  setHasCompletedFirstLoad: (done: boolean) => set({ hasCompletedFirstLoad: done }),
 
   setItems: (items) =>
     set({
@@ -328,21 +464,51 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       } else {
         newSelected.delete(id);
       }
-      return { selectedIds: newSelected };
+      return { selectedIds: newSelected, lastSelectedId: id, selectionBase: new Set(newSelected) };
     }),
 
+  setSelectionFromClick: (id, renderedIds, mods) =>
+    set((state) => {
+      // Cmd/Ctrl+Click: toggle this row only, and re-anchor here so a following
+      // Shift+Click extends from where the user actually last clicked.
+      if (mods?.meta) {
+        const next = new Set(state.selectedIds);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return { selectedIds: next, lastSelectedId: id, selectionBase: new Set(next) };
+      }
+
+      // Shift+Click: base ∪ [anchor..clicked]. The anchor deliberately does not
+      // move, so repeated Shift+Clicks pivot around it.
+      if (mods?.shift && state.lastSelectedId !== null) {
+        const from = renderedIds.indexOf(state.lastSelectedId);
+        const to = renderedIds.indexOf(id);
+        if (from !== -1 && to !== -1) {
+          const next = new Set(state.selectionBase);
+          for (let i = Math.min(from, to); i <= Math.max(from, to); i++) {
+            next.add(renderedIds[i]);
+          }
+          return { selectedIds: next, lastSelectedId: state.lastSelectedId, selectionBase: state.selectionBase };
+        }
+      }
+
+      // Plain click — and Shift with no usable anchor, which per spec degrades
+      // to a plain click rather than doing nothing.
+      const single = new Set([id]);
+      return { selectedIds: single, lastSelectedId: id, selectionBase: new Set(single) };
+    }),
+
+  // Every rendered item, not just learning items: the bulk actions all accept
+  // mixed types, so narrowing here made documents and extracts unselectable
+  // through select-all for no reason. Callers wanting one type filter their own.
   selectAll: () =>
     set((state) => {
-      const newSelected = new Set<string>();
-      state.filteredItems.forEach((item) => {
-        if (item.itemType === "learning-item") {
-          newSelected.add(item.id);
-        }
-      });
-      return { selectedIds: newSelected };
+      const newSelected = new Set(state.filteredItems.map((item) => item.id));
+      return { selectedIds: newSelected, lastSelectedId: null, selectionBase: new Set(newSelected) };
     }),
 
-  clearSelection: () => set({ selectedIds: new Set<string>() }),
+  clearSelection: () =>
+    set({ selectedIds: new Set<string>(), lastSelectedId: null, selectionBase: new Set<string>() }),
   setCustomSubset: (items) => set({ customSubset: items }),
 
   setSearchQuery: (query) => {
@@ -370,6 +536,19 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     get().applyFilters();
   },
 
+  applyItemDeltas: (ids, updates) => {
+    if (ids.length === 0) return;
+    // One pass and one applyFilters for the whole batch. Looping applyItemDelta
+    // would copy the array and re-run every filter once per selected item —
+    // 200 array copies and 200 filter passes for a 200-item bulk action.
+    const target = new Set(ids);
+    set((state) => ({
+      items: state.items.map((item) => (target.has(item.id) ? { ...item, ...updates } : item)),
+      hasLocalDeltas: true,
+    }));
+    get().applyFilters();
+  },
+
   removeItemsLocally: (ids) => {
     if (ids.length === 0) return;
     const remove = new Set(ids);
@@ -382,7 +561,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   reconcileIfDirty: async () => {
     if (!get().hasLocalDeltas) return;
-    await get().loadQueue();
+    await get().reloadForCurrentMode();
   },
 
   applyFilters: () => {
@@ -426,6 +605,22 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     const dir = sortOptions.direction === "asc" ? 1 : -1;
     if (field === "priority") {
       filtered.sort((a, b) => dir * (a.priority - b.priority));
+    } else if (field === "overdue") {
+      // Whole days past due, same expression as reviewUx.ts. Items due today,
+      // due later, or with no due date at all are 0, so they never displace a
+      // genuinely overdue item from the top of a descending sort. Ties fall
+      // through to priority so repeated renders stay stable.
+      const now = Date.now();
+      const overdueDays = (item: QueueItem) => {
+        if (!item.dueDate) return 0;
+        const due = new Date(item.dueDate).getTime();
+        if (Number.isNaN(due)) return 0;
+        return Math.max(0, Math.floor((now - due) / 86_400_000));
+      };
+      filtered.sort((a, b) => {
+        const delta = overdueDays(a) - overdueDays(b);
+        return delta !== 0 ? dir * delta : b.priority - a.priority;
+      });
     } else {
       filtered.sort((a, b) => {
         const av = a.documentTitle;
@@ -434,7 +629,37 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       });
     }
 
-    set({ filteredItems: filtered });
+    // A row the user can no longer see must not stay selected, or a bulk action
+    // would silently hit items outside the visible queue. Only pay for the
+    // pruning pass when something is actually selected — applyFilters runs on
+    // every search keystroke.
+    const { selectedIds, lastSelectedId } = get();
+    if (selectedIds.size === 0) {
+      set({ filteredItems: filtered });
+      return;
+    }
+
+    const visible = new Set(filtered.map((item) => item.id));
+    let dropped = false;
+    const stillSelected = new Set<string>();
+    selectedIds.forEach((id) => {
+      if (visible.has(id)) stillSelected.add(id);
+      else dropped = true;
+    });
+
+    set({
+      filteredItems: filtered,
+      ...(dropped
+        ? {
+            selectedIds: stillSelected,
+            selectionBase: new Set(stillSelected),
+          }
+        : {}),
+      // Keep the anchor across a re-sort — only give it up once the row it
+      // points at is gone, otherwise a background delta would quietly downgrade
+      // the next Shift+Click to a plain click.
+      ...(lastSelectedId !== null && !visible.has(lastSelectedId) ? { lastSelectedId: null } : {}),
+    });
   },
 
   setLoading: (isLoading) => set({ isLoading }),
@@ -510,7 +735,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         if (newDueDate) {
           get().applyItemDelta(queueItem.id, { dueDate: newDueDate });
         } else {
-          await get().loadQueue();
+          await get().reloadForCurrentMode();
         }
       }
       return { increase: result.increase, newInterval: result.newInterval };
@@ -547,7 +772,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       if (newDueDate) {
         get().applyItemDelta(queueItem.id, { dueDate: newDueDate });
       } else {
-        await get().loadQueue();
+        await get().reloadForCurrentMode();
       }
     }
     return { increase: result.increase, newInterval: result.newInterval };
@@ -672,7 +897,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       }
 
       set({ postponeStats: stats, postponeLoading: false });
-      await get().loadQueue();
+      await get().reloadForCurrentMode();
       await get().loadStats();
       return stats;
     } catch (error) {
@@ -699,7 +924,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         // (design D2); fall back to a reload when the response is unmappable.
         get().applyItemDelta(id, { dueDate: newDueDate });
       } else {
-        await get().loadQueue();
+        await get().reloadForCurrentMode();
       }
     } catch (error) {
       set({
@@ -720,7 +945,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
       // Release the selection so the action bar does not survive its own
       // action, matching bulkDelete.
-      set({ selectedIds: new Set<string>() });
+      set({ selectedIds: new Set<string>(), lastSelectedId: null, selectionBase: new Set<string>() });
       // Suspended items leave the queue: drop exactly the succeeded ids
       // locally instead of re-transferring the whole listing (design D2).
       get().removeItemsLocally(result.succeeded);
@@ -745,9 +970,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
       // Release the selection so the action bar does not survive its own
       // action, matching bulkDelete.
-      set({ selectedIds: new Set<string>() });
+      set({ selectedIds: new Set<string>(), lastSelectedId: null, selectionBase: new Set<string>() });
       // Reload queue to get updated data
-      await get().loadQueue();
+      await get().reloadForCurrentMode();
       await get().loadStats();
     } catch (error) {
       set({
@@ -768,12 +993,112 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       set({ bulkOperationResult: result, bulkOperationLoading: false });
 
       // Clear selection and drop exactly the deleted ids locally (design D2).
-      set({ selectedIds: new Set<string>() });
+      set({ selectedIds: new Set<string>(), lastSelectedId: null, selectionBase: new Set<string>() });
       get().removeItemsLocally(result.succeeded);
       await get().loadStats();
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to delete items",
+        bulkOperationLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Shared path for the bulk actions that mutate items in place (as opposed to
+   * removing them, which suspend/delete already handle). Patches local state
+   * immediately, dispatches one IPC call, then rolls back exactly the ids the
+   * backend reported as failed — a batch that half-succeeds leaves the half
+   * that worked applied.
+   */
+  runBulkPatch: async (
+    fields: (keyof QueueItem)[],
+    optimistic: Partial<QueueItem>,
+    dispatch: (ids: string[]) => Promise<BulkOperationResult>,
+  ): Promise<BulkOperationResult> => {
+    const ids = Array.from(get().selectedIds);
+    const empty: BulkOperationResult = { succeeded: [], failed: [], errors: [] };
+    if (ids.length === 0) return empty;
+
+    const before = snapshotFields(get().items, ids, fields);
+    set({ bulkOperationLoading: true, error: null, bulkOperationResult: null });
+    get().applyItemDeltas(ids, optimistic);
+
+    try {
+      const result = await dispatch(ids);
+      // Restore only what the backend refused; everything else stays patched.
+      for (const id of result.failed) {
+        const original = before.get(id);
+        if (original) get().applyItemDelta(id, original);
+      }
+      set({
+        bulkOperationResult: result,
+        bulkOperationLoading: false,
+        selectedIds: new Set<string>(),
+        lastSelectedId: null,
+        selectionBase: new Set<string>(),
+      });
+      await get().loadStats();
+      return result;
+    } catch (error) {
+      // Total failure: undo the whole optimistic patch.
+      for (const [id, original] of before) get().applyItemDelta(id, original);
+      set({
+        error: error instanceof Error ? error.message : "Bulk operation failed",
+        bulkOperationLoading: false,
+      });
+      throw error;
+    }
+  },
+
+  bulkSetPriority: async (slider) =>
+    get().runBulkPatch(["priority"], { priority: Math.max(0, Math.min(100, slider)) }, (ids) =>
+      bulkUpdateItemPriorities(ids, slider),
+    ),
+
+  bulkPostpone: async (days) => {
+    // The new due date is the backend's to decide (it scales documents by their
+    // interval_modifier), so patch nothing optimistically beyond marking the
+    // rows dirty; the reconcile reload brings back exact dates.
+    const result = await get().runBulkPatch([], {}, (ids) => bulkPostponeItems(ids, days));
+    await get().reloadForCurrentMode();
+    return result;
+  },
+
+  bulkMoveToCollection: async (collectionId) =>
+    get().runBulkPatch([], {}, (ids) => bulkMoveItemsToCollection(ids, collectionId)),
+
+  bulkUpdateTags: async (add, remove) =>
+    get().runBulkPatch([], {}, (ids) => bulkUpdateItemTags(ids, add, remove)),
+
+  bulkSetLifecycle: async (transition) => {
+    const ids = Array.from(get().selectedIds);
+    const empty: BulkOperationResult = { succeeded: [], failed: [], errors: [] };
+    if (ids.length === 0) return empty;
+
+    set({ bulkOperationLoading: true, error: null, bulkOperationResult: null });
+    try {
+      const result = await bulkSetItemLifecycle(ids, transition);
+      set({
+        bulkOperationResult: result,
+        bulkOperationLoading: false,
+        selectedIds: new Set<string>(),
+        lastSelectedId: null,
+        selectionBase: new Set<string>(),
+      });
+      // Done and Dismiss take items out of the queue; Forget keeps them but
+      // resets their schedule, so it needs a reload rather than a removal.
+      if (transition === "forget") {
+        await get().reloadForCurrentMode();
+      } else {
+        get().removeItemsLocally(result.succeeded);
+      }
+      await get().loadStats();
+      return result;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : "Failed to update items",
         bulkOperationLoading: false,
       });
       throw error;

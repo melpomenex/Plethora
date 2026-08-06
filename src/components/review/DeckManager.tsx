@@ -59,7 +59,8 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   const toast = useToast();
   const confirmDialog = useConfirmDialog();
   const { decks, updateDeck, removeDeck, addDeck } = useStudyDeckStore();
-  const { selectedDeckId, setSelectedDeckId } = useReviewStore();
+  const selectedDeckId = useReviewStore((state) => state.selectedDeckId);
+  const setSelectedDeckId = useReviewStore((state) => state.setSelectedDeckId);
 
   const sortedDecks = useMemo(() => {
     return [...(decks || [])].sort((a, b) =>

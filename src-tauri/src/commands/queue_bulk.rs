@@ -621,6 +621,498 @@ pub async fn apply_easy_days(
     Ok(LoadManagementResult { affected, skipped })
 }
 
+
+// ---------------------------------------------------------------------------
+// Batch queue mutations (queue-bulk-actions)
+//
+// Every command below takes queue item ids of mixed type, resolves each one
+// through `resolve_queue_entities`, and applies the change inside a single
+// transaction. Two failure modes are deliberately distinguished:
+//
+//   * An id that resolves to nothing (deleted since the selection was made) is
+//     a per-item failure recorded in `BulkOperationResult::failed`. The rest of
+//     the batch still commits — a stale id must not cost the user their action.
+//   * A real SQL error aborts the whole transaction, so no item is left
+//     half-written and the command returns Err.
+// ---------------------------------------------------------------------------
+
+/// How far a bulk postpone pushes each item out.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BulkPostponeArgs {
+    /// Fixed shift in days (+1/+3/+7/+30 from the UI).
+    pub days: i32,
+}
+
+/// Lifecycle transition applied by `bulk_set_item_lifecycle`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LifecycleTransition {
+    /// Graduate out of the active queue.
+    Done,
+    /// Hide from the queue, keep the row.
+    Dismiss,
+    /// Reset scheduling state so the item is treated as new.
+    Forget,
+}
+
+fn not_found(item_id: &str) -> crate::error::IncrementumError {
+    crate::error::IncrementumError::NotFound(format!("Queue item {}", item_id))
+}
+
+/// Set one priority slider value across a mixed selection.
+///
+/// Priority exists on documents (rating + slider + score) and on extracts
+/// (score only). `learning_items` has no priority column at all, so those ids
+/// are reported as failures rather than silently ignored — the caller shows the
+/// count and the user is not misled into thinking their cards were reprioritized.
+pub(crate) async fn bulk_update_item_priorities_inner(
+    repo: &Repository,
+    item_ids: Vec<String>,
+    slider: i32,
+) -> Result<BulkOperationResult> {
+    let mut result = BulkOperationResult {
+        succeeded: Vec::new(),
+        failed: Vec::new(),
+        errors: Vec::new(),
+    };
+    if item_ids.is_empty() {
+        return Ok(result);
+    }
+
+    let slider_value = slider.clamp(0, 100);
+    let rating_value = crate::algorithms::rating_from_slider(slider_value);
+    let score = crate::algorithms::calculate_document_priority_score(
+        if rating_value > 0 { Some(rating_value) } else { None },
+        slider_value,
+    );
+
+    let resolved = resolve_queue_entities(repo, &item_ids).await?;
+    let now = Utc::now();
+    let mut tx = repo.pool().begin().await?;
+
+    for item_id in &item_ids {
+        match resolved.get(item_id) {
+            Some(QueueEntityKind::Document) => {
+                sqlx::query(
+                    "UPDATE documents SET priority_rating = ?, priority_slider = ?, \
+                     priority_score = ?, priority_explicitly_set = 1, date_modified = ? WHERE id = ?",
+                )
+                .bind(rating_value)
+                .bind(slider_value)
+                .bind(score)
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+                result.succeeded.push(item_id.clone());
+            }
+            Some(QueueEntityKind::Extract) => {
+                sqlx::query("UPDATE extracts SET priority_score = ?, date_modified = ? WHERE id = ?")
+                    .bind(score.clamp(0.0, 100.0))
+                    .bind(now)
+                    .bind(item_id)
+                    .execute(&mut *tx)
+                    .await?;
+                result.succeeded.push(item_id.clone());
+            }
+            Some(QueueEntityKind::LearningItem) => {
+                result.failed.push(item_id.clone());
+                result
+                    .errors
+                    .push(format!("{}: flashcards have no priority", item_id));
+            }
+            None => {
+                result.failed.push(item_id.clone());
+                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+            }
+        }
+    }
+
+    tx.commit().await?;
+    Ok(result)
+}
+
+/// Push a mixed selection out by a fixed number of days.
+///
+/// Documents advance `next_reading_date` scaled by their own
+/// `interval_modifier`, matching `postpone_item`; learning items and extracts
+/// advance their due date directly. Smart (algorithm-weighted) postpone stays in
+/// the frontend `postpone` engine, which already owns the priority-weighted
+/// formula — duplicating it here would give the two paths room to drift.
+pub(crate) async fn bulk_postpone_items_inner(
+    repo: &Repository,
+    item_ids: Vec<String>,
+    days: i32,
+) -> Result<BulkOperationResult> {
+    let mut result = BulkOperationResult {
+        succeeded: Vec::new(),
+        failed: Vec::new(),
+        errors: Vec::new(),
+    };
+    if item_ids.is_empty() {
+        return Ok(result);
+    }
+
+    let resolved = resolve_queue_entities(repo, &item_ids).await?;
+    let now = Utc::now();
+    let mut tx = repo.pool().begin().await?;
+
+    for item_id in &item_ids {
+        match resolved.get(item_id) {
+            Some(QueueEntityKind::Document) => {
+                // Read the modifier inside the transaction so a concurrent edit
+                // cannot make the shift disagree with the stored value.
+                let modifier: f64 =
+                    sqlx::query("SELECT interval_modifier FROM documents WHERE id = ?")
+                        .bind(item_id)
+                        .fetch_one(&mut *tx)
+                        .await?
+                        .try_get("interval_modifier")
+                        .unwrap_or(1.0);
+                let shift = ((days as f64 * modifier).round() as i64).max(1);
+                sqlx::query(
+                    "UPDATE documents SET next_reading_date = \
+                     datetime(COALESCE(next_reading_date, ?), '+' || ? || ' days'), \
+                     date_modified = ? WHERE id = ?",
+                )
+                .bind(now)
+                .bind(shift)
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+                result.succeeded.push(item_id.clone());
+            }
+            Some(QueueEntityKind::LearningItem) => {
+                sqlx::query(
+                    "UPDATE learning_items SET due_date = datetime(due_date, '+' || ? || ' days'), \
+                     date_modified = ? WHERE id = ?",
+                )
+                .bind(days.max(1))
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+                result.succeeded.push(item_id.clone());
+            }
+            Some(QueueEntityKind::Extract) => {
+                // Extracts are scheduled through their parent document.
+                sqlx::query(
+                    "UPDATE documents SET next_reading_date = \
+                     datetime(COALESCE(next_reading_date, ?), '+' || ? || ' days'), \
+                     date_modified = ? \
+                     WHERE id = (SELECT document_id FROM extracts WHERE id = ?)",
+                )
+                .bind(now)
+                .bind(days.max(1))
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+                result.succeeded.push(item_id.clone());
+            }
+            None => {
+                result.failed.push(item_id.clone());
+                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+            }
+        }
+    }
+
+    tx.commit().await?;
+    Ok(result)
+}
+
+/// Move a mixed selection into one collection.
+///
+/// All three tables carry `collection_id` (migration 007), so this is uniform.
+/// The target collection must already exist — a move never creates one.
+pub(crate) async fn bulk_move_items_to_collection_inner(
+    repo: &Repository,
+    item_ids: Vec<String>,
+    collection_id: String,
+) -> Result<BulkOperationResult> {
+    let mut result = BulkOperationResult {
+        succeeded: Vec::new(),
+        failed: Vec::new(),
+        errors: Vec::new(),
+    };
+    if item_ids.is_empty() {
+        return Ok(result);
+    }
+
+    let exists: Option<String> = sqlx::query("SELECT id FROM collections WHERE id = ?")
+        .bind(&collection_id)
+        .fetch_optional(repo.pool())
+        .await?
+        .map(|row| row.get("id"));
+    if exists.is_none() {
+        return Err(crate::error::IncrementumError::NotFound(format!(
+            "Collection {}",
+            collection_id
+        )));
+    }
+
+    let resolved = resolve_queue_entities(repo, &item_ids).await?;
+    let now = Utc::now();
+    let mut tx = repo.pool().begin().await?;
+
+    for item_id in &item_ids {
+        let table = match resolved.get(item_id) {
+            Some(QueueEntityKind::Document) => "documents",
+            Some(QueueEntityKind::Extract) => "extracts",
+            Some(QueueEntityKind::LearningItem) => "learning_items",
+            None => {
+                result.failed.push(item_id.clone());
+                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+                continue;
+            }
+        };
+        let sql = format!(
+            "UPDATE {} SET collection_id = ?, date_modified = ? WHERE id = ?",
+            table
+        );
+        sqlx::query(&sql)
+            .bind(&collection_id)
+            .bind(now)
+            .bind(item_id)
+            .execute(&mut *tx)
+            .await?;
+        result.succeeded.push(item_id.clone());
+    }
+
+    tx.commit().await?;
+    Ok(result)
+}
+
+/// Add and/or remove tags across a mixed selection.
+///
+/// Tags live as a JSON array in a TEXT column on all three tables. Adding a tag
+/// an item already carries, or removing one it does not, is a no-op for that
+/// item rather than an error — a bulk edit should converge on the requested
+/// state, not fail because part of it was already true.
+pub(crate) async fn bulk_update_item_tags_inner(
+    repo: &Repository,
+    item_ids: Vec<String>,
+    add: Vec<String>,
+    remove: Vec<String>,
+) -> Result<BulkOperationResult> {
+    let mut result = BulkOperationResult {
+        succeeded: Vec::new(),
+        failed: Vec::new(),
+        errors: Vec::new(),
+    };
+    if item_ids.is_empty() {
+        return Ok(result);
+    }
+
+    let resolved = resolve_queue_entities(repo, &item_ids).await?;
+    let now = Utc::now();
+    let mut tx = repo.pool().begin().await?;
+
+    for item_id in &item_ids {
+        let table = match resolved.get(item_id) {
+            Some(QueueEntityKind::Document) => "documents",
+            Some(QueueEntityKind::Extract) => "extracts",
+            Some(QueueEntityKind::LearningItem) => "learning_items",
+            None => {
+                result.failed.push(item_id.clone());
+                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+                continue;
+            }
+        };
+
+        let current: String = sqlx::query(&format!("SELECT tags FROM {} WHERE id = ?", table))
+            .bind(item_id)
+            .fetch_one(&mut *tx)
+            .await?
+            .try_get("tags")
+            .unwrap_or_else(|_| "[]".to_string());
+        let mut tags: Vec<String> = serde_json::from_str(&current).unwrap_or_default();
+
+        for tag in &add {
+            if !tags.iter().any(|t| t == tag) {
+                tags.push(tag.clone());
+            }
+        }
+        tags.retain(|t| !remove.iter().any(|r| r == t));
+
+        let encoded = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+        sqlx::query(&format!(
+            "UPDATE {} SET tags = ?, date_modified = ? WHERE id = ?",
+            table
+        ))
+        .bind(encoded)
+        .bind(now)
+        .bind(item_id)
+        .execute(&mut *tx)
+        .await?;
+        result.succeeded.push(item_id.clone());
+    }
+
+    tx.commit().await?;
+    Ok(result)
+}
+
+/// Apply a lifecycle transition across a mixed selection.
+///
+/// `Done` and `Dismiss` both take the item out of the active queue and are
+/// expressible on every type. `Forget` resets scheduling state to the new-item
+/// baseline; on documents and extracts that means clearing the schedule, on
+/// learning items it means resetting the FSRS/SM state columns as well.
+pub(crate) async fn bulk_set_item_lifecycle_inner(
+    repo: &Repository,
+    item_ids: Vec<String>,
+    transition: LifecycleTransition,
+) -> Result<BulkOperationResult> {
+    let mut result = BulkOperationResult {
+        succeeded: Vec::new(),
+        failed: Vec::new(),
+        errors: Vec::new(),
+    };
+    if item_ids.is_empty() {
+        return Ok(result);
+    }
+
+    let resolved = resolve_queue_entities(repo, &item_ids).await?;
+    let now = Utc::now();
+    let mut tx = repo.pool().begin().await?;
+
+    for item_id in &item_ids {
+        let kind = match resolved.get(item_id) {
+            Some(kind) => *kind,
+            None => {
+                result.failed.push(item_id.clone());
+                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+                continue;
+            }
+        };
+
+        match (transition, kind) {
+            // Done / Dismiss both remove the item from the active queue. The
+            // difference is intent, not mechanism, for documents and extracts.
+            (LifecycleTransition::Done, QueueEntityKind::Document) => {
+                sqlx::query(
+                    "UPDATE documents SET is_archived = 1, date_modified = ? WHERE id = ?",
+                )
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            (LifecycleTransition::Dismiss, QueueEntityKind::Document) => {
+                sqlx::query(
+                    "UPDATE documents SET is_dismissed = 1, date_modified = ? WHERE id = ?",
+                )
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            (LifecycleTransition::Done, QueueEntityKind::Extract)
+            | (LifecycleTransition::Dismiss, QueueEntityKind::Extract) => {
+                sqlx::query(
+                    "UPDATE extracts SET is_dismissed = 1, date_modified = ? WHERE id = ?",
+                )
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            (LifecycleTransition::Done, QueueEntityKind::LearningItem)
+            | (LifecycleTransition::Dismiss, QueueEntityKind::LearningItem) => {
+                sqlx::query(
+                    "UPDATE learning_items SET is_suspended = 1, date_modified = ? WHERE id = ?",
+                )
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            (LifecycleTransition::Forget, QueueEntityKind::LearningItem) => {
+                sqlx::query(
+                    "UPDATE learning_items SET state = 'new', interval = 0, ease_factor = 2.5, \
+                     review_count = 0, lapses = 0, last_review_date = NULL, \
+                     first_reviewed_at = NULL, due_date = ?, date_modified = ? WHERE id = ?",
+                )
+                .bind(now)
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            (LifecycleTransition::Forget, QueueEntityKind::Document) => {
+                sqlx::query(
+                    "UPDATE documents SET next_reading_date = NULL, stability = NULL, \
+                     difficulty = NULL, first_reviewed_at = NULL, date_modified = ? WHERE id = ?",
+                )
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            (LifecycleTransition::Forget, QueueEntityKind::Extract) => {
+                // Extracts hold no memory state of their own; forgetting one is
+                // a no-op rather than an error so a mixed Forget still succeeds.
+            }
+        }
+
+        result.succeeded.push(item_id.clone());
+    }
+
+    tx.commit().await?;
+    Ok(result)
+}
+
+
+// Tauri entry points. The logic lives in the `_inner` helpers above so the
+// tests can drive it with a plain `&Repository` instead of a Tauri `State`.
+#[tauri::command]
+pub async fn bulk_update_item_priorities(
+    item_ids: Vec<String>,
+    slider: i32,
+    repo: State<'_, Repository>,
+) -> Result<BulkOperationResult> {
+    bulk_update_item_priorities_inner(&repo, item_ids, slider).await
+}
+
+#[tauri::command]
+pub async fn bulk_postpone_items(
+    item_ids: Vec<String>,
+    days: i32,
+    repo: State<'_, Repository>,
+) -> Result<BulkOperationResult> {
+    bulk_postpone_items_inner(&repo, item_ids, days).await
+}
+
+#[tauri::command]
+pub async fn bulk_move_items_to_collection(
+    item_ids: Vec<String>,
+    collection_id: String,
+    repo: State<'_, Repository>,
+) -> Result<BulkOperationResult> {
+    bulk_move_items_to_collection_inner(&repo, item_ids, collection_id).await
+}
+
+#[tauri::command]
+pub async fn bulk_update_item_tags(
+    item_ids: Vec<String>,
+    add: Vec<String>,
+    remove: Vec<String>,
+    repo: State<'_, Repository>,
+) -> Result<BulkOperationResult> {
+    bulk_update_item_tags_inner(&repo, item_ids, add, remove).await
+}
+
+#[tauri::command]
+pub async fn bulk_set_item_lifecycle(
+    item_ids: Vec<String>,
+    transition: LifecycleTransition,
+    repo: State<'_, Repository>,
+) -> Result<BulkOperationResult> {
+    bulk_set_item_lifecycle_inner(&repo, item_ids, transition).await
+}
+
 #[cfg(test)]
 mod bulk_item_tests {
     use super::*;
@@ -783,5 +1275,290 @@ mod bulk_item_tests {
         let repo = setup_repo().await;
         let resolved = resolve_queue_entities(&repo, &[]).await.expect("resolve");
         assert!(resolved.is_empty());
+    }
+
+    // ---- batch mutation commands (queue-bulk-actions) ----------------------
+    //
+    // These exercise the runtime SQL. The queries are built as strings, so the
+    // compiler validates none of the column names — only running them does.
+
+    #[tokio::test]
+    async fn bulk_priority_sets_documents_and_extracts_and_rejects_flashcards() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+        let extract = make_extract(&repo, &doc).await;
+        let card = make_learning_item(&repo).await;
+
+        let result = bulk_update_item_priorities_inner(
+            &repo,
+            vec![doc.clone(), extract.clone(), card.clone()],
+            80,
+        )
+        .await
+        .expect("bulk priority");
+
+        assert_eq!(result.succeeded.len(), 2);
+        assert!(result.succeeded.contains(&doc));
+        assert!(result.succeeded.contains(&extract));
+        // Flashcards have no priority column; say so rather than lie.
+        assert_eq!(result.failed, vec![card]);
+        assert!(result.errors[0].contains("no priority"));
+
+        let stored: f64 = sqlx::query("SELECT priority_score FROM documents WHERE id = ?")
+            .bind(&doc)
+            .fetch_one(repo.pool())
+            .await
+            .expect("read doc")
+            .try_get("priority_score")
+            .expect("priority_score");
+        assert!(stored > 0.0, "document priority should have been written");
+    }
+
+    #[tokio::test]
+    async fn bulk_priority_clamps_out_of_range_slider() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+
+        bulk_update_item_priorities_inner(&repo, vec![doc.clone()], 500)
+            .await
+            .expect("bulk priority");
+
+        let slider: i32 = sqlx::query("SELECT priority_slider FROM documents WHERE id = ?")
+            .bind(&doc)
+            .fetch_one(repo.pool())
+            .await
+            .expect("read doc")
+            .try_get("priority_slider")
+            .expect("priority_slider");
+        assert_eq!(slider, 100);
+    }
+
+    #[tokio::test]
+    async fn bulk_postpone_advances_every_type_and_reports_unknown_ids() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+        let card = make_learning_item(&repo).await;
+
+        let before: String = sqlx::query("SELECT due_date FROM learning_items WHERE id = ?")
+            .bind(&card)
+            .fetch_one(repo.pool())
+            .await
+            .expect("read card")
+            .try_get("due_date")
+            .expect("due_date");
+
+        let result = bulk_postpone_items_inner(
+            &repo,
+            vec![doc.clone(), card.clone(), "ghost".to_string()],
+            7,
+        )
+        .await
+        .expect("bulk postpone");
+
+        assert_eq!(result.succeeded.len(), 2);
+        assert_eq!(result.failed, vec!["ghost".to_string()]);
+
+        let after: String = sqlx::query("SELECT due_date FROM learning_items WHERE id = ?")
+            .bind(&card)
+            .fetch_one(repo.pool())
+            .await
+            .expect("read card")
+            .try_get("due_date")
+            .expect("due_date");
+        assert_ne!(before, after, "due date should have moved");
+
+        let next: Option<String> =
+            sqlx::query("SELECT next_reading_date FROM documents WHERE id = ?")
+                .bind(&doc)
+                .fetch_one(repo.pool())
+                .await
+                .expect("read doc")
+                .try_get("next_reading_date")
+                .expect("next_reading_date");
+        assert!(next.is_some(), "document should have been scheduled");
+    }
+
+    #[tokio::test]
+    async fn bulk_move_reassigns_every_type_without_creating_a_collection() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+        let extract = make_extract(&repo, &doc).await;
+        let card = make_learning_item(&repo).await;
+
+        let before: i64 = sqlx::query("SELECT COUNT(*) AS n FROM collections")
+            .fetch_one(repo.pool())
+            .await
+            .expect("count")
+            .try_get("n")
+            .expect("n");
+
+        let target = "00000000-0000-0000-0000-000000000001";
+        let result = bulk_move_items_to_collection_inner(
+            &repo,
+            vec![doc.clone(), extract.clone(), card.clone()],
+            target.to_string(),
+        )
+        .await
+        .expect("bulk move");
+        assert_eq!(result.succeeded.len(), 3);
+
+        let after: i64 = sqlx::query("SELECT COUNT(*) AS n FROM collections")
+            .fetch_one(repo.pool())
+            .await
+            .expect("count")
+            .try_get("n")
+            .expect("n");
+        assert_eq!(before, after, "a move must never create a collection");
+    }
+
+    #[tokio::test]
+    async fn bulk_move_to_a_missing_collection_is_an_error_not_a_silent_write() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+
+        let result =
+            bulk_move_items_to_collection_inner(&repo, vec![doc], "nope".to_string()).await;
+        assert!(result.is_err(), "unknown collection must not be accepted");
+    }
+
+    #[tokio::test]
+    async fn bulk_tags_add_and_remove_are_idempotent_per_item() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+        let card = make_learning_item(&repo).await;
+
+        // Add twice: the second add must not duplicate the tag.
+        for _ in 0..2 {
+            bulk_update_item_tags_inner(
+                &repo,
+                vec![doc.clone(), card.clone()],
+                vec!["physics".to_string()],
+                vec![],
+            )
+            .await
+            .expect("bulk tag add");
+        }
+
+        let tags: String = sqlx::query("SELECT tags FROM documents WHERE id = ?")
+            .bind(&doc)
+            .fetch_one(repo.pool())
+            .await
+            .expect("read doc")
+            .try_get("tags")
+            .expect("tags");
+        let parsed: Vec<String> = serde_json::from_str(&tags).expect("tags json");
+        assert_eq!(parsed, vec!["physics".to_string()]);
+
+        // Removing a tag the item never had is a no-op, not a failure.
+        let result = bulk_update_item_tags_inner(
+            &repo,
+            vec![doc.clone()],
+            vec![],
+            vec!["chemistry".to_string()],
+        )
+        .await
+        .expect("bulk tag remove");
+        assert_eq!(result.succeeded, vec![doc.clone()]);
+        assert!(result.failed.is_empty());
+
+        bulk_update_item_tags_inner(&repo, vec![doc.clone()], vec![], vec!["physics".to_string()])
+            .await
+            .expect("bulk tag remove");
+        let tags: String = sqlx::query("SELECT tags FROM documents WHERE id = ?")
+            .bind(&doc)
+            .fetch_one(repo.pool())
+            .await
+            .expect("read doc")
+            .try_get("tags")
+            .expect("tags");
+        let parsed: Vec<String> = serde_json::from_str(&tags).expect("tags json");
+        assert!(parsed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn bulk_forget_resets_learning_item_memory_state() {
+        let repo = setup_repo().await;
+        let card = make_learning_item(&repo).await;
+
+        sqlx::query(
+            "UPDATE learning_items SET state = 'review', interval = 40, review_count = 9, \
+             lapses = 2 WHERE id = ?",
+        )
+        .bind(&card)
+        .execute(repo.pool())
+        .await
+        .expect("seed review state");
+
+        let result = bulk_set_item_lifecycle_inner(
+            &repo,
+            vec![card.clone()],
+            LifecycleTransition::Forget,
+        )
+        .await
+        .expect("bulk forget");
+        assert_eq!(result.succeeded, vec![card.clone()]);
+
+        let row = sqlx::query(
+            "SELECT state, interval, review_count, lapses FROM learning_items WHERE id = ?",
+        )
+        .bind(&card)
+        .fetch_one(repo.pool())
+        .await
+        .expect("read card");
+        let state: String = row.try_get("state").expect("state");
+        // `interval` is REAL in the live schema, not the INTEGER 001_initial declares.
+        let interval: f64 = row.try_get("interval").expect("interval");
+        let reviews: i64 = row.try_get("review_count").expect("review_count");
+        let lapses: i64 = row.try_get("lapses").expect("lapses");
+        assert_eq!(state, "new");
+        assert_eq!(interval, 0.0);
+        assert_eq!(reviews, 0);
+        assert_eq!(lapses, 0);
+    }
+
+    #[tokio::test]
+    async fn bulk_lifecycle_dismiss_takes_every_type_out_of_the_queue() {
+        let repo = setup_repo().await;
+        let doc = make_document(&repo, "Doc").await;
+        let extract = make_extract(&repo, &doc).await;
+        let card = make_learning_item(&repo).await;
+
+        let result = bulk_set_item_lifecycle_inner(
+            &repo,
+            vec![doc.clone(), extract.clone(), card.clone()],
+            LifecycleTransition::Dismiss,
+        )
+        .await
+        .expect("bulk dismiss");
+        assert_eq!(result.succeeded.len(), 3);
+
+        let suspended: bool = sqlx::query("SELECT is_suspended FROM learning_items WHERE id = ?")
+            .bind(&card)
+            .fetch_one(repo.pool())
+            .await
+            .expect("read card")
+            .try_get("is_suspended")
+            .expect("is_suspended");
+        assert!(suspended);
+    }
+
+    #[tokio::test]
+    async fn empty_batches_are_a_no_op_for_every_command() {
+        let repo = setup_repo().await;
+        assert!(bulk_update_item_priorities_inner(&repo, vec![], 50)
+            .await
+            .expect("priority")
+            .succeeded
+            .is_empty());
+        assert!(bulk_postpone_items_inner(&repo, vec![], 7)
+            .await
+            .expect("postpone")
+            .succeeded
+            .is_empty());
+        assert!(bulk_update_item_tags_inner(&repo, vec![], vec![], vec![])
+            .await
+            .expect("tags")
+            .succeeded
+            .is_empty());
     }
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   ArrowLeft,
   Sparkle,
@@ -94,7 +95,33 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     goToIndex,
     removeItemFromSession,
     cancelArenaDecision,
-  } = useReviewStore();
+  } = useReviewStore(
+    // Explicit property selector: a bare useReviewStore() re-renders this
+    // component on every unrelated store write (timers, previews, arena state).
+    useShallow((state) => ({
+      currentCard: state.currentCard,
+      queue: state.queue,
+      isLoading: state.isLoading,
+      isAnswerShown: state.isAnswerShown,
+      isSubmitting: state.isSubmitting,
+      error: state.error,
+      reviewsCompleted: state.reviewsCompleted,
+      correctCount: state.correctCount,
+      sessionStartTime: state.sessionStartTime,
+      averageTimePerCard: state.averageTimePerCard,
+      currentIndex: state.currentIndex,
+      streak: state.streak,
+      previewIntervals: state.previewIntervals,
+      pendingArenaReview: state.pendingArenaReview,
+      getEstimatedTimeRemaining: state.getEstimatedTimeRemaining,
+      loadQueue: state.loadQueue,
+      showAnswer: state.showAnswer,
+      submitRating: state.submitRating,
+      goToIndex: state.goToIndex,
+      removeItemFromSession: state.removeItemFromSession,
+      cancelArenaDecision: state.cancelArenaDecision,
+    }))
+  );
   const [isQueueListOpen, setIsQueueListOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [deletingCardId, setDeletingCardId] = useState<string | null>(null);

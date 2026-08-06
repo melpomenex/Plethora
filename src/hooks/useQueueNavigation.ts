@@ -30,7 +30,7 @@ export interface QueueNavigationState {
 }
 
 export function useQueueNavigation() {
-  const { filteredItems: queueItems } = useQueueStore();
+  const queueItems = useQueueStore((state) => state.filteredItems);
   const { addTab, setActiveTab } = useTabsStore();
 
   // Group queue items by documentId

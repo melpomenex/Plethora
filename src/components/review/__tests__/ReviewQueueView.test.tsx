@@ -48,6 +48,7 @@ const mockStore = vi.hoisted(() => {
     loadStats: vi.fn(),
     selectedIds: new Set<string>(),
     setSelected: vi.fn(),
+    setSelectionFromClick: vi.fn(),
     selectAll: vi.fn(),
     clearSelection: vi.fn(),
     bulkSuspend: vi.fn(),
@@ -60,6 +61,16 @@ const mockStore = vi.hoisted(() => {
     loadDueQueueItems: vi.fn(),
     queueFilterMode: "all-items",
     setQueueFilterMode: vi.fn(),
+    // Order-stability (stabilize-queue-order-on-reactivation): the component
+    // records its loaded query key + first-load flag in the store so they
+    // survive tab unmount. Default to an unmatched key so the load effect runs,
+    // and mirror the real setters so they actually update state (a bare vi.fn
+    // would leave loadedQueryKey null and the effect would reload on every
+    // reactivation, defeating the dedup the real store provides).
+    loadedQueryKey: null as string | null,
+    setLoadedQueryKey: vi.fn((key: string | null) => { store.loadedQueryKey = key; }),
+    hasCompletedFirstLoad: false,
+    setHasCompletedFirstLoad: vi.fn((done: boolean) => { store.hasCompletedFirstLoad = done; }),
     customSubset: null,
     setCustomSubset: vi.fn(),
     applyFilters: vi.fn(),
@@ -299,5 +310,106 @@ describe("Session customization filtering", () => {
     // "Second Reading Item" doesn't have "History" tag, so queue should be empty
     expect(screen.queryByText("Second Reading Item")).not.toBeInTheDocument();
     expect(screen.queryByText("Reading Item")).not.toBeInTheDocument();
+  });
+});
+
+describe("ReviewQueueView selection (queue-multi-select)", () => {
+  beforeEach(() => {
+    mockStore.queueFilterMode = "all-items";
+    mockStore.selectedIds = new Set<string>();
+    mockStore.setSelectionFromClick = vi.fn();
+    mockStore.clearSelection = vi.fn();
+    mockStore.selectAll = vi.fn();
+  });
+
+  // Target the row's clickable body. Not the first text match — the title also
+  // appears in the side panel, which has no selection handler — and not the row
+  // wrapper either, since the handler sits on its child and events only bubble up.
+  const row = (id: string) =>
+    document.querySelector(
+      `[data-queue-item-id="${id}"] .cursor-pointer`
+    ) as HTMLElement;
+
+  it("shift+click on a row extends from the anchor via the store", () => {
+    render(<ReviewQueueView />);
+    fireEvent.click(row("item-3"), { shiftKey: true });
+
+    expect(mockStore.setSelectionFromClick).toHaveBeenCalledTimes(1);
+    const [id, renderedIds, mods] = mockStore.setSelectionFromClick.mock.calls[0];
+    expect(id).toBe("item-3");
+    expect(mods).toEqual({ shift: true, meta: false });
+    // The store must receive this surface's own visible order, not the raw list.
+    expect(renderedIds).toEqual(["item-1", "item-3"]);
+  });
+
+  it("cmd/ctrl+click on a row toggles a single row via the store", () => {
+    render(<ReviewQueueView />);
+    fireEvent.click(row("item-3"), { metaKey: true });
+
+    expect(mockStore.setSelectionFromClick).toHaveBeenCalledTimes(1);
+    const [id, , mods] = mockStore.setSelectionFromClick.mock.calls[0];
+    expect(id).toBe("item-3");
+    expect(mods).toEqual({ shift: false, meta: true });
+  });
+
+  it("an unmodified row click does not change the selection", () => {
+    render(<ReviewQueueView />);
+    fireEvent.click(row("item-3"));
+    expect(mockStore.setSelectionFromClick).not.toHaveBeenCalled();
+  });
+
+  it("cmd+A inside the search box does not select the queue", () => {
+    render(<ReviewQueueView />);
+    const search = screen.getByPlaceholderText(/search/i);
+    fireEvent.keyDown(search, { key: "a", metaKey: true });
+    expect(mockStore.selectAll).not.toHaveBeenCalled();
+  });
+
+  it("documents are selectable, not just learning items", () => {
+    render(<ReviewQueueView />);
+    // Both visible rows are documents; each must carry its own checkbox now
+    // that selection is no longer narrowed to learning items.
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+  });
+
+  it("escape clears an active selection", () => {
+    mockStore.selectedIds = new Set(["item-1", "item-3"]);
+    render(<ReviewQueueView />);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(mockStore.clearSelection).toHaveBeenCalled();
+  });
+
+  it("escape clears the selection from inside the search box too", () => {
+    mockStore.selectedIds = new Set(["item-1"]);
+    render(<ReviewQueueView />);
+    // The shared handler bails on text fields for every other shortcut; Escape
+    // is checked first so a selection can always be dropped.
+    fireEvent.keyDown(screen.getByPlaceholderText(/search/i), { key: "Escape" });
+    expect(mockStore.clearSelection).toHaveBeenCalled();
+  });
+
+  it("escape does nothing to the selection while a dialog is open", () => {
+    mockStore.selectedIds = new Set(["item-1"]);
+    render(<ReviewQueueView />);
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.appendChild(dialog);
+    fireEvent.keyDown(window, { key: "Escape" });
+    document.body.removeChild(dialog);
+    expect(mockStore.clearSelection).not.toHaveBeenCalled();
+  });
+
+  it("escape is ignored mid-IME-composition", () => {
+    mockStore.selectedIds = new Set(["item-1"]);
+    render(<ReviewQueueView />);
+    fireEvent.keyDown(window, { key: "Escape", isComposing: true });
+    expect(mockStore.clearSelection).not.toHaveBeenCalled();
+  });
+
+  it("escape with nothing selected does not call clearSelection", () => {
+    mockStore.selectedIds = new Set<string>();
+    render(<ReviewQueueView />);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(mockStore.clearSelection).not.toHaveBeenCalled();
   });
 });

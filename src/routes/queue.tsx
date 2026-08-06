@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowsVertical,
@@ -8,6 +8,7 @@ import {
   DotsThree,
   Funnel,
   MagnifyingGlass,
+  MinusSquare,
   Play,
   Square,
 } from "@phosphor-icons/react";
@@ -22,17 +23,39 @@ import { PostponeAllDialog } from "../components/queue/PostponeAllDialog";
 import { AutoPostponePrompt } from "../components/queue/AutoPostponePrompt";
 import { DynamicVirtualList } from "../components/common/VirtualList";
 import type { QueueItem } from "../types/queue";
+import type { SortOptions } from "../types/api";
+import { useCollectionStore } from "../stores/collectionStore";
+import ConfirmDialog, { useConfirmDialog } from "../components/common/ConfirmDialog";
 import { dismissDocument, updateDocumentPriority } from "../api/documents";
-import { bulkSuspendItems, bulkUnsuspendItems } from "../api/queue";
+import { bulkSuspendItems, bulkUnsuspendItems, type BulkOperationResult, type LifecycleTransition } from "../api/queue";
 import { TranscriptionQueueActions, TranscriptionQueueIndicator, isTranscribableFileType } from "../components/transcription/TranscriptionQueueActions";
 import { useI18n } from "../lib/i18n";
 import { useSettingsStore } from "../stores/settingsStore";
 import { orderQueueItems, type PriorityPreset } from "../utils/reviewUx";
 import { emitQueueActionFeedback } from "../components/review/queueActions";
 
+/**
+ * The sort button cycles priority → overdue → title rather than toggling two
+ * fields, so "most overdue first" is reachable without adding a second control.
+ * Overdue defaults to descending, which is the only direction anyone wants
+ * first: the longest-outstanding item at the top.
+ */
+const SORT_CYCLE: SortOptions["field"][] = ["priority", "overdue", "title"];
+
+function nextSort(current: SortOptions): SortOptions {
+  const index = SORT_CYCLE.indexOf(current.field);
+  const field = SORT_CYCLE[(index + 1) % SORT_CYCLE.length] ?? "priority";
+  return { field, direction: field === "title" ? "asc" : "desc" };
+}
+
 export function Queue() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const sortFieldLabel = (field: SortOptions["field"]) => {
+    if (field === "overdue") return t("queue.sortOverdue");
+    if (field === "title") return t("common.title");
+    return t("queueLegacy.priority");
+  };
   const {
     filteredItems,
     stats,
@@ -46,11 +69,17 @@ export function Queue() {
     loadStats,
     selectedIds,
     setSelected,
+    setSelectionFromClick,
     selectAll,
     clearSelection,
     bulkSuspend,
     bulkUnsuspend,
     bulkDelete,
+    bulkSetPriority,
+    bulkPostpone,
+    bulkMoveToCollection,
+    bulkUpdateTags,
+    bulkSetLifecycle,
     postponeItemSmart,
     bulkOperationLoading,
     bulkOperationResult,
@@ -68,11 +97,17 @@ export function Queue() {
     loadStats: state.loadStats,
     selectedIds: state.selectedIds,
     setSelected: state.setSelected,
+    setSelectionFromClick: state.setSelectionFromClick,
     selectAll: state.selectAll,
     clearSelection: state.clearSelection,
     bulkSuspend: state.bulkSuspend,
     bulkUnsuspend: state.bulkUnsuspend,
     bulkDelete: state.bulkDelete,
+    bulkSetPriority: state.bulkSetPriority,
+    bulkPostpone: state.bulkPostpone,
+    bulkMoveToCollection: state.bulkMoveToCollection,
+    bulkUpdateTags: state.bulkUpdateTags,
+    bulkSetLifecycle: state.bulkSetLifecycle,
     postponeItemSmart: state.postponeItemSmart,
     bulkOperationLoading: state.bulkOperationLoading,
     bulkOperationResult: state.bulkOperationResult,
@@ -87,6 +122,8 @@ export function Queue() {
   const [priorityUpdatingIds, setPriorityUpdatingIds] = useState<Set<string>>(new Set());
   const [actionItem, setActionItem] = useState<QueueItem | null>(null);
   const actionTriggerRef = useRef<HTMLElement | null>(null);
+  const collections = useCollectionStore((state) => state.collections);
+  const confirmDialog = useConfirmDialog();
   const queueStrategyPreset = useSettingsStore(
     (state) => state.settings.smartQueue.queueStrategyPreset as PriorityPreset,
   );
@@ -100,22 +137,198 @@ export function Queue() {
     loadStats();
   }, [loadQueue, loadStats]);
 
-  useEffect(() => {
-    // Update allSelected state based on selection
-    const selectableCount = filteredItems.filter(
-      (item) => item.itemType === "learning-item"
-    ).length;
-    setAllSelected(
-      selectableCount > 0 && selectedIds.size === selectableCount
-    );
-  }, [selectedIds, filteredItems]);
+  const renderedIds = useMemo(() => orderedItems.map((item) => item.id), [orderedItems]);
 
-  const handleToggleSelectAll = () => {
+  useEffect(() => {
+    setAllSelected(orderedItems.length > 0 && selectedIds.size === orderedItems.length);
+  }, [selectedIds, orderedItems]);
+
+  // Partially selected: drives the header checkbox's indeterminate state.
+  const someSelected = selectedIds.size > 0 && !allSelected;
+
+  const handleToggleSelectAll = useCallback(() => {
     if (allSelected) {
       clearSelection();
     } else {
       selectAll();
     }
+  }, [allSelected, clearSelection, selectAll]);
+
+  const handleRowClick = useCallback(
+    (event: React.MouseEvent, itemId: string) => {
+      // Row-level controls (start review, priority, the action menu) own their
+      // own clicks; only bare row surface drives selection.
+      if ((event.target as HTMLElement).closest("button, a, input, select, textarea")) return;
+      setSelectionFromClick(itemId, renderedIds, {
+        shift: event.shiftKey,
+        meta: event.metaKey || event.ctrlKey,
+      });
+    },
+    [renderedIds, setSelectionFromClick],
+  );
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      // Never steal Cmd+A or Escape from a field the user is typing in.
+      const inField =
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a" && !inField) {
+        event.preventDefault();
+        handleToggleSelectAll();
+        return;
+      }
+
+      // Escape clears the selection from anywhere in the view, including the
+      // search box — deliberately not gated on `inField` the way Cmd+A is.
+      // Escape in a text field does nothing else here, so there is nothing to
+      // steal, and "Escape drops my selection" should not depend on where focus
+      // happens to sit. IME composition still owns Escape while composing.
+      if (event.key === "Escape" && !event.isComposing && selectedIds.size > 0) {
+        // A dialog or an open bulk-action panel dismisses first — the panel
+        // stops this event in the capture phase (see BulkActionBar).
+        if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+        event.preventDefault();
+        clearSelection();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleToggleSelectAll, clearSelection, selectedIds.size]);
+
+  const selectedItems = useMemo(
+    () => orderedItems.filter((item) => selectedIds.has(item.id)),
+    [orderedItems, selectedIds],
+  );
+
+  const reportBulk = (result: BulkOperationResult, title: string) => {
+    // Surface partial outcomes rather than claiming a clean sweep — a batch that
+    // skipped flashcards or hit stale ids must say so.
+    emitQueueActionFeedback({
+      action: "postpone",
+      succeeded: result.failed.length === 0,
+      title,
+      message:
+        result.failed.length === 0
+          ? t("queue.scheduleUpdated")
+          : result.errors.slice(0, 3).join("; "),
+    });
+  };
+
+  const handleBulkPriority = async (slider: number) => {
+    const result = await bulkSetPriority(slider);
+    reportBulk(result, t("bulkAction.priority"));
+  };
+
+  const handleBulkPostpone = async (days: number) => {
+    const result = await bulkPostpone(days);
+    reportBulk(result, t("bulkAction.postpone"));
+  };
+
+  /**
+   * Smart postpone runs the frontend postpone engine per item — it is the only
+   * place the priority-weighted formula lives, and reimplementing it in the
+   * batch command would give the two copies room to drift.
+   */
+  const handleBulkSmartPostpone = async () => {
+    const items = selectedItems;
+    clearSelection();
+    let failed = 0;
+    for (const item of items) {
+      try {
+        await postponeItemSmart(item);
+      } catch {
+        failed += 1;
+      }
+    }
+    emitQueueActionFeedback({
+      action: "postpone",
+      succeeded: failed === 0,
+      title: t("bulkAction.smartPostpone"),
+      message: t("queue.scheduleUpdated"),
+    });
+    await loadQueue();
+  };
+
+  const handleBulkMove = async (collectionId: string) => {
+    const result = await bulkMoveToCollection(collectionId);
+    reportBulk(result, t("bulkAction.moveToCollection"));
+    await loadQueue();
+  };
+
+  const handleBulkTags = async (add: string[], remove: string[]) => {
+    const result = await bulkUpdateTags(add, remove);
+    reportBulk(result, t("bulkAction.manageTags"));
+    await loadQueue();
+  };
+
+  const handleBulkLifecycle = (transition: LifecycleTransition) => {
+    const count = selectedIds.size;
+    const run = async () => {
+      const result = await bulkSetLifecycle(transition);
+      reportBulk(result, t(`bulkAction.lifecycle.${transition}`));
+    };
+    // Forget throws away scheduling history and cannot be reconstructed, so it
+    // is the one transition that asks first.
+    if (transition === "forget") {
+      confirmDialog.confirm({
+        title: t("bulkAction.forgetConfirmTitle", { count }),
+        message: t("bulkAction.forgetConfirmMessage"),
+        variant: "danger",
+        itemCount: count,
+        onConfirm: () => void run(),
+      });
+      return;
+    }
+    void run();
+  };
+
+  /**
+   * Bulk delete is permanent, so it confirms and does NOT offer Undo.
+   *
+   * `bulk_delete_items` hard-deletes every type — `DELETE FROM documents`
+   * (`repository.rs:1683`), `delete_extract` (`:2122`), and a direct delete for
+   * learning items. There is no soft-delete column to restore from, so an Undo
+   * button here could only pretend to work. The confirmation says so instead;
+   * offering a restore that silently fails is worse than offering none.
+   */
+  const handleBulkDelete = () => {
+    const count = selectedIds.size;
+    confirmDialog.confirm({
+      title: t("bulkAction.deleteConfirmTitle", { count }),
+      message: t("bulkAction.deleteConfirmMessage"),
+      variant: "danger",
+      itemCount: count,
+      onConfirm: () => {
+        void (async () => {
+          await bulkDelete();
+          emitQueueActionFeedback({
+            action: "delete",
+            succeeded: true,
+            title: t("bulkAction.deleted", { count }),
+            message: t("queue.scheduleUpdated"),
+          });
+        })();
+      },
+    });
+  };
+
+  const handleBulkFlashcardStudio = () => {
+    // Hand the combined extract text to the studio via the same event the
+    // single-extract path uses, so one session can span the whole selection.
+    const texts = selectedItems
+      .map((item) => item.question || item.documentTitle)
+      .filter(Boolean);
+    window.dispatchEvent(
+      new CustomEvent("open-flashcard-studio", {
+        detail: { extractIds: selectedItems.map((i) => i.id), context: texts.join("\n\n") },
+      }),
+    );
+    clearSelection();
   };
 
   const handleStartReview = (item: QueueItem) => {
@@ -335,15 +548,10 @@ export function Queue() {
         </button>
 
         <button
-          onClick={() =>
-            setSortOptions({
-              field: sortOptions.field === "priority" ? "title" : "priority",
-              direction: sortOptions.direction === "asc" ? "desc" : "asc",
-            })
-          }
+          onClick={() => setSortOptions(nextSort(sortOptions))}
           className="p-2 bg-card border border-border rounded-md hover:bg-muted transition-colors"
           title={t("queueLegacy.sortBy", {
-            field: sortOptions.field === "priority" ? t("common.title") : t("queueLegacy.priority"),
+            field: sortFieldLabel(sortOptions.field),
             direction: sortOptions.direction,
           })}
         >
@@ -416,12 +624,20 @@ export function Queue() {
 
       {/* Bulk Action Bar */}
       <BulkActionBar
-        selectedCount={selectedIds.size}
+        selectedItems={selectedItems}
         isLoading={bulkOperationLoading}
+        collections={collections}
         onSuspend={bulkSuspend}
         onUnsuspend={bulkUnsuspend}
-        onDelete={bulkDelete}
+        onDelete={handleBulkDelete}
         onClearSelection={clearSelection}
+        onSetPriority={handleBulkPriority}
+        onPostpone={handleBulkPostpone}
+        onSmartPostpone={handleBulkSmartPostpone}
+        onMoveToCollection={handleBulkMove}
+        onUpdateTags={handleBulkTags}
+        onLifecycle={handleBulkLifecycle}
+        onOpenFlashcardStudio={handleBulkFlashcardStudio}
       />
 
       {/* Queue Items */}
@@ -456,16 +672,24 @@ export function Queue() {
             <button
               onClick={handleToggleSelectAll}
               className="p-2 hover:bg-muted rounded transition-colors"
+              role="checkbox"
+              aria-checked={allSelected ? "true" : someSelected ? "mixed" : "false"}
               title={allSelected ? t("queueLegacy.deselectAll") : t("queueLegacy.selectAll")}
             >
               {allSelected ? (
                 <CheckSquare className="w-4 h-4 text-primary" />
+              ) : someSelected ? (
+                <MinusSquare className="w-4 h-4 text-primary" />
               ) : (
                 <Square className="w-4 h-4 text-muted-foreground" />
               )}
             </button>
             <span className="text-sm text-muted-foreground">
-              {allSelected ? t("queueLegacy.allSelected") : t("queueLegacy.selectAll")}
+              {allSelected
+                ? t("queueLegacy.allSelected")
+                : someSelected
+                  ? t("queue.selectedCount", { count: selectedIds.size })
+                  : t("queueLegacy.selectAll")}
             </span>
           </div>
 
@@ -474,25 +698,22 @@ export function Queue() {
             items={orderedItems}
             renderItem={(item) => (
               <div
-                className={`p-4 mb-3 bg-card border border-border rounded-lg hover:shadow-md transition-shadow ${
-                  selectedIds.has(item.id) ? "ring-2 ring-primary" : ""
+                onClick={(event) => handleRowClick(event, item.id)}
+                aria-selected={selectedIds.has(item.id)}
+                className={`p-4 mb-3 rounded-lg border hover:shadow-md transition-shadow ${
+                  selectedIds.has(item.id)
+                    ? "bg-primary/10 border-primary"
+                    : "bg-card border-border"
                 }`}
               >
                 <div className="flex items-start gap-4">
-                  {/* Checkbox */}
+                  {/* Checkbox — toggles this row alone, like Cmd+Click. */}
                   <button
-                    onClick={() => {
-                      if (item.itemType === "learning-item") {
-                        setSelected(item.id, !selectedIds.has(item.id));
-                      }
-                    }}
-                    disabled={item.itemType !== "learning-item"}
-                    className={`pt-1 ${item.itemType !== "learning-item" ? "opacity-50 cursor-not-allowed" : ""}`}
-                    title={
-                      item.itemType !== "learning-item"
-                        ? t("queueLegacy.selectionLearningOnly")
-                        : t("queueLegacy.selectItem")
+                    onClick={() =>
+                      setSelectionFromClick(item.id, renderedIds, { meta: true })
                     }
+                    className="pt-1"
+                    title={t("queueLegacy.selectItem")}
                   >
                     {selectedIds.has(item.id) ? (
                       <CheckSquare className="w-5 h-5 text-primary" />
@@ -740,6 +961,20 @@ export function Queue() {
         onPostpone={handleActionPostpone}
         onRemove={handleActionRemove}
         onSelect={(item) => setSelected(item.id, true)}
+      />
+
+      {/* Bulk Delete / Forget confirmation. The hook only holds state — without
+          this the confirm() calls would set state nothing renders. */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={confirmDialog.close}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        variant={confirmDialog.variant}
+        itemCount={confirmDialog.itemCount}
+        confirmLabel={t("common.confirm")}
+        cancelLabel={t("common.cancel")}
       />
     </div>
   );

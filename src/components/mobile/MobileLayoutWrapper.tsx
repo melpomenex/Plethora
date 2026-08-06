@@ -21,7 +21,7 @@ interface MobileLayoutWrapperProps {
 }
 
 export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
-  const { items: queueItems } = useQueueStore();
+  const queueItems = useQueueStore((state) => state.items);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isMobile = useMobileShell();
 

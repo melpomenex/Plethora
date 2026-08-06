@@ -115,6 +115,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     loadQueue,
     loadStats,
     setSelected,
+    setSelectionFromClick,
     selectAll,
     clearSelection,
     bulkSuspend,
@@ -138,6 +139,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       loadQueue: state.loadQueue,
       loadStats: state.loadStats,
       setSelected: state.setSelected,
+      setSelectionFromClick: state.setSelectionFromClick,
       selectAll: state.selectAll,
       clearSelection: state.clearSelection,
       bulkSuspend: state.bulkSuspend,
@@ -216,7 +218,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const queueScrollRef = useRef<HTMLDivElement>(null);
   const scrollAnchorRef = useRef<{ id: string; offset: number } | null>(null);
   const selectedIndexRef = useRef(0);
-  const lastSelectedLearningIdRef = useRef<string | null>(null);
   const toast = useToast();
 
   // Context menu state
@@ -281,18 +282,20 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   // for a fast first paint — see startup.rs DEFAULT_QUEUE_LIMIT). Reusing it
   // after the real, unbounded queue has already loaded would silently
   // truncate it back down to 50, which the user sees as the queue
-  // reordering/shrinking out from under them. Track whether this view has
-  // completed its first load so only that first run is allowed to take the
-  // fast, bounded path — every later run always fetches the full queue.
-  const isFirstQueueLoadRef = useRef(true);
+  // reordering/shrinking out from under them. The "has this view completed
+  // its first load" and "what query is currently loaded" state lives in the
+  // QUEUE STORE now — not in component refs — because a closed-and-reopened
+  // Queue tab resets refs (unmount), which re-ran the first-load path and
+  // re-applied the bounded snapshot over an already-loaded queue.
+  //
   // This effect's dependencies include `isActiveTab` so a Queue tab that
   // mounts in the background still loads once it becomes active. But that
   // means simply switching away (e.g. into Scroll Mode or an Optimal
   // Session) and back flips `isActiveTab` and re-runs this effect even
   // though nothing about the query changed — refetching would visibly
   // reload and re-sort an already-correct list for no reason. Skip the
-  // reload unless the actual query parameters changed since the last run.
-  const lastQueueLoadKeyRef = useRef<string | null>(null);
+  // reload unless the actual query parameters changed since the last run
+  // (compared against the store's `loadedQueryKey`, which survives unmount).
 
   useEffect(() => {
     if (!isActiveTab) return;
@@ -304,11 +307,15 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       sessionCustomization.semanticStudy?.enabled,
       sessionCustomization.semanticStudy?.focalTopic,
     ]);
-    if (lastQueueLoadKeyRef.current === loadKey) return;
-    lastQueueLoadKeyRef.current = loadKey;
+    const storeState = useQueueStore.getState();
+    if (storeState.loadedQueryKey === loadKey) return;
+    // Record the key up-front so a rapid re-entry (e.g. isActiveTab toggling)
+    // doesn't double-fire the load; each loader path below is also dedupeLoad-
+    // coalesced. The key is only "claimed" when a load actually runs.
+    storeState.setLoadedQueryKey(loadKey);
 
-    const isFirstLoad = isFirstQueueLoadRef.current;
-    isFirstQueueLoadRef.current = false;
+    const isFirstLoad = !storeState.hasCompletedFirstLoad;
+    if (isFirstLoad) storeState.setHasCompletedFirstLoad(true);
 
     if (
       isFirstLoad &&
@@ -363,6 +370,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     activeCollectionId,
     sessionCustomization.semanticStudy?.enabled,
     sessionCustomization.semanticStudy?.focalTopic,
+    loadQueue,
+    loadStats,
+    loadDueDocumentsOnly,
+    loadDueQueueItems,
   ]);
 
   // --- TAS (Tag-Aware Scheduling) integration ---
@@ -488,10 +499,11 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     return () => cancelAnimationFrame(frame);
   }, [visibleItems, isLoading]);
 
-  const selectableItems = useMemo(
-    () => visibleItems.filter((item) => item.itemType === "learning-item"),
-    [visibleItems]
-  );
+  // Every visible row is selectable, not just learning items: the bulk actions
+  // resolve documents and extracts too, and select-all now covers them, so a
+  // narrower list here would select rows the user has no checkbox to clear.
+  const selectableItems = visibleItems;
+  const selectableIds = useMemo(() => selectableItems.map((item) => item.id), [selectableItems]);
 
   const allSelected = selectableItems.length > 0 && selectableItems.every((item) => selectedIds.has(item.id));
 
@@ -814,6 +826,17 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      // Escape is checked before the text-field bail: clearing a selection must
+      // work from the search box too, and Escape does nothing else in a field
+      // here. Every other shortcut below stays field-safe.
+      if (event.key === "Escape" && !event.isComposing) {
+        if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+        if (selectedIds.size > 0) {
+          event.preventDefault();
+          clearSelection();
+          return;
+        }
+      }
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
       }
@@ -868,6 +891,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         setInspectorOpen((prev) => !prev);
         return;
       }
+      // Selection already claimed Escape above if there was one, so by here it
+      // falls through to exiting browse mode — progressive dismissal, most
+      // transient state first.
       if (isManualBrowseActive && event.key === "Escape") {
         event.preventDefault();
         setManualBrowseActive(false);
@@ -917,27 +943,14 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     }
   };
 
-  const handleLearningItemSelection = (itemId: string, checked: boolean, shiftKey: boolean) => {
-    if (!shiftKey || !lastSelectedLearningIdRef.current) {
-      setSelected(itemId, checked);
-      lastSelectedLearningIdRef.current = itemId;
-      return;
-    }
-
-    const currentIndex = selectableItems.findIndex((item) => item.id === itemId);
-    const previousIndex = selectableItems.findIndex((item) => item.id === lastSelectedLearningIdRef.current);
-    if (currentIndex === -1 || previousIndex === -1) {
-      setSelected(itemId, checked);
-      lastSelectedLearningIdRef.current = itemId;
-      return;
-    }
-
-    const start = Math.min(currentIndex, previousIndex);
-    const end = Math.max(currentIndex, previousIndex);
-    for (let i = start; i <= end; i += 1) {
-      setSelected(selectableItems[i].id, checked);
-    }
-    lastSelectedLearningIdRef.current = itemId;
+  /**
+   * Delegates to the store so this surface and the queue route share one set of
+   * selection semantics. Shift extends from the anchor; anything else toggles
+   * the single row, which is what both entry points here want — the checkbox
+   * and a modifier-held row click are additive by nature, never "replace".
+   */
+  const handleLearningItemSelection = (itemId: string, _checked: boolean, shiftKey: boolean) => {
+    setSelectionFromClick(itemId, selectableIds, { shift: shiftKey, meta: !shiftKey });
   };
 
   const toggleExpanded = (id: string) => {
@@ -1525,8 +1538,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                           <div
                             onClick={(event) => {
                               setSelectedId(item.id);
-                              if (item.itemType !== "learning-item") return;
-
                               const isModifierMulti = event.metaKey || event.ctrlKey;
                               if (event.shiftKey || isModifierMulti) {
                                 handleLearningItemSelection(
@@ -1559,20 +1570,18 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                             className="p-4 flex flex-wrap items-center justify-between gap-3 cursor-pointer"
                           >
                             <div className="flex items-center gap-3 min-w-0">
-                              {item.itemType === "learning-item" && (
-                                <input
-                                  type="checkbox"
-                                  checked={selectedIds.has(item.id)}
-                                  onChange={(event) => {
-                                    event.stopPropagation();
-                                    handleLearningItemSelection(
-                                      item.id,
-                                      !selectedIds.has(item.id),
-                                      !!(event.nativeEvent as MouseEvent).shiftKey
-                                    );
-                                  }}
-                                  />
-                                )}
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.has(item.id)}
+                                onChange={(event) => {
+                                  event.stopPropagation();
+                                  handleLearningItemSelection(
+                                    item.id,
+                                    !selectedIds.has(item.id),
+                                    !!(event.nativeEvent as MouseEvent).shiftKey
+                                  );
+                                }}
+                              />
                               <span
                                 className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${item.isUpNext ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
                                 aria-label={t("queue.queuePosition", {
@@ -1782,8 +1791,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                         <div
                           onClick={(event) => {
                             setSelectedId(item.id);
-                            if (item.itemType !== "learning-item") return;
-
                             const isModifierMulti = event.metaKey || event.ctrlKey;
                             if (event.shiftKey || isModifierMulti) {
                               handleLearningItemSelection(
@@ -1804,20 +1811,18 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                           className="p-4 flex flex-wrap items-center justify-between gap-3 cursor-pointer"
                         >
                           <div className="flex items-center gap-3 min-w-0">
-                            {item.itemType === "learning-item" && (
-                              <input
-                                type="checkbox"
-                                checked={selectedIds.has(item.id)}
-                                onChange={(event) => {
-                                  event.stopPropagation();
-                                  handleLearningItemSelection(
-                                    item.id,
-                                    !selectedIds.has(item.id),
-                                    !!(event.nativeEvent as MouseEvent).shiftKey
-                                  );
-                                }}
-                                />
-                              )}
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(item.id)}
+                              onChange={(event) => {
+                                event.stopPropagation();
+                                handleLearningItemSelection(
+                                  item.id,
+                                  !selectedIds.has(item.id),
+                                  !!(event.nativeEvent as MouseEvent).shiftKey
+                                );
+                              }}
+                            />
                             <span
                               className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${item.isUpNext ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
                               aria-label={t("queue.queuePosition", {

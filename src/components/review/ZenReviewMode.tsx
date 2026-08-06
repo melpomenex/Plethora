@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useReviewStore, type ReviewSessionItem } from "../../stores/reviewStore";
 import { ReviewRating, formatInterval } from "../../api/review";
 import { cn } from "../../utils";
@@ -308,7 +309,25 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
     submitRating,
     sessionStartTime,
     cancelArenaDecision,
-  } = useReviewStore();
+  } = useReviewStore(
+    // Explicit property selector: a bare useReviewStore() re-renders this
+    // component on every unrelated store write (timers, previews, arena state).
+    useShallow((state) => ({
+      currentCard: state.currentCard,
+      queue: state.queue,
+      isLoading: state.isLoading,
+      isAnswerShown: state.isAnswerShown,
+      isSubmitting: state.isSubmitting,
+      error: state.error,
+      currentIndex: state.currentIndex,
+      previewIntervals: state.previewIntervals,
+      pendingArenaReview: state.pendingArenaReview,
+      showAnswer: state.showAnswer,
+      submitRating: state.submitRating,
+      sessionStartTime: state.sessionStartTime,
+      cancelArenaDecision: state.cancelArenaDecision,
+    }))
+  );
 
   const [contextPeekVisible, setContextPeekVisible] = useState(false);
   const [justRated, setJustRated] = useState(false);

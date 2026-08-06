@@ -54,6 +54,7 @@ import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
 import { EditExtractDialog } from "../extracts/EditExtractDialog";
 import type { PdfSelectionContext, SelectionContext, TextSelectionContext, EpubSelectionContext } from "../../types/selection";
 import { createExtract, type Extract } from "../../api/extracts";
+import { shouldAutoExtract } from "./extractModeGate";
 import { QueueNavigationControls } from "../queue/QueueNavigationControls";
 import { resolveDisplaySlider, getPriorityInfo } from "../documents/usePriorityPopup";
 import { DocumentMinimap, type MinimapSegment } from "./DocumentMinimap";
@@ -386,7 +387,7 @@ export function DocumentViewer({
     (currentDocument?.filePath?.startsWith("http") ? currentDocument.filePath : undefined);
   const { closeTab, tabs, updateTab, setActiveTab, findPaneContainingTab } = useTabsStore();
   const queueItems = useQueueStore(s => s.items);
-  const loadQueue = useQueueStore(s => s.loadQueue);
+  const reloadForCurrentMode = useQueueStore(s => s.reloadForCurrentMode);
   const { settings, updateSettings } = useSettingsStore();
 
   const paneId = usePaneId();
@@ -1570,6 +1571,78 @@ export function DocumentViewer({
       setIsEditExtractDialogOpen(true);
     },
   });
+
+  /**
+   * Extract Mode: turn a completed selection straight into an extract.
+   *
+   * Every viewer — PDF, EPUB, Markdown, HTML — funnels its selection through
+   * `updateSelection`, which lands in `selectedText`, so gating here covers all
+   * four without touching any of them individually. Position metadata still
+   * comes from each viewer's own `selectionContext`, via the same
+   * `computeExtractPageNumber` call the manual button uses.
+   *
+   * Until this existed, `isExtractMode` only changed the cursor and the toggle's
+   * own styling — nothing read it, so the mode did nothing.
+   */
+  const extractModeBusyRef = useRef(false);
+  useEffect(() => {
+    if (
+      !shouldAutoExtract({
+        isExtractMode,
+        viewMode,
+        selectedText: activeExtractSelection,
+        busy: extractModeBusyRef.current,
+      })
+    ) {
+      return;
+    }
+    const text = activeExtractSelection.trim();
+
+    extractModeBusyRef.current = true;
+    void (async () => {
+      try {
+        await createInstantExtract({
+          documentId,
+          text,
+          pageNumber: computeExtractPageNumber({
+            selectionContext,
+            viewerPageNumber: pageNumber,
+            scrollPercent: lastScrollStateRef.current?.scrollPercent,
+            totalPages,
+            isEpubDoc: docType === "epub",
+          }),
+          selectionContext: selectionContext ?? undefined,
+        });
+        dismissSelectionAfterExtract();
+      } catch (error) {
+        // Never fail silently here: the user has no button to retry with, so a
+        // swallowed error looks exactly like a captured passage.
+        console.error("Extract mode auto-extract failed:", error);
+        toast.error(t("viewer.extractFailed"));
+      } finally {
+        extractModeBusyRef.current = false;
+      }
+    })();
+  }, [
+    isExtractMode,
+    viewMode,
+    activeExtractSelection,
+    documentId,
+    selectionContext,
+    pageNumber,
+    totalPages,
+    docType,
+    createInstantExtract,
+    dismissSelectionAfterExtract,
+    toast,
+    t,
+  ]);
+
+  // Leaving the document view (or unmounting) must not leave the mode armed —
+  // reopening a document should never start auto-extracting unannounced.
+  useEffect(() => {
+    if (viewMode !== "document") setIsExtractMode(false);
+  }, [viewMode]);
 
   // --- Vimium `:` command-bar capture listeners ---
   // These resolve the current selection with a documented fallback chain
@@ -6934,7 +7007,10 @@ export function DocumentViewer({
               onEnded={onEnded}
               onArchive={() => {
                 onArchive?.();
-                loadQueue();
+                // Reload the reading Queue for the tab the user lands back on,
+                // through the shared, mode-aware chokepoint so it re-issues the
+                // ACTIVE filter mode's query (not a raw loadQueue()).
+                reloadForCurrentMode();
                 const currentTab = tabs.find(t => t.data?.documentId === documentId);
                 if (currentTab) {
                   closeTab(currentTab.id);

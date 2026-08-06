@@ -28,9 +28,16 @@ vi.mock("../documentStore", () => ({
 }));
 
 const loadQueueMock = vi.fn();
+const reloadForCurrentModeMock = vi.fn();
 const applyFiltersMock = vi.fn();
 vi.mock("../queueStore", () => ({
-  useQueueStore: { getState: () => ({ loadQueue: loadQueueMock, applyFilters: applyFiltersMock }) },
+  useQueueStore: {
+    getState: () => ({
+      loadQueue: loadQueueMock,
+      reloadForCurrentMode: reloadForCurrentModeMock,
+      applyFilters: applyFiltersMock,
+    }),
+  },
 }));
 
 const loadDashboardStatsMock = vi.fn();
@@ -52,7 +59,11 @@ describe("collectionStore.switchCollection", () => {
     expect(useCollectionStore.getState().activeCollectionId).toBe("col-2");
     expect(setActiveCollectionMock).toHaveBeenCalledWith("col-2");
     expect(loadDocumentsMock).toHaveBeenCalled();
-    expect(loadQueueMock).toHaveBeenCalled();
+    // The queue reload after a collection switch routes through the shared,
+    // mode-aware chokepoint (see queueStore.reloadForCurrentMode) so it
+    // re-issues the ACTIVE filter mode's query, not a raw loadQueue().
+    expect(reloadForCurrentModeMock).toHaveBeenCalled();
+    expect(loadQueueMock).not.toHaveBeenCalled();
     expect(loadDashboardStatsMock).toHaveBeenCalled();
     // loadDocuments() is itself authoritative for the new scope (and safely
     // discards a stale response — see documentStore.test.ts). switchCollection

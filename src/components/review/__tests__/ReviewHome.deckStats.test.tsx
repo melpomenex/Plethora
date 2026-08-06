@@ -30,12 +30,29 @@ vi.mock("../../../stores/studyDeckStore", () => ({
   ),
 }));
 
+const mockDocumentStore = vi.hoisted(() => ({
+  documents: [] as unknown[],
+  loadDocuments: vi.fn(),
+}));
 vi.mock("../../../stores/documentStore", () => ({
-  useDocumentStore: () => ({ documents: [], loadDocuments: vi.fn() }),
+  useDocumentStore: Object.assign(
+    (selector?: (s: typeof mockDocumentStore) => unknown) =>
+      selector ? selector(mockDocumentStore) : mockDocumentStore,
+    { getState: () => mockDocumentStore }
+  ),
 }));
 
+const mockReviewStore = vi.hoisted(() => ({
+  loadStreak: vi.fn(),
+  streak: null as number | null,
+  streakLoading: false,
+}));
 vi.mock("../../../stores/reviewStore", () => ({
-  useReviewStore: () => ({ loadStreak: vi.fn(), streak: null, streakLoading: false }),
+  useReviewStore: Object.assign(
+    (selector?: (s: typeof mockReviewStore) => unknown) =>
+      selector ? selector(mockReviewStore) : mockReviewStore,
+    { getState: () => mockReviewStore }
+  ),
 }));
 
 vi.mock("../../../stores/collectionStore", () => ({
