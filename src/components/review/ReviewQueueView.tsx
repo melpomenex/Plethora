@@ -277,30 +277,45 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   useEffect(() => {
   }, [queueMode, onOpenScrollMode]);
 
-  // Load the queue based on the active mode/filter. Deliberately does NOT
-  // reload on a bare isActiveTab false→true transition (e.g. returning to this
-  // tab after exiting Scroll Mode): re-fetching there recomputes the priority
-  // sort and reshuffles the whole list. We load on the first activation and
-  // whenever the mode/filter/collection config genuinely changes. Local
-  // mutations (postpone/suspend/delete) update `items` optimistically in place,
-  // so the list stays current without a reload; for a genuine server refresh use
-  // the Toolbar refresh button (which calls the load functions directly).
-  // Load the queue based on the active mode/filter, but NEVER on a bare
-  // isActiveTab false→true transition (e.g. returning to this tab after
-  // exiting Scroll Mode): that reload recomputes the engagement/priority sort
-  // and on a large queue a transition-triggered reload cycles the item count.
-  // We load on first activation and when the mode/filter/collection config
-  // genuinely changes (explicit user actions). Local mutations update `items`
-  // optimistically; for a genuine server refresh use the Toolbar refresh button.
-  const loadedQueueConfigRef = useRef<string | null>(null);
+  // `ensureStartup`'s snapshot caps the queue at 50 items (a bounded preview
+  // for a fast first paint — see startup.rs DEFAULT_QUEUE_LIMIT). Reusing it
+  // after the real, unbounded queue has already loaded would silently
+  // truncate it back down to 50, which the user sees as the queue
+  // reordering/shrinking out from under them. Track whether this view has
+  // completed its first load so only that first run is allowed to take the
+  // fast, bounded path — every later run always fetches the full queue.
+  const isFirstQueueLoadRef = useRef(true);
+  // This effect's dependencies include `isActiveTab` so a Queue tab that
+  // mounts in the background still loads once it becomes active. But that
+  // means simply switching away (e.g. into Scroll Mode or an Optimal
+  // Session) and back flips `isActiveTab` and re-runs this effect even
+  // though nothing about the query changed — refetching would visibly
+  // reload and re-sort an already-correct list for no reason. Skip the
+  // reload unless the actual query parameters changed since the last run.
+  const lastQueueLoadKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!isActiveTab) return;
-    const configKey = `${queueMode}|${queueFilterMode}|${activeCollectionId ?? ""}|${sessionCustomization.semanticStudy?.enabled ?? ""}|${sessionCustomization.semanticStudy?.focalTopic ?? ""}`;
-    // Skip when the config is unchanged (returning to the same tab).
-    if (loadedQueueConfigRef.current === configKey) return;
-    loadedQueueConfigRef.current = configKey;
 
-    if (queueMode === "reading" && queueFilterMode === "due-all" && !sessionCustomization.semanticStudy?.enabled) {
+    const loadKey = JSON.stringify([
+      queueMode,
+      queueFilterMode,
+      activeCollectionId,
+      sessionCustomization.semanticStudy?.enabled,
+      sessionCustomization.semanticStudy?.focalTopic,
+    ]);
+    if (lastQueueLoadKeyRef.current === loadKey) return;
+    lastQueueLoadKeyRef.current = loadKey;
+
+    const isFirstLoad = isFirstQueueLoadRef.current;
+    isFirstQueueLoadRef.current = false;
+
+    if (
+      isFirstLoad &&
+      queueMode === "reading" &&
+      queueFilterMode === "due-all" &&
+      !sessionCustomization.semanticStudy?.enabled
+    ) {
       void ensureStartup("queue").finally(() => {
         if (isActiveTab) {
           void loadStats();
