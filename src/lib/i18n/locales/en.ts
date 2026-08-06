@@ -691,11 +691,12 @@ export const en: Dict = {
   "continueReading.lastUpdated": "Last updated {relative}",
   "queue.review": "Review",
   "queue.scrollMode": "Scroll Mode",
+  "queue.scrollModeSubtext": "Queue List Order",
   "queue.readingSubtitle":
     "Imported books, articles, and RSS feeds scheduled for incremental reading",
   "queue.reviewSubtitle": "Flashcards and learning items scheduled for review",
   "queue.startOptimalSession": "Start Optimal Session",
-  "queue.scrollModeTooltip": "TikTok-style vertical scrolling through documents",
+  "queue.scrollModeTooltip": "Scroll through items in the exact order of the Queue List",
   "queue.customizeSession": "Customize Session",
   "queue.manualBrowse": "Manual Browse",
   "queue.searchPlaceholder": "Search tags, titles, or focus areas",

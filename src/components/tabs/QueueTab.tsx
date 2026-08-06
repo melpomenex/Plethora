@@ -36,17 +36,24 @@ export function QueueTab() {
       type: "document-viewer",
       content: DocumentViewer,
       closable: true,
-      data: { documentId: item.documentId },
+      data: {
+        documentId: item.documentId,
+        ...(item.extractId ? { focusedExtractId: item.extractId } : {}),
+      },
     }, paneId);
   };
 
-  const handleOpenScrollMode = () => {
+  const handleOpenScrollMode = (options?: { items?: QueueItem[]; mode?: "queue-list" | "optimal" }) => {
     addTab({
       title: "Scroll Mode",
       icon: <Stack className="w-4 h-4" />,
       type: "queue-scroll",
       content: QueueScrollPage,
       closable: true,
+      data: {
+        customQueueItems: options?.items,
+        queueScrollMode: options?.mode ?? "queue-list",
+      },
     }, paneId);
   };
 

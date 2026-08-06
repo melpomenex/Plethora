@@ -37,13 +37,17 @@ export function QueuePage() {
     });
   };
 
-  const handleOpenScrollMode = () => {
+  const handleOpenScrollMode = (options?: { items?: QueueItem[]; mode?: "queue-list" | "optimal" }) => {
     addTab({
       title: t("queue.scrollMode"),
       icon: <Stack className="w-4 h-4" />,
       type: "queue-scroll",
       content: QueueScrollPage,
       closable: true,
+      data: {
+        customQueueItems: options?.items,
+        queueScrollMode: options?.mode ?? "queue-list",
+      },
     });
   };
 

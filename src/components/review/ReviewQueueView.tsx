@@ -78,7 +78,7 @@ type QueueMode = "reading" | "review" | "schedule";
 interface ReviewQueueViewProps {
   onStartReview?: (itemId?: string, queueItemIds?: string[]) => void;
   onOpenDocument?: (item: QueueItem) => void;
-  onOpenScrollMode?: () => void;
+  onOpenScrollMode?: (options?: { items?: QueueItem[]; mode?: "queue-list" | "optimal" }) => void;
 }
 
 const PRESET_DESC_KEYS: Record<PriorityPreset, string> = {
@@ -95,18 +95,18 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const ensureStartup = useStartupStore((state) => state.ensureStartup);
   const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
 
-  // Reconcile-on-focus (design D2): mutations are applied to local queue
-  // state without reloading; when the user returns to this view, pull a fresh
-  // listing so any accumulated drift is corrected. No-op when clean.
-  // (Selector form rather than getState() so test doubles that stub the hook
-  // don't need a getState static; optional call tolerates partial stubs.)
-  const reconcileIfDirty = useQueueStore((state) => state.reconcileIfDirty);
-  useEffect(() => {
-    if (isActiveTab) {
-      void reconcileIfDirty?.();
-    }
-  }, [isActiveTab, reconcileIfDirty]);
+  // NOTE: a previous "reconcile-on-focus" effect auto-reloaded the queue via
+  // reconcileIfDirty() whenever this tab regained focus (isActiveTab true). It
+  // fired whenever hasLocalDeltas was armed by ANY local mutation (postpone /
+  // suspend / delete, even a single item), and the resulting server refetch
+  // recomputed the engagement/priority sort — reshuffling the whole list every
+  // time the user returned to the queue. That effect has been removed so the
+  // displayed order stays stable across tab switches. Local deltas already
+  // update `items` optimistically (applyItemDelta / removeItemsLocally), so the
+  // list is current without a reload. For a genuine server refresh, the
+  // Toolbar's refresh button still calls the load functions directly.
   const {
+
     items,
     isLoading,
     error,
@@ -167,6 +167,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     setPreset(value);
     updateSettingsCategory("smartQueue", { queueStrategyPreset: value });
   };
+  const [queueSortMode, setQueueSortMode] = useState<"priority" | "overdue-desc">("priority");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isManualBrowseActive, setManualBrowseActive] = useState(false);
@@ -276,11 +277,37 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   useEffect(() => {
   }, [queueMode, onOpenScrollMode]);
 
+  // Load the queue based on the active mode/filter. Deliberately does NOT
+  // reload on a bare isActiveTab false→true transition (e.g. returning to this
+  // tab after exiting Scroll Mode): re-fetching there recomputes the priority
+  // sort and reshuffles the whole list. We load on the first activation and
+  // whenever the mode/filter/collection config genuinely changes. Local
+  // mutations (postpone/suspend/delete) update `items` optimistically in place,
+  // so the list stays current without a reload; for a genuine server refresh use
+  // the Toolbar refresh button (which calls the load functions directly).
+  // Load the queue based on the active mode/filter, but NEVER on a bare
+  // isActiveTab false→true transition (e.g. returning to this tab after
+  // exiting Scroll Mode): that reload recomputes the engagement/priority sort
+  // and on a large queue a transition-triggered reload cycles the item count.
+  // We load on first activation and when the mode/filter/collection config
+  // genuinely changes (explicit user actions). Local mutations update `items`
+  // optimistically; for a genuine server refresh use the Toolbar refresh button.
+  const loadedQueueConfigRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isActiveTab) return;
+    const configKey = `${queueMode}|${queueFilterMode}|${activeCollectionId ?? ""}|${sessionCustomization.semanticStudy?.enabled ?? ""}|${sessionCustomization.semanticStudy?.focalTopic ?? ""}`;
+    // Skip when the config is unchanged (returning to the same tab).
+    if (loadedQueueConfigRef.current === configKey) return;
+    loadedQueueConfigRef.current = configKey;
+
     if (queueMode === "reading" && queueFilterMode === "due-all" && !sessionCustomization.semanticStudy?.enabled) {
       void ensureStartup("queue").finally(() => {
-        if (isActiveTab) void loadStats();
+        if (isActiveTab) {
+          void loadStats();
+          if (useQueueStore.getState().items.length <= 50) {
+            void loadDueQueueItems();
+          }
+        }
       });
       return;
     }
@@ -319,10 +346,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     isActiveTab,
     ensureStartup,
     activeCollectionId,
-    // loadQueue/loadDueDocumentsOnly/loadDueQueueItems/loadStats are stable
-    // Zustand actions — deliberately omitted from deps to avoid spurious
-    // reloads (they previously caused repeated get_queue_items fetches when
-    // useShallow returned a new object reference).
     sessionCustomization.semanticStudy?.enabled,
     sessionCustomization.semanticStudy?.focalTopic,
   ]);
@@ -373,8 +396,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           if (queueMode === "review") {
             return item.itemType === "learning-item";
           }
-          // "Due All" explicitly promises every due item type.
-          if (queueFilterMode === "due-all") return true;
+          if (queueFilterMode === "due-all") {
+            return true;
+          }
           // Other reading filters default to documents-only, but defer to
           // the Customize Queue itemTypes toggles so enabling
           // Extracts/Learning Items there actually surfaces them here too
@@ -405,11 +429,12 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     const customizationOptions: SessionCustomizationOptions = {
       maxItems: sessionCustomization.maxItems,
       filters: sessionCustomization.filters,
-      // The `itemTypes` gate is a reading-mode session-customization concept.
       // In review mode the queue is already restricted to learning items
       // above, so passing `learningItems: false` (its default) here would
       // strip every card and leave the Review Queue empty. Omit it so the
       // other filters (tags/categories/priority/excludeSuspended) still apply.
+      // In due-all mode, still apply itemTypes as a hard post-filter so
+      // disabling a type (e.g. learningItems=false) is an absolute exclusion.
       itemTypes:
         queueMode === "review" || queueFilterMode === "due-all"
           ? undefined
@@ -418,8 +443,17 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       semanticStudy: sessionCustomization.semanticStudy,
     };
     const filtered = applyFilters(searchedItems, customizationOptions);
-    return orderQueueItems(filtered, preset);
-  }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, customSubset]);
+    const ordered = orderQueueItems(filtered, preset);
+    if (queueSortMode === "overdue-desc") {
+      return [...ordered].sort((a, b) => {
+        const now = Date.now();
+        const overdueA = a.dueDate ? Math.max(0, (now - new Date(a.dueDate).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+        const overdueB = b.dueDate ? Math.max(0, (now - new Date(b.dueDate).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+        return overdueB - overdueA;
+      });
+    }
+    return ordered;
+  }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, customSubset, queueSortMode]);
 
   useEffect(() => {
     if (isLoading || !scrollAnchorRef.current) return;
@@ -922,7 +956,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     }
 
     if (onOpenScrollMode) {
-      onOpenScrollMode();
+      onOpenScrollMode({ mode: "optimal" });
       return;
     }
     onStartReview?.();
@@ -1004,12 +1038,15 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             </button>
             {queueMode === "reading" && onOpenScrollMode && (
               <button
-                onClick={onOpenScrollMode}
-                className="flex-1 md:flex-none px-3 md:px-4 py-2 md:py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md hover:opacity-90 flex items-center justify-center gap-2 min-h-[44px] text-sm md:text-base"
+                onClick={() => onOpenScrollMode({ items: visibleItems, mode: "queue-list" })}
+                className="flex-1 md:flex-none px-3 md:px-4 py-1 md:py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md hover:opacity-90 flex flex-col items-center justify-center min-h-[44px] shadow-sm transition-all"
                 title={t("queue.scrollModeTooltip")}
               >
-                <DeviceMobile className="w-4 h-4" />
-                {t("queue.scrollMode")}
+                <div className="flex items-center gap-1.5 font-medium text-xs md:text-sm">
+                  <DeviceMobile className="w-4 h-4" />
+                  <span>{t("queue.scrollMode")}</span>
+                </div>
+                <span className="text-[10px] opacity-90 font-normal -mt-0.5">{t("queue.scrollModeSubtext")}</span>
               </button>
             )}
             <button
@@ -1124,7 +1161,17 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
               </button>
             </div>
           )}
-          
+          {queueMode === "reading" && (
+            <select
+              value={queueSortMode}
+              onChange={(e) => setQueueSortMode(e.target.value as "priority" | "overdue-desc")}
+              className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="priority">Sort: Priority</option>
+              <option value="overdue-desc">Sort: Overdue Days</option>
+            </select>
+          )}
+
           {/* Session Status - Shows if smart filtering is active */}
           {sessionStats.totalViewed > 0 && queueMode === "reading" && queueFilterMode === "due-today" && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md">
@@ -1525,18 +1572,36 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                               <StatusPill status={status} />
                               {item.itemType === "document" && (() => {
                                 const fsrsInfo = getFsrsSchedulingInfo(item);
+                                const overdueDays = fsrsInfo.isOverdue && fsrsInfo.daysUntilDue != null
+                                  ? Math.max(0, Math.abs(fsrsInfo.daysUntilDue))
+                                  : 0;
                                 return (
-                                  <span
-                                    className="px-2 py-0.5 rounded text-xs font-medium bg-blue-500/10 text-blue-600 dark:text-blue-300"
-                                    title={t("queue.nextReviewTitle", {
-                                      date: fsrsInfo.nextReviewDate
-                                        ? fsrsInfo.nextReviewDate.toLocaleDateString(locale)
-                                        : t("queue.notScheduled"),
-                                    })}
-                                  >
-                                    <Clock className="w-3 h-3 inline mr-1" />
-                                    {fsrsInfo.statusLabel}
-                                  </span>
+                                  <>
+                                    <span
+                                      className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                        fsrsInfo.isOverdue
+                                          ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                                          : "bg-blue-500/10 text-blue-600 dark:text-blue-300"
+                                      }`}
+                                      title={
+                                        fsrsInfo.isOverdue && fsrsInfo.nextReviewDate
+                                          ? `Outstanding since ${fsrsInfo.nextReviewDate.toLocaleDateString(locale)} (${overdueDays}d overdue)`
+                                          : t("queue.nextReviewTitle", {
+                                              date: fsrsInfo.nextReviewDate
+                                                ? fsrsInfo.nextReviewDate.toLocaleDateString(locale)
+                                                : t("queue.notScheduled"),
+                                            })
+                                      }
+                                    >
+                                      <Clock className="w-3 h-3 inline mr-1" />
+                                      {fsrsInfo.statusLabel}
+                                    </span>
+                                    {overdueDays > 0 && (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/10 text-red-500">
+                                        {overdueDays}d overdue
+                                      </span>
+                                    )}
+                                  </>
                                 );
                               })()}
                               {item.itemType === "rss-article" && (

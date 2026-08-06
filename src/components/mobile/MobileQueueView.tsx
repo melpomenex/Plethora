@@ -55,7 +55,7 @@ const MOBILE_QUEUE_VIRTUALIZE_THRESHOLD = 20;
 interface MobileQueueViewProps {
   onStartReview?: (itemId?: string, queueItemIds?: string[]) => void;
   onOpenDocument?: (item: QueueItem) => void;
-  onOpenScrollMode?: () => void;
+  onOpenScrollMode?: (options?: { items?: QueueItem[]; mode?: "queue-list" | "optimal" }) => void;
 }
 
 type QuickFilter = "today" | "all" | "new";
@@ -75,6 +75,7 @@ export function MobileQueueView({
     isLoading,
     selectedIds,
     loadQueue,
+    loadDueQueueItems,
     setQueueFilterMode,
     setSelected,
     clearSelection,
@@ -88,6 +89,7 @@ export function MobileQueueView({
       isLoading: state.isLoading,
       selectedIds: state.selectedIds,
       loadQueue: state.loadQueue,
+      loadDueQueueItems: state.loadDueQueueItems,
       setQueueFilterMode: state.setQueueFilterMode,
       setSelected: state.setSelected,
       clearSelection: state.clearSelection,
@@ -145,14 +147,15 @@ export function MobileQueueView({
     }
   }, []);
 
-  // Reconcile-on-focus (design D2): if mutations were applied as local
-  // deltas while this view was inactive (or before leaving it), refresh the
-  // listing from the server on re-activation. No-op when clean.
-  useEffect(() => {
-    if (isActiveTab) {
-      void useQueueStore.getState().reconcileIfDirty();
-    }
-  }, [isActiveTab]);
+  // NOTE: a previous "reconcile-on-focus" effect auto-reloaded the queue via
+  // reconcileIfDirty() whenever this tab regained focus. It fired whenever
+  // hasLocalDeltas was armed by ANY local mutation (postpone / suspend / delete,
+  // even a single item), and the resulting server refetch recomputed the
+  // engagement/priority sort — reshuffling the whole list on every return. It
+  // has been removed so the displayed order stays stable across tab switches;
+  // local deltas already update `items` optimistically. For a genuine server
+  // refresh, the Toolbar's refresh button still calls the load functions
+  // directly.
 
   // On a false → true (re)activation, restore the saved scroll position.
   useEffect(() => {
@@ -201,19 +204,24 @@ export function MobileQueueView({
     progress: number;
   } | null>(null);
 
-  // Single load trigger: fire ONE queue fetch based on the active quick filter.
-  // Previously this was two separate effects — a bare `loadQueue()` on mount
-  // plus this quick-filter effect that called `setQueueFilterMode(...)` (which
-  // *itself* reloads) and then another explicit load — causing 3 overlapping
-  // IPC fetches on every mount and paired get_queue_items calls ~30×/min
-  // (sustained CPU/GC → jank/heating on mobile). Now `setQueueFilterMode` is
-  // the sole loader; the store also dedupes concurrent calls with the same key.
-  // Skipped entirely while the tab is inactive (frozen) so backgrounded tabs
-  // don't poll.
+  // Load the queue based on the active quick filter, but NEVER on a bare
+  // isActiveTab false→true transition (e.g. returning to the queue after
+  // exiting Scroll Mode): that reload recomputes the engagement/priority sort
+  // and on a large queue a transition-triggered reload cycles the item count.
+  // We reload on first activation and when the quick filter genuinely changes
+  // (an explicit user action). Genuine refresh also via pull-to-refresh.
+  const loadedQuickFilterRef = useRef<string | null>(null);
   useEffect(() => {
     if (!isActiveTab) return;
+    // Skip when the quick filter is unchanged (returning to the same tab).
+    if (loadedQuickFilterRef.current === quickFilter) return;
+    loadedQuickFilterRef.current = quickFilter;
     if (quickFilter === "today") {
-      void ensureStartup("queue", { queueMode: "due-today" });
+      void ensureStartup("queue", { queueMode: "due-today" }).then(() => {
+        if (useQueueStore.getState().items.length <= 50) {
+          void loadDueQueueItems();
+        }
+      });
       return;
     }
     switch (quickFilter) {
@@ -300,7 +308,7 @@ export function MobileQueueView({
     // per-document tab model. Fall back to opening the document directly only
     // if scroll mode isn't wired up.
     if (onOpenScrollMode) {
-      onOpenScrollMode();
+      onOpenScrollMode({ mode: "optimal" });
     } else {
       onOpenDocument?.(firstDue);
     }
@@ -658,9 +666,10 @@ export function MobileQueueView({
           </button>
           {activeTab === "reading" && onOpenScrollMode && (
             <button
-              onClick={onOpenScrollMode}
+              onClick={() => onOpenScrollMode({ items: filteredItems, mode: "queue-list" })}
               disabled={filteredItems.length === 0}
               className="flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
+              title={t("queue.scrollModeTooltip")}
             >
               <DeviceMobile className="w-5 h-5" />
             </button>

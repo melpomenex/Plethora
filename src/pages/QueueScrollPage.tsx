@@ -22,6 +22,7 @@ import {
 import { lookupDictionary, type DictionaryResult } from "../utils/dictionaryLookup";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useQueueStore } from "../stores/queueStore";
+import type { QueueItem } from "../types/queue";
 import { useDocumentStore } from "../stores/documentStore";
 import { defaultSettings, useSettingsStore } from "../stores/settingsStore";
 import { DocumentViewer } from "../components/viewer/DocumentViewer";
@@ -248,6 +249,24 @@ export function QueueScrollPage() {
     [updateTab]
   );
   const toast = useToast();
+
+  // Derive ONLY the queue-related fields the builders/persisters read from the
+  // active tab's data. The wrapper object returned here is rebuilt every render
+  // (because `tabs` changes on every navigation), but the EFFECT dependency
+  // arrays below list the individual FIELDS (e.g. `.customQueueItems`) rather
+  // than the wrapper, so React compares them with Object.is. Because the queue
+  // is written once into tab data at creation and only `currentIndex`/
+  // `renderedIndex` are patched on navigation, those field references stay
+  // stable across navigation and the builders do NOT re-run on every step.
+  const activeTabQueueData = useMemo(() => {
+    const activeTab = tabs.find((tab) => tab.id === activeTabId);
+    return {
+      customQueueItems: activeTab?.data?.customQueueItems as QueueItem[] | undefined,
+      queueScrollMode: activeTab?.data?.queueScrollMode as "queue-list" | "optimal" | undefined,
+      persistedCurrentIndex: activeTab?.data?.currentIndex as number | undefined,
+    };
+  }, [tabs, activeTabId]);
+
   const contextWindowTokens = settings.ai.maxTokens;
   const aiModel = settings.ai.model;
 
@@ -282,6 +301,13 @@ export function QueueScrollPage() {
   const [isRating, setIsRating] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [ratedDocumentIds, setRatedDocumentIds] = useState<Set<string>>(new Set());
+  // Track flashcards/extracts reviewed or dismissed this session. In queue-list
+  // mode the build effect re-derives scrollItems from the static customQueueItems
+  // tab data whenever dueFlashcards/dueExtracts change, which re-inserts a card
+  // that was just rated/dismissed (customQueueItems is never mutated). Filtering
+  // these sets in the rebuild closes that loop — mirrors ratedDocumentIds.
+  const [ratedFlashcardIds, setRatedFlashcardIds] = useState<Set<string>>(new Set());
+  const [ratedExtractIds, setRatedExtractIds] = useState<Set<string>>(new Set());
   const [readRssItemIds, setReadRssItemIds] = useState<Set<string>>(new Set());
   const [itemsReviewedThisSession, setItemsReviewedThisSession] = useState(0);
   const [, setAssistantInputActive] = useState(false);
@@ -614,7 +640,9 @@ export function QueueScrollPage() {
       try {
         // This ensures the YouTube filter has all documents loaded before computing
         await loadDocuments();
-        await loadQueue();
+        if (useQueueStore.getState().items.length === 0) {
+          await loadQueue();
+        }
 
         const [dueItems, extracts] = await Promise.all([
           getDueItems(),
@@ -644,8 +672,7 @@ export function QueueScrollPage() {
 
     // 1. Try the persisted position from this tab's data (survives tab close/reopen).
     let restoredIndex: number | null = null;
-    const activeTab = tabs.find((tab) => tab.id === activeTabId);
-    const persistedIndex = activeTab?.data?.currentIndex;
+    const persistedIndex = activeTabQueueData.persistedCurrentIndex;
     if (typeof persistedIndex === "number" && persistedIndex > 0 && persistedIndex < scrollItems.length) {
       restoredIndex = persistedIndex;
     }
@@ -689,7 +716,7 @@ export function QueueScrollPage() {
         }
       }
     });
-  }, [scrollItems.length, currentIndex, calculateSmartStart, activeTabId, patchTabData, toast, tabs]);
+  }, [scrollItems.length, currentIndex, calculateSmartStart, activeTabId, patchTabData, toast, activeTabQueueData.persistedCurrentIndex]);
 
   useEffect(() => {
     sessionStorage.setItem(SESSION_KEYS.LAST_POSITION, String(currentIndex));
@@ -898,6 +925,105 @@ export function QueueScrollPage() {
     let cancelled = false;
 
     const buildScrollItems = async () => {
+      const customQueueItems = activeTabQueueData.customQueueItems;
+      const queueScrollMode = activeTabQueueData.queueScrollMode;
+
+      if (queueScrollMode === "queue-list" || (customQueueItems && customQueueItems.length > 0)) {
+        const sourceQueueItems = (customQueueItems && customQueueItems.length > 0)
+          ? customQueueItems
+          : documentQueueItems;
+
+        const extractsMap = new Map(dueExtracts.map((e) => [e.id, e]));
+        const flashcardsMap = new Map(dueFlashcards.map((f) => [f.id, f]));
+
+        const sequentialItems: ScrollItem[] = sourceQueueItems
+          .map((item) => {
+            if (item.itemType === "extract") {
+              // Skip extracts already reviewed/dismissed this session — without
+              // this, the rebuild re-inserts them (customQueueItems is static).
+              if (item.extractId && ratedExtractIds.has(item.extractId)) return null;
+              if (!item.extractId && ratedExtractIds.has(item.id)) return null;
+              const extractObj = item.extractId ? extractsMap.get(item.extractId) : undefined;
+              const doc = documentsMap.get(item.documentId);
+              return {
+                id: item.id.startsWith("extract-") ? item.id : `extract-${item.extractId ?? item.id}`,
+                type: "extract" as const,
+                documentTitle: item.documentTitle || doc?.title || t("queueScroll.unknownDocument"),
+                extract: extractObj ?? {
+                  id: item.extractId ?? item.id,
+                  document_id: item.documentId,
+                  content: item.clozeText ?? item.learningHint ?? "",
+                  category: item.category ?? doc?.category,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                },
+                category: item.category ?? doc?.category ?? "extracts",
+                estimatedTime: item.estimatedTime ?? 3,
+                engagementScore: item.priority ?? 5,
+              } as ScrollItem;
+            }
+
+            if (item.itemType === "learning-item") {
+              // Skip flashcards already reviewed/dismissed this session — without
+              // this, the rebuild re-inserts them (customQueueItems is static).
+              if (item.learningItemId && ratedFlashcardIds.has(item.learningItemId)) return null;
+              if (!item.learningItemId && ratedFlashcardIds.has(item.id)) return null;
+              const cardObj = item.learningItemId ? flashcardsMap.get(item.learningItemId) : undefined;
+              return {
+                id: item.id.startsWith("flashcard-") ? item.id : `flashcard-${item.learningItemId ?? item.id}`,
+                type: "flashcard" as const,
+                documentTitle: item.documentTitle || (item.question ? item.question.substring(0, 50) : ""),
+                learningItem: cardObj ?? ({
+                  id: item.learningItemId ?? item.id,
+                  document_id: item.documentId,
+                  question: item.question ?? item.learningHint ?? "",
+                  answer: item.answer ?? "",
+                  card_type: "cloze",
+                  tags: item.tags,
+                  due: item.dueDate,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                } as any),
+                category: item.tags?.[0] ?? "flashcards",
+                estimatedTime: item.estimatedTime ?? 2,
+                engagementScore: item.priority ?? 5,
+              } as ScrollItem;
+            }
+
+            if (item.itemType === "rss-article") {
+              return {
+                id: item.id.startsWith("rss-") ? item.id : `rss-${item.id}`,
+                type: "rss" as const,
+                documentTitle: item.documentTitle,
+                rssItem: (item as any).rssItem,
+                rssFeed: (item as any).rssFeed,
+                category: (item as any).rssFeed?.category ?? "rss",
+                estimatedTime: item.estimatedTime ?? 5,
+                engagementScore: 10,
+              } as ScrollItem;
+            }
+
+            // Default: document
+            const doc = documentsMap.get(item.documentId);
+            if (doc?.isArchived) return null;
+            return {
+              id: item.id,
+              type: "document" as const,
+              documentId: item.documentId,
+              documentTitle: item.documentTitle,
+              category: doc?.category ?? item.tags?.[0] ?? "uncategorized",
+              estimatedTime: item.estimatedTime ?? 10,
+              engagementScore: item.priority ?? 5,
+            } as ScrollItem;
+          })
+          .filter((item): item is ScrollItem => item !== null);
+
+        if (!cancelled) {
+          setScrollItems(sequentialItems);
+        }
+        return;
+      }
+
       // When a custom semantic cluster is active, filter flashcards/extracts to only those
       // belonging to documents in the subset
       const subsetDocIds = customSubset
@@ -1183,7 +1309,8 @@ export function QueueScrollPage() {
     return () => {
       cancelled = true;
     };
-  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, ratedFlashcardIds, ratedExtractIds]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];
@@ -2568,6 +2695,13 @@ export function QueueScrollPage() {
 
         // Remove the rated flashcard from both dueFlashcards and scrollItems
         setDueFlashcards(prev => prev.filter(item => item.id !== currentItem.learningItem!.id));
+        // Record so the queue-list rebuild (re-derives from static customQueueItems)
+        // does not re-insert this card.
+        setRatedFlashcardIds(prev => {
+          const next = new Set(prev);
+          next.add(currentItem.learningItem!.id);
+          return next;
+        });
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "rss" && currentItem.rssItem && currentItem.rssFeed) {
         // Mark RSS item as read
@@ -2593,6 +2727,12 @@ export function QueueScrollPage() {
         setItemsReviewedThisSession(prev => prev + 1);
 
         setDueExtracts(prev => prev.filter(e => e.id !== currentItem.extract!.id));
+        // Record so the queue-list rebuild does not re-insert this extract.
+        setRatedExtractIds(prev => {
+          const next = new Set(prev);
+          next.add(currentItem.extract!.id);
+          return next;
+        });
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "podcast" && currentItem.podcastEpisode) {
         // Mark podcast episode as played
@@ -2673,6 +2813,12 @@ export function QueueScrollPage() {
 
         // Remove from dueFlashcards state to prevent re-populating on state recalculation
         setDueFlashcards((prev) => prev.filter((item) => item.id !== cardId));
+        // Record so the queue-list rebuild does not re-insert this card.
+        setRatedFlashcardIds((prev) => {
+          const next = new Set(prev);
+          next.add(cardId);
+          return next;
+        });
 
         toast.success(
           t("queueScroll.cardSuspended") !== "queueScroll.cardSuspended" ? t("queueScroll.cardSuspended") : "Flashcard suspended",
@@ -2689,6 +2835,12 @@ export function QueueScrollPage() {
 
         // Remove from dueExtracts state to prevent re-populating on state recalculation
         setDueExtracts((prev) => prev.filter((e) => e.id !== extractId));
+        // Record so the queue-list rebuild does not re-insert this extract.
+        setRatedExtractIds((prev) => {
+          const next = new Set(prev);
+          next.add(extractId);
+          return next;
+        });
 
         toast.success(
           t("queueScroll.extractDeleted") !== "queueScroll.extractDeleted" ? t("queueScroll.extractDeleted") : "Extract deleted",
