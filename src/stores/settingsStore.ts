@@ -414,6 +414,8 @@ interface SmartQueueSettings {
     extracts?: boolean;
     learningItems?: boolean;
   };
+  /** See the same field in types/settings.ts SmartQueueSettings. */
+  sessionItemTypesCustomized?: boolean;
 }
 
 /**

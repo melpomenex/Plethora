@@ -230,6 +230,28 @@ describe("Session customization filtering", () => {
     return screen.getByRole("heading", { name: "Customize Session", level: 2 }).closest(".fixed")!;
   };
 
+  // Due All used to bypass the Item Types toggles entirely, so unchecking
+  // Learning Items there did nothing — and Due All is the default filter.
+  it("honors the Learning Items toggle in Due All", () => {
+    mockStore.queueFilterMode = "due-all";
+    render(<ReviewQueueView />);
+    expect(screen.getAllByText("Review Item").length).toBeGreaterThan(0);
+
+    openModal();
+    const modal = findModal() as HTMLElement;
+    const learningItems = within(modal)
+      .getByText("Learning Items")
+      .closest("label")!
+      .querySelector("input[type=checkbox]") as HTMLInputElement;
+    expect(learningItems.checked).toBe(true);
+    fireEvent.click(learningItems);
+    fireEvent.click(within(modal).getByText("Apply Customization"));
+
+    expect(screen.queryByText("Review Item")).not.toBeInTheDocument();
+    // Documents are still on, so the reading items must survive.
+    expect(screen.getAllByText("Reading Item").length).toBeGreaterThan(0);
+  });
+
   it("filters visible items by tag when tag selected in customize modal", () => {
     render(<ReviewQueueView />);
 

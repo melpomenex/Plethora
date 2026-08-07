@@ -41,6 +41,7 @@ import { QueueExtractsView } from "../components/queue/QueueExtractsView";
 import { FlashcardStudioModal } from "../components/review/FlashcardStudioModal";
 import { LearningCardsList } from "../components/learning/LearningCardsList";
 import { submitReview } from "../api/review";
+import { splitReviewBudget } from "./queueScrollBudget";
 import {
   getUnreadItemsAuto,
   getSubscribedFeedsAuto,
@@ -1240,9 +1241,10 @@ export function QueueScrollPage() {
         };
       });
 
-      // Separate review items into flashcards and extracts
-      // Flashcards: recall-based spaced repetition (controlled by flashcardPercentage)
-      // Extracts: incremental reading items (always included, distributed independently)
+      // Separate review items into flashcards and extracts.
+      // Flashcards: recall-based spaced repetition, sized by flashcardPercentage.
+      // Extracts: incremental reading items. Whether they draw from the same
+      // budget is what `extractsCountAsFlashcards` controls.
       const flashcardPercentage = settings.scrollQueue.flashcardPercentage;
       const nonReviewItems = [...docItems, ...rssItems, ...podcastItems];
       const totalNonReview = nonReviewItems.length;
@@ -1255,13 +1257,15 @@ export function QueueScrollPage() {
         targetFlashcardCount = flashcardItems.length;
       }
 
-      // Limit flashcards to available count
-      const limitedFlashcards = flashcardItems.slice(0, targetFlashcardCount);
-
-      // Extracts are always included — they don't compete with flashcards
-      // but are capped per session to avoid overwhelming the queue
-      const maxExtractsPerSession = 20;
-      const limitedExtracts = extractItems.slice(0, maxExtractsPerSession);
+      const budget = splitReviewBudget({
+        targetFlashcardCount,
+        extractsCountAsFlashcards: settings.scrollQueue.extractsCountAsFlashcards,
+        maxExtractsPerSession: 20,
+        availableFlashcards: flashcardItems.length,
+        availableExtracts: extractItems.length,
+      });
+      const limitedFlashcards = flashcardItems.slice(0, budget.flashcards);
+      const limitedExtracts = extractItems.slice(0, budget.extracts);
 
       // Distribute all item types evenly throughout the queue with variety mixing
       const distributedItems: ScrollItem[] = [];
