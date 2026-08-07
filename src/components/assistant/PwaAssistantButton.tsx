@@ -14,6 +14,7 @@ import { useLLMProvidersStore, useSettingsStore } from "../../stores";
 import type { AssistantContext } from "./AssistantPanel";
 import * as documentsApi from "../../api/documents";
 import { getAssistantContextErrorMessage } from "../../utils/assistantContext";
+import { getStoredAssistantProvider, isAssistantProviderId } from "../../utils/assistantProvider";
 import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 import { isNativeMobile } from "../../lib/tauri";
 
@@ -128,19 +129,11 @@ export function PwaAssistantButton({
   const enabledProviders = useLLMProvidersStore((s) => s.getEnabledProviders);
 
   const preferredProviderType = useMemo(() => {
-    const stored = localStorage.getItem("assistant-llm-provider");
-    if (
-      stored === "openai" ||
-      stored === "anthropic" ||
-      stored === "gemini" ||
-      stored === "ollama" ||
-      stored === "openrouter"
-    ) {
-      return stored;
-    }
-    // Fall back to app setting if present, else OpenAI.
-    const configured = settings.ai.provider;
-    return configured ?? "openai";
+    const stored = getStoredAssistantProvider();
+    if (stored !== "openai") return stored;
+    // Fall back to the app-level configured provider when nothing valid is
+    // stored (or the user is on the default), else OpenAI.
+    return isAssistantProviderId(settings.ai.provider) ? settings.ai.provider : "openai";
   }, [settings.ai.provider]);
 
   useEffect(() => {

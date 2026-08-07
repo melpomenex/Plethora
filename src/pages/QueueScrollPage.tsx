@@ -20,6 +20,7 @@ import {
   Waves,
 } from "@phosphor-icons/react";
 import { lookupDictionary, type DictionaryResult } from "../utils/dictionaryLookup";
+import { getStoredAssistantProvider, persistAssistantProvider } from "../utils/assistantProvider";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useQueueStore } from "../stores/queueStore";
 import type { QueueItem } from "../types/queue";
@@ -345,13 +346,9 @@ export function QueueScrollPage() {
   const transcriptCacheRef = useRef<Map<string, string>>(new Map());
   const transcriptFetchInFlightRef = useRef<Set<string>>(new Set());
 
-  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">(() => {
-    const stored = localStorage.getItem("assistant-llm-provider");
-    if (stored === "openai" || stored === "anthropic" || stored === "gemini" || stored === "deepseek" || stored === "ollama" || stored === "openrouter") {
-      return stored;
-    }
-    return "openai";
-  });
+  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">(() =>
+    getStoredAssistantProvider("openai"),
+  );
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [scrollViewMode, setScrollViewMode] = useState<"document" | "extracts" | "cards">("document");
   // Assistant panel visibility — persisted across sessions. The floating toggle
@@ -378,7 +375,7 @@ export function QueueScrollPage() {
   const MAX_SELECTION_CHARS = 10000;
   // Persist provider selection
   useEffect(() => {
-    localStorage.setItem("assistant-llm-provider", selectedProvider);
+    persistAssistantProvider(selectedProvider);
   }, [selectedProvider]);
 
   // Reset view mode and hide controls when scrolling to a new item
