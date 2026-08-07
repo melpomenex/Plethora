@@ -44,6 +44,7 @@ import { useContextMenu, ContextMenu, ContextMenuItem, ContextMenuItemType } fro
 import { useToast } from "../common/Toast";
 import { createExtract, patchDocumentExtractCount } from "../../api/extracts";
 import { getAssistantContextErrorMessage, type ResolvedAssistantContext } from "../../utils/assistantContext";
+import { getStoredAssistantProvider, persistAssistantProvider } from "../../utils/assistantProvider";
 import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 import { invokeCommand, isTauri } from "../../lib/tauri";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
@@ -279,13 +280,9 @@ export function AssistantPanel({
   const assistantContextMenu = useContextMenu("assistant-panel-context-menu");
   const toast = useToast();
   const [availableTools, setAvailableTools] = useState<MCPTool[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">(() => {
-    const stored = localStorage.getItem("assistant-llm-provider");
-    if (stored === "openai" || stored === "anthropic" || stored === "gemini" || stored === "deepseek" || stored === "ollama" || stored === "openrouter") {
-      return stored;
-    }
-    return "openai";
-  });
+  const [selectedProvider, setSelectedProvider] = useState<"openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter">(() =>
+    getStoredAssistantProvider("openai"),
+  );
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -674,7 +671,7 @@ export function AssistantPanel({
   }, [isLoading, isInputFocused, input]);
 
   useEffect(() => {
-    localStorage.setItem("assistant-llm-provider", selectedProvider);
+    persistAssistantProvider(selectedProvider);
   }, [selectedProvider]);
 
   // Sync external provider prop
