@@ -44,14 +44,14 @@
 
 - [x] 6.1 Add a `performance` job to `.github/workflows/ci-regression.yml` with `needs: test`: checkout, `actions/setup-node@v4` with npm cache, `npm install`, `npm run bench`, then `node scripts/check-perf-budget.mjs --warn-only`. No Rust toolchain, no apt packages.
 - [x] 6.2 Upload `.bench/results.json` as a workflow artifact so baselines can be recorded from a real CI run.
-- [ ] 6.3 Merge to `main` in warn-only mode and let CI run.
+- [x] 6.3 Merge to `main` in warn-only mode and let CI run.
 
 ## 7. Record baselines and enforce
 
-- [ ] 7.1 Download `.bench/results.json` from a green `main` run and populate `scripts/perf-baselines.json` with the measured costs, setting `recordedFrom` to that run's URL.
-- [ ] 7.2 Let `main` run at least a few more times in warn-only mode and check the observed spread; widen `defaultTolerance` or set per-benchmark tolerances if any suite swings past 1.25×.
-- [ ] 7.3 Drop `--warn-only` from the CI step so the gate enforces.
-- [ ] 7.4 Verify enforcement end to end: open a throwaway PR that deliberately slows one benchmarked path (e.g. an added inner loop) and confirm the `performance` job fails and names that benchmark.
+- [x] 7.1 Download `.bench/results.json` from a green `main` run and populate `scripts/perf-baselines.json` with the measured costs, setting `recordedFrom` to that run's URL.
+- [x] 7.2 Let `main` run at least a few more times in warn-only mode and check the observed spread; widen `defaultTolerance` or set per-benchmark tolerances if any suite swings past 1.25×.
+- [x] 7.3 Drop `--warn-only` from the CI step so the gate enforces.
+- [x] 7.4 Verify enforcement end to end: open a throwaway PR that deliberately slows one benchmarked path (e.g. an added inner loop) and confirm the `performance` job fails and names that benchmark.
 
 ## 8. Documentation
 
