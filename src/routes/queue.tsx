@@ -641,7 +641,7 @@ export function Queue() {
       />
 
       {/* Queue Items */}
-      {isLoading ? (
+      {(isLoading && filteredItems.length === 0) ? (
         <div className="flex items-center justify-center py-12">
           <div className="text-muted-foreground">{t("queue.loading")}</div>
         </div>

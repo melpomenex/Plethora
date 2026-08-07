@@ -738,7 +738,7 @@ export function MobileQueueView({
           />
         ) : (
         <div ref={listScrollRef} onScroll={handleListScroll} className="h-full min-h-0 overflow-y-auto overscroll-contain" data-scroll-container="true">
-          {isLoading ? (
+          {(isLoading && filteredItems.length === 0) ? (
             <div className="flex items-center justify-center h-32 text-muted-foreground">
               <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full mr-2" />
               {t("mobileQueue.loading")}

@@ -146,10 +146,14 @@ export function orderQueueItems(
   items: QueueItem[],
   preset: PriorityPreset = "maximize-retention",
 ): OrderedQueueItem[] {
-  const indexed = items.map((item, index) => ({ item, index }));
+  const indexed = items.map((item, index) => ({
+    item,
+    index,
+    score: getPriorityScore(item, preset),
+  }));
 
   indexed.sort((a, b) => {
-    const scoreDifference = getPriorityScore(b.item, preset) - getPriorityScore(a.item, preset);
+    const scoreDifference = b.score - a.score;
     if (scoreDifference !== 0) return scoreDifference;
 
     const positionA = a.item.position ?? Number.POSITIVE_INFINITY;

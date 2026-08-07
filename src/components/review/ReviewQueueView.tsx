@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   ArrowCounterClockwise,
@@ -88,6 +88,9 @@ const PRESET_DESC_KEYS: Record<PriorityPreset, string> = {
   exploratory: "queuePreset.exploratoryDesc",
   "project-focused": "queuePreset.projectFocusedDesc",
 };
+
+type ScrollAnchor = { id: string; offset: number; scrollTop: number };
+let persistentQueueScrollAnchor: ScrollAnchor | null = null;
 
 export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMode }: ReviewQueueViewProps) {
   const { locale, t } = useI18n();
@@ -216,7 +219,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const searchRef = useRef<HTMLInputElement>(null);
   const queueListRef = useRef<HTMLDivElement>(null);
   const queueScrollRef = useRef<HTMLDivElement>(null);
-  const scrollAnchorRef = useRef<{ id: string; offset: number } | null>(null);
+  const scrollAnchorRef = useRef<{ id: string; offset: number; scrollTop?: number } | null>(null);
   const selectedIndexRef = useRef(0);
   const toast = useToast();
 
@@ -227,19 +230,21 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   const [actionItem, setActionItem] = useState<QueueItem | null>(null);
   const actionTriggerRef = useRef<HTMLElement | null>(null);
 
-  const captureQueueScrollAnchor = () => {
+  const captureQueueScrollAnchor = useCallback(() => {
     const container = queueScrollRef.current;
     if (!container) return;
     const containerTop = container.getBoundingClientRect().top;
     const firstVisible = Array.from(
       container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
     ).find((row) => row.getBoundingClientRect().bottom > containerTop + 1);
-    if (!firstVisible) return;
-    scrollAnchorRef.current = {
-      id: firstVisible.dataset.queueItemId ?? "",
-      offset: firstVisible.getBoundingClientRect().top - containerTop,
+    const anchor: ScrollAnchor = {
+      id: firstVisible?.dataset.queueItemId ?? "",
+      offset: firstVisible ? firstVisible.getBoundingClientRect().top - containerTop : 0,
+      scrollTop: container.scrollTop,
     };
-  };
+    scrollAnchorRef.current = anchor;
+    persistentQueueScrollAnchor = anchor;
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -301,7 +306,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     if (!isActiveTab) return;
 
     const loadKey = JSON.stringify([
-      queueMode,
       queueFilterMode,
       activeCollectionId,
       sessionCustomization.semanticStudy?.enabled,
@@ -319,7 +323,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
     if (
       isFirstLoad &&
-      queueMode === "reading" &&
       queueFilterMode === "due-all" &&
       !sessionCustomization.semanticStudy?.enabled
     ) {
@@ -341,13 +344,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       return;
     }
 
-    if (queueMode === "review") {
-      loadDueQueueItems();
-      loadStats();
-      return;
-    }
-
-    // Reading queue: load based on current filter mode
+    // Reading & Review queue: load based on current filter mode
     switch (queueFilterMode) {
       case "due-today":
         loadDueDocumentsOnly();
@@ -363,7 +360,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     }
     loadStats();
   }, [
-    queueMode,
     queueFilterMode,
     isActiveTab,
     ensureStartup,
@@ -482,19 +478,43 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, customSubset, queueSortMode]);
 
   useEffect(() => {
-    if (isLoading || !scrollAnchorRef.current) return;
+    const container = queueScrollRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      if (container.scrollTop > 0) {
+        captureQueueScrollAnchor();
+      }
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      captureQueueScrollAnchor();
+    };
+  }, [captureQueueScrollAnchor]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    const anchor = scrollAnchorRef.current ?? persistentQueueScrollAnchor;
+    if (!anchor) return;
+
     const frame = requestAnimationFrame(() => {
       const container = queueScrollRef.current;
-      const anchor = scrollAnchorRef.current;
-      if (!container || !anchor?.id) return;
-      const row = Array.from(
-        container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
-      ).find((candidate) => candidate.dataset.queueItemId === anchor.id);
-      if (row) {
-        const containerTop = container.getBoundingClientRect().top;
-        container.scrollTop += row.getBoundingClientRect().top - containerTop - anchor.offset;
+      if (!container) return;
+      if (anchor.id) {
+        const row = Array.from(
+          container.querySelectorAll<HTMLElement>("[data-queue-item-id]"),
+        ).find((candidate) => candidate.dataset.queueItemId === anchor.id);
+        if (row) {
+          const containerTop = container.getBoundingClientRect().top;
+          container.scrollTop += row.getBoundingClientRect().top - containerTop - anchor.offset;
+        } else if (anchor.scrollTop > 0) {
+          container.scrollTop = anchor.scrollTop;
+        }
+      } else if (anchor.scrollTop > 0) {
+        container.scrollTop = anchor.scrollTop;
       }
       scrollAnchorRef.current = null;
+      persistentQueueScrollAnchor = null;
     });
     return () => cancelAnimationFrame(frame);
   }, [visibleItems, isLoading]);
@@ -966,6 +986,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   };
 
   const handleStartOptimalSession = () => {
+    captureQueueScrollAnchor();
     if (queueMode === "review") {
       const seen = new Set<string>();
       const reviewQueueIds = sessionBlocks
@@ -1066,7 +1087,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             </button>
             {queueMode === "reading" && onOpenScrollMode && (
               <button
-                onClick={() => onOpenScrollMode({ items: visibleItems, mode: "queue-list" })}
+                onClick={() => {
+                  captureQueueScrollAnchor();
+                  onOpenScrollMode({ items: visibleItems, mode: "queue-list" });
+                }}
                 className="flex-1 md:flex-none px-3 md:px-4 py-1 md:py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md hover:opacity-90 flex flex-col items-center justify-center min-h-[44px] shadow-sm transition-all"
                 title={t("queue.scrollModeTooltip")}
               >
@@ -1369,7 +1393,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             </div>
           )}
 
-          {isLoading ? (
+          {(isLoading && items.length === 0) ? (
             <div className="text-center py-12 text-muted-foreground">{t("queue.loading")}</div>
           ) : visibleItems.length === 0 ? (
             sessionCustomization.semanticStudy?.enabled && sessionCustomization.semanticStudy?.focalTopic ? (
