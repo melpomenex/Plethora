@@ -1,62 +1,98 @@
 import { describe, expect, it } from "vitest";
-import { splitReviewBudget } from "../queueScrollBudget";
+import { composeSession } from "../queueScrollBudget";
 
-const base = {
-  targetFlashcardCount: 10,
-  extractsCountAsFlashcards: true,
-  maxExtractsPerSession: 20,
-  availableFlashcards: 1000,
-  availableExtracts: 5,
-};
-
-describe("splitReviewBudget", () => {
-  // The reported bug: slider at 0%, yet the queue still filled with extracts
-  // because extracts were injected regardless of the percentage.
-  it("shows nothing at 0% when extracts count as flashcards", () => {
-    expect(splitReviewBudget({ ...base, targetFlashcardCount: 0 })).toEqual({
-      flashcards: 0,
-      extracts: 0,
+describe("composeSession", () => {
+  // The reported bug: the sequential path ignored the flashcard slider, so a
+  // reading-mode queue never surfaced its due flashcards (371 documents, 6 due
+  // extracts, 1037 due flashcards on the reporting machine).
+  it("45/0/55 against {371, 6, 1037} yields exactly the 55% flashcard share", () => {
+    const result = composeSession({
+      targets: { documents: 45, extracts: 0, flashcards: 55 },
+      available: { documents: 371, extracts: 6, flashcards: 1037 },
     });
+    // N = 371 / 0.45 = 824.44... -> an 824-item session; 55% of that is 453.
+    expect(result.documents).toBe(371);
+    expect(result.extracts).toBe(0);
+    expect(result.flashcards).toBe(453);
+    const total = result.documents + result.extracts + result.flashcards;
+    expect(total).toBe(824);
+    expect(result.flashcards / total).toBeCloseTo(0.55, 1);
   });
 
-  it("still honors 0% for flashcards when extracts are independent", () => {
-    const result = splitReviewBudget({
-      ...base,
-      targetFlashcardCount: 0,
-      extractsCountAsFlashcards: false,
+  it("40/20/40 yields all 6 extracts with the session size unchanged at 928", () => {
+    const result = composeSession({
+      targets: { documents: 40, extracts: 20, flashcards: 40 },
+      available: { documents: 371, extracts: 6, flashcards: 1037 },
     });
-    expect(result.flashcards).toBe(0);
-    expect(result.extracts).toBe(5);
+    // N = 371 / 0.4 = 927.5 -> 928. The 180 unusable extract slots are
+    // redistributed to documents (already capped) and flashcards.
+    expect(result).toEqual({ documents: 371, extracts: 6, flashcards: 551 });
+    const total = result.documents + result.extracts + result.flashcards;
+    expect(total).toBe(928);
   });
 
-  it("shares one budget, taking the scarcer extracts first", () => {
-    expect(splitReviewBudget(base)).toEqual({ flashcards: 5, extracts: 5 });
+  it("a zeroed type contributes nothing even when its items are available", () => {
+    const result = composeSession({
+      targets: { documents: 50, extracts: 0, flashcards: 50 },
+      available: { documents: 100, extracts: 40, flashcards: 100 },
+    });
+    expect(result.extracts).toBe(0);
+    // N = 100 / 0.5 = 200; the whole session splits between the two active types.
+    const total = result.documents + result.flashcards;
+    expect(total).toBe(200);
   });
 
-  it("never exceeds the per-session extract cap", () => {
-    const result = splitReviewBudget({
-      ...base,
-      targetFlashcardCount: 100,
-      availableExtracts: 500,
+  it("targets that do not sum to 100 are normalized to shares", () => {
+    const result = composeSession({
+      targets: { documents: 50, extracts: 50, flashcards: 50 },
+      available: { documents: 300, extracts: 300, flashcards: 300 },
     });
-    expect(result.extracts).toBe(20);
-    expect(result.flashcards).toBe(80);
+    expect(result.documents).toBe(result.extracts);
+    expect(result.extracts).toBe(result.flashcards);
   });
 
-  it("never returns more than is available", () => {
-    const result = splitReviewBudget({
-      ...base,
-      targetFlashcardCount: 50,
-      availableFlashcards: 3,
-      availableExtracts: 1,
-    });
-    expect(result).toEqual({ flashcards: 3, extracts: 1 });
+  it("all-zero targets return zeros", () => {
+    expect(
+      composeSession({
+        targets: { documents: 0, extracts: 0, flashcards: 0 },
+        available: { documents: 10, extracts: 10, flashcards: 10 },
+      })
+    ).toEqual({ documents: 0, extracts: 0, flashcards: 0 });
   });
 
-  it("clamps a negative target instead of returning negative counts", () => {
-    expect(splitReviewBudget({ ...base, targetFlashcardCount: -5 })).toEqual({
-      flashcards: 0,
-      extracts: 0,
+  it("only-one-type-available yields a single-type session", () => {
+    const result = composeSession({
+      targets: { documents: 1, extracts: 1, flashcards: 1 },
+      available: { documents: 10, extracts: 0, flashcards: 0 },
     });
+    expect(result).toEqual({ documents: 10, extracts: 0, flashcards: 0 });
+  });
+
+  it("anchors on the remaining active type with the largest target when documents are unavailable", () => {
+    const result = composeSession({
+      targets: { documents: 60, extracts: 15, flashcards: 25 },
+      available: { documents: 0, extracts: 30, flashcards: 100 },
+    });
+    // Anchor falls back to flashcards (larger target than extracts, 100
+    // available): N = 100 / 0.25 = 400, of which extracts can only supply 30.
+    expect(result).toEqual({ documents: 0, extracts: 30, flashcards: 100 });
+  });
+
+  it("no count ever exceeds availability", () => {
+    const result = composeSession({
+      targets: { documents: 10, extracts: 10, flashcards: 80 },
+      available: { documents: 5, extracts: 5, flashcards: 3 },
+    });
+    expect(result.documents).toBeLessThanOrEqual(5);
+    expect(result.extracts).toBeLessThanOrEqual(5);
+    expect(result.flashcards).toBeLessThanOrEqual(3);
+  });
+
+  it("does not pad beyond what is available when every type is exhausted", () => {
+    const result = composeSession({
+      targets: { documents: 60, extracts: 15, flashcards: 25 },
+      available: { documents: 4, extracts: 2, flashcards: 1 },
+    });
+    expect(result).toEqual({ documents: 4, extracts: 2, flashcards: 1 });
   });
 });

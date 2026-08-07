@@ -11,9 +11,9 @@ import type { SessionItemTypes } from "../utils/reviewUx";
  * matching how the Queue list itself treats them.
  *
  * The optimal Scroll Mode builder applies this to each source collection
- * (documents, flashcards, extracts) UPSTREAM of `splitReviewBudget` and
- * `applyVarietyMixing`, so the budget arithmetic operates on the real, gated
- * totals instead of computing against items that are later thrown away.
+ * (documents, flashcards, extracts) UPSTREAM of `composeSession` and
+ * `applyVarietyMixing`, so the composition arithmetic operates on the real,
+ * gated totals instead of computing against items that are later thrown away.
  */
 export function gateScrollItemsByType<T extends { type: string }>(
   items: T[],

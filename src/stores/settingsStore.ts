@@ -422,10 +422,54 @@ interface SmartQueueSettings {
  * Scroll Queue Settings
  */
 interface ScrollQueueSettings {
-  flashcardPercentage: number; // 0-100, percentage of queue that should be flashcards
-  extractsCountAsFlashcards: boolean; // Whether extracts count towards the flashcard percentage
+  /** Target share of each item type in a composed scroll session (0-100 each; need not sum to 100). */
+  composition: { documents: number; extracts: number; flashcards: number };
   autoProceed: boolean; // Auto-proceed to next item in the queue when a video/audio ends
   ratingOrbsPosition?: "left" | "right" | "top" | "bottom"; // Snapped position of rating orbs
+}
+
+/**
+ * Shape persisted before the composition sliders existed. The old model was a
+ * single `flashcardPercentage` plus an `extractsCountAsFlashcards` boolean.
+ */
+type LegacyScrollQueueSettings = Partial<ScrollQueueSettings> & {
+  flashcardPercentage?: number;
+  extractsCountAsFlashcards?: boolean;
+};
+
+/**
+ * Merge persisted scroll-queue settings over the defaults, migrating the old
+ * `flashcardPercentage` / `extractsCountAsFlashcards` shape into a
+ * `composition` when needed.
+ *
+ * `flashcards` keeps the old percentage; the remainder is split between
+ * documents and extracts using the old boolean as the hint (true — extracts
+ * took a slice of the flashcard budget, so they get half of it; false —
+ * extracts were independent, so they get a small fixed share). A saved 0%
+ * must NOT become an all-zero composition: documents keep the full remainder.
+ */
+function mergeScrollQueueSettings(persisted?: Partial<ScrollQueueSettings>): ScrollQueueSettings {
+  const legacy = (persisted ?? {}) as LegacyScrollQueueSettings;
+  const merged: ScrollQueueSettings = {
+    composition: legacy.composition ?? defaultSettings.scrollQueue.composition,
+    autoProceed: legacy.autoProceed ?? defaultSettings.scrollQueue.autoProceed,
+    ratingOrbsPosition: legacy.ratingOrbsPosition ?? defaultSettings.scrollQueue.ratingOrbsPosition,
+  };
+  if (legacy.composition === undefined && typeof legacy.flashcardPercentage === "number") {
+    const pct = Math.min(100, Math.max(0, legacy.flashcardPercentage));
+    const extracts =
+      pct === 0
+        ? 0
+        : legacy.extractsCountAsFlashcards !== false
+          ? Math.round(pct / 2)
+          : 5;
+    merged.composition = {
+      documents: Math.max(0, 100 - pct - extracts),
+      extracts,
+      flashcards: pct,
+    };
+  }
+  return merged;
 }
 
 /**
@@ -765,8 +809,7 @@ export const defaultSettings: Settings = {
   },
   tts: createDefaultTTSSettings(),
   scrollQueue: {
-    flashcardPercentage: 30, // 30% of queue should be flashcards by default
-    extractsCountAsFlashcards: true, // Extracts count towards the flashcard percentage
+    composition: { documents: 60, extracts: 15, flashcards: 25 },
     autoProceed: false, // Auto-proceed to next item in the queue when a video/audio ends
     ratingOrbsPosition: "right", // Snapped position of rating orbs
   },
@@ -1004,7 +1047,7 @@ export const useSettingsStore = create<SettingsState>()(
           },
           smartQueue: { ...defaultSettings.smartQueue, ...persisted.smartQueue },
           tts: sanitizeTTSSettings(persisted.tts),
-          scrollQueue: { ...defaultSettings.scrollQueue, ...persisted.scrollQueue },
+          scrollQueue: mergeScrollQueueSettings(persisted.scrollQueue),
           rssQueue: { ...defaultSettings.rssQueue, ...persisted.rssQueue },
           podcastQueue: { ...defaultSettings.podcastQueue, ...persisted.podcastQueue },
           rssSummary: { ...defaultSettings.rssSummary, ...persisted.rssSummary },
