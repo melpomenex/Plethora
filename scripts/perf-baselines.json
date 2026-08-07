@@ -8,16 +8,20 @@
   "recordedFrom": "https://github.com/melpomenex/Incrementum/actions/runs/31182419989",
   "benchmarks": {
     "file-manifest/add-1000-entries": {
-      "cost": 14.81
+      "cost": 14.81,
+      "tolerance": 1.4
     },
     "postpone/plan-1000-items": {
-      "cost": 0.02902
+      "cost": 0.02902,
+      "tolerance": 1.5
     },
     "sm20/review-sequence": {
-      "cost": 214.6
+      "cost": 214.6,
+      "tolerance": 1.6
     },
     "queue/build-500-items": {
-      "cost": 0.008637
+      "cost": 0.008637,
+      "tolerance": 1.6
     },
     "ankiImport/convert-2000-notes": {
       "cost": 4.338
@@ -26,7 +30,8 @@
       "cost": 1.064
     },
     "semanticGrading/routing-fallback": {
-      "cost": 3.22
+      "cost": 3.22,
+      "tolerance": 1.4
     }
   }
 }
