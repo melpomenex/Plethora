@@ -49,6 +49,7 @@ import { SectionMentionPopup } from "../common/SectionMentionPopup";
 import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
   buildDocumentSections,
+  describeSectionDiagnostic,
   resolveSectionFocusedContext,
   type FocusedSectionContextResult,
   type SectionNode,
@@ -1397,11 +1398,11 @@ export function DocumentQATab() {
           includeNeighbors: true,
         });
         if (!focusedSectionContext.ok) {
-          const failed = focusedSectionContext.unresolved.map((item) => item.label).join(", ");
+          const failed = focusedSectionContext.unresolved.map(describeSectionDiagnostic).join("; ");
           addMessage({
             id: `error-${Date.now()}`,
             role: "system",
-            content: `The selected section context is no longer available${failed ? ` for: ${failed}` : ""}. Retry text extraction or select the heading again. No LLM request was sent.`,
+            content: `Could not focus the selected section${failed ? `: ${failed}` : ""}. Retry text extraction or select the heading again. No LLM request was sent.`,
             timestamp: Date.now(),
           });
           restoreComposer();

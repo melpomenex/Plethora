@@ -3851,7 +3851,7 @@ export const de: Dict = {
   "flashcardStudio.sectionsHint": "Tippe # im Eingabefeld, um einen Abschnitt zu wählen, oder entferne einen unten:",
   "flashcardStudio.sectionsEmpty": "Keine Abschnitte ausgewählt. Tippe # im Eingabefeld und wähle einen Abschnitt zum Fokussieren.",
   "flashcardStudio.sectionsUnresolvable": "Die fokussierten Abschnitte konnten im aktuellen Dokument nicht gefunden werden. Bitte erneut auswählen.",
-  "flashcardStudio.sectionUnresolved": "Der ausgewählte Abschnitt ({labels}) ist veraltet oder mehrdeutig. Bitte vor dem Senden erneut auswählen; keine Anfrage gesendet.",
+  "flashcardStudio.sectionUnresolved": "Der ausgewählte Abschnitt konnte nicht fokussiert werden: {reasons}. Bitte vor dem Senden erneut auswählen; keine Anfrage gesendet.",
   "flashcardStudio.sectionTruncated": "Hinweis: Der fokussierte Abschnitt wurde abgeschnitten, um in das Kontextfenster des Modells zu passen.",
   "flashcardStudio.selectChapters": "Kapitel auswählen:",
   "flashcardStudio.chapterNumber": "Kap. {count}",

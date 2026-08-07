@@ -15,41 +15,123 @@ pub struct EpubChapter {
     pub index: usize,
 }
 
-/// Extract text from HTML content
+/// Extract text from HTML content while preserving document structure.
+///
+/// Headings (`<h1>`–`<h6>`), paragraphs, list items, and other block elements
+/// are placed on their own lines. The `#`-mention section resolver depends on
+/// headings appearing on their own line (its title regex is line-anchored), so
+/// collapsing everything to a single space — as the previous version did —
+/// makes every chapter heading invisible to resolution and the model receives
+/// no focused context.
+///
+/// `<style>` and `<script>` content is dropped entirely; previously their raw
+/// CSS/JS text leaked into the body.
 fn extract_text_from_html(html: &str) -> String {
-    // Simple HTML tag removal and text extraction
-    let mut result = String::new();
-    let mut in_tag = false;
-    let mut chars = html.chars().peekable();
+    // Tags whose end forces a line break (block-level + headings). `<br>` is
+    // handled separately since it self-opens a break.
+    const BLOCK_TAGS: &[&str] = &[
+        "p", "div", "section", "article", "header", "footer", "main", "aside",
+        "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "blockquote", "pre",
+    ];
 
-    while let Some(c) = chars.next() {
-        match c {
-            '<' => {
-                in_tag = true;
-            }
-            '>' => {
-                in_tag = false;
-                // Add space after block-like tags
-                if let Some(&next) = chars.peek() {
-                    if next.is_whitespace() || next == '<' {
-                        result.push(' ');
-                    }
+    let mut result = String::new();
+    let bytes = html.as_bytes();
+    let mut i = 0;
+    let n = bytes.len();
+
+    while i < n {
+        let c = bytes[i];
+        if c != b'<' {
+            // Outside a tag: copy visible text, normalizing whitespace to a
+            // single space (newlines inside a run of inline text collapse too).
+            if c.is_ascii_whitespace() {
+                if !result.ends_with(' ') && !result.ends_with('\n') {
+                    result.push(' ');
                 }
+            } else {
+                result.push(c as char);
             }
-            _ if !in_tag => {
-                if c.is_whitespace() {
-                    if !result.ends_with(' ') {
-                        result.push(' ');
-                    }
-                } else {
-                    result.push(c);
-                }
-            }
-            _ => {}
+            i += 1;
+            continue;
         }
+
+        // We're at a '<'. Parse the tag name to decide its effect.
+        let tag_start = i + 1;
+        let mut j = tag_start;
+        while j < n && bytes[j] != b'>' {
+            j += 1;
+        }
+        // j now points at '>' (or end of string).
+        let tag_body = &html[tag_start..j.min(n)];
+        let tag_name = tag_name(tag_body);
+
+        // Skip raw text content of <style>/<script> entirely.
+        if tag_name == "style" || tag_name == "script" {
+            // Advance past the closing tag of this element.
+            let close = format!("</{}", tag_name);
+            if let Some(rel) = html[j..].to_lowercase().find(&close) {
+                // Find the '>' of the closing tag.
+                let after = j + rel + close.len();
+                let mut k = after;
+                while k < n && bytes[k] != b'>' {
+                    k += 1;
+                }
+                i = (k + 1).min(n);
+            } else {
+                i = n;
+            }
+            // Ensure a clean boundary after dropped content.
+            if !result.ends_with('\n') && !result.ends_with(' ') {
+                result.push('\n');
+            }
+            continue;
+        }
+
+        // <br> forces a single line break; block/heading end-tags force one too
+        // (they close a block). Opening block tags also get a break so that the
+        // heading text starts on a fresh line.
+        let is_break = tag_name == "br"
+            || (tag_body.starts_with('/') && BLOCK_TAGS.contains(&tag_name.as_str()))
+            || (!tag_body.starts_with('/') && BLOCK_TAGS.contains(&tag_name.as_str()));
+        if is_break {
+            if !result.ends_with('\n') {
+                // Trim a trailing inline space before the line break so the
+                // heading lands cleanly at column 0.
+                while result.ends_with(' ') {
+                    result.pop();
+                }
+                result.push('\n');
+            }
+        }
+
+        i = (j + 1).min(n);
     }
 
-    result.split_whitespace().collect::<Vec<&str>>().join(" ")
+    // Normalize: collapse 3+ newlines to 2, and strip leading whitespace per line.
+    let mut normalized = String::with_capacity(result.len());
+    let mut blank = false;
+    for line in result.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.trim().is_empty() {
+            if !blank && !normalized.is_empty() {
+                normalized.push('\n');
+            }
+            blank = true;
+        } else {
+            normalized.push_str(trimmed);
+            blank = false;
+        }
+    }
+    normalized.trim().to_string()
+}
+
+/// Lowercased tag name from the inside of `<...>`, ignoring `/`, attributes,
+/// and whitespace. e.g. `"/h1 "` -> "h1", `"br /"` -> "br".
+fn tag_name(tag_body: &str) -> String {
+    let mut s = tag_body.trim().trim_start_matches('/');
+    let end = s.find(|c: char| c.is_whitespace() || c == '/' || c == '>').unwrap_or(s.len());
+    s = &s[..end];
+    s.to_lowercase()
 }
 
 fn should_extract_text(mime: &str) -> bool {
@@ -226,5 +308,47 @@ mod tests {
         // This test would require a sample EPUB file
         // For now, we just verify the function compiles
         assert!(true);
+    }
+
+    #[test]
+    fn extract_text_preserves_headings_on_their_own_lines() {
+        // Mirrors the markup of a real EPUB (h1 parts, h2 chapters, h3 sections).
+        // The section resolver's title regex is line-anchored, so a heading that
+        // is buried mid-line (as the old space-collapsing extractor produced) is
+        // invisible to `#`-mention resolution.
+        let html = "<html><body>\
+            <style>body { margin: 0 } @page { padding: 0 }</style>\
+            <h1>Part One: SEX, ROMANCE, AND LOVE</h1>\
+            <h2>Chapter 1: DARWIN COMES OF AGE</h2>\
+            <p>As for an English lady, the real chapter body begins here.</p>\
+            <h3>AN UNLIKELY HERO</h3>\
+            <p>Subsection prose continues the argument.</p>\
+            </body></html>";
+        let text = extract_text_from_html(html);
+
+        // CSS from <style> must NOT leak into the body.
+        assert!(!text.contains("@page"));
+        assert!(!text.contains("margin"));
+
+        // Each heading must be alone on its own line.
+        let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+        assert!(lines.iter().any(|l| *l == "Part One: SEX, ROMANCE, AND LOVE"), "part heading on own line; got: {lines:?}");
+        assert!(lines.iter().any(|l| *l == "Chapter 1: DARWIN COMES OF AGE"), "chapter heading on own line; got: {lines:?}");
+        assert!(lines.iter().any(|l| *l == "AN UNLIKELY HERO"), "section heading on own line; got: {lines:?}");
+
+        // Body text must be preserved and not glued onto a heading line.
+        assert!(text.contains("As for an English lady, the real chapter body begins here."));
+        assert!(text.contains("Subsection prose continues the argument."));
+        assert!(!text.contains("DARWIN COMES OF AGE As for an English"));
+    }
+
+    #[test]
+    fn extract_text_collapses_inline_whitespace_but_keeps_block_breaks() {
+        let html = "<p>One   sentence\nwith\ttabs.</p><p>Second paragraph.</p>";
+        let text = extract_text_from_html(html);
+        assert!(text.contains("One sentence with tabs."));
+        assert!(text.contains("Second paragraph."));
+        // Two block elements -> at least one newline between them.
+        assert!(text.contains('\n'));
     }
 }

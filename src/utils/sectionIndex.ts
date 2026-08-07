@@ -26,6 +26,8 @@ export interface SectionContextDiagnostic {
   label: string;
   reason: string;
   code?: "wrong-document" | "ambiguous" | "unresolved";
+  /** For ambiguous matches: how many current headings the title matched. */
+  candidateCount?: number;
 }
 
 export interface SectionSourceReference {
@@ -170,10 +172,15 @@ export function parseMarkdownHeadings(content: string): HeadingInfo[] {
       level = mdMatch[1].length;
       title = mdMatch[2].trim();
     } else {
-      const chapterMatch = trimmed.match(/^(?:chapter|ch\.?|chap\.?|section|part)\s+(\d+|[IVX]+)\s*[.:-]?\s*(.+)?$/i);
-      if (chapterMatch) {
+      // Differentiate keyword headings by family so the heuristic tree carries
+      // real depth (part < chapter < section). A flat tree can never reconcile
+      // against a nested PDF/EPUB outline because the breadcrumb chain won't
+      // match — see mergeOutlineWithHeuristics / findStructuralMatch.
+      const keywordMatch = trimmed.match(/^(part|chapter|ch\.?|chap\.?|section)\s+(\d+|[IVX]+)\s*[.:-]?\s*(.+)?$/i);
+      if (keywordMatch) {
         isHeading = true;
-        level = 1;
+        const keyword = keywordMatch[1].toLowerCase();
+        level = keyword === "part" ? 1 : keyword === "section" ? 3 : 2;
         title = trimmed;
       } else {
         const numericMatch = trimmed.match(/^(\d+(?:\.\d+)*)\.?\s+([A-Za-z].+)$/);
@@ -222,6 +229,17 @@ export function parseMarkdownHeadings(content: string): HeadingInfo[] {
   }
 
   headings.sort((a, b) => a.charIndex - b.charIndex);
+
+  // Normalize relative depth so keyword, Markdown, and HTML heading levels
+  // share one scale: the shallowest heading present becomes level 1 and the
+  // rest are remapped in order, preserving gaps. A doc whose headings come in
+  // at levels {2,2,5} becomes {1,1,3}. This keeps tree-building logic simple
+  // while honoring the relative hierarchy produced by every heading source.
+  if (headings.length > 0) {
+    const distinctLevels = [...new Set(headings.map((h) => h.level))].sort((a, b) => a - b);
+    const remap = new Map<number, number>(distinctLevels.map((lvl, idx) => [lvl, idx + 1]));
+    for (const h of headings) h.level = remap.get(h.level)!;
+  }
 
   return headings;
 }
@@ -367,7 +385,17 @@ export function mergeOutlineWithHeuristics(
       if ((candidate.startChar ?? -1) >= lastMatchedStart) score += 20;
       score -= Math.abs(candidate.level - outline.level) * 5;
       return { candidate, score };
-    }).sort((a, b) => b.score - a.score || (a.candidate.startChar ?? 0) - (b.candidate.startChar ?? 0));
+    }).sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      // Same structural score (common when a title repeats in a table of
+      // contents and again in the body): prefer the candidate whose range
+      // carries the most body text. A TOC entry's "content" is just its title
+      // plus the next few TOC lines, so it is far shorter than the real chapter.
+      const aBody = stripMarkup((a.candidate.content ?? "").replace(a.candidate.title, "")).length;
+      const bBody = stripMarkup((b.candidate.content ?? "").replace(b.candidate.title, "")).length;
+      if (bBody !== aBody) return bBody - aBody;
+      return (a.candidate.startChar ?? 0) - (b.candidate.startChar ?? 0);
+    });
 
     const match = scored[0]?.candidate;
     if (!match) continue;
@@ -493,6 +521,25 @@ function sectionLabel(section: SectionNode): string {
     : section.title;
 }
 
+/**
+ * Human-readable reason for an unresolved section, used in the validation
+ * message surfaced to the user when a `#` mention cannot be sent. Distinguishes
+ * the three failure codes so the message is actionable instead of the generic
+ * "stale or ambiguous" for every case.
+ */
+export function describeSectionDiagnostic(diagnostic: SectionContextDiagnostic): string {
+  switch (diagnostic.code) {
+    case "wrong-document":
+      return `${diagnostic.label} belongs to a different document`;
+    case "ambiguous":
+      return diagnostic.candidateCount
+        ? `${diagnostic.label} matched ${diagnostic.candidateCount} headings; narrow it down`
+        : `${diagnostic.label} matched multiple headings; narrow it down`;
+    default:
+      return `${diagnostic.label} has no current document-text range`;
+  }
+}
+
 function rangeIsCurrent(section: SectionNode, fullContent: string): boolean {
   if (!section.hasAuthoritativeRange) return false;
   const { startChar, endChar } = section;
@@ -508,7 +555,7 @@ function rangeIsCurrent(section: SectionNode, fullContent: string): boolean {
 function findStructuralMatch(
   section: SectionNode,
   available: SectionNode[]
-): { match?: SectionNode; ambiguous: boolean } {
+): { match?: SectionNode; ambiguous: boolean; candidateCount: number } {
   const normalize = (value: string) => value.toLowerCase().replace(/[\s:._-]+/g, " ").trim();
   const title = normalize(section.title);
   const breadcrumb = section.breadcrumb.map(normalize).join(" > ");
@@ -518,11 +565,11 @@ function findStructuralMatch(
   const breadcrumbMatches = candidates.filter(
     (candidate) => candidate.breadcrumb.map(normalize).join(" > ") === breadcrumb
   );
-  if (breadcrumbMatches.length === 1) return { match: breadcrumbMatches[0], ambiguous: false };
-  if (breadcrumbMatches.length > 1) return { ambiguous: true };
+  if (breadcrumbMatches.length === 1) return { match: breadcrumbMatches[0], ambiguous: false, candidateCount: candidates.length };
+  if (breadcrumbMatches.length > 1) return { ambiguous: true, candidateCount: candidates.length };
   return candidates.length === 1
-    ? { match: candidates[0], ambiguous: false }
-    : { ambiguous: candidates.length > 1 };
+    ? { match: candidates[0], ambiguous: false, candidateCount: candidates.length }
+    : { ambiguous: candidates.length > 1, candidateCount: candidates.length };
 }
 
 function escapeRegExp(value: string): string {
@@ -547,9 +594,46 @@ function recoverOutlineRangeFromText(
     candidate.source === section.source && candidate.title.trim().toLowerCase() === section.title.trim().toLowerCase()
   );
   const occurrenceIndex = Math.max(0, sameTitleOutlineNodes.findIndex((candidate) => candidate.id === section.id));
-  const match = occurrences[Math.min(occurrenceIndex, occurrences.length - 1)];
-  const start = match.index;
 
+  // Score every occurrence by the body text it would produce, then prefer the
+  // occurrenceIndex slot only when that occurrence actually carries body text.
+  // A title that also appears in a front-matter table of contents or on a title
+  // page is matched first by position but yields no body, so it must lose to the
+  // real chapter heading further down the document.
+  const scored = occurrences.map((match) => {
+    const range = computeOccurrenceRange(match, section, available, fullContent);
+    const body = range.content.replace(match[0], "");
+    const bodyLength = stripMarkup(body).length;
+    return { match, ...range, bodyLength };
+  });
+
+  const primarySlot = Math.min(occurrenceIndex, occurrences.length - 1);
+  const primary = scored[primarySlot];
+  const titleLength = stripMarkup(section.title).length;
+  const primaryHasBody = primary.bodyLength > Math.max(titleLength, 1);
+  const chosen = primaryHasBody || scored.length === 1
+    ? primary
+    : scored.slice().sort((a, b) => b.bodyLength - a.bodyLength || a.start - b.start)[0];
+
+  if (!chosen.content || stripMarkup(chosen.content.replace(chosen.match[0], "")).length === 0) return undefined;
+  return {
+    ...section,
+    startChar: chosen.start,
+    endChar: chosen.end,
+    directEndChar: chosen.end,
+    content: chosen.content,
+    preview: cleanPreview(chosen.content.replace(chosen.match[0], "")),
+    hasAuthoritativeRange: true,
+  };
+}
+
+function computeOccurrenceRange(
+  match: RegExpMatchArray,
+  section: SectionNode,
+  available: SectionNode[],
+  fullContent: string,
+): { start: number; end: number; content: string } {
+  const start = match.index;
   let end = fullContent.length;
   for (const candidate of available) {
     if (candidate.id === section.id || candidate.level > section.level || !candidate.title.trim()) continue;
@@ -558,18 +642,8 @@ function recoverOutlineRangeFromText(
     const next = candidatePattern.exec(fullContent);
     if (next && next.index > start && next.index < end) end = next.index;
   }
-
   const content = fullContent.slice(start, end).trim();
-  if (!content) return undefined;
-  return {
-    ...section,
-    startChar: start,
-    endChar: end,
-    directEndChar: end,
-    content,
-    preview: cleanPreview(content.replace(match[0], "")),
-    hasAuthoritativeRange: true,
-  };
+  return { start, end, content };
 }
 
 function truncateAtBoundary(value: string, maxChars: number): { text: string; truncated: boolean } {
@@ -624,17 +698,35 @@ export function resolveSectionFocusedContext(
     }
     const currentById = available.find((candidate) => candidate.id === requested.id);
     const structural = findStructuralMatch(requested, available);
-    const candidate = currentById && rangeIsCurrent(currentById, fullContent)
-      ? currentById
-      : rangeIsCurrent(requested, fullContent)
-        ? requested
-        : structural.match ?? recoverOutlineRangeFromText(requested, available, fullContent);
+    // Candidates in priority order: the current-tree node by id, the picked
+    // node itself, the structural title+breadcrumb match, and finally the
+    // outline-text recovery. Each is only kept if its range is current.
+    const candidateChain: SectionNode[] = [];
+    if (currentById && rangeIsCurrent(currentById, fullContent)) candidateChain.push(currentById);
+    if (rangeIsCurrent(requested, fullContent) && (requested.id !== currentById?.id)) candidateChain.push(requested);
+    if (structural.match && rangeIsCurrent(structural.match, fullContent)) candidateChain.push(structural.match);
+    const recovered = recoverOutlineRangeFromText(requested, available, fullContent);
+    if (recovered && rangeIsCurrent(recovered, fullContent)) candidateChain.push(recovered);
+
+    // A range that resolves but yields no body (a table-of-contents line that
+    // is immediately followed by the next table-of-contents line, or a
+    // mis-resolved title-page hit) is not real context. Pick the first
+    // candidate whose sliced body carries any prose beyond its own heading;
+    // if every candidate is heading-only, the section is unresolved rather
+    // than sent empty. Short sections (even a single sentence) still resolve.
+    const candidate = candidateChain.find((node) => {
+      if (node.startChar === undefined || node.endChar === undefined) return false;
+      const body = stripMarkup(fullContent.slice(node.startChar, node.endChar).replace(requested.title, ""));
+      return body.length > 0;
+    });
+
     if (!candidate || !rangeIsCurrent(candidate, fullContent)) {
       unresolved.push({
         id: requested.id,
         label,
         reason: structural.ambiguous ? "matches multiple current document headings" : "has no current document-text range",
         code: structural.ambiguous ? "ambiguous" : "unresolved",
+        candidateCount: structural.ambiguous ? structural.candidateCount : undefined,
       });
       continue;
     }
