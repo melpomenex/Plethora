@@ -33,7 +33,7 @@ import { rateDocumentEngaging, getSmartStartPosition } from "../api/algorithm";
 import { getDueItems, type LearningItem } from "../api/learning-items";
 import { sanitizeHtml } from "../components/common/RichContentRenderer";
 import { getDueExtracts, submitExtractReview } from "../api/extract-review";
-import { createExtract, deleteExtract, setExtractPriority, type Extract } from "../api/extracts";
+import { createExtract, deleteExtract, setExtractPriority, getExtract, type Extract } from "../api/extracts";
 import { ExtractScrollItem } from "../components/review/ExtractScrollItem";
 import { ClozeCreatorPopup } from "../components/extracts/ClozeCreatorPopup";
 import { QACreatorPopup } from "../components/extracts/QACreatorPopup";
@@ -43,6 +43,7 @@ import { FlashcardStudioModal } from "../components/review/FlashcardStudioModal"
 import { LearningCardsList } from "../components/learning/LearningCardsList";
 import { submitReview } from "../api/review";
 import { splitReviewBudget } from "./queueScrollBudget";
+import { gateScrollItemsByType, resolveMissingExtractContent } from "./queueScrollItemTypes";
 import {
   getUnreadItemsAuto,
   getSubscribedFeedsAuto,
@@ -56,6 +57,7 @@ import {
 import { cleanArticleHtml } from "../components/media/RSSFullContentView";
 import { getEpisodeQueue, markEpisodePlayed, importPodcastEpisodeAsDocument, type PodcastEpisode } from "../api/podcast";
 import { cn } from "../utils";
+import type { SessionItemTypes } from "../utils/reviewUx";
 import { scoreRssRelevance, type RssClassifier } from "../utils/rssRelevance";
 import { useClassifiersStore } from "../stores/classifiersStore";
 import { RelevanceIndicator } from "../components/media/RelevanceIndicator";
@@ -101,6 +103,13 @@ import {
   handleVolumeRockerNavigation,
   isVolumeRockerNavigationKey,
 } from "../utils/volumeRockerNavigation";
+
+/**
+ * Default item types for a Scroll Mode tab whose `data` carries no
+ * `itemTypes` (e.g. opened by some route other than the Queue): all three
+ * types on — the pre-existing behaviour, so nothing else regresses.
+ */
+const DEFAULT_ITEM_TYPES: SessionItemTypes = { documents: true, extracts: true, learningItems: true };
 
 const buildTranscriptText = (segments: Array<{ text: string }>): string =>
   segments
@@ -265,6 +274,7 @@ export function QueueScrollPage() {
     return {
       customQueueItems: activeTab?.data?.customQueueItems as QueueItem[] | undefined,
       queueScrollMode: activeTab?.data?.queueScrollMode as "queue-list" | "optimal" | undefined,
+      itemTypes: (activeTab?.data?.itemTypes as SessionItemTypes | undefined) ?? DEFAULT_ITEM_TYPES,
       persistedCurrentIndex: activeTab?.data?.currentIndex as number | undefined,
     };
   }, [tabs, activeTabId]);
@@ -303,6 +313,11 @@ export function QueueScrollPage() {
   const [isRating, setIsRating] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [ratedDocumentIds, setRatedDocumentIds] = useState<Set<string>>(new Set());
+  // Non-due extract content resolved for this tab session. The queue-list
+  // rebuild re-derives from static tab data on every rating; this cache keeps
+  // it from re-fetching the same non-due extracts on each rebuild. Reset on
+  // tab unmount/remount (refs do not survive a closed-and-reopened tab).
+  const resolvedExtractCacheRef = useRef<Map<string, Extract>>(new Map());
   // Track flashcards/extracts reviewed or dismissed this session. In queue-list
   // mode the build effect re-derives scrollItems from the static customQueueItems
   // tab data whenever dueFlashcards/dueExtracts change, which re-inserts a card
@@ -934,6 +949,19 @@ export function QueueScrollPage() {
         const extractsMap = new Map(dueExtracts.map((e) => [e.id, e]));
         const flashcardsMap = new Map(dueFlashcards.map((f) => [f.id, f]));
 
+        // Queue extracts that are not part of the currently-due set have no
+        // entry in `extractsMap`; their queue rows only carry a bounded
+        // `learningHint` preview. Resolve the real extract content up front,
+        // in one batched fetch, so each card renders the extract's full
+        // content instead of a truncated synthetic stand-in.
+        const resolvedExtractsMap = await resolveMissingExtractContent(
+          sourceQueueItems,
+          extractsMap,
+          getExtract,
+          ratedExtractIds,
+          resolvedExtractCacheRef.current,
+        );
+
         const sequentialItems: ScrollItem[] = sourceQueueItems
           .map((item) => {
             if (item.itemType === "extract") {
@@ -941,20 +969,17 @@ export function QueueScrollPage() {
               // this, the rebuild re-inserts them (customQueueItems is static).
               if (item.extractId && ratedExtractIds.has(item.extractId)) return null;
               if (!item.extractId && ratedExtractIds.has(item.id)) return null;
-              const extractObj = item.extractId ? extractsMap.get(item.extractId) : undefined;
+              const extractId = item.extractId ?? item.id;
+              const extractObj = extractsMap.get(extractId) ?? resolvedExtractsMap.get(extractId);
+              // Omit extracts whose content cannot be resolved (e.g. deleted)
+              // rather than rendering a blank or truncated card.
+              if (!extractObj) return null;
               const doc = documentsMap.get(item.documentId);
               return {
-                id: item.id.startsWith("extract-") ? item.id : `extract-${item.extractId ?? item.id}`,
+                id: item.id.startsWith("extract-") ? item.id : `extract-${extractId}`,
                 type: "extract" as const,
                 documentTitle: item.documentTitle || doc?.title || t("queueScroll.unknownDocument"),
-                extract: extractObj ?? {
-                  id: item.extractId ?? item.id,
-                  document_id: item.documentId,
-                  content: item.clozeText ?? item.learningHint ?? "",
-                  category: item.category ?? doc?.category,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                },
+                extract: extractObj,
                 category: item.category ?? doc?.category ?? "extracts",
                 estimatedTime: item.estimatedTime ?? 3,
                 engagementScore: item.priority ?? 5,
@@ -1016,8 +1041,16 @@ export function QueueScrollPage() {
           })
           .filter((item): item is ScrollItem => item !== null);
 
+        // The sequential source is usually the already-filtered queue list, but
+        // when a tab was opened without items (`documentQueueItems` fallback)
+        // apply the same item-type gate so the selection is still honoured.
+        const gatedSequentialItems = gateScrollItemsByType(
+          sequentialItems,
+          activeTabQueueData.itemTypes,
+        );
+
         if (!cancelled) {
-          setScrollItems(sequentialItems);
+          setScrollItems(gatedSequentialItems);
         }
         return;
       }
@@ -1034,40 +1067,51 @@ export function QueueScrollPage() {
         ? dueExtracts.filter(ex => subsetDocIds.has(ex.document_id))
         : dueExtracts;
 
-      const flashcardItems: ScrollItem[] = activeFlashcards.map((item) => ({
-        id: `flashcard-${item.id}`,
-        type: "flashcard" as const,
-        documentTitle: item.question.substring(0, 50) + (item.question.length > 50 ? "..." : ""),
-        learningItem: item,
-        category: item.tags?.[0] ?? "flashcards",
-        estimatedTime: 2, // Flashcards are quick
-        // Use stable random based on item ID to prevent re-render loops
-        engagementScore: 5 + getStableRandom(item.id, 1) * 2,
-      }));
+      // Honour the Queue's item-type selection: an unchecked type contributes
+      // no items. Gated at the source lists so splitReviewBudget and
+      // applyVarietyMixing compute against real totals. Feed items (RSS,
+      // podcast) are not covered by the three toggles and stay settings-driven.
+      const itemTypes = activeTabQueueData.itemTypes;
+      const flashcardItems: ScrollItem[] = gateScrollItemsByType(
+        activeFlashcards.map((item) => ({
+          id: `flashcard-${item.id}`,
+          type: "flashcard" as const,
+          documentTitle: item.question.substring(0, 50) + (item.question.length > 50 ? "..." : ""),
+          learningItem: item,
+          category: item.tags?.[0] ?? "flashcards",
+          estimatedTime: 2, // Flashcards are quick
+          // Use stable random based on item ID to prevent re-render loops
+          engagementScore: 5 + getStableRandom(item.id, 1) * 2,
+        })),
+        itemTypes,
+      );
 
-      const docItems: ScrollItem[] = documentQueueItems
-        .map((item) => {
-          const doc = documentsMap.get(item.documentId);
-          if (doc?.isArchived) {
-            return null;
-          }
-          const isNew = !doc?.dateLastReviewed;
-          const priority = item.priority ?? 5;
-          const recencyBoost = isNew ? 2 : 0;
-          const baseScore = priority + recencyBoost;
-          const serendipityBonus = getStableRandom(item.id, 2) * 1.5;
+      const docItems: ScrollItem[] = gateScrollItemsByType(
+        documentQueueItems
+          .map((item) => {
+            const doc = documentsMap.get(item.documentId);
+            if (doc?.isArchived) {
+              return null;
+            }
+            const isNew = !doc?.dateLastReviewed;
+            const priority = item.priority ?? 5;
+            const recencyBoost = isNew ? 2 : 0;
+            const baseScore = priority + recencyBoost;
+            const serendipityBonus = getStableRandom(item.id, 2) * 1.5;
 
-          return {
-            id: item.id,
-            type: "document" as const,
-            documentId: item.documentId,
-            documentTitle: item.documentTitle,
-            category: doc?.category ?? item.tags?.[0] ?? "uncategorized",
-            estimatedTime: item.estimatedTime ?? 10,
-            engagementScore: baseScore + serendipityBonus,
-          };
-        })
-        .filter((item): item is NonNullable<typeof item> => item !== null) as ScrollItem[];
+            return {
+              id: item.id,
+              type: "document" as const,
+              documentId: item.documentId,
+              documentTitle: item.documentTitle,
+              category: doc?.category ?? item.tags?.[0] ?? "uncategorized",
+              estimatedTime: item.estimatedTime ?? 10,
+              engagementScore: baseScore + serendipityBonus,
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null) as ScrollItem[],
+        itemTypes,
+      );
 
       const rssSettings = settings.rssQueue ?? defaultSettings.rssQueue;
       let rssItems: ScrollItem[] = [];
@@ -1223,20 +1267,23 @@ export function QueueScrollPage() {
         }
       }
 
-      const extractItems: ScrollItem[] = activeExtracts.map((extract) => {
-        const doc = documentsMap.get(extract.document_id);
-        const title = doc ? doc.title : t("queueScroll.unknownDocument");
+      const extractItems: ScrollItem[] = gateScrollItemsByType(
+        activeExtracts.map((extract) => {
+          const doc = documentsMap.get(extract.document_id);
+          const title = doc ? doc.title : t("queueScroll.unknownDocument");
 
-        return {
-          id: `extract-${extract.id}`,
-          type: "extract" as const,
-          documentTitle: title,
-          extract: extract,
-          category: extract.category ?? doc?.category ?? "extracts",
-          estimatedTime: 3,
-          engagementScore: 5 + getStableRandom(extract.id, 4) * 1.5,
-        };
-      });
+          return {
+            id: `extract-${extract.id}`,
+            type: "extract" as const,
+            documentTitle: title,
+            extract: extract,
+            category: extract.category ?? doc?.category ?? "extracts",
+            estimatedTime: 3,
+            engagementScore: 5 + getStableRandom(extract.id, 4) * 1.5,
+          };
+        }),
+        itemTypes,
+      );
 
       // Separate review items into flashcards and extracts.
       // Flashcards: recall-based spaced repetition, sized by flashcardPercentage.
@@ -1311,7 +1358,7 @@ export function QueueScrollPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, ratedFlashcardIds, ratedExtractIds]);
+  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];

@@ -40,7 +40,7 @@ import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
 import { MobileScheduleView } from "../schedule/MobileScheduleView";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { orderQueueItems, type OrderedQueueItem, type PriorityPreset } from "../../utils/reviewUx";
+import { orderQueueItems, type OrderedQueueItem, type PriorityPreset, type SessionItemTypes } from "../../utils/reviewUx";
 import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
 import { useStartupStore } from "../../stores/startupStore";
 import { DynamicVirtualList } from "../common/VirtualList";
@@ -55,7 +55,11 @@ const MOBILE_QUEUE_VIRTUALIZE_THRESHOLD = 20;
 interface MobileQueueViewProps {
   onStartReview?: (itemId?: string, queueItemIds?: string[]) => void;
   onOpenDocument?: (item: QueueItem) => void;
-  onOpenScrollMode?: (options?: { items?: QueueItem[]; mode?: "queue-list" | "optimal" }) => void;
+  onOpenScrollMode?: (options?: {
+    items?: QueueItem[];
+    mode?: "queue-list" | "optimal";
+    itemTypes?: SessionItemTypes;
+  }) => void;
 }
 
 type QuickFilter = "today" | "all" | "new";

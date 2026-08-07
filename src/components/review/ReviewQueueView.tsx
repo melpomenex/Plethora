@@ -47,6 +47,7 @@ import {
   getTimeEstimateRange,
   orderQueueItems,
   type SessionCustomizationOptions,
+  type SessionItemTypes,
 } from "../../utils/reviewUx";
 import {
   SessionCustomizeModal,
@@ -78,7 +79,11 @@ type QueueMode = "reading" | "review" | "schedule";
 interface ReviewQueueViewProps {
   onStartReview?: (itemId?: string, queueItemIds?: string[]) => void;
   onOpenDocument?: (item: QueueItem) => void;
-  onOpenScrollMode?: (options?: { items?: QueueItem[]; mode?: "queue-list" | "optimal" }) => void;
+  onOpenScrollMode?: (options?: {
+    items?: QueueItem[];
+    mode?: "queue-list" | "optimal";
+    itemTypes?: SessionItemTypes;
+  }) => void;
 }
 
 const PRESET_DESC_KEYS: Record<PriorityPreset, string> = {
@@ -1021,7 +1026,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     }
 
     if (onOpenScrollMode) {
-      onOpenScrollMode({ mode: "optimal" });
+      onOpenScrollMode({ mode: "optimal", itemTypes: effectiveItemTypes });
       return;
     }
     onStartReview?.();
@@ -1105,7 +1110,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
               <button
                 onClick={() => {
                   captureQueueScrollAnchor();
-                  onOpenScrollMode({ items: visibleItems, mode: "queue-list" });
+                  onOpenScrollMode({ items: visibleItems, mode: "queue-list", itemTypes: effectiveItemTypes });
                 }}
                 className="flex-1 md:flex-none px-3 md:px-4 py-1 md:py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md hover:opacity-90 flex flex-col items-center justify-center min-h-[44px] shadow-sm transition-all"
                 title={t("queue.scrollModeTooltip")}
