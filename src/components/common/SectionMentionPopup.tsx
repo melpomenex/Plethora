@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState, useEffect } from "react";
-import { BookOpen, Hash } from "@phosphor-icons/react";
+import { BookOpen, Hash, Selection } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { SectionNode } from "../../utils/sectionIndex";
 import { estimateTokens } from "../../utils/sectionIndex";
+import { useI18n } from "../../lib/i18n";
 
 interface SectionMentionPopupProps {
   tree: SectionNode[];
@@ -13,6 +14,17 @@ interface SectionMentionPopupProps {
   onClose?: () => void;
   open: boolean;
   maxHeight?: number;
+  /** Live document selection offered as the first entry when one exists. */
+  selectionEntry?: SectionNode | null;
+}
+
+function matchesQuery(node: SectionNode, q: string): boolean {
+  if (!q) return true;
+  const lowerQ = q.toLowerCase();
+  return (
+    node.title.toLowerCase().includes(lowerQ) ||
+    node.content.toLowerCase().includes(lowerQ)
+  );
 }
 
 function scoreNode(node: SectionNode, q: string): number {
@@ -64,7 +76,9 @@ export function SectionMentionPopup({
   onSelect,
   open,
   maxHeight = 320,
+  selectionEntry,
 }: SectionMentionPopupProps) {
+  const { t } = useI18n();
   const parentRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -78,18 +92,33 @@ export function SectionMentionPopup({
     }
   }, [flat, query]);
 
+  // The live selection (when one exists and matches the query) is offered as
+  // the first entry, ahead of the structural/heuristic sections.
+  const entries = useMemo(() => {
+    if (selectionEntry && matchesQuery(selectionEntry, query)) {
+      return [selectionEntry, ...flat];
+    }
+    return flat;
+  }, [selectionEntry, flat, query]);
+
   const filtered = useMemo(() => {
     if (!query) {
-      return flat;
+      return entries;
     }
-    const scored = flat
+    const scored = entries
       .map((n) => ({ node: n, score: scoreNode(n, query) }))
-      .filter((s) => s.score > 0)
-      .sort((a, b) => b.score - a.score || a.node.level - b.node.level)
+      // A selection entry matching only its deep content scores 0 with the
+      // heading-oriented scorer but must still appear (and stay first).
+      .filter((s) => s.score > 0 || (s.node.source === "selection" && matchesQuery(s.node, query)))
+      .sort((a, b) => {
+        const aSel = a.node.source === "selection" ? 1 : 0;
+        const bSel = b.node.source === "selection" ? 1 : 0;
+        return bSel - aSel || b.score - a.score || a.node.level - b.node.level;
+      })
       .slice(0, 100)
       .map((s) => s.node);
     return scored;
-  }, [flat, query]);
+  }, [entries, query]);
 
   const virtualizer = useVirtualizer({
     count: filtered.length,
@@ -103,6 +132,8 @@ export function SectionMentionPopup({
   if (!open) return null;
 
   const isBareHash = !query;
+  const hasSections = flat.length > 0;
+  const showNoSectionsState = !hasSections && !selectionEntry;
 
   return (
     <div
@@ -114,14 +145,18 @@ export function SectionMentionPopup({
         <div className="flex items-center gap-2 min-w-0">
           <BookOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
           <span className="text-xs font-medium text-foreground truncate">
-            {isBareHash
-              ? `Sections in this document (${flat.length})`
-              : `Matching sections (${filtered.length})`}
+            {showNoSectionsState
+              ? t("sectionMention.noSectionsAvailable")
+              : isBareHash
+              ? t("sectionMention.sectionsInDocument", { count: entries.length })
+              : t("sectionMention.matchingSections", { count: filtered.length })}
           </span>
         </div>
-        <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded flex-shrink-0">
-          {isBareHash ? "Type to filter…" : `${filtered.length} results`}
-        </span>
+        {!showNoSectionsState && (
+          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded flex-shrink-0">
+            {isBareHash ? "Type to filter…" : `${filtered.length} results`}
+          </span>
+        )}
       </div>
 
       <div
@@ -129,7 +164,11 @@ export function SectionMentionPopup({
         className="overflow-y-auto"
         style={{ maxHeight: `${maxHeight}px`, minHeight: "80px" }}
       >
-        {filtered.length === 0 ? (
+        {showNoSectionsState ? (
+          <div className="p-4 text-center text-sm text-muted-foreground">
+            {t("sectionMention.noSectionsAvailableBody")}
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="p-4 text-center text-sm text-muted-foreground">
             No sections match "{query}"<br />
             <span className="text-xs">Try a different keyword or clear # to see all</span>
@@ -270,7 +309,9 @@ function Row({
             {expanded ? "▾" : "▸"}
           </span>
         )}
-        {node.level === 1 ? (
+        {node.source === "selection" ? (
+          <Selection className="w-3.5 h-3.5 text-violet-500 flex-shrink-0" />
+        ) : node.level === 1 ? (
           <BookOpen className="w-3.5 h-3.5 text-primary/70 flex-shrink-0" />
         ) : (
           <Hash className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
@@ -279,6 +320,11 @@ function Row({
           <HighlightMatch text={node.title} query={query} />
         </span>
         <div className="flex items-center gap-1 flex-shrink-0">
+          {node.source === "selection" && (
+            <span className="text-[10px] font-medium text-violet-600 dark:text-violet-400 bg-violet-500/10 px-1.5 py-0.5 rounded">
+              Selection
+            </span>
+          )}
           {node.page && (
             <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono">
               p{node.page}

@@ -2,17 +2,35 @@ import type { QueueItem } from "../../types/queue";
 import { emitFeedback, type FeedbackEmitOptions } from "../../lib/feedback";
 import type { FeedbackEventPayloads } from "../../lib/feedback/events";
 
-export type QueueItemActionKind = "study-now" | "open-document";
+export type QueueItemActionKind = "study-now" | "open-document" | "open-extract";
 export type QueueItemSheetAction =
   | "study-now"
   | "open-document"
+  | "open-extract"
   | "postpone"
   | "suspend"
   | "dismiss"
   | "select";
 
 export function getQueuePrimaryAction(itemType: string): QueueItemActionKind {
-  return itemType === "learning-item" ? "study-now" : "open-document";
+  if (itemType === "learning-item") return "study-now";
+  if (itemType === "extract") return "open-extract";
+  return "open-document";
+}
+
+/**
+ * i18n key for a primary action's button label. Kept here (rather than in each
+ * view) so desktop, mobile and the action sheet stay consistent from one place.
+ */
+export function getQueuePrimaryActionLabelKey(action: QueueItemActionKind): string {
+  switch (action) {
+    case "study-now":
+      return "queue.studyNow";
+    case "open-extract":
+      return "queue.openExtract";
+    default:
+      return "queue.openDocument";
+  }
 }
 
 export function getQueueSecondaryActions(itemType: string): string[] {
@@ -28,6 +46,12 @@ export function getQueueItemSheetActions(item: QueueItem): QueueItemSheetAction[
 
   if (item.itemType === "document") {
     return ["open-document", "postpone", "dismiss", "select"];
+  }
+
+  if (item.itemType === "extract") {
+    // Primary action opens the extract reader; the reader itself offers
+    // "Open source document", so the sheet doesn't duplicate that path.
+    return ["open-extract", "select"];
   }
 
   return ["open-document", "select"];

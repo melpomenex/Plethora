@@ -64,7 +64,7 @@ import { useToast } from "../common/Toast";
 import { EmptyState } from "../common/EmptyState";
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
 import { usePriorityPopup } from "../documents/usePriorityPopup";
-import { getQueuePrimaryAction } from "./queueActions";
+import { getQueuePrimaryAction, getQueuePrimaryActionLabelKey } from "./queueActions";
 import { QueueItemActionSheet } from "../queue/QueueItemActionSheet";
 import { getSessionStats, clearQueueSession } from "../../lib/queueSession";
 import { useI18n } from "../../lib/i18n";
@@ -1705,7 +1705,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                 }}
                                 className="min-h-9 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                               >
-                                {getQueuePrimaryAction(item.itemType) === "study-now" ? t("queue.studyNow") : t("queue.openDocument")}
+                                {t(getQueuePrimaryActionLabelKey(getQueuePrimaryAction(item.itemType)))}
                               </button>
                               <button
                                 type="button"
@@ -1922,7 +1922,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                               }}
                               className="min-h-9 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             >
-                              {getQueuePrimaryAction(item.itemType) === "study-now" ? t("queue.studyNow") : t("queue.openDocument")}
+                              {t(getQueuePrimaryActionLabelKey(getQueuePrimaryAction(item.itemType)))}
                             </button>
                             <button
                               type="button"

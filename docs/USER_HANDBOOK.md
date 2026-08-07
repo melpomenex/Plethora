@@ -392,6 +392,10 @@ Hide parts of an image (diagrams, charts)
 
 **Best for:** Anatomy, maps, diagrams
 
+**Manual authoring:** Hover an image in any document and click **Create image occlusion card** to open the occlusion editor. Draw a region by dragging across the image, then move it by dragging inside the region, resize it via the corner handles, relabel it in the region panel, or delete it (button or Delete key). You must have at least one region to save — saving is refused otherwise.
+
+**AI proposals are correctable:** When the AI proposes occlusion regions, the editor opens pre-filled with them. Adjust, add or delete regions before saving; if the model returns unusable regions they are clamped to the image and the editor opens so you can draw them manually — a card with zero usable regions is never saved silently.
+
 ### Creating Cards
 
 #### From Extracts
@@ -636,6 +640,14 @@ Shows newly created cards not yet reviewed
    - **Set Priority**: Bulk update priority
    - **Suspend**: Temporarily hide from reviews
    - **Delete**: Remove permanently
+
+### Reading Extracts
+
+Extract rows in the queue open a dedicated **extract reader** — the extract's own text is the subject, not its source document. From the reader you can:
+
+- Read the extract's full content (rich HTML when preserved, plain text otherwise)
+- **Rate** it (Again / Hard / Good / Easy) — the queue updates immediately with the new schedule, no reload needed
+- **Open source document** to jump back into the document viewer at the extract's highlighted card. If the source document can no longer be loaded, the button is disabled with an explanation
 
 ### Priority System
 
@@ -1257,6 +1269,15 @@ Use NotebookLM inside Incrementum to research, generate study artifacts, and sav
 - If artifact preview says media is unavailable, wait for NotebookLM generation to finish and reopen the artifact.
 - If using `cli` provider, ensure the NotebookLM sidecar/CLI is available in your build.
 - If you changed providers or auth expired, reconnect in Integrations → NotebookLM.
+
+#### Section Mentions (`#`)
+
+Type `#` in the Assistant (or in Flashcard Studio) to mention part of a document in your question or prompt.
+
+- Documents with headings or a PDF/EPUB outline list their sections, as before.
+- A plain imported article with no headings gets a **derived section index**: paragraphs are grouped into labelled segments, so the popup is never empty for a document that has readable text.
+- If you have text **selected** in the document, your selection appears as the first entry — choosing it attaches exactly the selected text as context (truncated to the context budget if needed, with a notice).
+- If the document has no extractable text, the popup says so explicitly instead of showing an empty list.
 
 #### MCP Servers
 

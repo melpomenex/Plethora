@@ -50,6 +50,9 @@ import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
 import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
+  buildSelectionFocusedContext,
+  createSelectionSection,
+  hashSectionContent,
   resolveSectionFocusedContext,
   type SectionNode,
   type SectionSourceReference,
@@ -257,7 +260,7 @@ export function AssistantPanel({
   onProviderChange,
   appendContextMessages = true,
 }: AssistantPanelProps) {
-  const { t: _t } = useI18n();
+  const { t } = useI18n();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [width, setWidth] = useState(() => {
     const saved = localStorage.getItem(ASSISTANT_WIDTH_KEY);
@@ -321,6 +324,14 @@ export function AssistantPanel({
     content: assistantFullContent || context?.content || "",
     useStoreOutline: true,
   });
+
+  // The user's live text selection in the source document is offered as the
+  // first `#` mention entry when one exists (spec: "asking about a certain
+  // portion of text"). It carries exactly the selected text as context.
+  const selectionSection = useMemo(() => {
+    if (context?.type !== "document" || !context.selection?.trim()) return null;
+    return createSelectionSection(context.selection, context.documentId);
+  }, [context?.type, context?.selection, context?.documentId]);
 
   // Load full document content for section parsing when documentId changes
   useEffect(() => {
@@ -1175,7 +1186,19 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       let finalResolvedContent = resolvedContext.content ?? "";
       let sourceContext: SectionSourceReference | undefined;
-      if (selectedSectionNodes.length > 0 && llmContext?.type === "document") {
+      // Selection mentions carry exactly the selected text; structural sections
+      // resolve against the document's canonical text. Both are combined below.
+      const selectionNodes = selectedSectionNodes.filter((n) => n.source === "selection");
+      const sectionNodes = selectedSectionNodes.filter((n) => n.source !== "selection");
+      let selectionContext = "";
+      let selectionTruncated = false;
+      if (selectionNodes.length > 0) {
+        const built = buildSelectionFocusedContext(selectionNodes, { maxTokens: effectiveContextWindow });
+        selectionContext = built.content;
+        selectionTruncated = built.truncated;
+      }
+
+      if (sectionNodes.length > 0 && llmContext?.type === "document") {
         const documentId = llmContext.documentId;
         if (!documentId) throw new Error("Select the document that owns this section, then choose the heading again.");
 
@@ -1187,14 +1210,14 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         // this as "reselect and resend". One transparent retry with a fresh
         // text fetch absorbs that transient miss instead of surfacing it.
         let focused = resolveSectionFocusedContext(
-          selectedSectionNodes,
+          sectionNodes,
           assistantSectionFlat,
           await loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
           { documentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
         );
         if (!focused.ok) {
           focused = resolveSectionFocusedContext(
-            selectedSectionNodes,
+            sectionNodes,
             assistantSectionFlat,
             await loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
             { documentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
@@ -1204,15 +1227,31 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           const labels = focused.unresolved.map((item) => item.label).join(", ");
           throw new Error(`The selected section${labels ? ` (${labels})` : ""} is stale or ambiguous. Reselect it before sending; no request was made.`);
         }
-        finalResolvedContent = focused.content;
+        finalResolvedContent = selectionContext
+          ? `${focused.content}\n\n---\n\n${selectionContext}`
+          : focused.content;
         sourceContext = focused.source;
         const request = createDocumentQaRequestContent({
-          documentContext: focused.content,
+          documentContext: finalResolvedContent,
           userQuestion: prompt.replace(SECTION_REGEX, "").trim(),
-          focusLabel: focused.labels.join(", "),
+          focusLabel: [...focused.labels, ...selectionNodes.map((n) => n.title)].join(", "),
         });
         const lastUserIdx = llmMessages.map((message) => message.role).lastIndexOf("user");
         if (lastUserIdx >= 0) llmMessages[lastUserIdx] = { role: "user", content: request.userPromptContent };
+      } else if (selectionNodes.length > 0) {
+        finalResolvedContent = selectionContext;
+        sourceContext = {
+          documentId: llmContext?.documentId,
+          sectionIds: selectionNodes.map((n) => n.id),
+          labels: selectionNodes.map((n) => n.title),
+          contentHash: hashSectionContent(selectionContext),
+          contextKey: hashSectionContent(`selection:${selectionNodes.map((n) => n.id).join(",")}`),
+          ranges: [],
+        };
+      }
+
+      if (selectionTruncated) {
+        toast.info(t("assistant.selectionTruncated"), t("assistant.selectionTruncatedDesc"));
       }
 
       let contextContent = typeof finalResolvedContent === "string"
@@ -1230,7 +1269,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       // PDFs that Document Q&A reads without issue.
       let usedDocumentFallback = false;
       if ((!contextContent || resolvedContext.status !== "ready")
-          && llmContext?.type === "document" && llmContext.documentId) {
+          && llmContext?.type === "document" && llmContext.documentId
+          // An explicitly attached selection IS the requested context — never
+          // replace it with the whole document text.
+          && selectionNodes.length === 0) {
         const fallbackText = (await loadDocumentQaText(
           llmContext.documentId,
           { getDocument, extractDocumentText },
@@ -1242,7 +1284,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         }
       }
 
-      if ((!usedDocumentFallback && resolvedContext.status !== "ready") || !contextContent) {
+      // When an explicit selection is attached it IS the context — don't throw
+      // just because the viewer's page-window context isn't ready yet.
+      const hasExplicitSelectionContext = selectionNodes.length > 0 && selectionContext.trim().length > 0;
+      if (((!usedDocumentFallback && resolvedContext.status !== "ready") && !hasExplicitSelectionContext) || !contextContent) {
         throw new Error(resolvedContext.message || getAssistantContextErrorMessage(llmContext?.status));
       }
 
@@ -1850,9 +1895,17 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   };
 
   const getFilteredAssistantSections = () => {
-    if (!sectionQuery) return assistantSectionFlat;
+    // The live selection is offered as the first entry (matching the popup),
+    // so keyboard navigation and the rendered list stay consistent.
+    const base = selectionSection
+      ? [selectionSection, ...assistantSectionFlat]
+      : assistantSectionFlat;
+    if (!sectionQuery) return base;
     const q = sectionQuery.toLowerCase();
-    return assistantSectionFlat
+    const selectionMatches = (sec: SectionNode) =>
+      sec.source === "selection" &&
+      ((sec.title.toLowerCase().includes(q)) || (sec.content || "").toLowerCase().includes(q));
+    return base
       .map((sec) => {
         const titleLower = sec.title.toLowerCase();
         const breadLower = sec.breadcrumb.join(" > ").toLowerCase();
@@ -1860,6 +1913,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         if (titleLower.startsWith(q)) score += 100;
         else if (titleLower.includes(q)) score += 50;
         if (breadLower.includes(q)) score += 20;
+        if (selectionMatches(sec)) score += 5;
         return { sec, score };
       })
       .filter((s) => s.score > 0)
@@ -2805,6 +2859,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 onSelect={handleSelectAssistantSection}
                 open={showSectionPopup}
                 maxHeight={260}
+                selectionEntry={selectionSection}
               />
             </div>
           )}

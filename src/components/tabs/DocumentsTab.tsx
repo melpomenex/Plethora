@@ -1,6 +1,6 @@
 import { DocumentsView } from "../documents/DocumentsView";
 import { useTabsStore } from "../../stores";
-import { DocumentViewer } from "./TabRegistry";
+import { DocumentExtractsTab, DocumentViewer } from "./TabRegistry";
 import type { Document } from "../../types/document";
 import { BookOpen, TextT, YoutubeLogo } from "@phosphor-icons/react";
 import { AudiobookEpubSyncView } from "../viewer/AudiobookEpubSyncView";
@@ -22,6 +22,17 @@ export function DocumentsTab() {
     });
   };
 
+  const handleViewExtracts = (doc: Document) => {
+    addTab({
+      title: doc.title,
+      icon: <BookOpen className="w-4 h-4 text-muted-foreground" />,
+      type: "document-extracts",
+      content: DocumentExtractsTab,
+      closable: true,
+      data: { documentId: doc.id, documentTitle: doc.title },
+    });
+  };
+
   const handleReadAlong = (audioDoc: Document, epubDoc: Document) => {
     addTab({
       title: `${audioDoc.title} — Read Along`,
@@ -33,5 +44,12 @@ export function DocumentsTab() {
     });
   };
 
-  return <DocumentsView onOpenDocument={handleOpenDocument} onReadAlong={handleReadAlong} enableYouTubeImport />;
+  return (
+    <DocumentsView
+      onOpenDocument={handleOpenDocument}
+      onViewExtracts={handleViewExtracts}
+      onReadAlong={handleReadAlong}
+      enableYouTubeImport
+    />
+  );
 }

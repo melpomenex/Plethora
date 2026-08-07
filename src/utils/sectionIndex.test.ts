@@ -4,6 +4,10 @@ import {
   buildTreeFromHeadings,
   flattenTree,
   buildDocumentSections,
+  buildHeuristicParagraphSections,
+  buildSelectionFocusedContext,
+  createSelectionSection,
+  truncateTextToBudget,
   mergeOutlineWithHeuristics,
   sliceWithNeighbors,
   buildSectionFocusedContext,
@@ -273,10 +277,93 @@ describe("sectionIndex", () => {
     expect(nodes[0].content).toBe("");
   });
 
-  it("buildDocumentSections fallback to full document when no headings", () => {
-    const content = "Just some plain text without any headings at all.";
-    const { tree } = buildDocumentSections(content);
+  it("buildDocumentSections uses heading structure when headings exist", () => {
+    const content = "# Introduction\n\nSome intro text.\n\n## Details\n\nMore text here.";
+    const { tree, flat } = buildDocumentSections(content);
     expect(tree.length).toBe(1);
-    expect(tree[0].title).toBe("Full Document");
+    expect(tree[0].title).toBe("Introduction");
+    expect(tree[0].children).toHaveLength(1);
+    expect(flat.map((n) => n.title)).toEqual(["Introduction", "Details"]);
+  });
+
+  it("buildDocumentSections engages the heuristic segmenter when headings yield fewer than two nodes", () => {
+    // No headings at all — the primary path would produce a single
+    // "Full Document" node, so the paragraph-boundary fallback must engage.
+    const paragraph = (seed: string) =>
+      `This is the ${seed} paragraph of a plain imported article. It contains several sentences of connected prose so the segmenter treats it as one block and the article spans far more than a single segment of text.`;
+    const content = [
+      paragraph("first"),
+      paragraph("second"),
+      paragraph("third"),
+      paragraph("fourth"),
+    ].join("\n\n");
+    const { tree, flat } = buildDocumentSections(content);
+    expect(flat.length).toBeGreaterThanOrEqual(2);
+    expect(flat.every((n) => n.title !== "Full Document")).toBe(true);
+    expect(flat.every((n) => n.content.length > 0 && n.startChar !== undefined)).toBe(true);
+    expect(tree).toEqual(flat);
+  });
+
+  it("buildDocumentSections returns no sections for a document without readable text", () => {
+    const { tree, flat } = buildDocumentSections("");
+    expect(tree).toHaveLength(0);
+    expect(flat).toHaveLength(0);
+  });
+
+  it("buildHeuristicParagraphSections labels segments by their opening words", () => {
+    const paragraph = (seed: string, label: string) =>
+      `The ${label} paragraph begins with distinctive opening words so its segment label stands out from its neighbours in the mention popup, and it carries enough prose to fill a segment on its own.`;
+    const content = [
+      paragraph("one", "Alpha"),
+      paragraph("two", "Beta"),
+      paragraph("three", "Gamma"),
+    ].join("\n\n");
+    const segments = buildHeuristicParagraphSections(content, { targetChars: 120 });
+    expect(segments.length).toBeGreaterThanOrEqual(2);
+    expect(segments[0].title).toContain("Alpha");
+    expect(segments[1].title).toContain("Beta");
+    expect(segments.every((s) => s.source === "text" && s.hasAuthoritativeRange)).toBe(true);
+  });
+
+  it("buildHeuristicParagraphSections clamps to maxSegments and covers the whole text", () => {
+    const content = Array.from({ length: 50 }, (_, i) => `Paragraph number ${i} with enough words to be a real block of text.`).join("\n\n");
+    const segments = buildHeuristicParagraphSections(content, { targetChars: 40, maxSegments: 10 });
+    expect(segments.length).toBeLessThanOrEqual(10);
+    expect(segments[0].startChar).toBe(0);
+    const last = segments[segments.length - 1];
+    expect(last.endChar).toBeLessThanOrEqual(content.length);
+  });
+
+  it("createSelectionSection carries exactly the selected text", () => {
+    const node = createSelectionSection("  The exact words the user selected.  ", "doc-1");
+    expect(node.content).toBe("The exact words the user selected.");
+    expect(node.source).toBe("selection");
+    expect(node.documentId).toBe("doc-1");
+    expect(node.title).toContain("The exact words");
+  });
+
+  it("truncateTextToBudget truncates at a boundary and reports it", () => {
+    const text = "word ".repeat(500);
+    const { text: truncated, truncated: wasTruncated } = truncateTextToBudget(text, 200);
+    expect(wasTruncated).toBe(true);
+    expect(truncated.length).toBeLessThan(text.length);
+    expect(truncated).toContain("truncated");
+    const short = truncateTextToBudget("short", 200);
+    expect(short.truncated).toBe(false);
+    expect(short.text).toBe("short");
+  });
+
+  it("buildSelectionFocusedContext attaches exactly the selection and flags truncation", () => {
+    const selection = createSelectionSection("selected passage");
+    const { content, truncated, labels } = buildSelectionFocusedContext([selection], { maxTokens: 4000 });
+    expect(content).toContain("selected passage");
+    expect(content).toContain("[Selection]");
+    expect(labels).toHaveLength(1);
+    expect(truncated).toBe(false);
+
+    const huge = createSelectionSection("x ".repeat(50000));
+    const big = buildSelectionFocusedContext([huge], { maxTokens: 1 });
+    expect(big.truncated).toBe(true);
+    expect(big.content.length).toBeLessThan(50000);
   });
 });

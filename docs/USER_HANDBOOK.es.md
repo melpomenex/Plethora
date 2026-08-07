@@ -369,6 +369,9 @@ Parejas de preguntas y respuestas
 Ocultar partes de una imagen (diagramas, tablas)
 
 **Mejor para:** Anatomía, mapas, diagramas
+**Creación manual:** Pase el cursor sobre una imagen en cualquier documento y haga clic en **Crear tarjeta de oclusión de imagen** para abrir el editor. Dibuje una región arrastrando sobre la imagen, muévala arrastrando dentro de la región, redimensiónela con las asas de las esquinas, vuelva a etiquetarla en el panel o elimínela (botón o tecla Supr). Debe tener al menos una región para guardar; de lo contrario, el guardado se rechaza.
+
+**Las propuestas de IA son corregibles:** cuando la IA propone regiones de oclusión, el editor se abre con ellas precargadas. Ajústelas, añádalas o elimínelas antes de guardar; si el modelo devuelve regiones inutilizables, se recortan a la imagen y el editor se abre para dibujarlas manualmente; nunca se guarda silenciosamente una tarjeta sin regiones utilizables.
 
 ### Creando tarjetas
 
@@ -614,6 +617,14 @@ Muestra tarjetas recién creadas que aún no se han revisado
    - **Establecer prioridad**: prioridad de actualización masiva
    - **Suspender**: Ocultar temporalmente de las reseñas
    - **Eliminar**: Eliminar permanentemente
+
+### Leer extractos
+
+Las filas de extractos en la cola abren un **lector de extractos** dedicado: el texto del extracto es el tema, no su documento de origen. Desde el lector puede:
+
+- Leer el contenido completo del extracto (HTML enriquecido si se conservó, texto plano en caso contrario)
+- **Calificarlo** (Otra vez / Difícil / Bien / Fácil): la cola se actualiza de inmediato con el nuevo calendario, sin recargar
+- **Abrir documento de origen** para saltar al visor de documentos en la tarjeta resaltada del extracto. Si el documento de origen ya no se puede cargar, el botón se desactiva con una explicación
 
 ### Sistema de prioridades
 
@@ -1224,6 +1235,15 @@ Utilice NotebookLM dentro de Incrementum para investigar, generar artefactos de 
 - Si utiliza el proveedor `cli`, asegúrese de que el sidecar/CLI de NotebookLM esté disponible en su compilación.
 - Si cambió de proveedor o la autenticación expiró, vuelva a conectarse en Integraciones → NotebookLM.
 
+
+#### Menciones de secciones (`#`)
+
+Escriba `#` en el Asistente (o en Flashcard Studio) para mencionar parte de un documento en su pregunta o indicación.
+
+- Los documentos con encabezados o un esquema PDF/EPUB enumeran sus secciones, como antes.
+- Un artículo importado sin encabezados obtiene un **índice de secciones derivado**: los párrafos se agrupan en segmentos etiquetados, por lo que la ventana emergente nunca está vacía para un documento con texto legible.
+- Si tiene texto **seleccionado** en el documento, su selección aparece como primer entrada: elegirla adjunta exactamente el texto seleccionado como contexto (recortado al presupuesto de contexto si es necesario, con un aviso).
+- Si el documento no tiene texto extraíble, la ventana emergente lo indica explícitamente en lugar de mostrar una lista vacía.
 #### Servidores MCP
 
 **Servidores de protocolo de contexto modelo (MCP):**

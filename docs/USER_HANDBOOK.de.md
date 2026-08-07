@@ -369,6 +369,9 @@ Frage- und Antwortpaare
 Teile eines Bildes ausblenden (Diagramme, Diagramme)
 
 **Am besten geeignet für:** Anatomie, Karten, Diagramme
+**Manuelles Erstellen:** Fahren Sie in einem beliebigen Dokument über ein Bild und klicken Sie auf **Bildverdeckungskarte erstellen**, um den Editor zu öffnen. Ziehen Sie über das Bild, um eine Region zu zeichnen; verschieben Sie sie durch Ziehen innerhalb der Region, ändern Sie ihre Größe über die Eckgriffe, benennen Sie sie im Bereichsfeld um oder löschen Sie sie (Schaltfläche oder Entf-Taste). Zum Speichern ist mindestens eine Region erforderlich – andernfalls wird das Speichern abgelehnt.
+
+**KI-Vorschläge sind korrigierbar:** Wenn die KI Verdeckungsregionen vorschlägt, öffnet sich der Editor mit den Vorschlägen. Passen Sie die Regionen vor dem Speichern an, ergänzen oder löschen Sie sie; liefert das Modell unbrauchbare Regionen, werden diese an das Bild angepasst und der Editor öffnet sich zur manuellen Bearbeitung – eine Karte ohne verwendbare Regionen wird nie stillschweigend gespeichert.
 
 ### Karten erstellen
 
@@ -614,6 +617,14 @@ Zeigt neu erstellte Karten an, die noch nicht überprüft wurden
    - **Priorität festlegen**: Priorität für Massenaktualisierungen
    - **Sperren**: Vorübergehend aus Bewertungen ausblenden
    - **Löschen**: Dauerhaft entfernen
+
+### Auszüge lesen
+
+Auszugszeilen in der Warteschlange öffnen einen eigenen **Auszugsleser** – der Text des Auszugs selbst ist das Thema, nicht sein Quelldokument. Im Leser können Sie:
+
+- Den vollständigen Inhalt des Auszugs lesen (reichhaltiges HTML, sofern erhalten, sonst Klartext)
+- Ihn **bewerten** (Erneut / Schwer / Gut / Leicht) – die Warteschlange aktualisiert sich sofort mit dem neuen Zeitplan, ohne Neuladen
+- **Quelldokument öffnen**, um im Dokumentbetrachter zur hervorgehobenen Karte des Auszugs zu springen. Ist das Quelldokument nicht mehr ladbar, ist die Schaltfläche mit einer Erklärung deaktiviert
 
 ### Prioritätssystem
 
@@ -1224,6 +1235,15 @@ Verwenden Sie NotebookLM in Incrementum, um zu recherchieren, Studienartefakte z
 - Wenn Sie den CLI-Anbieter verwenden, stellen Sie sicher, dass der NotebookLM-Sidecar/CLI in Ihrem Build verfügbar ist.
 - Wenn Sie den Anbieter gewechselt haben oder die Authentifizierung abgelaufen ist, stellen Sie die Verbindung unter Integrationen → NotebookLM erneut her.
 
+
+#### Abschnittserwähnungen (`#`)
+
+Tippen Sie `#` im Assistenten (oder im Flashcard-Studio), um in Ihrer Frage einen Teil eines Dokuments zu erwähnen.
+
+- Dokumente mit Überschriften oder PDF/EPUB-Gliederung listen ihre Abschnitte wie bisher auf.
+- Ein einfacher importierter Artikel ohne Überschriften erhält einen **abgeleiteten Abschnittsindex**: Absätze werden in beschriftete Segmente gruppiert, sodass das Popup für ein Dokument mit lesbarem Text nie leer ist.
+- Wenn Sie im Dokument **Text ausgewählt** haben, erscheint Ihre Auswahl als erster Eintrag – die Auswahl fügt genau den ausgewählten Text als Kontext hinzu (bei Bedarf auf das Kontextbudget gekürzt, mit Hinweis).
+- Hat das Dokument keinen extrahierbaren Text, zeigt das Popup dies ausdrücklich an, statt eine leere Liste zu zeigen.
 #### MCP-Server
 
 **Model Context Protocol (MCP)-Server:**

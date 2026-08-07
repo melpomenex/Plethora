@@ -1,6 +1,6 @@
 import { ReviewQueueView } from "../components/review/ReviewQueueView";
 import { useReviewStore, useTabsStore } from "../stores";
-import { DocumentViewer, ReviewTab } from "../components/tabs/TabRegistry";
+import { DocumentViewer, ExtractReader, ReviewTab } from "../components/tabs/TabRegistry";
 import type { QueueItem } from "../types/queue";
 import { QueueScrollPage } from "./QueueScrollPage";
 import { Brain, Stack, TextT } from "@phosphor-icons/react";
@@ -27,6 +27,21 @@ export function QueuePage() {
   };
 
   const handleOpenDocument = (item: QueueItem) => {
+    if (item.itemType === "extract" && item.extractId) {
+      addTab({
+        title: item.documentTitle,
+        icon: <TextT className="w-4 h-4 text-muted-foreground" />,
+        type: "extract-reader",
+        content: ExtractReader,
+        closable: true,
+        data: {
+          extractId: item.extractId,
+          documentId: item.documentId,
+          documentTitle: item.documentTitle,
+        },
+      });
+      return;
+    }
     addTab({
       title: item.documentTitle,
       icon: <TextT className="w-4 h-4 text-muted-foreground" />,
