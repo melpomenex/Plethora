@@ -44,6 +44,7 @@ import { LearningCardsList } from "../components/learning/LearningCardsList";
 import { submitReview } from "../api/review";
 import { composeSession } from "./queueScrollBudget";
 import { gateScrollItemsByType, resolveMissingExtractContent } from "./queueScrollItemTypes";
+import { FLASHCARD_REVEAL_EVENT, resolveScrollRatingKey } from "./queueScrollKeyboard";
 import {
   getUnreadItemsAuto,
   getSubscribedFeedsAuto,
@@ -2709,6 +2710,34 @@ export function QueueScrollPage() {
         },
       )) return;
 
+      // Space (flashcard reveal) and 1-4 (rating) shortcuts — decided by a
+      // pure, unit-tested helper. Flashcards reveal on Space only while the
+      // answer is hidden, and rate on 1-4 only after it is revealed, matching
+      // the card's own buttons and the review session.
+      const ratingKeyAction = resolveScrollRatingKey(e.key, {
+        itemType: currentItem?.type,
+        flashcardRevealed: flashcardRevealedRef.current,
+        isRating,
+      });
+      if (ratingKeyAction?.kind === "reveal-flashcard") {
+        // The card's own Space handler only fires when focus is inside the
+        // card; in Scroll Mode focus sits on the page, so drive the reveal
+        // through the window-event bridge instead.
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        window.dispatchEvent(new CustomEvent(FLASHCARD_REVEAL_EVENT));
+        return;
+      }
+      if (ratingKeyAction?.kind === "rate") {
+        // Rate the current item with the number keys — the same action as the
+        // rating buttons. stopImmediatePropagation prevents a double rating
+        // when a per-item handler would also fire.
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        rateCurrentItemRef.current(ratingKeyAction.rating);
+        return;
+      }
+
       if (e.key === " ") {
         if (isReviewItem) {
           return;
@@ -2751,22 +2780,6 @@ export function QueueScrollPage() {
       } else if (e.key === "h" || e.key === "?") {
         // Toggle controls
         setShowControls((prev) => !prev);
-      } else if (e.key >= "1" && e.key <= "4") {
-        // Rate the current item with the number keys (1=Again, 2=Hard,
-        // 3=Good, 4=Easy) — the same action as the rating buttons. The
-        // per-item components' own 1-4 handlers only fire when focus is
-        // inside the card (FlashcardScrollItem's container guard) or when
-        // their own gates pass, and EPUB/PDF iframes swallow keys entirely.
-        // Flashcards keep the card's "reveal the answer first" rule (same as
-        // the review session). stopImmediatePropagation prevents a double
-        // rating when a per-item handler would also fire.
-        const flashcardRevealed =
-          currentItem?.type !== "flashcard" || flashcardRevealedRef.current;
-        if (!isRating && currentItem && flashcardRevealed) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          rateCurrentItemRef.current(parseInt(e.key));
-        }
       }
     };
 
