@@ -349,6 +349,9 @@ Paires de questions et réponses
 Masquer des parties d'une image (schémas, graphiques)
 
 **Idéal pour :** Anatomie, cartes, diagrammes
+**Création manuelle :** survolez une image dans un document et cliquez sur **Créer une carte d'occlusion d'image** pour ouvrir l'éditeur. Dessinez une zone en glissant sur l'image, déplacez-la en la faisant glisser à l'intérieur, redimensionnez-la via les poignées d'angle, renommez-la dans le panneau ou supprimez-la (bouton ou touche Suppr). Au moins une zone est requise pour enregistrer ; sinon, l'enregistrement est refusé.
+
+**Les propositions de l'IA sont corrigeables :** lorsque l'IA propose des zones d'occlusion, l'éditeur s'ouvre pré-rempli. Ajustez, ajoutez ou supprimez des zones avant d'enregistrer ; si le modèle renvoie des zones inutilisables, elles sont recadrées sur l'image et l'éditeur s'ouvre pour les dessiner manuellement — une carte sans zone utilisable n'est jamais enregistrée silencieusement.
 
 ### Création de cartes
 
@@ -594,6 +597,14 @@ Affiche les cartes nouvellement créées qui n'ont pas encore été examinées
    - **Définir la priorité** : priorité de mise à jour groupée
    - **Suspendre** : masquer temporairement les avis
    - **Supprimer** : Supprimer définitivement
+
+### Lire les extraits
+
+Les lignes d'extrait dans la file ouvrent un **lecteur d'extraits** dédié : le texte de l'extrait est le sujet, pas son document source. Depuis le lecteur, vous pouvez :
+
+- Lire le contenu complet de l'extrait (HTML enrichi s'il est conservé, texte brut sinon)
+- Le **noter** (Encore / Difficile / Bien / Facile) — la file est mise à jour immédiatement avec le nouveau calendrier, sans rechargement
+- **Ouvrir le document source** pour revenir au visualiseur de documents sur la carte surlignée de l'extrait. Si le document source ne peut plus être chargé, le bouton est désactivé avec une explication
 
 ### Système de priorité
 
@@ -1204,6 +1215,15 @@ Utilisez NotebookLM dans Incrementum pour rechercher, générer des artefacts d'
 - Si vous utilisez le fournisseur `cli`, assurez-vous que le side-car/CLI NotebookLM est disponible dans votre build.
 - Si vous avez changé de fournisseur ou si l'authentification a expiré, reconnectez-vous dans Intégrations → NotebookLM.
 
+
+#### Mentions de sections (`#`)
+
+Tapez `#` dans l'Assistant (ou dans Flashcard Studio) pour mentionner une partie d'un document dans votre question.
+
+- Les documents avec des titres ou un sommaire PDF/EPUB listent leurs sections, comme avant.
+- Un article importé sans titres obtient un **index de sections dérivé** : les paragraphes sont regroupés en segments étiquetés, donc la fenêtre contextuelle n'est jamais vide pour un document avec du texte lisible.
+- Si vous avez du texte **sélectionné** dans le document, votre sélection apparaît comme première entrée : la choisir attache exactement le texte sélectionné comme contexte (tronqué au budget de contexte si nécessaire, avec un avis).
+- Si le document n'a pas de texte extractible, la fenêtre contextuelle l'indique explicitement au lieu d'afficher une liste vide.
 #### Serveurs MCP
 
 **Serveurs MCP (Model Context Protocol) :**

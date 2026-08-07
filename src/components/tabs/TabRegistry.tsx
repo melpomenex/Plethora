@@ -28,6 +28,8 @@ export const AnalyticsTab = debugLazy("AnalyticsTab", () => import("./AnalyticsT
 export const SettingsTab = debugLazy("SettingsTab", () => import("../settings/SettingsPage").then(m => ({ default: m.SettingsPage })));
 
 export const DocumentViewer = debugLazy("DocumentViewer", () => import("../viewer/DocumentViewerWrapper").then(m => ({ default: m.DocumentViewer })));
+export const DocumentExtractsTab = debugLazy("DocumentExtractsTab", () => import("./DocumentExtractsTab").then(m => ({ default: m.DocumentExtractsTab })));
+export const ExtractReader = debugLazy("ExtractReader", () => import("./ExtractReader").then(m => ({ default: m.ExtractReader })));
 export const KnowledgeNetworkTab = debugLazy("KnowledgeNetworkTab", () => import("./knowledge/KnowledgeNetworkTab").then(m => ({ default: m.KnowledgeNetworkTab })));
 export const KnowledgeSphereTab = debugLazy("KnowledgeSphereTab", () => import("./knowledge/KnowledgeSphereTab").then(m => ({ default: m.KnowledgeSphereTab })));
 export const WebBrowserTab = debugLazy("WebBrowserTab", () => import("./WebBrowserTab").then(m => ({ default: m.WebBrowserTab })));
@@ -46,7 +48,7 @@ export const TAB_TYPE_ICONS: Record<string, string> = {
   analytics: "📈", settings: "⚙️", rss: "📡", newsletter: "📰",
   podcast: "🎙️", "knowledge-sphere": "🌐", "knowledge-network": "🕸️",
   "doc-qa": "💬", notebooklm: "🤖", "image-registry": "🖼️",
-  "web-browser": "🌐", "document-viewer": "📄", "continue-reading": "📖",
+  "web-browser": "🌐", "document-viewer": "📄", "document-extracts": "🔖", "extract-reader": "📑", "continue-reading": "📖",
   "queue-scroll": "📜", "audiobook-epub-sync": "🎧",
   audiobook: "🎧",
 };
@@ -59,6 +61,8 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   review: { content: ReviewTab, title: "Review", icon: "🧠", closable: true },
   documents: { content: DocumentsTab, title: "Documents", icon: "📂", closable: true },
   "document-viewer": { content: DocumentViewer, title: "Document", icon: "📄", closable: true },
+  "document-extracts": { content: DocumentExtractsTab, title: "Extracts", icon: "🔖", closable: true },
+  "extract-reader": { content: ExtractReader, title: "Extract", icon: "📑", closable: true },
   analytics: { content: AnalyticsTab, title: "Statistics", icon: "📈", closable: true },
   settings: { content: SettingsTab, title: "Settings", icon: "⚙️", closable: true },
   "knowledge-sphere": { content: KnowledgeSphereTab, title: "Knowledge Sphere", icon: "🌐", closable: true },

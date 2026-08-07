@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  BookmarkSimple,
   BookOpen,
   CaretLeft,
   CaretRight,
@@ -181,11 +182,13 @@ const defaultSortByKey: Record<DocumentSortKey, DocumentSortDirection> = {
 
 interface DocumentsViewProps {
   onOpenDocument?: (doc: Document) => void;
+  /** Open the document's extract list in its own tab (context menu → View extracts). */
+  onViewExtracts?: (doc: Document) => void;
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
   enableYouTubeImport?: boolean;
 }
 
-export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport = true }: DocumentsViewProps) {
+export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, enableYouTubeImport = true }: DocumentsViewProps) {
   const { t } = useI18n();
   const { settings, updateSettingsCategory } = useSettingsStore();
   const compactDocumentsView = settings.interface?.compactDocumentsView ?? false;
@@ -1683,6 +1686,7 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                 setSelectedFileType={setSelectedFileType}
                 selectedIds={selectedIds}
                 onOpenDocument={onOpenDocument}
+                onViewExtracts={onViewExtracts}
                 onSelectRow={handleSelectRow}
                 onDelete={handleDeleteDocument}
                 onUpdate={updateDocument}
@@ -1715,6 +1719,15 @@ export function DocumentsView({ onOpenDocument, onReadAlong, enableYouTubeImport
                   <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
                   Open
                 </button>
+                {onViewExtracts && (
+                  <button
+                    className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
+                    onClick={() => { setListCtxDoc(null); onViewExtracts(listCtxDoc.doc); }}
+                  >
+                    <BookmarkSimple className="h-3.5 w-3.5 text-muted-foreground" />
+                    {t("documentsView.viewExtracts")}
+                  </button>
+                )}
                 {(() => {
                   const companions = onReadAlong ? findCompanionDoc(listCtxDoc.doc, documents) : [];
                   const best = companions[0];
@@ -3129,6 +3142,7 @@ interface LibraryDashboardProps {
   setSelectedFileType: (type: string) => void;
   selectedIds: Set<string>;
   onOpenDocument?: (doc: Document) => void;
+  onViewExtracts?: (doc: Document) => void;
   onSelectRow: (doc: Document, modifiers?: DocumentSelectionModifiers) => void;
   onDelete: (doc: Document) => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
@@ -3145,6 +3159,7 @@ function LibraryDashboard({
   setSelectedFileType,
   selectedIds,
   onOpenDocument,
+  onViewExtracts,
   onSelectRow,
   onDelete,
   onUpdate,
@@ -3268,6 +3283,7 @@ function LibraryDashboard({
         docs={continueDocs}
         selectedIds={selectedIds}
         onOpenDocument={onOpenDocument}
+        onViewExtracts={onViewExtracts}
         onSelectRow={onSelectRow}
         onDelete={onDelete}
         onUpdate={onUpdate}
@@ -3286,6 +3302,7 @@ function LibraryDashboard({
         docs={recentDocs}
         selectedIds={selectedIds}
         onOpenDocument={onOpenDocument}
+        onViewExtracts={onViewExtracts}
         onSelectRow={onSelectRow}
         onDelete={onDelete}
         onUpdate={onUpdate}
@@ -3307,6 +3324,7 @@ interface HorizontalSectionProps {
   docs: Document[];
   selectedIds: Set<string>;
   onOpenDocument?: (doc: Document) => void;
+  onViewExtracts?: (doc: Document) => void;
   onSelectRow: (doc: Document, modifiers?: DocumentSelectionModifiers) => void;
   onDelete: (doc: Document) => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
@@ -3324,6 +3342,7 @@ function HorizontalSection({
   docs,
   selectedIds,
   onOpenDocument,
+  onViewExtracts,
   onSelectRow,
   onDelete,
   onUpdate,
@@ -3376,6 +3395,7 @@ function HorizontalSection({
             selected={selectedIds.has(doc.id)}
             onSelect={(modifiers) => onSelectRow(doc, modifiers)}
             onOpen={() => onOpenDocument?.(doc)}
+            onViewExtracts={onViewExtracts ? () => onViewExtracts(doc) : undefined}
             onDelete={onDelete}
             onUpdate={onUpdate}
             onTranscribe={onTranscribe ? () => onTranscribe(doc) : undefined}
@@ -3395,6 +3415,7 @@ function LibraryCard({
   selected,
   onSelect,
   onOpen,
+  onViewExtracts,
   onDelete,
   onUpdate,
   onTranscribe,
@@ -3406,6 +3427,7 @@ function LibraryCard({
   selected: boolean;
   onSelect: (modifiers?: DocumentSelectionModifiers) => void;
   onOpen: () => void;
+  onViewExtracts?: () => void;
   onDelete: (doc: Document) => void;
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onTranscribe?: () => void;
@@ -3466,6 +3488,11 @@ function LibraryCard({
       icon: <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />,
       action: () => onOpen(),
     },
+    ...(onViewExtracts ? [{
+      label: t("documentsView.viewExtracts"),
+      icon: <BookmarkSimple className="h-3.5 w-3.5 text-muted-foreground" />,
+      action: () => { setCtxPos(null); onViewExtracts(); },
+    } as { label: string; icon: React.ReactNode; color?: string; divider?: boolean; action: () => void }] : []),
     ...(bestCompanion ? [{
       label: doc.fileType === "audio"
         ? `Read Along with ${bestCompanion.doc.title}`
@@ -3524,7 +3551,7 @@ function LibraryCard({
       color: "text-destructive",
       action: () => onDelete(doc),
     },
-  ]; }, [doc, onOpen, onDelete, onUpdate, onReadAlong, onOpenPopup, modal, t]);
+  ]; }, [doc, onOpen, onViewExtracts, onDelete, onUpdate, onReadAlong, onOpenPopup, modal, t]);
 
   return (
     <div className="relative">

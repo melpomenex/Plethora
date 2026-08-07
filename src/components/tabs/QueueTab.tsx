@@ -2,7 +2,7 @@ import { ReviewQueueView } from "../review/ReviewQueueView";
 import { MobileQueueView } from "../mobile/MobileQueueView";
 import { useReviewStore, useTabsStore } from "../../stores";
 import type { QueueItem } from "../../types/queue";
-import { ReviewTab, DocumentViewer } from "./TabRegistry";
+import { ReviewTab, DocumentViewer, ExtractReader } from "./TabRegistry";
 import { QueueScrollPage } from "../../pages/QueueScrollPage";
 import { usePaneId } from "../common/Tabs";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -30,6 +30,24 @@ export function QueueTab() {
   };
 
   const handleOpenDocument = (item: QueueItem) => {
+    // Extracts are readable as items in their own right: route the queue's
+    // primary action to the extract reader. "Open source document" remains
+    // available from inside the reader.
+    if (item.itemType === "extract" && item.extractId) {
+      addTab({
+        title: item.documentTitle,
+        icon: <TextT className="w-4 h-4 text-muted-foreground" />,
+        type: "extract-reader",
+        content: ExtractReader,
+        closable: true,
+        data: {
+          extractId: item.extractId,
+          documentId: item.documentId,
+          documentTitle: item.documentTitle,
+        },
+      }, paneId);
+      return;
+    }
     addTab({
       title: item.documentTitle,
       icon: <TextT className="w-4 h-4 text-muted-foreground" />,

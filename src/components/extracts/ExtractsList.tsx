@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Calendar,
   CheckSquare,
@@ -12,9 +12,11 @@ import {
   Tag,
   TextT,
   Trash,
+  WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import { getExtracts, updateExtract, type Extract } from "../../api/extracts";
+import { extractDocumentText } from "../../api/documents";
 import { generateLearningItemsFromExtract } from "../../api/learning-items";
 import { bulkGenerateCards } from "../../api/extract-bulk";
 import { useUndoableOperations } from "../../api/undoable";
@@ -106,6 +108,36 @@ export function ExtractsList({
   const [error, setError] = useState<string | null>(null);
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
   const [generatedCounts, setGeneratedCounts] = useState<Record<string, number>>({});
+  // Source-document text length (when resolvable), used to surface extracts
+  // whose content covers effectively the whole document as oversized — without
+  // deleting or rewriting them.
+  const [sourceTextLength, setSourceTextLength] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSourceTextLength(null);
+    extractDocumentText(documentId)
+      .then(({ content }) => {
+        if (!cancelled) setSourceTextLength(content?.length ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setSourceTextLength(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId]);
+
+  // An extract is oversized when it holds ~the whole source document: at least
+  // 90% of the source text and a meaningful absolute size, so short snippets
+  // quoted verbatim don't false-positive.
+  const isOversizedExtract = useCallback(
+    (extract: Extract): boolean => {
+      if (sourceTextLength === null || sourceTextLength < 2000) return false;
+      return extract.content.length >= sourceTextLength * 0.9;
+    },
+    [sourceTextLength],
+  );
 
   // Undoable operations hook
   const { bulkDeleteExtracts: bulkDeleteExtractsWithUndo } = useUndoableOperations();
@@ -556,6 +588,15 @@ export function ExtractsList({
                   <span className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-500/10 text-blue-500 rounded" title={t("extracts.richContent")}>
                     <Eye className="w-3 h-3" />
                     {t("extracts.rich")}
+                  </span>
+                )}
+                {isOversizedExtract(extract) && (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded"
+                    title={t("extracts.oversizedTitle")}
+                  >
+                    <WarningCircle className="w-3 h-3" />
+                    {t("extracts.oversized")}
                   </span>
                 )}
               </div>

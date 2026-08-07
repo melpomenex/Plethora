@@ -8,6 +8,7 @@ import {
   emitQueueActionFeedback,
   getQueueItemSheetActions,
   getQueuePrimaryAction,
+  getQueuePrimaryActionLabelKey,
   getQueueSecondaryActions,
 } from "../queueActions";
 
@@ -54,6 +55,13 @@ describe("queue action hierarchy", () => {
     expect(getQueueSecondaryActions("document")).toContain("dismiss");
   });
 
+  it("maps extracts to open-extract as the primary action", () => {
+    expect(getQueuePrimaryAction("extract")).toBe("open-extract");
+    expect(getQueuePrimaryActionLabelKey("open-extract")).toBe("queue.openExtract");
+    expect(getQueuePrimaryActionLabelKey("study-now")).toBe("queue.studyNow");
+    expect(getQueuePrimaryActionLabelKey("open-document")).toBe("queue.openDocument");
+  });
+
   it("exposes contextual actions only for supported item types", () => {
     expect(getQueueItemSheetActions(item("document"))).toEqual([
       "open-document",
@@ -69,6 +77,10 @@ describe("queue action hierarchy", () => {
     ]);
     expect(getQueueItemSheetActions(item("rss-article"))).toEqual([
       "open-document",
+      "select",
+    ]);
+    expect(getQueueItemSheetActions(item("extract"))).toEqual([
+      "open-extract",
       "select",
     ]);
   });

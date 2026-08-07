@@ -68,6 +68,10 @@ export function QueueItemActionSheet({
           closeAndRestoreFocus();
           onOpenDocument?.(item);
           break;
+        case "open-extract":
+          closeAndRestoreFocus();
+          onOpenDocument?.(item);
+          break;
         case "postpone":
           closeAndRestoreFocus();
           await onPostpone?.(item);
@@ -94,6 +98,7 @@ export function QueueItemActionSheet({
   }> = {
     "study-now": { label: t("queue.studyNow"), icon: <Play className="w-5 h-5 text-emerald-500" /> },
     "open-document": { label: t("queue.openDocument"), icon: <BookOpen className="w-5 h-5 text-blue-500" /> },
+    "open-extract": { label: t("queue.openExtract"), icon: <BookOpen className="w-5 h-5 text-violet-500" /> },
     postpone: { label: t("queue.postpone"), icon: <CalendarHeart className="w-5 h-5 text-amber-500" /> },
     suspend: { label: t("queue.suspend"), icon: <Pause className="w-5 h-5 text-amber-500" /> },
     dismiss: { label: t("queue.dismiss"), icon: <EyeSlash className="w-5 h-5 text-slate-500" /> },

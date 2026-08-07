@@ -78,6 +78,7 @@ import {
   type NotebookSummary,
 } from "../../api/integrations";
 import { getImageAssetById, ingestImageFile, listImageAssets, type ImageAsset } from "../../api/image-registry";
+import { clampRegions } from "../../utils/occlusion";
 import { getVideoTranscript } from "../../api/video-extracts";
 import { extractYouTubeID, fetchYouTubeTranscript } from "../../api/youtube";
 import { renderMarkdown } from "../../utils/markdown";
@@ -90,6 +91,7 @@ import { buildChapterQAContext, getChapterTitles } from "../../utils/chapterUtil
 import { resolveFlashcardTarget, type FlashcardTargetOverride } from "../../utils/flashcardTarget";
 import { NumericInput } from "../common";
 import type { ImageOcclusionRegion, MultipleChoiceOption } from "../../types/learningItemInteractions";
+import { OcclusionRegionEditor, OcclusionLightbox } from "../occlusion/OcclusionRegionEditor";
 import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
 import { ExtractBrowserPanel } from "./ExtractBrowserPanel";
 import { extractDocumentText, getDocument } from "../../api/documents";
@@ -1492,7 +1494,7 @@ function CardPreview({
                 ))}
               </select>
             </div>
-            <ImageOcclusionEditor
+            <OcclusionRegionEditor
               asset={previewAsset}
               regions={(editForm.imageOcclusionRegions as ImageOcclusionRegion[] | undefined) || []}
               onChange={(regions) => setEditForm((form) => ({ ...form, imageOcclusionRegions: regions }))}
@@ -1620,7 +1622,7 @@ function CardPreview({
                   <div className="text-xs text-muted-foreground">{card.answer}</div>
                 )}
                 {previewAsset ? (
-                  <ImageOcclusionLightbox
+                  <OcclusionLightbox
                     isOpen={isImageLightboxOpen}
                     asset={previewAsset}
                     regions={(card.imageOcclusionRegions || []) as ImageOcclusionRegion[]}
@@ -1647,274 +1649,6 @@ function CardPreview({
         </div>
       </div>
       {editLightbox}
-    </div>
-  );
-}
-
-function ImageOcclusionEditor({
-  asset,
-  regions,
-  onChange,
-}: {
-  asset: ImageAsset | null;
-  regions: ImageOcclusionRegion[];
-  onChange: (regions: ImageOcclusionRegion[]) => void;
-}) {
-  const { t } = useI18n();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
-  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
-  const [draftRegion, setDraftRegion] = useState<ImageOcclusionRegion | null>(null);
-  const [imgBounds, setImgBounds] = useState<{ offsetX: number; offsetY: number; width: number; height: number } | null>(null);
-
-  const computeImgBounds = useCallback(() => {
-    const img = imgRef.current;
-    if (!img || !img.naturalWidth || !img.naturalHeight) return;
-    const containerW = img.clientWidth;
-    const containerH = img.clientHeight;
-    const scale = Math.min(containerW / img.naturalWidth, containerH / img.naturalHeight);
-    const renderedW = img.naturalWidth * scale;
-    const renderedH = img.naturalHeight * scale;
-    setImgBounds({
-      offsetX: (containerW - renderedW) / 2,
-      offsetY: (containerH - renderedH) / 2,
-      width: renderedW,
-      height: renderedH,
-    });
-  }, []);
-
-  useEffect(() => {
-    const img = imgRef.current;
-    if (!img) return;
-    if (img.complete) computeImgBounds();
-    img.addEventListener("load", computeImgBounds);
-    const ro = new ResizeObserver(computeImgBounds);
-    ro.observe(img);
-    return () => { img.removeEventListener("load", computeImgBounds); ro.disconnect(); };
-  }, [asset, computeImgBounds]);
-
-  const clamp = (value: number) => Math.max(0, Math.min(100, value));
-
-  const getPoint = (event: React.PointerEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const cx = event.clientX - rect.left;
-    const cy = event.clientY - rect.top;
-    if (imgBounds) {
-      return {
-        x: clamp(((cx - imgBounds.offsetX) / imgBounds.width) * 100),
-        y: clamp(((cy - imgBounds.offsetY) / imgBounds.height) * 100),
-      };
-    }
-    return {
-      x: clamp((cx / rect.width) * 100),
-      y: clamp((cy / rect.height) * 100),
-    };
-  };
-
-  const commitDraft = () => {
-    if (draftRegion && draftRegion.width > 1 && draftRegion.height > 1) {
-      onChange([...regions, draftRegion]);
-    }
-    setOrigin(null);
-    setDraftRegion(null);
-  };
-
-  if (!asset) {
-    return (
-      <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-        {t("flashcardStudio.importImageForOcclusion")}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      <div
-        ref={containerRef}
-        className="relative overflow-hidden rounded-lg border border-border bg-muted/20 touch-none"
-        onPointerDown={(event) => {
-          const point = getPoint(event);
-          if (!point) return;
-          setOrigin(point);
-          setDraftRegion({
-            id: `region-${Date.now()}`,
-            x: point.x,
-            y: point.y,
-            width: 0,
-            height: 0,
-          });
-        }}
-        onPointerMove={(event) => {
-          if (!origin) return;
-          const point = getPoint(event);
-          if (!point) return;
-          setDraftRegion({
-            id: `region-${Date.now()}`,
-            x: Math.min(origin.x, point.x),
-            y: Math.min(origin.y, point.y),
-            width: Math.abs(point.x - origin.x),
-            height: Math.abs(point.y - origin.y),
-          });
-        }}
-        onPointerUp={commitDraft}
-        onPointerLeave={commitDraft}
-      >
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setIsLightboxOpen(true);
-          }}
-          className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-black/80"
-        >
-          <FrameCorners className="h-3 w-3" />
-          {t("flashcardStudio.expandImage")}
-        </button>
-        <img ref={imgRef} src={asset.data_url} alt={asset.file_name || t("flashcardStudio.occlusionEditor")} className="w-full object-contain select-none" />
-        {imgBounds && [...regions, ...(draftRegion ? [draftRegion] : [])].map((region, index) => (
-          <div
-            key={region.id || `${region.x}-${region.y}-${index}`}
-            className="absolute rounded border border-white/40 bg-slate-950/75"
-            style={{
-              left: `${imgBounds.offsetX + (region.x / 100) * imgBounds.width}px`,
-              top: `${imgBounds.offsetY + (region.y / 100) * imgBounds.height}px`,
-              width: `${(region.width / 100) * imgBounds.width}px`,
-              height: `${(region.height / 100) * imgBounds.height}px`,
-            }}
-          />
-        ))}
-      </div>
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{t("flashcardStudio.dragHiddenRegion")}</span>
-        <button
-          type="button"
-          onClick={() => onChange(regions.slice(0, -1))}
-          disabled={regions.length === 0}
-          className="text-primary hover:opacity-80 disabled:opacity-40"
-        >
-          {t("flashcardStudio.undoRegion")}
-        </button>
-      </div>
-      <ImageOcclusionLightbox
-        isOpen={isLightboxOpen}
-        asset={asset}
-        regions={regions}
-        title={asset.file_name || t("flashcardStudio.occlusionEditor")}
-        onClose={() => setIsLightboxOpen(false)}
-      />
-    </div>
-  );
-}
-
-function ImageOcclusionLightbox({
-  isOpen,
-  asset,
-  regions,
-  title,
-  onClose,
-}: {
-  isOpen: boolean;
-  asset: ImageAsset | null;
-  regions: ImageOcclusionRegion[];
-  title: string;
-  onClose: () => void;
-}) {
-  const { t } = useI18n();
-  const lbImgRef = useRef<HTMLImageElement>(null);
-  const [lbImgBounds, setLbImgBounds] = useState<{ offsetX: number; offsetY: number; width: number; height: number } | null>(null);
-
-  const computeLbBounds = useCallback(() => {
-    const img = lbImgRef.current;
-    if (!img || !img.naturalWidth || !img.naturalHeight) return;
-    const containerW = img.clientWidth;
-    const containerH = img.clientHeight;
-    const scale = Math.min(containerW / img.naturalWidth, containerH / img.naturalHeight);
-    const renderedW = img.naturalWidth * scale;
-    const renderedH = img.naturalHeight * scale;
-    setLbImgBounds({
-      offsetX: (containerW - renderedW) / 2,
-      offsetY: (containerH - renderedH) / 2,
-      width: renderedW,
-      height: renderedH,
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const img = lbImgRef.current;
-    if (!img) return;
-    if (img.complete) computeLbBounds();
-    img.addEventListener("load", computeLbBounds);
-    const ro = new ResizeObserver(computeLbBounds);
-    ro.observe(img);
-    return () => { img.removeEventListener("load", computeLbBounds); ro.disconnect(); };
-  }, [isOpen, asset, computeLbBounds]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
-  if (!isOpen || !asset) {
-    return null;
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-[9993] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4 text-white">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{title}</div>
-            <div className="text-xs text-slate-300">{t("flashcardStudio.imageLightboxHint")}</div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full bg-white/10 p-2 text-slate-100 transition-colors hover:bg-white/20"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-auto p-5">
-          <div className="relative mx-auto w-full overflow-hidden rounded-2xl bg-black/40">
-            <img
-              ref={lbImgRef}
-              src={asset.data_url}
-              alt={asset.file_name || title}
-              className="mx-auto block max-h-[calc(92vh-8rem)] w-full object-contain"
-            />
-            {lbImgBounds && regions.map((region, index) => (
-              <div
-                key={region.id || `${region.x}-${region.y}-${index}`}
-                className="absolute rounded border border-white/50 bg-slate-950/75"
-                style={{
-                  left: `${lbImgBounds.offsetX + (region.x / 100) * lbImgBounds.width}px`,
-                  top: `${lbImgBounds.offsetY + (region.y / 100) * lbImgBounds.height}px`,
-                  width: `${(region.width / 100) * lbImgBounds.width}px`,
-                  height: `${(region.height / 100) * lbImgBounds.height}px`,
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -2346,7 +2080,7 @@ function CardEditLightbox({
                   ))}
                 </select>
               </div>
-              <ImageOcclusionEditor
+              <OcclusionRegionEditor
                 asset={previewAsset}
                 regions={(editForm.imageOcclusionRegions as ImageOcclusionRegion[] | undefined) || []}
                 onChange={(regions) => onEditFormChange((form) => ({ ...form, imageOcclusionRegions: regions }))}
@@ -3430,25 +3164,51 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
       const assistantId = `assistant-${Date.now()}`;
       const { cards, cleaned } = parseCardsFromResponse(response.content, assistantId);
-      const occlusionCards = cards.filter((card) => card.type === "image-occlusion");
+      const rawOcclusionCards = cards.filter((card) => card.type === "image-occlusion");
+
+      // Usable-AI-output handling: clamp/drop out-of-bounds regions. Cards that
+      // still have usable regions are added pre-filled so the user can correct
+      // them before saving; cards whose regions collapsed to nothing open in
+      // the editor with the image so the user can author regions manually —
+      // never silently saving a card with zero usable regions.
+      const usableCards: DraftCard[] = [];
+      const needsManualAuthoring: DraftCard[] = [];
+      for (const card of rawOcclusionCards) {
+        if (!card.imageOcclusionAssetId) continue; // no image to author on — drop
+        const clamped = clampRegions(card.imageOcclusionRegions || []);
+        if (clamped.length > 0) {
+          usableCards.push({ ...card, imageOcclusionRegions: clamped });
+        } else {
+          needsManualAuthoring.push({ ...card, imageOcclusionRegions: [] });
+        }
+      }
 
       const assistantMessage: ChatMessage = {
         id: assistantId,
         role: "assistant",
         content: cleaned || response.content,
         timestamp: Date.now(),
-        cardsGenerated: occlusionCards.length,
+        cardsGenerated: rawOcclusionCards.length,
       };
       setMessages((prev) => [...prev, assistantMessage]);
 
-      if (occlusionCards.length === 0) {
+      if (rawOcclusionCards.length === 0) {
         throw new Error(t("flashcardStudio.imageOcclusionNoCards"));
       }
 
-      setDraftCards((prev) => [...occlusionCards, ...prev]);
+      setDraftCards((prev) => [...needsManualAuthoring, ...usableCards, ...prev]);
+      // Open the editor pre-filled from the AI proposal (or empty, for manual
+      // authoring) so proposed regions can be corrected before saving.
+      const firstEditable = usableCards[0] ?? needsManualAuthoring[0];
+      if (firstEditable) {
+        setEditingCardId(firstEditable.id);
+        setViewMode("chat");
+      }
       toast.success(
-        t("flashcardStudio.imageOcclusionCardsGenerated", { count: occlusionCards.length }),
-        t("flashcardStudio.imageOcclusionCardsGeneratedDesc")
+        t("flashcardStudio.imageOcclusionCardsGenerated", { count: rawOcclusionCards.length }),
+        needsManualAuthoring.length > 0
+          ? t("flashcardStudio.imageOcclusionRegionsUnusable", { count: needsManualAuthoring.length })
+          : t("flashcardStudio.imageOcclusionCardsGeneratedDesc")
       );
     } catch (error) {
       toast.error(

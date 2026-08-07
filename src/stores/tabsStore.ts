@@ -27,7 +27,9 @@ export type TabType =
   | "image-registry"
   | "podcast"
   | "audiobook-epub-sync"
-  | "audiobook";
+  | "audiobook"
+  | "extract-reader"
+  | "document-extracts";
 
 export interface Tab {
   id: string;
@@ -1408,6 +1410,16 @@ export const useTabsStore = create<TabsState>((set, get) => ({
             !serialized.data?.documentId
           ) {
             console.warn("Dropping document tab with no documentId:", serialized.id);
+            continue;
+          }
+          // The extract reader needs at least an extract id to rehydrate.
+          if (serialized.type === "extract-reader" && !serialized.data?.extractId) {
+            console.warn("Dropping extract reader tab with no extractId:", serialized.id);
+            continue;
+          }
+          // The document-extracts tab is driven by `data.documentId`.
+          if (serialized.type === "document-extracts" && !serialized.data?.documentId) {
+            console.warn("Dropping document-extracts tab with no documentId:", serialized.id);
             continue;
           }
           const tab = rehydrateTab(serialized);

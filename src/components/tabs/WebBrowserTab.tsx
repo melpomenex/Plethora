@@ -373,6 +373,12 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
   const [iframeStatus, setIframeStatus] = useState<"idle" | "loading" | "loaded" | "blocked">("idle");
   const [readerContent, setReaderContent] = useState<{ html: string; title: string } | null>(null);
   const [isLoadingReader, setIsLoadingReader] = useState(false);
+  // Mirrors of the two states above, kept in refs so the async bounds-sync and
+  // instrumentation paths read fresh values instead of stale closures.
+  const iframeStatusRef = useRef<"idle" | "loading" | "loaded" | "blocked">("idle");
+  const webviewErrorRef = useRef<string | null>(null);
+  iframeStatusRef.current = iframeStatus;
+  webviewErrorRef.current = webviewError;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const webviewRef = useRef<WebviewType | null>(null);
   const webviewContainerRef = useRef<HTMLDivElement | null>(null);
@@ -467,12 +473,23 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
 
   const handleIframeLoad = () => {
     setIsLoading(false);
-    setIframeStatus((prev) => (prev === "loading" ? "loaded" : prev));
+    setIframeStatus((prev) => {
+      const next = prev === "loading" ? "loaded" : prev;
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[WebBrowserTab] iframe load: status ${prev} -> ${next} (url=${currentUrl})`);
+      }
+      return next;
+    });
   };
 
   const handleIframeError = () => {
     setIsLoading(false);
-    setIframeStatus("blocked");
+    setIframeStatus((prev) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.log(`[WebBrowserTab] iframe error: status ${prev} -> blocked (url=${currentUrl})`);
+      }
+      return "blocked";
+    });
   };
 
   const handleLoadReaderView = useCallback(async (targetUrl?: string) => {
@@ -625,8 +642,11 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
       }
     }
 
-    // If still no text, show manual input dialog
+    // If still no text, tell the user extract creation is unavailable for this
+    // page and open the manual dialog (which still refuses to save empty
+    // content) — never create an empty extract silently.
     if (!selectedText) {
+      toast.info(t("browser.selectionUnavailable"), t("browser.selectionUnavailableDesc"));
       setExtractDialog({
         content: "",
         htmlContent: undefined,
@@ -647,6 +667,12 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
   }, [currentUrl, pageTitle, pollWebviewSelection]);
 
   const handleSaveExtract = async (data: { content: string; htmlContent?: string; note: string; tags: string[] }) => {
+    // Never create an empty extract — the dialog already guards this, but the
+    // save path is the final backstop.
+    if (!data.content.trim()) {
+      toast.error(t("extracts.enterContent"));
+      return;
+    }
     try {
       const docTitle = pageTitle || new URL(currentUrl).hostname;
       let documentId: string;
@@ -771,6 +797,13 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
           const y = Math.round(rect.top - offset.y);
           const width = Math.round(rect.width);
           const height = Math.round(rect.height);
+
+          // Instrumentation (task 4.1): compare the container rect against the
+          // computed webview bounds so a desktop repro can tell which path
+          // (iframe vs native webview) is failing and how far off the bounds are.
+          if (process.env.NODE_ENV !== "production") {
+            console.log(`[WebBrowserTab] bounds sync: container={left:${Math.round(rect.left)},top:${Math.round(rect.top)},w:${Math.round(rect.width)},h:${Math.round(rect.height)}} offset=${JSON.stringify(offset)} webview={x:${x},y:${y},w:${width},h:${height}} iframeStatus=${iframeStatusRef.current} webviewError=${webviewErrorRef.current ?? "none"}`);
+          }
 
           if (width > 0 && height > 50) {
             try {
@@ -1093,7 +1126,15 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
 
             if (webviewRef.current) {
               if (isVisible) {
-                void webviewRef.current.show().catch(() => {});
+                // Re-sync bounds before showing: while the tab was hidden the
+                // pane/container may have been resized (split panes, toolbar,
+                // sidebar), and an OS webview only re-reads its geometry when
+                // told to — a stale size would leave it mispositioned.
+                void updateWebviewBounds().finally(() => {
+                  if (webviewRef.current) {
+                    void webviewRef.current.show().catch(() => {});
+                  }
+                });
               } else {
                 void webviewRef.current.hide().catch(() => {});
               }
@@ -1110,7 +1151,7 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
     return () => {
       observer?.disconnect();
     };
-  }, [isTauri]);
+  }, [isTauri, updateWebviewBounds]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
    
   useEffect(() => {
@@ -1470,24 +1511,37 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
                 </div>
               )}
               {webviewError && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-50">
-                  <div className="text-center max-w-md px-4">
-                    <p className="text-sm text-destructive mb-2">{webviewError}</p>
-                    <button
-                      onClick={handleOpenInBrowser}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm"
-                    >
-                      <ArrowSquareOut className="w-4 h-4" />
-                      Open in Browser
-                    </button>
+                <div className="absolute inset-0 flex items-center justify-center bg-background/95 z-50">
+                  <div className="text-center max-w-md px-4 space-y-3">
+                    <p className="text-sm text-destructive font-semibold">{t("browser.navigationFailed")}</p>
+                    <p className="text-xs text-muted-foreground break-all">{webviewError}</p>
+                    <div className="flex items-center justify-center gap-3">
+                      <button
+                        onClick={handleRefresh}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm"
+                      >
+                        <ArrowClockwise className="w-4 h-4" />
+                        {t("browser.retry")}
+                      </button>
+                      <button
+                        onClick={handleOpenInBrowser}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm"
+                      >
+                        <ArrowSquareOut className="w-4 h-4" />
+                        {t("browser.openInSystemBrowser")}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
               {!isTauri() && iframeStatus === "blocked" && !readerContent && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/90 z-50">
+                <div className="absolute inset-0 flex items-center justify-center bg-background/95 z-50">
                   <div className="text-center max-w-md px-4 space-y-3">
                     <p className="text-sm text-foreground font-semibold">
-                      This site prevents embedding in an iframe.
+                      {t("browser.embedBlockedTitle")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t("browser.embedBlockedReason", { site: (() => { try { return new URL(currentUrl).hostname; } catch { return currentUrl; } })() })}
                     </p>
                     <div className="flex items-center justify-center gap-3">
                       <button
@@ -1496,14 +1550,14 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
                         className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
                       >
                         <BookOpen className="w-4 h-4" />
-                        {isLoadingReader ? "Loading..." : "Reader View"}
+                        {isLoadingReader ? t("browser.loading") : t("browser.readerView")}
                       </button>
                       <button
                         onClick={handleOpenInBrowser}
                         className="inline-flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm"
                       >
                         <ArrowSquareOut className="w-4 h-4" />
-                        Open in Browser
+                        {t("browser.openInSystemBrowser")}
                       </button>
                     </div>
                   </div>

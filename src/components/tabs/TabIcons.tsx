@@ -51,6 +51,8 @@ export const TAB_TYPE_ICONS: Record<TabType, Icon> = {
   review: Brain,
   documents: Books,
   "document-viewer": TextT,
+  "document-extracts": BookOpen,
+  "extract-reader": BookOpen,
   analytics: ChartBar,
   settings: Gear,
   "knowledge-sphere": Planet,

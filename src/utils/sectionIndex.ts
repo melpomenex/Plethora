@@ -12,7 +12,7 @@ export interface SectionNode {
   children: SectionNode[];
   parentId: string | null;
   /** Identifies where the section structure originated. */
-  source?: "text" | "pdf-outline" | "epub-toc" | "full-document";
+  source?: "text" | "pdf-outline" | "epub-toc" | "full-document" | "selection";
   /** True only when startChar/endChar point at body text in the current content snapshot. */
   hasAuthoritativeRange?: boolean;
   /** End of this heading's direct content, before its first child heading. */
@@ -695,7 +695,216 @@ export function buildDocumentSections(
   }
 
   const flat = flattenTree(finalTree);
+
+  // Fallback for outline-less documents: a text-bearing document whose
+  // heading/outline path yields fewer than two nodes (no headings, a bare
+  // "Full Document" node, or a single-heading article) gets a paragraph-
+  // boundary segmentation so `#` mentions are never empty for readable text.
+  const hasText = content.trim().length > 0;
+  if (hasText && flat.length < 2) {
+    const segments = buildHeuristicParagraphSections(content);
+    return { tree: segments, flat: segments };
+  }
+
   return { tree: finalTree, flat };
+}
+
+/**
+ * Opening words of a text block, used to label heuristic segments and the
+ * live-selection mention entry.
+ */
+export function openingWords(text: string, maxWords = 6): string {
+  const cleaned = stripMarkup(text).replace(/\s+/g, " ").trim();
+  const words = cleaned.split(/\s+/).filter(Boolean).slice(0, maxWords).join(" ");
+  const title = words.length > 0 ? words : "Untitled";
+  return title.length > 60 ? `${title.slice(0, 57)}…` : title;
+}
+
+interface ParagraphRange {
+  start: number;
+  end: number;
+  text: string;
+}
+
+function splitParagraphRanges(raw: string): ParagraphRange[] {
+  const ranges: ParagraphRange[] = [];
+  const blankLineSeparator = /\n\s*\n/g;
+  // Use a fresh (non-global) regex for detection so the global regex used by
+  // matchAll below starts from index 0 instead of the lastIndex left by test().
+  const hasBlankLines = /\n\s*\n/.test(raw);
+
+  if (hasBlankLines) {
+    let cursor = 0;
+    for (const match of raw.matchAll(blankLineSeparator)) {
+      const text = raw.slice(cursor, match.index).trim();
+      if (text) {
+        const leading = raw.slice(cursor, match.index).length - raw.slice(cursor, match.index).trimStart().length;
+        ranges.push({ start: cursor + leading, end: match.index, text });
+      }
+      cursor = match.index + match[0].length;
+    }
+    const tail = raw.slice(cursor).trim();
+    if (tail) {
+      const leading = raw.slice(cursor).length - raw.slice(cursor).trimStart().length;
+      ranges.push({ start: cursor + leading, end: raw.length, text: tail });
+    }
+  } else {
+    let cursor = 0;
+    for (const match of raw.matchAll(/\n/g)) {
+      const text = raw.slice(cursor, match.index).trim();
+      if (text) {
+        const leading = raw.slice(cursor, match.index).length - raw.slice(cursor, match.index).trimStart().length;
+        ranges.push({ start: cursor + leading, end: match.index, text });
+      }
+      cursor = match.index + 1;
+    }
+    const tail = raw.slice(cursor).trim();
+    if (tail) {
+      const leading = raw.slice(cursor).length - raw.slice(cursor).trimStart().length;
+      ranges.push({ start: cursor + leading, end: raw.length, text: tail });
+    }
+  }
+
+  return ranges;
+}
+
+/**
+ * Heuristic paragraph-boundary segmenter for documents without Markdown
+ * headings or a PDF/EPUB outline. Groups consecutive paragraphs into segments
+ * of roughly `targetChars`, labelling each segment by its opening words so the
+ * mention popup can tell entries apart.
+ */
+export function buildHeuristicParagraphSections(
+  content: string,
+  options: { targetChars?: number; maxSegments?: number } = {}
+): SectionNode[] {
+  const { targetChars = 600, maxSegments = 200 } = options;
+  if (!content || !content.trim()) return [];
+  const ranges = splitParagraphRanges(content);
+  if (ranges.length === 0) return [];
+
+  const segments: SectionNode[] = [];
+  let buffer: ParagraphRange[] = [];
+  let bufferChars = 0;
+  let index = 0;
+
+  const flush = () => {
+    if (buffer.length === 0) return;
+    if (segments.length >= maxSegments) {
+      buffer = [];
+      bufferChars = 0;
+      return;
+    }
+    const first = buffer[0];
+    const last = buffer[buffer.length - 1];
+    const text = content.slice(first.start, last.end).trim();
+    const title = openingWords(text, 6);
+    const stable = `${title}-${first.start}-${index}`;
+    segments.push({
+      id: `section-${hashString(stable)}`,
+      title,
+      level: 1,
+      breadcrumb: [],
+      preview: cleanPreview(text),
+      content: text,
+      children: [],
+      parentId: null,
+      startChar: first.start,
+      endChar: last.end,
+      directEndChar: last.end,
+      source: "text",
+      hasAuthoritativeRange: true,
+    });
+    index += 1;
+    buffer = [];
+    bufferChars = 0;
+  };
+
+  for (const range of ranges) {
+    if (buffer.length > 0 && bufferChars + range.text.length > targetChars) {
+      flush();
+    }
+    buffer.push(range);
+    bufferChars += range.text.length;
+  }
+  flush();
+
+  return segments;
+}
+
+/**
+ * A mention entry representing the user's live text selection. Carries exactly
+ * the selected text as `content`; `source: "selection"` distinguishes it from
+ * structural sections so the attach path can handle it specially.
+ */
+export function createSelectionSection(selection: string, documentId?: string): SectionNode {
+  const content = selection.trim();
+  return {
+    id: `selection-${hashString(content.slice(0, 200))}`,
+    title: openingWords(content, 8),
+    level: 1,
+    breadcrumb: [],
+    preview: cleanPreview(content),
+    content,
+    children: [],
+    parentId: null,
+    startChar: 0,
+    endChar: content.length,
+    source: "selection",
+    hasAuthoritativeRange: false,
+    documentId,
+  };
+}
+
+/**
+ * Truncate text to a character budget at a paragraph/line boundary, appending
+ * a truncation marker. Shared by the section-context and selection-context
+ * paths so truncation is reported consistently.
+ */
+export function truncateTextToBudget(value: string, maxChars: number): { text: string; truncated: boolean } {
+  if (value.length <= maxChars) return { text: value, truncated: false };
+  const marker = "\n\n[Selected text truncated due to context limit...]";
+  const target = Math.max(1, maxChars - marker.length);
+  const candidate = value.slice(0, target);
+  const paragraph = candidate.lastIndexOf("\n\n");
+  const line = candidate.lastIndexOf("\n");
+  const boundary = Math.max(paragraph, line);
+  const text = candidate.slice(0, boundary > target * 0.6 ? boundary : target).trimEnd();
+  return { text: text + marker, truncated: true };
+}
+
+/**
+ * Build the canonical context string for one or more selection mentions,
+ * attaching exactly the selected text and truncating to the budget when
+ * needed.
+ */
+export function buildSelectionFocusedContext(
+  selections: SectionNode[],
+  options: { maxTokens?: number } = {}
+): { content: string; truncated: boolean; labels: string[] } {
+  const { maxTokens = 4000 } = options;
+  const maxChars = Math.max(256, Math.floor(maxTokens * 4 * 0.7));
+  const blocks: string[] = [];
+  const labels: string[] = [];
+  let truncated = false;
+  let used = 0;
+
+  for (const node of selections) {
+    labels.push(node.title);
+    const remaining = maxChars - used - 64;
+    if (remaining <= 0) {
+      truncated = true;
+      break;
+    }
+    const { text, truncated: wasTruncated } = truncateTextToBudget(node.content, remaining);
+    truncated ||= wasTruncated;
+    const block = `Selected text: ${node.title}\n[Selection]\n${text}`;
+    blocks.push(block);
+    used += block.length;
+    if (used >= maxChars) break;
+  }
+
+  return { content: blocks.join("\n\n---\n\n"), truncated, labels };
 }
 
 export function getCache(key: string): LRUEntry | undefined {
