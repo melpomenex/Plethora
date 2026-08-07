@@ -10,6 +10,9 @@ import {
   getCache,
   setCache,
   makeCacheKey,
+  hashContent,
+  hashOutline,
+  normalizeContentValue as normalizeContent,
   estimateTokens,
 } from "../utils/sectionIndex";
 import { useDocumentOutlineStore } from "../stores/documentOutlineStore";
@@ -32,63 +35,6 @@ interface UseDocumentSectionsReturn {
   buildSectionFocusedContext: (ids: string[] | SectionNode[], maxTokens?: number) => string;
   getOutlineHash: string;
   tokenEstimateFor: (id: string) => number;
-}
-
-function normalizeContent(input: unknown): string {
-  if (typeof input === "string") return input;
-  if (input instanceof Uint8Array) {
-    try {
-      // ponytail: byte input is truncated to 10KB, so any caller passing raw
-      // bytes gets sections for only the first 10KB of the document and no
-      // warning. Both current callers pass a decoded string, which is why this
-      // has not bitten. Decode fully here if a byte-passing caller appears.
-      return new TextDecoder().decode(input.slice(0, 10000));
-    } catch {
-      return "";
-    }
-  }
-  if (Array.isArray(input) && input.length > 0 && typeof input[0] === "number") {
-    try {
-      return String.fromCharCode(...(input as number[]).slice(0, 5000));
-    } catch {
-      return "";
-    }
-  }
-  if (input && typeof (input as any).toString === "function") {
-    const s = (input as any).toString();
-    if (s !== "[object Object]" && typeof s === "string") return s;
-  }
-  return "";
-}
-
-function hashContent(content: unknown): string {
-  const str = normalizeContent(content);
-  if (!str) return "empty";
-  let h = 0;
-  // Sample across the whole string rather than hashing only the first 2000
-  // chars: this value is a cache key, and a prefix-only hash returns stale
-  // sections for any edit past that offset that leaves the length unchanged.
-  // Striding keeps it O(2000) regardless of document size.
-  const samples = 2000;
-  const stride = Math.max(1, Math.floor(str.length / samples));
-  for (let i = 0; i < str.length; i += stride) {
-    h = (h * 31 + str.charCodeAt(i)) >>> 0;
-  }
-  return `${str.length}-${h}`;
-}
-
-function hashOutline(outline: unknown): string {
-  if (!outline) return "no-outline";
-  try {
-    const s = JSON.stringify(outline);
-    let h = 0;
-    for (let i = 0; i < Math.min(s.length, 2000); i++) {
-      h = (h * 31 + s.charCodeAt(i)) >>> 0;
-    }
-    return `${s.length}-${h}`;
-  } catch {
-    return "outline";
-  }
 }
 
 export function useDocumentSections(options: UseDocumentSectionsOptions): UseDocumentSectionsReturn {

@@ -112,9 +112,11 @@ import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
 import {
   resolveSectionFocusedContext,
+  buildSectionsSnapshot,
   type SectionNode,
   type SectionSourceReference,
 } from "../../utils/sectionIndex";
+import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { ContextControlPanel } from "./studio/ContextControlPanel";
 import { DocumentSelector } from "./studio/DocumentSelector";
@@ -3414,9 +3416,25 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         // right after a section is picked (the just-fetched canonical text can
         // momentarily disagree with the offsets the section was picked against)
         // and then succeeds immediately on an identical retry. One transparent
-        // retry absorbs that transient miss instead of surfacing it.
+        // retry absorbs that transient miss instead of surfacing it. The retry
+        // also rebuilds the section tree from the freshly fetched text — the
+        // hook's tree can still be built from partial content when a send
+        // races document loading, and that stale tree is what turned a
+        // recoverable miss into a hard "reselect and resend" failure.
         let focused = await resolveOnce();
-        if (!focused.ok) focused = await resolveOnce();
+        if (!focused.ok) {
+          const freshText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
+          const freshFlat = buildSectionsSnapshot(
+            documentId,
+            freshText,
+            useDocumentOutlineStore.getState().getOutline(documentId),
+          ).flat;
+          focused = resolveSectionFocusedContext(selectedSectionNodes, freshFlat, freshText, {
+            documentId,
+            maxTokens,
+            includeNeighbors: true,
+          });
+        }
 
         if (!focused.ok) {
           const labels = focused.unresolved.map((item) => item.label).join(", ");

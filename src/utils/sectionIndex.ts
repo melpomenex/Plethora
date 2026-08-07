@@ -76,6 +76,62 @@ export function hashSectionContent(str: string): string {
 
 const hashString = hashSectionContent;
 
+export function normalizeContentValue(input: unknown): string {
+  if (typeof input === "string") return input;
+  if (input instanceof Uint8Array) {
+    try {
+      return new TextDecoder().decode(input.slice(0, 10000));
+    } catch {
+      return "";
+    }
+  }
+  if (Array.isArray(input) && input.length > 0 && typeof input[0] === "number") {
+    try {
+      return String.fromCharCode(...(input as number[]).slice(0, 5000));
+    } catch {
+      return "";
+    }
+  }
+  if (input && typeof (input as any).toString === "function") {
+    const s = (input as any).toString();
+    if (s !== "[object Object]" && typeof s === "string") return s;
+  }
+  return "";
+}
+
+/**
+ * Hash of a document's canonical text, used as a section-tree cache key.
+ * Samples across the whole string (not just a prefix) so any edit past the
+ * first 2000 chars that leaves the length unchanged still invalidates the
+ * cache. Striding keeps it O(2000) regardless of document size.
+ */
+export function hashContent(content: unknown): string {
+  const str = normalizeContentValue(content);
+  if (!str) return "empty";
+  let h = 0;
+  const samples = 2000;
+  const stride = Math.max(1, Math.floor(str.length / samples));
+  for (let i = 0; i < str.length; i += stride) {
+    h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  }
+  return `${str.length}-${h}`;
+}
+
+/** Hash of a PDF/EPUB outline, used as part of the section-tree cache key. */
+export function hashOutline(outline: unknown): string {
+  if (!outline) return "no-outline";
+  try {
+    const s = JSON.stringify(outline);
+    let h = 0;
+    for (let i = 0; i < Math.min(s.length, 2000); i++) {
+      h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    }
+    return `${s.length}-${h}`;
+  } catch {
+    return "outline";
+  }
+}
+
 function cleanPreview(text: string): string {
   return stripMarkup(text).slice(0, 80);
 }
@@ -707,6 +763,53 @@ export function buildDocumentSections(
   }
 
   return { tree: finalTree, flat };
+}
+
+export interface DocumentOutlineInput {
+  pdfOutline?: Array<{ title: string; pageNumber?: number; items?: unknown[] }>;
+  epubToc?: Array<{ label?: string; title?: string; href?: string; subitems?: unknown[] }>;
+}
+
+/**
+ * Build the section tree for a document from a canonical text snapshot plus an
+ * optional PDF/EPUB outline, sharing the exact cache used by the
+ * `useDocumentSections` hook so both produce identical, id-stable trees.
+ *
+ * This exists for send-time retries: when a `#` mention is sent right after a
+ * document opens, the hook's tree may still be built from partial/older text
+ * while the freshly fetched canonical text has different offsets, so
+ * resolution against the hook tree fails as "stale or ambiguous". Rebuilding
+ * the tree from the same snapshot being resolved against makes the retry
+ * succeed — the same outcome the user used to get by manually resending after
+ * the hook caught up.
+ */
+export function buildSectionsSnapshot(
+  documentId: string,
+  content: string,
+  outline?: DocumentOutlineInput,
+): { tree: SectionNode[]; flat: SectionNode[] } {
+  const docId = documentId || "unknown";
+  const contentHash = hashContent(content);
+  const outlineHash = `${hashOutline(outline?.pdfOutline)}:${hashOutline(outline?.epubToc)}`;
+  const cacheKey = makeCacheKey(docId, contentHash, outlineHash);
+  const cached = getCache(cacheKey);
+  if (cached) return { tree: cached.tree, flat: cached.flat };
+
+  let outlineNodes: SectionNode[] = [];
+  if (outline?.pdfOutline && outline.pdfOutline.length > 0) {
+    outlineNodes = convertPdfOutlineToSectionNodes(outline.pdfOutline as never, content);
+  } else if (outline?.epubToc && outline.epubToc.length > 0) {
+    outlineNodes = convertEpubTocToSectionNodes(outline.epubToc as never);
+  }
+
+  const { tree: builtTree, flat: builtFlat } = buildDocumentSections(
+    content,
+    outlineNodes.length > 0 ? outlineNodes : undefined,
+  );
+  const finalFlat = builtFlat.length > 0 ? builtFlat : flattenTree(builtTree);
+  for (const node of finalFlat) node.documentId = documentId;
+  setCache(cacheKey, { tree: builtTree, flat: finalFlat, hash: `${contentHash}:${outlineHash}` });
+  return { tree: builtTree, flat: finalFlat };
 }
 
 /**
