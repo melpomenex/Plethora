@@ -232,14 +232,14 @@ L'option **SM-20** d'Incrementum est **Algorithm Arena** — un portage par ing�
 | 2 | **SM-15** | 14% | En continu, à chaque révision |
 | 3 | **SM-19** | 45% | En continu, à chaque révision |
 | 4 | **SM-20** (le noyau à courbe d'oubli "M4" à 35 paramètres) | 25% | À la demande, via le bouton Optimiser |
-| 5 | **FSRS** | 10% | À la demande, via le bouton Optimiser |**Comment fonctionne le mélange.** Chaque modèle produit indépendamment une estimation de stabilité pour la carte ; l'arène prend une moyenne pondérée et en dérive l'intervalle suivant. Les poids ne sont pas fixes — ils **s'adaptent à vous**. Chaque fois que vous examinez une carte dont la précédente évaluation remonte à au moins un jour, l'Arène évalue la prédiction *précédente* de chaque modèle par rapport à ce qui s'est réellement passé (dont vous vous êtes souvenu ou oublié) et oriente les pondérations vers les modèles qui vous ont le mieux prédit. Aucun modèle n'est jamais complètement éliminé, donc un démarreur lent peut récupérer.
+| 5 | **FSRS** | 10% | À la demande, via le bouton Optimiser |**Comment fonctionne le mélange.** Chaque modèle produit indépendamment une estimation de stabilité pour la carte ; l'arène prend une moyenne pondérée et en dérive l'intervalle suivant. Les poids ne sont pas fixes — ils **s'adaptent à vous**. Chaque fois que vous examinez une carte dont la précédente évaluation remonte à au moins un jour, l'Arena évalue la prédiction *précédente* de chaque modèle par rapport à ce qui s'est réellement passé (dont vous vous êtes souvenu ou oublié) et oriente les pondérations vers les modèles qui vous ont le mieux prédit. Aucun modèle n'est jamais complètement éliminé, donc un démarreur lent peut récupérer.
 
 **Deux manières d'apprendre :**
 
 1. **Automatiquement, à chaque révision** — l'optimiseur SM-15 et les matrices SM-19 se mettent à jour immédiatement et les poids de mélange changent. Cela commence dès votre tout premier avis. Vous pouvez le regarder dans Paramètres → Apprentissage : le panneau **Poids d'arène** affiche le pourcentage actuel de chaque modèle et, une fois que vous avez suffisamment d'avis notés, une **R-Metric** (à quel point la prédiction combinée est meilleure que celle du SM-19 seul).
-2. **À la demande, lorsque vous cliquez sur Optimiser** — deux des cinq concurrents (le noyau SM-20 et FSRS) peuvent être intégrés à votre historique d'évaluation personnel. Ces ajustements sont sécurisés par une quantité minimale de données (environ plusieurs centaines d'avis espacés de plusieurs jours) et un contrôle de validation retenu : un ajustement n'est accepté que s'il bat véritablement les valeurs par défaut expédiées sur les avis que l'ajustement n'a pas vu. Jusque-là, les boutons Optimiser signalent « Pas encore assez d'historique de révision » et ces deux modèles continuent d'utiliser leurs paramètres par défaut.
+2. **À la demande, lorsque vous cliquez sur Optimiser** — deux des cinq concurrents (le noyau SM-20 et FSRS) peuvent être intégrés à votre historique d'évaluation personnel. Ces ajustements sont limités à une quantité minimale de données (environ plusieurs centaines d'avis espacés de jours) et à un contrôle de validation retenu : un ajustement n'est accepté que s'il dépasse réellement les valeurs par défaut expédiées pour les avis que l'ajustement n'a pas vu. Jusque-là, les boutons Optimiser signalent « Pas encore assez d'historique de révision » et ces deux modèles continuent d'utiliser leurs paramètres par défaut.
 
-**Pourquoi il peut dire qu'il n'a pas commencé l'entraînement.** Seules les évaluations espacées d'au moins **un jour** portent le signal — les premières évaluations et les réévaluations le jour même ne disent rien à l'arène (chaque modèle prédit correctement que vous vous en souviendrez), ils ne comptent donc pas dans le total des points. Si vous n'avez qu'une poignée de cartes, attendez-vous à ce que les poids d'arène restent proches de leurs valeurs par défaut et que la R-Metric reste cachée jusqu'à ce que ces cartes commencent à revenir à des intervalles d'un jour. C'est attendu, pas un bug.
+**Pourquoi il peut dire qu'il n'a pas commencé l'entraînement.** Seules les évaluations espacées d'au moins **un jour** véhiculent le signal — les premières évaluations et les réévaluations le jour même ne disent rien à l'arène (chaque modèle prédit correctement que vous vous en souviendrez), elles ne comptent donc pas dans le total des points. Si vous n'avez qu'une poignée de cartes, attendez-vous à ce que les poids d'arène restent proches de leurs valeurs par défaut et que la R-Metric reste cachée jusqu'à ce que ces cartes commencent à revenir à des intervalles d'un jour. C'est attendu, pas un bug.
 
 **Mesures clés :**
 - **Stabilité (S)** : estimation de chaque modèle de la durée de persistance de la mémoire (jours) ; l'Arène les mélange.
@@ -251,11 +251,40 @@ L'option **SM-20** d'Incrementum est **Algorithm Arena** — un portage par ing�
 - FSRS-6 est un planificateur de production unique et mature et reste la valeur par défaut recommandée.
 - SM-20 est un ensemble expérimental qui oppose cinq algorithmes et laisse vos propres données choisir le mélange. Il est plus complexe et nécessite davantage d’examens à personnaliser, mais peut surpasser n’importe quel modèle unique une fois qu’il dispose de suffisamment de votre historique pour en tirer des leçons.
 
+#### Choisir un Horizon Mémoire après un examen du SM-20
+
+Sous **Paramètres → Apprentissage → Algorithm Arena → Après chaque évaluation**, choisissez le niveau de détails de planification souhaité :
+
+- **Gardez le flux (recommandé)** valide immédiatement le choix pondéré d'Arena et passe à la carte suivante. C'est la valeur par défaut.
+- **Afficher l'arène** s'arrête après une note éligible et ouvre **Memory Horizon**, avec votre réponse toujours visible pendant que les cinq modèles montrent où ils placeront la prochaine évaluation.Le même choix compact apparaît sous les six commandes de notation SM-20, de sorte que la notation suivante peut utiliser un mode différent sans quitter la revue. Les deux modes exécutent et entraînent les cinq mêmes modèles de collection ; ce paramètre change uniquement si vous faites le choix final de l'intervalle. L'étape de décision reste limitée aux examens normaux des cartes flash SM-20 ; la lecture de documents, le mode Cram, d'autres algorithmes et le **mode Pure SM-20** conservent leur flux de planification directe existant.
+
+- **Arena Pick** est sélectionné par défaut. Il s’agit de la recommandation pondérée et constitue généralement le meilleur choix lorsque vous souhaitez que l’arène prenne une décision.
+- **SM-2, SM-15, SM-19, SM-20 et FSRS** vous permettent de suivre délibérément la proposition exacte d'un modèle pour cette révision. En choisir un ne donne pas à ce modèle un poids de vote supplémentaire ; les pondérations futures continuent d’apprendre uniquement de la précision des prédictions.
+- **Personnalisé** accepte un montant et une unité ou une position sur la lentille temporelle logarithmique. Les limites affichées protègent contre les planifications non valides et la date d'échéance exacte est mise à jour avant que vous ne confirmiez.
+- **Pourquoi cet intervalle** élargit les propositions, les poids actuels et la gamme Arena. L'intervalle correspond à l'intervalle du plus ancien au plus récent proposé par les cinq modèles, et non à un intervalle d'incertitude ou de confiance.
+
+Rien n'est validé tant que vous n'appuyez sur **Planifier pour …**. Si l'aperçu devient obsolète ou si une sauvegarde échoue, la carte reste en place avec votre note et votre sélection préservées afin que vous puissiez réessayer en toute sécurité. **Retour à la note** supprime la note en attente et vous permet de choisir à nouveau.
+
+Commandes du clavier lorsque Memory Horizon est ouvert :
+
+| Clé | Actions |
+|-----|--------|
+| `←` / `→` | Explorer les propositions par ordre chronologique |
+| `1`–`5` | Sélectionnez SM-2, SM-15, SM-19, SM-20 ou FSRS |
+| `A` | Sélectionnez le choix de l'arène |
+| 'M' | Sélectionnez Personnalisé |
+| « Entrée » ou « Espace » | Confirmer le planning affiché |
+| `Évasion` | Retour à la note |
+
+Lors de la révision audio mains libres, Incrementum confirme automatiquement Arena Pick afin que la lecture puisse continuer, même lorsque **Afficher l'arène** est sélectionné pour les révisions visuelles. La révision reste récupérable si cette validation automatique échoue.
+
 ### Calendrier de lecture des documents (lecture incrémentielle)
 
-Les algorithmes ci-dessus (FSRS-6, SM-18, SM-20) sont des planificateurs de **flashcard** : ils s'entraînent sur les questions-réponses, les cloze et les cartes de base, dont l'objectif est le rappel à long terme. Les **Documents** (les articles, articles et passages que vous lisez via la lecture incrémentielle) sont programmés par un planificateur **séparé** avec un objectif différent : maintenir le contenu en rotation régulière plutôt que maximiser la conservation à long terme d'un seul fait.
+Les algorithmes ci-dessus (FSRS-6, SM-18, SM-20) sont des planificateurs de **flashcard** : ils s'entraînent sur les questions-réponses, les cloze et les cartes de base, dont l'objectif est le rappel à long terme. Les **Documents** (les articles, articles et passages que vous lisez via la lecture incrémentielle) sont programmés par un planificateur **séparé** avec un objectif différent : maintenir le contenu en rotation régulière plutôt que maximiser la rétention à long terme d'un seul fait.
 
-**Deux planificateurs, pas un.** C'est la plus grande source de confusion :- **Flashcards** → FSRS-6 / SM-18 / SM-20 (votre choix dans les paramètres d'apprentissage) → écrit dans l'historique des révisions qui entraîne ces algorithmes.
+**Deux planificateurs, pas un.** C'est la plus grande source de confusion :
+
+- **Flashcards** → FSRS-6 / SM-18 / SM-20 (votre choix dans les paramètres d'apprentissage) → écrit dans l'historique des révisions qui entraîne ces algorithmes.
 - **Documents** → le **Planificateur de lecture incrémentielle** (ou sa variante **Engaging**) → suivi séparément, et **n'alimente pas du tout les algorithmes des cartes mémoire.**
 
 L'évaluation d'un document avec Encore / Difficile / Bon / Facile semble identique à l'évaluation d'une carte mémoire - les quatre mêmes boutons apparaissent - mais la note va à un endroit différent et produit des intervalles courts et prévisibles :
@@ -265,9 +294,7 @@ L'évaluation d'un document avec Encore / Difficile / Bon / Facile semble identi
 | **Encore** | ~4 heures | minutes |
 | **Dur** | ~1 jour | 1 à 2 jours |
 | **Bien** | ~3 jours | jours-semaines |
-| **Facile** | ~7 jours | semaines |
-
-Les intervalles entre les documents sont limités à environ **30 jours** afin que le matériel reste en rotation, et les notes consécutives Bon/Facile ajoutent un petit bonus tandis que les notes consécutives Encore/Difficile ajoutent une petite pénalité.
+| **Facile** | ~7 jours | semaines |Les intervalles entre les documents sont limités à environ **30 jours** afin que le matériel reste en rotation, et les notes consécutives Bon/Facile ajoutent un petit bonus tandis que les notes consécutives Encore/Difficile ajoutent une petite pénalité.
 
 **Le planificateur engageant.** Lorsque vous lisez des documents à partir de la file d'attente, Incrementum utilise la variante *Engaging*, qui superpose l'injection de nouveauté, l'équilibrage des variétés et le hasard au-dessus des intervalles de base afin que vos sessions de lecture restent variées et intéressantes. Ces fonctionnalités d'engagement affectent *quel* document apparaîtra ensuite, et non les calculs d'intervalle sous-jacents.
 
@@ -333,7 +360,9 @@ Masquer des parties d'une image (schémas, graphiques)
 
 La carte est maintenant programmée pour examen !
 
-#### Création manuelle1. Cliquez sur **File d'attente** → **Ajouter un élément**
+#### Création manuelle
+
+1. Cliquez sur **File d'attente** → **Ajouter un élément**
 2. Choisissez le type de carte
 3. Saisissez le contenu recto/verso
 4. Sélectionnez la catégorie
@@ -575,6 +604,22 @@ Définissez la priorité de 0 à 100 sur n'importe quel élément :
 **Planification prioritaire :**
 Les éléments plus prioritaires sont affichés plus fréquemment dans les avis mitigés.
 
+### Comportement de classement et de réorganisation des files d'attente
+
+Comprendre comment la file d'attente classe les éléments et pourquoi les positions changent vous aide à optimiser votre flux d'étude :
+
+1. **Planification FSRS et notation dynamique des priorités** :
+   - La position de chaque élément est calculée à l'aide de ses paramètres de mémoire FSRS (date d'échéance, intervalle, stabilité, dégradation de la récupérabilité) combinés avec le préréglage de votre stratégie Smart Queue sélectionnée (*Maximiser la rétention*, *Rattrapage agressif*, *Minimiser le temps* ou *Exploratoire*).
+   - Au fur et à mesure que vous effectuez des révisions, reportez des éléments ou prenez des notes, les paramètres de mémoire sont mis à jour et les éléments sont naturellement reclassés lors de leur retour dans la file d'attente.
+
+2. ** Randomisation de sélection pondérée ** :
+   - Le moteur d'évaluation applique un algorithme subtil de décroissance pondérée (« caractère aléatoire = 0,3 » par défaut) lors de l'extraction d'éléments du backend. Cela maintient les éléments ayant des priorités similaires en haut tout en introduisant une légère variété pour éviter la fatigue de la file d'attente.
+
+3. **Synchronisation de l'état** :
+   - L'exécution d'actions de modification de la file d'attente (telles que l'archivage d'un document, la priorité d'édition en masse ou la modification de balises) déclenche une actualisation en arrière-plan lors du retour à la vue de la file d'attente pour que votre liste reste alignée sur l'état de la base de données principale.
+   - Les changements de vue passifs ou les changements d'onglets maintiennent un ordre local stable sans déclencher de remaniements inattendus.
+
+
 ### Files d'attente intelligentes
 
 Créez des files d'attente personnalisées avec des filtres :
@@ -595,9 +640,7 @@ Créez des files d'attente personnalisées avec des filtres :
 
 Tag-Aware Scheduling ajoute une intelligence sémantique à la file d'attente de révision.
 Lorsqu'il est activé dans Paramètres, TAS applique deux passes de post-traitement
-vos éléments dus sans modifier les intervalles SM-20/FSRS sous-jacents :
-
-- **Prerequisite Gating** : bloque les éléments dont les prérequis de balise ne sont pas remplis.
+vos éléments dus sans modifier les intervalles SM-20/FSRS sous-jacents :- **Prerequisite Gating** : bloque les éléments dont les prérequis de balise ne sont pas remplis.
   atteint le seuil d'échéance configuré.  Le matériel de base est
   stabilisé avant l'apparition des sujets avancés.
 - **Interference Jitter** : sépare les éléments partageant des balises à haute cohérence
@@ -630,7 +673,9 @@ Les prérequis des balises vous permettent de contrôler l’ordre dans lequel l
 3. Cliquez sur un nom de balise pour le sélectionner à modifier.
 4. Dans le panneau de l'éditeur, vérifiez les balises qui doivent être apprises **avant**
    les éléments de cette balise peuvent apparaître dans la file d'attente.
-5. Cliquez sur **Enregistrer les conditions préalables**.Le **graphique de dépendance** à droite visualise les relations — flèches
+5. Cliquez sur **Enregistrer les conditions préalables**.
+
+Le **graphique de dépendance** à droite visualise les relations — flèches
 pointer de la condition préalable à la balise dépendante.  Les dépendances circulaires sont
 détecté et rejeté au moment de la sauvegarde.
 
@@ -677,9 +722,7 @@ une gigue d’interférence est appliquée à ces balises.
 
 Une balise est **mature** pour un élément lorsque la stabilité SM-20/FSRS de cet élément
 atteint ou dépasse le « maturityThreshold » de la balise (par défaut 0,8).  Le
-le ratio de maturité global est « matureCount / itemCount ».
-
-- Les barres de progression dans l'éditeur de prérequis affichent le niveau actuel de chaque balise.
+le ratio de maturité global est « matureCount / itemCount ».- Les barres de progression dans l'éditeur de prérequis affichent le niveau actuel de chaque balise.
   taux de maturité.
 - Le contrôle des prérequis utilise le « maturityRatio » configuré pour décider
   si une balise de prérequis est suffisamment « satisfaite » pour déverrouiller la dépendance
@@ -691,7 +734,7 @@ le ratio de maturité global est « matureCount / itemCount ».
   vous avez exécuté le pipeline d'intégration et avez des valeurs de cohérence.
 - **Utilisez des balises granulaires**. `calculus.limits` → `calculus.derivatives` est
   plus efficace qu'une large balise « calcul ».
-- **Regardez le taux de blocage**. Si de nombreux articles restent bloqués, réduisez l’échéance
+- **Regardez le taux de blocage**. Si de nombreux articles restent bloqués, réduisez la maturité
   ratio ou simplifier le graphique des prérequis.
 - **Force-show est votre soupape de sécurité**. Si le TAS est trop agressif pour un
   élément particulier, forcez-le à l’afficher – aucune donnée de planification sous-jacente n’est endommagée.
@@ -1140,7 +1183,7 @@ Utilisez NotebookLM dans Incrementum pour rechercher, générer des artefacts d'
 - Prévisualisez les artefacts dans l'application (y compris les lecteurs audio/vidéo lorsque le média est disponible)
 - Synchronisez les flashcards/éléments de quiz générés dans la file d'attente de révision Incrementum**Enregistrer les réponses au chat sous forme d'extraits :**
 1. Ouvrez le chat de l'espace de travail NotebookLM
-2. Sur n'importe quelle réponse de l'assistant, cliquez sur **Enregistrer en tant qu'extrait**.
+2. Sur n'importe quelle réponse de l'assistant, cliquez sur ** Enregistrer en tant qu'extrait **
 3. Facultatif : mettez d'abord en surbrillance une partie de la réponse pour enregistrer uniquement le texte sélectionné.
 4. Incrementum crée un extrait lié à NotebookLM avec des métadonnées thread/source
 5. Les réponses enregistrées affichent un indicateur **déjà enregistré** pour éviter les doublons
@@ -1183,7 +1226,7 @@ Configurez les fournisseurs d'IA pour la génération de cartes :
 - Anthropique (Claude)
 - Ollama (modèles locaux comme Llama, Mistral, Qwen)
 - OpenRouter (accès à de nombreux modèles, y compris les niveaux gratuits)
-- llama.cpp / vLLM (n'importe quel modèle GGUF via API compatible OpenAI)
+- llama.cpp / vLLM (tout modèle GGUF via API compatible OpenAI)
 - Points de terminaison d'API personnalisés
 
 **Paramètres par fournisseur :**

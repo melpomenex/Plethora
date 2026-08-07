@@ -650,6 +650,22 @@ Set priority 0-100 on any item:
 **Priority Scheduling:**
 Higher priority items are shown more frequently in mixed reviews.
 
+### Queue Ordering & Reordering Behavior
+
+Understanding how the queue orders items and why positions change helps you optimize your study flow:
+
+1. **FSRS Scheduling & Dynamic Priority Scoring**:
+   - Each item's position is computed using its FSRS memory parameters (due date, interval, stability, retrievability decay) combined with your selected Smart Queue strategy preset (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time*, or *Exploratory*).
+   - As you complete reviews, postpone items, or take notes, memory parameters update and items naturally re-rank upon returning to the queue.
+
+2. **Weighted Selection Randomization**:
+   - The review engine applies a subtle weighted-decay algorithm (`randomness = 0.3` by default) when pulling items from the backend. This keeps items with similar priorities near the top while introducing slight variety to avoid queue fatigue.
+
+3. **State Synchronization**:
+   - Performing queue-modifying actions (such as archiving a document, bulk-editing priority, or modifying tags) triggers a background refresh when returning to the queue view to keep your list aligned with backend database state.
+   - Passive view changes or tab switches maintain stable local order without triggering unexpected re-shuffles.
+
+
 ### Smart Queues
 
 Create custom queues with filters:

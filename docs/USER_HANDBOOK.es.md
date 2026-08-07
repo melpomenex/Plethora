@@ -72,7 +72,7 @@ Importemos su primer documento:
 | Formato | Descripción | Caso de uso |
 |--------|-------------|----------|
 | **PDF** | Formato de documento portátil | Trabajos de investigación, libros electrónicos, documentación |
-| **EPUB** | Publicación electrónica | Libros, artículos con texto ajustable |
+| **EPUB** | Publicación Electrónica | Libros, artículos con texto ajustable |
 | **Rebaja** | Archivos `.md` | Documentación técnica, notas |
 | **HTML** | Paginas web | Artículos, publicaciones de blogs |
 | **Anki (.apkg)** | Paquete de mazo Anki | Migrar desde Anki |
@@ -230,10 +230,10 @@ Una vez importado, abra cualquier documento para acceder:
 SM-18:
 
 1. **Modelos que olvidan exponencialmente**: utiliza la fórmula `R = 0,9^(t/S)` para calcular la recuperabilidad: la probabilidad de que recuerdes un elemento en el momento `t` dada su estabilidad `S`
-2. **Seguimiento de la dificultad de forma independiente**: mantiene un valor de dificultad `D ∈ [0, 1]` para cada elemento, actualizado mediante una fórmula de promedio final que se vuelve más receptivo con cada repetición.
-3. **Utiliza una matriz SInc 3D**: busca el factor de aumento de estabilidad en una matriz de 21 × 21 × 21 indexada por dificultad, estabilidad y recuperabilidad agrupadas; este es el núcleo de la inteligencia del SM-18.
+2. **Seguimiento de la dificultad de forma independiente**: mantiene un valor de dificultad `D ∈ [0, 1]` para cada elemento, actualizado mediante una fórmula de promedio final que responde mejor con cada repetición.
+3. **Utiliza una matriz SInc 3D**: busca el factor de aumento de estabilidad en una matriz de 21×21×21 indexada por dificultad, estabilidad y recuperabilidad agrupadas; este es el núcleo de la inteligencia del SM-18.
 4. **Maneja los lapsos con gracia**: en caso de falla, reduce la estabilidad en un factor de 0,87 (dividido por los lapsos acumulados) y reinicia el contador de repeticiones, pero conserva la estimación de dificultad.
-5. **Calcula intervalos a partir de la estabilidad**: deriva el siguiente intervalo de revisión a partir del objetivo de retención deseado: `intervalo = S × ln(1-FI) / ln(0,9)`
+5. **Calcula intervalos a partir de la estabilidad**: deriva el siguiente intervalo de revisión a partir del objetivo de retención deseado: `intervalo = S × ln(1-FI) / ln(0.9)`
 
 **Métricas clave:**
 - **Estabilidad (S)**: cuánto tiempo persiste un recuerdo antes de descomponerse (medido en días)
@@ -252,14 +252,14 @@ La opción **SM-20** de Incrementum es **Algorithm Arena**: una adaptación de i
 | 2 | **SM-15** | 14% | Continuamente, en cada revisión |
 | 3 | **SM-19** | 45% | Continuamente, en cada revisión |
 | 4 | **SM-20** (el kernel de curva de olvido "M4" de 35 parámetros) | 25% | Bajo demanda, a través del botón Optimizar |
-| 5 | **FSRS** | 10% | Bajo demanda, a través del botón Optimizar |**Cómo funciona la combinación.** Cada modelo produce de forma independiente una estimación de estabilidad para la tarjeta; la Arena toma un promedio ponderado y deriva el siguiente intervalo a partir de ahí. Los pesos no son fijos: se **adaptan a ti**. Cada vez que revisas una tarjeta cuya revisión anterior fue hace al menos un día, la Arena califica la predicción *anterior* de cada modelo contra lo que realmente sucedió (lo recordaste u olvidaste) y empuja los pesos hacia los modelos que te han estado prediciendo mejor. Ningún modelo se elimina por completo, por lo que un modelo que arranca lentamente puede recuperarse.
+| 5 | **FSRS** | 10% | Bajo demanda, a través del botón Optimizar |**Cómo funciona la combinación.** Cada modelo produce de forma independiente una estimación de estabilidad para la tarjeta; la Arena toma un promedio ponderado y deriva el siguiente intervalo a partir de ahí. Los pesos no son fijos: se **adaptan a ti**. Cada vez que revisas una tarjeta cuya revisión anterior fue hace al menos un día, Arena califica la predicción *anterior* de cada modelo contra lo que realmente sucedió (lo recordaste u olvidaste) y empuja los pesos hacia los modelos que te han estado prediciendo mejor. Ningún modelo se elimina por completo, por lo que un modelo que arranca lentamente puede recuperarse.
 
 **Dos formas de aprender:**
 
 1. **Automáticamente, en cada revisión**: el optimizador SM-15 y las matrices SM-19 se actualizan inmediatamente y los pesos de combinación cambian. Esto comienza con su primera revisión. Puedes verlo en Configuración → Aprendizaje: el panel **Pesos de Arena** muestra el porcentaje actual de cada modelo y, una vez que tengas suficientes reseñas puntuadas, una **Métrica R** (cuánto mejor es la predicción combinada que SM-19 solo).
 2. **Bajo demanda, al hacer clic en Optimizar**: dos de los cinco competidores (el kernel SM-20 y FSRS) se pueden incluir en su historial de reseñas personal. Estos ajustes están respaldados por una cantidad mínima de datos (aproximadamente varios cientos de revisiones espaciadas por días) y una verificación de validación retenida: un ajuste solo se acepta si realmente supera los valores predeterminados enviados en las revisiones que el ajuste no ha visto. Hasta entonces, los botones Optimizar informan "Aún no hay suficiente historial de revisión" y esos dos modelos siguen usando sus parámetros predeterminados.
 
-**Por qué puede decir que no ha comenzado a entrenar.** Solo las revisiones espaciadas con al menos **un día de diferencia** transmiten la señal: las primeras revisiones y las nuevas revisiones el mismo día no le dicen nada a la Arena (cada modelo predice correctamente lo que recordarás), por lo que no cuentan para el total de puntos. Si solo tienes un puñado de cartas, espera que los pesos de la Arena se mantengan cerca de sus valores predeterminados y que la Métrica R permanezca oculta hasta que esas cartas comiencen a aparecer en intervalos de escala de días. Esto es lo esperado, no un error.
+**Por qué puede decir que no ha comenzado a entrenar.** Solo las revisiones espaciadas con al menos **un día de diferencia** transmiten la señal: las primeras revisiones y las nuevas revisiones el mismo día no le dicen nada a la Arena (cada modelo predice correctamente lo que recordarás), por lo que no cuentan para el total de puntos. Si solo tienes un puñado de cartas, espera que los pesos de la Arena permanezcan cerca de sus valores predeterminados y que la Métrica R permanezca oculta hasta que esas cartas comiencen a aparecer en intervalos de escala de días. Esto es lo esperado, no un error.
 
 **Métricas clave:**
 - **Estabilidad (S)**: la estimación de cada modelo de cuánto tiempo persiste la memoria (días); la Arena combina estos.
@@ -271,11 +271,40 @@ La opción **SM-20** de Incrementum es **Algorithm Arena**: una adaptación de i
 - FSRS-6 es un programador de producción único y maduro y sigue siendo el valor predeterminado recomendado.
 - SM-20 es un conjunto experimental que enfrenta cinco algoritmos entre sí y permite que tus propios datos elijan la combinación. Es más complejo y necesita más revisiones para personalizarlo, pero puede superar a cualquier modelo una vez que tenga suficiente historial para aprender.
 
+#### Elección de un horizonte de memoria después de una revisión del SM-20
+
+En **Configuración → Aprendizaje → Campo de algoritmos → Después de cada calificación**, elija cuántos detalles de programación desea:
+
+- **Mantener el flujo (recomendado)** confirma la selección ponderada de Arena inmediatamente y pasa a la siguiente carta. Este es el valor predeterminado.
+- **Mostrar la Arena** hace una pausa después de una calificación elegible y abre **Memory Horizon**, con tu respuesta aún visible mientras los cinco modelos muestran dónde colocarían la siguiente revisión.La misma opción compacta aparece debajo de los seis controles de calificación SM-20, por lo que la siguiente calificación puede usar un modo diferente sin salir de la revisión. Ambos modos ejecutan y entrenan los mismos cinco modelos de colección; esta configuración cambia sólo si realiza la elección final del intervalo. El paso de decisión sigue limitado a revisiones normales de tarjetas didácticas SM-20; la lectura de documentos, el modo intensivo, otros algoritmos y el **Modo SM-20 puro** mantienen su flujo de programación directa existente.
+
+- **Arena Pick** está seleccionado de forma predeterminada. Es la recomendación ponderada y suele ser la mejor opción cuando quieres que la Arena decida.
+- **SM-2, SM-15, SM-19, SM-20 y FSRS** te permiten seguir deliberadamente la propuesta exacta de un modelo para esta revisión. Elegir uno no le da a ese modelo un peso de votación adicional; Las ponderaciones futuras continúan aprendiendo solo de la precisión de la predicción.
+- **Personalizado** acepta una cantidad y una unidad o una posición en la lente de tiempo logarítmica. Los límites mostrados protegen contra programaciones no válidas y la fecha de vencimiento exacta se actualiza antes de que usted confirme.
+- **Por qué este intervalo** amplía las propuestas, los pesos actuales y el rango de Arena. El rango es el intervalo del más antiguo al más reciente propuesto por los cinco modelos, no un intervalo de incertidumbre o de confianza.
+
+No se confirma nada hasta que presiona **Programar para...**. Si la vista previa se vuelve obsoleta o falla al guardar, la tarjeta permanece en su lugar y se conservan su calificación y selección para que pueda volver a intentarlo de manera segura. **Volver a calificación** descarta la calificación pendiente y te permite elegir nuevamente.
+
+Controles del teclado mientras Memory Horizon está abierto:
+
+| Clave | Acción |
+|-----|--------|
+| `←` / `→` | Explora propuestas en orden temporal |
+| `1`–`5` | Seleccione SM-2, SM-15, SM-19, SM-20 o FSRS |
+| `A` | Seleccionar Arena Elegir |
+| `M` | Seleccione Personalizado |
+| `Entrar` o `Espacio` | Confirmar el horario mostrado |
+| `Escape` | Volver a la calificación |
+
+En la revisión de audio con manos libres, Incrementum confirma automáticamente la selección de arena para que la reproducción pueda continuar, incluso cuando se selecciona **Mostrar la arena** para revisiones visuales. La revisión sigue siendo recuperable si esa confirmación automática falla.
+
 ### Programa de lectura de documentos (lectura incremental)
 
-Los algoritmos anteriores (FSRS-6, SM-18, SM-20) son programadores de **tarjetas didácticas**: se entrenan en preguntas y respuestas, cloze y tarjetas básicas, donde el objetivo es el recuerdo a largo plazo. Los **documentos** (los artículos, artículos y pasajes que lees mediante lectura incremental) se programan mediante un programador **independiente** con un objetivo diferente: mantener el contenido en rotación regular en lugar de maximizar la retención a largo plazo de un solo hecho.
+Los algoritmos anteriores (FSRS-6, SM-18, SM-20) son programadores de **tarjetas didácticas**: se entrenan en preguntas y respuestas, cloze y tarjetas básicas, donde el objetivo es el recuerdo a largo plazo. Los **documentos** (los artículos, artículos y pasajes que lees mediante lectura incremental) se programan mediante un programador **separado** con un objetivo diferente: mantener el contenido en rotación regular en lugar de maximizar la retención a largo plazo de un solo hecho.
 
-**Dos programadores, no uno.** Esta es la mayor fuente de confusión:- **Tarjetas didácticas** → FSRS-6 / SM-18 / SM-20 (su elección en la configuración de aprendizaje) → escribe en el historial de revisión que entrena esos algoritmos.
+**Dos programadores, no uno.** Esta es la mayor fuente de confusión:
+
+- **Tarjetas didácticas** → FSRS-6 / SM-18 / SM-20 (su elección en la configuración de aprendizaje) → escribe en el historial de revisión que entrena esos algoritmos.
 - **Documentos** → el **Programador de lectura incremental** (o su variante **Engaging**) → rastreado por separado y **no alimenta los algoritmos de las tarjetas didácticas en absoluto.**
 
 Calificar un documento con Nuevamente / Difícil / Bueno / Fácil parece idéntico a calificar una tarjeta didáctica (aparecen los mismos cuatro botones), pero la calificación va a un lugar diferente y produce intervalos cortos y predecibles:
@@ -285,11 +314,9 @@ Calificar un documento con Nuevamente / Difícil / Bueno / Fácil parece idénti
 | **Otra vez** | ~4 horas | minutos |
 | **Duro** | ~1 día | 1–2 días |
 | **Bueno** | ~3 días | días–semanas |
-| **Fácil** | ~7 días | semanas |
+| **Fácil** | ~7 días | semanas |Los intervalos entre documentos tienen un límite de aproximadamente **30 días** para que el material permanezca en rotación, y las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación, mientras que las calificaciones consecutivas Nuevamente/Difícil agregan una pequeña penalización.
 
-Los intervalos entre documentos tienen un límite de aproximadamente **30 días** para que el material permanezca en rotación, y las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación, mientras que las calificaciones consecutivas Nuevamente/Difícil agregan una pequeña penalización.
-
-**El Programador Engaging.** Cuando lees documentos de la cola, Incrementum utiliza la variante *Engaging*, que aplica capas de inyección de novedad, equilibrio de variedad y serendipia además de los intervalos base para que tus sesiones de lectura sigan siendo variadas e interesantes. Estas características de participación afectan *qué* documento aparece a continuación, no las matemáticas de intervalo subyacentes.
+**El Programador Engaging.** Cuando lees documentos de la cola, Incrementum utiliza la variante *Engaging*, que combina inyección de novedad, equilibrio de variedad y serendipia además de los intervalos base para que tus sesiones de lectura sigan siendo variadas e interesantes. Estas características de participación afectan *qué* documento aparece a continuación, no las matemáticas de intervalo subyacentes.
 
 **Conclusión práctica.** Hacer mucha lectura incremental **no** contará para el "entrenamiento" SM-20 o FSRS; esos algoritmos solo ven revisiones de tarjetas didácticas. Si desea que se personalicen, necesita tarjetas didácticas revisadas con un espaciado a escala de días. (Es por eso que el panel SM-20 en la configuración de Aprendizaje puede leer "0 puntaje" incluso si ha estado leyendo documentos toda la semana). Consulte [Comprensión de SM-20](#understanding-sm-20) para saber qué cuenta y qué no.
 
@@ -353,7 +380,9 @@ Ocultar partes de una imagen (diagramas, tablas)
 
 ¡La tarjeta ya está programada para revisión!
 
-#### Creación manual1. Haga clic en **Cola** → **Agregar elemento**
+#### Creación manual
+
+1. Haga clic en **Cola** → **Agregar elemento**
 2. Elige el tipo de tarjeta
 3. Ingrese el contenido del anverso/reverso
 4. Seleccione categoría
@@ -595,6 +624,22 @@ Establezca prioridad 0-100 en cualquier elemento:
 **Programación prioritaria:**
 Los elementos de mayor prioridad se muestran con más frecuencia en reseñas mixtas.
 
+### Comportamiento de ordenamiento y reordenamiento de colas
+
+Comprender cómo la cola ordena los elementos y por qué cambian las posiciones le ayuda a optimizar el flujo de su estudio:
+
+1. **Programación FSRS y puntuación de prioridad dinámica**:
+   - La posición de cada elemento se calcula utilizando sus parámetros de memoria FSRS (fecha de vencimiento, intervalo, estabilidad, disminución de la capacidad de recuperación) combinados con su estrategia preestablecida de cola inteligente seleccionada (*Maximizar retención*, *Recuperación agresiva*, *Minimizar tiempo* o *Exploratorio*).
+   - A medida que completa revisiones, pospone elementos o toma notas, los parámetros de la memoria se actualizan y los elementos se reclasifican naturalmente al regresar a la cola.
+
+2. **Aleatorización de selección ponderada**:
+   - El motor de revisión aplica un algoritmo sutil de disminución ponderada (`aleatoriedad = 0,3` por defecto) al extraer elementos del backend. Esto mantiene los elementos con prioridades similares cerca de la parte superior al tiempo que introduce una ligera variedad para evitar la fatiga en la cola.
+
+3. **Sincronización de estado**:
+   - La realización de acciones de modificación de la cola (como archivar un documento, editar la prioridad en masa o modificar etiquetas) activa una actualización en segundo plano al regresar a la vista de la cola para mantener la lista alineada con el estado de la base de datos backend.
+   - Los cambios de vista pasiva o los cambios de pestañas mantienen el orden local estable sin provocar reorganizaciones inesperadas.
+
+
 ### Colas inteligentes
 
 Crea colas personalizadas con filtros:
@@ -615,9 +660,7 @@ Crea colas personalizadas con filtros:
 
 La programación basada en etiquetas agrega inteligencia semántica a la cola de revisión.
 Cuando está habilitado en Configuración, TAS aplica dos pases de posprocesamiento
-sus artículos vencidos sin cambiar los intervalos subyacentes SM-20/FSRS:
-
-- **Requisito previo de acceso**: bloquea elementos cuyos requisitos previos de etiqueta no tienen.
+sus artículos vencidos sin cambiar los intervalos subyacentes SM-20/FSRS:- **Requisito previo de acceso**: bloquea elementos cuyos requisitos previos de etiqueta no tienen.
   alcanzado el umbral de madurez configurado.  El material fundamental es
   estabilizado antes de que aparezcan temas avanzados.
 - **Interferencia Jitter**: separa elementos que comparten etiquetas de alta coherencia
@@ -650,7 +693,9 @@ Los requisitos previos de las etiquetas le permiten controlar el orden en que ap
 3. Haga clic en el nombre de una etiqueta para seleccionarla y editarla.
 4. En el panel del editor, marque las etiquetas que se deben aprender **antes**
    Los elementos de esta etiqueta pueden aparecer en la cola.
-5. Haga clic en **Guardar requisitos previos**.El **gráfico de dependencia** de la derecha visualiza las relaciones: flechas
+5. Haga clic en **Guardar requisitos previos**.
+
+El **gráfico de dependencia** de la derecha visualiza las relaciones: flechas
 punto desde el requisito previo hasta la etiqueta dependiente.  Las dependencias circulares son
 detectado y rechazado en el momento de guardar.
 
@@ -697,9 +742,7 @@ Se aplica fluctuación de interferencia para esas etiquetas.
 
 Una etiqueta es **madura** para un artículo cuando la estabilidad SM-20/FSRS de ese artículo
 cumple o excede el `maturityThreshold` de la etiqueta (predeterminado 0.8).  el
-El índice de madurez general es `matureCount / itemCount`.
-
-- Las barras de progreso en el Editor de requisitos previos muestran la situación actual de cada etiqueta.
+El índice de madurez general es `matureCount / itemCount`.- Las barras de progreso en el Editor de requisitos previos muestran la situación actual de cada etiqueta.
   relación de madurez.
 - La activación de requisitos previos utiliza el `maturityRatio` configurado para decidir
   si una etiqueta de requisito previo está lo suficientemente "satisfecha" para desbloquear dependientes
@@ -803,7 +846,7 @@ Exporte sus datos para su análisis:
 ### Configuración de apariencia
 
 #### Temas
-- **147 temas integrados**: 26 temas modernos seleccionados y 121 temas heredados (oscuros y claros)
+- **147 temas integrados**: 26 temas seleccionados modernos y 121 temas heredados (claros y oscuros)
 - **Vista previa en vivo**: vea los cambios de tema al instante
 - **Temas personalizados**: crea tus propios esquemas de color
 
@@ -986,7 +1029,7 @@ En **Sincronización de archivos**, elija la agresividad con la que se cargan lo
 
 #### Cifrado de extremo a extremo (opcional)
 
-La sincronización se ejecuta en modo "solo TLS" de forma predeterminada: sus datos viajan cifrados a través de la red y el código de sincronización actúa como un secreto compartido. Si desea una protección más sólida, puede habilitar el **cifrado de extremo a extremo**, que cifra sus datos en su dispositivo antes de que salga, de modo que el servidor de sincronización solo vea texto cifrado.
+La sincronización se ejecuta en modo "solo TLS" de forma predeterminada: sus datos viajan cifrados a través de la red y el código de sincronización actúa como un secreto compartido. Si desea una protección más sólida, puede habilitar el **cifrado de extremo a extremo**, que cifra los datos de su dispositivo antes de salir, de modo que el servidor de sincronización solo vea texto cifrado.
 
 Cuando el cifrado está activado, el código QR incorpora el secreto de tu habitación; compártelo solo con dispositivos en los que confíes.
 
@@ -1572,7 +1615,7 @@ Búsqueda avanzada en todo el contenido:
 
 **Búsquedas guardadas:**
 1. Realizar búsqueda
-2. Haga clic en "Guardar búsqueda"
+2. Haga clic en "Guardar búsqueda".
 3. Nombra y guarda
 4. Accede desde el menú desplegable de búsqueda
 
@@ -1804,7 +1847,7 @@ La función **Intervalo de vista previa** le muestra exactamente cuándo aparece
 1. **Verifique el formato del archivo**: asegúrese de que el formato sea compatible (PDF, EPUB, etc.)
 2. **Verifique el tamaño del archivo**: los archivos muy grandes pueden agotar el tiempo de espera
 3. **Verifique la URL**: algunos sitios bloquean el acceso automatizado
-4. **Compruebe Internet**: la importación de URL requiere conexión
+4. **Consultar Internet**: la importación de URL requiere conexión
 5. **Pruebe una alternativa**: use copiar y pegar para contenido web
 
 #### Problemas de rendimiento
