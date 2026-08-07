@@ -256,14 +256,14 @@ Die **SM-20**-Option von Incrementum ist die **Algorithm Arena** – eine rücke
 
 **Zwei Möglichkeiten, wie es lernt:**
 
-1. **Automatisch bei jeder Überprüfung** – der SM-15-Optimierer und die SM-19-Matrizen werden sofort aktualisiert und die Mischungsgewichte verschieben sich. Dies beginnt mit Ihrer allerersten Bewertung. Sie können es sich unter „Einstellungen“ → „Lernen“ ansehen: Das Feld „Arena-Gewichtungen“ zeigt den aktuellen Prozentsatz jedes Modells und, sobald Sie genügend Bewertungen erhalten haben, eine **R-Metrik** (wie viel besser die gemischte Vorhersage abschneidet als SM-19 allein).
+1. **Automatisch bei jeder Überprüfung** – der SM-15-Optimierer und die SM-19-Matrizen werden sofort aktualisiert und die Mischungsgewichte verschieben sich. Dies beginnt mit Ihrer allerersten Bewertung. Sie können es unter Einstellungen → Lernen ansehen: Das Feld **Arena-Gewichtungen** zeigt den aktuellen Prozentsatz jedes Modells und, sobald Sie genügend Bewertungen erhalten haben, eine **R-Metrik** (wie viel besser die gemischte Vorhersage abschneidet als SM-19 allein).
 2. **Bei Bedarf, wenn Sie auf „Optimieren“ klicken – zwei der fünf Konkurrenten (der SM-20-Kernel und FSRS) können an Ihren persönlichen Bewertungsverlauf angepasst werden. Diese Anpassungen werden durch eine Mindestdatenmenge (ungefähr mehrere Hundert Bewertungen im Abstand von einem Tag) und eine aufgeschobene Validierungsprüfung gesteuert: Eine Anpassung wird nur dann akzeptiert, wenn sie die gelieferten Standardwerte für Bewertungen, die die Anpassung nicht gesehen hat, tatsächlich übertrifft. Bis dahin melden die Schaltflächen „Optimieren“ „Noch nicht genügend Überprüfungsverlauf“ und diese beiden Modelle verwenden weiterhin ihre Standardparameter.
 
-**Warum es möglicherweise heißt, dass das Training noch nicht begonnen hat.** Nur Bewertungen, die mindestens **einen Tag auseinander liegen**, tragen ein Signal – erste Bewertungen und erneute Bewertungen am selben Tag sagen der Arena nichts (jedes Modell sagt richtig voraus, dass Sie sich daran erinnern werden), daher zählen sie nicht zur Gesamtpunktzahl. Wenn Sie nur eine Handvoll Karten haben, müssen Sie damit rechnen, dass die Arena-Gewichtungen in der Nähe ihrer Standardwerte bleiben und die R-Metrik verborgen bleibt, bis diese Karten in tagesskalierten Intervallen zurückkommen. Dies ist zu erwarten und kein Fehler.
+**Warum es möglicherweise heißt, dass das Training noch nicht begonnen hat.** Nur Bewertungen, die mindestens **einen Tag auseinander liegen**, tragen ein Signal – erste Bewertungen und erneute Bewertungen am selben Tag sagen der Arena nichts (jedes Modell sagt richtig voraus, dass Sie sich daran erinnern werden), daher zählen sie nicht zur Gesamtpunktzahl. Wenn Sie nur eine Handvoll Karten haben, müssen Sie damit rechnen, dass die Arena-Gewichtungen in der Nähe ihrer Standardwerte bleiben und die R-Metrik verborgen bleibt, bis diese Karten in Tagesintervallen zurückkommen. Dies ist zu erwarten und kein Fehler.
 
 **Wichtige Kennzahlen:**
 - **Stabilität (S)**: Die Schätzung jedes Modells, wie lange der Speicher bestehen bleibt (Tage); Die Arena vereint diese.
-- **Schwierigkeit (D)**: Die Item-Schwierigkeitsschätzung jedes Modells.
+- **Schwierigkeit (D)**: Die Schätzung der Item-Schwierigkeit jedes Modells.
 - **Arena-Gewichte**: Die Live-Mischungsprozentsätze pro Modell, angezeigt in den Lerneinstellungen.
 - **R-Metrik**: Relative Verbesserung der Mischung gegenüber SM-19 allein, berechnet über einen abnehmenden Zeitraum Ihrer Bewertungen.
 
@@ -271,11 +271,40 @@ Die **SM-20**-Option von Incrementum ist die **Algorithm Arena** – eine rücke
 - FSRS-6 ist ein einzelner, ausgereifter Produktionsplaner und bleibt der empfohlene Standard.
 - SM-20 ist ein experimentelles Ensemble, das fünf Algorithmen gegeneinander antreten lässt und Ihre eigenen Daten die Mischung bestimmen lässt. Es ist komplexer und erfordert mehr Rezensionen zur Personalisierung, kann jedoch jedes einzelne Modell übertreffen, wenn es genug von Ihrer Geschichte hat, aus der es lernen kann.
 
+#### Auswahl eines Speicherhorizonts nach einer SM-20-Rezension
+
+Wählen Sie unter **Einstellungen → Lernen → Algorithmus-Arena → Nach jeder Bewertung** aus, wie viele Planungsdetails Sie wünschen:
+
+- **Den Fluss beibehalten (empfohlen)** legt die gewichtete Auswahl von Arena sofort fest und geht zur nächsten Karte über. Dies ist die Standardeinstellung.
+- **Show the Arena** pausiert nach einer berechtigten Bewertung und öffnet den **Memory Horizon**, wobei Ihre Antwort weiterhin sichtbar ist, während die fünf Modelle anzeigen, wo sie die nächste Bewertung platzieren würden.Die gleiche kompakte Auswahl erscheint unterhalb der sechs SM-20-Bewertungssteuerungen, sodass die nächste Bewertung einen anderen Modus verwenden kann, ohne die Rezension zu verlassen. In beiden Modi werden dieselben fünf Sammlungsmodelle ausgeführt und trainiert. Diese Einstellung ändert sich nur unabhängig davon, ob Sie die endgültige Intervallauswahl treffen. Der Entscheidungsschritt bleibt auf normale SM-20-Lernkartenüberprüfungen beschränkt; Das Lesen von Dokumenten, der Cram-Modus, andere Algorithmen und der **Pure SM-20 Mode** behalten ihren bestehenden direkten Planungsablauf bei.
+
+- **Arena Pick** ist standardmäßig ausgewählt. Es handelt sich um die gewichtete Empfehlung und ist in der Regel die beste Wahl, wenn die Arena entscheiden soll.
+- Mit **SM-2, SM-15, SM-19, SM-20 und FSRS** können Sie sich für diesen Test bewusst an den genauen Vorschlag eines Modells halten. Die Wahl eines solchen Modells verleiht diesem Modell kein zusätzliches Stimmgewicht; Zukünftige Gewichte lernen weiterhin nur aus der Vorhersagegenauigkeit.
+- **Benutzerdefiniert** akzeptiert einen Betrag und eine Einheit oder eine Position auf der logarithmischen Zeitlinse. Die angezeigten Grenzen schützen vor ungültigen Zeitplänen und das genaue Fälligkeitsdatum wird aktualisiert, bevor Sie es bestätigen.
+- **Warum dieses Intervall** die Vorschläge, aktuellen Gewichte und das Arena-Sortiment erweitert. Der Bereich ist das von den fünf Modellen vorgeschlagene früheste bis späteste Intervall, kein Unsicherheits- oder Konfidenzintervall.
+
+Es wird nichts festgeschrieben, bis Sie auf **Planen für …** klicken. Wenn die Vorschau veraltet ist oder das Speichern fehlschlägt, bleibt die Karte erhalten, wobei Ihre Note und Auswahl erhalten bleiben, sodass Sie es sicher noch einmal versuchen können. **Zurück zur Bewertung** verwirft die ausstehende Note und lässt Sie erneut wählen.
+
+Tastatursteuerung bei geöffnetem Memory Horizon:
+
+| Schlüssel | Aktion |
+|-----|--------|
+| `←` / `→` | Vorschläge in zeitlicher Reihenfolge erkunden |
+| `1`–`5` | Wählen Sie SM-2, SM-15, SM-19, SM-20 oder FSRS |
+| „A“ | Wählen Sie Arena-Auswahl |
+| „M“ | Wählen Sie Benutzerdefiniert |
+| „Enter“ oder „Leertaste“ | Bestätigen Sie den angezeigten Zeitplan |
+| „Flucht“ | Zurück zur Bewertung |
+
+Bei der freihändigen Audioüberprüfung bestätigt Incrementum automatisch die Arena-Auswahl, sodass die Wiedergabe fortgesetzt werden kann, selbst wenn **Arena anzeigen** für visuelle Überprüfungen ausgewählt ist. Die Überprüfung bleibt wiederherstellbar, wenn die automatische Übergabe fehlschlägt.
+
 ### Dokumentleseplan (inkrementelles Lesen)
 
-Die oben genannten Algorithmen (FSRS-6, SM-18, SM-20) sind **Lernkarten**-Planer – sie trainieren auf Fragen und Antworten, Lückentexten und einfachen Karten, wobei das Ziel eine langfristige Erinnerung ist. **Dokumente** (die Artikel, Aufsätze und Passagen, die Sie über Inkrementelles Lesen lesen) werden von einem **separaten** Planer mit einem anderen Ziel geplant: Inhalte in regelmäßiger Rotation zu halten, anstatt die langfristige Aufbewahrung einer einzelnen Tatsache zu maximieren.
+Die oben genannten Algorithmen (FSRS-6, SM-18, SM-20) sind **Lernkarten**-Planer – sie trainieren auf Fragen und Antworten, Lückentexten und einfachen Karten, wobei das Ziel eine langfristige Erinnerung ist. **Dokumente** (die Artikel, Aufsätze und Passagen, die Sie über inkrementelles Lesen lesen) werden von einem **separaten** Planer mit einem anderen Ziel geplant: Inhalte in regelmäßiger Rotation zu halten, anstatt die langfristige Aufbewahrung einer einzelnen Tatsache zu maximieren.
 
-**Zwei Planer, nicht einer.** Dies ist die größte Quelle der Verwirrung:- **Lernkarten** → FSRS-6 / SM-18 / SM-20 (Ihre Wahl in den Lerneinstellungen) → schreibt in den Überprüfungsverlauf, der diese Algorithmen trainiert.
+**Zwei Planer, nicht einer.** Dies ist die größte Quelle der Verwirrung:
+
+- **Lernkarten** → FSRS-6 / SM-18 / SM-20 (Ihre Wahl in den Lerneinstellungen) → schreibt in den Überprüfungsverlauf, der diese Algorithmen trainiert.
 - **Dokumente** → der **Inkrementelle Leseplaner** (oder seine **Engaging**-Variante) → wird separat verfolgt und **füttert die Lernkartenalgorithmen überhaupt nicht.**
 
 Die Bewertung eines Dokuments mit „Erneut“ / „Schwer“ / „Gut“ / „Einfach“ sieht genauso aus wie die Bewertung einer Karteikarte – es werden dieselben vier Schaltflächen angezeigt – aber die Bewertung erfolgt an einer anderen Stelle und erzeugt kurze, vorhersehbare Intervalle:
@@ -285,13 +314,11 @@ Die Bewertung eines Dokuments mit „Erneut“ / „Schwer“ / „Gut“ / „E
 | **Schon wieder** | ~4 Stunden | Minuten |
 | **Schwer** | ~1 Tag | 1–2 Tage |
 | **Gut** | ~3 Tage | Tage–Wochen |
-| **Einfach** | ~7 Tage | Wochen |
-
-Die Dokumentintervalle sind auf ungefähr **30 Tage** begrenzt, sodass das Material im Wechsel bleibt, und aufeinanderfolgende Gut/Einfach-Bewertungen fügen einen kleinen Bonus hinzu, während aufeinanderfolgende Wieder/Schwierig-Bewertungen einen kleinen Nachteil bedeuten.
+| **Einfach** | ~7 Tage | Wochen |Die Dokumentintervalle sind auf ungefähr **30 Tage** begrenzt, sodass das Material im Wechsel bleibt, und aufeinanderfolgende Gut/Einfach-Bewertungen fügen einen kleinen Bonus hinzu, während aufeinanderfolgende Wieder/Schwierig-Bewertungen einen kleinen Nachteil bedeuten.
 
 **Der Engaging Scheduler.** Wenn Sie Dokumente aus der Warteschlange lesen, verwendet Incrementum die Variante *Engaging*, die Neuheiten, Sortenausgleich und Serendipity über die Basisintervalle legt, damit Ihre Lesesitzungen abwechslungsreich und interessant bleiben. Diese Engagement-Funktionen wirken sich darauf aus, *welches* Dokument als nächstes erscheint, nicht auf die zugrunde liegende Intervallberechnung.
 
-**Praktische Erkenntnis.** Viel inkrementelles Lesen zählt **nicht** für das „Training“ von SM-20 oder FSRS – diese Algorithmen sehen nur Lernkartenbewertungen. Wenn Sie möchten, dass sie personalisiert werden, benötigen Sie Lernkarten, die im Tagesabstand überprüft werden. (Aus diesem Grund kann im SM-20-Bereich in den Lerneinstellungen „0 bewertet“ angezeigt werden, auch wenn Sie die ganze Woche über Dokumente gelesen haben.) Unter [SM-20 verstehen](#understanding-sm-20) erfahren Sie, was zählt und was nicht.
+**Praktische Erkenntnis.** Viel inkrementelles Lesen zählt **nicht** für das „Training“ von SM-20 oder FSRS – diese Algorithmen sehen nur Lernkartenbewertungen. Wenn Sie möchten, dass sie personalisiert werden, benötigen Sie Lernkarten, die im Tagesabstand überprüft werden. (Aus diesem Grund kann im SM-20-Bereich in den Lerneinstellungen „0 Punkte“ angezeigt werden, auch wenn Sie die ganze Woche über Dokumente gelesen haben.) Unter [SM-20 verstehen](#understanding-sm-20) erfahren Sie, was zählt und was nicht.
 
 ### Bewertungssystem
 
@@ -353,7 +380,9 @@ Teile eines Bildes ausblenden (Diagramme, Diagramme)
 
 Die Karte ist jetzt zur Überprüfung vorgesehen!
 
-#### Manuelle Erstellung1. Klicken Sie auf **Warteschlange** → **Element hinzufügen**
+#### Manuelle Erstellung
+
+1. Klicken Sie auf **Warteschlange** → **Element hinzufügen**
 2. Wählen Sie den Kartentyp
 3. Geben Sie den Inhalt für die Vorder-/Rückseite ein
 4. Kategorie auswählen
@@ -459,7 +488,7 @@ Wählen Sie mithilfe der Kontrollkästchen mehrere Karten aus und verwenden Sie 
 **Gemischte Überprüfungssitzungen (Karten + Dokumente):**
 - Überprüfungssitzungen können **Lernelemente** und **Dokumente** umfassen, die zum Lesen anstehen.
 - Wenn ein Dokument erscheint, können Sie es direkt von der Sitzungskarte aus öffnen.
-- Die Bewertung eines Dokuments plant seinen nächsten Lesetermin über den **Inkrementellen Leseplaner** (kurze, begrenzte Intervalle) – getrennt von den Lernkartenalgorithmen. Siehe [Dokumentleseplan](#document-reading-schedule-incremental-reading).
+- Die Bewertung eines Dokuments plant seinen nächsten Lesetermin über den **Inkrementellen Leseplaner** (kurze, begrenzte Intervalle) – unabhängig von den Lernkartenalgorithmen. Siehe [Dokumentleseplan](#document-reading-schedule-incremental-reading).
 
 **Bewertungsschnittstelle:**
 Nachdem Sie die Antwort angezeigt haben, erscheinen vier Bewertungsschaltflächen:
@@ -595,6 +624,22 @@ Legen Sie für jedes Element eine Priorität von 0 bis 100 fest:
 **Prioritätsplanung:**
 Artikel mit höherer Priorität werden in gemischten Bewertungen häufiger angezeigt.
 
+### Verhalten beim Sortieren und Neuordnen von Warteschlangen
+
+Wenn Sie verstehen, wie die Warteschlange Artikel anordnet und warum sich Positionen ändern, können Sie Ihren Lernablauf optimieren:
+
+1. **FSRS-Planung und dynamische Prioritätsbewertung**:
+   - Die Position jedes Elements wird anhand seiner FSRS-Speicherparameter (Fälligkeitsdatum, Intervall, Stabilität, Abrufbarkeitsverfall) in Kombination mit der von Ihnen ausgewählten Smart Queue-Strategievoreinstellung (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time* oder *Exploratory*) berechnet.
+   - Wenn Sie Überprüfungen abschließen, Elemente verschieben oder Notizen machen, werden die Speicherparameter aktualisiert und die Elemente werden bei der Rückkehr in die Warteschlange automatisch neu eingestuft.
+
+2. **Gewichtete Auswahl-Randomisierung**:
+   – Die Überprüfungs-Engine wendet beim Abrufen von Elementen aus dem Backend einen subtilen Algorithmus mit gewichtetem Abfall an (standardmäßig „Zufälligkeit = 0,3“). Dadurch bleiben Elemente mit ähnlichen Prioritäten ganz oben, während gleichzeitig eine leichte Abwechslung eingeführt wird, um eine Ermüdung der Warteschlange zu vermeiden.
+
+3. **Statussynchronisierung**:
+   - Das Durchführen von Aktionen zur Änderung der Warteschlange (z. B. Archivieren eines Dokuments, Massenbearbeitungspriorität oder Ändern von Tags) löst eine Hintergrundaktualisierung aus, wenn Sie zur Warteschlangenansicht zurückkehren, um Ihre Liste mit dem Backend-Datenbankstatus abzugleichen.
+   - Passive Ansichtsänderungen oder Tab-Wechsel sorgen für eine stabile lokale Reihenfolge, ohne unerwartete Neuanordnungen auszulösen.
+
+
 ### Intelligente Warteschlangen
 
 Erstellen Sie benutzerdefinierte Warteschlangen mit Filtern:
@@ -615,9 +660,7 @@ Erstellen Sie benutzerdefinierte Warteschlangen mit Filtern:
 
 Tag-Aware Scheduling fügt der Überprüfungswarteschlange semantische Intelligenz hinzu.
 Wenn in den Einstellungen aktiviert, führt TAS zwei Nachbearbeitungsdurchgänge durch
-Ihre fälligen Posten, ohne die zugrunde liegenden SM-20/FSRS-Intervalle zu ändern:
-
-- **Voraussetzungs-Gating**: Blockiert Elemente, deren Tag-Voraussetzungen nicht erfüllt sind
+Ihre fälligen Posten, ohne die zugrunde liegenden SM-20/FSRS-Intervalle zu ändern:- **Voraussetzungs-Gating**: Blockiert Elemente, deren Tag-Voraussetzungen nicht erfüllt sind
   hat den konfigurierten Reifeschwellenwert erreicht.  Grundlegendes Material ist
   stabilisiert, bevor fortgeschrittene Themen angezeigt werden.
 - **Interferenz-Jitter**: Trennt Elemente, die Tags mit hoher Kohärenz teilen
@@ -650,7 +693,9 @@ Mit den Tag-Voraussetzungen können Sie die Reihenfolge steuern, in der Themen a
 3. Klicken Sie auf einen Tag-Namen, um ihn zur Bearbeitung auszuwählen.
 4. Überprüfen Sie im Editorbereich die Tags, die **vorher** gelernt werden müssen.
    Die Elemente dieses Tags können in der Warteschlange angezeigt werden.
-5. Klicken Sie auf **Voraussetzungen speichern**.Das **Abhängigkeitsdiagramm** auf der rechten Seite visualisiert Beziehungen – Pfeile
+5. Klicken Sie auf **Voraussetzungen speichern**.
+
+Das **Abhängigkeitsdiagramm** auf der rechten Seite visualisiert Beziehungen – Pfeile
 Punkt vom Voraussetzungs- zum abhängigen Tag.  Zirkuläre Abhängigkeiten sind
 erkannt und zum Zeitpunkt der Speicherung abgelehnt.
 
@@ -697,9 +742,7 @@ Für diese Tags wird Interferenz-Jitter angewendet.
 
 Ein Tag ist für einen Artikel **ausgereift**, wenn die SM-20/FSRS-Stabilität dieses Artikels vorliegt
 erfüllt oder überschreitet den „maturityThreshold“ des Tags (Standard 0,8).  Die
-Das Gesamtreifeverhältnis beträgt „matureCount / itemCount“.
-
-- Fortschrittsbalken im Voraussetzungseditor zeigen den aktuellen Status jedes Tags an
+Das Gesamtreifeverhältnis beträgt „matureCount / itemCount“.- Fortschrittsbalken im Voraussetzungseditor zeigen den aktuellen Status jedes Tags an
   Fälligkeitsverhältnis.
 - Voraussetzungs-Gating verwendet zur Entscheidung das konfigurierte „maturityRatio“.
   ob ein Voraussetzungs-Tag „erfüllt“ genug ist, um abhängig zu sein
@@ -858,7 +901,7 @@ Incrementum unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am
 **SM-18 (SuperMemo 18):**
 - Neuester SuperMemo-Algorithmus, rückentwickelt von der Originalanwendung
 - Verwendet eine 3D-SInc-Suchmatrix (Stabilitätssteigerung) für Schwierigkeit, Stabilität und Wiederauffindbarkeit
-- Explizite Schwierigkeitsverfolgung mit nachlaufenden Durchschnittsaktualisierungen
+- Explizite Schwierigkeitsverfolgung mit Aktualisierungen des nachlaufenden Durchschnitts
 - Exponentielles Vergessenskurvenmodell: „R = 0,9^(t/S)“.
 - Ausgeklügelte Fehlerbehandlung mit ausfallabhängiger Stabilitätsreduzierung
 
@@ -1296,7 +1339,7 @@ Incrementum kann RSS-Feeds von beliebten Newsletter-Plattformen automatisch erke
 
 - **Substack**: Fügen Sie „/feed“ zu jeder Substack-URL hinzu
   - Beispiel: „https://author.substack.com“ → „https://author.substack.com/feed“.
-- **Beehiiv**: Erkennt automatisch den „/feed“-Endpunkt
+- **Beehiiv**: Erkennt den Endpunkt „/feed“ automatisch
 - **Ghost-Blogs**: Erkennt den Endpunkt „/rss/“ automatisch
 - **Buttondown**: Fügen Sie „/feed“ zur Newsletter-URL hinzu
 - **Generisch**: Erkennt RSS-Feeds automatisch aus HTML-Tags „<link>“.
