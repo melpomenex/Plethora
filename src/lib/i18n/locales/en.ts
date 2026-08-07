@@ -106,6 +106,8 @@ export const en: Dict = {
   "browser.openInSystemBrowser": "Open in system browser",
   "browser.retry": "Retry",
   "browser.navigationFailed": "Navigation failed",
+  "browser.proxyFailureTitle": "This page couldn't be loaded",
+  "browser.proxyFailureReason": "{host} could not be loaded: {reason}",
   "browser.selectionUnavailable": "Selection not readable",
   "browser.selectionUnavailableDesc": "The page selection could not be read, so no extract was created. Select text on the page and try again, or type it manually.",
   "browser.readerView": "Reader View",

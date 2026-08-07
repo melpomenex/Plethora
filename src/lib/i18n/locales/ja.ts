@@ -4407,6 +4407,8 @@ export const ja: Dict = {
   "browser.openInSystemBrowser": "システムブラウザで開く",
   "browser.retry": "再試行",
   "browser.navigationFailed": "ナビゲーションに失敗しました",
+  "browser.proxyFailureTitle": "このページを読み込めませんでした",
+  "browser.proxyFailureReason": "{host} を読み込めませんでした: {reason}",
   "browser.selectionUnavailable": "選択範囲を読み取れません",
   "browser.selectionUnavailableDesc": "ページの選択範囲を読み取れなかったため、抽出は作成されませんでした。ページ内のテキストを選択してもう一度お試しになるか、手動で入力してください。",
   "browser.readerView": "リーダービュー",

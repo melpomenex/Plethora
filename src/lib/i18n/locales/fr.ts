@@ -4505,6 +4505,8 @@ export const fr: Dict = {
   "browser.openInSystemBrowser": "Ouvrir dans le navigateur du système",
   "browser.retry": "Réessayer",
   "browser.navigationFailed": "Échec de la navigation",
+  "browser.proxyFailureTitle": "Cette page n'a pas pu être chargée",
+  "browser.proxyFailureReason": "{host} n'a pas pu être chargé : {reason}",
   "browser.selectionUnavailable": "Sélection illisible",
   "browser.selectionUnavailableDesc": "La sélection de la page n'a pas pu être lue, aucun extrait n'a donc été créé. Sélectionnez du texte sur la page et réessayez, ou saisissez-le manuellement.",
   "browser.readerView": "Mode lecture",

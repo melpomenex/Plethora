@@ -24,3 +24,6 @@ When a user navigates to a web page in the Web Browser tab, the view is split: t
 ## Risks
 - Incorrect bounds calculation could lead to the webview floating over other UI elements (like the sidebar or toolbar).
 - `devicePixelRatio` issues might cause sizing discrepancies on high-DPI screens (though `LogicalSize` should handle this).
+## Superseded
+
+This change is **superseded by** `fix-in-app-browser-page-loading`: the native child webview it patches is deleted entirely and replaced with a loopback web proxy iframe, so the layout and permission symptoms it addresses no longer exist. No further work on this change is needed.

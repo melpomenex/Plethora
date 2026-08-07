@@ -46,6 +46,7 @@ mod screenshot;
 mod media_server;
 mod epub_server;
 mod security;
+mod web_proxy;
 #[cfg(test)]
 mod security_tests;
 mod sponsorblock;
@@ -1226,6 +1227,8 @@ pub fn run() {
             commands::update_document_file_path,
             media_server::get_media_stream_url,
             epub_server::get_epub_stream_url,
+            web_proxy::get_web_proxy_url,
+            web_proxy::set_web_bridge_script,
             commands::fetch_url_content,
             commands::yjs_file_exists,
             commands::yjs_file_upload,
