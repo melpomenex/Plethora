@@ -154,6 +154,13 @@ export function LLMProviderSettings({
     setNewProviderMaxTokens(provider.maxTokens ?? 4096);
     setNewProviderSystemPrompt(provider.systemPrompt ?? "");
     setShowAddForm(true);
+
+    // Seed the model dropdown and pricing panel from the saved provider's stored
+    // pricing so prices are visible without clicking "Refresh Models" first.
+    const storedModels = provider.modelPricing ? Object.values(provider.modelPricing) : [];
+    if (storedModels.length > 0) {
+      setDynamicModels((prev) => ({ ...prev, [provider.provider]: storedModels }));
+    }
   };
 
   const cancelEditing = () => {
@@ -290,12 +297,7 @@ export function LLMProviderSettings({
         throw new Error("Failed to fetch models - invalid response");
       }
       setDynamicModels({ ...dynamicModels, [newProviderType]: models });
-      
-      const pricingMap: Record<string, ModelInfo> = {};
-      models.forEach((model) => {
-        pricingMap[model.id] = model;
-      });
-      
+
       // Set the first model as default if current model is not in the list
       if (models.length > 0 && !models.find(m => m.id === newProviderModel)) {
         setNewProviderModel(models[0].id);
@@ -304,8 +306,6 @@ export function LLMProviderSettings({
       if (newProviderType === "ollama") {
         setOllamaStatus(null);
       }
-      
-      return pricingMap;
     } catch (error) {
       console.error("Failed to fetch models:", error);
       const msg = error instanceof Error ? error.message : String(error);
@@ -329,9 +329,14 @@ export function LLMProviderSettings({
   const formatPrice = (price?: number) => {
     if (price === undefined || price === null) return "N/A";
     if (price === 0) return "Free";
-    if (price < 0.001) return `$${(price * 1000).toFixed(2)} per 1M tokens`;
+    if (price < 0.001) return `$${formatSubCentPrice(price * 1000)} per 1M tokens`;
     return `$${price.toFixed(4)} per 1K tokens`;
   };
+
+  // Sub-cent per-1K prices are shown per 1M tokens. Render with enough
+  // significant digits that a real price never floors to `$0.00` (e.g. `$0.003`,
+  // not `$0.00`), dropping trailing zeros.
+  const formatSubCentPrice = (per1m: number) => String(parseFloat(per1m.toPrecision(3)));
 
   const getModelPricing = (providerType: string, modelId: string): ModelInfo | undefined => {
     const models = dynamicModels[providerType];

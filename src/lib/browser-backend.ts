@@ -49,6 +49,7 @@ import {
     extractPlaylistId,
 } from './youtubeDataApi';
 import { providerRequiresApiKey } from '../utils/llmProviderUtils';
+import type { ModelPricing } from '../api/llm';
 import {
     fetchAndParsePodcastFeed,
     parsedFeedToRecords,
@@ -3545,19 +3546,11 @@ const commandHandlers: Record<string, CommandHandler> = {
         const baseUrl = args.baseUrl as string | undefined;
 
         // Helper to create model info with pricing
-        const createModelInfo = (id: string, name: string, contextLength?: number, pricing?: { prompt?: number; completion?: number; cacheRead?: number }) => ({
+        const createModelInfo = (id: string, name: string, contextLength?: number, pricing?: ModelPricing) => ({
             id,
             name,
             context_length: contextLength,
-            pricing: pricing ? {
-                prompt: pricing.prompt,
-                completion: pricing.completion,
-                request: undefined,
-                image: undefined,
-                web_search: undefined,
-                cache_read: pricing.cacheRead,
-                cache_write: undefined,
-            } : undefined,
+            pricing,
         });
 
         // Default models for each provider with pricing (approximate, per 1K tokens)
@@ -3578,8 +3571,8 @@ const commandHandlers: Record<string, CommandHandler> = {
                 createModelInfo('gemini-3.5-pro', 'Gemini 3.5 Pro', 1000000),
             ],
             deepseek: [
-                createModelInfo('deepseek-chat', 'DeepSeek Chat (V3)', 64000, { prompt: 0.00027, completion: 0.0011, cacheRead: 0.00007 }),
-                createModelInfo('deepseek-reasoner', 'DeepSeek Reasoner (R1)', 64000, { prompt: 0.00055, completion: 0.00219, cacheRead: 0.00014 }),
+                createModelInfo('deepseek-chat', 'DeepSeek Chat (V3)', 64000, { prompt: 0.00027, completion: 0.0011, cache_read: 0.00007 }),
+                createModelInfo('deepseek-reasoner', 'DeepSeek Reasoner (R1)', 64000, { prompt: 0.00055, completion: 0.00219, cache_read: 0.00014 }),
             ],
             ollama: [
                 createModelInfo('llama3.2', 'Llama 3.2', 128000),
@@ -3667,12 +3660,12 @@ const commandHandlers: Record<string, CommandHandler> = {
                             id: string; 
                             name?: string; 
                             context_length?: number;
-                            pricing?: { prompt?: number; completion?: number; request?: number; image?: number };
+                            pricing?: Record<string, unknown>;
                         }) => createModelInfo(
                             m.id, 
                             m.name || m.id, 
                             m.context_length,
-                            m.pricing ? { prompt: m.pricing.prompt, completion: m.pricing.completion } : undefined
+                            normalizeOpenRouterPricing(m.pricing)
                         )).sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id));
                         return models;
                     }
@@ -4427,6 +4420,63 @@ async function importAnkiPackage(fileOrBytes: File | Uint8Array) {
     await db.bulkPutLearningItems(dbItems);
 
     return dbItems.map((item) => toCamelCase(item));
+}
+
+/**
+ * Normalize one OpenRouter pricing field into USD per 1K tokens.
+ *
+ * OpenRouter returns prices as USD per single token, string-encoded; `"0"` means
+ * free; negative values are its "not priced" sentinel. Rules (mirrors
+ * `normalize_openrouter_price` in src-tauri/src/commands/llm.rs — keep in sync):
+ * - unparseable / non-finite → undefined
+ * - negative (not priced) → undefined
+ * - exactly zero (free) → 0
+ * - positive → value * 1000 when per-token, else value (per-call, unscaled)
+ */
+const normalizeOpenRouterPrice = (
+  value: string | number | null | undefined,
+  perToken: boolean
+): number | undefined => {
+  if (value === undefined || value === null) return undefined;
+  let raw: number;
+  if (typeof value === "number") {
+    raw = value;
+  } else {
+    // Match Rust's `str::parse::<f64>()`: the whole string must parse
+    // (`Number` yields NaN for trailing junk, unlike parseFloat).
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+    raw = Number(trimmed);
+  }
+  if (!Number.isFinite(raw) || raw < 0) return undefined;
+  if (raw === 0) return 0;
+  return perToken ? raw * 1000 : raw;
+};
+
+/**
+ * Convert an OpenRouter `/models` pricing object into a `ModelPricing`-shaped
+ * object in USD per 1K tokens. `prompt`, `completion` and the cache fields are
+ * per-token (×1000); `request`, `image` and `web_search` are per-call
+ * (unscaled). OpenRouter's cache keys are `input_cache_read` /
+ * `input_cache_write`, with the older `cache_read` / `cache_write` keys kept as
+ * a fallback. Mirrors `map_openrouter_pricing` in
+ * src-tauri/src/commands/llm.rs — keep in sync.
+ */
+export function normalizeOpenRouterPricing(
+  raw?: Record<string, unknown>
+): ModelPricing | undefined {
+  if (!raw) return undefined;
+  const cacheRead = raw.input_cache_read ?? raw.cache_read;
+  const cacheWrite = raw.input_cache_write ?? raw.cache_write;
+  return {
+    prompt: normalizeOpenRouterPrice(raw.prompt as string | number, true),
+    completion: normalizeOpenRouterPrice(raw.completion as string | number, true),
+    request: normalizeOpenRouterPrice(raw.request as string | number, false),
+    image: normalizeOpenRouterPrice(raw.image as string | number, false),
+    web_search: normalizeOpenRouterPrice(raw.web_search as string | number, false),
+    cache_read: normalizeOpenRouterPrice(cacheRead as string | number, true),
+    cache_write: normalizeOpenRouterPrice(cacheWrite as string | number, true),
+  };
 }
 
 /**

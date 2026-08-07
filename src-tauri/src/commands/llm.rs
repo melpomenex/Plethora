@@ -1713,6 +1713,9 @@ async fn test_openrouter_connection(
     Ok(true)
 }
 
+/// Model pricing. All fields are USD per 1,000 tokens, except `request`,
+/// `image` and `web_search` which are per-call costs and are NOT scaled. `None`
+/// means "not priced / unknown"; `Some(0.0)` means free.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPricing {
     pub prompt: Option<f64>,
@@ -1733,6 +1736,64 @@ pub struct ModelInfo {
     pub name: String,
     pub context_length: Option<usize>,
     pub pricing: Option<ModelPricing>,
+}
+
+/// Normalize a single OpenRouter pricing value into the app's USD-per-1K-tokens
+/// unit. OpenRouter returns prices as USD per single token, string-encoded, and
+/// uses `"0"` for genuinely free models and negative values as its "not priced"
+/// sentinel. Rules:
+/// - unparseable / non-finite → `None`
+/// - negative (not priced) → `None`
+/// - exactly zero (free) → `Some(0.0)`
+/// - positive → `Some(v * 1000.0)` when per-token, else `Some(v)` (per-call, unscaled)
+fn normalize_openrouter_price(value: Option<&serde_json::Value>, per_token: bool) -> Option<f64> {
+    let raw = value.and_then(|v| {
+        if let Some(n) = v.as_f64() {
+            Some(n)
+        } else if let Some(s) = v.as_str() {
+            s.trim().parse::<f64>().ok()
+        } else {
+            None
+        }
+    })?;
+    if !raw.is_finite() || raw < 0.0 {
+        return None;
+    }
+    if raw == 0.0 {
+        return Some(0.0);
+    }
+    Some(if per_token { raw * 1000.0 } else { raw })
+}
+
+/// Build a `ModelPricing` from OpenRouter's `pricing` object.
+///
+/// `prompt`, `completion` and the cache fields are per-token (scaled ×1000);
+/// `request`, `image` and `web_search` are per-call and must NOT be scaled —
+/// multiplying those would be a 1000× error in the other direction.
+/// OpenRouter's cache keys are `input_cache_read` / `input_cache_write`; the
+/// older `cache_read` / `cache_write` keys are kept as a fallback lookup.
+fn map_openrouter_pricing(
+    pricing_obj: &serde_json::Map<String, serde_json::Value>,
+) -> ModelPricing {
+    ModelPricing {
+        prompt: normalize_openrouter_price(pricing_obj.get("prompt"), true),
+        completion: normalize_openrouter_price(pricing_obj.get("completion"), true),
+        request: normalize_openrouter_price(pricing_obj.get("request"), false),
+        image: normalize_openrouter_price(pricing_obj.get("image"), false),
+        web_search: normalize_openrouter_price(pricing_obj.get("web_search"), false),
+        cache_read: normalize_openrouter_price(
+            pricing_obj
+                .get("input_cache_read")
+                .or_else(|| pricing_obj.get("cache_read")),
+            true,
+        ),
+        cache_write: normalize_openrouter_price(
+            pricing_obj
+                .get("input_cache_write")
+                .or_else(|| pricing_obj.get("cache_write")),
+            true,
+        ),
+    }
 }
 
 async fn fetch_openrouter_models(
@@ -1772,17 +1833,6 @@ async fn fetch_openrouter_models(
             "Failed to parse OpenRouter models response: missing `data` array".to_string()
         })?;
 
-    let parse_f64 = |value: Option<&serde_json::Value>| -> Option<f64> {
-        let value = value?;
-        if let Some(n) = value.as_f64() {
-            return Some(n);
-        }
-        if let Some(s) = value.as_str() {
-            return s.trim().parse::<f64>().ok();
-        }
-        None
-    };
-
     let parse_usize = |value: Option<&serde_json::Value>| -> Option<usize> {
         let value = value?;
         if let Some(n) = value.as_u64() {
@@ -1816,15 +1866,7 @@ async fn fetch_openrouter_models(
             let pricing = obj
                 .get("pricing")
                 .and_then(|v| v.as_object())
-                .map(|pricing_obj| ModelPricing {
-                    prompt: parse_f64(pricing_obj.get("prompt")),
-                    completion: parse_f64(pricing_obj.get("completion")),
-                    request: parse_f64(pricing_obj.get("request")),
-                    image: parse_f64(pricing_obj.get("image")),
-                    web_search: parse_f64(pricing_obj.get("web_search")),
-                    cache_read: parse_f64(pricing_obj.get("cache_read")),
-                    cache_write: parse_f64(pricing_obj.get("cache_write")),
-                });
+                .map(map_openrouter_pricing);
 
             Some(ModelInfo {
                 id,
@@ -2607,4 +2649,96 @@ pub struct LLMContextRequest {
     pub content: Option<String>,
     pub context_window_tokens: Option<usize>,
     pub memory_enabled: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_price(actual: Option<f64>, expected: f64) {
+        let actual = actual.unwrap_or_else(|| panic!("expected price {expected}, got None"));
+        assert!(
+            (actual - expected).abs() < 1e-12,
+            "expected price {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn openrouter_pricing_is_normalized_to_per_1k() {
+        let payload: serde_json::Value = serde_json::from_str(
+            r#"{
+              "data": [
+                {
+                  "id": "anthropic/claude-3.5-sonnet",
+                  "name": "Claude 3.5 Sonnet",
+                  "context_length": 200000,
+                  "pricing": {
+                    "prompt": "0.000003",
+                    "completion": "0.000015",
+                    "input_cache_read": "0.0000003",
+                    "input_cache_write": "0.00000375",
+                    "request": "0.0000001",
+                    "image": "0.01",
+                    "web_search": "0.000002"
+                  }
+                },
+                {
+                  "id": "free-model",
+                  "pricing": { "prompt": "0", "completion": 0 }
+                },
+                {
+                  "id": "unpriced-model",
+                  "pricing": { "prompt": "-1", "completion": "abc", "web_search": null }
+                },
+                {
+                  "id": "no-pricing"
+                },
+                {
+                  "id": "legacy-keys",
+                  "pricing": { "cache_read": "0.000001", "cache_write": "0.000002" }
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let data = payload.get("data").and_then(|v| v.as_array()).unwrap();
+        let pricing_of = |id: &str| {
+            data.iter()
+                .find(|e| e.get("id").and_then(|v| v.as_str()) == Some(id))
+                .and_then(|e| e.get("pricing"))
+                .and_then(|v| v.as_object())
+                .map(map_openrouter_pricing)
+        };
+
+        // String prices on per-token fields are scaled ×1000; per-call fields
+        // (request/image/web_search) are passed through unscaled.
+        let sonnet = pricing_of("anthropic/claude-3.5-sonnet").expect("sonnet pricing");
+        assert_price(sonnet.prompt, 0.003);
+        assert_price(sonnet.completion, 0.015);
+        assert_price(sonnet.cache_read, 0.0003);
+        assert_price(sonnet.cache_write, 0.00375);
+        assert_price(sonnet.request, 0.0000001);
+        assert_price(sonnet.image, 0.01);
+        assert_price(sonnet.web_search, 0.000002);
+
+        // "0" (string or number) means genuinely free.
+        let free = pricing_of("free-model").expect("free-model pricing");
+        assert_eq!(free.prompt, Some(0.0));
+        assert_eq!(free.completion, Some(0.0));
+
+        // Negative sentinel, unparseable strings and null all mean unknown.
+        let unpriced = pricing_of("unpriced-model").expect("unpriced-model pricing");
+        assert_eq!(unpriced.prompt, None);
+        assert_eq!(unpriced.completion, None);
+        assert_eq!(unpriced.web_search, None);
+
+        // Missing pricing object → None rather than a zero default.
+        assert!(pricing_of("no-pricing").is_none());
+
+        // Legacy cache keys still work as a fallback if OpenRouter renames.
+        let legacy = pricing_of("legacy-keys").expect("legacy-keys pricing");
+        assert_price(legacy.cache_read, 0.001);
+        assert_price(legacy.cache_write, 0.002);
+    }
 }
