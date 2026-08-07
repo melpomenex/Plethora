@@ -56,16 +56,12 @@ A powerful browser extension that seamlessly integrates with Incrementum to capt
 
 #### Firefox (Recommended)
 
-**Option A: Firefox Add-ons (Permanent Install)**
-1. Install from [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/cf99d3a803c547cca595/)
-2. Click "Add to Firefox" — signed and auto-updates
-
-**Option B: Signed XPI (Manual Install)**
-1. Download the extension (`incrementum-browser-sync-1.6.0.xpi`) from [GitHub Releases](https://github.com/melpomenex/incrementum-tauri/releases/latest/download/incrementum-browser-sync-1.6.0.xpi)
+**Option A: Signed XPI (Permanent Install)**
+1. Download the extension (`incrementum-browser-sync-1.9.0.signed.xpi`) from [GitHub Releases](https://github.com/melpomenex/incrementum-tauri/releases/latest/download/incrementum-browser-sync-1.9.0.signed.xpi)
 2. Drag the `.xpi` file into a Firefox window (or open it via Firefox)
 3. Click "Add" in the confirmation prompt
 
-**Option C: Developer Mode (Temporary, reloads on restart)**
+**Option B: Developer Mode (Temporary, reloads on restart)**
 1. Open Firefox and navigate to `about:debugging`
 2. Click "This Firefox" in the sidebar
 3. Click "Load Temporary Add-on…"
