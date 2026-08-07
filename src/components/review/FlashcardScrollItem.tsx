@@ -21,6 +21,10 @@ interface FlashcardScrollItemProps {
     onCreateFlashcard?: (excerpt: string, extractId?: string, documentId?: string) => void;
     onCreateCloze?: (selectedText: string, range: [number, number]) => void;
     onCreateQA?: () => void;
+    /** Fired whenever the answer reveal state changes (used by Scroll Mode to
+     *  gate its global 1-4 rating keys on the same "reveal first" rule the
+     *  card's own rating buttons follow). */
+    onRevealChange?: (revealed: boolean) => void;
 }
 
 /**
@@ -32,7 +36,8 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     onRate, 
     onCreateFlashcard,
     onCreateCloze,
-    onCreateQA
+    onCreateQA,
+    onRevealChange
 }: FlashcardScrollItemProps) {
     const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
     const [imageUrls, setImageUrls] = useState<string[]>([]);
@@ -106,6 +111,13 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [isAnswerRevealed, onRate, onCreateQA, learningItem.question]);
+
+    // Report the reveal state to the parent (Scroll Mode gates its global 1-4
+    // rating shortcuts on it). Runs on mount (revealed=false) and whenever the
+    // answer is shown or hidden.
+    useEffect(() => {
+        onRevealChange?.(isAnswerRevealed);
+    }, [isAnswerRevealed, onRevealChange]);
 
     useEffect(() => {
         let isCancelled = false;

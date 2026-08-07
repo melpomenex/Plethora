@@ -578,6 +578,15 @@ export function QueueScrollPage() {
   const startTimeRef = useRef(Date.now());
   const containerRef = useRef<HTMLDivElement>(null);
   const rssContentRef = useRef<HTMLDivElement>(null);
+  // Tracks whether the current flashcard's answer is revealed, so the global
+  // 1-4 rating keys follow the card's own "reveal before rating" rule.
+  const flashcardRevealedRef = useRef(false);
+  const handleFlashcardReveal = useCallback((revealed: boolean) => {
+    flashcardRevealedRef.current = revealed;
+  }, []);
+  // handleRating is declared below the keydown effect that calls it; route the
+  // call through this ref (kept current by an effect) to avoid a TDZ error.
+  const rateCurrentItemRef = useRef<(rating: number) => void>(() => {});
 
   // Mobile PWA text selection state for RSS items
   const [mobileRssSelection, setMobileRssSelection] = useState<{
@@ -2742,12 +2751,28 @@ export function QueueScrollPage() {
       } else if (e.key === "h" || e.key === "?") {
         // Toggle controls
         setShowControls((prev) => !prev);
+      } else if (e.key >= "1" && e.key <= "4") {
+        // Rate the current item with the number keys (1=Again, 2=Hard,
+        // 3=Good, 4=Easy) — the same action as the rating buttons. The
+        // per-item components' own 1-4 handlers only fire when focus is
+        // inside the card (FlashcardScrollItem's container guard) or when
+        // their own gates pass, and EPUB/PDF iframes swallow keys entirely.
+        // Flashcards keep the card's "reveal the answer first" rule (same as
+        // the review session). stopImmediatePropagation prevents a double
+        // rating when a per-item handler would also fire.
+        const flashcardRevealed =
+          currentItem?.type !== "flashcard" || flashcardRevealedRef.current;
+        if (!isRating && currentItem && flashcardRevealed) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          rateCurrentItemRef.current(parseInt(e.key));
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [currentItem?.type, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab, settings.interface.volumeRockerScroll]);
+  }, [currentItem, currentItem?.type, isRating, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab, settings.interface.volumeRockerScroll]);
 
   // Bridge for TikTok-style vertical paging originating inside the EPUB iframe.
   // Touches inside epub.js's iframe are isolated from the parent document, so the
@@ -2948,6 +2973,11 @@ export function QueueScrollPage() {
       }, 500);
     }
   };
+
+  // Keep the keydown effect's rating hook pointing at the latest handler.
+  useEffect(() => {
+    rateCurrentItemRef.current = handleRating;
+  }, [handleRating]);
 
   const handleDismiss = async () => {
 
@@ -3556,6 +3586,7 @@ export function QueueScrollPage() {
               key={renderedItem.learningItem.id}
               learningItem={renderedItem.learningItem}
               onRate={handleRating}
+              onRevealChange={handleFlashcardReveal}
               onCreateFlashcard={(excerpt, extractId, documentId) => setFlashcardStudioSeed({
                 key: `scroll-${extractId || renderedItem.learningItem!.id}-${Date.now()}`,
                 excerpt,
