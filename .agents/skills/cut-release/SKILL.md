@@ -186,6 +186,50 @@ git push origin main && git push origin v<version>
 gh release create v<version> -t "v<version>" -F scripts/release-notes.md
 ```
 
+## Re-attach the browser extension XPI (do not skip)
+
+The signed Firefox extension XPI lives on GitHub Releases, and the README
+links to it with the **`/latest/download/`** stable URL:
+
+```
+https://github.com/melpomenex/incrementum-tauri/releases/latest/download/incrementum-browser-sync-<extver>.signed.xpi
+```
+
+`latest` points at the release you just cut, not the one the XPI was
+previously attached to. **If you skip this step, the README install link
+404s the moment the new release ships** — this has bitten us before.
+
+The XPI version (`<extver>`, from `browser_extension/manifest.json`) is
+independent of the app version and only changes when the extension itself
+is rebuilt. Most app releases reuse the same XPI. Either way:
+
+1. **Find the signed XPI.** The addon is **unlisted** on AMO, so AMO never
+   serves it publicly (its public download/listing URLs 404 for everyone but
+   the owner). The only signed copy comes from the AMO Developer Hub version
+   page — the `cf99…-<extver>.xpi` filename under *Files* is the download
+   link. The user downloads it; it lands at
+   `~/Downloads/cf99…-<extver>.xpi` (~88–90 KiB). The locally built
+   `browser_extension/web-ext-artifacts/*.xpi` is **unsigned** — do not ship
+   it; AMO injects signature metadata that Firefox requires.
+2. **Verify it's signed** (5 `META-INF/` entries: `mozilla.rsa`, `cose.sig`,
+   `cose.manifest`, `manifest.mf`, `mozilla.sf`) and its `manifest.json`
+   `version` matches `browser_extension/manifest.json`:
+   ```bash
+   unzip -l <file>.xpi | grep -c META-INF/        # expect 5
+   unzip -p <file>.xpi manifest.json | grep version
+   ```
+3. **Copy it to the release-naming convention** and upload to the new release:
+   ```bash
+   cp ~/Downloads/cf99…-<extver>.xpi /tmp/incrementum-browser-sync-<extver>.signed.xpi
+   gh release upload v<version> /tmp/incrementum-browser-sync-<extver>.signed.xpi --clobber
+   ```
+   Don't commit the `.xpi` into the repo — it's a release asset, not source.
+   Clean up the `/tmp` staging copy after upload.
+
+**Skip this step only if the extension version is unchanged AND a signed XPI
+for that version is already attached to the new release.** When in doubt,
+re-attach.
+
 ## Verify
 
 After the script reports success:
@@ -194,5 +238,13 @@ After the script reports success:
 - `gh release view v<version>` — the GitHub release exists with the notes body.
 - Confirm `package.json` / `Cargo.toml` / `tauri.conf.json` all show the new
   version and were committed + pushed.
+- **The XPI `/latest/download/` link resolves.** Follow redirects to a final
+  `200` with `content-type: application/x-xpinstall` and the expected
+  `content-length`:
+  ```bash
+  curl -sIL "https://github.com/melpomenex/incrementum-tauri/releases/latest/download/incrementum-browser-sync-<extver>.signed.xpi" \
+    | grep -iE "HTTP/|content-type|content-length"
+  ```
+  A 404 here means the XPI isn't on the latest release — go back and attach it.
 
 Report the release URL to the user.
