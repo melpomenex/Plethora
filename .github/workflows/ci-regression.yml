@@ -150,12 +150,11 @@ jobs:
       - name: Run benchmark suites
         run: npm run bench
 
-      # Warn-only while baselines are being recorded from real CI runs (see
-      # openspec/changes/add-performance-benchmark-gate). Once scripts/
-      # perf-baselines.json is populated, drop --warn-only so the gate fails
-      # the workflow on regressions.
+      # Enforcing mode: fails the workflow when any benchmarked hot path
+      # regresses past its baseline tolerance (baselines + per-benchmark
+      # tolerances recorded from main CI runs — see scripts/perf-baselines.json).
       - name: Check performance budget
-        run: node scripts/check-perf-budget.mjs --warn-only
+        run: node scripts/check-perf-budget.mjs
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
