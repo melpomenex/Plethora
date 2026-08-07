@@ -42,7 +42,7 @@ import { QueueExtractsView } from "../components/queue/QueueExtractsView";
 import { FlashcardStudioModal } from "../components/review/FlashcardStudioModal";
 import { LearningCardsList } from "../components/learning/LearningCardsList";
 import { submitReview } from "../api/review";
-import { splitReviewBudget } from "./queueScrollBudget";
+import { composeSession } from "./queueScrollBudget";
 import { gateScrollItemsByType, resolveMissingExtractContent } from "./queueScrollItemTypes";
 import {
   getUnreadItemsAuto,
@@ -58,6 +58,7 @@ import { cleanArticleHtml } from "../components/media/RSSFullContentView";
 import { getEpisodeQueue, markEpisodePlayed, importPodcastEpisodeAsDocument, type PodcastEpisode } from "../api/podcast";
 import { cn } from "../utils";
 import type { SessionItemTypes } from "../utils/reviewUx";
+import type { Document } from "../types/document";
 import { scoreRssRelevance, type RssClassifier } from "../utils/rssRelevance";
 import { useClassifiersStore } from "../stores/classifiersStore";
 import { RelevanceIndicator } from "../components/media/RelevanceIndicator";
@@ -174,6 +175,157 @@ interface ScrollItem {
   engagementScore?: number;
   /** RSS relevance score (0.0-1.0) from classifier-based scoring */
   relevanceScore?: number;
+}
+
+/**
+ * Map due flashcards to scroll items. Shared by the optimal path and the
+ * sequential path's top-up so both entry points build identical cards.
+ */
+function toFlashcardScrollItems(
+  cards: LearningItem[],
+  stableRandom: (str: string, offset?: number) => number
+): ScrollItem[] {
+  return cards.map((item) => ({
+    id: `flashcard-${item.id}`,
+    type: "flashcard" as const,
+    documentTitle: item.question.substring(0, 50) + (item.question.length > 50 ? "..." : ""),
+    learningItem: item,
+    category: item.tags?.[0] ?? "flashcards",
+    estimatedTime: 2, // Flashcards are quick
+    // Use stable random based on item ID to prevent re-render loops
+    engagementScore: 5 + stableRandom(item.id, 1) * 2,
+  }));
+}
+
+/**
+ * Map document queue rows to scroll items, skipping archived documents.
+ * Shared by the optimal path and the sequential path's top-up.
+ */
+function toDocumentScrollItems(
+  items: QueueItem[],
+  documentsMap: ReadonlyMap<string, Document>,
+  stableRandom: (str: string, offset?: number) => number
+): ScrollItem[] {
+  return items
+    .map((item): ScrollItem | null => {
+      const doc = documentsMap.get(item.documentId);
+      if (doc?.isArchived) {
+        return null;
+      }
+      const isNew = !doc?.dateLastReviewed;
+      const priority = item.priority ?? 5;
+      const recencyBoost = isNew ? 2 : 0;
+      const baseScore = priority + recencyBoost;
+      const serendipityBonus = stableRandom(item.id, 2) * 1.5;
+
+      return {
+        id: item.id,
+        type: "document" as const,
+        documentId: item.documentId,
+        documentTitle: item.documentTitle,
+        category: doc?.category ?? item.tags?.[0] ?? "uncategorized",
+        estimatedTime: item.estimatedTime ?? 10,
+        engagementScore: baseScore + serendipityBonus,
+      };
+    })
+    .filter((item): item is ScrollItem => item !== null);
+}
+
+/**
+ * Map due extracts to scroll items. Shared by the optimal path and the
+ * sequential path's top-up.
+ */
+function toExtractScrollItems(
+  extracts: Extract[],
+  documentsMap: ReadonlyMap<string, Document>,
+  fallbackTitle: string,
+  stableRandom: (str: string, offset?: number) => number
+): ScrollItem[] {
+  return extracts.map((extract) => {
+    const doc = documentsMap.get(extract.document_id);
+    const title = doc ? doc.title : fallbackTitle;
+
+    return {
+      id: `extract-${extract.id}`,
+      type: "extract" as const,
+      documentTitle: title,
+      extract: extract,
+      category: extract.category ?? doc?.category ?? "extracts",
+      estimatedTime: 3,
+      engagementScore: 5 + stableRandom(extract.id, 4) * 1.5,
+    };
+  });
+}
+
+/**
+ * Remove duplicate scroll items by id, keeping the first occurrence — the
+ * sequential path's own rows come first, so they always take priority over
+ * topped-up items from the due pools.
+ */
+function dedupeById(items: ScrollItem[]): ScrollItem[] {
+  const seen = new Set<string>();
+  const result: ScrollItem[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    result.push(item);
+  }
+  return result;
+}
+
+/**
+ * Evenly distribute review items (flashcards + extracts) throughout the
+ * non-review items (documents + RSS + podcasts). Preserves the relative order
+ * of each input list; `applyVarietyMixing` runs afterwards.
+ */
+function interleaveScrollItems(
+  nonReviewItems: ScrollItem[],
+  reviewItems: ScrollItem[]
+): ScrollItem[] {
+  const distributed: ScrollItem[] = [];
+  if (nonReviewItems.length > 0) {
+    const interval = reviewItems.length > 0
+      ? Math.max(1, Math.round(nonReviewItems.length / reviewItems.length))
+      : nonReviewItems.length;
+
+    let reviewIndex = 0;
+    for (let i = 0; i < nonReviewItems.length; i++) {
+      distributed.push(nonReviewItems[i]);
+
+      // Insert a review item after every 'interval' non-review items
+      if (reviewIndex < reviewItems.length && (i + 1) % interval === 0) {
+        distributed.push(reviewItems[reviewIndex]);
+        reviewIndex++;
+      }
+    }
+
+    // Add any remaining review items at the end
+    while (reviewIndex < reviewItems.length) {
+      distributed.push(reviewItems[reviewIndex]);
+      reviewIndex++;
+    }
+  } else {
+    distributed.push(...reviewItems);
+  }
+  return distributed;
+}
+
+/**
+ * Zero out the extract/flashcard composition targets that are unchecked in
+ * the Queue's item-type selection, so their share is redistributed across the
+ * checked types instead of being reserved for a type that contributes
+ * nothing. The documents target is deliberately left alone: RSS and podcast
+ * items are not governed by the Documents toggle and still draw from the
+ * documents share.
+ */
+function zeroUncheckedTargets(
+  targets: { documents: number; extracts: number; flashcards: number },
+  itemTypes: SessionItemTypes
+): { documents: number; extracts: number; flashcards: number } {
+  const next = { ...targets };
+  if (itemTypes.learningItems === false) next.flashcards = 0;
+  if (itemTypes.extracts === false) next.extracts = 0;
+  return next;
 }
 
 // Session storage keys for smart resume
@@ -1049,8 +1201,71 @@ export function QueueScrollPage() {
           activeTabQueueData.itemTypes,
         );
 
+        // Partition the source rows into the three composition pools. RSS
+        // articles draw from the Documents share, mirroring the optimal path.
+        const documentPool = gatedSequentialItems.filter(
+          (item) => item.type === "document" || item.type === "rss"
+        );
+        const extractPool = gatedSequentialItems.filter((item) => item.type === "extract");
+        const flashcardPool = gatedSequentialItems.filter((item) => item.type === "flashcard");
+
+        // The composition targets apply here too, with the Queue item-type
+        // toggles taking precedence: an unchecked type contributes no items
+        // and its share is redistributed across the checked types.
+        const itemTypes = activeTabQueueData.itemTypes;
+        const composed = composeSession({
+          targets: zeroUncheckedTargets(settings.scrollQueue.composition, itemTypes),
+          available: {
+            documents: documentPool.length,
+            extracts: extractPool.length,
+            flashcards: flashcardPool.length,
+          },
+        });
+
+        // Top up under-supplied pools from the same due pools the optimal path
+        // uses, deduplicated by item id with the source rows taking priority
+        // within their own type — this is what makes "reading queue +
+        // Flashcards at 55%" produce flashcards. A hand-picked semantic
+        // cluster (customSubset) is exempt: composition governs counts within
+        // the cluster but never introduces items from outside it. (The
+        // documents pool never needs topping up: the session is anchored on
+        // documents, so `composed.documents` is exactly the pool length.)
+        let toppedExtracts = extractPool;
+        let toppedFlashcards = flashcardPool;
+        if (!customSubset) {
+          if (composed.extracts > extractPool.length) {
+            toppedExtracts = dedupeById([
+              ...extractPool,
+              ...toExtractScrollItems(
+                dueExtracts,
+                documentsMap,
+                t("queueScroll.unknownDocument"),
+                getStableRandom,
+              ),
+            ]);
+          }
+          if (composed.flashcards > flashcardPool.length) {
+            toppedFlashcards = dedupeById([
+              ...flashcardPool,
+              ...toFlashcardScrollItems(dueFlashcards, getStableRandom),
+            ]);
+          }
+        }
+
+        const nonReviewItems = documentPool.slice(0, composed.documents);
+        const limitedExtracts = toppedExtracts.slice(0, composed.extracts);
+        const limitedFlashcards = toppedFlashcards.slice(0, composed.flashcards);
+
+        // Interleave and variety-mix exactly like the optimal path, preserving
+        // the relative order of the source rows.
+        const distributedItems = interleaveScrollItems(
+          nonReviewItems,
+          [...limitedFlashcards, ...limitedExtracts],
+        );
+        const mixedItems = applyVarietyMixing(distributedItems);
+
         if (!cancelled) {
-          setScrollItems(gatedSequentialItems);
+          setScrollItems(mixedItems);
         }
         return;
       }
@@ -1068,48 +1283,17 @@ export function QueueScrollPage() {
         : dueExtracts;
 
       // Honour the Queue's item-type selection: an unchecked type contributes
-      // no items. Gated at the source lists so splitReviewBudget and
+      // no items. Gated at the source lists so composeSession and
       // applyVarietyMixing compute against real totals. Feed items (RSS,
       // podcast) are not covered by the three toggles and stay settings-driven.
       const itemTypes = activeTabQueueData.itemTypes;
       const flashcardItems: ScrollItem[] = gateScrollItemsByType(
-        activeFlashcards.map((item) => ({
-          id: `flashcard-${item.id}`,
-          type: "flashcard" as const,
-          documentTitle: item.question.substring(0, 50) + (item.question.length > 50 ? "..." : ""),
-          learningItem: item,
-          category: item.tags?.[0] ?? "flashcards",
-          estimatedTime: 2, // Flashcards are quick
-          // Use stable random based on item ID to prevent re-render loops
-          engagementScore: 5 + getStableRandom(item.id, 1) * 2,
-        })),
+        toFlashcardScrollItems(activeFlashcards, getStableRandom),
         itemTypes,
       );
 
       const docItems: ScrollItem[] = gateScrollItemsByType(
-        documentQueueItems
-          .map((item) => {
-            const doc = documentsMap.get(item.documentId);
-            if (doc?.isArchived) {
-              return null;
-            }
-            const isNew = !doc?.dateLastReviewed;
-            const priority = item.priority ?? 5;
-            const recencyBoost = isNew ? 2 : 0;
-            const baseScore = priority + recencyBoost;
-            const serendipityBonus = getStableRandom(item.id, 2) * 1.5;
-
-            return {
-              id: item.id,
-              type: "document" as const,
-              documentId: item.documentId,
-              documentTitle: item.documentTitle,
-              category: doc?.category ?? item.tags?.[0] ?? "uncategorized",
-              estimatedTime: item.estimatedTime ?? 10,
-              engagementScore: baseScore + serendipityBonus,
-            };
-          })
-          .filter((item): item is NonNullable<typeof item> => item !== null) as ScrollItem[],
+        toDocumentScrollItems(documentQueueItems, documentsMap, getStableRandom),
         itemTypes,
       );
 
@@ -1268,82 +1452,37 @@ export function QueueScrollPage() {
       }
 
       const extractItems: ScrollItem[] = gateScrollItemsByType(
-        activeExtracts.map((extract) => {
-          const doc = documentsMap.get(extract.document_id);
-          const title = doc ? doc.title : t("queueScroll.unknownDocument");
-
-          return {
-            id: `extract-${extract.id}`,
-            type: "extract" as const,
-            documentTitle: title,
-            extract: extract,
-            category: extract.category ?? doc?.category ?? "extracts",
-            estimatedTime: 3,
-            engagementScore: 5 + getStableRandom(extract.id, 4) * 1.5,
-          };
-        }),
+        toExtractScrollItems(
+          activeExtracts,
+          documentsMap,
+          t("queueScroll.unknownDocument"),
+          getStableRandom,
+        ),
         itemTypes,
       );
 
-      // Separate review items into flashcards and extracts.
-      // Flashcards: recall-based spaced repetition, sized by flashcardPercentage.
-      // Extracts: incremental reading items. Whether they draw from the same
-      // budget is what `extractsCountAsFlashcards` controls.
-      const flashcardPercentage = settings.scrollQueue.flashcardPercentage;
+      // Compose the session from the three composition sliders. Feed items
+      // (RSS, podcast) draw from the Documents share, so they count toward the
+      // documents availability alongside documents themselves.
+      const targets = zeroUncheckedTargets(settings.scrollQueue.composition, itemTypes);
       const nonReviewItems = [...docItems, ...rssItems, ...podcastItems];
-      const totalNonReview = nonReviewItems.length;
-
-      // Calculate target flashcard count based on percentage setting
-      let targetFlashcardCount = 0;
-      if (flashcardPercentage < 100 && flashcardPercentage > 0) {
-        targetFlashcardCount = Math.round((flashcardPercentage * totalNonReview) / (100 - flashcardPercentage));
-      } else if (flashcardPercentage >= 100) {
-        targetFlashcardCount = flashcardItems.length;
-      }
-
-      const budget = splitReviewBudget({
-        targetFlashcardCount,
-        extractsCountAsFlashcards: settings.scrollQueue.extractsCountAsFlashcards,
-        maxExtractsPerSession: 20,
-        availableFlashcards: flashcardItems.length,
-        availableExtracts: extractItems.length,
+      const composed = composeSession({
+        targets,
+        available: {
+          documents: nonReviewItems.length,
+          extracts: extractItems.length,
+          flashcards: flashcardItems.length,
+        },
       });
-      const limitedFlashcards = flashcardItems.slice(0, budget.flashcards);
-      const limitedExtracts = extractItems.slice(0, budget.extracts);
+      const limitedDocuments = nonReviewItems.slice(0, composed.documents);
+      const limitedFlashcards = flashcardItems.slice(0, composed.flashcards);
+      const limitedExtracts = extractItems.slice(0, composed.extracts);
 
       // Distribute all item types evenly throughout the queue with variety mixing
-      const distributedItems: ScrollItem[] = [];
-
-      if (nonReviewItems.length > 0) {
-        // Combine flashcards and extracts for interspersion
-        const allReviewItems = [...limitedFlashcards, ...limitedExtracts];
-        const interval = allReviewItems.length > 0
-          ? Math.max(1, Math.round(nonReviewItems.length / allReviewItems.length))
-          : nonReviewItems.length;
-
-        let reviewIndex = 0;
-        for (let i = 0; i < nonReviewItems.length; i++) {
-          distributedItems.push(nonReviewItems[i]);
-
-          // Insert a review item after every 'interval' non-review items
-          if (reviewIndex < allReviewItems.length && (i + 1) % interval === 0) {
-            distributedItems.push(allReviewItems[reviewIndex]);
-            reviewIndex++;
-          }
-        }
-
-        // Add any remaining review items at the end
-        while (reviewIndex < allReviewItems.length) {
-          distributedItems.push(allReviewItems[reviewIndex]);
-          reviewIndex++;
-        }
-      } else if (limitedFlashcards.length > 0 || limitedExtracts.length > 0) {
-        // Only review items (no documents/RSS/podcasts)
-        distributedItems.push(...limitedFlashcards, ...limitedExtracts);
-      } else {
-        // Only non-review items
-        distributedItems.push(...nonReviewItems);
-      }
+      const distributedItems = interleaveScrollItems(
+        limitedDocuments,
+        [...limitedFlashcards, ...limitedExtracts],
+      );
 
       // Apply variety mixing for engagement
       const mixedItems = applyVarietyMixing(distributedItems);
@@ -1358,7 +1497,7 @@ export function QueueScrollPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds]);
+  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, customSubset]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];
@@ -3915,11 +4054,11 @@ export function QueueScrollPage() {
       <ScrollQueueSettings
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
-        flashcardPercentage={settings.scrollQueue.flashcardPercentage}
-        extractsCountAsFlashcards={settings.scrollQueue.extractsCountAsFlashcards}
+        composition={settings.scrollQueue.composition}
         autoProceed={settings.scrollQueue.autoProceed}
         ratingOrbsPosition={settings.scrollQueue.ratingOrbsPosition}
         onUpdateSetting={(key, value) => updateSettingsCategory('scrollQueue', { [key]: value })}
+        onUpdateComposition={(composition) => updateSettingsCategory('scrollQueue', { composition })}
       />
 
       {/* Overlay Controls */}

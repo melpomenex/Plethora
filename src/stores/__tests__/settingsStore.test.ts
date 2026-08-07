@@ -63,6 +63,65 @@ describe("settingsStore flashcard generation target migration", () => {
   });
 });
 
+describe("settingsStore scroll queue composition migration", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: cloneDefaults() });
+  });
+
+  async function rehydrateWith(scrollQueue: Record<string, unknown>) {
+    localStorage.setItem("incrementum-settings", JSON.stringify({
+      state: { settings: { scrollQueue } },
+      version: 6,
+    }));
+    await useSettingsStore.persist.rehydrate();
+    return useSettingsStore.getState().settings.scrollQueue.composition;
+  }
+
+  it("migrates the old default (30%, extracts count as flashcards) close to the new default", async () => {
+    const composition = await rehydrateWith({
+      flashcardPercentage: 30,
+      extractsCountAsFlashcards: true,
+    });
+    expect(composition).toEqual({ documents: 55, extracts: 15, flashcards: 30 });
+  });
+
+  it("maps a 55% flashcard share with the remainder split across documents and extracts", async () => {
+    const composition = await rehydrateWith({
+      flashcardPercentage: 55,
+      extractsCountAsFlashcards: true,
+    });
+    expect(composition.flashcards).toBe(55);
+    expect(composition.documents + composition.extracts).toBe(45);
+    expect(composition.documents).toBeGreaterThan(0);
+    expect(composition.extracts).toBeGreaterThan(0);
+  });
+
+  it("keeps documents with the full remainder when extracts were independent", async () => {
+    const composition = await rehydrateWith({
+      flashcardPercentage: 40,
+      extractsCountAsFlashcards: false,
+    });
+    expect(composition).toEqual({ documents: 55, extracts: 5, flashcards: 40 });
+  });
+
+  it("does not produce an all-zero composition from a saved 0%", async () => {
+    const composition = await rehydrateWith({
+      flashcardPercentage: 0,
+      extractsCountAsFlashcards: true,
+    });
+    expect(composition).toEqual({ documents: 100, extracts: 0, flashcards: 0 });
+  });
+
+  it("leaves an already-migrated composition untouched", async () => {
+    const composition = await rehydrateWith({
+      composition: { documents: 10, extracts: 10, flashcards: 10 },
+      flashcardPercentage: 55,
+    });
+    expect(composition).toEqual({ documents: 10, extracts: 10, flashcards: 10 });
+  });
+});
+
 describe("settingsStore Arena review mode", () => {
   beforeEach(() => {
     localStorage.clear();

@@ -20,8 +20,9 @@
       "tolerance": 1.6
     },
     "queue/build-500-items": {
-      "cost": 0.008637,
-      "tolerance": 1.6
+      "cost": 0.0964,
+      "tolerance": 1.6,
+      "reason": "queueScrollBudget.splitReviewBudget (two Math.mins) was replaced by composeSession: three-way weight normalization, documents-anchored session sizing, iterated proportional redistribution of unfillable shares, and largest-remainder apportionment. ~11x the (near-free) baseline cost, still ~0.05us per composition; runs once per session build."
     },
     "ankiImport/convert-2000-notes": {
       "cost": 4.338

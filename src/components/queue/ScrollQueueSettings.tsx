@@ -1,26 +1,40 @@
 import React from "react";
 import { X } from "@phosphor-icons/react";
 import { cn } from "../../utils";
+import { useI18n } from "../../lib/i18n";
+
+export interface ScrollComposition {
+  documents: number;
+  extracts: number;
+  flashcards: number;
+}
 
 interface ScrollQueueSettingsProps {
   isOpen: boolean;
   onClose: () => void;
-  flashcardPercentage: number;
-  extractsCountAsFlashcards: boolean;
+  composition: ScrollComposition;
   autoProceed: boolean;
   ratingOrbsPosition?: "left" | "right" | "top" | "bottom";
   onUpdateSetting: (key: string, value: number | boolean | string) => void;
+  onUpdateComposition: (composition: ScrollComposition) => void;
 }
+
+const COMPOSITION_SLIDERS = [
+  { key: "documents", id: "composition-documents", labelKey: "queue.compositionDocuments" },
+  { key: "extracts", id: "composition-extracts", labelKey: "queue.compositionExtracts" },
+  { key: "flashcards", id: "composition-flashcards", labelKey: "queue.compositionFlashcards" },
+] as const;
 
 export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
   isOpen,
   onClose,
-  flashcardPercentage,
-  extractsCountAsFlashcards,
+  composition,
   autoProceed,
   ratingOrbsPosition,
   onUpdateSetting,
+  onUpdateComposition,
 }: ScrollQueueSettingsProps) {
+  const { t } = useI18n();
   if (!isOpen) return null;
 
   return (
@@ -35,47 +49,34 @@ export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
 
         <div className="space-y-6">
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <label htmlFor="flashcard-pct" className="text-sm font-medium text-foreground">Flashcard Percentage</label>
-              <span className="text-sm font-mono text-primary">{flashcardPercentage}%</span>
-            </div>
-            <input
-              id="flashcard-pct"
-              type="range"
-              min="0"
-              max="100"
-              step="5"
-              value={flashcardPercentage}
-              onChange={(e) => onUpdateSetting("flashcardPercentage", parseInt(e.target.value))}
-              className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
-            />
+            {COMPOSITION_SLIDERS.map(({ key, id, labelKey }) => (
+              <div key={key} className="mb-5 last:mb-0">
+                <div className="flex items-center justify-between mb-3">
+                  <label htmlFor={id} className="text-sm font-medium text-foreground">
+                    {t(labelKey)}
+                  </label>
+                  <span className="text-sm font-mono text-primary">{composition[key]}%</span>
+                </div>
+                <input
+                  id={id}
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={composition[key]}
+                  onChange={(e) =>
+                    onUpdateComposition({
+                      ...composition,
+                      [key]: parseInt(e.target.value),
+                    })
+                  }
+                  className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+              </div>
+            ))}
             <p className="text-xs text-muted-foreground mt-2">
-              Percentage of the queue that should be flashcards and extracts.
+              {t("queue.compositionHelp")}
             </p>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <label htmlFor="extracts-toggle" className="text-sm font-medium text-foreground">Extracts count as flashcards</label>
-              <p className="text-xs text-muted-foreground mt-1">
-                Include extracts in the flashcard percentage calculation
-              </p>
-            </div>
-            <button
-              id="extracts-toggle"
-              onClick={() => onUpdateSetting("extractsCountAsFlashcards", !extractsCountAsFlashcards)}
-              className={cn(
-                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
-                extractsCountAsFlashcards ? "bg-primary" : "bg-muted"
-              )}
-            >
-              <span
-                className={cn(
-                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                  extractsCountAsFlashcards ? "translate-x-6" : "translate-x-1"
-                )}
-              />
-            </button>
           </div>
 
           <div className="flex items-center justify-between">
