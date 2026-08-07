@@ -1,7 +1,32 @@
 {
   "_comment": "Recorded cost ratios (anchorHz / benchHz) for the performance gate. Update deliberately, in the same PR as an intentional perf change, and say why in the PR description. Costs are dimensionless: they express 'this benchmark costs N noise-anchor operations', so they stay comparable across machines and CI runner classes.",
   "defaultTolerance": 1.25,
-  "anchor": { "name": "noise-anchor", "iterations": 200000 },
-  "recordedFrom": "",
-  "benchmarks": {}
+  "anchor": {
+    "name": "noise-anchor",
+    "iterations": 200000
+  },
+  "recordedFrom": "https://github.com/melpomenex/Incrementum/actions/runs/31182419989",
+  "benchmarks": {
+    "file-manifest/add-1000-entries": {
+      "cost": 14.81
+    },
+    "postpone/plan-1000-items": {
+      "cost": 0.02902
+    },
+    "sm20/review-sequence": {
+      "cost": 214.6
+    },
+    "queue/build-500-items": {
+      "cost": 0.008637
+    },
+    "ankiImport/convert-2000-notes": {
+      "cost": 4.338
+    },
+    "markdown/render-document": {
+      "cost": 1.064
+    },
+    "semanticGrading/routing-fallback": {
+      "cost": 3.22
+    }
+  }
 }
