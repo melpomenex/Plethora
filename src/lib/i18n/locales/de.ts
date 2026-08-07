@@ -4492,6 +4492,8 @@ export const de: Dict = {
   "browser.openInSystemBrowser": "Im Systembrowser öffnen",
   "browser.retry": "Erneut versuchen",
   "browser.navigationFailed": "Navigation fehlgeschlagen",
+  "browser.proxyFailureTitle": "Diese Seite konnte nicht geladen werden",
+  "browser.proxyFailureReason": "{host} konnte nicht geladen werden: {reason}",
   "browser.selectionUnavailable": "Auswahl nicht lesbar",
   "browser.selectionUnavailableDesc": "Die Seitenauswahl konnte nicht gelesen werden, daher wurde kein Auszug erstellt. Wählen Sie Text auf der Seite aus und versuchen Sie es erneut, oder geben Sie ihn manuell ein.",
   "browser.readerView": "Lesemodus",

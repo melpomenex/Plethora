@@ -4704,6 +4704,8 @@ export const zh: Dict = {
   "browser.openInSystemBrowser": "在系统浏览器中打开",
   "browser.retry": "重试",
   "browser.navigationFailed": "导航失败",
+  "browser.proxyFailureTitle": "无法加载此页面",
+  "browser.proxyFailureReason": "无法加载 {host}：{reason}",
   "browser.selectionUnavailable": "无法读取所选内容",
   "browser.selectionUnavailableDesc": "无法读取页面中的所选内容，因此未创建摘录。请在页面中选择文本后重试，或手动输入。",
   "browser.readerView": "阅读视图",

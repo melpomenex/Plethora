@@ -4487,6 +4487,8 @@ export const es: Dict = {
   "browser.openInSystemBrowser": "Abrir en el navegador del sistema",
   "browser.retry": "Reintentar",
   "browser.navigationFailed": "Error de navegación",
+  "browser.proxyFailureTitle": "Esta página no se pudo cargar",
+  "browser.proxyFailureReason": "{host} no se pudo cargar: {reason}",
   "browser.selectionUnavailable": "No se puede leer la selección",
   "browser.selectionUnavailableDesc": "No se pudo leer la selección de la página, por lo que no se creó ningún extracto. Seleccione texto en la página e inténtelo de nuevo, o escríbalo manualmente.",
   "browser.readerView": "Vista de lectura",

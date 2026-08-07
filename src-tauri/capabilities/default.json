@@ -15,7 +15,6 @@
     "screenshot-overlay"
   ],
   "webviews": [
-    "web-browser-*",
     "main",
     "screenshot-overlay"
   ],
@@ -27,15 +26,6 @@
     "core:window:allow-set-focus",
     "core:window:allow-create",
     "core:webview:allow-create-webview-window",
-    "core:webview:allow-create-webview",
-    "core:webview:allow-webview-position",
-    "core:webview:allow-set-webview-position",
-    "core:webview:allow-webview-size",
-    "core:webview:allow-set-webview-size",
-    "core:webview:allow-webview-close",
-    "core:webview:allow-webview-hide",
-    "core:webview:allow-webview-show",
-    "core:webview:allow-get-all-webviews",
     "opener:default",
     "shell:allow-open",
     "dialog:default",

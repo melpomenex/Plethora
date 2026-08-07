@@ -20,3 +20,6 @@ The user encounters an "Unhandled Promise Rejection: webview.set_webview_positio
 
 ## Risks
 - None. This is a standard permission required for the implemented functionality.
+## Superseded
+
+This change is **superseded by** `fix-in-app-browser-page-loading`: the native child webview it patches is deleted entirely and replaced with a loopback web proxy iframe, so the layout and permission symptoms it addresses no longer exist. No further work on this change is needed.

@@ -1,15 +1,26 @@
 /**
  * Web Browser Tab with Extract Creation
- * 
- * This component provides a web browser view that allows users to:
- * - Navigate websites via iframe (web) or native webview (Tauri)
- * - Create extracts from selected text
- * - View and manage created extracts
- * 
- * NOTE: Cross-origin iframe security prevents direct access to selection.
- * We work around this by:
- * 1. For Tauri: Using the native webview's selection API
- * 2. For Web: Using a floating selection toolbar that captures text before it goes to the iframe
+ *
+ * Renders arbitrary web pages inside the tab and lets the user turn selected
+ * text into extracts.
+ *
+ * Page rendering (design: openspec/changes/fix-in-app-browser-page-loading):
+ * - **Desktop / native mobile (Tauri):** the Rust loopback web proxy
+ *   (`web_proxy.rs`) fetches the upstream document, strips
+ *   `X-Frame-Options`/CSP, and serves it from `http://127.0.0.1:<port>`. The
+ *   tab frames that proxied URL in a sandboxed iframe and talks to the page
+ *   through the injected bridge via `postMessage`. The URL bar, page title,
+ *   back/forward history, bookmarks, extracts, and "Open in system browser"
+ *   always carry the **upstream** URL, never the loopback one.
+ * - **Browser / PWA:** no Rust backend, so the direct iframe is attempted as
+ *   before and the embed-blocked → Reader View fallback stays.
+ *
+ * Selection capture works directly on the proxied page: the bridge reports
+ * `selection` messages, the tab stores the latest one, and "Create Extract"
+ * (or the configured shortcut) opens the dialog pre-filled — no clipboard or
+ * manual paste step. The Assistant's context resolver reads the live page's
+ * text via `text-request`/`text-response` before falling back to Reader View
+ * content and a re-fetch.
  */
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
@@ -33,7 +44,7 @@ import {
   Trash,
   X,
 } from "@phosphor-icons/react";
-import { isTauri, getPlatform } from "../../lib/tauri";
+import { isTauri } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
 import { getShortcutCombo } from "../common/KeyboardShortcuts";
 import { createExtract, type CreateExtractInput } from "../../api/extracts";
@@ -41,13 +52,24 @@ import { createLearningItem } from "../../api/learning-items";
 import { createDocument, fetchUrlContent, readDocumentFile } from "../../api/documents";
 import { processHtmlContent } from "../../utils/documentImport";
 import { AssistantPanel, type AssistantContext } from "../assistant/AssistantPanel";
+import {
+  resolveGenericAssistantContext,
+  type AssistantContextSource,
+  type ResolvedAssistantContext,
+} from "../../utils/assistantContext";
+import { trimToTokenWindow } from "../../utils/tokenizer";
+import { useSettingsStore, useTabsStore } from "../../stores";
+import { WebBrowserTab as LazyWebBrowserTab } from "./TabRegistry";
 import { useToast } from "../common/Toast";
-import { useIsActiveTab } from "../common/Tabs";
 import { formatRelativeTime } from "../../utils/date";
-import { WEBVIEW_EXTRACT_BRIDGE_SCRIPT, SELECTION_STORAGE_KEY } from "../../lib/webview-extract-bridge";
-
-// Type definitions for lazy loading
-type WebviewType = import("@tauri-apps/api/webview").Webview;
+import { resolveWebProxyUrl, proxyOriginOf, requestFrameText, isTrustedBridgeEvent } from "../../lib/webProxy";
+import {
+  WEB_BRIDGE_NS,
+  parseWebBridgeMessage,
+  type WebBridgeNavigatePayload,
+  type WebBridgeReadyPayload,
+  type WebBridgeSelectionPayload,
+} from "../../lib/webview-extract-bridge";
 
 interface WebExtract {
   id?: string;
@@ -76,7 +98,6 @@ function ExtractDialog({ extract, onSave, onClose }: ExtractDialogProps) {
   const [color, setColor] = useState("yellow");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isPasting, setIsPasting] = useState(false);
   const isManualMode = !extract.content;
 
   const colors = [
@@ -166,44 +187,18 @@ function ExtractDialog({ extract, onSave, onClose }: ExtractDialogProps) {
                 </span>
               )}
             </label>
-            
+
             {isManualMode ? (
-              // Manual input mode - user needs to paste or type content
-              <div className="space-y-3">
-                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
-                  <p className="text-sm text-amber-800 dark:text-amber-200">
-                    <strong>Tip:</strong> Due to browser security, we can't automatically capture text from websites. 
-                    Please copy the text you want to save, then paste it below.
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={async () => {
-                      setIsPasting(true);
-                      try {
-                        const text = await navigator.clipboard.readText();
-                        setContent(text);
-                        toast.success("Pasted from clipboard");
-                      } catch {
-                        toast.error("Could not access clipboard. Please paste manually.");
-                      } finally {
-                        setIsPasting(false);
-                      }
-                    }}
-                    disabled={isPasting}
-                    className="px-4 py-2 bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-lg transition-colors text-sm font-medium flex items-center gap-2"
-                  >
-                    {isPasting ? "Pasting..." : "Paste from Clipboard"}
-                  </button>
-                </div>
-                <textarea
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  placeholder="Paste or type the content you want to save..."
-                  className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground resize-none"
-                  rows={6}
-                />
-              </div>
+              // Manual input mode — the user types the content themselves.
+              // Selection capture now works directly on proxied pages, so the
+              // old copy-and-paste caveat is gone.
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="Type or paste the content you want to save..."
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground resize-none"
+                rows={6}
+              />
             ) : (
               // Auto-captured content mode
               <>
@@ -353,16 +348,17 @@ function ExtractDialog({ extract, onSave, onClose }: ExtractDialogProps) {
 export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
   const { t } = useI18n();
   const toast = useToast();
-  // Only poll for webview selection while this tab is active — background tabs
-  // stay mounted, so without this the 500ms poll would run in any open browser
-  // tab, needlessly burning CPU.
-  const isActiveTab = useIsActiveTab();
   const [url, setUrl] = useState("");
+  // `requestedUrl` drives proxy resolution; `currentUrl` is the displayed /
+  // attributed upstream URL (reconciled to the final post-redirect URL on
+  // `ready`). Splitting them means the proxy is only re-resolved on explicit
+  // navigation, never when a redirect reconciles the URL bar.
+  const [requestedUrl, setRequestedUrl] = useState("");
   const [currentUrl, setCurrentUrl] = useState("");
   const [pageTitle, setPageTitle] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
-  const [webviewError, setWebviewError] = useState<string | null>(null);
+  const [proxyFailure, setProxyFailure] = useState<{ reason: string; host: string } | null>(null);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [bookmarks, setBookmarks] = useState<string[]>([]);
@@ -373,22 +369,180 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
   const [iframeStatus, setIframeStatus] = useState<"idle" | "loading" | "loaded" | "blocked">("idle");
   const [readerContent, setReaderContent] = useState<{ html: string; title: string } | null>(null);
   const [isLoadingReader, setIsLoadingReader] = useState(false);
-  // Mirrors of the two states above, kept in refs so the async bounds-sync and
-  // instrumentation paths read fresh values instead of stale closures.
-  const iframeStatusRef = useRef<"idle" | "loading" | "loaded" | "blocked">("idle");
-  const webviewErrorRef = useRef<string | null>(null);
-  iframeStatusRef.current = iframeStatus;
-  webviewErrorRef.current = webviewError;
+  // Mirror of `readerContent` kept in a ref so the assistant's context resolver
+  // always reads the latest Reader View content at send time.
+  const readerContentRef = useRef<{ html: string; title: string } | null>(null);
+  readerContentRef.current = readerContent;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const webviewRef = useRef<WebviewType | null>(null);
-  const webviewContainerRef = useRef<HTMLDivElement | null>(null);
-  const isMountedRef = useRef(true);
   const [extractsExpanded, setExtractsExpanded] = useState(true);
-  const webviewIsVisibleRef = useRef(true);
+
+  // Proxy state (Tauri path only). `proxyOrigin` is the origin the proxied
+  // iframe runs under; inbound bridge messages must carry exactly it.
+  const [proxyUrl, setProxyUrl] = useState<string | null>(null);
+  const proxyOriginRef = useRef<string | null>(null);
+  // Latest selection reported by the bridge, kept in a ref so extract
+  // creation and the assistant always read the freshest value.
+  const latestSelectionRef = useRef<WebBridgeSelectionPayload | null>(null);
+
+  const currentUrlRef = useRef(currentUrl);
+  currentUrlRef.current = currentUrl;
+  const pageTitleRef = useRef(pageTitle);
+  pageTitleRef.current = pageTitle;
+  // Fresh snapshots for the bridge callbacks, which are registered once.
+  const requestedUrlRef = useRef(requestedUrl);
+  requestedUrlRef.current = requestedUrl;
+  const historyIndexRef = useRef(historyIndex);
+  historyIndexRef.current = historyIndex;
+
+  const contextWindowTokens = useSettingsStore((state) => state.settings.ai.maxTokens);
 
   const assistantContext = useMemo<AssistantContext>(() => {
-    return currentUrl ? { type: "web", url: currentUrl } : { type: "web" };
-  }, [currentUrl]);
+    if (!currentUrl) return { type: "web" };
+    const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 4000;
+
+    // Strip tags to readable text (used for both Reader View and fetched HTML).
+    const htmlToText = (html: string): string => {
+      try {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return (doc.body?.textContent ?? "").replace(/\s+/g, " ").trim();
+      } catch {
+        return "";
+      }
+    };
+
+    const resolveContextForPrompt = async (): Promise<ResolvedAssistantContext> => {
+      let body = "";
+      let source: AssistantContextSource = "document-content";
+
+      // 0. Bridge text-request → text-response (Tauri proxy path): the live
+      //    proxied page's text, no second network fetch (D6).
+      if (isTauri() && iframeRef.current?.contentWindow && proxyOriginRef.current) {
+        try {
+          const frameText = await requestFrameText(
+            iframeRef.current.contentWindow,
+            proxyOriginRef.current,
+            2500
+          );
+          if (frameText.trim()) {
+            body = frameText;
+            source = "document-content";
+          }
+        } catch {
+          // Fall through to the ladder below.
+        }
+      }
+
+      // 1. Reader View content — the reliable fallback for sites the proxy
+      //    cannot render (paywalls, bot walls, heavy SPAs).
+      if (!body && readerContentRef.current?.html) {
+        body = htmlToText(readerContentRef.current.html);
+      }
+
+      // 2. Same-origin iframe: read the embedded document's text directly
+      //    (browser/PWA direct-iframe path only — the proxied iframe is
+      //    cross-origin and already covered by the bridge branch above).
+      if (!body) {
+        try {
+          const doc = iframeRef.current?.contentDocument;
+          if (doc?.body) {
+            const text = (doc.body.innerText ?? doc.body.textContent ?? "")
+              .replace(/\s+/g, " ")
+              .trim();
+            if (text) body = text;
+          }
+        } catch {
+          // Cross-origin iframe — text is not readable; fall through to fetch.
+        }
+      }
+
+      // 3. Last resort: fetch the page and run the same reader-view pipeline.
+      if (!body) {
+        try {
+          const fetched = await fetchUrlContent(currentUrl);
+          const rawHtml = fetched.html ?? (fetched.file_path
+            ? new TextDecoder("utf-8").decode(await readDocumentFile(fetched.file_path))
+            : "");
+          if (rawHtml) {
+            const processed = processHtmlContent(rawHtml, currentUrl, pageTitle || currentUrl, true);
+            body = htmlToText(processed);
+          }
+        } catch {
+          // Keep body empty → unavailable below.
+        }
+      }
+
+      if (!body) {
+        return {
+          status: "unavailable",
+          source: "none",
+          message:
+            "No readable text could be loaded from this page. Open Reader View first, then try again.",
+        };
+      }
+
+      try {
+        const trimmed = await trimToTokenWindow(body, maxTokens);
+        return { ...resolveGenericAssistantContext(trimmed, source), status: "ready" as const };
+      } catch {
+        return { ...resolveGenericAssistantContext(body.slice(0, maxTokens * 4), source), status: "ready" as const };
+      }
+    };
+
+    return {
+      type: "web",
+      url: currentUrl,
+      contextWindowTokens: maxTokens,
+      status: "ready",
+      source: "document-content",
+      resolveForPrompt: resolveContextForPrompt,
+    };
+  }, [currentUrl, contextWindowTokens, pageTitle]);
+
+  // Some sites block the direct iframe (browser/PWA path) without firing its
+  // error event, leaving a black box. If nothing has loaded within the grace
+  // period, surface the blocked state (with Reader View / open-in-browser
+  // actions) instead.
+  const scheduleIframeBlockedFallback = useCallback(() => {
+    window.setTimeout(() => {
+      setIframeStatus((prev) => (prev === "loading" ? "blocked" : prev));
+    }, 8000);
+  }, []);
+
+  const pushHistory = useCallback((entry: string) => {
+    setHistory((prev) => {
+      const next = prev.slice(0, historyIndex + 1);
+      next.push(entry);
+      setHistoryIndex(next.length - 1);
+      return next;
+    });
+  }, [historyIndex]);
+
+  // Bridge messages carry attacker-controlled payloads (the proxied page's own
+  // scripts can post anything from the proxy origin). Only accept well-formed
+  // http(s) URLs — never file:, javascript:, or malformed strings — in the URL
+  // bar, history, bookmarks, extracts, and "open in system browser" paths.
+  const isSafeWebUrl = useCallback((value: string): value is string => {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const addTab = useTabsStore((state) => state.addTab);
+
+  const openNewBrowserTab = useCallback((targetUrl: string) => {
+    if (!isSafeWebUrl(targetUrl)) return;
+    addTab({
+      title: new URL(targetUrl).hostname,
+      icon: "🌐",
+      type: "web-browser",
+      content: LazyWebBrowserTab,
+      closable: true,
+      data: { initialUrl: targetUrl },
+    });
+  }, [addTab, isSafeWebUrl]);
 
   const handleNavigate = useCallback(async (inputUrl: string) => {
     if (!inputUrl.trim()) return;
@@ -402,59 +556,107 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
       }
     }
 
+    setRequestedUrl(formattedUrl);
     setIsLoading(true);
-    setWebviewError(null);
+    setProxyFailure(null);
     setReaderContent(null);
+    latestSelectionRef.current = null;
     setCurrentUrl(formattedUrl);
     setUrl(formattedUrl);
     if (!isTauri()) {
       setIframeStatus("loading");
+      scheduleIframeBlockedFallback();
     }
-
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(formattedUrl);
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
+    pushHistory(formattedUrl);
     setPageTitle(new URL(formattedUrl).hostname);
-  }, [history, historyIndex]);
+  }, [pushHistory, scheduleIframeBlockedFallback]);
 
-  const handleBack = () => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      setHistoryIndex(newIndex);
-      const url = history[newIndex];
-      setCurrentUrl(url);
-      setUrl(url);
-      if (!isTauri()) {
-        setIsLoading(true);
-        setIframeStatus("loading");
-      }
+  // Resolve the proxied URL whenever the user explicitly navigates (Tauri
+  // path). `requestedUrl` changes only from handleNavigate / back / forward /
+  // refresh / in-page navigate messages, so redirect reconciliation of
+  // `currentUrl` never re-triggers this effect.
+  useEffect(() => {
+    if (!isTauri() || !requestedUrl) return;
+    let cancelled = false;
+    setIsLoading(true);
+    setProxyFailure(null);
+    resolveWebProxyUrl(requestedUrl)
+      .then((resolved) => {
+        if (cancelled) return;
+        proxyOriginRef.current = proxyOriginOf(resolved);
+        setProxyUrl(resolved);
+        setIsLoading(false);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("[WebBrowserTab] proxy resolution failed:", error);
+        setProxyUrl(null);
+        proxyOriginRef.current = null;
+        setProxyFailure({
+          reason: error instanceof Error ? error.message : String(error),
+          host: (() => {
+            try {
+              return new URL(requestedUrl).hostname;
+            } catch {
+              return requestedUrl;
+            }
+          })(),
+        });
+        setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedUrl, refreshToken]);
+
+  const handleBack = useCallback(() => {
+    if (historyIndex <= 0) return;
+    const newIndex = historyIndex - 1;
+    const entry = history[newIndex];
+    if (!entry) return;
+    setHistoryIndex(newIndex);
+    setRequestedUrl(entry);
+    setCurrentUrl(entry);
+    setUrl(entry);
+    setPageTitle((() => { try { return new URL(entry).hostname; } catch { return entry; } })());
+    setIsLoading(true);
+    setProxyFailure(null);
+    latestSelectionRef.current = null;
+    if (!isTauri()) {
+      setIframeStatus("loading");
+      scheduleIframeBlockedFallback();
     }
-  };
+  }, [history, historyIndex, scheduleIframeBlockedFallback]);
 
-  const handleForward = () => {
-    if (historyIndex < history.length - 1) {
-      const newIndex = historyIndex + 1;
-      setHistoryIndex(newIndex);
-      const url = history[newIndex];
-      setCurrentUrl(url);
-      setUrl(url);
-      if (!isTauri()) {
-        setIsLoading(true);
-        setIframeStatus("loading");
-      }
+  const handleForward = useCallback(() => {
+    if (historyIndex >= history.length - 1) return;
+    const newIndex = historyIndex + 1;
+    const entry = history[newIndex];
+    if (!entry) return;
+    setHistoryIndex(newIndex);
+    setRequestedUrl(entry);
+    setCurrentUrl(entry);
+    setUrl(entry);
+    setPageTitle((() => { try { return new URL(entry).hostname; } catch { return entry; } })());
+    setIsLoading(true);
+    setProxyFailure(null);
+    latestSelectionRef.current = null;
+    if (!isTauri()) {
+      setIframeStatus("loading");
+      scheduleIframeBlockedFallback();
     }
-  };
+  }, [history, historyIndex, scheduleIframeBlockedFallback]);
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     if (currentUrl) {
       setRefreshToken((token) => token + 1);
       if (!isTauri()) {
         setIsLoading(true);
         setIframeStatus("loading");
+        scheduleIframeBlockedFallback();
       }
     }
-  };
+  }, [currentUrl, scheduleIframeBlockedFallback]);
 
   const handleOpenInBrowser = async () => {
     if (currentUrl) {
@@ -524,147 +726,249 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
     }
   };
 
-  // Poll for selection data from webview (for Tauri webview bridge).
-  // Must be declared before any callbacks that reference it, otherwise the
-  // dependency arrays will hit the temporal dead zone in production builds.
-  const pollWebviewSelection = useCallback(async () => {
-    if (!isTauri() || !webviewRef.current) return null;
+  /**
+   * Intercept clicks on links inside Reader View. Without this, an `<a href>`
+   * in the re-rendered article navigates the whole app document to the
+   * external site — a full-window escape with no way back. Instead:
+   * - plain clicks load the linked page straight into Reader View (the site
+   *   likely refuses embedding too, so the iframe would just be a black box)
+   *   and keep the URL bar + history in sync;
+   * - Cmd/Ctrl/middle-click opens a new browser tab.
+   */
+  const handleReaderLinkClick = (event: React.MouseEvent<HTMLElement>) => {
+    const anchor = (event.target as HTMLElement).closest("a");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href");
+    if (!href || !currentUrl) return;
+    if (href.startsWith("#") || /^(javascript|mailto|tel):/i.test(href)) return;
 
+    let target: string;
     try {
-      // Try to get selection data from the webview's localStorage via evaluateJavaScript
-   
-      const result = await (webviewRef.current as any).evaluateJavaScript(`
-        (function() {
-          const data = localStorage.getItem('${SELECTION_STORAGE_KEY}');
-          if (data) {
-            localStorage.removeItem('${SELECTION_STORAGE_KEY}');
-            return data;
-          }
-          return null;
-        })()
-      `);
-
-      if (result) {
-        return JSON.parse(result);
-      }
-    } catch (error) {
-      console.error("Could not poll webview selection:", error);
+      target = new URL(href, currentUrl).toString();
+    } catch {
+      return;
     }
-    return null;
-  }, []);
+    // Same guard as the bridge navigate path: only http(s) URLs may enter the
+    // URL bar, history, bookmarks, or the extractor.
+    if (!isSafeWebUrl(target)) return;
 
-  const handleCreateExtract = useCallback(async () => {
-    // Try to get selection from the iframe if same-origin, otherwise from main window
-    let selectedText = "";
-    let htmlContent: string | undefined;
-    
-    // For Tauri: use the extract bridge to get selection
-    if (isTauri() && webviewRef.current) {
-      try {
-        // Ask the bridge to save the current selection immediately
-   
-        await (webviewRef.current as any).evaluateJavaScript(`
-          (function(){
-            var sel = window.getSelection();
-            if (sel && sel.toString().trim().length >= 3) {
-              // Re-use the bridge's save function
-              var data = {
-                text: sel.toString().trim(),
-                html: (function(){
-                  if (!sel.rangeCount) return '';
-                  var range = sel.getRangeAt(0);
-                  var fragment = range.cloneContents();
-                  var div = document.createElement('div');
-                  div.appendChild(fragment);
-                  return div.innerHTML;
-                })(),
-                url: window.location.href,
-                title: document.title,
-                timestamp: Date.now()
-              };
-              localStorage.setItem('__incrementum_selection_data', JSON.stringify(data));
-            }
-          })()
-        `).catch(() => {});
+    event.preventDefault();
+    event.stopPropagation();
 
-        // Then poll for the data the bridge just saved
-        const bridgeData = await pollWebviewSelection();
-        if (bridgeData?.text) {
-          selectedText = bridgeData.text;
-          htmlContent = bridgeData.html;
-        }
-        
-        // Fallback: try direct selection access
-        if (!selectedText) {
-   
-          const result = await (webviewRef.current as any).evaluateJavaScript(`
-            (function() {
-              const selection = window.getSelection()?.toString() || '';
-              return selection;
-            })()
-          `);
-          selectedText = result?.trim() || "";
-        }
-      } catch (error) {
-        console.error("Could not get selection from webview:", error);
-      }
-    }
-    
-    // For Web: try to get selection from iframe if same-origin
-    if (!selectedText && !isTauri()) {
-      const iframe = iframeRef.current;
-      if (iframe?.contentWindow && iframe.contentDocument) {
-        try {
-          const iframeSelection = iframe.contentWindow.getSelection()?.toString();
-          selectedText = iframeSelection?.trim() || "";
-        } catch {
-          // Cross-origin restriction - can't access iframe content
-        }
-      }
-    }
-    
-    // Fallback: get selection from main window (user may have copied text)
-    if (!selectedText) {
-      const selection = window.getSelection();
-      selectedText = selection?.toString().trim() || "";
-      
-      // Try to capture HTML from main window selection
-      if (selection && selection.rangeCount > 0) {
-        try {
-          const range = selection.getRangeAt(0);
-          const fragment = range.cloneContents();
-          const tempDiv = document.createElement("div");
-          tempDiv.appendChild(fragment);
-          htmlContent = tempDiv.innerHTML;
-        } catch (e) {
-          console.warn("Could not capture HTML content:", e);
-        }
-      }
-    }
-
-    // If still no text, tell the user extract creation is unavailable for this
-    // page and open the manual dialog (which still refuses to save empty
-    // content) — never create an empty extract silently.
-    if (!selectedText) {
-      toast.info(t("browser.selectionUnavailable"), t("browser.selectionUnavailableDesc"));
-      setExtractDialog({
-        content: "",
-        htmlContent: undefined,
-        url: currentUrl,
-        pageTitle: pageTitle || new URL(currentUrl).hostname,
-        timestamp: Date.now(),
-      });
+    if (event.metaKey || event.ctrlKey || event.button === 1) {
+      openNewBrowserTab(target);
       return;
     }
 
+    // Keep the URL bar, back/forward history and page title consistent with the
+    // navigation, then render the linked article in Reader View.
+    setRequestedUrl(target);
+    setCurrentUrl(target);
+    setUrl(target);
+    setPageTitle(new URL(target).hostname);
+    pushHistory(target);
+    void handleLoadReaderView(target);
+  };
+
+  // ── Bridge message handling (Tauri proxy path) ───────────────────────────
+
+  /** Open the extract dialog from a bridge selection payload. */
+  const openExtractDialogFromSelection = useCallback((selection: WebBridgeSelectionPayload) => {
     setExtractDialog({
-      content: selectedText,
-      htmlContent,
-      url: currentUrl,
-      pageTitle: pageTitle || new URL(currentUrl).hostname,
+      content: selection.text,
+      htmlContent: selection.html,
+      url: selection.url || currentUrlRef.current,
+      pageTitle: selection.title || pageTitleRef.current || (() => {
+        try { return new URL(selection.url || currentUrlRef.current).hostname; } catch { return selection.url || currentUrlRef.current; }
+      })(),
       timestamp: Date.now(),
     });
-  }, [currentUrl, pageTitle, pollWebviewSelection]);
+  }, []);
+
+  // Push the user's configured extract-text shortcut into the proxied frame so
+  // the in-page bridge honors the same key combo as the app itself.
+  const pushShortcutToFrame = useCallback(() => {
+    const frame = iframeRef.current?.contentWindow;
+    const origin = proxyOriginRef.current;
+    if (!frame || !origin) return;
+    const combo = getShortcutCombo("edit.extract-text");
+    if (!combo) return;
+    try {
+      frame.postMessage(
+        {
+          ns: WEB_BRIDGE_NS,
+          type: "set-shortcut",
+          payload: {
+            ctrl: combo.ctrl || false,
+            alt: combo.alt || false,
+            shift: combo.shift || false,
+            meta: combo.meta || false,
+            key: combo.key,
+          },
+        },
+        origin
+      );
+    } catch {
+      // Frame may be gone; ignore.
+    }
+  }, []);
+
+  const handleBridgeReady = useCallback((payload: WebBridgeReadyPayload) => {
+    // The proxy followed redirects; the final upstream URL is the truth for
+    // the URL bar, title, and history. Validate it: the page can post anything
+    // from the proxy origin, and a crafted url must never reach the URL bar,
+    // history, bookmarks, or "open in system browser".
+    if (!isSafeWebUrl(payload.url)) {
+      // Malformed/unsafe ready URL — keep the requested URL and ignore.
+      setIsLoading(false);
+      setIframeStatus("loaded");
+      pushShortcutToFrame();
+      return;
+    }
+    setPageTitle(payload.title);
+    setUrl(payload.url);
+    if (payload.url !== currentUrlRef.current) {
+      // Keep the proxy resolution target in sync so refresh / back / forward
+      // re-resolve the final URL directly instead of the pre-redirect request.
+      setRequestedUrl(payload.url);
+      setCurrentUrl(payload.url);
+      // Replace the history entry that was the pre-redirect request (it sits
+      // at the current history index — `pushHistory` advanced the index to it)
+      // with the final URL. Only replace it when it actually matches the
+      // requested URL, so a redirect landing on a *back* navigation never
+      // clobbers the forward entry.
+      const requestedAtLoad = requestedUrlRef.current;
+      setHistory((prev) => {
+        const idx = historyIndexRef.current;
+        if (idx < 0 || idx >= prev.length) return prev;
+        if (prev[idx] !== requestedAtLoad) return prev;
+        const next = [...prev];
+        next[idx] = payload.url;
+        return next;
+      });
+    }
+    setIsLoading(false);
+    setIframeStatus("loaded");
+    pushShortcutToFrame();
+  }, [isSafeWebUrl, pushShortcutToFrame]);
+
+  const handleBridgeNavigate = useCallback((payload: WebBridgeNavigatePayload) => {
+    if (!isSafeWebUrl(payload.url)) return;
+    if (payload.newTab) {
+      openNewBrowserTab(payload.url);
+      return;
+    }
+    setRequestedUrl(payload.url);
+    setCurrentUrl(payload.url);
+    setUrl(payload.url);
+    setPageTitle(new URL(payload.url).hostname);
+    setIsLoading(true);
+    setProxyFailure(null);
+    setReaderContent(null);
+    latestSelectionRef.current = null;
+    pushHistory(payload.url);
+  }, [openNewBrowserTab, pushHistory, isSafeWebUrl]);
+
+  const handleBridgeProxyError = useCallback((payload: { reason: string; host: string }) => {
+    setProxyFailure({ reason: payload.reason, host: payload.host });
+    setIsLoading(false);
+  }, []);
+
+  // Bridge message listener: validate source (must be the proxied iframe),
+  // origin (must be the proxy origin), and payload shape before acting (D4,
+  // task 3.3).
+  useEffect(() => {
+    if (!isTauri()) return;
+    const handler = (event: MessageEvent) => {
+      const frame = iframeRef.current?.contentWindow ?? null;
+      const origin = proxyOriginRef.current;
+      if (!isTrustedBridgeEvent(event, frame, origin)) return;
+      const msg = parseWebBridgeMessage(event.data);
+      if (!msg) return;
+
+      switch (msg.type) {
+        case "ready":
+          handleBridgeReady(msg.payload);
+          break;
+        case "selection":
+          latestSelectionRef.current = msg.payload.text ? msg.payload : null;
+          break;
+        case "navigate":
+          handleBridgeNavigate(msg.payload);
+          break;
+        case "extract":
+          latestSelectionRef.current = msg.payload.text ? msg.payload : null;
+          if (msg.payload.text) openExtractDialogFromSelection(msg.payload);
+          break;
+        case "proxy-error":
+          handleBridgeProxyError(msg.payload);
+          break;
+        case "text-response":
+          // Handled by requestFrameText's own listener.
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [handleBridgeNavigate, handleBridgeProxyError, handleBridgeReady, openExtractDialogFromSelection]);
+
+  // Re-push the shortcut when the user changes it in settings.
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    import("../common/KeyboardShortcuts").then(({ useShortcutStore }) => {
+      unsub = useShortcutStore.subscribe(pushShortcutToFrame);
+    });
+    return () => unsub?.();
+  }, [pushShortcutToFrame]);
+
+  useEffect(() => {
+    if (initialUrl) {
+      void handleNavigate(initialUrl);
+    }
+  }, [initialUrl, handleNavigate]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("web-browser-bookmarks");
+    if (saved) setBookmarks(JSON.parse(saved));
+
+    const savedExtractsData = localStorage.getItem("web-browser-extracts");
+    if (savedExtractsData) setSavedExtracts(JSON.parse(savedExtractsData));
+  }, []);
+
+  // Persist bookmarks and extracts
+  useEffect(() => {
+    localStorage.setItem("web-browser-bookmarks", JSON.stringify(bookmarks));
+  }, [bookmarks]);
+
+  useEffect(() => {
+    localStorage.setItem("web-browser-extracts", JSON.stringify(savedExtracts));
+  }, [savedExtracts]);
+
+  // "Create Extract" — uses the latest bridge selection on the Tauri path
+  // (task 4.1). No webview polling, no clipboard branch.
+  const handleCreateExtract = useCallback(() => {
+    const selection = latestSelectionRef.current;
+
+    if (selection?.text) {
+      openExtractDialogFromSelection(selection);
+      return;
+    }
+
+    // No selection: inform the user and open the manual dialog. Never save an
+    // empty extract (spec: "No selection" scenario).
+    toast.info(t("browser.selectionUnavailable"), t("browser.selectionUnavailableDesc"));
+    setExtractDialog({
+      content: "",
+      htmlContent: undefined,
+      url: currentUrlRef.current,
+      pageTitle: pageTitleRef.current || (() => {
+        try { return new URL(currentUrlRef.current).hostname; } catch { return currentUrlRef.current; }
+      })(),
+      timestamp: Date.now(),
+    });
+  }, [openExtractDialogFromSelection, t, toast]);
 
   const handleSaveExtract = async (data: { content: string; htmlContent?: string; note: string; tags: string[] }) => {
     // Never create an empty extract — the dialog already guards this, but the
@@ -674,19 +978,16 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
       return;
     }
     try {
-      const docTitle = pageTitle || new URL(currentUrl).hostname;
+      // The extract's source is the upstream page (from the bridge selection
+      // payload), not the loopback proxy URL (task 4.2).
+      const sourceUrl = extractDialog?.url || currentUrl;
+      const sourceTitle = extractDialog?.pageTitle || pageTitle || new URL(currentUrl).hostname;
       let documentId: string;
 
       try {
-        // Try to create a document for this URL
-        const doc = await createDocument(
-          docTitle,
-          currentUrl,
-          "web"
-        );
+        const doc = await createDocument(sourceTitle, sourceUrl, "web");
         documentId = doc.id;
       } catch (error) {
-        // If document creation fails, use a temporary ID
         console.warn("Failed to create document, using temp ID:", error);
         documentId = `web-${Date.now()}`;
       }
@@ -695,10 +996,10 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
         document_id: documentId,
         content: data.content,
         html_content: data.htmlContent,
-        source_url: extractDialog?.url || currentUrl,
+        source_url: sourceUrl,
         note: data.note,
         tags: data.tags,
-        category: pageTitle,
+        category: sourceTitle,
         color: "yellow",
       };
 
@@ -709,8 +1010,8 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
         id: createdExtract.id,
         content: data.content,
         htmlContent: data.htmlContent,
-        url: extractDialog?.url || currentUrl,
-        pageTitle: extractDialog?.pageTitle || pageTitle,
+        url: sourceUrl,
+        pageTitle: sourceTitle,
         timestamp: Date.now(),
         note: data.note,
         tags: data.tags,
@@ -718,7 +1019,6 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
 
       setSavedExtracts((prev) => [newExtract, ...prev]);
 
-      // Show success toast with actions
       toast.success(
         "Extract created successfully",
         `Extract saved with ${data.content.length} characters`,
@@ -726,9 +1026,7 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
       );
 
       setExtractDialog(null);
-      
-      // Clear selection
-      window.getSelection()?.removeAllRanges();
+      latestSelectionRef.current = null;
     } catch (error) {
       console.error("Error saving extract:", error);
       toast.error("Failed to create extract", error instanceof Error ? error.message : "Please try again");
@@ -745,459 +1043,16 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
     setExtractDialog(extract);
   };
 
-  // Detect offset between CSS viewport coords and native GTK widget coords.
-  // On Wayland/WebKitGTK with hiddenTitle, the GtkHeaderBar widget may still
-  // consume space, creating a mismatch between where CSS (0,0) is and where
-  // the native webview (0,0) renders. We detect this once via outer/inner diff.
-  //
-  // IMPORTANT: On Linux (especially Wayland compositors like Hyprland, Sway),
-  // window.outerWidth/outerHeight are unreliable and can return incorrect
-  // values, producing wrong offsets that mis-position the webview. We skip
-  // offset detection entirely on Linux.
-  const nativeOffsetRef = useRef<{ x: number; y: number } | null>(null);
-  const detectNativeOffset = useCallback(() => {
-    if (nativeOffsetRef.current !== null) return;
-
-    const platform = getPlatform();
-    if (platform === 'mac') {
-      // On macOS, Tauri v2 child webviews are positioned relative to the window frame (outer window),
-      // which includes the native title bar. Since CSS coordinates (rect.top) are relative to the
-      // client area (excluding the title bar), we must add the title bar height (outerHeight - innerHeight)
-      // to position it correctly. We represent this as a negative offset so that (rect.top - offset.y)
-      // becomes (rect.top + titleBarHeight).
-      const dy = window.outerHeight - window.innerHeight;
-      nativeOffsetRef.current = { x: 0, y: -dy };
-    } else {
-      // On Windows and Linux, child webviews are positioned relative to the client area,
-      // so no offset is required.
-      nativeOffsetRef.current = { x: 0, y: 0 };
-    }
-  }, []);
-
-  const updateWebviewBounds = useCallback(async () => {
-    if (!webviewRef.current || !webviewContainerRef.current) return;
-
-    detectNativeOffset();
-
-    return new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        setTimeout(async () => {
-          if (!webviewRef.current || !webviewContainerRef.current) {
-            resolve();
-            return;
-          }
-
-          const rect = webviewContainerRef.current.getBoundingClientRect();
-          const offset = nativeOffsetRef.current ?? { x: 0, y: 0 };
-
-          // getBoundingClientRect() returns CSS logical pixels, which is
-          // exactly what LogicalPosition/LogicalSize expect. Tauri handles
-          // the DPR conversion internally.
-          const x = Math.round(rect.left - offset.x);
-          const y = Math.round(rect.top - offset.y);
-          const width = Math.round(rect.width);
-          const height = Math.round(rect.height);
-
-          // Instrumentation (task 4.1): compare the container rect against the
-          // computed webview bounds so a desktop repro can tell which path
-          // (iframe vs native webview) is failing and how far off the bounds are.
-          if (process.env.NODE_ENV !== "production") {
-            console.log(`[WebBrowserTab] bounds sync: container={left:${Math.round(rect.left)},top:${Math.round(rect.top)},w:${Math.round(rect.width)},h:${Math.round(rect.height)}} offset=${JSON.stringify(offset)} webview={x:${x},y:${y},w:${width},h:${height}} iframeStatus=${iframeStatusRef.current} webviewError=${webviewErrorRef.current ?? "none"}`);
-          }
-
-          if (width > 0 && height > 50) {
-            try {
-              if (isTauri()) {
-                const { LogicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
-                await webviewRef.current?.setPosition(new LogicalPosition(x, y));
-                await webviewRef.current?.setSize(new LogicalSize(width, height));
-              }
-            } catch (e) {
-              console.warn("Failed to update webview bounds:", e);
-            }
-          }
-          resolve();
-        }, 50);
-      });
-    });
-  }, [detectNativeOffset]);
-
   useEffect(() => {
-    if (initialUrl) {
-      void handleNavigate(initialUrl);
-    }
-  }, [initialUrl, handleNavigate]);
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!currentUrl) {
-      if (webviewRef.current) {
-        void webviewRef.current.close();
-        webviewRef.current = null;
-      }
-      return;
-    }
-
-    let isCancelled = false;
-    const unlistenFns: Array<(() => void) | (() => Promise<void>)> = [];
-
-    const createWebview = async () => {
-      if (!isMountedRef.current || isCancelled) return;
-
-      setIsLoading(true);
-      setWebviewError(null);
-
-      console.log(`[WebBrowserTab] starting createWebview for url: ${currentUrl}`);
-
-      if (webviewRef.current) {
-        console.log("[WebBrowserTab] closing current webviewRef instance");
-        await webviewRef.current.close().catch(() => undefined);
-        webviewRef.current = null;
-      }
-
-      if (isTauri()) {
-        const { Webview } = await import("@tauri-apps/api/webview");
-        const all = await Webview.getAll();
-        for (const w of all) {
-          if (w.label.startsWith("web-browser-") || w.label === "web-browser") {
-            console.log("[WebBrowserTab] closing existing/zombie webview:", w.label);
-            await w.close().catch(() => undefined);
-          }
-        }
-      }
-
-      if (!webviewContainerRef.current || !isMountedRef.current || isCancelled) {
-        console.log("[WebBrowserTab] container not ready or component unmounted/cancelled");
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        if (!isTauri()) {
-          console.log("[WebBrowserTab] not in Tauri, skipped native webview creation");
-          setIsLoading(false);
-          return;
-        }
-
-        const { getCurrentWindow } = await import("@tauri-apps/api/window");
-        const { Webview } = await import("@tauri-apps/api/webview");
-        const appWindow = getCurrentWindow();
-
-        await new Promise<void>((resolve) => {
-          if (appWindow.label) {
-            resolve();
-          } else {
-            console.log("[WebBrowserTab] appWindow has no label, waiting for tauri://created event");
-            appWindow.once("tauri://created", () => resolve());
-          }
-        });
-
-        if (!webviewContainerRef.current || !isMountedRef.current || isCancelled) {
-          console.log("[WebBrowserTab] cancelled during window check");
-          return;
-        }
-
-        detectNativeOffset();
-
-        const rect = webviewContainerRef.current.getBoundingClientRect();
-        const offset = nativeOffsetRef.current ?? { x: 0, y: 0 };
-
-        const x = Math.round(rect.left - offset.x);
-        const y = Math.round(rect.top - offset.y);
-        const width = Math.round(rect.width);
-        const height = Math.round(rect.height);
-
-        const label = `web-browser-${Date.now()}`;
-        console.log(`[WebBrowserTab] instantiating Webview with label ${label}: x=${x}, y=${y}, width=${width}, height=${height}`);
-
-        const webview = new Webview(appWindow, label, {
-          url: currentUrl,
-          x,
-          y,
-          width,
-          height,
-        });
-
-        if (!isMountedRef.current || isCancelled) {
-          console.log("[WebBrowserTab] component unmounted/cancelled right after constructor. closing webview.");
-          await webview.close().catch(() => undefined);
-          return;
-        }
-
-        webviewRef.current = webview;
-
-        // Track last injected URL to avoid duplicate injections
-        let lastInjectedUrl = "";
-        
-        // Function to inject the extract bridge script
-        const injectBridgeScript = async () => {
-          try {
-            // Don't re-inject if already injected on this URL
-            if (lastInjectedUrl === currentUrl) return;
-            lastInjectedUrl = currentUrl;
-            
-            console.log("[WebBrowserTab] injecting bridge script into webview");
-            await (webview as any).evaluateJavaScript(
-              "(function(){" + WEBVIEW_EXTRACT_BRIDGE_SCRIPT + "})();"
-            );
-          } catch (e) {
-            console.warn("[WebBrowserTab] Failed to inject extract bridge:", e);
-          }
-        };
-        
-        webview.once("tauri://created", async () => {
-          console.log("[WebBrowserTab] webview tauri://created event fired");
-          if (!isCancelled) {
-            await updateWebviewBounds();
-            setIsLoading(false);
-            setTimeout(() => void updateWebviewBounds(), 200);
-            setTimeout(() => void updateWebviewBounds(), 500);
-
-            // Inject script after page loads
-            setTimeout(injectBridgeScript, 1500);
-            // Try again after a longer delay in case of slow loading
-            setTimeout(injectBridgeScript, 4000);
-          }
-        }).then((unlisten) => {
-          if (unlisten && typeof unlisten === 'function') unlistenFns.push(unlisten);
-        }).catch((e) => console.warn("Failed to attach created listener:", e));
-
-        // Re-inject on navigation (when URL changes)
-        // Note: embedded Webview may not have .on() in some Tauri v2 versions;
-        // guard to avoid crashing webview creation.
-   
-        if (typeof (webview as any).on === 'function') {
-   
-          (webview as any).on("tauri://url-changed", () => {
-            console.log("[WebBrowserTab] webview tauri://url-changed event fired");
-            lastInjectedUrl = ""; // Reset so script will be injected on new page
-            setTimeout(injectBridgeScript, 1500);
-            setTimeout(injectBridgeScript, 4000);
-          }).then((unlisten: any) => {
-            if (unlisten && typeof unlisten === 'function') unlistenFns.push(unlisten);
-          }).catch((e: unknown) => console.warn("Failed to attach url-changed listener:", e));
-        }
-
-        webview.once("tauri://error", (event: unknown) => {
-          console.error("[WebBrowserTab] webview tauri://error event fired:", event);
-          if (!isCancelled) {
-            setIsLoading(false);
-   
-            const errorMessage = (event as any)?.payload?.message || String(event);
-            setWebviewError(`Failed to load: ${errorMessage}`);
-          }
-        }).then((unlisten) => {
-          if (unlisten && typeof unlisten === 'function') unlistenFns.push(unlisten);
-        }).catch((e) => console.warn("Failed to attach error listener:", e));
-
-        setTimeout(() => {
-          if (!isCancelled && webviewRef.current === webview) {
-            console.log("[WebBrowserTab] 3000ms safety timeout reached for webview loading");
-            setIsLoading(false);
-            void updateWebviewBounds();
-          }
-        }, 3000);
-      } catch (error) {
-        console.error("[WebBrowserTab] Exception creating webview:", error);
-        if (!isCancelled) {
-          setIsLoading(false);
-          setWebviewError(`Exception: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-    };
-
-    const timeoutId = setTimeout(() => {
-      void createWebview();
-    }, 250);
-
-    return () => {
-      isCancelled = true;
-      clearTimeout(timeoutId);
-      unlistenFns.forEach((unlisten) => {
-        try {
-          const result = unlisten();
-          if (result && typeof result.then === 'function') {
-            result.catch(() => {
-              // Ignore errors during cleanup - listener may already be removed
-            });
-          }
-        } catch {
-          // Ignore errors during cleanup - listener may already be removed
-        }
-      });
-      unlistenFns.length = 0;
-    };
-  }, [currentUrl, refreshToken, updateWebviewBounds]);
-
-  // Resize observer with RAF to avoid loop errors
-  useEffect(() => {
-    if (!webviewContainerRef.current) return;
-    let rafId: number | null = null;
-    const triggerUpdate = () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        void updateWebviewBounds();
-      });
-    };
-    const observer = new ResizeObserver(triggerUpdate);
-    observer.observe(webviewContainerRef.current);
-
-    window.addEventListener('resize', triggerUpdate);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', triggerUpdate);
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [updateWebviewBounds]);
-
-  // Poll for selection data from webview bridge
-  useEffect(() => {
-    if (!isTauri() || !webviewRef.current || !isActiveTab) return;
-
-    const pollInterval = setInterval(async () => {
-      if (document.hidden) return;
-      try {
-        const data = await pollWebviewSelection();
-        if (data?.text && data.text.length >= 3) {
-          // Auto-open extract dialog when user clicks the extract button in webview
-          setExtractDialog({
-            content: data.text,
-            htmlContent: data.html,
-            url: data.url || currentUrl,
-            pageTitle: data.title || pageTitle || new URL(currentUrl).hostname,
-            timestamp: Date.now(),
-          });
-        }
-      } catch {
-        // Silent fail - polling is best-effort
-      }
-    }, 500); // Poll every 500ms
-
-    return () => clearInterval(pollInterval);
-  }, [isTauri, currentUrl, pageTitle, pollWebviewSelection, isActiveTab]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-   
-  useEffect(() => {
-    return () => {
-      if (webviewRef.current) {
-        void webviewRef.current.close();
-        webviewRef.current = null;
-      }
-      if (isTauri()) {
-        import("@tauri-apps/api/webview").then(({ Webview }) => {
-          Webview.getAll()
-            .then((all) => {
-              all.forEach((w) => {
-                if (w.label.startsWith("web-browser-") || w.label === "web-browser") {
-                  void w.close().catch(() => undefined);
-                }
-              });
-            })
-            .catch(() => undefined);
-        });
-      }
-    };
-  }, []);
-
-  // Hide/show the native webview when the browser tab is hidden/visible.
-  // TabContent uses CSS `hidden` on inactive tabs, but native webviews are
-  // OS-level widgets that ignore CSS. We use IntersectionObserver to detect
-  // when the container becomes invisible (due to parent `display:none` or
-  // `visibility:hidden`) and call webview.hide()/show() accordingly.
-  useEffect(() => {
-    if (!isTauri() || !webviewContainerRef.current) return;
-
-    const container = webviewContainerRef.current;
-    let observer: IntersectionObserver | null = null;
-
-    try {
-      observer = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            const isVisible = entry.isIntersecting && entry.intersectionRatio > 0;
-            if (isVisible === webviewIsVisibleRef.current) continue;
-            webviewIsVisibleRef.current = isVisible;
-
-            if (webviewRef.current) {
-              if (isVisible) {
-                // Re-sync bounds before showing: while the tab was hidden the
-                // pane/container may have been resized (split panes, toolbar,
-                // sidebar), and an OS webview only re-reads its geometry when
-                // told to — a stale size would leave it mispositioned.
-                void updateWebviewBounds().finally(() => {
-                  if (webviewRef.current) {
-                    void webviewRef.current.show().catch(() => {});
-                  }
-                });
-              } else {
-                void webviewRef.current.hide().catch(() => {});
-              }
-            }
-          }
-        },
-        { threshold: 0 }
-      );
-      observer.observe(container);
-    } catch (e) {
-      console.warn("[WebBrowserTab] IntersectionObserver not available:", e);
-    }
-
-    return () => {
-      observer?.disconnect();
-    };
-  }, [isTauri, updateWebviewBounds]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-   
-  useEffect(() => {
-    if (!isTauri()) return;
-
-    if (extractDialog) {
-      // Hide the native webview while the dialog is open
-      if (webviewRef.current && webviewIsVisibleRef.current) {
-        void webviewRef.current.hide().catch(() => {});
-      }
-    } else {
-      // Show the native webview when the dialog closes (only if tab is visible)
-      if (webviewRef.current && webviewIsVisibleRef.current) {
-        void webviewRef.current.show().catch(() => {});
-      }
-    }
-  }, [extractDialog, isTauri]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-   
-  useEffect(() => {
-    const saved = localStorage.getItem("web-browser-bookmarks");
-    if (saved) setBookmarks(JSON.parse(saved));
-    
-    const savedExtractsData = localStorage.getItem("web-browser-extracts");
-    if (savedExtractsData) setSavedExtracts(JSON.parse(savedExtractsData));
-  }, []);
-
-  // Persist bookmarks and extracts
-  useEffect(() => {
-    localStorage.setItem("web-browser-bookmarks", JSON.stringify(bookmarks));
-  }, [bookmarks]);
-
-  useEffect(() => {
-    localStorage.setItem("web-browser-extracts", JSON.stringify(savedExtracts));
-  }, [savedExtracts]);
-
-  useEffect(() => {
-    const handleExtractTextEvent = () => {
-      handleCreateExtract();
-    };
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'E') {
         e.preventDefault();
         handleCreateExtract();
       }
+    };
+
+    const handleExtractTextEvent = () => {
+      handleCreateExtract();
     };
 
     window.addEventListener('extract-text', handleExtractTextEvent);
@@ -1207,46 +1062,6 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [handleCreateExtract]);
-
-  // Push the user's configured extract-text shortcut into the native webview
-  // bridge so it responds to the same key combo the user set in settings.
-  const pushShortcutToWebview = useCallback(() => {
-    if (!isTauri() || !webviewRef.current || !currentUrl) return;
-    const combo = getShortcutCombo("edit.extract-text");
-    if (!combo) return;
-    const shortcut = JSON.stringify({
-      ctrl: combo.ctrl || false,
-      alt: combo.alt || false,
-      shift: combo.shift || false,
-      meta: combo.meta || false,
-      key: combo.key,
-    });
-   
-    (webviewRef.current as any)
-      .evaluateJavaScript(`
-        (function(){
-          var bridge = window.__incrementum;
-          if (bridge) bridge._setShortcut(${shortcut});
-        })()
-      `)
-      .catch(() => {});
-  }, [isTauri, currentUrl]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-   
-  // Push shortcut after webview is created / URL changes
-  useEffect(() => {
-    pushShortcutToWebview();
-  }, [pushShortcutToWebview]);
-
-  // Re-push when the user changes their shortcut in settings
-  useEffect(() => {
-    let unsub: (() => void) | undefined;
-    // Dynamic import to avoid bundler issues with require() in ESM/AppImage builds
-    import("../common/KeyboardShortcuts").then(({ useShortcutStore }) => {
-      unsub = useShortcutStore.subscribe(pushShortcutToWebview);
-    });
-    return () => unsub?.();
-  }, [pushShortcutToWebview]);
 
   return (
     <div className="h-full w-full flex flex-col min-h-0">
@@ -1370,7 +1185,7 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
           <div className="w-80 border-r border-border bg-card overflow-y-auto flex-shrink-0">
             {/* Extracts Section */}
             <div className="p-4 border-b border-border">
-              <div 
+              <div
                 className="flex items-center justify-between mb-3 cursor-pointer"
                 onClick={() => setExtractsExpanded(!extractsExpanded)}
               >
@@ -1385,7 +1200,7 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
                   {extractsExpanded ? '▼' : '▶'}
                 </span>
               </div>
-              
+
               {extractsExpanded && (
                 <>
                   {savedExtracts.length === 0 ? (
@@ -1510,11 +1325,15 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
                   </div>
                 </div>
               )}
-              {webviewError && (
+              {proxyFailure && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/95 z-50">
                   <div className="text-center max-w-md px-4 space-y-3">
-                    <p className="text-sm text-destructive font-semibold">{t("browser.navigationFailed")}</p>
-                    <p className="text-xs text-muted-foreground break-all">{webviewError}</p>
+                    <p className="text-sm text-destructive font-semibold">
+                      {t("browser.proxyFailureTitle")}
+                    </p>
+                    <p className="text-xs text-muted-foreground break-all">
+                      {t("browser.proxyFailureReason", { host: proxyFailure.host, reason: proxyFailure.reason })}
+                    </p>
                     <div className="flex items-center justify-center gap-3">
                       <button
                         onClick={handleRefresh}
@@ -1522,6 +1341,14 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
                       >
                         <ArrowClockwise className="w-4 h-4" />
                         {t("browser.retry")}
+                      </button>
+                      <button
+                        onClick={() => handleLoadReaderView()}
+                        disabled={isLoadingReader}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
+                      >
+                        <BookOpen className="w-4 h-4" />
+                        {isLoadingReader ? t("browser.loading") : t("browser.readerView")}
                       </button>
                       <button
                         onClick={handleOpenInBrowser}
@@ -1565,7 +1392,7 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
               )}
               {readerContent && (
                 <div className="absolute inset-0 overflow-y-auto bg-background z-40">
-                  <div className="max-w-3xl mx-auto px-6 py-8">
+                  <div className="w-full px-8 py-8">
                     <div className="flex items-center justify-between mb-6">
                       <h1 className="text-xl font-bold text-foreground">{readerContent.title}</h1>
                       <button
@@ -1581,24 +1408,40 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
                       <a href={currentUrl} target="_blank" rel="noopener noreferrer" className="hover:underline truncate">{currentUrl}</a>
                     </div>
                     <article
-                      className="prose prose-sm dark:prose-invert max-w-none"
+                      onClick={handleReaderLinkClick}
+                      className="prose prose-sm dark:prose-invert max-w-none [&_a]:cursor-pointer [&_a]:text-blue-600 dark:[&_a]:text-blue-400 [&_a]:underline"
                       dangerouslySetInnerHTML={{ __html: readerContent.html }}
                     />
                   </div>
                 </div>
               )}
-              <div ref={webviewContainerRef} className="absolute inset-0 w-full h-full">
-                {!isTauri() && currentUrl && (
-                  <iframe
-                    key={`${currentUrl}-${refreshToken}`}
-                    ref={iframeRef}
-                    src={currentUrl}
-                    className="w-full h-full border-0"
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-                    title="Web Browser"
-                    onLoad={handleIframeLoad}
-                    onError={handleIframeError}
-                  />
+              <div className="absolute inset-0 w-full h-full">
+                {isTauri() ? (
+                  proxyUrl && (
+                    <iframe
+                      key={`${proxyUrl}-${refreshToken}`}
+                      ref={iframeRef}
+                      src={proxyUrl}
+                      className="w-full h-full border-0"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                      title="Web Browser"
+                      onLoad={handleIframeLoad}
+                      onError={handleIframeError}
+                    />
+                  )
+                ) : (
+                  currentUrl && (
+                    <iframe
+                      key={`${currentUrl}-${refreshToken}`}
+                      ref={iframeRef}
+                      src={currentUrl}
+                      className="w-full h-full border-0"
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                      title="Web Browser"
+                      onLoad={handleIframeLoad}
+                      onError={handleIframeError}
+                    />
+                  )
                 )}
               </div>
             </>
@@ -1615,8 +1458,7 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
       </div>
 
       {/* Extract Dialog — rendered via portal to document.body so it always
-          * appears above iframes (which create their own stacking context) and
-          * above the native webview widget (Tauri path handled by hide/show). */}
+          appears above iframes (which create their own stacking context). */}
       {extractDialog && createPortal(
         <ExtractDialog
           extract={extractDialog}
