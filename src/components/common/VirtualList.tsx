@@ -3,7 +3,7 @@
  * Efficiently renders large lists by only mounting visible items
  */
 
-import { useRef, useEffect, useState, useCallback, ReactNode } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo, ReactNode } from "react";
 
 interface VirtualListProps<T> {
   items: T[];
@@ -192,6 +192,17 @@ export function useVirtualList<T>({
   };
 }
 
+/** Nearest ancestor that actually scrolls, or null if nothing above us does. */
+function findScrollParent(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") {
+      return node;
+    }
+  }
+  return null;
+}
+
 /**
  * Dynamic Virtual List Component
  * For items with variable/dynamic heights
@@ -281,8 +292,11 @@ export function DynamicVirtualList<T>({
     [itemKey],
   );
 
-  const itemKeys = items.map(getItemKey);
-  const listSignature = itemKeys.join("\u001f");
+  const { itemKeys, listSignature } = useMemo(() => {
+    const keys = items.map(getItemKey);
+    return { itemKeys: keys, listSignature: keys.join("\u001f") };
+  }, [items, getItemKey]);
+
   if (lastListSignatureRef.current !== listSignature) {
     // Keep id-keyed heights for items that remain in the list.
     lastListSignatureRef.current = listSignature;
@@ -302,26 +316,70 @@ export function DynamicVirtualList<T>({
     heightRevisionRef.current += 1;
   }
 
+  // Which element actually clips this list. It is the container itself only
+  // when the caller gave the container a bounded height (MobileQueueView passes
+  // `h-full min-h-0 overflow-y-auto`). Every other call site drops it into the
+  // page's own scroller with NO height, so the container grows to fit its
+  // content: `clientHeight === totalHeight`, `findEndIndex` never crosses the
+  // viewport bound and returns `items.length`, and the "virtual" list mounts
+  // EVERY row — 1400+ queue cards laid out at once. That is what froze the
+  // queue for ~20s (and visibly reflowed every card into a new offset) on the
+  // way back from Scroll Mode / an Optimal Session. Measure against the nearest
+  // scrolling ancestor instead, translating its scrollTop into this list's
+  // coordinate space — the same correction DocumentsView makes via
+  // `useScrollMargin` for @tanstack/react-virtual.
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    if (!containerRef.current) return;
 
-    const updateHeight = () => {
-      setContainerHeight(container.clientHeight);
+    let frame = 0;
+    let bound: HTMLElement | null = null;
+    let detach: (() => void) | null = null;
+
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(sync);
     };
 
-    updateHeight();
+    function sync() {
+      frame = 0;
+      const el = containerRef.current;
+      if (!el) return;
 
-    let rafId: number | null = null;
-    const resizeObserver = new ResizeObserver(() => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(updateHeight);
-    });
-    resizeObserver.observe(container);
+      const viewport = el.scrollHeight > el.clientHeight + 1 ? el : findScrollParent(el);
+      if (viewport !== bound) {
+        detach?.();
+        bound = viewport;
+        detach = null;
+        if (viewport) {
+          viewport.addEventListener("scroll", schedule, { passive: true });
+          detach = () => viewport.removeEventListener("scroll", schedule);
+        }
+      }
+      if (!viewport) {
+        setContainerHeight(el.clientHeight);
+        setScrollTop(0);
+        return;
+      }
+
+      const listTop =
+        viewport === el
+          ? 0
+          : el.getBoundingClientRect().top -
+            viewport.getBoundingClientRect().top +
+            viewport.scrollTop;
+      setContainerHeight(viewport.clientHeight);
+      setScrollTop(Math.max(0, viewport.scrollTop - listTop));
+    }
+
+    sync();
+    const resizeObserver = new ResizeObserver(schedule);
+    resizeObserver.observe(containerRef.current);
+    window.addEventListener("resize", schedule);
 
     return () => {
       resizeObserver.disconnect();
-      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", schedule);
+      detach?.();
+      if (frame) cancelAnimationFrame(frame);
     };
   }, []);
 
@@ -375,6 +433,12 @@ export function DynamicVirtualList<T>({
   measureItemRef.current = (key, element) => {
     if (!element) return false;
     const height = element.getBoundingClientRect().height;
+    // An inactive tab is `display: none`, so every row in it measures 0 and
+    // fires its ResizeObserver on the way out. Caching those zeros collapses
+    // totalHeight, the browser clamps the scroller's scrollTop to 0, and the
+    // queue comes back sitting on item #1 no matter where the user had been.
+    // A rendered row is never 0px tall — treat it as "not measurable yet".
+    if (height === 0) return false;
     const hasCachedHeight = itemHeightsRef.current.has(key);
     const cachedHeight = itemHeightsRef.current.get(key) ?? itemHeight;
     const delta = Math.abs(height - cachedHeight);
@@ -449,9 +513,10 @@ export function DynamicVirtualList<T>({
     };
   }, []);
 
+  // Windowing state comes from the viewport effect above (which listens on
+  // whichever element actually scrolls); this only forwards to the caller.
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
-      setScrollTop(e.currentTarget.scrollTop);
       onScroll?.(e);
     },
     [onScroll]
