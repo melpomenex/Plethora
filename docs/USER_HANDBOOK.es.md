@@ -252,7 +252,9 @@ La opción **SM-20** de Incrementum es **Algorithm Arena**: una adaptación de i
 | 2 | **SM-15** | 14% | Continuamente, en cada revisión |
 | 3 | **SM-19** | 45% | Continuamente, en cada revisión |
 | 4 | **SM-20** (el kernel de curva de olvido "M4" de 35 parámetros) | 25% | Bajo demanda, a través del botón Optimizar |
-| 5 | **FSRS** | 10% | Bajo demanda, a través del botón Optimizar |**Cómo funciona la combinación.** Cada modelo produce de forma independiente una estimación de estabilidad para la tarjeta; la Arena toma un promedio ponderado y deriva el siguiente intervalo a partir de ahí. Los pesos no son fijos: se **adaptan a ti**. Cada vez que revisas una tarjeta cuya revisión anterior fue hace al menos un día, Arena califica la predicción *anterior* de cada modelo contra lo que realmente sucedió (lo recordaste u olvidaste) y empuja los pesos hacia los modelos que te han estado prediciendo mejor. Ningún modelo se elimina por completo, por lo que un modelo que arranca lentamente puede recuperarse.
+| 5 | **FSRS** | 10% | Bajo demanda, a través del botón Optimizar |
+
+**Cómo funciona la combinación.** Cada modelo produce de forma independiente una estimación de estabilidad para la tarjeta; la Arena toma un promedio ponderado y deriva el siguiente intervalo a partir de ahí. Los pesos no son fijos: se **adaptan a ti**. Cada vez que revisas una tarjeta cuya revisión anterior fue hace al menos un día, Arena califica la predicción *anterior* de cada modelo contra lo que realmente sucedió (lo recordaste u olvidaste) y empuja los pesos hacia los modelos que te han estado prediciendo mejor. Ningún modelo se elimina por completo, por lo que un modelo que arranca lentamente puede recuperarse.
 
 **Dos formas de aprender:**
 
@@ -276,7 +278,9 @@ La opción **SM-20** de Incrementum es **Algorithm Arena**: una adaptación de i
 En **Configuración → Aprendizaje → Campo de algoritmos → Después de cada calificación**, elija cuántos detalles de programación desea:
 
 - **Mantener el flujo (recomendado)** confirma la selección ponderada de Arena inmediatamente y pasa a la siguiente carta. Este es el valor predeterminado.
-- **Mostrar la Arena** hace una pausa después de una calificación elegible y abre **Memory Horizon**, con tu respuesta aún visible mientras los cinco modelos muestran dónde colocarían la siguiente revisión.La misma opción compacta aparece debajo de los seis controles de calificación SM-20, por lo que la siguiente calificación puede usar un modo diferente sin salir de la revisión. Ambos modos ejecutan y entrenan los mismos cinco modelos de colección; esta configuración cambia sólo si realiza la elección final del intervalo. El paso de decisión sigue limitado a revisiones normales de tarjetas didácticas SM-20; la lectura de documentos, el modo intensivo, otros algoritmos y el **Modo SM-20 puro** mantienen su flujo de programación directa existente.
+- **Mostrar la Arena** hace una pausa después de una calificación elegible y abre **Memory Horizon**, con tu respuesta aún visible mientras los cinco modelos muestran dónde colocarían la siguiente revisión.
+
+La misma opción compacta aparece debajo de los seis controles de calificación SM-20, por lo que la siguiente calificación puede usar un modo diferente sin salir de la revisión. Ambos modos ejecutan y entrenan los mismos cinco modelos de colección; esta configuración cambia sólo si realiza la elección final del intervalo. El paso de decisión sigue limitado a revisiones normales de tarjetas didácticas SM-20; la lectura de documentos, el modo intensivo, otros algoritmos y el **Modo SM-20 puro** mantienen su flujo de programación directa existente.
 
 - **Arena Pick** está seleccionado de forma predeterminada. Es la recomendación ponderada y suele ser la mejor opción cuando quieres que la Arena decida.
 - **SM-2, SM-15, SM-19, SM-20 y FSRS** te permiten seguir deliberadamente la propuesta exacta de un modelo para esta revisión. Elegir uno no le da a ese modelo un peso de votación adicional; Las ponderaciones futuras continúan aprendiendo solo de la precisión de la predicción.
