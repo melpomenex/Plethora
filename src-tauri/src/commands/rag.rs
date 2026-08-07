@@ -61,6 +61,22 @@ pub struct RagChatResponse {
     pub answer: String,
     /// Ordered citations; `citations[i]` corresponds to marker `[i+1]`.
     pub citations: Vec<RagHit>,
+    /// What retrieval actually found. Lets the UI tell "your library has
+    /// nothing on this" apart from "your library was never searched because
+    /// nothing is indexed under the configured embedding model".
+    pub retrieval_state: RagRetrievalState,
+}
+
+/// Outcome of the retrieval step, kept distinct from "no citations".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RagRetrievalState {
+    /// At least one chunk cleared the similarity threshold.
+    Hits,
+    /// Chunks exist for this provider+model, but none were relevant.
+    NoMatch,
+    /// No chunks at all are stored for the configured provider+model.
+    EmptyIndex,
 }
 
 /// Optional RAG settings applied to a single call (chunk size, top-k, etc.).
@@ -251,15 +267,26 @@ async fn index_document_inner(
     'batch_loop: for batch in to_embed.chunks(batch_size) {
         let texts: Vec<String> = batch.iter().map(|(_, _, text)| text.clone()).collect();
 
-        // Try the whole batch first.
+        // Try the whole batch first. A provider bug can return HTTP 200 with a
+        // 0-length vector per chunk (a real incident: Ollama silently ignoring
+        // an unrecognized request field) — that stores a useless row that can
+        // never score above any similarity threshold, and looks identical to
+        // a successful embed. Treat any empty vector as a batch failure so it
+        // falls through to the one-by-one path below, which skips it loudly.
         match provider.generate_embeddings_batch(&texts).await {
-            Ok(responses) => {
+            Ok(responses) if responses.iter().all(|r| !r.embedding.is_empty()) => {
                 for ((chunk_idx, sub_idx, text), response) in batch.iter().zip(responses.iter()) {
                     let emb = store_chunk(chunk_idx, sub_idx, text, response)?;
                     repo.upsert_chunk_embedding(&emb).await?;
                     embedded += 1;
                 }
                 continue 'batch_loop;
+            }
+            Ok(_) => {
+                tracing::warn!(
+                    "RAG batch returned empty embeddings ({} chunks), falling back to one-by-one",
+                    batch.len()
+                );
             }
             Err(batch_err) => {
                 tracing::warn!(
@@ -273,6 +300,15 @@ async fn index_document_inner(
         // Fallback: embed each chunk individually, skip failures.
         for (chunk_idx, sub_idx, text) in batch {
             match provider.generate_embedding(text).await {
+                Ok(response) if response.embedding.is_empty() => {
+                    tracing::warn!(
+                        "RAG: skipping chunk {}:{}:{} — provider returned an empty embedding",
+                        document_id,
+                        chunk_idx,
+                        sub_idx
+                    );
+                    skipped += 1;
+                }
                 Ok(response) => {
                     let emb = store_chunk(chunk_idx, sub_idx, text, &response)?;
                     repo.upsert_chunk_embedding(&emb).await?;
@@ -492,18 +528,58 @@ pub async fn rag_chat(
     llm_base_url: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<RagChatResponse> {
-    let top_k = options.as_ref().and_then(|o| o.top_k).unwrap_or(8);
+    let provider_str = provider_name(&config);
+    let model_str = model_name(&config);
+
+    // Pass the caller's options through in full — dropping min_similarity here
+    // silently overrode whatever the user configured.
     let hits = rag_search(
         query.clone(),
         document_ids,
         config,
-        Some(RagOptions {
-            top_k: Some(top_k),
-            ..Default::default()
-        }),
+        options.clone(),
         repo.clone(),
     )
     .await?;
+
+    // No hits has two very different causes. Distinguish them before saying
+    // anything about the user's library: an index that holds nothing for the
+    // configured provider+model was never searched at all, and reporting that
+    // as "nothing in your notes" hides data loss or an embedding-model switch
+    // behind a confident answer.
+    if hits.is_empty() {
+        let indexed = repo
+            .count_chunk_embeddings(&provider_str, &model_str)
+            .await?;
+        if indexed == 0 {
+            let elsewhere: Vec<String> = repo
+                .count_chunk_embeddings_by_model()
+                .await?
+                .into_iter()
+                .filter(|(p, m, _)| p != &provider_str || m != &model_str)
+                .map(|(p, m, n)| format!("{n} chunks under {p}/{m}"))
+                .collect();
+            let detail = if elsewhere.is_empty() {
+                "Your library has not been indexed yet.".to_string()
+            } else {
+                format!(
+                    "Your library is indexed under a different embedding model ({}). \
+                     Switch back to that model or re-index with {}/{}.",
+                    elsewhere.join(", "),
+                    provider_str,
+                    model_str
+                )
+            };
+            return Ok(RagChatResponse {
+                answer: format!(
+                    "I could not search your library: no chunks are indexed for {}/{}. {}",
+                    provider_str, model_str, detail
+                ),
+                citations: Vec::new(),
+                retrieval_state: RagRetrievalState::EmptyIndex,
+            });
+        }
+    }
 
     // Assemble grounded context with [1], [2]… citation markers.
     let context_block = if hits.is_empty() {
@@ -552,8 +628,15 @@ If the context doesn't contain the answer, say so.\n\n{context_block}"
     .await
     .map_err(IncrementumError::Internal)?;
 
+    let retrieval_state = if hits.is_empty() {
+        RagRetrievalState::NoMatch
+    } else {
+        RagRetrievalState::Hits
+    };
+
     Ok(RagChatResponse {
         answer: response.content,
         citations: hits,
+        retrieval_state,
     })
 }

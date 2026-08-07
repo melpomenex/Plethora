@@ -875,9 +875,14 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
     async fn generate_embedding(&self, text: &str) -> Result<EmbeddingResponse, String> {
         let url = format!("{}/api/embeddings", self.base_url);
 
+        // `/api/embeddings` (singular, legacy) reads `prompt`, not `input`.
+        // `input` is only recognized by the newer `/api/embed` (plural)
+        // endpoint. Sending `input` here silently returns `{"embedding":[]}`
+        // instead of an error — every chunk "embeds" successfully and stores
+        // a 0-byte vector that can never score above any similarity threshold.
         let body = json!({
             "model": self.model,
-            "input": text,
+            "prompt": text,
         });
 
         let response = self
@@ -911,6 +916,17 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
             })
             .collect::<Result<_, _>>()
             .map_err(|e| e.to_string())?;
+
+        // Ollama can return 200 with an empty array (e.g. the field-name bug
+        // above, or a model mismatch). Fail loudly rather than let the caller
+        // persist a useless 0-byte vector as if it were a real embedding.
+        if embedding.is_empty() {
+            return Err(format!(
+                "Ollama returned an empty embedding for model '{}' — check the model is pulled \
+                 and supports embeddings",
+                self.model
+            ));
+        }
 
         // Ollama doesn't provide token counts
         let tokens = (text.len() / 4) as u32; // Rough estimate

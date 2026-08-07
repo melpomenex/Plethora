@@ -4590,6 +4590,20 @@ impl Repository {
         Ok(row.0)
     }
 
+    /// Count chunk embeddings grouped by `(provider, model)`. Used to tell a
+    /// never-indexed library apart from one indexed under a different
+    /// embedding model, which is otherwise invisible (chunk rows are keyed by
+    /// provider+model, so switching models hides the whole index).
+    pub async fn count_chunk_embeddings_by_model(&self) -> Result<Vec<(String, String, i64)>> {
+        let rows: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT provider, model, COUNT(*) FROM document_chunk_embeddings
+             GROUP BY provider, model ORDER BY COUNT(*) DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     /// Get the count of unread articles for a specific RSS feed
     pub async fn get_rss_feed_unread_count(&self, feed_id: &str) -> Result<i32> {
         let row = sqlx::query(
