@@ -54,6 +54,7 @@ import {
   buildSelectionFocusedContext,
   buildSectionsSnapshot,
   createSelectionSection,
+  describeSectionDiagnostic,
   hashSectionContent,
   resolveSectionFocusedContext,
   type SectionNode,
@@ -1234,8 +1235,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           );
         }
         if (!focused.ok) {
-          const labels = focused.unresolved.map((item) => item.label).join(", ");
-          throw new Error(`The selected section${labels ? ` (${labels})` : ""} is stale or ambiguous. Reselect it before sending; no request was made.`);
+          const detail = focused.unresolved.map(describeSectionDiagnostic).join("; ");
+          throw new Error(
+            `Could not focus the selected section${detail ? `: ${detail}` : ""}. Reselect it before sending; no request was made.`,
+          );
         }
         finalResolvedContent = selectionContext
           ? `${focused.content}\n\n---\n\n${selectionContext}`

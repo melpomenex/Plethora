@@ -4013,7 +4013,7 @@ export const zh: Dict = {
   "flashcardStudio.sectionsHint": "在提示框中输入 # 选择小节，或在下方移除：",
   "flashcardStudio.sectionsEmpty": "尚未选择小节。在提示框中输入 # 并选择要聚焦的小节。",
   "flashcardStudio.sectionsUnresolvable": "聚焦的小节在当前文档中找不到，请重新选择。",
-  "flashcardStudio.sectionUnresolved": "所选小节 ({labels}) 已过期或存在歧义。请在发送前重新选择；未发送任何请求。",
+  "flashcardStudio.sectionUnresolved": "无法聚焦所选小节：{reasons}。请在发送前重新选择；未发送任何请求。",
   "flashcardStudio.sectionTruncated": "提示：为适配模型的上下文窗口，聚焦的小节已被截断。",
   "flashcardStudio.selectChapters": "选择章节：",
   "flashcardStudio.chapterNumber": "第 {count} 章",

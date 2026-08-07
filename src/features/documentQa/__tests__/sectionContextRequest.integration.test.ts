@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { chatWithContext, type LLMProvider } from "../../../api/llm";
-import { buildDocumentSections, resolveSectionFocusedContext } from "../../../utils/sectionIndex";
+import {
+  buildDocumentSections,
+  convertEpubTocToSectionNodes,
+  resolveSectionFocusedContext,
+} from "../../../utils/sectionIndex";
 import { createDocumentQaRequestContent, loadDocumentQaText } from "../sectionContextRequest";
 
 const { mockInvokeCommand } = vi.hoisted(() => ({ mockInvokeCommand: vi.fn() }));
@@ -111,5 +115,54 @@ describe("Document Q&A focused-section provider boundary", () => {
     expect(request.contextContent).toContain("Unique EPUB card source");
     expect(request.contextContent).not.toContain("Opening material");
     expect(request.contextContent).not.toContain("Closing material");
+  });
+
+  it("resolves a deep EPUB outline chapter past a front-matter table of contents", () => {
+    // Reproduces the reported bug: the user focuses
+    // "Part Three > Chapter 11: DARWIN'S DELAY", but the chapter title also
+    // appears in the book's front-matter table of contents. The model must
+    // receive the chapter body, not the title-page/TOC text, and the request
+    // must succeed on the first send (no "stale or ambiguous" abort).
+    const fullText = [
+      "Contents",
+      "Part One: SEX, ROMANCE, AND LOVE",
+      "Part Two: NATURAL SELECTION",
+      "Part 3: SOCIAL STRIFE",
+      "Chapter 11: DARWIN'S DELAY",
+      "Chapter 12: A SECULAR PRIESTHOOD",
+      "",
+      "Part 3",
+      "Chapter 11: DARWIN'S DELAY",
+      "Darwin delayed publishing his theory for more than two decades. This is the real chapter body that the model must receive.",
+      "Chapter 12: A SECULAR PRIESTHOOD",
+      "Huxley and the clergy clashed over the implications of selection.",
+    ].join("\n");
+    const toc = convertEpubTocToSectionNodes([
+      {
+        label: "Part 3: SOCIAL STRIFE",
+        subitems: [
+          { label: "Chapter 11: DARWIN'S DELAY" },
+          { label: "Chapter 12: A SECULAR PRIESTHOOD" },
+        ],
+      },
+    ] as never);
+    const { flat } = buildDocumentSections(fullText, toc);
+    const chapter = flat.find((section) => section.title === "Chapter 11: DARWIN'S DELAY")!;
+
+    const focused = resolveSectionFocusedContext([chapter], flat, fullText, {
+      documentId: "epub-deep",
+      maxTokens: 2000,
+      includeNeighbors: false,
+    });
+    expect(focused.ok).toBe(true);
+    const request = createDocumentQaRequestContent({
+      documentContext: focused.content,
+      userQuestion: "Summarize this chapter.",
+      focusLabel: focused.labels.join(", "),
+    });
+    expect(request.userPromptContent).toContain("Darwin delayed publishing his theory");
+    expect(request.contextContent).toContain("Darwin delayed publishing his theory");
+    // The front-matter table of contents must not be what the model receives.
+    expect(request.contextContent).not.toMatch(/^Contents$/m);
   });
 });

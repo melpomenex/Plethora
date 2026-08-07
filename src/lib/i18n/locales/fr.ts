@@ -3861,7 +3861,7 @@ export const fr: Dict = {
   "flashcardStudio.sectionsHint": "Tapez # dans le champ pour choisir une section, ou retirez-en une ci-dessous :",
   "flashcardStudio.sectionsEmpty": "Aucune section sélectionnée. Tapez # dans le champ et choisissez une section à cibler.",
   "flashcardStudio.sectionsUnresolvable": "La ou les sections ciblées sont introuvables dans le document actuel. Resélectionnez-les.",
-  "flashcardStudio.sectionUnresolved": "La section sélectionnée ({labels}) est obsolète ou ambiguë. Resélectionnez-la avant d'envoyer ; aucune requête n'a été effectuée.",
+  "flashcardStudio.sectionUnresolved": "Impossible de focaliser la section sélectionnée : {reasons}. Resélectionnez-la avant d'envoyer ; aucune requête n'a été effectuée.",
   "flashcardStudio.sectionTruncated": "Remarque : la section ciblée a été tronquée pour respecter la fenêtre de contexte du modèle.",
   "flashcardStudio.selectChapters": "Sélectionnez les chapitres :",
   "flashcardStudio.chapterNumber": "Chap. {count}",

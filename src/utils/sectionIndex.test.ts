@@ -7,6 +7,7 @@ import {
   buildHeuristicParagraphSections,
   buildSelectionFocusedContext,
   createSelectionSection,
+  describeSectionDiagnostic,
   truncateTextToBudget,
   mergeOutlineWithHeuristics,
   sliceWithNeighbors,
@@ -15,6 +16,7 @@ import {
   convertEpubTocToSectionNodes,
   buildSectionsSnapshot,
   resolveSectionFocusedContext,
+  type SectionContextDiagnostic,
   type SectionNode,
 } from "./sectionIndex";
 
@@ -81,6 +83,44 @@ describe("sectionIndex", () => {
     expect(intros.length).toBe(2);
     expect(intros[0].breadcrumb).not.toEqual(intros[1].breadcrumb);
     expect(intros[0].id).not.toBe(intros[1].id);
+  });
+
+  it("assigns differentiated heading levels to part/chapter/section keywords", () => {
+    // A real nested outline: Part > Chapter. The heuristic tree must carry that
+    // depth, not flatten every keyword heading to level 1, or it can never
+    // breadcrumb-match a nested PDF/EPUB outline.
+    const content = [
+      "Part 1",
+      "Chapter 1: DARWIN COMES OF AGE",
+      "Real chapter body about Darwin.",
+      "Chapter 2: THE ARRIVAL OF THE FITTEST",
+      "Second chapter body.",
+      "Part 2",
+      "Chapter 3: LATER LIFE",
+      "Third chapter body.",
+    ].join("\n");
+    const headings = parseMarkdownHeadings(content);
+    const parts = headings.filter((h) => /^Part \d/.test(h.title));
+    const chapters = headings.filter((h) => /^Chapter/.test(h.title));
+    expect(parts).toHaveLength(2);
+    expect(chapters).toHaveLength(3);
+    // Parts are shallower than chapters after normalization.
+    expect(parts.every((h) => h.level < chapters[0].level)).toBe(true);
+
+    const tree = buildTreeFromHeadings(content, headings);
+    const flat = flattenTree(tree);
+    const chapter1 = flat.find((n) => n.title.includes("DARWIN COMES OF AGE"))!;
+    expect(chapter1.breadcrumb).toContain("Part 1");
+    expect(chapter1.content).toContain("Real chapter body about Darwin.");
+  });
+
+  it("keeps a flat markdown document as two level-1 sections after normalization", () => {
+    const content = "# A\nAlpha body.\n# B\nBeta body.";
+    const headings = parseMarkdownHeadings(content);
+    expect(headings.map((h) => h.level)).toEqual([1, 1]);
+    const { flat } = buildDocumentSections(content);
+    expect(flat.map((n) => n.title)).toEqual(["A", "B"]);
+    expect(flat.every((n) => n.level === 1)).toBe(true);
   });
 
   it("flattens tree in DFS order", () => {
@@ -154,6 +194,144 @@ describe("sectionIndex", () => {
     expect(result.content).not.toContain("Closing Notes");
   });
 
+  it("merges an outline node onto the longest-bodied heuristic candidate", () => {
+    // Real-world shape: a chapter title appears three times in the extracted
+    // text — once in a page-numbered table of contents, once in a detailed TOC
+    // that lists the chapter's sub-sections, and once as the real chapter
+    // heading followed by prose. The outline node must merge onto the body
+    // candidate (the longest range), not the first TOC-shaped match.
+    const content = [
+      "Title Page",
+      "Chapter 1: DARWIN COMES OF AGE · 19",
+      "Chapter 2: MALE AND FEMALE · 33",
+      "Chapter 1: DARWIN COMES OF AGE",
+      "AN UNLIKELY HERO",
+      "CLIMATE CONTROL",
+      "DARWIN'S SEX LIFE",
+      "Chapter 2: MALE AND FEMALE",
+      "PLAYING GOD",
+      "The Moral Animal",
+      "Chapter 1: DARWIN COMES OF AGE",
+      "As for an English lady, I have almost forgotten what she is.",
+      "Boys growing up in nineteenth-century England weren't generally advised to seek sexual excitement.",
+      "Chapter 2: MALE AND FEMALE",
+      "The second chapter body continues here.",
+    ].join("\n");
+    const outline = convertPdfOutlineToSectionNodes([
+      { title: "Chapter 1: DARWIN COMES OF AGE", pageNumber: 19 },
+      { title: "Chapter 2: MALE AND FEMALE", pageNumber: 33 },
+    ] as never);
+    const { flat } = buildDocumentSections(content, outline);
+    const chapter1 = flat.find((n) => n.title === "Chapter 1: DARWIN COMES OF AGE" && n.source === "pdf-outline")!;
+    expect(chapter1.hasAuthoritativeRange).toBe(true);
+    expect(chapter1.content).toContain("As for an English lady");
+    expect(chapter1.content).not.toContain("CLIMATE CONTROL");
+
+    const focused = resolveSectionFocusedContext([chapter1], flat, content, {
+      documentId: "doc-1",
+      maxTokens: 2000,
+      includeNeighbors: false,
+    });
+    expect(focused.ok).toBe(true);
+    expect(focused.content).toContain("As for an English lady");
+  });
+
+  it("recovers the chapter body, not a front-matter table-of-contents occurrence", () => {
+    // The chapter title also appears in a table of contents at the top, where
+    // it is immediately followed by another TOC line (no body). Recovery must
+    // pick the real heading further down that is followed by the chapter prose.
+    const content = [
+      "Contents",
+      "Chapter 1",
+      "Chapter 2",
+      "Chapter 1",
+      "This is the real first chapter body that the model must receive.",
+      "Chapter 2",
+      "Second chapter body.",
+    ].join("\n");
+    const outline = convertPdfOutlineToSectionNodes([
+      { title: "Chapter 1", pageNumber: 1 },
+      { title: "Chapter 2", pageNumber: 5 },
+    ] as never);
+    const { flat } = buildDocumentSections(content, outline);
+    const chapter1 = flat.find((node) => node.title === "Chapter 1" && node.source === "pdf-outline")!;
+    // Neighbors are disabled to assert recovery itself; with neighbors on the
+    // previous-context window would legitimately reach back into the TOC.
+    const focused = resolveSectionFocusedContext([chapter1], flat, content, {
+      documentId: "doc-1",
+      maxTokens: 2000,
+      includeNeighbors: false,
+    });
+    expect(focused.ok).toBe(true);
+    expect(focused.content).toContain("real first chapter body");
+    expect(focused.content).not.toMatch(/Contents/);
+  });
+
+  it("recovers distinct bodies for two same-title outline chapters", () => {
+    const content = [
+      "Chapter 1",
+      "First unique chapter body alpha.",
+      "Chapter 2",
+      "Second chapter body beta.",
+      "Chapter 1",
+      "This later chapter one body gamma is distinct.",
+    ].join("\n");
+    const outline = convertPdfOutlineToSectionNodes([
+      { title: "Chapter 1", pageNumber: 1 },
+      { title: "Chapter 1", pageNumber: 9 },
+    ] as never);
+    const { flat } = buildDocumentSections(content, outline);
+    const chapters = flat.filter((node) => node.title === "Chapter 1" && node.source === "pdf-outline");
+    expect(chapters).toHaveLength(2);
+    const focused = resolveSectionFocusedContext(chapters, flat, content, { documentId: "doc-1", maxTokens: 2000 });
+    expect(focused.ok).toBe(true);
+    expect(focused.content).toContain("First unique chapter body alpha");
+    expect(focused.content).toContain("later chapter one body gamma");
+  });
+
+  it("treats a section whose only range has no body as unresolved", () => {
+    // A title that appears only as a table-of-contents line, immediately
+    // followed by another TOC line, has no body to send. The resolver must not
+    // hand the empty/heading-only text to the model as if it were context.
+    const content = ["Contents", "Chapter 1", "Chapter 2", "Chapter 3", "Closing"].join("\n");
+    const outline = convertPdfOutlineToSectionNodes([
+      { title: "Chapter 1", pageNumber: 1 },
+      { title: "Chapter 2", pageNumber: 2 },
+      { title: "Chapter 3", pageNumber: 3 },
+    ] as never);
+    const { flat } = buildDocumentSections(content, outline);
+    const chapter1 = flat.find((node) => node.title === "Chapter 1" && node.source === "pdf-outline")!;
+    const focused = resolveSectionFocusedContext([chapter1], flat, content, {
+      documentId: "doc-1",
+      maxTokens: 2000,
+      includeNeighbors: false,
+    });
+    expect(focused.ok).toBe(false);
+    expect(focused.failure).toBe("unresolved");
+  });
+
+  it("skips an empty-body candidate and resolves to a candidate with real body", () => {
+    // The current-tree node for "Target" carries a stale range that slices to
+    // nothing, but the picked node itself has the authoritative range. The
+    // resolver should try the next candidate instead of returning empty.
+    const content = "# Target\nReal target body text here.\n# Next\nOther.";
+    const { flat } = buildDocumentSections(content);
+    const good = flat.find((node) => node.title === "Target")!;
+    // A current-tree node with a degenerate (zero-length) range that nonetheless
+    // passes the documentId check but yields no body.
+    const emptyBodied: SectionNode = {
+      ...good,
+      id: "empty-ranged",
+      startChar: 0,
+      endChar: 0,
+      content: "",
+    };
+    const available = [emptyBodied, ...flat];
+    const focused = resolveSectionFocusedContext([good], available, content, { documentId: "doc-1" });
+    expect(focused.ok).toBe(true);
+    expect(focused.content).toContain("Real target body text here.");
+  });
+
   it("sliceWithNeighbors returns previous, focused, next", () => {
     const content = "Para one.\n\nPara two target section content.\n\nPara three after.";
     const start = content.indexOf("Para two");
@@ -215,6 +393,16 @@ describe("sectionIndex", () => {
     expect(result.ok).toBe(false);
     expect(result.failure).toBe("ambiguous");
     expect(result.unresolved[0].code).toBe("ambiguous");
+    expect(result.unresolved[0].candidateCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("describeSectionDiagnostic renders actionable per-code reasons", () => {
+    const wrongDoc: SectionContextDiagnostic = { id: "x", label: "Intro", reason: "r", code: "wrong-document" };
+    const ambiguous: SectionContextDiagnostic = { id: "y", label: "Summary", reason: "r", code: "ambiguous", candidateCount: 3 };
+    const unresolved: SectionContextDiagnostic = { id: "z", label: "Missing", reason: "r", code: "unresolved" };
+    expect(describeSectionDiagnostic(wrongDoc)).toContain("different document");
+    expect(describeSectionDiagnostic(ambiguous)).toContain("matched 3 headings");
+    expect(describeSectionDiagnostic(unresolved)).toContain("no current document-text range");
   });
 
   it("returns stable provenance and exact selected ranges", () => {

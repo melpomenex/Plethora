@@ -3774,7 +3774,7 @@ export const ja: Dict = {
   "flashcardStudio.sectionsHint": "プロンプトで # を入力してセクションを選択するか、以下から削除してください:",
   "flashcardStudio.sectionsEmpty": "セクションが選択されていません。プロンプトで # を入力し、絞り込むセクションを選択してください。",
   "flashcardStudio.sectionsUnresolvable": "指定したセクションが現在のドキュメントに見つかりません。再度選択してください。",
-  "flashcardStudio.sectionUnresolved": "選択したセクション ({labels}) は古いか曖昧です。送信前に再度選択してください。リクエストは送信されませんでした。",
+  "flashcardStudio.sectionUnresolved": "選択したセクションをフォーカスできませんでした: {reasons}。送信前に再度選択してください。リクエストは送信されませんでした。",
   "flashcardStudio.sectionTruncated": "メモ: モデルのコンテキストウィンドウに収まるよう、指定セクションは切り詰められました。",
   "flashcardStudio.selectChapters": "章を選択:",
   "flashcardStudio.chapterNumber": "第 {count} 章",

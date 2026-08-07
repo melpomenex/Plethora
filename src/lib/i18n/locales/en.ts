@@ -4785,7 +4785,7 @@ export const en: Dict = {
   "flashcardStudio.sectionsHint": "Type # in the prompt to pick a section, or remove one below:",
   "flashcardStudio.sectionsEmpty": "No sections selected. Type # in the prompt and choose a section to focus on.",
   "flashcardStudio.sectionsUnresolvable": "The focused section(s) could not be found in the current document. Reselect them.",
-  "flashcardStudio.sectionUnresolved": "The selected section ({labels}) is stale or ambiguous. Reselect it before sending; no request was made.",
+  "flashcardStudio.sectionUnresolved": "Could not focus the selected section: {reasons}. Reselect it before sending; no request was made.",
   "flashcardStudio.sectionTruncated": "Note: the focused section was truncated to fit the model's context window.",
   "flashcardStudio.selectChapters": "Select chapters:",
   "flashcardStudio.chapterNumber": "Ch. {count}",

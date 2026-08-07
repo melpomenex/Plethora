@@ -700,6 +700,84 @@ pub async fn get_document(id: String, repo: State<'_, Repository>) -> Result<Opt
         None => return Ok(None),
     };
 
+    recover_document_content(&mut doc, &repo).await?;
+
+    Ok(Some(doc))
+}
+
+fn recover_browser_import_text(doc: &Document) -> Option<String> {
+    if !matches!(doc.file_type, FileType::Html) {
+        return None;
+    }
+    let metadata = doc.metadata.as_ref()?;
+    if metadata.source.as_deref() != Some("browser_extension") {
+        return None;
+    }
+    let html = metadata.article_html.as_deref()?.trim();
+    if html.is_empty() {
+        return None;
+    }
+    let text = processor::html::extract_text_from_html_fragment(html);
+    (!text.trim().is_empty()).then_some(text)
+}
+
+/// Threshold beyond which a single "line" of content cannot be real prose and
+/// must be the pre-block-aware EPUB extractor's output — it joined every
+/// chapter's words with single spaces, producing lines of tens of thousands of
+/// characters. A real paragraph caps well under 1,000 chars; healthy extracted
+/// books max out around 800 chars/line. 5,000 leaves a wide safety margin.
+const FLATTENED_LINE_THRESHOLD: usize = 5_000;
+
+/// Minimum total content length before flattening detection engages. Keeps
+/// tiny but legitimately single-line documents (a short note, a one-paragraph
+/// clipping) from being treated as broken.
+const FLATTENED_MIN_TOTAL_CHARS: usize = 2_000;
+
+/// Detects content flattened by the pre-block-aware EPUB extractor: the stored
+/// text is non-empty but its longest line is implausibly long (an entire
+/// chapter collapsed to one space-joined line). Such content has no line-
+/// anchored headings, so `#`-mention resolution finds no body and the model
+/// receives no focused context. Re-extraction with the current extractor
+/// restores real paragraph/heading structure.
+fn content_is_flattened(content: Option<&str>) -> bool {
+    let content = match content {
+        Some(c) if c.len() >= FLATTENED_MIN_TOTAL_CHARS => c,
+        _ => return false,
+    };
+    // Find the longest line without splitting the whole string (it can be
+    // megabytes). Stop as soon as one line exceeds the threshold.
+    let mut line_start = 0;
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
+            if i - line_start > FLATTENED_LINE_THRESHOLD {
+                return true;
+            }
+            line_start = i + 1;
+        }
+        i += 1;
+    }
+    // Check the final line.
+    bytes.len() - line_start > FLATTENED_LINE_THRESHOLD
+}
+
+/// Detects content that should be self-healed — empty text, the legacy EPUB
+/// placeholder, a sparse browser import whose full readable body is in
+/// `metadata.article_html`, or content that was flattened by the pre-block-aware
+/// EPUB extractor (every chapter collapsed to one long line, so headings are
+/// invisible to `#`-mention resolution) — and persists the recovered full body.
+///
+/// This is the single source of truth for content recovery. Both `get_document`
+/// and `extract_document_text` run it so they agree on content, which keeps the
+/// section tree built for `#` mentions consistent regardless of which command
+/// the frontend reached first. Returns `Ok(true)` when content was changed.
+pub(crate) async fn recover_document_content(
+    doc: &mut Document,
+    repo: &Repository,
+) -> Result<bool> {
+    let content_before = doc.content.clone();
+
     let has_epub_placeholder = doc
         .content
         .as_ref()
@@ -711,6 +789,8 @@ pub async fn get_document(id: String, repo: State<'_, Repository>) -> Result<Opt
                 )
         })
         .unwrap_or(false);
+
+    let is_flattened = content_is_flattened(doc.content.as_deref());
 
     let needs_content = doc
         .content
@@ -740,9 +820,16 @@ pub async fn get_document(id: String, repo: State<'_, Repository>) -> Result<Opt
         .as_ref()
         .map(|content| content.trim().is_empty())
         .unwrap_or(true)
-        || has_epub_placeholder;
+        || has_epub_placeholder
+        || is_flattened;
+
+    // Only re-extract when the source file is still reachable, so a book on an
+    // unmounted drive (e.g. /Volumes/external offline) is never wiped — the
+    // existing content, even if flattened, is better than none.
+    let source_available = Path::new(&doc.file_path).exists();
 
     if needs_content
+        && source_available
         && matches!(
             doc.file_type,
             FileType::Epub | FileType::Markdown | FileType::Html
@@ -781,23 +868,10 @@ pub async fn get_document(id: String, repo: State<'_, Repository>) -> Result<Opt
         }
     }
 
-    Ok(Some(doc))
-}
-
-fn recover_browser_import_text(doc: &Document) -> Option<String> {
-    if !matches!(doc.file_type, FileType::Html) {
-        return None;
-    }
-    let metadata = doc.metadata.as_ref()?;
-    if metadata.source.as_deref() != Some("browser_extension") {
-        return None;
-    }
-    let html = metadata.article_html.as_deref()?.trim();
-    if html.is_empty() {
-        return None;
-    }
-    let text = processor::html::extract_text_from_html_fragment(html);
-    (!text.trim().is_empty()).then_some(text)
+    // Report whether recovery changed the stored text. Comparing against the
+    // snapshot taken on entry is more reliable than inferring from the needs
+    // flags (which flip to false once content is healed).
+    Ok(content_before.as_deref() != doc.content.as_deref())
 }
 
 #[tauri::command]
@@ -1001,6 +1075,14 @@ pub async fn extract_document_text(
     let mut doc = repo.get_document(&id).await?.ok_or_else(|| {
         crate::error::IncrementumError::NotFound(format!("Document not found: {}", id))
     })?;
+
+    // Heal content the same way `get_document` does before short-circuiting on
+    // a non-empty stored value. Without this, a document whose stored content is
+    // a legacy EPUB placeholder or a sparse browser-import stub is returned
+    // as-is, so the section tree for a `#` mention is built from a short stub
+    // while the full body sits one call away. Recovery is a no-op when content
+    // is already complete.
+    recover_document_content(&mut doc, &repo).await?;
 
     if let Some(content) = &doc.content {
         if !content.trim().is_empty() {
@@ -1684,5 +1766,71 @@ mod browser_import_recovery_tests {
     fn does_not_recover_untrusted_non_extension_html() {
         let doc = html_document(None, Some("<p>Could be unrelated metadata.</p>"));
         assert!(recover_browser_import_text(&doc).is_none());
+    }
+
+    // The two Tauri commands that return document text — `get_document` and
+    // `extract_document_text` — both run `recover_document_content`. This test
+    // pins that the shared helper heals a sparse browser import (empty content
+    // with the full readable body in `metadata.article_html`) so the two
+    // commands agree, which is what keeps the `#`-mention section tree from
+    // being built against a short stub while the full body is one call away.
+    #[tokio::test]
+    async fn recover_document_content_heals_sparse_browser_import() {
+        let db = crate::database::Database::new(std::path::PathBuf::from(":memory:"))
+            .await
+            .expect("db");
+        db.migrate().await.expect("migrate");
+        let repo = crate::database::Repository::new(db.pool().clone());
+
+        let mut doc = html_document(
+            Some("browser_extension"),
+            Some("<article><h1>Recovered</h1><p>Full readable article body.</p></article>"),
+        );
+        // create_document assigns the canonical id we heal against.
+        doc = repo.create_document(&doc).await.expect("create document");
+
+        let changed = recover_document_content(&mut doc, &repo)
+            .await
+            .expect("recover");
+        assert!(changed, "sparse browser import should be healed");
+        assert!(
+            doc.content
+                .as_deref()
+                .map(|c| c.contains("Full readable article body"))
+                .unwrap_or(false),
+            "healed content should carry the readable body"
+        );
+
+        // A fresh load (simulating `extract_document_text`'s second read) must
+        // now see the healed full body, not the original empty content — the
+        // parity guarantee between the two commands.
+        let reloaded = repo.get_document(&doc.id).await.expect("reload").expect("present");
+        assert!(
+            reloaded
+                .content
+                .as_deref()
+                .map(|c| c.contains("Full readable article body"))
+                .unwrap_or(false),
+            "healed content must be persisted for the next command to read"
+        );
+    }
+
+    #[test]
+    fn content_is_flattened_detects_old_extractor_output() {
+        // A whole chapter joined to one line by the old space-collapsing
+        // extractor — tens of thousands of chars between newlines.
+        let flattened = format!("Title\n{}\nNext chapter\n{}", "word ".repeat(4000), "word ".repeat(4000));
+        assert!(content_is_flattened(Some(&flattened)));
+
+        // A healthy extraction: many paragraphs, each well under the threshold.
+        let healthy = (0..200)
+            .map(|i| format!("Paragraph {i} with a normal sentence of prose."))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!content_is_flattened(Some(&healthy)));
+
+        // Below the minimum total length: never flagged, even if single-line.
+        assert!(!content_is_flattened(Some("short single-line note")));
+        assert!(!content_is_flattened(None));
     }
 }

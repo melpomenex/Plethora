@@ -113,6 +113,7 @@ import { SectionMentionPopup } from "../common/SectionMentionPopup";
 import {
   resolveSectionFocusedContext,
   buildSectionsSnapshot,
+  describeSectionDiagnostic,
   type SectionNode,
   type SectionSourceReference,
 } from "../../utils/sectionIndex";
@@ -3437,8 +3438,8 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         }
 
         if (!focused.ok) {
-          const labels = focused.unresolved.map((item) => item.label).join(", ");
-          throw new Error(t("flashcardStudio.sectionUnresolved", { labels }));
+          const reasons = focused.unresolved.map(describeSectionDiagnostic).join("; ");
+          throw new Error(t("flashcardStudio.sectionUnresolved", { reasons }));
         }
 
         effectiveContextContent = focused.content;
