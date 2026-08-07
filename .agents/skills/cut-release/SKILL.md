@@ -69,6 +69,21 @@ prerequisite 5).
 
    Rust's `Cargo.lock` is single and has no analog of this problem.
 
+6. **The performance benchmark gate must pass — no regressions.** Run
+   `npm run bench:check` locally before staging. It runs every
+   `src/**/*.bench.ts` suite, compares each benchmark's cost (normalized
+   against the in-process `noise-anchor`) against
+   `scripts/perf-baselines.json`, and exits non-zero on any regression — then
+   also runs the bundle budget check. If it fails, **STOP**: the gate blocks
+   the release, and cutting with a red gate ships a regression. An
+   *intentional* performance change must update `scripts/perf-baselines.json`
+   in the same commit, with the reason in the commit/release notes — same
+   protocol as `scripts/bundle-budgets.json` (see the "Performance benchmark
+   gate" section of `AGENTS.md` for how to run/add benchmarks). CI enforces
+   this in the `performance` job of `.github/workflows/ci-regression.yml` on
+   every PR to `main` and push to `main`, so the commit you release from has
+   already passed the gate on `main`.
+
 ## Clean the tree before staging
 
 This is the step the release script can't do for you. The script's final
@@ -236,6 +251,11 @@ After the script reports success:
 
 - `git tag --sort=-v:refname | head -3` — the new tag is present.
 - `gh release view v<version>` — the GitHub release exists with the notes body.
+- **The `performance` CI job on `main` is green for the released commit.** The
+  release is built from `main`, so a red performance gate on the commit you
+  tagged means the release ships a benchmarked regression. Check the latest
+  run (or `gh run list --workflow=ci-regression.yml --branch main`) and do not
+  proceed until the `performance` job passed.
 - Confirm `package.json` / `Cargo.toml` / `tauri.conf.json` all show the new
   version and were committed + pushed.
 - **The XPI `/latest/download/` link resolves.** Follow redirects to a final
