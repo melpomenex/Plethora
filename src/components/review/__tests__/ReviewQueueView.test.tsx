@@ -137,7 +137,10 @@ describe("ReviewQueueView", () => {
     render(<ReviewQueueView onOpenScrollMode={onOpenScrollMode} />);
     fireEvent.click(screen.getByText("Start Optimal Session"));
     expect(onOpenScrollMode).toHaveBeenCalledTimes(1);
-    expect(onOpenScrollMode).toHaveBeenCalledWith({ mode: "optimal" });
+    expect(onOpenScrollMode).toHaveBeenCalledWith({
+      mode: "optimal",
+      itemTypes: { documents: true, extracts: false, learningItems: false },
+    });
   });
 
   it("routes scroll mode button to scroll mode with visible items and queue-list mode option", () => {
@@ -151,6 +154,7 @@ describe("ReviewQueueView", () => {
         expect.objectContaining({ id: "item-3", documentId: "doc-3" }),
       ]),
       mode: "queue-list",
+      itemTypes: { documents: true, extracts: false, learningItems: false },
     });
   });
 

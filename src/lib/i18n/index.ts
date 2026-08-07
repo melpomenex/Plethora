@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 export type { Dict } from "./locales/en";
@@ -103,11 +104,19 @@ export function t(key: string, vars?: Record<string, string | number>): string {
 export function useI18n() {
   const language = useSettingsStore((state) => state.settings.general.language);
   const locale = normalizeLocale(language);
-  const translate = (key: string, vars?: Record<string, string | number>) => {
-    const dict = dictionaries[locale] || dictionaries.en;
-    const template = dict[key] || dictionaries.en[key] || key;
-    return formatTemplate(template, vars);
-  };
+  // Referentially stable per locale: effects that list `t` in their dependency
+  // array only re-run when the locale (or their other deps) change, instead of
+  // on every render. `translate` reads `dictionaries` at call time, so a
+  // lazily-loaded locale dictionary is picked up on the next call without a
+  // re-render — same as before memoization.
+  const translate = useCallback(
+    (key: string, vars?: Record<string, string | number>) => {
+      const dict = dictionaries[locale] || dictionaries.en;
+      const template = dict[key] || dictionaries.en[key] || key;
+      return formatTemplate(template, vars);
+    },
+    [locale]
+  );
   return { locale, t: translate };
 }
 

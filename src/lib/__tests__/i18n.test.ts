@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { getCurrentLocale, t } from "../i18n";
+import { act, renderHook } from "@testing-library/react";
+import { getCurrentLocale, t, useI18n } from "../i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { en } from "../i18n/locales/en";
 import { zh } from "../i18n/locales/zh";
@@ -68,5 +69,42 @@ describe("i18n", () => {
         );
       }
     }
+  });
+
+  it("t keeps its identity across re-renders with the locale unchanged, and changes when the language setting changes", () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        general: {
+          ...state.settings.general,
+          language: "en",
+        },
+      },
+    }));
+
+    const { result, rerender } = renderHook(() => useI18n());
+    const firstT = result.current.t;
+    expect(result.current.locale).toBe("en");
+    expect(firstT("review.title")).toBeTruthy();
+
+    // Re-render for an unrelated reason: same locale → same `t` reference, so
+    // effects listing `t` in their deps do not re-fire.
+    rerender();
+    expect(result.current.t).toBe(firstT);
+
+    // Switching language → new locale → new `t` reference, so effects re-run.
+    act(() => {
+      useSettingsStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          general: {
+            ...state.settings.general,
+            language: "zh",
+          },
+        },
+      }));
+    });
+    expect(result.current.locale).toBe("zh");
+    expect(result.current.t).not.toBe(firstT);
   });
 });

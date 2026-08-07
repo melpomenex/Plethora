@@ -6,6 +6,7 @@ import { ReviewTab, DocumentViewer, ExtractReader } from "./TabRegistry";
 import { QueueScrollPage } from "../../pages/QueueScrollPage";
 import { usePaneId } from "../common/Tabs";
 import { useMobileShell } from "../../hooks/useMobileShell";
+import type { SessionItemTypes } from "../../utils/reviewUx";
 import { Brain, Stack, TextT } from "@phosphor-icons/react";
 
 export function QueueTab() {
@@ -61,7 +62,11 @@ export function QueueTab() {
     }, paneId);
   };
 
-  const handleOpenScrollMode = (options?: { items?: QueueItem[]; mode?: "queue-list" | "optimal" }) => {
+  const handleOpenScrollMode = (options?: {
+    items?: QueueItem[];
+    mode?: "queue-list" | "optimal";
+    itemTypes?: SessionItemTypes;
+  }) => {
     addTab({
       title: "Scroll Mode",
       icon: <Stack className="w-4 h-4" />,
@@ -71,6 +76,7 @@ export function QueueTab() {
       data: {
         customQueueItems: options?.items,
         queueScrollMode: options?.mode ?? "queue-list",
+        itemTypes: options?.itemTypes,
       },
     }, paneId);
   };
