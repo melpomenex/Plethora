@@ -10,6 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import type { LearningItem } from "../../api/learning-items";
 import { getImageAssetById } from "../../api/image-registry";
+import { FLASHCARD_REVEAL_EVENT } from "../../pages/queueScrollKeyboard";
 import { cn } from "../../utils";
 import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils/ankiLatex";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
@@ -118,6 +119,16 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     useEffect(() => {
         onRevealChange?.(isAnswerRevealed);
     }, [isAnswerRevealed, onRevealChange]);
+
+    // Reveal the answer when the scroll page requests it (Space pressed while
+    // focus is outside the card). The card's own key handler is scoped to
+    // focus inside its container; Scroll Mode drives the reveal through this
+    // window-event bridge instead (see queueScrollKeyboard.ts).
+    useEffect(() => {
+        const handleRevealRequest = () => setIsAnswerRevealed(true);
+        window.addEventListener(FLASHCARD_REVEAL_EVENT, handleRevealRequest);
+        return () => window.removeEventListener(FLASHCARD_REVEAL_EVENT, handleRevealRequest);
+    }, []);
 
     useEffect(() => {
         let isCancelled = false;

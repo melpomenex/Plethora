@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { FlashcardScrollItem } from "../FlashcardScrollItem";
+import { FLASHCARD_REVEAL_EVENT } from "../../../pages/queueScrollKeyboard";
 
 vi.mock("../../../api/image-registry", () => ({
   getImageAssetById: vi.fn(),
@@ -127,5 +128,73 @@ describe("FlashcardScrollItem", () => {
     // Trigger QA callback
     qaBtn.click();
     expect(onCreateQA).toHaveBeenCalled();
+  });
+
+  it("reveals the answer when Scroll Mode dispatches the reveal-request event", () => {
+    const onRevealChange = vi.fn();
+    render(
+      <FlashcardScrollItem
+        learningItem={baseLearningItem}
+        onRate={() => undefined}
+        onRevealChange={onRevealChange}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /show answer/i })).toBeInTheDocument();
+
+    // This is how QueueScrollPage reveals the answer on Space while focus is
+    // outside the card (the card's own Space handler only fires when focus is
+    // inside its container).
+    act(() => {
+      window.dispatchEvent(new CustomEvent(FLASHCARD_REVEAL_EVENT));
+    });
+
+    expect(screen.queryByRole("button", { name: /show answer/i })).not.toBeInTheDocument();
+    expect(onRevealChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("reports the reveal state through onRevealChange", () => {
+    const onRevealChange = vi.fn();
+    render(
+      <FlashcardScrollItem
+        learningItem={baseLearningItem}
+        onRate={() => undefined}
+        onRevealChange={onRevealChange}
+      />
+    );
+
+    // Mounted with the answer hidden.
+    expect(onRevealChange).toHaveBeenLastCalledWith(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /show answer/i }));
+    expect(onRevealChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it("rates with number keys only after the answer is revealed", () => {
+    const onRate = vi.fn();
+    const { container } = render(
+      <FlashcardScrollItem learningItem={baseLearningItem} onRate={onRate} />
+    );
+    const card = container.firstChild as HTMLElement;
+
+    // Focus inside the card, answer still hidden: 1-4 must do nothing.
+    fireEvent.keyDown(card, { key: "3" });
+    expect(onRate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /show answer/i }));
+
+    fireEvent.keyDown(card, { key: "3" });
+    expect(onRate).toHaveBeenCalledWith(3);
+  });
+
+  it("reveals the answer on Space when focus is inside the card", () => {
+    const { container } = render(
+      <FlashcardScrollItem learningItem={baseLearningItem} onRate={() => undefined} />
+    );
+    const card = container.firstChild as HTMLElement;
+
+    fireEvent.keyDown(card, { key: " " });
+
+    expect(screen.queryByRole("button", { name: /show answer/i })).not.toBeInTheDocument();
   });
 });
