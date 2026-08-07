@@ -194,11 +194,24 @@ pub async fn get_web_proxy_url(url: String) -> Result<String, String> {
 
 /// Headers that must never reach the framed document. `X-Frame-Options` and
 /// CSP are the whole reason the proxy exists; `Content-Length` is dropped on
-/// the HTML path because injection changes the size.
+/// the HTML path because injection changes the size. Hop-by-hop headers
+/// (`Transfer-Encoding`, `Connection`, …) describe the *upstream* connection's
+/// framing, not the body we re-serve: the proxy re-buffers (HTML) or re-streams
+/// (non-HTML) a decoded body, so copying `Transfer-Encoding: chunked` would
+/// make the webview try to de-chunk a body that is no longer chunked and the
+/// page would fail to load.
 fn is_blocked_header(name: &header::HeaderName, is_html: bool) -> bool {
     name == &header::X_FRAME_OPTIONS
         || name == &header::CONTENT_SECURITY_POLICY
         || name == &header::CONTENT_SECURITY_POLICY_REPORT_ONLY
+        || name == &header::TRANSFER_ENCODING
+        || name == &header::CONNECTION
+        || name.as_str() == "keep-alive"
+        || name == &header::TE
+        || name == &header::TRAILER
+        || name == &header::UPGRADE
+        || name == &header::PROXY_AUTHENTICATE
+        || name == &header::PROXY_AUTHORIZATION
         || (is_html && name == &header::CONTENT_LENGTH)
 }
 
@@ -539,6 +552,49 @@ mod tests {
         // Content-Type preserved verbatim, charset included.
         assert_eq!(
             stripped.get(header::CONTENT_TYPE).unwrap(),
+            "text/html; charset=utf-8"
+        );
+    }
+
+    #[test]
+    fn strips_hop_by_hop_headers_from_chunked_upstream() {
+        // Regression: Cloudflare-style upstreams (e.g. quantamagazine.org)
+        // send `Transfer-Encoding: chunked` + `Connection: keep-alive`. The
+        // proxy re-buffers/re-streams a decoded body, so those framing headers
+        // must never reach the webview — a `Transfer-Encoding: chunked` on a
+        // body that is no longer chunked makes the page fail to load.
+        let mut upstream = HeaderMap::new();
+        upstream.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/html; charset=utf-8"),
+        );
+        upstream.insert(
+            header::TRANSFER_ENCODING,
+            HeaderValue::from_static("chunked"),
+        );
+        upstream.insert(
+            header::CONNECTION,
+            HeaderValue::from_static("keep-alive"),
+        );
+        upstream.insert(header::HeaderName::from_static("keep-alive"), HeaderValue::from_static("timeout=5"));
+        upstream.insert(header::UPGRADE, HeaderValue::from_static("h2c"));
+        upstream.insert(header::TE, HeaderValue::from_static("trailers"));
+
+        let mut stripped_html = HeaderMap::new();
+        copy_headers(&upstream, &mut stripped_html, true);
+        assert!(stripped_html.get(header::TRANSFER_ENCODING).is_none());
+        assert!(stripped_html.get(header::CONNECTION).is_none());
+        assert!(stripped_html.get(header::HeaderName::from_static("keep-alive")).is_none());
+        assert!(stripped_html.get(header::UPGRADE).is_none());
+        assert!(stripped_html.get(header::TE).is_none());
+
+        let mut stripped_streamed = HeaderMap::new();
+        copy_headers(&upstream, &mut stripped_streamed, false);
+        assert!(stripped_streamed.get(header::TRANSFER_ENCODING).is_none());
+        assert!(stripped_streamed.get(header::CONNECTION).is_none());
+        // Content-Type still flows through on both paths.
+        assert_eq!(
+            stripped_streamed.get(header::CONTENT_TYPE).unwrap(),
             "text/html; charset=utf-8"
         );
     }
