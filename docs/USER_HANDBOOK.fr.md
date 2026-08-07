@@ -232,7 +232,9 @@ L'option **SM-20** d'Incrementum est **Algorithm Arena** — un portage par ing�
 | 2 | **SM-15** | 14% | En continu, à chaque révision |
 | 3 | **SM-19** | 45% | En continu, à chaque révision |
 | 4 | **SM-20** (le noyau à courbe d'oubli "M4" à 35 paramètres) | 25% | À la demande, via le bouton Optimiser |
-| 5 | **FSRS** | 10% | À la demande, via le bouton Optimiser |**Comment fonctionne le mélange.** Chaque modèle produit indépendamment une estimation de stabilité pour la carte ; l'arène prend une moyenne pondérée et en dérive l'intervalle suivant. Les poids ne sont pas fixes — ils **s'adaptent à vous**. Chaque fois que vous examinez une carte dont la précédente évaluation remonte à au moins un jour, l'Arena évalue la prédiction *précédente* de chaque modèle par rapport à ce qui s'est réellement passé (dont vous vous êtes souvenu ou oublié) et oriente les pondérations vers les modèles qui vous ont le mieux prédit. Aucun modèle n'est jamais complètement éliminé, donc un démarreur lent peut récupérer.
+| 5 | **FSRS** | 10% | À la demande, via le bouton Optimiser |
+
+**Comment fonctionne le mélange.** Chaque modèle produit indépendamment une estimation de stabilité pour la carte ; l'arène prend une moyenne pondérée et en dérive l'intervalle suivant. Les poids ne sont pas fixes — ils **s'adaptent à vous**. Chaque fois que vous examinez une carte dont la précédente évaluation remonte à au moins un jour, l'Arena évalue la prédiction *précédente* de chaque modèle par rapport à ce qui s'est réellement passé (dont vous vous êtes souvenu ou oublié) et oriente les pondérations vers les modèles qui vous ont le mieux prédit. Aucun modèle n'est jamais complètement éliminé, donc un démarreur lent peut récupérer.
 
 **Deux manières d'apprendre :**
 
@@ -256,7 +258,9 @@ L'option **SM-20** d'Incrementum est **Algorithm Arena** — un portage par ing�
 Sous **Paramètres → Apprentissage → Algorithm Arena → Après chaque évaluation**, choisissez le niveau de détails de planification souhaité :
 
 - **Gardez le flux (recommandé)** valide immédiatement le choix pondéré d'Arena et passe à la carte suivante. C'est la valeur par défaut.
-- **Afficher l'arène** s'arrête après une note éligible et ouvre **Memory Horizon**, avec votre réponse toujours visible pendant que les cinq modèles montrent où ils placeront la prochaine évaluation.Le même choix compact apparaît sous les six commandes de notation SM-20, de sorte que la notation suivante peut utiliser un mode différent sans quitter la revue. Les deux modes exécutent et entraînent les cinq mêmes modèles de collection ; ce paramètre change uniquement si vous faites le choix final de l'intervalle. L'étape de décision reste limitée aux examens normaux des cartes flash SM-20 ; la lecture de documents, le mode Cram, d'autres algorithmes et le **mode Pure SM-20** conservent leur flux de planification directe existant.
+- **Afficher l'arène** s'arrête après une note éligible et ouvre **Memory Horizon**, avec votre réponse toujours visible pendant que les cinq modèles montrent où ils placeront la prochaine évaluation.
+
+Le même choix compact apparaît sous les six commandes de notation SM-20, de sorte que la notation suivante peut utiliser un mode différent sans quitter la revue. Les deux modes exécutent et entraînent les cinq mêmes modèles de collection ; ce paramètre change uniquement si vous faites le choix final de l'intervalle. L'étape de décision reste limitée aux examens normaux des cartes flash SM-20 ; la lecture de documents, le mode Cram, d'autres algorithmes et le **mode Pure SM-20** conservent leur flux de planification directe existant.
 
 - **Arena Pick** est sélectionné par défaut. Il s’agit de la recommandation pondérée et constitue généralement le meilleur choix lorsque vous souhaitez que l’arène prenne une décision.
 - **SM-2, SM-15, SM-19, SM-20 et FSRS** vous permettent de suivre délibérément la proposition exacte d'un modèle pour cette révision. En choisir un ne donne pas à ce modèle un poids de vote supplémentaire ; les pondérations futures continuent d’apprendre uniquement de la précision des prédictions.
