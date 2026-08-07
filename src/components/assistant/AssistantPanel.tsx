@@ -52,12 +52,14 @@ import { SectionMentionPopup } from "../common/SectionMentionPopup";
 import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
   buildSelectionFocusedContext,
+  buildSectionsSnapshot,
   createSelectionSection,
   hashSectionContent,
   resolveSectionFocusedContext,
   type SectionNode,
   type SectionSourceReference,
 } from "../../utils/sectionIndex";
+import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 import { extractDocumentText, getDocument } from "../../api/documents";
 import { createDocumentQaRequestContent, loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
 import { ChatFlashcardCollection } from "./ChatFlashcardCollection";
@@ -1204,19 +1206,30 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         // just-fetched canonical text can momentarily disagree with the
         // TOC/heading offsets the section was picked against) and then
         // succeeds immediately on an identical retry — users were seeing
-        // this as "reselect and resend". One transparent retry with a fresh
-        // text fetch absorbs that transient miss instead of surfacing it.
+        // this as "reselect and resend". One transparent retry absorbs that
+        // transient miss instead of surfacing it. The retry also rebuilds
+        // the section tree from the freshly fetched text: the hook's tree
+        // can still be built from partial/older content when a message is
+        // sent right after the document opens, and resolving against that
+        // stale tree is exactly what forced the manual resend.
+        let sectionText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
         let focused = resolveSectionFocusedContext(
           sectionNodes,
           assistantSectionFlat,
-          await loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
+          sectionText,
           { documentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
         );
         if (!focused.ok) {
+          sectionText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
+          const freshFlat = buildSectionsSnapshot(
+            documentId,
+            sectionText,
+            useDocumentOutlineStore.getState().getOutline(documentId),
+          ).flat;
           focused = resolveSectionFocusedContext(
             sectionNodes,
-            assistantSectionFlat,
-            await loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
+            freshFlat,
+            sectionText,
             { documentId, maxTokens: effectiveContextWindow, includeNeighbors: true },
           );
         }

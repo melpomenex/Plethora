@@ -13,6 +13,7 @@ import {
   buildSectionFocusedContext,
   convertPdfOutlineToSectionNodes,
   convertEpubTocToSectionNodes,
+  buildSectionsSnapshot,
   resolveSectionFocusedContext,
   type SectionNode,
 } from "./sectionIndex";
@@ -365,5 +366,86 @@ describe("sectionIndex", () => {
     const big = buildSelectionFocusedContext([huge], { maxTokens: 1 });
     expect(big.truncated).toBe(true);
     expect(big.content.length).toBeLessThan(50000);
+  });
+});
+
+describe("buildSectionsSnapshot (send-time stale-tree retry)", () => {
+  it("stamps the documentId onto every flat node", () => {
+    const { flat } = buildSectionsSnapshot("doc-1", "# Heading\nBody text.");
+    expect(flat.length).toBeGreaterThan(0);
+    for (const node of flat) expect(node.documentId).toBe("doc-1");
+  });
+
+  it("returns an empty tree for a document without readable text", () => {
+    const { tree, flat } = buildSectionsSnapshot("doc-1", "");
+    expect(tree).toHaveLength(0);
+    expect(flat).toHaveLength(0);
+  });
+
+  it("resolves a mention picked against stale text once the tree is rebuilt from the fresh snapshot", () => {
+    // The user picks "Chapter 1" while only the first part of the book has
+    // been mirrored/loaded, so the pick-time tree has shifted offsets.
+    const partialText = "# Part One\n# Chapter 1: DARWIN COMES OF AGE\nA fragment.";
+    const { flat: staleFlat } = buildDocumentSections(partialText);
+    const picked = staleFlat.find((section) => section.title.includes("DARWIN COMES OF AGE"))!;
+
+    // By send time the full canonical text has arrived and disagrees with the
+    // offsets the section was picked against — the stale tree cannot resolve.
+    const fullText = [
+      "# Front Matter\nIntroduction to the edition.\n\n",
+      "# Part One: SEX, ROMANCE, AND LOVE\n\n",
+      "# Chapter 1: DARWIN COMES OF AGE\n\nThe full chapter body with the exact answer.\n\n",
+      "# Chapter 2: THE ARRIVAL OF THE FITTEST\n\nMore content.\n",
+    ].join("");
+    const staleAttempt = resolveSectionFocusedContext([picked], staleFlat, fullText, {
+      documentId: "doc-1",
+      maxTokens: 4000,
+    });
+    expect(staleAttempt.ok).toBe(false);
+
+    // Rebuilding the tree from the same snapshot being resolved against —
+    // exactly what the transparent retry now does — succeeds without the user
+    // having to reselect and resend.
+    const { flat: freshFlat } = buildSectionsSnapshot("doc-1", fullText);
+    const retry = resolveSectionFocusedContext([picked], freshFlat, fullText, {
+      documentId: "doc-1",
+      maxTokens: 4000,
+    });
+    expect(retry.ok).toBe(true);
+    expect(retry.content).toContain("The full chapter body with the exact answer.");
+    expect(retry.labels.some((label) => label.includes("DARWIN COMES OF AGE"))).toBe(true);
+  });
+
+  it("rebuilds outline-based (epub-toc) sections with authoritative ranges from the fresh text", () => {
+    const toc = [
+      { label: "Part One", subitems: [{ label: "Chapter 1: DARWIN COMES OF AGE" }] },
+    ];
+    const fullText = [
+      "# Part One\n\n",
+      "# Chapter 1: DARWIN COMES OF AGE\n\nChapter body that must be found by heading.\n",
+    ].join("");
+
+    const outlineNodes = convertEpubTocToSectionNodes(toc as never);
+    const { flat } = buildSectionsSnapshot("epub-1", fullText, { epubToc: toc });
+
+    const chapter = flat.find((node: SectionNode) => node.title.includes("DARWIN COMES OF AGE"));
+    expect(chapter).toBeDefined();
+    expect(chapter!.hasAuthoritativeRange).toBe(true);
+    expect(chapter!.content).toContain("Chapter body that must be found by heading.");
+
+    // The picked node (from the outline) resolves against the rebuilt tree.
+    const focused = resolveSectionFocusedContext([outlineNodes[0].children[0]], flat, fullText, {
+      documentId: "epub-1",
+      maxTokens: 4000,
+    });
+    expect(focused.ok).toBe(true);
+  });
+
+  it("shares the hook's LRU cache: a second snapshot with identical content+outline is served from cache", () => {
+    const text = "# Only Heading\nBody.";
+    const first = buildSectionsSnapshot("doc-2", text);
+    const second = buildSectionsSnapshot("doc-2", text);
+    expect(second.tree).toBe(first.tree);
+    expect(second.flat).toBe(first.flat);
   });
 });
