@@ -248,7 +248,13 @@ export async function streamChatWithLLM(
 }
 
 /**
- * Model pricing information (per 1K tokens)
+ * Model pricing information.
+ *
+ * Unit contract: `prompt`, `completion`, `cache_read` and `cache_write` are USD
+ * per 1,000 tokens; `request`, `image` and `web_search` are per-call costs and
+ * are NOT scaled. `undefined` means not priced / unknown; `0` means free.
+ * Provider adapters convert upstream units to this contract at the fetch
+ * boundary (see the OpenRouter normalization in both backends).
  */
 export interface ModelPricing {
   prompt?: number;        // Input token cost per 1K tokens
