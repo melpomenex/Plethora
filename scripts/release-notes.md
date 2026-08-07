@@ -1,14 +1,18 @@
+### Added
+
+- **Reader extraction with manual occlusion & richer mentions** — a new reader pass extracts cleaner content, adds manual occlusion support, produces richer `#` section mentions, and surfaces explicit browser-side failure states instead of failing silently.
+- **Loopback web proxy for the in-app browser** — web pages now load through a loopback proxy with direct selection extraction, so paywalled/rewritten and chunked pages capture reliably.
+- **Queue multi-select & bulk actions** — select multiple queue items for bulk actions, with stable order preserved on reactivation and improved list performance.
+- **Scroll Mode follows the Queue List's order** — Scroll Mode now tracks the Queue List's exact ordering rather than an independent one.
+
 ### Fixed & Improved
 
-- **QR scan-to-join silently failed on Android** — `scanner.start()` was rejected with a `play()`-interrupted `AbortError` that surfaced as a permanent scan failure; the camera start is now retried so joining a room by QR works on Android.
-- **QR scan failures were invisible** — errors from the scanner were swallowed silently; they now surface to the user instead of leaving the scan modal hanging.
-- **Auto-download never triggered on Android** — `isOnWifi` returned false inside the Android WebView (the Network Information API isn't available there), so file auto-download was blocked; Wi-Fi detection now works on Android.
-- **EPUB files failed to download from sync** — the `encryptedMetadata` field used Rust serde casing the TS side didn't send, and metadata wasn't included in the file summary; both fixed so EPUBs transfer correctly.
-- **Duplicate documents on re-download** — the document `fileId` dedup check re-read the whole library on every candidate; now cached, eliminating repeated full scans during sync download.
-- **Per-device room key could desync from the shareable secret** — older builds replicated the derived room key, which could leave the cached key and secret out of sync; a non-secret binding digest now lets `roomCrypto` detect that state on every boot and deterministically repair the key from the shareable secret.
-- **Native secure-storage calls starved the async worker pool** — `keyring` calls are blocking OS/Keystore IPC; running them inline in `async fn`s starved the Tokio worker pool and stalled the boot chain on Android. They now run via `spawn_blocking`.
-- **Old document rows were rejected by Rust on sync** — several Rust `Document` fields were added after sync first shipped while the TS interface kept them optional; passing a stale compacted row through made Tauri reject the command. Synced documents are now normalized to the full DTO before invoke.
-- **Device-local file paths leaked into replicated payloads** — `filePath` portability is now a single shared check (`isPortableFilePath`) used by both publish and seed paths, so only URL-backed content replicates.
-- **fileManifest rows never left the outbox** — its domain lacked a registered delta-log publisher, so `drainSyncOutboxBatch` left every row "pending" forever and peers never discovered files to download. A publisher is now registered for it.
-- **Pending delta-log inbox wasn't replayed** — messages received before the router was ready were dropped; the inbox is now replayed on boot so cold-start converges.
-- **Delta-log router and progressive scheduler hardening** — additional replay/queue robustness, checkpoint settle improvements, and bounded progressive-pull scheduling to keep cold-start memory bounded.
+- **`#` mentions delivered placeholder bodies** — the assistant now delivers the real chapter body for `#` mentions and rebuilds the section tree on retry so mentions resolve on the first send.
+- **LLM provider persistence** — provider selection is now centralized, so it survives restarts consistently instead of drifting between views.
+- **Chunked upstream pages failed to render** — hop-by-hop headers are now stripped in the browser proxy, so chunked upstream responses render correctly.
+- **Queue ignored the flashcard percentage and Item Types toggles** — both are now honored, so the queue composition matches the configured filters.
+- **Queue froze and jumped to #1 on session exit** — session teardown no longer stalls the queue or resets its position.
+- **i18n gaps and placeholder mismatches** — backfilled missing translations across the queue and sync surfaces and fixed placeholder mismatches; the handbook documents queue ordering and backfills its translations.
+- **Sync startup/runtime lag** — real-time Yjs sync is hard-disabled to eliminate the boot and runtime stalls it caused.
+- **General stability and performance** — assorted hardening across sync, the queue, and the browser pipeline.
+- **Firefox extension install path** — the signed browser-sync XPI is now hosted on GitHub Releases and the install links point at the working download URL.
