@@ -168,6 +168,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     useSettingsStore.getState().settings.smartQueue.queueStrategyPreset as PriorityPreset
   );
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
+  const itemTypesCustomized = useSettingsStore(
+    (s) => s.settings.smartQueue.sessionItemTypesCustomized ?? false
+  );
   const handleSetPreset = (value: PriorityPreset) => {
     setPreset(value);
     updateSettingsCategory("smartQueue", { queueStrategyPreset: value });
@@ -188,7 +191,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       maxItems: 50,
       blockTimeBudgets: { overdue: 10, maintenance: 15, explore: 20, empty: 15 },
       filters: { tags: [], categories: [], priorityRange: { min: 0, max: 100 }, excludeSuspended: true },
-      itemTypes: { documents: true, extracts: false, learningItems: false },
+      itemTypes: { documents: true, extracts: true, learningItems: true },
       semanticStudy: { enabled: false, relatednessThreshold: 30, focalTopic: "" }
     };
     
@@ -408,6 +411,26 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     return Array.from(types).sort();
   }, [items]);
 
+  /**
+   * Which item types the reading queue shows.
+   *
+   * The Customize Queue toggles are authoritative once the user has actually
+   * changed them. Due All used to bypass them entirely ("Due All promises every
+   * due item type"), so unchecking Learning Items there did nothing at all —
+   * and Due All is the default filter, which made the toggles look inert.
+   *
+   * Until the user changes them, each filter keeps its own default: Due All
+   * shows every due type, the narrower reading filters are documents-first.
+   * A single stored `sessionItemTypes` object cannot carry both defaults, which
+   * is why the "has the user customized this" flag exists.
+   */
+  const effectiveItemTypes = useMemo(() => {
+    if (!itemTypesCustomized && queueFilterMode === "due-all") {
+      return { documents: true, extracts: true, learningItems: true };
+    }
+    return sessionCustomization.itemTypes;
+  }, [itemTypesCustomized, queueFilterMode, sessionCustomization.itemTypes]);
+
   const visibleItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     
@@ -418,18 +441,13 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           if (queueMode === "review") {
             return item.itemType === "learning-item";
           }
-          if (queueFilterMode === "due-all") {
-            return true;
-          }
-          // Other reading filters default to documents-only, but defer to
-          // the Customize Queue itemTypes toggles so enabling
-          // Extracts/Learning Items there actually surfaces them here too
-          // instead of being silently stripped before applyFilters runs.
-          const itemTypes = sessionCustomization.itemTypes;
-          if (item.itemType === "document") return itemTypes.documents;
-          if (item.itemType === "extract") return itemTypes.extracts;
-          if (item.itemType === "learning-item") return itemTypes.learningItems;
-          return false;
+          // Types the toggles do not cover (RSS articles) always pass, matching
+          // applyFilters' own itemTypes branch — a `return false` here would
+          // strip them from Due All, which never filtered them before.
+          if (item.itemType === "document") return effectiveItemTypes.documents;
+          if (item.itemType === "extract") return effectiveItemTypes.extracts;
+          if (item.itemType === "learning-item") return effectiveItemTypes.learningItems;
+          return true;
         });
     
     // Apply file type filter
@@ -455,12 +473,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       // above, so passing `learningItems: false` (its default) here would
       // strip every card and leave the Review Queue empty. Omit it so the
       // other filters (tags/categories/priority/excludeSuspended) still apply.
-      // In due-all mode, still apply itemTypes as a hard post-filter so
-      // disabling a type (e.g. learningItems=false) is an absolute exclusion.
-      itemTypes:
-        queueMode === "review" || queueFilterMode === "due-all"
-          ? undefined
-          : sessionCustomization.itemTypes,
+      // Every other mode applies itemTypes as a hard post-filter, so disabling
+      // a type is an absolute exclusion. (This is what the comment above the
+      // old `|| queueFilterMode === "due-all"` claimed it already did.)
+      itemTypes: queueMode === "review" ? undefined : effectiveItemTypes,
       priorityPreset: preset,
       semanticStudy: sessionCustomization.semanticStudy,
     };
@@ -475,7 +491,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       });
     }
     return ordered;
-  }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, customSubset, queueSortMode]);
+  }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, effectiveItemTypes, customSubset, queueSortMode]);
 
   useEffect(() => {
     const container = queueScrollRef.current;
@@ -2264,12 +2280,25 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       <SessionCustomizeModal
         isOpen={isCustomizeModalOpen}
         onClose={() => setCustomizeModalOpen(false)}
-        customization={sessionCustomization}
+        // Show the types actually in effect, not the raw stored object — in an
+        // uncustomized Due All those differ, and a checkbox that contradicts
+        // the list below it is its own bug.
+        customization={{ ...sessionCustomization, itemTypes: effectiveItemTypes }}
         onChange={(next) => {
+          // Only an actual toggle change marks the item types as customized —
+          // the modal fires onChange for every field, and adjusting the session
+          // duration must not silently pin Due All to the documents-first
+          // default. See `effectiveItemTypes`.
+          const current = effectiveItemTypes;
+          const itemTypesChanged =
+            next.itemTypes.documents !== current.documents ||
+            next.itemTypes.extracts !== current.extracts ||
+            next.itemTypes.learningItems !== current.learningItems;
           setSessionCustomization(next);
           // Persist item type preferences to settings
           updateSettingsCategory("smartQueue", {
             sessionItemTypes: { ...next.itemTypes },
+            ...(itemTypesChanged ? { sessionItemTypesCustomized: true } : {}),
           });
         }}
         onApply={() => setCustomizeModalOpen(false)}

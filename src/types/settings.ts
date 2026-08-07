@@ -332,6 +332,13 @@ export interface SmartQueueSettings {
     extracts?: boolean;
     learningItems?: boolean;
   };
+  /**
+   * Whether the user has actually changed the Item Types toggles. Until they
+   * have, each queue filter applies its own default (Due All shows every due
+   * type; the narrower reading filters are documents-first) — one stored
+   * `sessionItemTypes` object cannot express both.
+   */
+  sessionItemTypesCustomized?: boolean;
 }
 
 // RSS Summary Settings
