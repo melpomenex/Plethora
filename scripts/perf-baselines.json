@@ -1,0 +1,7 @@
+{
+  "_comment": "Recorded cost ratios (anchorHz / benchHz) for the performance gate. Update deliberately, in the same PR as an intentional perf change, and say why in the PR description. Costs are dimensionless: they express 'this benchmark costs N noise-anchor operations', so they stay comparable across machines and CI runner classes.",
+  "defaultTolerance": 1.25,
+  "anchor": { "name": "noise-anchor", "iterations": 200000 },
+  "recordedFrom": "",
+  "benchmarks": {}
+}
