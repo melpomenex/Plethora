@@ -27,6 +27,44 @@ pub enum OpenOutcome {
     RecoveredAfterQuarantine,
 }
 
+/// Why an open attempt failed. The distinction is load-bearing: only
+/// `Corrupt` — an actual non-`ok` verdict from SQLite's structural check —
+/// may cause the database to be quarantined. Treating a lock, a pool acquire
+/// timeout, or a permission error as corruption renames a healthy database
+/// aside and silently loses the user's library.
+enum OpenFailure {
+    /// SQLite reported a structural problem; the string is its verdict.
+    Corrupt(String),
+    /// Anything else: locks, timeouts, permissions, IO, bad path.
+    Transient(IncrementumError),
+}
+
+/// Classify a connect-time sqlx error. A file that is not a database at all
+/// (`SQLITE_NOTADB`) or whose pages are damaged (`SQLITE_CORRUPT`) never
+/// reaches `quick_check`, so those two must be recognised here — while
+/// `SQLITE_BUSY`/`LOCKED`/`CANTOPEN`/`IOERR` and pool timeouts must not be.
+fn classify_connect_error(err: &sqlx::Error) -> OpenFailure {
+    let primary_code = match err {
+        sqlx::Error::Database(db_err) => db_err
+            .code()
+            .and_then(|c| c.parse::<i32>().ok())
+            // SQLite reports extended result codes; the primary code is the
+            // low byte (e.g. SQLITE_CORRUPT_VTAB 267 -> SQLITE_CORRUPT 11).
+            .map(|code| code & 0xff),
+        _ => None,
+    };
+    const SQLITE_CORRUPT: i32 = 11;
+    const SQLITE_NOTADB: i32 = 26;
+
+    match primary_code {
+        Some(SQLITE_CORRUPT) | Some(SQLITE_NOTADB) => OpenFailure::Corrupt(err.to_string()),
+        _ => OpenFailure::Transient(IncrementumError::Internal(format!(
+            "Database connection pool failed (check if another process has the DB locked): {}",
+            err
+        ))),
+    }
+}
+
 impl Database {
     /// Create a new database connection pool.
     ///
@@ -57,49 +95,96 @@ impl Database {
 
         let already_existed = path.exists();
 
-        match Self::open_with_integrity_check(&path).await {
-            Ok(db) => {
-                let outcome = if already_existed {
-                    OpenOutcome::OpenedExisting
-                } else {
-                    OpenOutcome::CreatedFresh
-                };
-                Ok((db, outcome))
-            }
-            Err(open_err) if already_existed => {
-                // The file existed but we could not open it / it failed the
-                // integrity check. Quarantine the damaged files and start over
-                // rather than making the app unlaunchable.
-                tracing::error!(
-                    "Database at {} could not be opened cleanly ({}); quarantining and recreating",
-                    path.display(),
-                    open_err
-                );
-                if let Err(quarantine_err) = Self::quarantine_corrupt_files(&path).await {
-                    tracing::warn!(
-                        "Failed to quarantine corrupt database files ({}); \
-                         continuing with a fresh database anyway. The corrupt \
-                         file may be overwritten.",
-                        quarantine_err
-                    );
+        // Retry non-corruption failures before giving up. A locked file or a
+        // pool acquire timeout (Syncthing writing in the directory, a lingering
+        // pool from a previous instance) is transient — and must NEVER be
+        // treated as corruption, because quarantining renames a perfectly
+        // healthy database aside and loses the user's library.
+        let mut last_transient: Option<IncrementumError> = None;
+        for (attempt, backoff_ms) in [250u64, 1000, 0].iter().enumerate() {
+            match Self::open_checked(&path).await {
+                Ok(db) => {
+                    let outcome = if already_existed {
+                        OpenOutcome::OpenedExisting
+                    } else {
+                        OpenOutcome::CreatedFresh
+                    };
+                    return Ok((db, outcome));
                 }
-                let db = Self::open_with_integrity_check(&path).await?;
-                Ok((db, OpenOutcome::RecoveredAfterQuarantine))
-            }
-            Err(open_err) => {
-                // No prior file existed, but opening still failed — this is a
-                // genuine environment error (permissions, disk full, etc.) and
-                // should not be masked.
-                Err(open_err)
+                Err(OpenFailure::Corrupt(verdict)) if already_existed => {
+                    // Genuinely corrupt: quarantine the damaged files and start
+                    // over rather than making the app unlaunchable.
+                    tracing::error!(
+                        "Database at {} failed its integrity check ({}); quarantining and recreating",
+                        path.display(),
+                        verdict
+                    );
+                    if let Err(quarantine_err) = Self::quarantine_corrupt_files(&path).await {
+                        tracing::warn!(
+                            "Failed to quarantine corrupt database files ({}); \
+                             continuing with a fresh database anyway. The corrupt \
+                             file may be overwritten.",
+                            quarantine_err
+                        );
+                    }
+                    let db = Self::open_with_integrity_check(&path).await?;
+                    return Ok((db, OpenOutcome::RecoveredAfterQuarantine));
+                }
+                Err(OpenFailure::Corrupt(verdict)) => {
+                    // No prior file existed yet the fresh one is already
+                    // corrupt — a genuine environment problem, don't mask it.
+                    return Err(IncrementumError::Internal(format!(
+                        "Database integrity check failed: {verdict}"
+                    )));
+                }
+                Err(OpenFailure::Transient(err)) => {
+                    tracing::warn!(
+                        "Database at {} could not be opened (attempt {}): {}",
+                        path.display(),
+                        attempt + 1,
+                        err
+                    );
+                    last_transient = Some(err);
+                    if *backoff_ms > 0 {
+                        tokio::time::sleep(Duration::from_millis(*backoff_ms)).await;
+                    }
+                }
             }
         }
+
+        // Out of retries with no corruption verdict. Fail loudly and leave the
+        // file untouched — an actionable startup error beats a silent reset.
+        Err(last_transient.unwrap_or_else(|| {
+            IncrementumError::Internal("Database could not be opened".to_string())
+        }))
     }
 
     /// Open the database at `path` and verify it with `PRAGMA integrity_check`.
+    ///
+    /// Flattens [`Self::open_checked`]'s failure kinds back into a plain error;
+    /// callers that must distinguish corruption from a transient failure (i.e.
+    /// anything that decides to quarantine) use `open_checked` directly.
     async fn open_with_integrity_check(path: &Path) -> Result<Self> {
+        Self::open_checked(path).await.map_err(|failure| match failure {
+            OpenFailure::Corrupt(verdict) => {
+                IncrementumError::Internal(format!("Database integrity check failed: {verdict}"))
+            }
+            OpenFailure::Transient(err) => err,
+        })
+    }
+
+    /// Open the database at `path`, distinguishing a failed structural check
+    /// (`OpenFailure::Corrupt`) from every other reason an open can fail
+    /// (`OpenFailure::Transient`: locks, timeouts, permissions, IO).
+    async fn open_checked(path: &Path) -> std::result::Result<Self, OpenFailure> {
         // Create connection options with proper concurrency settings
         let options = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))
-            .map_err(|e| IncrementumError::Internal(format!("Invalid database path: {}", e)))?
+            .map_err(|e| {
+                OpenFailure::Transient(IncrementumError::Internal(format!(
+                    "Invalid database path: {}",
+                    e
+                )))
+            })?
             .create_if_missing(true)
             // Set busy timeout to wait for locks instead of failing immediately
             .busy_timeout(Duration::from_secs(30))
@@ -124,12 +209,8 @@ impl Database {
             .max_connections(max_connections)
             .acquire_timeout(Duration::from_secs(60))
             .connect_with(options)
-            .await.map_err(|e| {
-                IncrementumError::Internal(format!(
-                    "Database connection pool failed (check if another process has the DB locked): {}",
-                    e
-                ))
-            })?;
+            .await
+            .map_err(|e| classify_connect_error(&e))?;
 
         // Close the pool if any subsequent step fails so we don't leave a
         // half-initialized connection pool around after returning an error.
@@ -148,19 +229,20 @@ impl Database {
         match integrity {
             Ok((check,)) if check == "ok" => Ok(Self { pool }),
             Ok((check,)) => {
+                // SQLite gave a verdict and it isn't "ok" — the file really is
+                // damaged. Only this branch may lead to quarantine.
                 tracing::error!("Database integrity check failed: {}", check);
                 pool.close().await;
-                Err(IncrementumError::Internal(format!(
-                    "Database integrity check failed: {}",
-                    check
-                )))
+                Err(OpenFailure::Corrupt(check))
             }
             Err(e) => {
+                // The check could not even run (lock, timeout, IO). That is not
+                // a corruption verdict and must not cost the user their data.
                 pool.close().await;
-                Err(IncrementumError::Internal(format!(
-                    "Database integrity check failed: {}",
+                Err(OpenFailure::Transient(IncrementumError::Internal(format!(
+                    "Database integrity check could not run: {}",
                     e
-                )))
+                ))))
             }
         }
     }
@@ -312,6 +394,50 @@ mod tests {
         // Second open should reuse the existing healthy file.
         let (db, outcome) = Database::open_or_recover(db_path.clone()).await.unwrap();
         assert_eq!(outcome, OpenOutcome::OpenedExisting);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The bug this guards against cost a user their whole library: a healthy
+    /// database that merely could not be opened (lock, permissions, IO) was
+    /// classified as corrupt and renamed aside. Startup must fail loudly and
+    /// leave every file exactly where it is.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn open_or_recover_does_not_quarantine_an_unopenable_but_healthy_db() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_test_dir("unopenable");
+        let db_path = dir.join("incrementum.db");
+
+        // A real, healthy database…
+        let (db, _) = Database::open_or_recover(db_path.clone()).await.unwrap();
+        db.migrate().await.unwrap();
+        db.close().await;
+        let size_before = std::fs::metadata(&db_path).unwrap().len();
+
+        // …that we cannot open (SQLITE_CANTOPEN, not a corruption verdict).
+        std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let result = Database::open_or_recover(db_path.clone()).await;
+        assert!(result.is_err(), "unopenable DB should surface an error");
+
+        std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            std::fs::metadata(&db_path).unwrap().len(),
+            size_before,
+            "the original database must be left untouched"
+        );
+        let quarantined: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains(".corrupt."))
+            .collect();
+        assert!(
+            quarantined.is_empty(),
+            "a healthy DB must never be quarantined, got: {quarantined:?}"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

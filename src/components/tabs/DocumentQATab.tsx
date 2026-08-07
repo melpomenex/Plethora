@@ -1534,6 +1534,19 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                   .join("\n")
               : "";
 
+          // The library was never searched — say so instead of letting the
+          // answer read as "I looked and your notes have nothing on this".
+          if (ragResult.retrievalState === "empty-index") {
+            addMessage({
+              id: `assistant-${Date.now()}`,
+              role: "assistant" as const,
+              content: `⚠️ ${ragResult.answer}`,
+              timestamp: Date.now(),
+            });
+            setIsProcessing(false);
+            return;
+          }
+
           const ragMessage = {
             id: `assistant-${Date.now()}`,
             role: "assistant" as const,
@@ -1547,9 +1560,23 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
           setIsProcessing(false);
           return;
         } catch (ragError) {
-          // Fall through to the original general-context path if RAG fails
-          // (e.g. library not indexed, embedding provider misconfigured).
-          console.warn("RAG chat failed, falling back to general context:", ragError);
+          // Do NOT fall through silently: answering from general knowledge
+          // after retrieval failed is indistinguishable from having searched
+          // the library and found nothing. Show the cause instead.
+          console.warn("RAG chat failed:", ragError);
+          const detail = ragError instanceof Error ? ragError.message : String(ragError);
+          addMessage({
+            id: `assistant-${Date.now()}`,
+            role: "assistant" as const,
+            content:
+              `⚠️ I could not search your library, so this question was not answered from it.\n\n` +
+              `**Cause:** ${detail}\n\n` +
+              `Check the embedding provider in Settings → Embedding (Ollama must be running for local models), ` +
+              `then re-index the library. Mention a document with @ to ask about it directly.`,
+            timestamp: Date.now(),
+          });
+          setIsProcessing(false);
+          return;
         }
       }
       let contextPrefix = "";

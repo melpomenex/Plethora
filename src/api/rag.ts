@@ -48,9 +48,17 @@ export interface RagIndexStatus {
   documentsWithoutContent: number;
 }
 
+/**
+ * What retrieval actually found. `empty-index` means the library was never
+ * searched — no chunks are stored for the configured provider+model — as
+ * opposed to `no-match`, where the library was searched and came up short.
+ */
+export type RagRetrievalState = "hits" | "no-match" | "empty-index";
+
 export interface RagChatResponse {
   answer: string;
   citations: RagHit[];
+  retrievalState: RagRetrievalState;
 }
 
 export interface RagIndexProgress {
