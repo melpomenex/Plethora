@@ -1469,6 +1469,15 @@ export function EPUBViewer({
             void saveReadingPositionRef.current(cfi);
           }
         } catch { /* ignore */ }
+        // Stop the rendition's internal task queue BEFORE destroying it.
+        // epubjs schedules `_display` / navigation jobs on requestAnimationFrame
+        // and rendition.destroy() leaves that queue running (its `q.clear()` is
+        // commented out upstream). A job that fires after the book's Locations
+        // were torn down reads `this._locations.length` against undefined — the
+        // "undefined is not an object (evaluating 'this._locations.length')"
+        // crash seen when leaving an EPUB mid-render. Dropping pending jobs
+        // here makes teardown safe regardless of in-flight display work.
+        try { renditionInstance.q?.stop?.(); } catch { /* ignore */ }
         try { renditionInstance.destroy(); } catch { /* ignore */ }
       }
       onVimRuntimeChange?.(null);
