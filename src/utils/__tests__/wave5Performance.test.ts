@@ -2,14 +2,21 @@ import { describe, expect, it } from "vitest";
 import { createEmptyCard, fsrs, type Grade } from "ts-fsrs";
 import * as Y from "yjs";
 import { FileManifest, type FileManifestEntry } from "../../lib/file-manifest";
-import { gradeTypedAnswerSemantic } from "../semanticGrading";
 
-function nowMs() {
-  return typeof performance !== "undefined" ? performance.now() : Date.now();
-}
-
-describe("Wave5 performance checks", () => {
-  it("scheduler simulation handles large review logs quickly", async () => {
+/**
+ * Wave5 scheduler + sync-manifest correctness at scale.
+ *
+ * The absolute wall-clock assertions that used to live here
+ * (`expect(duration).toBeLessThan(...)`) are gone: they were set so loose
+ * (a 50× slowdown passed) that they caught nothing, and raw-millisecond
+ * thresholds flake across machines. Speed is now gated by the benchmark
+ * harness (`npm run bench` + scripts/check-perf-budget.mjs) — the AI-grading
+ * routing path the timing test nominally guarded is covered by
+ * src/utils/semanticGrading.bench.ts, and the scheduler loop is covered by
+ * src/lib/sm20.bench.ts. What remains here is pure correctness.
+ */
+describe("Wave5 scheduler and sync manifest scale checks", () => {
+  it("scheduler simulation handles a large review log", () => {
     const scheduler = fsrs({
       request_retention: 0.9,
       maximum_interval: 36500,
@@ -20,45 +27,14 @@ describe("Wave5 performance checks", () => {
     let card = createEmptyCard(now);
     let iterations = 0;
 
-    const start = nowMs();
     for (let i = 0; i < 5000; i += 1) {
       const grade = ([1, 2, 3, 4] as Grade[])[i % 4];
       const next = scheduler.next(card, new Date(now.getTime() + i * 60_000), grade);
       card = next.card;
       iterations += 1;
     }
-    const duration = nowMs() - start;
 
     expect(iterations).toBe(5000);
-    expect(duration).toBeLessThan(4000);
-  });
-
-  it("AI grading routing path remains responsive under load", async () => {
-    const start = nowMs();
-
-    for (let i = 0; i < 250; i += 1) {
-      await gradeTypedAnswerSemantic(
-        {
-          question: "What is FSRS?",
-          expectedAnswer: "A modern spaced repetition scheduler",
-          userAnswer: "A spaced repetition scheduler",
-          route: "local-first",
-        },
-        {
-          gradeWithLocal: async () => {
-            throw new Error("local unavailable");
-          },
-          gradeWithCloud: async () => ({
-            isCorrect: true,
-            similarity: 0.92,
-            provider: "cloud" as const,
-          }),
-        }
-      );
-    }
-
-    const duration = nowMs() - start;
-    expect(duration).toBeLessThan(3000);
   });
 
   it("sync manifest operations scale for batch updates", () => {
@@ -89,20 +65,16 @@ describe("Wave5 performance checks", () => {
 
     manifest.updateMyPresence(entries.slice(0, 10).map((entry) => entry.id));
 
-    const start = nowMs();
     for (const entry of entries) {
       manifest.addFile(entry);
     }
     const all = manifest.getAllFiles();
     const available = manifest.isFileAvailable("file-0");
-    const duration = nowMs() - start;
 
     expect(all.length).toBe(3000);
     expect(available).toBe(true);
-    expect(duration).toBeLessThan(2500);
 
     if (typeof originalLocalStorage === "undefined") {
-       
       delete (globalThis as any).localStorage;
     } else {
       Object.defineProperty(globalThis, "localStorage", {

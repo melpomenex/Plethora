@@ -127,3 +127,39 @@ jobs:
           else
             echo "Bundle size ${TOTAL} bytes is within threshold ${THRESHOLD}"
           fi
+
+  performance:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Sync node version and setup cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Run benchmark suites
+        run: npm run bench
+
+      # Warn-only while baselines are being recorded from real CI runs (see
+      # openspec/changes/add-performance-benchmark-gate). Once scripts/
+      # perf-baselines.json is populated, drop --warn-only so the gate fails
+      # the workflow on regressions.
+      - name: Check performance budget
+        run: node scripts/check-perf-budget.mjs --warn-only
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: .bench/results.json
+          if-no-files-found: error

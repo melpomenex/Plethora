@@ -26,6 +26,7 @@ export default defineConfig({
       "node_modules/",
       "src-tauri/",
       "dist/",
+      "src/**/*.bench.ts",
     ],
   },
   resolve: {
