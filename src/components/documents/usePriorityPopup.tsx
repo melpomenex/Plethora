@@ -22,6 +22,7 @@ import {
   bulkSetDocumentPriority,
   updateDocumentPriority,
 } from "../../api/documents";
+import { updateLearningItemPriority } from "../../api/learning-items";
 import type { Document } from "../../types/document";
 
 /** Display-only bucket info for a 0-100 slider value. Matches the backend. */
@@ -95,16 +96,24 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
         priorityRating?: number;
         priorityExplicitlySet?: boolean;
       }[],
-      options?: { forceBulk?: boolean },
+      options?: { forceBulk?: boolean; learningItemIds?: string[] },
     ): Promise<PriorityPopupResult> => {
-      if (ids.length === 0) return { committed: false, slider: null };
+      // Cards carry their own priority (they are elements of the same queue),
+      // so a selection may be documents, cards, or a mix. Only the document
+      // ids drive the bulk/single write path below; cards are written
+      // separately with the same committed value.
+      const learningItemIds = options?.learningItemIds ?? [];
+      if (ids.length === 0 && learningItemIds.length === 0) {
+        return { committed: false, slider: null };
+      }
 
       // Use the bulk write path when there is more than one document, or when
       // the caller explicitly requests it (e.g. the bulk Reprioritize button,
       // which should always route through the bulk command for consistency even
       // if only one row happens to be selected).
       const useBulkPath = options?.forceBulk === true || ids.length > 1;
-      const isMass = ids.length > 1;
+      const totalCount = ids.length + learningItemIds.length;
+      const isMass = totalCount > 1;
       // Seed the slider from the first selected doc (the active one). For a mass
       // set the user is choosing a new shared value, so the seed is just a hint.
       const seedDoc = docs.find((d) => d.id === ids[0]);
@@ -124,7 +133,7 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
         />,
         {
           title: isMass
-            ? t("priority.popupTitleMass", { count: ids.length })
+            ? t("priority.popupTitleMass", { count: totalCount })
             : t("priority.popupTitle"),
           confirmText: t("priority.apply"),
           cancelText: t("priority.cancel"),
@@ -133,6 +142,22 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
 
       if (!result) return { committed: false, slider: null };
       const slider = Math.max(0, Math.min(100, Math.round(value)));
+
+      if (learningItemIds.length > 0) {
+        // No bulk command for cards yet; a selection is small enough that
+        // sequential writes are fine. One failure must not lose the rest.
+        for (const cardId of learningItemIds) {
+          try {
+            await updateLearningItemPriority(cardId, slider);
+          } catch (error) {
+            console.error("[priority] Failed to set card priority:", cardId, error);
+          }
+        }
+      }
+
+      if (ids.length === 0) {
+        return { committed: true, slider };
+      }
 
       if (useBulkPath) {
         const bulk = await bulkSetDocumentPriority(ids, slider);

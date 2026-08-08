@@ -1021,14 +1021,10 @@ pub async fn update_document_priority(
     } else {
         0
     };
-    let score = calculate_document_priority_score(
-        if rating_value > 0 {
-            Some(rating_value)
-        } else {
-            None
-        },
-        slider_value,
-    );
+    // The slider is a *position* request, not a stored value: resolve it into
+    // an order key that lands the document at that rank in the one global
+    // priority queue (see database::priority_rank).
+    let score = crate::database::priority_rank::key_for_slider(repo.db_pool(), slider_value).await?;
 
     let updated = repo
         .update_document_priority(&id, rating_value, slider_value, score)

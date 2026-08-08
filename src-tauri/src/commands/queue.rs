@@ -18,6 +18,43 @@ fn preview_text(text: &str, max_chars: usize) -> String {
     }
 }
 
+/// An element's live standing in the global priority queue.
+///
+/// All three fields are derived from the element's *rank* at read time, never
+/// from a stored number — a percentage means "this far up the collection right
+/// now", so it drifts as the collection grows. This is SuperMemo's model; see
+/// `database::priority_rank`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PriorityStanding {
+    /// 0-100, higher = more important (matches the slider's direction).
+    pub percentile: f64,
+    /// 1-based, position 1 = most important (SuperMemo's display direction).
+    pub position: usize,
+    pub queue_size: usize,
+}
+
+/// Where an element currently sits in the priority queue. `id` may be a
+/// document, extract, or learning item — they share one queue.
+#[tauri::command]
+pub async fn get_priority_standing(
+    id: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<PriorityStanding>> {
+    use crate::database::priority_rank;
+
+    let pool = repo.db_pool();
+    let Some(score) = priority_rank::key_of_element(pool, &id).await? else {
+        return Ok(None);
+    };
+    let (percentile, position, queue_size) = priority_rank::percentile_for_score(pool, score).await?;
+    Ok(Some(PriorityStanding {
+        percentile,
+        position,
+        queue_size,
+    }))
+}
+
 /// Configuration for interspersing playlist videos in the queue
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PlaylistInterspersionConfig {

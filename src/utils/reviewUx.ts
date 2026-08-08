@@ -1,5 +1,6 @@
 import type { QueueItem } from "../types/queue";
 import { scoreFocalTopic } from "./semanticRelations";
+import { QUEUE_LIST_SORT_CONFIG, orderScrollItemsByCombinedCriterion } from "./queueScrollOrder";
 
 export type PriorityPreset =
   | "maximize-retention"
@@ -105,6 +106,38 @@ const priorityPresets: Record<PriorityPreset, PriorityVector> = {
   },
 };
 
+/**
+ * Split a queue selection into the two priority write paths.
+ *
+ * Priority is one queue across documents, extracts, and cards, but each is
+ * written by its own command. A queue item only has a document when it came
+ * from one: Anki and browser-extension cards have `documentId === ""`, and
+ * passing that to the document command asks the backend for document "" — a
+ * not-found. Those items carry their own priority, so they belong on the
+ * learning-item path instead of being dropped.
+ *
+ * Both lists are de-duplicated: several cards can share one source document,
+ * and setting that document's priority once is enough.
+ */
+export function splitPriorityTargets(items: QueueItem[]): {
+  documentIds: string[];
+  learningItemIds: string[];
+} {
+  const documentIds = new Set<string>();
+  const learningItemIds = new Set<string>();
+  for (const item of items) {
+    if (item.documentId) {
+      documentIds.add(item.documentId);
+    } else if (item.learningItemId) {
+      learningItemIds.add(item.learningItemId);
+    }
+  }
+  return {
+    documentIds: Array.from(documentIds),
+    learningItemIds: Array.from(learningItemIds),
+  };
+}
+
 export function getPriorityVector(item: QueueItem): PriorityVector {
   const now = Date.now();
   const due = item.dueDate ? new Date(item.dueDate).getTime() : null;
@@ -136,38 +169,47 @@ export function getPriorityScore(item: QueueItem, preset: PriorityPreset): numbe
   );
 }
 
+/** Map a queue item's type onto the scroll session's type vocabulary. */
+function toScrollType(itemType: QueueItem["itemType"]): "document" | "extract" | "flashcard" {
+  if (itemType === "learning-item") return "flashcard";
+  if (itemType === "extract") return "extract";
+  return "document";
+}
+
 /**
  * Sort a filtered queue into the same deterministic order used for queue
  * sessions, then decorate each item with the position information needed by
  * list surfaces. The input is intentionally treated as already filtered so
  * search/session filters cannot create gaps in the visible positions.
+ *
+ * The ordering is Scroll Mode's combined criterion (priority + topic/item
+ * proportion bias + stable jitter), NOT a plain priority sort. A plain sort is
+ * what buried every document below every flashcard: `getPriorityScore` is
+ * effectively constant per type for an untouched library (all documents ~59,
+ * all Anki-imported cards ~73), so the list degenerated into a block of cards
+ * followed by a block of documents. Scroll Mode already ordered by the
+ * combined criterion, which is why it interleaved reading material and the
+ * list did not — the two surfaces must agree, since Scroll Mode (Queue List
+ * Order) replays exactly the rows this function hands it.
  */
 export function orderQueueItems(
   items: QueueItem[],
   preset: PriorityPreset = "maximize-retention",
 ): OrderedQueueItem[] {
-  const indexed = items.map((item, index) => ({
-    item,
-    index,
-    score: getPriorityScore(item, preset),
-  }));
+  const ordered = orderScrollItemsByCombinedCriterion(
+    items.map((item) => ({
+      id: item.id,
+      type: toScrollType(item.itemType),
+      engagementScore: getPriorityScore(item, preset),
+      item,
+    })),
+    QUEUE_LIST_SORT_CONFIG,
+  );
 
-  indexed.sort((a, b) => {
-    const scoreDifference = b.score - a.score;
-    if (scoreDifference !== 0) return scoreDifference;
-
-    const positionA = a.item.position ?? Number.POSITIVE_INFINITY;
-    const positionB = b.item.position ?? Number.POSITIVE_INFINITY;
-    if (positionA !== positionB) return positionA - positionB;
-
-    const idDifference = a.item.id.localeCompare(b.item.id);
-    return idDifference !== 0 ? idDifference : a.index - b.index;
-  });
-
-  return indexed.map(({ item }, index) => ({
+  return ordered.map(({ item }, index) => ({
     ...item,
     queuePosition: index + 1,
-    queueTotal: indexed.length,
+    queueTotal: ordered.length,
     isUpNext: index === 0,
   }));
 }

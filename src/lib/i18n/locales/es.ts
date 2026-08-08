@@ -2100,6 +2100,7 @@ export const es: Dict = {
   "podcastManager.insertedToQueue": "Insertado correctamente en la cola",
   "podcastManager.insertToQueueFailed": "Error al insertar en la cola",
   "priority.adjust": "Ajustar",
+  "priority.queuePosition": "Posición en cola {position} de {size}",
   "priority.fineTune": "Ajuste fino",
   "priority.highDesc": "Repasar con frecuencia",
   "priority.higherPriorityNote":
@@ -2123,6 +2124,10 @@ export const es: Dict = {
   "queue.compositionExtracts": "Extractos",
   "queue.compositionFlashcards": "Tarjetas",
   "queue.compositionHelp": "Partes relativas de la sesión: no es necesario que sumen 100.",
+  "neural.goNeural": "Go neural",
+  "neural.exitNeural": "Salir de repaso neural",
+  "neural.reviewMode": "Repaso neural",
+  "neural.refilled": "Cola neural rellenada desde elementos relacionados",
   "queue.moreOptions": "Más opciones",
   "queue.unknownDocument": "Documento desconocido",
   "queueContextMenu.moreOptions": "Más opciones",

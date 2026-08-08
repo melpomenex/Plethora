@@ -2115,6 +2115,7 @@ export const fr: Dict = {
   "podcastManager.insertedToQueue": "Ajouté avec succès à la file d'attente",
   "podcastManager.insertToQueueFailed": "Échec de l'ajout à la file d'attente",
   "priority.adjust": "Ajuster",
+  "priority.queuePosition": "Position dans la file {position} sur {size}",
   "priority.fineTune": "Régler finement",
   "priority.highDesc": "Réviser fréquemment",
   "priority.higherPriorityNote":
@@ -2138,6 +2139,10 @@ export const fr: Dict = {
   "queue.compositionExtracts": "Extraits",
   "queue.compositionFlashcards": "Cartes",
   "queue.compositionHelp": "Parts relatives de la session — elles ne doivent pas nécessairement totaliser 100.",
+  "neural.goNeural": "Go neural",
+  "neural.exitNeural": "Quitter la révision neuronale",
+  "neural.reviewMode": "Révision neuronale",
+  "neural.refilled": "File neuronale rechargée à partir des éléments liés",
   "queue.moreOptions": "Plus d'options",
   "queue.unknownDocument": "Document inconnu",
   "queueContextMenu.moreOptions": "Plus d'options",

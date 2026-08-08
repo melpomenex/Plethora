@@ -83,6 +83,22 @@ export async function getLearningItem(itemId: string): Promise<LearningItem | nu
 }
 
 /**
+ * Set a learning item's user-set priority (supermemo-faithful-queue Phase 3).
+ * The slider is the authoritative 0-100 importance rank; the backend derives
+ * the score. This is independent of FSRS urgency, which still drives *when*
+ * the card is scheduled.
+ */
+export async function updateLearningItemPriority(
+  itemId: string,
+  slider: number,
+): Promise<LearningItem> {
+  return await invokeCommand<LearningItem>("update_learning_item_priority", {
+    id: itemId,
+    slider,
+  });
+}
+
+/**
  * Get all learning items for an extract
  */
 export async function getLearningItemsByExtract(extractId: string): Promise<LearningItem[]> {

@@ -1,6 +1,9 @@
 //! Repository pattern for database operations
 
-use crate::database::{DocumentChunkEmbedding, QueueItemEmbedding};
+use crate::database::{
+    find_node_id_in_tx, find_node_id_pool, register_node_in_tx, unlink_node_in_tx,
+    DocumentChunkEmbedding, ElementKind, ELEMENT_TYPE_ITEM, ELEMENT_TYPE_TOPIC, QueueItemEmbedding,
+};
 use crate::error::{IncrementumError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
 use crate::models::{
@@ -170,6 +173,12 @@ impl Repository {
             algorithm_state,
             updated_at: row.try_get("updated_at").ok(),
             first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
+            priority_slider: row.try_get("priority_slider").unwrap_or(50),
+            priority_score: row.try_get("priority_score").unwrap_or(0.0),
+            priority_explicitly_set: row
+                .try_get::<i64, _>("priority_explicitly_set")
+                .map(|v| v != 0)
+                .unwrap_or(false),
         })
     }
 
@@ -350,6 +359,12 @@ impl Repository {
             .map(serde_json::to_string)
             .transpose()?;
 
+        // Wrap the document INSERT and the element_tree root registration in a
+        // single transaction (supermemo-faithful-queue Phase 2): every document
+        // auto-registers as a root Topic node so the tree has a root to build
+        // under as the user reads and extracts.
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query(
             r#"
             INSERT INTO documents (
@@ -365,7 +380,7 @@ impl Repository {
         .bind(&document.collection_id)
         .bind(&document.title)
         .bind(&document.file_path)
-        .bind(&file_type_str)
+        .bind(file_type_str)
         .bind(&document.content)
         .bind(&document.content_hash)
         .bind(document.total_pages)
@@ -374,7 +389,7 @@ impl Repository {
         .bind(&document.current_cfi)
         .bind(&document.current_view_state)
         .bind(&document.category)
-        .bind(&tags_json)
+        .bind(tags_json)
         .bind(document.date_added)
         .bind(document.date_modified)
         .bind(document.date_last_reviewed)
@@ -389,8 +404,21 @@ impl Repository {
         .bind(metadata_json)
         .bind(&document.cover_image_url)
         .bind(&document.cover_image_source)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        let created_at = document.date_added.to_rfc3339();
+        register_node_in_tx(
+            &mut tx,
+            ElementKind::Document,
+            &document.id,
+            ELEMENT_TYPE_TOPIC,
+            None,
+            &created_at,
+        )
+        .await?;
+
+        tx.commit().await?;
 
         Ok(document.clone())
     }
@@ -1681,10 +1709,23 @@ impl Repository {
     }
 
     pub async fn delete_document(&self, id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM documents WHERE id = ?")
+        // Unlink the document's element_tree node from the topology before the
+        // row is removed (supermemo-faithful-queue Phase 2). The overlay's
+        // cascade rules handle child rows; the unlink patches the sibling chain
+        // symmetrically. Done in a transaction so a partial failure rolls back.
+        let mut tx = self.pool.begin().await?;
+        if let Some(node_id) = find_node_id_in_tx(&mut tx, ElementKind::Document, id)
+            .await
+            .ok()
+            .flatten()
+        {
+            unlink_node_in_tx(&mut tx, node_id).await?;
+        }
+        sqlx::query("DELETE FROM documents WHERE id = ?1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -1754,12 +1795,32 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query(
-            "UPDATE documents SET extract_count = extract_count + 1 WHERE id = ?1",
-        )
-        .bind(&extract.document_id)
-        .execute(&mut *tx)
-        .await?;
+        // documents.extract_count is maintained by the migration 081 triggers,
+        // not here — an increment at each insert site had no matching decrement
+        // at the delete sites and drifted upward forever.
+
+        // SuperMemo knowledge-tree overlay (supermemo-faithful-queue Phase 2):
+        // append this extract as the last child Topic under its document's
+        // element_tree node, in the same transaction so a failure rolls both
+        // back. Documents register a root node on import (see create_document),
+        // so the parent always exists for a real extract.
+        let doc_node =
+            find_node_id_pool(&self.pool, ElementKind::Document, &extract.document_id)
+                .await
+                .ok()
+                .flatten();
+        if let Some(parent_id) = doc_node {
+            let created_at = extract.date_created.to_rfc3339();
+            register_node_in_tx(
+                &mut tx,
+                ElementKind::Extract,
+                &extract.id,
+                ELEMENT_TYPE_TOPIC,
+                Some(parent_id),
+                &created_at,
+            )
+            .await?;
+        }
 
         tx.commit().await?;
 
@@ -2120,31 +2181,27 @@ impl Repository {
     }
 
     pub async fn delete_extract(&self, id: &str) -> Result<()> {
-        // Look up the owning document before the delete, then decrement that
-        // document's persisted `extract_count` (floored at 0) in the same
-        // transaction as the row removal — mirror of create_extract's increment.
+        // documents.extract_count is maintained by the migration 081 triggers.
+        // This method used to decrement it by hand, which covered only this one
+        // delete path — cascades and the raw `DELETE FROM extracts` sites left
+        // the count inflated.
+        // Also unlink the extract's element_tree node (supermemo-faithful-queue
+        // Phase 2), mirroring create_extract's register_node edge.
         let mut tx = self.pool.begin().await?;
 
-        let document_id: Option<String> =
-            sqlx::query_as::<_, (Option<String>,)>("SELECT document_id FROM extracts WHERE id = ?1")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .and_then(|(d,)| d);
+        // Unlink the overlay node before the row delete.
+        if let Some(node_id) = find_node_id_in_tx(&mut tx, ElementKind::Extract, id)
+            .await
+            .ok()
+            .flatten()
+        {
+            unlink_node_in_tx(&mut tx, node_id).await?;
+        }
 
         sqlx::query("DELETE FROM extracts WHERE id = ?1")
             .bind(id)
             .execute(&mut *tx)
             .await?;
-
-        if let Some(doc_id) = document_id {
-            sqlx::query(
-                "UPDATE documents SET extract_count = MAX(extract_count - 1, 0) WHERE id = ?1",
-            )
-            .bind(&doc_id)
-            .execute(&mut *tx)
-            .await?;
-        }
 
         tx.commit().await?;
         Ok(())
@@ -2465,6 +2522,19 @@ impl Repository {
             .map(|s| (Some(s.stability), Some(s.difficulty)))
             .unwrap_or((None, None));
 
+        // Derive the priority score from the user-set slider so the persisted
+        // sort key is always consistent with the importance rank (mirrors the
+        // document path). The slider is the importance; FSRS urgency still
+        // drives scheduling via due_date, not this score.
+        let priority_score =
+            crate::algorithms::calculate_document_priority_score(None, item.priority_slider);
+
+        // Wrap the INSERT and the element_tree overlay edge in one transaction
+        // so they commit atomically. documents.learning_item_count rides along
+        // via the migration 081 AFTER INSERT trigger, inside this same
+        // transaction.
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query(
             r#"
             INSERT INTO learning_items (
@@ -2473,19 +2543,20 @@ impl Repository {
                 ease_factor, due_date, date_created, date_modified,
                 last_review_date, review_count, lapses, state,
                 is_suspended, tags, image_asset_ids, interaction_metadata, memory_state_stability, memory_state_difficulty,
-                algorithm_type, algorithm_state, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
+                algorithm_type, algorithm_state, updated_at,
+                priority_slider, priority_score, priority_explicitly_set
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)
             "#,
         )
         .bind(&item.id)
         .bind(&item.collection_id)
         .bind(&item.extract_id)
         .bind(&item.document_id)
-        .bind(&item_type_str)
+        .bind(item_type_str)
         .bind(&item.question)
         .bind(&item.answer)
         .bind(&item.cloze_text)
-        .bind(&cloze_ranges_json)
+        .bind(cloze_ranges_json)
         .bind(item.difficulty)
         .bind(item.interval)
         .bind(item.ease_factor)
@@ -2505,8 +2576,40 @@ impl Repository {
         .bind(&item.algorithm_type)
         .bind(&item.algorithm_state)
         .bind(&item.updated_at)
-        .execute(&self.pool)
+        .bind(item.priority_slider)
+        .bind(priority_score)
+        .bind(item.priority_explicitly_set)
+        .execute(&mut *tx)
         .await?;
+
+        // documents.learning_item_count is maintained by the migration 081
+        // triggers, not here (see create_extract for why).
+
+        // SuperMemo knowledge-tree overlay (supermemo-faithful-queue Phase 2):
+        // append this card as the last child Item under its extract's node when
+        // extract_id is set, else its document's node. Parent must already be
+        // registered (extracts register on create; documents on import).
+        let parent_node = if let Some(extract_id) = &item.extract_id {
+            find_node_id_in_tx(&mut tx, ElementKind::Extract, extract_id).await.ok().flatten()
+        } else if let Some(doc_id) = &item.document_id {
+            find_node_id_in_tx(&mut tx, ElementKind::Document, doc_id).await.ok().flatten()
+        } else {
+            None
+        };
+        if let Some(parent_id) = parent_node {
+            let created_at = item.date_created.to_rfc3339();
+            register_node_in_tx(
+                &mut tx,
+                ElementKind::LearningItem,
+                &item.id,
+                ELEMENT_TYPE_ITEM,
+                Some(parent_id),
+                &created_at,
+            )
+            .await?;
+        }
+
+        tx.commit().await?;
 
         Ok(item.clone())
     }
@@ -2626,6 +2729,40 @@ impl Repository {
         .await?;
 
         Ok(item.clone())
+    }
+
+    /// Update a learning item's user-set priority (supermemo-faithful-queue
+    /// Phase 3). Mirrors `update_document_priority`: sets the slider, derives
+    /// the priority_score, flips `priority_explicitly_set`, and returns the
+    /// updated row. The slider is the importance rank; FSRS urgency (which
+    /// drives *when* the card is scheduled) is untouched.
+    pub async fn update_learning_item_priority(
+        &self,
+        id: &str,
+        priority_slider: i32,
+        priority_score: f64,
+    ) -> Result<LearningItem> {
+        let now = Utc::now();
+        sqlx::query(
+            r#"
+            UPDATE learning_items SET
+                priority_slider = ?1,
+                priority_score = ?2,
+                priority_explicitly_set = 1,
+                date_modified = ?3
+            WHERE id = ?4
+            "#,
+        )
+        .bind(priority_slider)
+        .bind(priority_score)
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        self.get_learning_item_by_id(id)
+            .await?
+            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Learning item {}", id)))
     }
 
     pub async fn get_all_learning_items(&self) -> Result<Vec<LearningItem>> {
@@ -8030,6 +8167,68 @@ mod tests {
         assert!(!read.priority_explicitly_set);
     }
 
+    /// documents.extract_count / learning_item_count are maintained by the
+    /// migration 081 triggers. The delete sites are raw `DELETE FROM ...`
+    /// scattered across four command modules, so this asserts the counts fall
+    /// for a plain SQL delete — not just for a repository method — and that a
+    /// cascade (extract -> its cards) carries the card count down with it.
+    #[tokio::test]
+    async fn document_counts_follow_inserts_deletes_and_cascades() {
+        let repo = setup_repo().await;
+        let doc = repo
+            .create_document(&Document::new(
+                "Counted".to_string(),
+                "/tmp/counted.epub".to_string(),
+                FileType::Epub,
+            ))
+            .await
+            .expect("doc");
+
+        let counts = |id: String| {
+            let repo = repo.clone();
+            async move {
+                let doc = repo.get_document(&id).await.expect("get").expect("present");
+                (doc.extract_count, doc.learning_item_count)
+            }
+        };
+
+        let keep = repo
+            .create_extract(&Extract::new(doc.id.clone(), "first".to_string()))
+            .await
+            .expect("extract");
+        let drop = repo
+            .create_extract(&Extract::new(doc.id.clone(), "second".to_string()))
+            .await
+            .expect("extract");
+
+        let mut loose = LearningItem::new(ItemType::Flashcard, "unowned".to_string());
+        loose.document_id = Some(doc.id.clone());
+        let loose = repo.create_learning_item(&loose).await.expect("item");
+
+        let mut owned = LearningItem::new(ItemType::Flashcard, "owned by extract".to_string());
+        owned.document_id = Some(doc.id.clone());
+        owned.extract_id = Some(keep.id.clone());
+        repo.create_learning_item(&owned).await.expect("item");
+
+        assert_eq!(counts(doc.id.clone()).await, (2, 2), "after inserts");
+
+        repo.delete_extract(&drop.id).await.expect("delete extract");
+        assert_eq!(counts(doc.id.clone()).await, (1, 2), "extract deleted");
+
+        // Mirrors commands/learning_item.rs:369 and friends — raw delete, no
+        // count bookkeeping of its own.
+        sqlx::query("DELETE FROM learning_items WHERE id = ?1")
+            .bind(&loose.id)
+            .execute(repo.pool())
+            .await
+            .expect("delete item");
+        assert_eq!(counts(doc.id.clone()).await, (1, 1), "card deleted");
+
+        // Deleting the extract cascades to `owned`; the card count must follow.
+        repo.delete_extract(&keep.id).await.expect("delete extract");
+        assert_eq!(counts(doc.id.clone()).await, (0, 0), "cascade");
+    }
+
     #[tokio::test]
     async fn extract_create_read_roundtrip() {
         let repo = setup_repo().await;
@@ -8626,5 +8825,310 @@ mod tests {
             .await
             .expect("extracts")
             .is_empty());
+    }
+
+    // ── SuperMemo knowledge-tree overlay (supermemo-faithful-queue Phase 2) ──
+
+    /// Helper: count rows in element_tree for a given kind.
+    async fn element_tree_count(repo: &Repository, kind: &str) -> i64 {
+        let (n,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM element_tree WHERE element_kind = ?1")
+                .bind(kind)
+                .fetch_one(repo.pool())
+                .await
+                .expect("count");
+        n
+    }
+
+    /// Task 2.13: create document → extract → cloze and assert the three-level
+    /// tree with correct parent/child/sibling pointers, built automatically by
+    /// the IR flow's tree-edge wiring.
+    #[tokio::test]
+    async fn element_tree_tracks_extract_and_cloze_creation() {
+        let repo = setup_repo().await;
+
+        // 1. A new document registers a root Topic node.
+        let mut doc = Document::new(
+            "Tree doc".to_string(),
+            "/tree.pdf".to_string(),
+            FileType::Pdf,
+        );
+        repo.create_document(&doc).await.expect("create document");
+
+        let doc_node =
+            crate::database::ElementTreeRepository::new(repo.pool().clone())
+                .find_node_id(crate::database::ElementKind::Document, &doc.id)
+                .await
+                .expect("find doc node")
+                .expect("document registered a root node");
+        let node = sqlx::query_as::<_, (i32, Option<i64>)>(
+            "SELECT element_type, parent_id FROM element_tree WHERE id = ?1",
+        )
+        .bind(doc_node)
+        .fetch_one(repo.pool())
+        .await
+        .expect("read doc node");
+        assert_eq!(node.0, crate::database::ELEMENT_TYPE_TOPIC);
+        assert!(node.1.is_none(), "document node is a root");
+
+        // 2. An extract registers a Topic child under the document.
+        let mut extract = Extract::new(doc.id.clone(), "extracted text".to_string());
+        repo.create_extract(&extract).await.expect("create extract");
+
+        let ext_node =
+            crate::database::ElementTreeRepository::new(repo.pool().clone())
+                .find_node_id(crate::database::ElementKind::Extract, &extract.id)
+                .await
+                .expect("find extract node")
+                .expect("extract registered a node");
+        let ext_row = sqlx::query_as::<_, (i32, Option<i64>, Option<i64>)>(
+            "SELECT element_type, parent_id, prev_sibling_id FROM element_tree WHERE id = ?1",
+        )
+        .bind(ext_node)
+        .fetch_one(repo.pool())
+        .await
+        .expect("read extract node");
+        assert_eq!(ext_row.0, crate::database::ELEMENT_TYPE_TOPIC);
+        assert_eq!(ext_row.1, Some(doc_node), "extract's parent is the document");
+        // First extract: no prev sibling, and it is the document's first child.
+        assert_eq!(ext_row.2, None);
+
+        // The document's first_child_id should now point at the extract.
+        let doc_first_child: (Option<i64>,) =
+            sqlx::query_as("SELECT first_child_id FROM element_tree WHERE id = ?1")
+                .bind(doc_node)
+                .fetch_one(repo.pool())
+                .await
+                .expect("read doc first child");
+        assert_eq!(doc_first_child.0, Some(ext_node));
+
+        // 3. A cloze card under the extract registers an Item child.
+        let mut item = LearningItem::new(ItemType::Cloze, "cloze question".to_string());
+        item.extract_id = Some(extract.id.clone());
+        item.document_id = Some(doc.id.clone());
+        repo.create_learning_item(&item).await.expect("create item");
+
+        let card_node =
+            crate::database::ElementTreeRepository::new(repo.pool().clone())
+                .find_node_id(crate::database::ElementKind::LearningItem, &item.id)
+                .await
+                .expect("find card node")
+                .expect("card registered a node");
+        let card_row = sqlx::query_as::<_, (i32, Option<i64>)>(
+            "SELECT element_type, parent_id FROM element_tree WHERE id = ?1",
+        )
+        .bind(card_node)
+        .fetch_one(repo.pool())
+        .await
+        .expect("read card node");
+        assert_eq!(card_row.0, crate::database::ELEMENT_TYPE_ITEM);
+        assert_eq!(
+            card_row.1,
+            Some(ext_node),
+            "card's parent is the extract, not the document"
+        );
+
+        // documents.learning_item_count must have been bumped (task 2.9).
+        let (count,): (i32,) =
+            sqlx::query_as("SELECT learning_item_count FROM documents WHERE id = ?1")
+                .bind(&doc.id)
+                .fetch_one(repo.pool())
+                .await
+                .expect("read count");
+        assert_eq!(count, 1);
+
+        // Silence unused-mut warnings for the constructed models above.
+        let _ = &mut doc;
+        let _ = &mut extract;
+        let _ = &mut item;
+    }
+
+    /// Task 2.13 (sibling wiring): two extracts under one document are linked
+    /// as siblings in creation order.
+    #[tokio::test]
+    async fn element_tree_extract_siblings_are_chained_in_creation_order() {
+        let repo = setup_repo().await;
+        let doc = Document::new(
+            "Siblings".to_string(),
+            "/s.pdf".to_string(),
+            FileType::Markdown,
+        );
+        repo.create_document(&doc).await.expect("create document");
+
+        let e1 = Extract::new(doc.id.clone(), "first".to_string());
+        let e2 = Extract::new(doc.id.clone(), "second".to_string());
+        repo.create_extract(&e1).await.expect("create e1");
+        // Tiny delay so date_created ordering is unambiguous.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        repo.create_extract(&e2).await.expect("create e2");
+
+        let et = crate::database::ElementTreeRepository::new(repo.pool().clone());
+        let n1 = et
+            .find_node_id(crate::database::ElementKind::Extract, &e1.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let n2 = et
+            .find_node_id(crate::database::ElementKind::Extract, &e2.id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let r1 = et.get_node(n1).await.unwrap().unwrap();
+        let r2 = et.get_node(n2).await.unwrap().unwrap();
+        assert_eq!(r1.next_sibling_id, Some(n2), "e1 -> e2");
+        assert_eq!(r2.prev_sibling_id, Some(n1), "e2 <- e1");
+        assert!(r1.prev_sibling_id.is_none());
+        assert!(r2.next_sibling_id.is_none());
+    }
+
+    /// Task 2.13 (unlink on delete): deleting an extract unlinks its overlay
+    /// node from the sibling chain.
+    #[tokio::test]
+    async fn element_tree_extract_delete_unlinks_node() {
+        let repo = setup_repo().await;
+        let doc = Document::new(
+            "Del".to_string(),
+            "/d.pdf".to_string(),
+            FileType::Pdf,
+        );
+        repo.create_document(&doc).await.expect("create document");
+        let e1 = Extract::new(doc.id.clone(), "first".to_string());
+        let e2 = Extract::new(doc.id.clone(), "second".to_string());
+        let e3 = Extract::new(doc.id.clone(), "third".to_string());
+        repo.create_extract(&e1).await.expect("e1");
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        repo.create_extract(&e2).await.expect("e2");
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        repo.create_extract(&e3).await.expect("e3");
+
+        // Delete the middle extract; e1 and e3 should reconnect.
+        repo.delete_extract(&e2.id).await.expect("delete e2");
+
+        let et = crate::database::ElementTreeRepository::new(repo.pool().clone());
+        let n1 = et
+            .find_node_id(crate::database::ElementKind::Extract, &e1.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let n3 = et
+            .find_node_id(crate::database::ElementKind::Extract, &e3.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let r1 = et.get_node(n1).await.unwrap().unwrap();
+        let r3 = et.get_node(n3).await.unwrap().unwrap();
+        assert_eq!(r1.next_sibling_id, Some(n3));
+        assert_eq!(r3.prev_sibling_id, Some(n1));
+
+        // The concrete extracts table lost one row; the overlay node for e2
+        // was unlinked from the chain (spec allows the row to be retained for
+        // history). What matters is the live extracts count dropped.
+        let (extract_rows,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM extracts WHERE document_id = ?1")
+                .bind(&doc.id)
+                .fetch_one(repo.pool())
+                .await
+                .unwrap();
+        assert_eq!(extract_rows, 2);
+        let _ = element_tree_count; // helper retained for other tests
+    }
+
+    /// Task 2.14: migration backfill reconstructs the tree from existing FKs.
+    /// We insert documents / extracts / learning_items directly (bypassing the
+    /// tree-wiring in create_*), then re-run the migration's backfill SQL and
+    /// assert it produced the expected node count and edges.
+    #[tokio::test]
+    async fn element_tree_migration_backfill_reconstructs_edges() {
+        // The 078 migration runs during db.migrate(), so to test the backfill
+        // in isolation we: (a) create a fresh migrated DB (empty tree), then
+        // (b) insert concrete rows directly, then (c) re-run the backfill SQL
+        // statements manually and assert the reconstructed tree.
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+        db.migrate().await.expect("migrate");
+        let pool = db.pool();
+
+        // No nodes yet — a fresh migrate of an empty DB backfills nothing.
+        let (empty,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM element_tree").fetch_one(pool).await.unwrap();
+        assert_eq!(empty, 0);
+
+        // Insert one document, one extract under it, and one card under the
+        // extract — directly via SQL, simulating pre-overlay data.
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            r#"INSERT INTO documents (id, collection_id, title, file_path, file_type, tags, date_added, date_modified, extract_count, learning_item_count, priority_rating, priority_slider, priority_score, is_archived, is_favorite, is_dismissed)
+               VALUES ('d1','00000000-0000-0000-0000-000000000001','t','/d.pdf','pdf','[]','2024-01-01','2024-01-01',1,1,0,0,0,0,0,0)"#,
+        )
+        .execute(pool).await.unwrap();
+        sqlx::query(
+            r#"INSERT INTO extracts (id, collection_id, document_id, content, progressive_disclosure_level, max_disclosure_level, date_created, date_modified, tags, review_count, reps)
+               VALUES ('e1','00000000-0000-0000-0000-000000000001','d1','c',0,3,'2024-01-02','2024-01-02','[]',0,0)"#,
+        )
+        .execute(pool).await.unwrap();
+        sqlx::query(
+            r#"INSERT INTO learning_items (id, collection_id, extract_id, document_id, item_type, question, difficulty, interval, ease_factor, due_date, date_created, date_modified, review_count, lapses, state, is_suspended, tags, image_asset_ids)
+               VALUES ('c1','00000000-0000-0000-0000-000000000001','e1','d1','cloze','q',3,0,2.5,'2024-01-03','2024-01-03','2024-01-03',0,0,'new',0,'[]','[]')"#,
+        )
+        .execute(pool).await.unwrap();
+
+        // Re-run the backfill block from migration 078 in the same shape. (We
+        // can't re-run the migration itself — it's already recorded — so we
+        // exercise the same SQL the migration carries, proving the backfill is
+        // idempotent and reconstructs edges from the FKs.)
+        for stmt in [
+            "INSERT INTO element_tree (element_kind, element_ref_id, parent_id, first_child_id, next_sibling_id, prev_sibling_id, element_type, concept_link_id, inter_element_link_id, descendant_count_a, descendant_count_b, sort_order, created_at) SELECT 'document', d.id, NULL, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, 0, d.date_added FROM documents d WHERE NOT EXISTS (SELECT 1 FROM element_tree e WHERE e.element_kind = 'document' AND e.element_ref_id = d.id)",
+            "INSERT INTO element_tree (element_kind, element_ref_id, parent_id, first_child_id, next_sibling_id, prev_sibling_id, element_type, concept_link_id, inter_element_link_id, descendant_count_a, descendant_count_b, sort_order, created_at) SELECT 'extract', x.id, ed.id, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, ROW_NUMBER() OVER (PARTITION BY x.document_id ORDER BY x.date_created), x.date_created FROM extracts x JOIN element_tree ed ON ed.element_kind = 'document' AND ed.element_ref_id = x.document_id WHERE NOT EXISTS (SELECT 1 FROM element_tree e WHERE e.element_kind = 'extract' AND e.element_ref_id = x.id)",
+            "INSERT INTO element_tree (element_kind, element_ref_id, parent_id, first_child_id, next_sibling_id, prev_sibling_id, element_type, concept_link_id, inter_element_link_id, descendant_count_a, descendant_count_b, sort_order, created_at) SELECT 'learning_item', li.id, COALESCE(ex.id, ed.id), NULL, NULL, NULL, 1, NULL, NULL, 0, 0, ROW_NUMBER() OVER (PARTITION BY COALESCE(li.extract_id, li.document_id) ORDER BY li.date_created), li.date_created FROM learning_items li LEFT JOIN element_tree ex ON ex.element_kind = 'extract' AND ex.element_ref_id = li.extract_id LEFT JOIN element_tree ed ON ed.element_kind = 'document' AND ed.element_ref_id = li.document_id WHERE NOT EXISTS (SELECT 1 FROM element_tree e WHERE e.element_kind = 'learning_item' AND e.element_ref_id = li.id)",
+        ] {
+            sqlx::query(stmt).execute(pool).await.expect("backfill stmt");
+        }
+        // Stitch sibling chains / first child pointers.
+        sqlx::query("UPDATE element_tree SET first_child_id = (SELECT e2.id FROM element_tree e2 WHERE e2.parent_id = element_tree.id ORDER BY e2.sort_order, e2.created_at, e2.id LIMIT 1) WHERE EXISTS (SELECT 1 FROM element_tree c WHERE c.parent_id = element_tree.id)").execute(pool).await.unwrap();
+        sqlx::query("UPDATE element_tree SET next_sibling_id = (SELECT n.id FROM element_tree n WHERE n.parent_id = element_tree.parent_id AND (n.sort_order, n.created_at, n.id) > (element_tree.sort_order, element_tree.created_at, element_tree.id) ORDER BY n.sort_order, n.created_at, n.id LIMIT 1) WHERE parent_id IS NOT NULL").execute(pool).await.unwrap();
+        sqlx::query("UPDATE element_tree SET prev_sibling_id = (SELECT p.id FROM element_tree p WHERE p.parent_id = element_tree.parent_id AND (p.sort_order, p.created_at, p.id) < (element_tree.sort_order, element_tree.created_at, element_tree.id) ORDER BY p.sort_order DESC, p.created_at DESC, p.id DESC LIMIT 1) WHERE parent_id IS NOT NULL").execute(pool).await.unwrap();
+
+        // Three nodes total: one document, one extract, one card.
+        let (total,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM element_tree").fetch_one(pool).await.unwrap();
+        assert_eq!(total, 3);
+
+        // The extract's parent is the document; the card's parent is the extract.
+        let ext_parent: (Option<i64>,) = sqlx::query_as(
+            "SELECT parent_id FROM element_tree WHERE element_kind='extract' AND element_ref_id='e1'",
+        )
+        .fetch_one(pool).await.unwrap();
+        let doc_node: i64 = sqlx::query_as::<_, (i64,)>(
+            "SELECT id FROM element_tree WHERE element_kind='document' AND element_ref_id='d1'",
+        )
+        .fetch_one(pool).await.unwrap().0;
+        assert_eq!(ext_parent.0, Some(doc_node));
+
+        let card_parent: (Option<i64>,) = sqlx::query_as(
+            "SELECT parent_id FROM element_tree WHERE element_kind='learning_item' AND element_ref_id='c1'",
+        )
+        .fetch_one(pool).await.unwrap();
+        let ext_node: i64 = sqlx::query_as::<_, (i64,)>(
+            "SELECT id FROM element_tree WHERE element_kind='extract' AND element_ref_id='e1'",
+        )
+        .fetch_one(pool).await.unwrap().0;
+        assert_eq!(card_parent.0, Some(ext_node));
+
+        // The document's first child is the extract (its only Topic child).
+        let doc_first: (Option<i64>,) =
+            sqlx::query_as("SELECT first_child_id FROM element_tree WHERE id = ?1")
+                .bind(doc_node)
+                .fetch_one(pool).await.unwrap();
+        assert_eq!(doc_first.0, Some(ext_node));
+
+        // Idempotency: re-running the backfill inserts nothing new.
+        sqlx::query("INSERT INTO element_tree (element_kind, element_ref_id, parent_id, first_child_id, next_sibling_id, prev_sibling_id, element_type, concept_link_id, inter_element_link_id, descendant_count_a, descendant_count_b, sort_order, created_at) SELECT 'document', d.id, NULL, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, 0, d.date_added FROM documents d WHERE NOT EXISTS (SELECT 1 FROM element_tree e WHERE e.element_kind = 'document' AND e.element_ref_id = d.id)").execute(pool).await.unwrap();
+        let (still,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM element_tree").fetch_one(pool).await.unwrap();
+        assert_eq!(still, 3);
+
+        // Use `now` to avoid an unused-variable warning if the compiler
+        // complains (the RFC3339 timestamps above are inlined).
+        let _ = now;
     }
 }

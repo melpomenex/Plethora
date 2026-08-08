@@ -2362,6 +2362,9 @@ mod tests {
             algorithm_state: None, // no persisted SM-20 state → fallback branch
             updated_at: None,
             first_reviewed_at: None,
+            priority_slider: 50,
+            priority_score: 0.0,
+            priority_explicitly_set: false,
         };
 
         // D=0.0 must be coerced away from the degenerate edge bucket.

@@ -110,20 +110,20 @@ pub async fn bulk_set_document_priority(
 ) -> Result<BulkOperationResult> {
     let slider_value = slider.clamp(0, 100);
     let rating_value = rating_from_slider(slider_value);
-    let score = calculate_document_priority_score(
-        if rating_value > 0 {
-            Some(rating_value)
-        } else {
-            None
-        },
+    // One insertion of N elements at the same rank: the keys are spread across
+    // the gap so the batch stays a total order rather than an N-way tie.
+    let scores = crate::database::priority_rank::keys_for_slider(
+        repo.db_pool(),
         slider_value,
-    );
+        document_ids.len(),
+    )
+    .await?;
 
     let mut succeeded = Vec::new();
     let mut failed = Vec::new();
     let mut errors = Vec::new();
 
-    for document_id in &document_ids {
+    for (document_id, score) in document_ids.iter().zip(scores) {
         match repo
             .update_document_priority(document_id, rating_value, slider_value, score)
             .await

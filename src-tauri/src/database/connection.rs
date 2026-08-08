@@ -190,6 +190,11 @@ impl Database {
             .busy_timeout(Duration::from_secs(30))
             // Enable foreign keys
             .pragma("foreign_keys", "ON")
+            // Rows removed by an ON DELETE CASCADE only fire their table's
+            // triggers when this is ON. Migration 081's count triggers depend
+            // on it: deleting an extract cascades its learning_items, and
+            // documents.learning_item_count must follow them down.
+            .pragma("recursive_triggers", "ON")
             // WAL mode for better concurrency (set per-connection so every pool
             // connection inherits it, rather than a one-shot PRAGMA on the first)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)

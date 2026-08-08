@@ -682,16 +682,17 @@ pub(crate) async fn bulk_update_item_priorities_inner(
 
     let slider_value = slider.clamp(0, 100);
     let rating_value = crate::algorithms::rating_from_slider(slider_value);
-    let score = crate::algorithms::calculate_document_priority_score(
-        if rating_value > 0 { Some(rating_value) } else { None },
-        slider_value,
-    );
+    // Rank-derived order keys, spread across the gap at the requested rank so
+    // the batch stays a total order (see database::priority_rank).
+    let scores =
+        crate::database::priority_rank::keys_for_slider(repo.pool(), slider_value, item_ids.len())
+            .await?;
 
     let resolved = resolve_queue_entities(repo, &item_ids).await?;
     let now = Utc::now();
     let mut tx = repo.pool().begin().await?;
 
-    for item_id in &item_ids {
+    for (item_id, score) in item_ids.iter().zip(scores) {
         match resolved.get(item_id) {
             Some(QueueEntityKind::Document) => {
                 sqlx::query(

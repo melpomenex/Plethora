@@ -2343,6 +2343,295 @@ pub const MIGRATIONS: &[Migration] = &[
           );
         "#,
     ),
+    // Migration 078: SuperMemo knowledge-tree overlay (supermemo-faithful-queue
+    // Phase 2). A thin `element_tree` table references the existing documents /
+    // extracts / learning_items tables via (element_kind, element_ref_id) and
+    // carries the tree topology columns the priority and neural queues
+    // traverse (parent/child/sibling, element type, concept and inter-element
+    // links, cached descendant counts). It is purely additive: the three
+    // concrete tables are untouched and every existing query keeps working.
+    //
+    // The backfill reconstructs the tree from existing foreign keys: documents
+    // become root Topic nodes, extracts become Topic children of their
+    // document, and learning_items become Item children of their extract (or
+    // their document when no extract is set). Sibling order within a parent is
+    // by created_at, mirroring how the IR flow appends children over time.
+    Migration::new(
+        "078_add_element_tree_overlay",
+        r#"
+        CREATE TABLE IF NOT EXISTS element_tree (
+            id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+            element_kind             TEXT    NOT NULL CHECK(element_kind IN ('document','extract','learning_item')),
+            element_ref_id           TEXT    NOT NULL,
+            parent_id                INTEGER REFERENCES element_tree(id) ON DELETE CASCADE,
+            first_child_id           INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
+            next_sibling_id          INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
+            prev_sibling_id          INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
+            element_type             INTEGER NOT NULL, -- 0=Topic, 1=Item, 4=Concept (SM taxonomy)
+            concept_link_id          INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
+            inter_element_link_id    INTEGER REFERENCES element_tree(id) ON DELETE SET NULL,
+            descendant_count_a       INTEGER NOT NULL DEFAULT 0, -- cached, threshold 300
+            descendant_count_b       INTEGER NOT NULL DEFAULT 0, -- cached, threshold 400
+            sort_order               INTEGER NOT NULL DEFAULT 0,
+            created_at               TEXT    NOT NULL,
+            UNIQUE (element_kind, element_ref_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_element_tree_parent     ON element_tree(parent_id);
+        CREATE INDEX IF NOT EXISTS idx_element_tree_ref        ON element_tree(element_kind, element_ref_id);
+        CREATE INDEX IF NOT EXISTS idx_element_tree_first_child ON element_tree(first_child_id);
+        CREATE INDEX IF NOT EXISTS idx_element_tree_next_sibling ON element_tree(next_sibling_id);
+        CREATE INDEX IF NOT EXISTS idx_element_tree_prev_sibling ON element_tree(prev_sibling_id);
+
+        -- Backfill: documents become root Topic nodes. The element_ref_id is
+        -- the document id; parent is null (a root). created_at preserves the
+        -- documents' insertion order so sibling sequencing is stable.
+        INSERT INTO element_tree (
+            element_kind, element_ref_id, parent_id, first_child_id,
+            next_sibling_id, prev_sibling_id, element_type, concept_link_id,
+            inter_element_link_id, descendant_count_a, descendant_count_b,
+            sort_order, created_at
+        )
+        SELECT
+            'document', d.id, NULL, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, 0,
+            d.date_added
+        FROM documents d
+        WHERE NOT EXISTS (
+            SELECT 1 FROM element_tree e
+            WHERE e.element_kind = 'document' AND e.element_ref_id = d.id
+        );
+
+        -- Backfill: extracts become Topic children of their document's node.
+        -- Appended as the last sibling of the document (next/prev wiring set
+        -- below). Sibling order is by date_created within the document.
+        INSERT INTO element_tree (
+            element_kind, element_ref_id, parent_id, first_child_id,
+            next_sibling_id, prev_sibling_id, element_type, concept_link_id,
+            inter_element_link_id, descendant_count_a, descendant_count_b,
+            sort_order, created_at
+        )
+        SELECT
+            'extract', x.id, ed.id, NULL, NULL, NULL, 0, NULL, NULL, 0, 0,
+            ROW_NUMBER() OVER (PARTITION BY x.document_id ORDER BY x.date_created),
+            x.date_created
+        FROM extracts x
+        JOIN element_tree ed
+          ON ed.element_kind = 'document' AND ed.element_ref_id = x.document_id
+        WHERE NOT EXISTS (
+            SELECT 1 FROM element_tree e
+            WHERE e.element_kind = 'extract' AND e.element_ref_id = x.id
+        );
+
+        -- Backfill: learning_items become Item children of their extract's node
+        -- when extract_id is set, else their document's node. Sibling order by
+        -- date_created within the chosen parent.
+        INSERT INTO element_tree (
+            element_kind, element_ref_id, parent_id, first_child_id,
+            next_sibling_id, prev_sibling_id, element_type, concept_link_id,
+            inter_element_link_id, descendant_count_a, descendant_count_b,
+            sort_order, created_at
+        )
+        SELECT
+            'learning_item', li.id,
+            COALESCE(ex.id, ed.id),
+            NULL, NULL, NULL, 1, NULL, NULL, 0, 0,
+            ROW_NUMBER() OVER (
+                PARTITION BY COALESCE(li.extract_id, li.document_id)
+                ORDER BY li.date_created
+            ),
+            li.date_created
+        FROM learning_items li
+        LEFT JOIN element_tree ex
+          ON ex.element_kind = 'extract' AND ex.element_ref_id = li.extract_id
+        LEFT JOIN element_tree ed
+          ON ed.element_kind = 'document' AND ed.element_ref_id = li.document_id
+        WHERE NOT EXISTS (
+            SELECT 1 FROM element_tree e
+            WHERE e.element_kind = 'learning_item' AND e.element_ref_id = li.id
+        );
+
+        -- Stitch the sibling chains and parent child pointers the
+        -- `register_node` append-as-last-child logic would have produced. For
+        -- each parent, order children by sort_order (created_at proxy) and wire
+        -- prev/next, then point the parent's first_child_id at the earliest.
+        -- First, set first_child_id for every parent to its earliest child.
+        UPDATE element_tree
+        SET first_child_id = (
+            SELECT e2.id FROM element_tree e2
+            WHERE e2.parent_id = element_tree.id
+            ORDER BY e2.sort_order, e2.created_at, e2.id
+            LIMIT 1
+        )
+        WHERE EXISTS (SELECT 1 FROM element_tree c WHERE c.parent_id = element_tree.id);
+
+        -- next_sibling_id = the child immediately after this one (by sort_order).
+        UPDATE element_tree
+        SET next_sibling_id = (
+            SELECT n.id FROM element_tree n
+            WHERE n.parent_id = element_tree.parent_id
+              AND (n.sort_order, n.created_at, n.id) > (element_tree.sort_order, element_tree.created_at, element_tree.id)
+            ORDER BY n.sort_order, n.created_at, n.id
+            LIMIT 1
+        )
+        WHERE parent_id IS NOT NULL;
+
+        -- prev_sibling_id = the child immediately before this one.
+        UPDATE element_tree
+        SET prev_sibling_id = (
+            SELECT p.id FROM element_tree p
+            WHERE p.parent_id = element_tree.parent_id
+              AND (p.sort_order, p.created_at, p.id) < (element_tree.sort_order, element_tree.created_at, element_tree.id)
+            ORDER BY p.sort_order DESC, p.created_at DESC, p.id DESC
+            LIMIT 1
+        )
+        WHERE parent_id IS NOT NULL;
+        "#,
+    ),
+    // Migration 079: priority-queue completion for learning items
+    // (supermemo-faithful-queue Phase 3). Cards historically had no user-set
+    // priority — their queue `priority` was derived from FSRS urgency at read
+    // time, which is scheduling urgency, not importance. SuperMemo's priority
+    // queue treats topics and items uniformly, so learning_items gain the same
+    // `priority_slider` (0-100, default 50 = neutral) and `priority_score`
+    // columns documents already have. The slider is the user-set importance
+    // rank; FSRS urgency continues to drive *when* the card is scheduled, not
+    // its importance. Default 50 (not 0) matches `resolve_priority_slider`'s
+    // neutral-midpoint behavior for un-prioritized items.
+    Migration::new(
+        "079_add_learning_item_priority_columns",
+        r#"
+        ALTER TABLE learning_items ADD COLUMN priority_slider INTEGER NOT NULL DEFAULT 50;
+        ALTER TABLE learning_items ADD COLUMN priority_score REAL NOT NULL DEFAULT 0.0;
+        ALTER TABLE learning_items ADD COLUMN priority_explicitly_set INTEGER NOT NULL DEFAULT 0;
+        "#,
+    ),
+    // Migration 080: neural-queue storage (supermemo-faithful-queue Phase 4).
+    // A distinct table from the priority queue: it holds the spreading-
+    // activation-built review sequence for the optional "Go neural" creative
+    // mode. `element_id` references `element_tree.id` (Phase 2's overlay);
+    // `position` is the 1-based presentation order; `priority_value` is the
+    // combined activation the algorithm computed (lower = earlier); `consumed`
+    // marks elements already studied so depletion can trigger a refill.
+    Migration::new(
+        "080_add_neural_queue_table",
+        r#"
+        CREATE TABLE IF NOT EXISTS neural_queue (
+            element_id    INTEGER PRIMARY KEY REFERENCES element_tree(id) ON DELETE CASCADE,
+            position      INTEGER NOT NULL,
+            priority_value REAL NOT NULL,
+            consumed      INTEGER NOT NULL DEFAULT 0,
+            updated_at    TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_neural_queue_position
+            ON neural_queue(position);
+        CREATE INDEX IF NOT EXISTS idx_neural_queue_consumed
+            ON neural_queue(consumed, position);
+        "#,
+    ),
+    // Migration 081: make documents.extract_count / learning_item_count
+    // self-maintaining.
+    //
+    // Both columns were increment-only: `create_extract` and
+    // `create_learning_item` each did a `+ 1` UPDATE and *nothing* anywhere
+    // decremented them. Deleting an extract or a card left its document
+    // claiming it forever, so the Documents view's "Has extracts" / "Has cards"
+    // signals and the extract/card sorts ran on numbers that only ever grew
+    // (one library had 19 extracts claimed against 6 real rows, with three
+    // documents claiming extracts they no longer had).
+    //
+    // Triggers rather than matching decrements at every delete site: the counts
+    // then cannot drift from *any* path, including FK cascades and bulk
+    // imports, and no future delete can forget to pair itself with an UPDATE.
+    // The manual `+ 1` bumps are removed from the Rust side in the same change
+    // — leaving them would double-count.
+    //
+    // Cascade deletes (extract -> its learning_items) only fire triggers when
+    // `PRAGMA recursive_triggers` is ON; connection.rs sets it.
+    Migration::new(
+        "081_document_count_triggers",
+        r#"
+        -- One-time repair of the drift accumulated before the triggers existed.
+        UPDATE documents SET
+            extract_count = (
+                SELECT COUNT(*) FROM extracts e WHERE e.document_id = documents.id
+            ),
+            learning_item_count = (
+                SELECT COUNT(*) FROM learning_items li WHERE li.document_id = documents.id
+            );
+
+        -- extracts.document_id is NOT NULL, so every row has an owner.
+        CREATE TRIGGER IF NOT EXISTS trg_extracts_count_insert
+        AFTER INSERT ON extracts
+        BEGIN
+            UPDATE documents SET extract_count = extract_count + 1
+            WHERE id = NEW.document_id;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_extracts_count_delete
+        AFTER DELETE ON extracts
+        BEGIN
+            UPDATE documents SET extract_count = MAX(extract_count - 1, 0)
+            WHERE id = OLD.document_id;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_extracts_count_move
+        AFTER UPDATE OF document_id ON extracts
+        WHEN OLD.document_id IS NOT NEW.document_id
+        BEGIN
+            UPDATE documents SET extract_count = MAX(extract_count - 1, 0)
+            WHERE id = OLD.document_id;
+            UPDATE documents SET extract_count = extract_count + 1
+            WHERE id = NEW.document_id;
+        END;
+
+        -- learning_items.document_id is nullable (Anki/NotebookLM/extension
+        -- cards have no source document); `WHERE id = NULL` matches no row, so
+        -- the unowned case needs no guard.
+        CREATE TRIGGER IF NOT EXISTS trg_learning_items_count_insert
+        AFTER INSERT ON learning_items
+        BEGIN
+            UPDATE documents SET learning_item_count = learning_item_count + 1
+            WHERE id = NEW.document_id;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_learning_items_count_delete
+        AFTER DELETE ON learning_items
+        BEGIN
+            UPDATE documents SET learning_item_count = MAX(learning_item_count - 1, 0)
+            WHERE id = OLD.document_id;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_learning_items_count_move
+        AFTER UPDATE OF document_id ON learning_items
+        WHEN OLD.document_id IS NOT NEW.document_id
+        BEGIN
+            UPDATE documents SET learning_item_count = MAX(learning_item_count - 1, 0)
+            WHERE id = OLD.document_id;
+            UPDATE documents SET learning_item_count = learning_item_count + 1
+            WHERE id = NEW.document_id;
+        END;
+        "#,
+    ),
+    // Migration 082: index the priority-queue order key.
+    //
+    // `priority_score` stopped being a standalone importance value and became
+    // a position in one global priority queue (SuperMemo's model — see
+    // `database::priority_rank`). Every priority edit and every priority
+    // readout now runs `ORDER BY priority_score` / `COUNT(*) WHERE
+    // priority_score < ?` across all three element tables, which is a full
+    // scan per table without these.
+    Migration::new(
+        "082_index_priority_score",
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_documents_priority_score
+            ON documents(priority_score);
+        CREATE INDEX IF NOT EXISTS idx_extracts_priority_score
+            ON extracts(priority_score);
+        CREATE INDEX IF NOT EXISTS idx_learning_items_priority_score
+            ON learning_items(priority_score);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

@@ -47,6 +47,7 @@ import {
   getStatusLabel,
   getTimeEstimateRange,
   orderQueueItems,
+  splitPriorityTargets,
   type SessionCustomizationOptions,
   type SessionItemTypes,
 } from "../../utils/reviewUx";
@@ -913,21 +914,20 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
               ? [selectedItem]
               : [];
         if (targetItems.length === 0) return;
-        const seenDocIds = new Set<string>();
-        const docs = targetItems
-          .filter((item) => {
-            if (seenDocIds.has(item.documentId)) return false;
-            seenDocIds.add(item.documentId);
-            return true;
-          })
-          .map((item) => ({
-            id: item.documentId,
-            prioritySlider: item.prioritySlider,
-            priorityRating: item.priorityRating,
-          }));
-        void priorityPopup.open(docs.map((d) => d.id), docs).then(({ committed }) => {
-          if (committed) void refreshQueue();
+        const { documentIds, learningItemIds } = splitPriorityTargets(targetItems);
+        const docs = documentIds.map((id) => {
+          const item = targetItems.find((candidate) => candidate.documentId === id);
+          return {
+            id,
+            prioritySlider: item?.prioritySlider,
+            priorityRating: item?.priorityRating,
+          };
         });
+        void priorityPopup
+          .open(documentIds, docs, { learningItemIds })
+          .then(({ committed }) => {
+            if (committed) void refreshQueue();
+          });
         return;
       }
       if (event.key.toLowerCase() === "i") {
