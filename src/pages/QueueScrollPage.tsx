@@ -677,7 +677,7 @@ export function QueueScrollPage() {
   useEffect(() => {
     const handleMouseOver = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target && target.tagName === "IMG") {
+      if (target && target.tagName === "IMG" && rssContentRef.current?.contains(target)) {
         const img = target as HTMLImageElement;
         const rect = img.getBoundingClientRect();
         window.dispatchEvent(
@@ -698,7 +698,7 @@ export function QueueScrollPage() {
 
     const handleMouseOut = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target && target.tagName === "IMG") {
+      if (target && target.tagName === "IMG" && rssContentRef.current?.contains(target)) {
         window.dispatchEvent(new CustomEvent("image-leave"));
       }
     };
@@ -1189,8 +1189,12 @@ export function QueueScrollPage() {
             }
 
             // Default: document
+            // Skip documents already rated/dismissed this session — without
+            // this, the rebuild re-inserts them (customQueueItems is static),
+            // so Dismiss looked like it advanced and then reloaded the item.
+            if (item.documentId && ratedDocumentIds.has(item.documentId)) return null;
             const doc = documentsMap.get(item.documentId);
-            if (doc?.isArchived) return null;
+            if (doc?.isArchived || doc?.isDismissed) return null;
             return {
               id: item.id,
               type: "document" as const,
@@ -1507,7 +1511,7 @@ export function QueueScrollPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, customSubset]);
+  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedDocumentIds, customSubset]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];
@@ -2540,10 +2544,18 @@ export function QueueScrollPage() {
         }
       }
 
-      // For EPUB, PDF, audio documents, and extract review items, don't auto-advance on scroll
-      // User must explicitly rate or use keyboard navigation to move to next item
-      if (isScrollableDocument || currentItem?.type === "podcast" || currentItem?.type === "extract") {
-        return; // Let the document/player/extract scroll normally, no auto-advance
+      // For EPUB, PDF, audio documents, and extract/flashcard review items,
+      // don't auto-advance on scroll — the user must rate, dismiss, or use
+      // keyboard/navigation buttons to move on. Without this, residual wheel
+      // momentum (e.g. trackpad inertia from the prior document) flashes the
+      // card and immediately advances past it.
+      if (
+        isScrollableDocument ||
+        currentItem?.type === "podcast" ||
+        currentItem?.type === "extract" ||
+        currentItem?.type === "flashcard"
+      ) {
+        return; // Let the document/player/card scroll normally, no auto-advance
       }
 
       // Find the scrollable content element
@@ -2799,6 +2811,18 @@ export function QueueScrollPage() {
     const handleBridge = (e: Event) => {
       const detail = (e as CustomEvent<{ direction: "next" | "prev" }>).detail;
       if (!detail) return;
+      // Flashcards and extracts require an explicit rating/dismissal — they
+      // must not be skipped by a bridged swipe from the EPUB viewer (or any
+      // other dispatcher). A residual/queued swipe event arriving right after
+      // advancing onto a card would otherwise flash the card and advance past
+      // it before the user can answer. This matches the wheel and touch
+      // handlers' guards for these types.
+      if (
+        currentItem?.type === "flashcard" ||
+        currentItem?.type === "extract"
+      ) {
+        return;
+      }
       if (detail.direction === "next") goToNext();
       else goToPrevious();
     };
@@ -2818,7 +2842,7 @@ export function QueueScrollPage() {
       window.removeEventListener("incrementum-queue-long-press", handleLongPressBridge);
       window.removeEventListener("incrementum-queue-hide-controls", handleHideControlsBridge);
     };
-  }, [goToNext, goToPrevious]);
+  }, [goToNext, goToPrevious, currentItem]);
 
   // Auto-hide controls after 3 seconds of idle (both mobile/touch and desktop).
   //
@@ -3020,6 +3044,12 @@ export function QueueScrollPage() {
 
         // Call API to dismiss document
         await dismissDocument(currentItem.documentId, true);
+
+        // Patch the local documents store so `documentsMap` reflects
+        // isDismissed=true immediately. Without this, a scroll-session rebuild
+        // (e.g. from a concurrent queue load) re-filters the stale document as
+        // still active and resurrects the just-dismissed item.
+        updateDocument(currentItem.documentId, { isDismissed: true });
 
         // Track dismissed document
         setRatedDocumentIds((prev) => {
