@@ -22,6 +22,7 @@ import {
   Target,
   Trash,
   Warning,
+  X,
 } from "@phosphor-icons/react";
 import { DynamicVirtualList } from "../common/VirtualList";
 import { useQueueStore } from "../../stores/queueStore";
@@ -278,7 +279,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
 
   // Session stats for smart queue
   const [sessionStats, setSessionStats] = useState(() => getSessionStats());
-  
+  // Badge stays dismissed until more items are viewed
+  const [sessionBadgeDismissedAt, setSessionBadgeDismissedAt] = useState<number | null>(null);
+
   const handleClearSession = () => {
     clearQueueSession();
     setSessionStats(getSessionStats());
@@ -1246,7 +1249,8 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           )}
 
           {/* Session Status - Shows if smart filtering is active */}
-          {sessionStats.totalViewed > 0 && queueMode === "reading" && queueFilterMode === "due-today" && (
+          {sessionStats.totalViewed > 0 && queueMode === "reading" && queueFilterMode === "due-today" &&
+            sessionStats.totalViewed !== sessionBadgeDismissedAt && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md">
               <span className="text-xs text-amber-700">
                 {t("queue.viewedThisSession", { count: sessionStats.totalViewed })}
@@ -1258,6 +1262,14 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                 title={t("queue.clearSession")}
               >
                 <ArrowCounterClockwise className="w-3 h-3 text-amber-700" />
+              </button>
+              <button
+                onClick={() => setSessionBadgeDismissedAt(sessionStats.totalViewed)}
+                className="p-1 hover:bg-amber-500/20 rounded transition-colors"
+                title={t("common.dismiss")}
+                aria-label={t("common.dismiss")}
+              >
+                <X className="w-3 h-3 text-amber-700" />
               </button>
             </div>
           )}
