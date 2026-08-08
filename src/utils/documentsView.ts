@@ -70,8 +70,19 @@ export function parseDocumentSearch(query: string): DocumentSearchTokens {
   return tokens;
 }
 
-export function matchesDocumentSearch(doc: Document, tokens: DocumentSearchTokens): boolean {
-  if (!tokens.text && tokens.tags.length === 0 && tokens.sources.length === 0 && !tokens.queue && !tokens.extracts) {
+/**
+ * Whether every `tag:` token is satisfied by `tags` (AND across tokens).
+ *
+ * A token matches any tag that *contains* it, so `tag:occlusion` finds
+ * `image-occlusion` — searching for a tag you half-remember is the common case,
+ * and an exact-match-only filter silently returns nothing instead of a hint.
+ * Both `tags` and `tokens` are expected lowercased by the caller.
+ */
+function matchesTagTokens(tags: string[], tokens: string[]): boolean {
+  return tokens.every((token) => tags.some((tag) => tag.includes(token)));
+}
+
+export function matchesDocumentSearch(doc: Document, tokens: DocumentSearchTokens): boolean {  if (!tokens.text && tokens.tags.length === 0 && tokens.sources.length === 0 && !tokens.queue && !tokens.extracts) {
     return true;
   }
 
@@ -89,7 +100,7 @@ export function matchesDocumentSearch(doc: Document, tokens: DocumentSearchToken
 
   if (tokens.tags.length > 0) {
     const required = tokens.tags.map((tag) => tag.toLowerCase());
-    if (!required.every((tag) => tags.includes(tag))) {
+    if (!matchesTagTokens(tags, required)) {
       return false;
     }
   }
@@ -112,6 +123,66 @@ export function matchesDocumentSearch(doc: Document, tokens: DocumentSearchToken
     if (tokens.extracts.op === "<" && !(count < tokens.extracts.value)) return false;
     if (tokens.extracts.op === ">" && !(count > tokens.extracts.value)) return false;
     if (tokens.extracts.op === "=" && !(count === tokens.extracts.value)) return false;
+  }
+
+  return true;
+}
+
+/** Fields of a learning item relevant to the Documents view card search. */
+export interface CardSearchItem {
+  question: string;
+  answer?: string | null;
+  cloze_text?: string | null;
+  tags?: string[] | null;
+}
+
+/**
+ * Whether a learning item matches the parsed document search tokens, for the
+ * "Cards" result group in the Documents view.
+ *
+ * - `tokens.text` matches case-insensitively against the question, answer,
+ *   cloze text, or any tag.
+ * - Every `tokens.tags` entry must match a tag (AND; substring per token, so
+ *   `tag:occlusion` matches `image-occlusion`).
+ * - Document-only tokens (`source:`, `queue:`, `extracts`) suppress card
+ *   results entirely, so a document-only query does not surface an unrelated
+ *   card list.
+ */
+export function matchesCardSearch(item: CardSearchItem, tokens: DocumentSearchTokens): boolean {
+  // Document-only tokens have no meaning for a card: exclude all cards rather
+  // than silently ignoring them.
+  if (tokens.sources.length > 0 || tokens.queue || tokens.extracts) {
+    return false;
+  }
+
+  // An empty query is handled by the caller (no Cards group); but if invoked,
+  // treat it as a non-match so a blank search never lists every card.
+  if (!tokens.text && tokens.tags.length === 0) {
+    return false;
+  }
+
+  const tags = (item.tags ?? []).map((tag) => tag.toLowerCase());
+
+  if (tokens.tags.length > 0) {
+    const required = tokens.tags.map((tag) => tag.toLowerCase());
+    if (!matchesTagTokens(tags, required)) {
+      return false;
+    }
+  }
+
+  if (tokens.text) {
+    const text = tokens.text.toLowerCase();
+    const haystack = [
+      item.question ?? "",
+      item.answer ?? "",
+      item.cloze_text ?? "",
+      ...tags,
+    ]
+      .join(" ")
+      .toLowerCase();
+    if (!haystack.includes(text)) {
+      return false;
+    }
   }
 
   return true;

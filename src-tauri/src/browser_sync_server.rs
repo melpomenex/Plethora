@@ -888,6 +888,17 @@ async fn resolve_browser_import_collection_id(repo: &Repository) -> String {
     crate::models::collection::DEFAULT_COLLECTION_ID.to_string()
 }
 
+/// Tags attached to every learning item created through the browser-extension
+/// server, so extension imports stay findable regardless of where they end up.
+///
+/// Every card-creating route MUST obtain its tags from here rather than an
+/// inline literal, so a future route cannot quietly ship untagged cards.
+/// `kind` is the route-specific provenance tag (`image-occlusion`,
+/// `ai-generated`, ...).
+fn browser_import_tags(kind: &str) -> Vec<String> {
+    vec!["browser-extension".to_string(), kind.to_string()]
+}
+
 fn select_extension_document_text(payload: &ExtensionRequest) -> String {
     if !payload.text.trim().is_empty() {
         payload.text.trim().to_string()
@@ -1954,10 +1965,7 @@ async fn handle_image_occlusion_request(
     item.collection_id = resolve_browser_import_collection_id(&state.repo).await;
     item.answer = Some(payload.answer.trim().to_string());
     item.image_asset_ids = vec![asset.id.clone()];
-    item.tags = vec![
-        "browser-extension".to_string(),
-        "image-occlusion".to_string(),
-    ];
+    item.tags = browser_import_tags("image-occlusion");
     item.interaction_metadata = Some(json!({
         "interactionType": "image-occlusion",
         "imageOcclusionAssetId": asset.id,
@@ -2395,8 +2403,7 @@ async fn handle_ai_request(
                             if item_type == ItemType::Cloze {
                                 item.cloze_text = Some(card.question.clone());
                             }
-                            item.tags =
-                                vec!["browser-extension".to_string(), "ai-generated".to_string()];
+                            item.tags = browser_import_tags("ai-generated");
                             match state.repo.create_learning_item(&item).await {
                                 Ok(saved) => card.saved_id = Some(saved.id),
                                 Err(error) => {

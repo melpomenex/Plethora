@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import type { Document } from "../../types/document";
-import { parseDocumentSearch, matchesDocumentSearch, sortDocuments } from "../documentsView";
+import {
+  parseDocumentSearch,
+  matchesDocumentSearch,
+  matchesCardSearch,
+  sortDocuments,
+} from "../documentsView";
 
 const baseDoc = (overrides: Partial<Document>): Document => ({
   id: "1",
@@ -43,6 +48,12 @@ describe("matchesDocumentSearch", () => {
     expect(matchesDocumentSearch(doc, tokens)).toBe(true);
   });
 
+  it("matches a tag: token against part of a tag", () => {
+    const doc = baseDoc({ tags: ["World History"] });
+    expect(matchesDocumentSearch(doc, parseDocumentSearch("tag:histo"))).toBe(true);
+    expect(matchesDocumentSearch(doc, parseDocumentSearch("tag:geo"))).toBe(false);
+  });
+
   it("filters by source type", () => {
     const doc = baseDoc({ fileType: "epub" });
     const tokens = parseDocumentSearch("source:pdf");
@@ -67,5 +78,69 @@ describe("sortDocuments", () => {
     ];
     const sorted = sortDocuments(docs, "type", "asc");
     expect(sorted.map((doc) => doc.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("matchesCardSearch", () => {
+  const card = {
+    question: "What is the powerhouse of the cell?",
+    answer: "Mitochondria",
+    cloze_text: undefined as string | undefined,
+    tags: ["biology", "browser-extension"],
+  };
+
+  it("matches free text in the question", () => {
+    expect(matchesCardSearch(card, parseDocumentSearch("powerhouse"))).toBe(true);
+  });
+
+  it("matches free text in the answer", () => {
+    expect(matchesCardSearch(card, parseDocumentSearch("mitochondria"))).toBe(true);
+  });
+
+  it("matches free text in the cloze text", () => {
+    const clozeCard = { question: "q", cloze_text: "The {{c1::heart}} pumps blood", tags: [] };
+    expect(matchesCardSearch(clozeCard, parseDocumentSearch("heart"))).toBe(true);
+  });
+
+  it("matches free text in a tag", () => {
+    expect(matchesCardSearch(card, parseDocumentSearch("biology"))).toBe(true);
+  });
+
+  it("does not match when the free text is absent everywhere", () => {
+    expect(matchesCardSearch(card, parseDocumentSearch("nonexistentterm"))).toBe(false);
+  });
+
+  it("filters by tag: token", () => {
+    expect(matchesCardSearch(card, parseDocumentSearch("tag:browser-extension"))).toBe(true);
+    expect(matchesCardSearch(card, parseDocumentSearch("tag:chemistry"))).toBe(false);
+  });
+
+  it("matches a tag: token against part of a tag", () => {
+    const occluded = { question: "q", tags: ["browser-extension", "image-occlusion"] };
+    expect(matchesCardSearch(occluded, parseDocumentSearch("tag:occlusion"))).toBe(true);
+    expect(matchesCardSearch(occluded, parseDocumentSearch("tag:extension"))).toBe(true);
+    expect(matchesCardSearch(occluded, parseDocumentSearch("tag:occlusive"))).toBe(false);
+  });
+
+  it("combines tag: filter with free text (AND)", () => {
+    expect(
+      matchesCardSearch(card, parseDocumentSearch("tag:browser-extension mitochondria")),
+    ).toBe(true);
+    expect(
+      matchesCardSearch(card, parseDocumentSearch("tag:browser-extension nomatchtext")),
+    ).toBe(false);
+    expect(
+      matchesCardSearch(card, parseDocumentSearch("tag:chemistry mitochondria")),
+    ).toBe(false);
+  });
+
+  it("suppresses card results when a document-only token is present", () => {
+    expect(matchesCardSearch(card, parseDocumentSearch("source:pdf"))).toBe(false);
+    expect(matchesCardSearch(card, parseDocumentSearch("queue:in"))).toBe(false);
+    expect(matchesCardSearch(card, parseDocumentSearch("extracts=0"))).toBe(false);
+  });
+
+  it("returns false for an empty query", () => {
+    expect(matchesCardSearch(card, parseDocumentSearch(""))).toBe(false);
   });
 });

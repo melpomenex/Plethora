@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { computeDeckStats, matchesDeck } from "../studyDecks";
+import {
+  computeDeckStats,
+  matchesDeck,
+  swapDeckTags,
+  shouldEnsureBrowserExtensionDeck,
+} from "../studyDecks";
 import type { StudyDeck } from "../../types/study-decks";
 
 describe("matchesDeck", () => {
@@ -223,5 +228,128 @@ describe("computeDeckStats", () => {
     const forModal = computeDeckStats([deck], items);
 
     expect(forModal).toEqual(forDeckList);
+  });
+});
+
+describe("swapDeckTags", () => {
+  const browserDeck: StudyDeck = {
+    id: "browser",
+    name: "Browser Extension",
+    tagFilters: ["browser-extension"],
+    filterType: "tags",
+  };
+  const anatomyDeck: StudyDeck = {
+    id: "anatomy",
+    name: "Anatomy",
+    tagFilters: ["anatomy"],
+    filterType: "tags",
+  };
+  const physiologyDeck: StudyDeck = {
+    id: "physiology",
+    name: "Physiology",
+    tagFilters: ["physiology"],
+    filterType: "tags",
+  };
+
+  it("preserves provenance tags when moving an extension card to a user deck", () => {
+    const tags = ["browser-extension", "image-occlusion"];
+    const next = swapDeckTags(tags, [browserDeck, anatomyDeck], anatomyDeck);
+
+    // Spec: "carries anatomy, browser-extension, and image-occlusion" — and
+    // nothing else, since those were the only input tags.
+    expect(next).toHaveLength(3);
+    expect(next).toEqual(expect.arrayContaining(["anatomy", "browser-extension", "image-occlusion"]));
+  });
+
+  it("preserves unrelated user tags that are not any deck's filter", () => {
+    const tags = ["anatomy", "exam-2027"];
+    const next = swapDeckTags(tags, [anatomyDeck, physiologyDeck], physiologyDeck);
+
+    expect(next).toContain("exam-2027");
+    expect(next).toContain("physiology");
+    expect(next).not.toContain("anatomy");
+  });
+
+  it("removes the previous deck's tag when moving between two tag decks", () => {
+    const tags = ["anatomy"];
+    const next = swapDeckTags(tags, [anatomyDeck, physiologyDeck], physiologyDeck);
+
+    expect(next).toContain("physiology");
+    expect(next).not.toContain("anatomy");
+  });
+
+  it("keeps all tags when the card matches no deck", () => {
+    const tags = ["loner", "browser-extension"];
+    const next = swapDeckTags(tags, [anatomyDeck, physiologyDeck], anatomyDeck);
+
+    // target deck's filter is added, non-matching tags survive
+    expect(next).toEqual(
+      expect.arrayContaining(["loner", "browser-extension", "anatomy"]),
+    );
+  });
+
+  it("is idempotent when the card is already in the target deck", () => {
+    const tags = ["anatomy", "browser-extension"];
+    const next = swapDeckTags(tags, [anatomyDeck], anatomyDeck);
+
+    expect(next).toEqual(expect.arrayContaining(["anatomy", "browser-extension"]));
+  });
+
+  it("reuses deck: prefix / hierarchy comparison from matchesDeckTags", () => {
+    const parentDeck: StudyDeck = {
+      id: "biology",
+      name: "Biology",
+      tagFilters: ["Biology"],
+      filterType: "tags",
+    };
+    // Card sits under the Biology hierarchy; moving out must strip it too.
+    const tags = ["deck:Biology::Genetics", "image-occlusion"];
+    const next = swapDeckTags(tags, [parentDeck, anatomyDeck], anatomyDeck);
+
+    expect(next).not.toContain("deck:Biology::Genetics");
+    expect(next).toContain("image-occlusion");
+    expect(next).toContain("anatomy");
+  });
+});
+
+describe("shouldEnsureBrowserExtensionDeck", () => {
+  const extensionCard = { tags: ["browser-extension", "image-occlusion"] };
+  const plainCard = { tags: ["biology"] };
+
+  it("returns true when an extension card exists and no deck filters on the tag", () => {
+    expect(shouldEnsureBrowserExtensionDeck([extensionCard], [])).toBe(true);
+    expect(
+      shouldEnsureBrowserExtensionDeck(
+        [extensionCard],
+        [{ tagFilters: ["biology"] }],
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false when no card carries the tag", () => {
+    expect(shouldEnsureBrowserExtensionDeck([plainCard], [])).toBe(false);
+    expect(shouldEnsureBrowserExtensionDeck([], [])).toBe(false);
+  });
+
+  it("returns false when a deck already filters on browser-extension (idempotent)", () => {
+    expect(
+      shouldEnsureBrowserExtensionDeck(
+        [extensionCard],
+        [{ tagFilters: ["browser-extension"] }],
+      ),
+    ).toBe(false);
+  });
+
+  it("does not recreate a renamed deck that still filters on the tag", () => {
+    // User renamed "Browser Extension" to "Web Clips"; the deck must not be
+    // duplicated because its tag filter still matches.
+    const renamedDeck = { tagFilters: ["browser-extension"] };
+    expect(shouldEnsureBrowserExtensionDeck([extensionCard], [renamedDeck])).toBe(false);
+  });
+
+  it("matches the tag case-insensitively", () => {
+    const card = { tags: ["Browser-Extension"] };
+    const deck = { tagFilters: ["BROWSER-EXTENSION"] };
+    expect(shouldEnsureBrowserExtensionDeck([card], [deck])).toBe(false);
   });
 });

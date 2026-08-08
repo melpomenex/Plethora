@@ -65,6 +65,7 @@ import {
   getProgressSegments,
   getSmartSection,
   matchesDocumentSearch,
+  matchesCardSearch,
   parseDocumentSearch,
   sortDocuments,
 } from "../../utils/documentsView";
@@ -75,6 +76,7 @@ import {
   setDocumentCover,
   updateDocument as updateDocumentApi,
 } from "../../api/documents";
+import { getAllLearningItems, type LearningItem } from "../../api/learning-items";
 import { getYouTubeThumbnail, extractYouTubeTimestamp } from "../../api/youtube";
 import { bulkSuspendItems } from "../../api/queue";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -237,6 +239,10 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   });
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  // Learning items for the "Cards" result group: fetched lazily on the first
+  // non-empty search and cached for the life of the view. null = not yet
+  // fetched; once fetched (even on failure) we hold an array.
+  const [learningItems, setLearningItems] = useState<LearningItem[] | null>(null);
   const [sortKey, setSortKey] = useState<DocumentSortKey>("priority");
   const [sortDirection, setSortDirection] = useState<DocumentSortDirection>("desc");
   const [showNextAction, setShowNextAction] = useState(true);
@@ -375,6 +381,30 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   }, [showYouTubeImport]);
 
   const searchTokens = useMemo(() => parseDocumentSearch(debouncedSearch), [debouncedSearch]);
+
+  // Lazy-load learning items on the first non-empty search so the Documents
+  // view does not pay the fetch cost when the user never searches. Fetch
+  // failures degrade to an empty list so document results still render.
+  useEffect(() => {
+    if (!debouncedSearch.trim()) return;
+    if (learningItems !== null) return;
+    let cancelled = false;
+    getAllLearningItems()
+      .then((items) => {
+        if (!cancelled) setLearningItems(Array.isArray(items) ? items : []);
+      })
+      .catch(() => {
+        if (!cancelled) setLearningItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearch, learningItems]);
+
+  const matchingCards = useMemo(() => {
+    if (!debouncedSearch.trim() || learningItems === null) return [];
+    return learningItems.filter((item) => matchesCardSearch(item, searchTokens));
+  }, [debouncedSearch, learningItems, searchTokens]);
 
   const availableFileTypes = useMemo(() => {
     const types = new Set(documents.map((doc) => doc.fileType));
@@ -790,6 +820,27 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       },
     });
   };
+
+  // Open a learning item in the Deck Manager's card editor, reusing the same
+  // pending-id handoff the assistant / chat card links use.
+  const openCard = useCallback((cardId: string) => {
+    sessionStorage.setItem("incrementum:pending-flashcard-id", cardId);
+    window.dispatchEvent(new CustomEvent("incrementum:open-flashcard", { detail: { cardId } }));
+  }, []);
+
+  // One Cards group shared by every view mode. Defined once so a mode that
+  // renders its own empty state (compact) cannot silently drop card results —
+  // which is exactly how `occlusion` returned "No results found" while two
+  // matching cards existed.
+  const cardResults =
+    matchingCards.length > 0 ? (
+      <CardSearchResults
+        cards={matchingCards}
+        onOpenCard={openCard}
+        onClearSearch={() => setSearchInput("")}
+        documentResultsCount={sortedDocuments.length}
+      />
+    ) : null;
 
   const handleTranscribe = async (doc: Document) => {
     if (!doc.filePath) return;
@@ -1490,6 +1541,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                 onImport={handleImport}
                 onImportFolder={handleImportFolder}
                 onClearFilter={() => setCompactFilter("all")}
+                cardResults={cardResults}
                 onUpdate={updateDocument}
                 onOpenPopup={(doc) => void priorityPopup.open([doc.id], [doc])}
                 onContextMenu={(doc, event) =>
@@ -1498,7 +1550,9 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                 scrollContainerRef={documentsScrollRef}
               />
             ) : sortedDocuments.length === 0 ? (
-              debouncedSearch ? (
+              // The Cards group renders below as a sibling; when it has hits,
+              // "no results" would be a lie, so show nothing here.
+              cardResults ? null : debouncedSearch ? (
                 <EmptySearch query={debouncedSearch} onClear={() => setSearchInput("")} />
               ) : (
                 <EmptyDocuments onImport={handleImport} onImportFolder={handleImportFolder} />
@@ -1705,6 +1759,9 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                 }}
               />
             )}
+
+            {/* Compact mode renders this inside its own content column. */}
+            {!compactDocumentsView && cardResults}
           </div>
 
           {/* List mode context menu (rendered via portal) */}
@@ -2439,6 +2496,13 @@ interface CompactLibraryViewProps {
   onImport: () => void;
   onImportFolder: () => void;
   onClearFilter: () => void;
+  /**
+   * The shared Cards search-results group. Rendered *inside* this view's
+   * content column rather than as a sibling of it: the compact root is
+   * `min-h-full`, so anything after it starts a full viewport below the fold
+   * and reads as missing.
+   */
+  cardResults?: React.ReactNode;
   onUpdate: (id: string, updates: Partial<Document>) => void;
   onOpenPopup?: (doc: Document) => void;
   onContextMenu?: (doc: Document, event: React.MouseEvent) => void;
@@ -2498,6 +2562,7 @@ function CompactLibraryView({
   onImport,
   onImportFolder,
   onClearFilter,
+  cardResults,
   onOpenPopup,
   onContextMenu,
   scrollContainerRef,
@@ -2756,7 +2821,7 @@ function CompactLibraryView({
                 scrollContainerRef={scrollContainerRef}
               />
             </>
-          ) : (
+          ) : cardResults ? null : (
             <CompactLibraryEmptyState
               hasDocuments={documents.length > 0}
               searchQuery={searchQuery}
@@ -2767,6 +2832,8 @@ function CompactLibraryView({
             />
           )}
         </div>
+
+        {cardResults}
       </section>
     </div>
   );
@@ -3105,6 +3172,106 @@ function CompactDocumentTile({
         </div>
       )}
     </div>
+  );
+}
+
+function getCardTypeLabel(item: LearningItem, t: (key: string) => string): string {
+  const tags = (item.tags ?? []).map((tag) => tag.toLowerCase());
+  if (tags.includes("image-occlusion")) {
+    return t("documentsView.cardTypeImageOcclusion");
+  }
+  switch (item.item_type) {
+    case "Cloze":
+      return t("documentsView.cardTypeCloze");
+    case "Qa":
+      return t("documentsView.cardTypeQa");
+    case "Basic":
+    case "Flashcard":
+    default:
+      return t("documentsView.cardTypeBasic");
+  }
+}
+
+function cardDisplayText(item: LearningItem): string {
+  // Cloze items show their cloze text (with deletions stripped) so the result
+  // is readable; everything else shows the question.
+  if (item.item_type === "Cloze" && item.cloze_text) {
+    return item.cloze_text.replace(/\{\{c\d+::[^}]*\}\}/g, "[…]");
+  }
+  return item.question;
+}
+
+interface CardSearchResultsProps {
+  cards: LearningItem[];
+  onOpenCard: (cardId: string) => void;
+  onClearSearch?: () => void;
+  documentResultsCount?: number;
+}
+
+function CardSearchResults({ cards, onOpenCard, onClearSearch, documentResultsCount }: CardSearchResultsProps) {
+  const { t } = useI18n();
+  // Cap the rendered list so a huge collection does not paint thousands of rows
+  // inline; the count still reflects the full match.
+  const MAX_RENDERED = 50;
+  const visible = cards.slice(0, MAX_RENDERED);
+  const remaining = cards.length - visible.length;
+
+  return (
+    <section className="mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <Stack className="h-4 w-4 text-muted-foreground" />
+          {t("documentsView.cardsGroupHeading")}
+          <span className="text-xs text-muted-foreground font-normal">
+            ({cards.length})
+          </span>
+        </h3>
+        {documentResultsCount === 0 && onClearSearch && (
+          <button
+            onClick={onClearSearch}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            {t("emptyState.clearSearch")}
+          </button>
+        )}
+      </div>
+      <div className="space-y-1.5">
+        {visible.map((card) => {
+          const text = cardDisplayText(card);
+          return (
+            <button
+              key={card.id}
+              onClick={() => onOpenCard(card.id)}
+              className="w-full text-left flex items-start gap-3 px-3 py-2 rounded-lg border border-border hover:bg-muted/60 transition-colors group"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-foreground truncate group-hover:text-primary">
+                  {text || t("documentsView.cardUntitled")}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <span className="px-1.5 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground rounded">
+                    {getCardTypeLabel(card, t)}
+                  </span>
+                  {(card.tags ?? []).slice(0, 4).map((tag) => (
+                    <span
+                      key={tag}
+                      className="px-1.5 py-0.5 text-[10px] bg-primary/10 text-primary rounded"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {remaining > 0 && (
+        <p className="text-xs text-muted-foreground mt-2 px-3">
+          {t("documentsView.cardsMoreResults", { count: remaining })}
+        </p>
+      )}
+    </section>
   );
 }
 
