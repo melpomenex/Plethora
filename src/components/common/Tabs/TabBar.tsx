@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { memo, useState, useRef, useEffect } from "react";
 import type { Tab } from "../../../stores";
 import { TabContextMenu } from "./TabContextMenu";
 import { CaretLeft, CaretRight, X } from "@phosphor-icons/react";
@@ -18,7 +18,7 @@ interface TabBarProps {
   onSplitPane?: (paneId: string, tabId: string, direction: "horizontal" | "vertical", side: "before" | "after") => void;
 }
 
-export function TabBar({
+function TabBarImpl({
   tabs,
   activeTabId,
   paneId,
@@ -493,3 +493,11 @@ export function TabBar({
     </>
   );
 }
+
+/**
+ * Memoized: the bar re-renders only when its own pane's tabs, active tab, drag
+ * callbacks or split callback change. Its props come from a per-pane slice with
+ * a stable identity (see SplitPaneContainer), so an update to a tab in another
+ * pane no longer reconciles this one.
+ */
+export const TabBar = memo(TabBarImpl);

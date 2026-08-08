@@ -146,6 +146,19 @@ export interface TabsState {
   // forward counterpart to the edge-swipe-back gesture). Mirrors the back
   // history's most-recent-last ordering.
   forwardTabHistory: string[];
+  // Tabs unmounted by the resident-tab cap. Runtime-only and never persisted:
+  // it describes what is currently in memory, not what the workspace contains.
+  //
+  // A tab is *resident* (mounted) when it has been activated at least once and
+  // has not since been evicted — which is `activeTabHistory` (restricted to
+  // still-open tabs) minus this set. Both halves already exist, so residency
+  // needs no separate bookkeeping to drift out of sync: `setActiveTab` is the
+  // only thing that adds to the history, and it also clears the tab from here.
+  //
+  // `TabContent` reads this to know what to unmount. It does not read a
+  // "mounted" set, because it tracks activations it has actually rendered —
+  // which keeps it drivable from plain props (see its own comment).
+  evictedTabIds: ReadonlySet<string>;
 
   // Actions
   addTab: (tab: Omit<Tab, "id">, targetPaneId?: string) => string;
@@ -192,6 +205,31 @@ export interface TabsState {
 
 const STORAGE_KEY = "incrementum-tabs";
 const TAB_SAVE_DEBOUNCE_MS = 180;
+
+/** Shared empty set, so a workspace that never evicts keeps one identity. */
+const EMPTY_EVICTED: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Drop ids from the evicted set, returning the *same* set when nothing changed.
+ *
+ * Identity stability is the point: `TabContent` subscribes to this set, so
+ * allocating a fresh one on every activation would re-render every pane on
+ * every tab switch — precisely the cost this area exists to avoid.
+ */
+function clearEvicted(
+  current: ReadonlySet<string>,
+  ids: Iterable<string>,
+): ReadonlySet<string> {
+  if (current.size === 0) return current;
+  let next: Set<string> | null = null;
+  for (const id of ids) {
+    if (!current.has(id)) continue;
+    if (!next) next = new Set(current);
+    next.delete(id);
+  }
+  if (!next) return current;
+  return next.size === 0 ? EMPTY_EVICTED : next;
+}
 let pendingTabsSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingTabsSave: (() => void) | null = null;
 let tabsPersistenceListenersInstalled = false;
@@ -253,15 +291,149 @@ const SINGLE_INSTANCE_TAB_TYPES: ReadonlySet<TabType> = new Set([
   "audiobook",
 ]);
 
+/**
+ * Tab types the resident cap is allowed to unmount.
+ *
+ * Opt-in, and deliberately small. A tab is listed here only once its whole
+ * state is known to survive an unmount — because it is a read-only view over
+ * stores or a fetch it repeats on mount. Anything holding state the user
+ * created and has not saved (a viewer's pending annotation, a Q&A draft, an
+ * in-flight rename in the image registry) stays off the list, so the worst case
+ * of getting the cap wrong is a workspace that keeps more tabs than requested,
+ * never a workspace that throws away someone's work.
+ *
+ * Lives here rather than in `tabContentRegistry` on purpose: this module must
+ * not import `TabRegistry` at module scope (see the lazy import in `loadTabs`),
+ * and this is the same kind of per-type policy as SINGLE_INSTANCE_TAB_TYPES.
+ */
+const EVICTABLE_TAB_TYPES: ReadonlySet<TabType> = new Set([
+  "dashboard",
+  "analytics",
+  "continue-reading",
+]);
+
+export function isTabTypeEvictable(type: TabType): boolean {
+  return EVICTABLE_TAB_TYPES.has(type);
+}
+
+/**
+ * Fallback resident cap, used when a persisted settings blob predates the
+ * setting (or when a test mocks the settings store without it). Kept as a local
+ * constant rather than read from `defaultSettings` so this module does not
+ * depend on the shape of a commonly-mocked import; `DEFAULT_RESIDENT_TAB_CAP`
+ * is pinned equal to the shipped default by a test.
+ */
+export const DEFAULT_RESIDENT_TAB_CAP = 8;
+
+/** The configured resident cap, or the default when settings do not carry one. */
+function residentTabCap(): number {
+  const configured = useSettingsStore.getState().settings?.general?.residentTabCap;
+  return typeof configured === "number" ? configured : DEFAULT_RESIDENT_TAB_CAP;
+}
+
+/** Every pane's active tab — all of them are exempt from eviction. */
+function collectActivePaneTabIds(pane: Pane, into: Set<string> = new Set()): Set<string> {
+  if (pane.type === "tabs") {
+    if (pane.activeTabId) into.add(pane.activeTabId);
+  } else {
+    for (const child of pane.children) collectActivePaneTabIds(child, into);
+  }
+  return into;
+}
+
+/**
+ * Apply the resident-tab cap, returning the new evicted set (the same one when
+ * nothing needed evicting, so subscribers do not re-render).
+ *
+ * Residency is derived, not stored: a tab is mounted when it has been activated
+ * at least once — i.e. it appears in `activeTabHistory`, which is kept in
+ * least-recently-active-first order and filtered to open tabs — and has not
+ * since been evicted. Walking that history from the front therefore visits
+ * candidates in exactly LRU order.
+ */
+function applyResidentCap(
+  state: Pick<TabsState, "tabs" | "rootPane" | "activeTabHistory" | "evictedTabIds">,
+  cap: number,
+): ReadonlySet<string> {
+  if (!Number.isFinite(cap) || cap <= 0) return state.evictedTabIds;
+
+  const openTabsById = new Map(state.tabs.map((tab) => [tab.id, tab]));
+  const resident = state.activeTabHistory.filter(
+    (id) => openTabsById.has(id) && !state.evictedTabIds.has(id),
+  );
+  if (resident.length <= cap) return state.evictedTabIds;
+
+  const exempt = collectActivePaneTabIds(state.rootPane);
+  let overBy = resident.length - cap;
+  let next: Set<string> | null = null;
+
+  for (const id of resident) {
+    if (overBy <= 0) break;
+    if (exempt.has(id)) continue;
+    const tab = openTabsById.get(id);
+    if (!tab || !EVICTABLE_TAB_TYPES.has(tab.type)) continue;
+    if (!next) next = new Set(state.evictedTabIds);
+    next.add(id);
+    overBy -= 1;
+  }
+
+  // No eligible candidate: the cap is exceeded and stays exceeded. Keeping a
+  // tab mounted is always preferable to unmounting one that cannot restore.
+  return next ?? state.evictedTabIds;
+}
+
+/**
+ * Serialize with sorted object keys, so the result depends on a payload's
+ * content and not on the order its literal happened to be written in.
+ *
+ * Keys whose value is `undefined` are dropped and `undefined` array entries
+ * become `null`, matching `JSON.stringify` — which is what this replaced, and
+ * which correctly treats an explicitly-undefined field as an absent one.
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  const body = Object.keys(record)
+    .sort()
+    .filter((key) => record[key] !== undefined)
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(",");
+  return `{${body}}`;
+}
+
+/**
+ * Cache of restore-payload keys, keyed on the payload object itself.
+ *
+ * Opening a tab used to `JSON.stringify` both sides for every open tab — O(open
+ * tabs) serializations on a click. Tab data is replaced rather than mutated, so
+ * a payload object's key never changes and can be computed once and kept for as
+ * long as that object lives.
+ */
+const dataKeyCache = new WeakMap<object, string>();
+
+/** Stable structural key for a tab's restore payload; `undefined` maps to "". */
+export function tabDataKey(data?: Record<string, unknown>): string {
+  if (!data) return "";
+  const cached = dataKeyCache.get(data);
+  if (cached !== undefined) return cached;
+  const key = stableStringify(data);
+  dataKeyCache.set(data, key);
+  return key;
+}
+
 function findReusableTab(state: TabsState, tab: Omit<Tab, "id">): Tab | undefined {
   if (SINGLE_INSTANCE_TAB_TYPES.has(tab.type)) {
     return state.tabs.find((existingTab) => existingTab.type === tab.type);
   }
 
+  const key = tabDataKey(tab.data);
   return state.tabs.find(
-    (existingTab) =>
-      existingTab.type === tab.type &&
-      JSON.stringify(existingTab.data) === JSON.stringify(tab.data)
+    (existingTab) => existingTab.type === tab.type && tabDataKey(existingTab.data) === key,
   );
 }
 
@@ -429,6 +601,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   closedTabs: [],
   activeTabHistory: [],
   forwardTabHistory: [],
+  evictedTabIds: EMPTY_EVICTED,
 
   getDefaultTabs: () => {
     return [];
@@ -682,6 +855,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         rootPane: newRootPane,
         closedTabs,
         activeTabHistory: newHistory,
+        evictedTabIds: clearEvicted(state.evictedTabIds, [tabId]),
       };
     });
   },
@@ -690,15 +864,32 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   setActiveTab: (paneId, tabId) => {
     measureTabSwitch(
       () => {
-        set((state) => ({
-          rootPane: updatePaneInTree(state.rootPane, paneId, (p) => ({
+        set((state) => {
+          const rootPane = updatePaneInTree(state.rootPane, paneId, (p) => ({
             ...(p as TabPane),
             activeTabId: tabId,
-          })),
-          activeTabHistory: [...state.activeTabHistory.filter((x) => x !== tabId), tabId],
-          // A direct navigation invalidates any forward history (browser semantics).
-          forwardTabHistory: [],
-        }));
+          }));
+          const activeTabHistory = [
+            ...state.activeTabHistory.filter((x) => x !== tabId),
+            tabId,
+          ];
+          // Activating a tab makes it resident again if the cap had evicted it.
+          const evictedTabIds = clearEvicted(state.evictedTabIds, [tabId]);
+
+          return {
+            rootPane,
+            activeTabHistory,
+            // A direct navigation invalidates any forward history (browser semantics).
+            forwardTabHistory: [],
+            // The cap is evaluated here rather than on a timer: activation is
+            // the only moment the resident set can grow, and a timer would both
+            // wake an idle app and make "when does a tab disappear" untestable.
+            evictedTabIds: applyResidentCap(
+              { tabs: state.tabs, rootPane, activeTabHistory, evictedTabIds },
+              residentTabCap(),
+            ),
+          };
+        });
         scheduleTabsSave(() => get().saveTabs());
       },
       () => getProgressiveSyncScheduler().stats().queued,
@@ -950,6 +1141,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         })),
         closedTabs: newClosedTabs,
         activeTabHistory: [tabId],
+        evictedTabIds: clearEvicted(state.evictedTabIds, closableTabs),
       };
     });
   },
@@ -980,6 +1172,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         })),
         closedTabs: newClosedTabs,
         activeTabHistory: state.activeTabHistory.filter((id) => !tabsToClose.includes(id)),
+        evictedTabIds: clearEvicted(state.evictedTabIds, tabsToClose),
       };
     });
   },
@@ -1000,6 +1193,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
           rootPane: createTabPane([firstNonClosable.id], firstNonClosable.id),
           closedTabs: newClosedTabs,
           activeTabHistory: [firstNonClosable.id],
+          evictedTabIds: EMPTY_EVICTED,
         };
       }
 
@@ -1008,6 +1202,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         rootPane: createTabPane(),
         closedTabs: newClosedTabs,
         activeTabHistory: [],
+        evictedTabIds: EMPTY_EVICTED,
       };
     });
   },
@@ -1448,10 +1643,14 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       };
       collectActiveTabIds(cleanedPane);
 
+      // `activeTabHistory` seeded with each pane's active tab is also the
+      // initial resident set: on restore, only those tabs mount. The rest stay
+      // unmounted until the user actually opens them.
       set({
         tabs: rehydratedTabs,
         rootPane: cleanedPane,
         activeTabHistory: activeIds,
+        evictedTabIds: EMPTY_EVICTED,
       });
 
       // Restore UI state

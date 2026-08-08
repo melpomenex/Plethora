@@ -338,6 +338,8 @@ incrementum-tauri/
 | `npm run test` | Run test suite |
 | `npm run test:ui` | Launch test UI |
 | `npm run test:coverage` | Generate coverage report |
+| `npm run bench` | Run benchmark suites, writing results to `.bench/results.json` |
+| `npm run bench:check` | Run benchmarks and fail if a hot path regressed past its recorded baseline |
 | `npm run tauri:build:linux` | Build for Linux |
 | `npm run tauri:build:macos` | Build for macOS |
 | `npm run tauri:build:windows` | Build for Windows |

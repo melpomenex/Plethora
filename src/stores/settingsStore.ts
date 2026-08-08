@@ -242,6 +242,13 @@ interface GeneralSettings {
   /** Which view the app opens on when a session is not being restored. */
   defaultView: DefaultStartupView;
   showFeaturePopups: boolean;
+  /**
+   * How many tabs may stay mounted at once. Beyond this, the least recently
+   * active tab is unmounted and re-mounts when next opened — only for tab types
+   * that restore cleanly (see `EVICTABLE_TAB_TYPES` in `tabsStore`). `0` keeps
+   * every tab mounted forever, which is the pre-cap behavior.
+   */
+  residentTabCap: number;
 }
 
 /**
@@ -585,6 +592,9 @@ export const defaultSettings: Settings = {
     restoreSession: true,
     defaultView: "queue",
     showFeaturePopups: true,
+    // Deliberately above typical usage, so most sessions never evict anything;
+    // it exists to bound a workspace that has grown all day.
+    residentTabCap: 8,
   },
   appearance: {
     theme: "system",

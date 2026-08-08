@@ -174,6 +174,56 @@ export function getSyncTelemetry(): readonly SyncPhaseSample[] {
   return samples.slice();
 }
 
+export interface TabSwitchLatencySummary {
+  /** Number of completed tab switches with a measured duration. */
+  count: number;
+  /** Milliseconds. Zero only when `count` is zero. */
+  p50: number;
+  p95: number;
+  max: number;
+}
+
+/**
+ * Percentiles over the tab switches recorded so far.
+ *
+ * CI benchmarks bound the JavaScript a tab switch performs; they cannot see the
+ * WebView actually paint. This is the one number measured on the machine that
+ * feels the lag, which makes it the place to check a claim like "switching is
+ * faster now" against real hardware.
+ *
+ * Reports zero samples rather than zero milliseconds when nothing has been
+ * measured — a p95 of 0 would read as "instant" when it means "unknown".
+ * Measurement itself stays opt-in (see `measureTabSwitch`), so a release build
+ * with it disabled simply has no samples.
+ */
+export function getTabSwitchLatency(): TabSwitchLatencySummary {
+  const durations: number[] = [];
+  for (const sample of samples) {
+    if (sample.phase !== "tab-switch") continue;
+    if (typeof sample.durationMs !== "number" || !Number.isFinite(sample.durationMs)) continue;
+    durations.push(sample.durationMs);
+  }
+
+  if (durations.length === 0) {
+    return { count: 0, p50: 0, p95: 0, max: 0 };
+  }
+
+  durations.sort((a, b) => a - b);
+  // Nearest-rank: the p-th percentile is the ceil(p × n)-th smallest sample,
+  // so p95 of a single sample is that sample rather than an interpolation.
+  const percentile = (fraction: number) => {
+    const rank = Math.ceil(fraction * durations.length);
+    return durations[Math.min(durations.length, Math.max(1, rank)) - 1];
+  };
+
+  return {
+    count: durations.length,
+    p50: percentile(0.5),
+    p95: percentile(0.95),
+    max: durations[durations.length - 1],
+  };
+}
+
 /** Record a bounded startup request label without retaining its payload. */
 export function recordStartupRequest(request: string): void {
   if (!request) return;

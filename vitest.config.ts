@@ -26,7 +26,10 @@ export default defineConfig({
       "node_modules/",
       "src-tauri/",
       "dist/",
+      // Benchmarks belong to `npm run bench` (vitest.bench.config.ts), never to
+      // the unit run. `.tsx` covers the jsdom render-cost lane.
       "src/**/*.bench.ts",
+      "src/**/*.bench.tsx",
     ],
   },
   resolve: {
