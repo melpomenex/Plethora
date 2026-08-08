@@ -700,6 +700,30 @@ Understanding how the queue orders items and why positions change helps you opti
    - Passive view changes or tab switches maintain stable local order without triggering unexpected re-shuffles.
 
 
+### Neural Review ("Go neural")
+
+Neural review is an optional, exploratory mode built on SuperMemo's *Learn : Go neural*. Instead of working through your priority queue in order, it builds a fresh review sequence by **spreading activation** from a single starting point — the item you're currently reading — and surfacing everything connected to it. It's the mode to reach for when you want to follow a thread through your collection rather than grind through what's due.
+
+**How to use it.** While reading in Scroll Mode, click **Go neural** in the top bar. The session swaps over to a spreading-activation queue seeded at the current document, card, or extract; the position pill turns violet and reads "Neural review · N remaining." Click **Exit** to return to exactly where you were in your reading — neural review never mutates your priority queue or scheduling. When the queue runs low, it refills automatically from the element you just finished.
+
+**Flashcards and extracts still require a rating to advance**, just as in normal Scroll Mode, so a neural session still contributes to scheduling. Documents advance freely.
+
+**How it decides what's "related."** Activation spreads outward from the seed through five kinds of connections, in this order:
+
+1. **Concept groups (tags).** Items sharing a tag with the seed are treated as concept peers. Tagging is therefore doubly useful: it groups items for search *and* feeds neural review. An untagged item has no concept peers.
+2. **Inter-element references.** Explicit cross-reference links, when present.
+3. **Descendants.** The seed's children in the knowledge tree — the extracts and cards within a document, the cards within an extract.
+4. **Semantic similarity.** When you've indexed your collection for RAG (Settings → Embeddings & RAG → Index Collection), neural review also surfaces documents whose content is embedding-similar to the seed. More similar documents appear sooner. If you haven't indexed, this source simply stays quiet — the other four still work.
+5. **Parent and siblings.** The seed's parent (the document an extract lives in) and its siblings (other extracts in the same document, other cards in the same extract, plus nearby documents).
+
+Closer connections — a direct child, a near-identical document, a shared tag — surface earlier in the queue. When the first wave yields fewer than twenty items, activation expands outward through the newly-reached elements' neighbors until the queue is full or nothing further is reachable.
+
+**Tips:**
+- Tag items you want to explore together — the tag becomes a concept group neural review will follow.
+- Index your collection to unlock semantic discovery; without it, neural review relies on tree structure and tags alone.
+- Neural review is read-only with respect to your normal queue. Use it freely; nothing about your priority order or due dates changes.
+
+
 ### Smart Queues
 
 Create custom queues with filters:

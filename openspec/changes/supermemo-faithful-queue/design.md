@@ -244,10 +244,20 @@ Document (Topic, root)
 - **No full element unification.** The three tables stay.
 - **No manual drag-drop tree editing in v1.** The `sort_order` column reserves
   the capability.
-- **No concept-group UI in v1.** Concept-link propagation is implemented (the
-  neural queue needs it for type-4 nodes), but there's no UI to *create*
-  concept groups initially.
+- **No concept-group *authoring* UI in v1.** Concept-link propagation now fires
+  for any seed (the type-4 gate was relaxed) and resolves concept peers via
+  **tags as a concept-group proxy**: items sharing a tag are concept peers
+  (`concept_neighbors` joins the JSON `tags` columns via `json_each`). This
+  avoids needing a dedicated concept-authoring surface — tags, which the user
+  already sets, double as concept groups. A dedicated concept-group entity and
+  management UI remain a follow-on.
+- **Semantic similarity via RAG chunk embeddings.** A fifth spreading-activation
+  relationship type (`semantic_neighbors`, base weight 0.08) surfaces
+  embedding-similar documents. It mean-pools each document's
+  `document_chunk_embeddings` into one vector and ranks by cosine similarity,
+  firing only when the user has indexed their collection (graceful no-op
+  otherwise). The embedding config is threaded from the frontend at build time.
 - **No replacement of the composition sliders.** They stay as a transitional
   count control.
-- **No "Go neural" UI affordance in Phase 4's first cut.** The algorithm lands
-  with a minimal entry point; full neural-creativity UX is a follow-on.
+- **"Go neural" UI.** The entry point is a "Go neural" button in Scroll Mode,
+  seeded at the current item; exit restores the prior reading session.
