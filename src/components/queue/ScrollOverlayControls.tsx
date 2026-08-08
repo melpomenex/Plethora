@@ -8,6 +8,7 @@ import {
   EyeSlash,
   Flag,
   Lightbulb,
+  Lightning,
   List,
   Rss,
   Sliders,
@@ -64,6 +65,22 @@ interface ScrollOverlayControlsProps {
   /** Toggle the AI summary panel visibility (document/rss items). */
   isSummaryActive?: boolean;
   onToggleSummary?: () => void;
+  /**
+   * Neural review mode ("Go neural"). When true, the overlay shows the neural
+   * banner instead of the normal position pill, and ratings/consume drive the
+   * spreading-activation queue rather than the priority queue.
+   */
+  isNeuralMode?: boolean;
+  /** Remaining elements in the neural queue (shown in the banner). */
+  neuralRemaining?: number | null;
+  /** Whether the current item can seed a neural build (documents/cards/extracts; not RSS/podcast). */
+  canGoNeural?: boolean;
+  /** True while a neural queue is being built (disables the button, shows a spinner). */
+  isNeuralLoading?: boolean;
+  /** Enter neural review, seeded at the current item. */
+  onGoNeural?: () => void;
+  /** Exit neural review, restoring the prior reading session. */
+  onExitNeural?: () => void;
   /** Render slot for ItemDetailsPopover in top bar */
   detailsButton?: React.ReactNode;
   prioritySlider?: number;
@@ -108,6 +125,12 @@ interface ScrollOverlayControlsProps {
     priorityFineTune?: string;
     prioritySaving?: string;
     prioritySaveFailed?: string;
+    /** Neural review ("Go neural") labels. */
+    goNeural?: string;
+    goNeuralTooltip?: string;
+    exitNeural?: string;
+    reviewMode?: string;
+    refilled?: string;
   };
 }
 
@@ -176,6 +199,12 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   onToggleAssistant,
   isSummaryActive = false,
   onToggleSummary,
+  isNeuralMode = false,
+  neuralRemaining = null,
+  canGoNeural = false,
+  isNeuralLoading = false,
+  onGoNeural,
+  onExitNeural,
   detailsButton,
   prioritySlider,
   labels,
@@ -319,9 +348,29 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
             <button onClick={onExit} className="p-2 rounded-lg bg-black/40 backdrop-blur-sm hover:bg-black/60 transition-colors" title={labels?.exit ?? "Exit scroll mode"}>
               <X className="w-5 h-5 text-white" />
             </button>
-            <div className="text-white font-medium text-sm bg-black/40 backdrop-blur-sm px-3 py-2 rounded-lg">
-              {currentIndex + 1 + sessionOffset} / {totalItems + sessionOffset}
-            </div>
+            {isNeuralMode ? (
+              // Neural banner: distinct violet color signals the creative mode.
+              // Shows the remaining count and an exit that restores the reading
+              // session (does not close the tab).
+              <div className="flex items-center gap-2 text-white font-medium text-sm bg-violet-600/70 backdrop-blur-sm px-3 py-2 rounded-lg">
+                <Lightning className="w-4 h-4 text-violet-200" weight="fill" />
+                <span className="text-violet-50">{labels?.reviewMode ?? "Neural review"}</span>
+                {neuralRemaining !== null && (
+                  <span className="text-violet-200/90">· {neuralRemaining}</span>
+                )}
+                <button
+                  onClick={onExitNeural}
+                  className="ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors text-xs text-white"
+                  title={labels?.exitNeural ?? "Exit neural review"}
+                >
+                  {labels?.exitNeural ?? "Exit"}
+                </button>
+              </div>
+            ) : (
+              <div className="text-white font-medium text-sm bg-black/40 backdrop-blur-sm px-3 py-2 rounded-lg">
+                {currentIndex + 1 + sessionOffset} / {totalItems + sessionOffset}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3 pointer-events-auto">
@@ -374,6 +423,34 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                   <Rss className="w-4 h-4" />
                   {labels?.rss ?? "RSS"}
                 </button>
+                {/* Go neural — explore related material via spreading activation
+                    from the current item. Disabled for RSS/podcast (no element_tree
+                    node) and while a queue is building. Desktop-only to match the
+                    other action buttons. */}
+                {onGoNeural && !isNeuralMode && (
+                  <button
+                    onClick={onGoNeural}
+                    disabled={!canGoNeural || isNeuralLoading}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2 rounded-lg backdrop-blur-sm text-white text-sm transition-colors",
+                      canGoNeural && !isNeuralLoading
+                        ? "bg-violet-600/70 hover:bg-violet-600"
+                        : "bg-black/40 opacity-50 cursor-not-allowed",
+                    )}
+                    title={
+                      !canGoNeural
+                        ? (labels?.goNeuralTooltip ?? "Open a document, card, or extract to explore related material")
+                        : (labels?.goNeuralTooltip ?? "Explore material related to this item")
+                    }
+                  >
+                    {isNeuralLoading ? (
+                      <span className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white" />
+                    ) : (
+                      <Brain className="w-4 h-4" />
+                    )}
+                    {labels?.goNeural ?? "Go neural"}
+                  </button>
+                )}
                 {/* AI Summary toggle (document / rss items only). */}
                 {isDocOrRss && onToggleSummary && (
                   <button

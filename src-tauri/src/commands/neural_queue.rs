@@ -8,6 +8,7 @@
 
 use tauri::State;
 
+use crate::commands::semantic_graph::EmbeddingConfigInput;
 use crate::database::{ElementKind, ElementTreeRepository, NeuralQueueRepository, Repository};
 use crate::error::{IncrementumError, Result};
 
@@ -15,11 +16,17 @@ use crate::error::{IncrementumError, Result};
 /// queue by spreading activation seeded at the element derived from
 /// `(element_kind, element_ref_id)`. Returns the number of elements queued.
 ///
+/// When `embedding_config` is supplied, the spreading activation also follows
+/// embedding-similarity edges (semantic neighbors via RAG chunk embeddings).
+/// When it is `None`, only the tree-topology relationships (concept/inter-
+/// element/descendant/parent/sibling) drive the queue.
+///
 /// The priority queue is **not** mutated — only read for intrinsic priorities.
 #[tauri::command]
 pub async fn build_neural_queue(
     element_kind: String,
     element_ref_id: String,
+    embedding_config: Option<EmbeddingConfigInput>,
     repo: State<'_, Repository>,
 ) -> Result<usize> {
     let kind = match element_kind.as_str() {
@@ -42,7 +49,7 @@ pub async fn build_neural_queue(
             ))
         })?;
     let nqr = NeuralQueueRepository::new(repo.pool().clone());
-    let entries = nqr.build(seed).await?;
+    let entries = nqr.build(seed, embedding_config).await?;
     Ok(entries.len())
 }
 
@@ -55,6 +62,19 @@ pub async fn get_neural_queue_front(
 ) -> Result<Vec<crate::database::NeuralQueueRow>> {
     let nqr = NeuralQueueRepository::new(repo.pool().clone());
     nqr.front(limit.unwrap_or(20)).await
+}
+
+/// Like [`get_neural_queue_front`], but JOINs each entry with its `element_tree`
+/// identity so the frontend can resolve it back to the concrete document /
+/// extract / learning item to render. This is what the "Go neural" review UI
+/// calls — a bare `element_id` is otherwise unrenderable.
+#[tauri::command]
+pub async fn get_neural_queue_resolved_front(
+    limit: Option<usize>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<crate::database::ResolvedNeuralQueueEntry>> {
+    let nqr = NeuralQueueRepository::new(repo.pool().clone());
+    nqr.resolved_front(limit.unwrap_or(60)).await
 }
 
 /// Mark `element_id` as studied (consumed). If the queue depletes below the
@@ -74,11 +94,13 @@ pub async fn consume_neural_queue_element(
 /// **only if** the remaining count is below the depletion threshold. Returns
 /// Some(count) if a refill ran, None if the threshold was met. This is the
 /// depletion trigger (task 4.11): it runs after a consume when remaining < 20,
-/// not on every grade.
+/// not on every grade. Pass the same `embedding_config` used at build time so
+/// semantic neighbors remain in play on refill.
 #[tauri::command]
 pub async fn refill_neural_queue_if_depleted(
     element_kind: String,
     element_ref_id: String,
+    embedding_config: Option<EmbeddingConfigInput>,
     repo: State<'_, Repository>,
 ) -> Result<Option<usize>> {
     let kind = match element_kind.as_str() {
@@ -104,7 +126,7 @@ pub async fn refill_neural_queue_if_depleted(
                 "element_tree node for {element_kind}:{element_ref_id}"
             ))
         })?;
-    let entries = nqr.build(seed).await?;
+    let entries = nqr.build(seed, embedding_config).await?;
     Ok(Some(entries.len()))
 }
 

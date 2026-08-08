@@ -2123,6 +2123,7 @@ export const de: Dict = {
   "queue.compositionFlashcards": "Karteikarten",
   "queue.compositionHelp": "Relative Anteile der Sitzung — sie müssen nicht 100 ergeben.",
   "neural.goNeural": "Go neural",
+  "neural.goNeuralTooltip": "Verwandtes Material über spreading activation erkunden",
   "neural.exitNeural": "Neurales Wiederholen verlassen",
   "neural.reviewMode": "Neurales Wiederholen",
   "neural.refilled": "Neuronale Warteschlange aus verwandten Elementen aufgefüllt",

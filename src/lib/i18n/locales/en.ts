@@ -2160,6 +2160,7 @@ export const en: Dict = {
   "queue.compositionFlashcards": "Flashcards",
   "queue.compositionHelp": "Relative shares of the session — they need not sum to 100. These control how many of each type appear; priority controls the order.",
   "neural.goNeural": "Go neural",
+  "neural.goNeuralTooltip": "Explore material related to this item via spreading activation",
   "neural.exitNeural": "Exit neural review",
   "neural.reviewMode": "Neural review",
   "neural.refilled": "Neural queue refilled from related elements",

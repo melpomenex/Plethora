@@ -121,17 +121,17 @@ describe("ScrollOverlayControls Rating Orbs Snap Positioning", () => {
         onUpdateRatingOrbsPosition={onUpdate}
       />
     );
-    
+
     // Position menu config button title is "Change panel edge"
     const configBtn = screen.getByTitle("Change panel edge");
     expect(configBtn).toBeInTheDocument();
-    
+
     // Initially the buttons like "Move Left" are not visible
     expect(screen.queryByTitle("Move Left")).not.toBeInTheDocument();
-    
+
     // Click to open menu
     fireEvent.click(configBtn);
-    
+
     // Menu buttons should show up
     expect(screen.getByTitle("Move Left")).toBeInTheDocument();
     expect(screen.getByTitle("Move Top")).toBeInTheDocument();
@@ -141,5 +141,67 @@ describe("ScrollOverlayControls Rating Orbs Snap Positioning", () => {
     // Click "Move Left" and assert callbacks
     fireEvent.click(screen.getByTitle("Move Left"));
     expect(onUpdate).toHaveBeenCalledWith("left");
+  });
+});
+
+describe("ScrollOverlayControls neural review", () => {
+  const neuralLabels = {
+    goNeural: "Go neural",
+    goNeuralTooltip: "Explore related",
+    exitNeural: "Exit",
+    reviewMode: "Neural review",
+  };
+
+  it("renders the Go neural button and fires onGoNeural on click", () => {
+    const onGoNeural = vi.fn();
+    render(
+      <ScrollOverlayControls
+        {...defaultProps}
+        canGoNeural
+        onGoNeural={onGoNeural}
+        labels={neuralLabels}
+      />
+    );
+    const btn = screen.getByTitle("Explore related");
+    expect(btn).not.toBeDisabled();
+    fireEvent.click(btn);
+    expect(onGoNeural).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the Go neural button when canGoNeural is false (RSS/podcast)", () => {
+    const onGoNeural = vi.fn();
+    render(
+      <ScrollOverlayControls
+        {...defaultProps}
+        canGoNeural={false}
+        onGoNeural={onGoNeural}
+        labels={neuralLabels}
+      />
+    );
+    const btn = screen.getByTitle("Explore related");
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    expect(onGoNeural).not.toHaveBeenCalled();
+  });
+
+  it("shows the neural banner with remaining count and exit button in neural mode", () => {
+    const onExitNeural = vi.fn();
+    const { container } = render(
+      <ScrollOverlayControls
+        {...defaultProps}
+        isNeuralMode
+        neuralRemaining={12}
+        onExitNeural={onExitNeural}
+        labels={neuralLabels}
+      />
+    );
+    // The neural banner renders the review-mode label and remaining count.
+    expect(container.textContent).toContain("Neural review");
+    expect(container.textContent).toContain("12");
+    // The Go neural button is hidden in neural mode.
+    expect(screen.queryByTitle("Explore related")).not.toBeInTheDocument();
+    // Exit button restores the reading session.
+    fireEvent.click(screen.getByTitle("Exit"));
+    expect(onExitNeural).toHaveBeenCalledTimes(1);
   });
 });

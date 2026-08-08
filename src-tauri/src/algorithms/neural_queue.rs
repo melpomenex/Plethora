@@ -9,12 +9,15 @@
 //! ## The algorithm (fully specified by the change's spec + design.md)
 //!
 //! Activation is a fixed constant (`0.05`), not derived from learning state.
-//! It spreads from a seed element through four relationship types, in order:
+//! It spreads from a seed element through five relationship types, in order:
 //!
-//! 1. **Concept links** (weight 0.01; parent concepts 0.4, child concepts 0.3)
+//! 1. **Concept links** (weight 0.01; parent concepts 0.4, child concepts 0.3).
+//!    In the tag-based proxy, items sharing a tag are concept peers.
 //! 2. **Inter-element links** (0.05)
 //! 3. **Descendants** (max 22, link priority 0.0 → full activation)
-//! 4. **Parent and siblings** (parent 0.99; siblings 0.95 normal / 0.13 root,
+//! 4. **Semantic similarity** (base weight 0.08, scaled by cosine score 0..1;
+//!    fires only when the collection has RAG chunk embeddings)
+//! 5. **Parent and siblings** (parent 0.99; siblings 0.95 normal / 0.13 root,
 //!    growing ×1.1/generation from 0.3, up to 8 generations, both directions)
 //!
 //! Each propagation calls `insert_or_update`, which combines activation with
@@ -41,6 +44,12 @@ pub const LINK_CONCEPT: f64 = 0.01;
 pub const LINK_INTER_ELEMENT: f64 = 0.05;
 /// Descendant weight — effectively passes activation through unchanged.
 pub const LINK_DESCENDANT: f64 = 0.10;
+/// Semantic-similarity base weight. Scaled per-neighbor by its cosine score
+/// (0..1): a near-identical document gets ~0.08, a loosely-related one ~0.03.
+/// Weaker than direct lineage (descendant/sibling) but stronger than the
+/// concept base weight, reflecting that embedding similarity is a real content
+/// signal, not just co-occurrence.
+pub const LINK_SEMANTIC: f64 = 0.08;
 /// Sibling weight in the normal (non-root-article) branch.
 pub const LINK_SIBLING_NORMAL: f64 = 0.95;
 /// Sibling weight when the seed is a root article (lower → tighter spread).
@@ -116,14 +125,23 @@ pub trait NeuralGraph {
     /// order. Capped at [`DESCENDANT_MAX`] by the caller.
     fn descendants(&self, id: ElementId) -> Vec<ElementNode>;
 
-    /// Concept-group neighbors: for a type-4 (Concept) seed, the elements
-    /// linked via the concept registry. Returns the linked element ids paired
+    /// Concept-group neighbors: items sharing a concept group (a tag, in the
+    /// tag-based proxy) with the seed. Returns the linked element ids paired
     /// with whether they are a parent concept (`true`) or child concept
-    /// (`false`) relative to `id`.
+    /// (`false`) relative to `id`. For the tag-based proxy every peer is a
+    /// child concept (`false`), since tags are flat peer groups with no
+    /// hierarchy.
     fn concept_neighbors(&self, id: ElementId) -> Vec<(ElementId, bool)>;
 
     /// Elements linked to `id` via an inter-element reference link.
     fn inter_element_neighbors(&self, id: ElementId) -> Vec<ElementId>;
+
+    /// Embedding-similarity neighbors of `id`: the most cosine-similar elements
+    /// (by their RAG chunk embeddings, mean-pooled per document), each paired
+    /// with a 0..1 similarity score. Returns empty when no embeddings exist
+    /// for `id` or the collection is unindexed — a graceful no-op, distinct
+    /// from the tree-topology edges above.
+    fn semantic_neighbors(&self, id: ElementId) -> Vec<(ElementId, f64)>;
 
     /// The element's intrinsic priority in [0, 1], read from the priority
     /// queue (its user-set priority normalized). Used when combining for a
@@ -225,22 +243,19 @@ impl NeuralQueueBuilder {
     }
 }
 
-// ── The four propagators ───────────────────────────────────────────────────
+// ── The five propagators ───────────────────────────────────────────────────
 
-/// Propagate through concept links. Only fires for a type-4 (Concept) seed;
-/// within it, parent concepts use [`CONCEPT_PARENT`] (0.4) and child concepts
-/// use [`CONCEPT_CHILD`] (0.3). The orchestrator-level concept weight
-/// [`LINK_CONCEPT`] (0.01) is the activation the neighbors receive.
+/// Propagate through concept (tag-group) links. Fires for **any** seed whose
+/// concept neighbors are non-empty — in the tag-based proxy, any tagged item
+/// has concept peers. Parent concepts use [`CONCEPT_PARENT`] (0.4) and child
+/// concepts use [`CONCEPT_CHILD`] (0.3); the tag proxy treats all peers as
+/// children (flat peer groups, no hierarchy). The orchestrator-level concept
+/// weight [`LINK_CONCEPT`] (0.01) is the activation the neighbors receive.
 pub fn propagate_concept_links(
     graph: &dyn NeuralGraph,
     seed: ElementId,
     queue: &mut NeuralQueueBuilder,
 ) {
-    let seed_node = match graph.node(seed) {
-        Some(n) if n.element_type == 4 => n,
-        _ => return, // concept propagation only for Concept seeds
-    };
-    let _ = seed_node; // type-4 confirmed; neighbors come from the registry
     for (neighbor_id, is_parent) in graph.concept_neighbors(seed) {
         let link_priority = if is_parent { CONCEPT_PARENT } else { CONCEPT_CHILD };
         // Combine the orchestrator concept weight with the directional weight,
@@ -258,6 +273,29 @@ pub fn propagate_inter_element_links(
 ) {
     for neighbor_id in graph.inter_element_neighbors(seed) {
         let combined = combine(ACTIVATION, LINK_INTER_ELEMENT);
+        queue.insert_or_update(graph, neighbor_id, combined);
+    }
+}
+
+/// Propagate to embedding-similar elements (the semantic relationship). Each
+/// neighbor's link weight is derived from its cosine similarity: higher
+/// similarity → lower link weight → lower (more urgent) priority value →
+/// earlier in the queue. (The neural queue ranks by ascending priority_value;
+/// `combine` is monotonic, so a lower link weight surfaces nearer the seed.)
+/// Not gated on element type — a content signal, not a tree-topology one.
+/// Returns empty (no-op) when the collection is unindexed.
+pub fn propagate_semantic_neighbors(
+    graph: &dyn NeuralGraph,
+    seed: ElementId,
+    queue: &mut NeuralQueueBuilder,
+) {
+    for (neighbor_id, similarity) in graph.semantic_neighbors(seed) {
+        let s = similarity.clamp(0.0, 1.0);
+        // Invert: a near-identical document (s≈1) gets a ~0 link weight and
+        // surfaces right after the seed; a loosely-related one (s≈0) gets the
+        // full base weight and lands further out.
+        let scaled = LINK_SEMANTIC * (1.0 - s);
+        let combined = combine(ACTIVATION, scaled);
         queue.insert_or_update(graph, neighbor_id, combined);
     }
 }
@@ -346,7 +384,9 @@ fn step_sibling(
 
 /// Run one spreading-activation pass seeded at `seed`, inserting/updating
 /// neighbors into `queue` in the documented order: concept → inter-element →
-/// descendants → parent+siblings.
+/// descendants → semantic → parent+siblings. Semantic sits after descendants
+/// (a weaker signal than direct lineage) and before siblings (stronger than
+/// distant sibling spreads).
 pub fn run_spreading_activation_pass(
     graph: &dyn NeuralGraph,
     seed: ElementId,
@@ -355,6 +395,7 @@ pub fn run_spreading_activation_pass(
     propagate_concept_links(graph, seed, queue);
     propagate_inter_element_links(graph, seed, queue);
     propagate_descendants(graph, seed, queue);
+    propagate_semantic_neighbors(graph, seed, queue);
     propagate_parent_and_siblings(graph, seed, queue);
 }
 
@@ -422,6 +463,7 @@ mod tests {
         intrinsic: HashMap<ElementId, f64>,
         concept: HashMap<ElementId, Vec<(ElementId, bool)>>,
         inter: HashMap<ElementId, Vec<ElementId>>,
+        semantic: HashMap<ElementId, Vec<(ElementId, f64)>>,
     }
 
     impl TestGraph {
@@ -479,6 +521,9 @@ mod tests {
         }
         fn inter_element_neighbors(&self, id: ElementId) -> Vec<ElementId> {
             self.inter.get(&id).cloned().unwrap_or_default()
+        }
+        fn semantic_neighbors(&self, id: ElementId) -> Vec<(ElementId, f64)> {
+            self.semantic.get(&id).cloned().unwrap_or_default()
         }
         fn intrinsic_priority(&self, id: ElementId) -> f64 {
             self.intrinsic.get(&id).copied().unwrap_or(INTRINSIC_DEFAULT)
@@ -641,13 +686,15 @@ mod tests {
         assert_eq!(g.intrinsic, snapshot, "neural build must not mutate priorities");
     }
 
-    // ── orchestrator order (spec: concept → inter → descendants → siblings) ──
+    // ── orchestrator order (spec: concept → inter → descendants → semantic → siblings) ──
 
     #[test]
-    fn run_pass_visits_all_four_relationship_types() {
+    fn run_pass_visits_all_five_relationship_types() {
         let mut g = TestGraph::default();
+        // Concept propagation now fires for any seed with concept neighbors
+        // (no longer gated on element_type == 4), so an ordinary Topic seed
+        // suffices.
         let mut seed = node(1);
-        seed.element_type = 4; // Concept so concept propagation fires
         seed.first_child_id = Some(2);
         g.nodes.insert(1, seed);
         let mut child = node(2);
@@ -655,6 +702,7 @@ mod tests {
         g.nodes.insert(2, child);
         g.concept.insert(1, vec![(10, true), (11, false)]);
         g.inter.insert(1, vec![20]);
+        g.semantic.insert(1, vec![(30, 0.9)]);
 
         let mut q = NeuralQueueBuilder::new();
         run_spreading_activation_pass(&g, 1, &mut q);
@@ -663,6 +711,57 @@ mod tests {
         assert!(q.contains(11), "concept child reached");
         assert!(q.contains(20), "inter-element neighbor reached");
         assert!(q.contains(2), "descendant reached");
+        assert!(q.contains(30), "semantic neighbor reached");
+    }
+
+    #[test]
+    fn concept_propagation_fires_for_non_concept_seed() {
+        // The relaxed gate: a plain Topic seed (element_type 0) with concept
+        // neighbors still propagates through them.
+        let mut g = TestGraph::default();
+        g.nodes.insert(1, node(1)); // element_type defaults to 0 (Topic)
+        g.concept.insert(1, vec![(5, false)]);
+
+        let mut q = NeuralQueueBuilder::new();
+        propagate_concept_links(&g, 1, &mut q);
+
+        assert!(q.contains(5), "concept neighbor reached from a Topic seed");
+    }
+
+    #[test]
+    fn semantic_propagation_weights_by_similarity() {
+        // Higher similarity → lower priority value → earlier in the queue.
+        let mut g = TestGraph::default();
+        g.nodes.insert(1, node(1));
+        // intrinsic 0.0 so the stored priority is the propagated value itself
+        // (combine(x, 0.0) = x); with the default intrinsic of 1.0 both would
+        // collapse to 1.0 and be indistinguishable.
+        g.intrinsic.insert(2, 0.0);
+        g.intrinsic.insert(3, 0.0);
+        g.semantic.insert(1, vec![(2, 0.9), (3, 0.2)]);
+
+        let mut q = NeuralQueueBuilder::new();
+        propagate_semantic_neighbors(&g, 1, &mut q);
+
+        let p2 = q.entries.get(&2).copied();
+        let p3 = q.entries.get(&3).copied();
+        assert!(p2.is_some() && p3.is_some(), "both semantic neighbors inserted");
+        assert!(
+            p2.unwrap() < p3.unwrap(),
+            "higher-similarity neighbor should surface earlier (lower priority value)"
+        );
+    }
+
+    #[test]
+    fn semantic_propagation_no_op_when_empty() {
+        let mut g = TestGraph::default();
+        g.nodes.insert(1, node(1));
+        // No semantic entry for 1.
+
+        let mut q = NeuralQueueBuilder::new();
+        propagate_semantic_neighbors(&g, 1, &mut q);
+
+        assert!(q.entries.is_empty(), "no neighbors inserted when semantic map is empty");
     }
 
     #[test]

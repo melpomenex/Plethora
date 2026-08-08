@@ -2092,6 +2092,7 @@ export const ja: Dict = {
   "queue.compositionFlashcards": "フラッシュカード",
   "queue.compositionHelp": "セッションの相対的な割合です。合計が100になる必要はありません。",
   "neural.goNeural": "Go neural",
+  "neural.goNeuralTooltip": "伝播活性化で関連資料を探索",
   "neural.exitNeural": "ニューラル復習を終了",
   "neural.reviewMode": "ニューラル復習",
   "neural.refilled": "関連要素からニューラルキューを補充しました",
