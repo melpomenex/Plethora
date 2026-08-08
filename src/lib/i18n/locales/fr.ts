@@ -2140,6 +2140,7 @@ export const fr: Dict = {
   "queue.compositionFlashcards": "Cartes",
   "queue.compositionHelp": "Parts relatives de la session — elles ne doivent pas nécessairement totaliser 100.",
   "neural.goNeural": "Go neural",
+  "neural.goNeuralTooltip": "Explorer le matériel lié par activation propagée",
   "neural.exitNeural": "Quitter la révision neuronale",
   "neural.reviewMode": "Révision neuronale",
   "neural.refilled": "File neuronale rechargée à partir des éléments liés",

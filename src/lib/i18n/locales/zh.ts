@@ -2232,6 +2232,7 @@ export const zh: Dict = {
   "queue.compositionFlashcards": "闪卡",
   "queue.compositionHelp": "会话的相对份额——不必合计为 100。",
   "neural.goNeural": "Go neural",
+  "neural.goNeuralTooltip": "通过扩散激活探索相关材料",
   "neural.exitNeural": "退出神经复习",
   "neural.reviewMode": "神经复习",
   "neural.refilled": "神经队列已从相关元素补充",

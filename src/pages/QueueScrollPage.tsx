@@ -34,6 +34,21 @@ import { getDueItems, type LearningItem } from "../api/learning-items";
 import { sanitizeHtml } from "../components/common/RichContentRenderer";
 import { getDueExtracts, submitExtractReview } from "../api/extract-review";
 import { createExtract, deleteExtract, setExtractPriority, getExtract, type Extract } from "../api/extracts";
+import {
+  buildNeuralQueue,
+  getNeuralQueueResolvedFront,
+  consumeNeuralQueueElement,
+  refillNeuralQueueIfDepleted,
+  getNeuralQueueRemaining,
+  type ResolvedNeuralQueueEntry,
+  type NeuralElementKind,
+} from "../api/neural-queue";
+import { resolveEmbeddingConfig } from "../stores/ragStore";
+import {
+  buildNeuralScrollItems as neuralBuildNeuralScrollItems,
+  neuralSeedFromItem,
+  NEURAL_FETCH_BATCH,
+} from "./queueScrollNeural";
 import { ExtractScrollItem } from "../components/review/ExtractScrollItem";
 import { ClozeCreatorPopup } from "../components/extracts/ClozeCreatorPopup";
 import { QACreatorPopup } from "../components/extracts/QACreatorPopup";
@@ -177,6 +192,12 @@ interface ScrollItem {
   engagementScore?: number;
   /** RSS relevance score (0.0-1.0) from classifier-based scoring */
   relevanceScore?: number;
+  /**
+   * The element_tree.id this item came from in neural review (undefined in
+   * normal Scroll Mode). Used to correlate with the neural_queue so advancing
+   * can `consume` the right element and trigger a refill when depleted.
+   */
+  neuralElementId?: number;
 }
 
 /**
@@ -273,6 +294,20 @@ function dedupeById(items: ScrollItem[]): ScrollItem[] {
     result.push(item);
   }
   return result;
+}
+
+/**
+ * Resolve neural-queue entries into renderable ScrollItems. Thin wrapper over
+ * the testable `buildNeuralScrollItems` in `queueScrollNeural.ts` — the
+ * structural `NeuralScrollItem` it returns is a subset of ScrollItem, so the
+ * cast is sound. See that module for the resolution/ordering rationale.
+ */
+async function buildNeuralScrollItems(
+  entries: ResolvedNeuralQueueEntry[],
+  documentsMap: ReadonlyMap<string, Document>,
+  fallbackTitle: string,
+): Promise<ScrollItem[]> {
+  return (await neuralBuildNeuralScrollItems(entries, documentsMap, fallbackTitle)) as ScrollItem[];
 }
 
 /**
@@ -419,6 +454,24 @@ export function QueueScrollPage() {
     setIsImageExpanded(settings.rssQueue.showCoverImage ?? false);
   }, [currentIndex, settings.rssQueue.showCoverImage]);
   const [scrollItems, setScrollItems] = useState<ScrollItem[]>([]);
+  // ── Neural review mode ("Go neural") ────────────────────────────────────
+  // When active, scrollItems come from the neural_queue (spreading activation
+  // seeded at the item the user was reading) instead of the normal queue.
+  // The pre-neural snapshot is restored on exit so the user returns to exactly
+  // where they were — the priority queue is never mutated.
+  const [isNeuralMode, setIsNeuralMode] = useState(false);
+  const [isNeuralLoading, setIsNeuralLoading] = useState(false);
+  const [neuralRemaining, setNeuralRemaining] = useState<number | null>(null);
+  const [preNeuralScrollItems, setPreNeuralScrollItems] = useState<ScrollItem[] | null>(null);
+  const [preNeuralIndex, setPreNeuralIndex] = useState(0);
+  // The seed (kind + ref id) the user entered neural from, kept in a ref so the
+  // refill-after-consume path can re-seed without re-deriving it. Per the
+  // backend contract, refill re-seeds at the *consumed* element, so this holds
+  // the most-recently-studied element, updated on each advance.
+  const neuralSeedRef = useRef<{ kind: NeuralElementKind; refId: string } | null>(null);
+  // The embedding config used at neural-build time, kept so the refill-after-
+  // consume path passes the same config (semantic neighbors stay in play).
+  const neuralEmbeddingConfigRef = useRef<import("../api/rag").EmbeddingConfig | null>(null);
   const [dueFlashcards, setDueFlashcards] = useState<LearningItem[]>([]);
   const [dueExtracts, setDueExtracts] = useState<Extract[]>([]);
   // Maps podcast episodeId → real Document.id, so extracts created from a
@@ -1003,6 +1056,10 @@ export function QueueScrollPage() {
   // Skip during rating to prevent race conditions
   useEffect(() => {
     if (isRating) return;
+    // Neural mode owns scrollItems — the normal queue-build must not overwrite
+    // the spreading-activation session. It re-runs when neural mode is exited
+    // (isNeuralMode flips to false, restoring the snapshot separately).
+    if (isNeuralMode) return;
     let cancelled = false;
 
     const buildScrollItems = async () => {
@@ -1459,7 +1516,7 @@ export function QueueScrollPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedDocumentIds, customSubset]);
+  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, isNeuralMode, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedDocumentIds, customSubset]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];
@@ -2227,6 +2284,52 @@ export function QueueScrollPage() {
   }, [currentIndex, isTransitioning, isRating, resetScrollToTop]);
 
   const advanceAfterRemoval = useCallback((removedItemId: string) => {
+    // In neural mode, consuming the just-studied element and refilling on
+    // depletion is the depletion trigger (task 4.11). Fire it alongside the
+    // visual removal — it is best-effort and never blocks the advance.
+    if (isNeuralMode) {
+      const studied = scrollItems.find((it) => it.id === removedItemId);
+      const elementId = studied?.neuralElementId;
+      if (elementId !== undefined) {
+        // Update the seed to the just-studied element so a refill re-seeds
+        // there (true "expand from where I am" per the backend contract).
+        const nextSeed = neuralSeedFromItem(studied);
+        if (nextSeed) neuralSeedRef.current = nextSeed;
+        void (async () => {
+          try {
+            await consumeNeuralQueueElement(elementId);
+            if (nextSeed) {
+              const refilled = await refillNeuralQueueIfDepleted(
+                nextSeed.kind,
+                nextSeed.refId,
+                neuralEmbeddingConfigRef.current ?? undefined,
+              );
+              if (refilled !== null) {
+                // Queue was rebuilt: fetch the new front and append any entries
+                // not already shown so the session continues seamlessly.
+                const fresh = await getNeuralQueueResolvedFront(NEURAL_FETCH_BATCH);
+                setScrollItems((prev) => {
+                  const seen = new Set(prev.map((it) => it.neuralElementId));
+                  const unseen = fresh.filter((e) => !seen.has(e.element_id));
+                  if (unseen.length === 0) return prev;
+                  void buildNeuralScrollItems(unseen, documentsMap, t("queueScroll.unknownDocument")).then(
+                    (newItems) => {
+                      setScrollItems((cur) => dedupeById([...cur, ...newItems]));
+                    },
+                  );
+                  return prev;
+                });
+                toast.info(t("neural.refilled"));
+              }
+            }
+            setNeuralRemaining(await getNeuralQueueRemaining());
+          } catch {
+            // Non-fatal: the advance already happened visually.
+          }
+        })();
+      }
+    }
+
     setScrollItems((prev) => {
       const updated = prev.filter((item) => item.id !== removedItemId);
       if (updated.length === 0) {
@@ -2246,7 +2349,7 @@ export function QueueScrollPage() {
       }, 300);
       return updated;
     });
-  }, [currentIndex, resetScrollToTop]);
+  }, [currentIndex, resetScrollToTop, isNeuralMode, scrollItems, documentsMap, toast, t]);
 
   const handleDetailsDelete = useCallback(async () => {
     if (!currentItem) return;
@@ -3443,6 +3546,83 @@ export function QueueScrollPage() {
     }
   };
 
+  /**
+   * Enter neural review ("Go neural"): build a queue by spreading activation
+   * from the current item, then swap the scroll session over to it. The
+   * pre-neural session is snapshotted so exit restores it exactly. The priority
+   * queue is never mutated — neural mode only reads it.
+   */
+  const handleGoNeural = useCallback(async () => {
+    const seed = neuralSeedFromItem(currentItem);
+    if (!seed) return; // RSS/podcast have no element_tree node.
+    setIsNeuralLoading(true);
+    try {
+      // Resolve the user's embedding config so semantic-similarity edges fire
+      // when the collection is indexed. A failure here is non-fatal — neural
+      // review still works on the tree-topology relationships alone.
+      let embeddingConfig: import("../api/rag").EmbeddingConfig | null = null;
+      try {
+        embeddingConfig = await resolveEmbeddingConfig();
+      } catch {
+        // No embedding provider configured — semantic neighbors will be a no-op.
+      }
+      neuralEmbeddingConfigRef.current = embeddingConfig;
+
+      const count = await buildNeuralQueue(seed.kind, seed.refId, embeddingConfig ?? undefined);
+      if (count === 0) {
+        toast.info(t("neural.reviewMode"), t("queueScroll.noContentToSummarize"));
+        return;
+      }
+      neuralSeedRef.current = seed;
+      const entries = await getNeuralQueueResolvedFront(NEURAL_FETCH_BATCH);
+      const items = await buildNeuralScrollItems(entries, documentsMap, t("queueScroll.unknownDocument"));
+      if (items.length === 0) {
+        toast.info(t("neural.reviewMode"), t("queueScroll.noContentToSummarize"));
+        return;
+      }
+      // Snapshot the reading session for a clean exit.
+      setPreNeuralScrollItems(scrollItems);
+      setPreNeuralIndex(currentIndex);
+      setScrollItems(items);
+      setCurrentIndex(0);
+      setRenderedIndex(0);
+      setIsNeuralMode(true);
+      setNeuralRemaining(await getNeuralQueueRemaining());
+      toast.success(t("neural.reviewMode"));
+    } catch (error) {
+      toast.error(t("queueScroll.ratingFailed"), error instanceof Error ? error.message : t("queueScroll.pleaseTryAgain"));
+    } finally {
+      setIsNeuralLoading(false);
+    }
+  }, [currentItem, documentsMap, scrollItems, currentIndex, toast, t]);
+
+  /**
+   * Exit neural review: restore the exact reading session (items + position)
+   * the user was in before entering neural mode. No backend mutation — the
+   * priority queue was never touched (neural mode's contract).
+   */
+  const handleExitNeural = useCallback(() => {
+    if (preNeuralScrollItems !== null) {
+      setScrollItems(preNeuralScrollItems);
+      setCurrentIndex(preNeuralIndex);
+      setRenderedIndex(preNeuralIndex);
+    }
+    setIsNeuralMode(false);
+    setPreNeuralScrollItems(null);
+    setPreNeuralIndex(0);
+    setNeuralRemaining(null);
+    neuralSeedRef.current = null;
+    neuralEmbeddingConfigRef.current = null;
+  }, [preNeuralScrollItems, preNeuralIndex]);
+
+  // Auto-exit neural review once every queued element has been consumed — the
+  // session is complete. Restores the reading session the user came from.
+  useEffect(() => {
+    if (isNeuralMode && scrollItems.length === 0 && !isNeuralLoading) {
+      handleExitNeural();
+    }
+  }, [isNeuralMode, scrollItems.length, isNeuralLoading, handleExitNeural]);
+
   if (isLoadingData) {
     return (
       <div className="h-full w-full flex items-center justify-center bg-background">
@@ -4137,6 +4317,12 @@ export function QueueScrollPage() {
             void handleSummarize();
           }
         }}
+        isNeuralMode={isNeuralMode}
+        neuralRemaining={neuralRemaining}
+        isNeuralLoading={isNeuralLoading}
+        canGoNeural={!!currentItem && (currentItem.type === "document" || currentItem.type === "flashcard" || currentItem.type === "extract")}
+        onGoNeural={handleGoNeural}
+        onExitNeural={handleExitNeural}
         detailsButton={detailsTarget ? (
           <ItemDetailsPopover
             target={detailsTarget}
@@ -4208,6 +4394,11 @@ export function QueueScrollPage() {
           priorityFineTune: t("priority.fineTune"),
           prioritySaving: t("priority.saving"),
           prioritySaveFailed: t("common.error"),
+          goNeural: t("neural.goNeural"),
+          goNeuralTooltip: t("neural.goNeuralTooltip"),
+          exitNeural: t("neural.exitNeural"),
+          reviewMode: t("neural.reviewMode"),
+          refilled: t("neural.refilled"),
         }}
       />
 

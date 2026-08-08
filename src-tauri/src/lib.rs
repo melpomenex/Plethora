@@ -1260,6 +1260,7 @@ pub fn run() {
             commands::run_auto_postpone,
             commands::build_neural_queue,
             commands::get_neural_queue_front,
+            commands::get_neural_queue_resolved_front,
             commands::consume_neural_queue_element,
             commands::refill_neural_queue_if_depleted,
             commands::get_neural_queue_remaining,
