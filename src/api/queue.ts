@@ -135,6 +135,30 @@ export async function getDueQueueItems(randomness?: number, collectionId?: strin
 }
 
 /**
+ * Where an element sits in the global priority queue, right now.
+ *
+ * Nothing stores these numbers — they are derived from the element's rank each
+ * time you ask, so an untouched element's percentile drifts as the collection
+ * grows. That is SuperMemo's model: a priority is a position, not a value.
+ */
+export interface PriorityStanding {
+  /** 0-100, higher = more important (same direction as the slider). */
+  percentile: number;
+  /** 1-based; position 1 is the most important element. */
+  position: number;
+  queueSize: number;
+}
+
+/**
+ * Look up an element's live priority standing. `id` may be a document,
+ * extract, or learning item — they share one queue. Returns null if the id
+ * matches no queue element.
+ */
+export async function getPriorityStanding(id: string): Promise<PriorityStanding | null> {
+  return invokeCommand<PriorityStanding | null>("get_priority_standing", { id });
+}
+
+/**
  * Get next item from the queue
  */
 export async function getNextQueueItem(randomness?: number, collectionId?: string): Promise<QueueItem | null> {

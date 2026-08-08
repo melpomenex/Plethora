@@ -9,6 +9,7 @@ import {
   getTimeEstimateRange,
   isScheduledItem,
   orderQueueItems,
+  splitPriorityTargets,
 } from "../reviewUx";
 
 const baseItem = (overrides: Partial<QueueItem>): QueueItem => ({
@@ -21,6 +22,36 @@ const baseItem = (overrides: Partial<QueueItem>): QueueItem => ({
   tags: ["History"],
   progress: 20,
   ...overrides,
+});
+
+describe("splitPriorityTargets", () => {
+  it("routes document-less cards to the learning-item path", () => {
+    // The regression: an Anki/extension card has documentId "", and sending
+    // that to update_document_priority failed with `Document ` not found.
+    const { documentIds, learningItemIds } = splitPriorityTargets([
+      baseItem({ id: "a", documentId: "", learningItemId: "card-1" }),
+      baseItem({ id: "b", documentId: "doc-1" }),
+    ]);
+    expect(documentIds).toEqual(["doc-1"]);
+    expect(learningItemIds).toEqual(["card-1"]);
+  });
+
+  it("never emits an empty id on either path", () => {
+    const { documentIds, learningItemIds } = splitPriorityTargets([
+      baseItem({ id: "a", documentId: "", learningItemId: undefined }),
+      baseItem({ id: "b", documentId: "" }),
+    ]);
+    expect(documentIds).toEqual([]);
+    expect(learningItemIds).toEqual([]);
+  });
+
+  it("de-duplicates cards sharing one source document", () => {
+    const { documentIds } = splitPriorityTargets([
+      baseItem({ id: "a", documentId: "doc-1", learningItemId: "card-1" }),
+      baseItem({ id: "b", documentId: "doc-1", learningItemId: "card-2" }),
+    ]);
+    expect(documentIds).toEqual(["doc-1"]);
+  });
 });
 
 describe("reviewUx helpers", () => {
@@ -89,6 +120,44 @@ describe("reviewUx helpers", () => {
       "a-item",
       "z-item",
     ]);
+  });
+
+  it("interleaves documents into a card-dominated queue", () => {
+    // A real library: hundreds of overdue Anki-imported cards that all score
+    // ~73, and documents that all score ~59 (never read, no user priority set).
+    // A plain priority sort puts every card ahead of every document, which is
+    // what made Due All look like a flashcard-only queue while Scroll Mode —
+    // ordering by the same combined criterion this now uses — showed EPUBs.
+    const overdue = new Date(Date.now() - 37 * 24 * 60 * 60 * 1000).toISOString();
+    const cards = Array.from({ length: 100 }, (_, i) =>
+      baseItem({
+        id: `card-${i}`,
+        itemType: "learning-item",
+        priority: 9.9,
+        estimatedTime: 1,
+        dueDate: overdue,
+        tags: ["a", "b", "c", "d", "e", "f", "g", "h", "i"],
+        progress: 0,
+      }),
+    );
+    const documents = Array.from({ length: 20 }, (_, i) =>
+      baseItem({
+        id: `doc-${i}`,
+        itemType: "document",
+        priority: 10,
+        estimatedTime: 5,
+        dueDate: undefined,
+        priorityRating: 0,
+        prioritySlider: 0,
+        progress: 0,
+      }),
+    );
+
+    const ordered = orderQueueItems([...cards, ...documents], "exploratory");
+    const firstDocument = ordered.findIndex((item) => item.itemType === "document");
+
+    expect(firstDocument).toBeGreaterThanOrEqual(0);
+    expect(firstDocument).toBeLessThan(10);
   });
 
   it("numbers only the currently visible filtered items", () => {

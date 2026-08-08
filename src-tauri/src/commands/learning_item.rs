@@ -1,7 +1,7 @@
 //! Learning item commands
 
 use crate::commands::review::RepositoryExt;
-use crate::database::Repository;
+use crate::database::{find_node_id_in_tx, unlink_node_in_tx, ElementKind, Repository};
 use crate::error::{IncrementumError, Result};
 use crate::generator::LearningItemGenerator;
 use crate::models::{ItemState, ItemType, LearningItem};
@@ -231,6 +231,7 @@ pub async fn create_learning_item(
     question: String,
     answer: Option<String>,
     cloze_text: Option<String>,
+    extract_id: Option<String>,
     document_id: Option<String>,
     prerequisite_item_ids: Option<Vec<String>>,
     tags: Option<Vec<String>>,
@@ -258,18 +259,50 @@ pub async fn create_learning_item(
     };
 
     let mut item = LearningItem::new(item_type, question);
+    item.extract_id = extract_id.clone();
     item.document_id = document_id;
     item.answer = answer;
     item.cloze_text = cloze_text;
     item.tags = tags.unwrap_or_default();
     item.image_asset_ids = image_asset_ids.unwrap_or_default();
     item.interaction_metadata = interaction_metadata;
+
+    // If an extract lineage was recorded but no document_id was supplied,
+    // resolve the document from the extract so the element_tree edge and the
+    // documents.learning_item_count bump land on the right document. (The
+    // Studio sends extract_id when authoring a card against an extract; the
+    // extract's document is the authoritative parent.)
+    if item.extract_id.is_some() && item.document_id.is_none() {
+        if let Some(ext_id) = &item.extract_id {
+            if let Ok(Some(extract)) = repo.get_extract(ext_id).await {
+                item.document_id = Some(extract.document_id);
+            }
+        }
+    }
     let created = repo.create_learning_item(&item).await?;
     if let Some(prerequisites) = prerequisite_item_ids {
         store_learning_item_prerequisites(&created.id, &prerequisites, &repo).await?;
     }
     append_daily_note_learning_item_link(&created.id, &created.question, &repo).await?;
     Ok(created)
+}
+
+/// Set a learning item's user-set priority (supermemo-faithful-queue Phase 3).
+/// Mirrors `update_document_priority`: the slider is the authoritative
+/// importance rank on the 0-100 scale; the score is derived from it. FSRS
+/// urgency (which drives *when* the card is scheduled) is untouched.
+#[tauri::command]
+pub async fn update_learning_item_priority(
+    id: String,
+    slider: i32,
+    repo: State<'_, Repository>,
+) -> Result<LearningItem> {
+    let slider_value = slider.clamp(0, 100);
+    let score = crate::database::priority_rank::key_for_slider(repo.db_pool(), slider_value).await?;
+    let updated = repo
+        .update_learning_item_priority(&id, slider_value, score)
+        .await?;
+    Ok(updated)
 }
 
 #[tauri::command]
@@ -321,6 +354,18 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
         .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
 
     let mut transaction = repo.pool().begin().await?;
+
+    // Unlink the learning item's element_tree node from the overlay topology
+    // (supermemo-faithful-queue Phase 2), mirroring create_learning_item's
+    // register_node edge.
+    if let Some(node_id) = find_node_id_in_tx(&mut transaction, ElementKind::LearningItem, &item_id)
+        .await
+        .ok()
+        .flatten()
+    {
+        unlink_node_in_tx(&mut transaction, node_id).await?;
+    }
+
     let deleted = sqlx::query("DELETE FROM learning_items WHERE id = ?1")
         .bind(&item_id)
         .execute(&mut *transaction)

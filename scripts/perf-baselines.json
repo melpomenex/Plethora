@@ -24,6 +24,16 @@
       "tolerance": 1.6,
       "reason": "queueScrollBudget.splitReviewBudget (two Math.mins) was replaced by composeSession: three-way weight normalization, documents-anchored session sizing, iterated proportional redistribution of unfillable shares, and largest-remainder apportionment. ~11x the (near-free) baseline cost, still ~0.05us per composition; runs once per session build."
     },
+    "queueScrollOrder/combined-sort-300-items": {
+      "cost": 16.04,
+      "tolerance": 1.5,
+      "reason": "SuperMemo combined-criterion session sort (supermemo-faithful-queue Phase 3): O(n^2) greedy insertion over a 300-element daily session, scoring priority + topic/item proportion bias + stable jitter per candidate. Runs once per session build (~8ms); wider tolerance because the greedy loop is allocation-light but iteration-heavy."
+    },
+    "neuralQueue/spreading-activation-300-nodes": {
+      "cost": 0.0017,
+      "tolerance": 2.0,
+      "reason": "SuperMemo neural-queue spreading-activation pass (Phase 4): TS port of the Rust algorithm, propagating activation over a 300-node seeded tree via concept/inter-element/descendant/sibling links with the monotonicity InsertOrUpdate. Runs only on neural-queue depletion (< 20 remaining); the ~0.9us cost reflects the pure-combine hot path. Wider tolerance because Map operations are GC-sensitive at this timescale."
+    },
     "ankiImport/convert-2000-notes": {
       "cost": 4.338
     },

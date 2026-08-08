@@ -73,6 +73,25 @@ pub struct LearningItem {
     #[serde(default)]
     pub updated_at: Option<String>,
     pub first_reviewed_at: Option<DateTime<Utc>>,
+    /// User-set importance rank on the 0-100 priority-queue scale
+    /// (supermemo-faithful-queue Phase 3). Default 50 = neutral midpoint, so
+    /// un-prioritized cards are not silently demoted to the bottom. This is
+    /// distinct from FSRS urgency, which drives *when* the card is scheduled.
+    #[serde(default = "default_priority_slider")]
+    pub priority_slider: i32,
+    /// Derived priority score used for queue ordering. Recomputed from the
+    /// slider on write so the sort key is always consistent.
+    #[serde(default)]
+    pub priority_score: f64,
+    /// 1 once the user commits a priority (any value, including 0); 0 means
+    /// never touched. Lets the priority UI distinguish "deliberately set to 0"
+    /// from "never set" without a nullable column.
+    #[serde(default)]
+    pub priority_explicitly_set: bool,
+}
+
+fn default_priority_slider() -> i32 {
+    50
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -125,6 +144,9 @@ impl LearningItem {
             algorithm_state: None,
             updated_at: None,
             first_reviewed_at: None,
+            priority_slider: 50,
+            priority_score: 0.0,
+            priority_explicitly_set: false,
         }
     }
 

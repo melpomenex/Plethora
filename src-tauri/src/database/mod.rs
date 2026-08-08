@@ -1,10 +1,18 @@
 //! Database layer for Incrementum
 
 pub mod connection;
+pub mod element_tree_repository;
 pub mod migrations;
+pub mod neural_queue_repository;
+pub mod priority_rank;
 pub mod repository;
 
 pub use connection::Database;
+pub use element_tree_repository::{
+    find_node_id_in_tx, find_node_id_pool, register_node_in_tx, unlink_node_in_tx, ElementKind,
+    ElementTreeRepository, ElementTreeNode, ELEMENT_TYPE_ITEM, ELEMENT_TYPE_TOPIC,
+};
+pub use neural_queue_repository::{NeuralQueueRepository, NeuralQueueRow};
 pub use repository::DocumentQueueInfo;
 pub use repository::Repository;
 

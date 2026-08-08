@@ -17,15 +17,40 @@ import { useState, useCallback, useEffect } from "react";
 import { cn } from "../../utils";
 import { CaretDown, CaretUp, Flag } from "@phosphor-icons/react";
 import { updateDocumentPriority } from "../../api/documents";
+import { updateLearningItemPriority } from "../../api/learning-items";
+import { getPriorityStanding, type PriorityStanding } from "../../api/queue";
 import { useI18n } from "../../lib/i18n";
 
+/**
+ * Which kind of item this control targets. Documents and learning items both
+ * carry a 0-100 priority slider (supermemo-faithful-queue Phase 3); this just
+ * selects which update command to call.
+ */
+type PriorityTargetKind = "document" | "learningItem";
+
 interface PriorityControlProps {
+  /** The id of the item whose priority is being set. */
   documentId: string;
   prioritySlider?: number; // 0-100
   priorityRating?: number; // 1-5
   onPriorityChange?: (slider: number, rating: number) => void;
   className?: string;
   variant?: "compact" | "full";
+  /**
+   * What `documentId` refers to. Defaults to `"document"` for back-compat with
+   * existing call sites; pass `"learningItem"` to set a card's priority instead
+   * (Phase 3 — the priority queue treats topics and items uniformly).
+   */
+  targetKind?: PriorityTargetKind;
+  /**
+   * Overrides for the element's priority-queue standing ("Position X of N").
+   * Normally omitted — the control looks its own standing up when opened, so
+   * the readout is the element's live rank rather than a value a caller
+   * happened to have on hand. Pass these only to render a known standing
+   * without a round trip.
+   */
+  queuePosition?: number;
+  queueSize?: number;
 }
 
 // Priority presets with labels and colors
@@ -61,25 +86,58 @@ export function PriorityControl({
   onPriorityChange,
   className,
   variant = "compact",
+  targetKind = "document",
+  queuePosition,
+  queueSize,
 }: PriorityControlProps) {
   const [slider, setSlider] = useState(prioritySlider);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [standing, setStanding] = useState<PriorityStanding | null>(null);
   const { t } = useI18n();
 
   const currentInfo = getPriorityInfo(slider);
+
+  // Prop overrides win; otherwise show the standing we looked up.
+  const shownPosition = queuePosition ?? standing?.position;
+  const shownQueueSize = queueSize ?? standing?.queueSize;
 
   useEffect(() => {
     setSlider(prioritySlider);
   }, [documentId, prioritySlider]);
 
+  // Priority is a rank, so the readout is only true at the moment it is read:
+  // refresh it whenever the popup opens and after each save. Skipped entirely
+  // when the caller supplies its own standing.
+  useEffect(() => {
+    if (!isExpanded || (queuePosition !== undefined && queueSize !== undefined)) return;
+    let cancelled = false;
+    getPriorityStanding(documentId)
+      .then((result) => {
+        if (!cancelled) setStanding(result);
+      })
+      .catch(() => {
+        // A missing standing just hides the readout; it is not worth a toast.
+        if (!cancelled) setStanding(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, isExpanded, isSaving, queuePosition, queueSize]);
+
   const handleSliderChange = useCallback(async (newSlider: number) => {
     setSlider(newSlider);
     const newRating = sliderToRating(newSlider);
-    
+
     setIsSaving(true);
     try {
-      await updateDocumentPriority(documentId, newRating, newSlider);
+      // Dispatch to the document or learning-item priority command depending
+      // on what this control targets (Phase 3 makes the two uniform).
+      if (targetKind === "learningItem") {
+        await updateLearningItemPriority(documentId, newSlider);
+      } else {
+        await updateDocumentPriority(documentId, newRating, newSlider);
+      }
       onPriorityChange?.(newSlider, newRating);
     } catch (error) {
       console.error("Failed to update priority:", error);
@@ -87,7 +145,7 @@ export function PriorityControl({
     } finally {
       setIsSaving(false);
     }
-  }, [documentId, onPriorityChange]);
+  }, [documentId, onPriorityChange, targetKind]);
 
   const handlePresetClick = useCallback((presetValue: number) => {
     handleSliderChange(presetValue);
@@ -188,6 +246,15 @@ export function PriorityControl({
                 <p className="text-xs text-muted-foreground text-center">
                   {t(currentInfo.descKey)}
                 </p>
+
+                {/* The element's live rank in the global priority queue —
+                    SuperMemo's actual unit of priority. Position 1 is the most
+                    important element. */}
+                {typeof shownQueueSize === "number" && shownQueueSize > 0 && typeof shownPosition === "number" ? (
+                  <p className="text-[10px] text-muted-foreground text-center">
+                    {t("priority.queuePosition", { position: shownPosition, size: shownQueueSize })}
+                  </p>
+                ) : null}
               </div>
             </div>
           </>

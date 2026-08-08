@@ -45,6 +45,12 @@
 
 - [x] 7.1 Run the unit test suite and the typecheck; both clean.
 - [ ] 7.2 Run the app, open the Queue in reading mode, click "Scroll Mode", set Flashcards to 55%, and confirm flashcards appear at roughly that share — the reported bug.
+       > **Superseded** by `supermemo-faithful-queue` Phase 1 task 1.3: the
+       > "Scroll Mode button honours the flashcard slider" scenario was broken
+       > on flashcard-leaning filters because the queue-list branch's document
+       > pool could be empty. Phase 1 backfills the document pool from the
+       > wider store and orders by priority, so this scenario now works on all
+       > filters. This manual step remains as a cross-check of that fix.
 - [ ] 7.3 Repeat via "Start Optimal Session" and confirm the two entry points agree.
 - [ ] 7.4 Set Extracts to 20% with only 6 due extracts and confirm all 6 appear and the session does not shrink.
 - [ ] 7.5 Set a type to 0% and confirm it is absent; uncheck a Queue item-type toggle with its slider non-zero and confirm it is still absent.

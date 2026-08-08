@@ -43,6 +43,7 @@ import { FlashcardStudioModal } from "../components/review/FlashcardStudioModal"
 import { LearningCardsList } from "../components/learning/LearningCardsList";
 import { submitReview } from "../api/review";
 import { composeSession } from "./queueScrollBudget";
+import { orderScrollItemsByCombinedCriterion, selectByQuotaInOrder } from "../utils/queueScrollOrder";
 import { gateScrollItemsByType, resolveMissingExtractContent } from "./queueScrollItemTypes";
 import { FLASHCARD_REVEAL_EVENT, resolveScrollRatingKey } from "./queueScrollKeyboard";
 import {
@@ -272,43 +273,6 @@ function dedupeById(items: ScrollItem[]): ScrollItem[] {
     result.push(item);
   }
   return result;
-}
-
-/**
- * Evenly distribute review items (flashcards + extracts) throughout the
- * non-review items (documents + RSS + podcasts). Preserves the relative order
- * of each input list; `applyVarietyMixing` runs afterwards.
- */
-function interleaveScrollItems(
-  nonReviewItems: ScrollItem[],
-  reviewItems: ScrollItem[]
-): ScrollItem[] {
-  const distributed: ScrollItem[] = [];
-  if (nonReviewItems.length > 0) {
-    const interval = reviewItems.length > 0
-      ? Math.max(1, Math.round(nonReviewItems.length / reviewItems.length))
-      : nonReviewItems.length;
-
-    let reviewIndex = 0;
-    for (let i = 0; i < nonReviewItems.length; i++) {
-      distributed.push(nonReviewItems[i]);
-
-      // Insert a review item after every 'interval' non-review items
-      if (reviewIndex < reviewItems.length && (i + 1) % interval === 0) {
-        distributed.push(reviewItems[reviewIndex]);
-        reviewIndex++;
-      }
-    }
-
-    // Add any remaining review items at the end
-    while (reviewIndex < reviewItems.length) {
-      distributed.push(reviewItems[reviewIndex]);
-      reviewIndex++;
-    }
-  } else {
-    distributed.push(...reviewItems);
-  }
-  return distributed;
 }
 
 /**
@@ -1009,67 +973,9 @@ export function QueueScrollPage() {
     void loadContent();
   }, [currentIndex, showFullContent, scrollItems]);
 
-  /**
-   * Apply engagement-based variety mixing to the queue
-   * 
-   * This ensures:
-   * - Topic variety (don't cluster same categories)
-   * - Length variety (mix long and short items)
-   * - Discovery injection (surface new items)
-   */
+  // Cache for `getStableRandom` — a deterministic per-id jitter used when
+  // mapping due pools to scroll items, so re-renders don't reshuffle.
   const stableRandomCacheRef = useRef<Map<string, number>>(new Map());
-
-  const applyVarietyMixing = useCallback((items: ScrollItem[]): ScrollItem[] => {
-    if (items.length <= 3) return items;
-
-    const maxSameCategory = 3;
-    const sorted = [...items].sort((a, b) =>
-      (b.engagementScore ?? 0) - (a.engagementScore ?? 0)
-    );
-
-    const result: ScrollItem[] = [];
-    let lastCategory: string | null = null;
-    let streak = 0;
-    const deferred: ScrollItem[] = [];
-
-    for (let idx = 0; idx < sorted.length; idx++) {
-      const item = sorted[idx];
-      const cat = item.category ?? "uncategorized";
-      if (cat === lastCategory) {
-        if (streak >= maxSameCategory) {
-          deferred.push(item);
-          continue;
-        }
-        streak++;
-      } else {
-        lastCategory = cat;
-        streak = 1;
-      }
-      result.push(item);
-    }
-
-    if (deferred.length > 0) {
-      let insertPos = 0;
-      for (let d = 0; d < deferred.length; d++) {
-        const item = deferred[d];
-        const cat = item.category ?? "uncategorized";
-        let placed = false;
-        for (let r = insertPos; r < result.length; r++) {
-          const curCat = result[r]?.category ?? "uncategorized";
-          const nextCat = result[r + 1]?.category ?? null;
-          if (curCat !== cat && nextCat !== cat) {
-            result.splice(r + 1, 0, item);
-            insertPos = r + 1;
-            placed = true;
-            break;
-          }
-        }
-        if (!placed) result.push(item);
-      }
-    }
-
-    return result;
-  }, []);
 
   const getStableRandom = useCallback((str: string, offset: number = 0): number => {
     const key = str + "|" + offset;
@@ -1241,12 +1147,27 @@ export function QueueScrollPage() {
         // within their own type — this is what makes "reading queue +
         // Flashcards at 55%" produce flashcards. A hand-picked semantic
         // cluster (customSubset) is exempt: composition governs counts within
-        // the cluster but never introduces items from outside it. (The
-        // documents pool never needs topping up: the session is anchored on
-        // documents, so `composed.documents` is exactly the pool length.)
+        // the cluster but never introduces items from outside it.
+        //
+        // Documents are topped up too: when the active filter returned few or
+        // no documents (e.g. a flashcard-leaning "Due All" list), pull due
+        // documents from the wider queue store so the Documents slider can
+        // still be honoured. Without this, a flashcard-only source leaves the
+        // document pool empty and the session degrades to sequential cards.
+        let toppedDocuments = documentPool;
         let toppedExtracts = extractPool;
         let toppedFlashcards = flashcardPool;
         if (!customSubset) {
+          if (composed.documents > documentPool.length) {
+            toppedDocuments = dedupeById([
+              ...documentPool,
+              ...toDocumentScrollItems(
+                documentQueueItems,
+                documentsMap,
+                getStableRandom,
+              ),
+            ]);
+          }
           if (composed.extracts > extractPool.length) {
             toppedExtracts = dedupeById([
               ...extractPool,
@@ -1266,17 +1187,42 @@ export function QueueScrollPage() {
           }
         }
 
-        const nonReviewItems = documentPool.slice(0, composed.documents);
+        // When the rows came from the Queue list, that list IS the preview of
+        // this session: honour the composed per-type quota by walking the rows
+        // IN LIST ORDER, so Scroll Mode replays what the user was just looking
+        // at instead of a differently-sorted set of the same items. The list
+        // already orders by the combined criterion (`orderQueueItems`), so
+        // re-sorting here only made the two surfaces disagree.
+        if (customQueueItems && customQueueItems.length > 0) {
+          const { selected, shortfall } = selectByQuotaInOrder(gatedSequentialItems, composed);
+          // Top-ups are the tail of each `topped*` array (dedupeById keeps the
+          // pool items first). They were never in the list, so no position in
+          // it can be faithful — append them rather than pretend otherwise.
+          const extras = [
+            ...toppedDocuments.slice(documentPool.length).slice(0, shortfall.documents),
+            ...toppedExtracts.slice(extractPool.length).slice(0, shortfall.extracts),
+            ...toppedFlashcards.slice(flashcardPool.length).slice(0, shortfall.flashcards),
+          ];
+          if (!cancelled) {
+            setScrollItems([...selected, ...extras]);
+          }
+          return;
+        }
+
+        const nonReviewItems = toppedDocuments.slice(0, composed.documents);
         const limitedExtracts = toppedExtracts.slice(0, composed.extracts);
         const limitedFlashcards = toppedFlashcards.slice(0, composed.flashcards);
 
-        // Interleave and variety-mix exactly like the optimal path, preserving
-        // the relative order of the source rows.
-        const distributedItems = interleaveScrollItems(
-          nonReviewItems,
-          [...limitedFlashcards, ...limitedExtracts],
-        );
-        const mixedItems = applyVarietyMixing(distributedItems);
+        // Order by SuperMemo's combined criterion (Phase 3): priority (primary)
+        // + topic/item proportion bias + stable per-id jitter. Higher-priority
+        // items surface first, with a topic/item mix so a flashcard-heavy
+        // source doesn't present all flashcards up front. Runs once per session
+        // build (not per render), preserving resumability.
+        const mixedItems = orderScrollItemsByCombinedCriterion([
+          ...nonReviewItems,
+          ...limitedFlashcards,
+          ...limitedExtracts,
+        ]);
 
         if (!cancelled) {
           setScrollItems(mixedItems);
@@ -1298,8 +1244,9 @@ export function QueueScrollPage() {
 
       // Honour the Queue's item-type selection: an unchecked type contributes
       // no items. Gated at the source lists so composeSession and
-      // applyVarietyMixing compute against real totals. Feed items (RSS,
-      // podcast) are not covered by the three toggles and stay settings-driven.
+      // orderScrollItemsByCombinedCriterion compute against real totals. Feed
+      // items (RSS, podcast) are not covered by the three toggles and stay
+      // settings-driven.
       const itemTypes = activeTabQueueData.itemTypes;
       const flashcardItems: ScrollItem[] = gateScrollItemsByType(
         toFlashcardScrollItems(activeFlashcards, getStableRandom),
@@ -1492,14 +1439,15 @@ export function QueueScrollPage() {
       const limitedFlashcards = flashcardItems.slice(0, composed.flashcards);
       const limitedExtracts = extractItems.slice(0, composed.extracts);
 
-      // Distribute all item types evenly throughout the queue with variety mixing
-      const distributedItems = interleaveScrollItems(
-        limitedDocuments,
-        [...limitedFlashcards, ...limitedExtracts],
-      );
-
-      // Apply variety mixing for engagement
-      const mixedItems = applyVarietyMixing(distributedItems);
+      // Order by SuperMemo's combined criterion (Phase 3): priority (primary)
+      // + topic/item proportion bias + stable per-id jitter. Higher-priority
+      // items surface first, with a topic/item mix so a flashcard-heavy
+      // source doesn't present all flashcards up front.
+      const mixedItems = orderScrollItemsByCombinedCriterion([
+        ...limitedDocuments,
+        ...limitedFlashcards,
+        ...limitedExtracts,
+      ]);
 
       if (!cancelled) {
         setScrollItems(mixedItems);
@@ -1511,7 +1459,7 @@ export function QueueScrollPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, applyVarietyMixing, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedDocumentIds, customSubset]);
+  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedDocumentIds, customSubset]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];

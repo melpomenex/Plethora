@@ -64,16 +64,23 @@ pub async fn create_extract(
     Ok(created)
 }
 
-/// Manually override an extract's priority score. Once set, the extract
-/// will no longer inherit from document priority updates (its score will
-/// differ from the previous document score, so the cascade skips it).
+/// Manually override an extract's priority. Once set, the extract will no
+/// longer inherit from document priority updates (its stored key will differ
+/// from the previous document key, so the cascade skips it).
+///
+/// `priority_score` is the caller's 0-100 slider *position*, not a value to
+/// store: like documents and cards, it resolves to an order key that lands the
+/// extract at that rank in the global priority queue (see
+/// `database::priority_rank`).
 #[tauri::command]
 pub async fn set_extract_priority(
     id: String,
     priority_score: f64,
     repo: State<'_, Repository>,
 ) -> Result<()> {
-    repo.update_extract_priority(&id, priority_score).await
+    let slider = priority_score.clamp(0.0, 100.0).round() as i32;
+    let key = crate::database::priority_rank::key_for_slider(repo.db_pool(), slider).await?;
+    repo.update_extract_priority(&id, key).await
 }
 
 #[tauri::command]

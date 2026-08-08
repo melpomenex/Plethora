@@ -651,16 +651,38 @@ Extract rows in the queue open a dedicated **extract reader** — the extract's 
 
 ### Priority System
 
+Every document, extract, and card sits somewhere in a **single ranked list** — one queue, all element types together. Priority is that ranking. Setting priority on an item is telling Incrementum *where in your collection it belongs*, not attaching a score to it.
+
+**Priority is a position, not a label.**
+
+This is the SuperMemo model, and it is the reason the numbers behave the way they do. When you set an item to 70%, it moves to the point 70% of the way up your collection — above roughly 70% of everything you own, below the top 30%. Nothing else is renumbered; the item simply slots in.
+
 Set priority 0-100 on any item:
 
-- **100**: Critical (must learn)
-- **80-90**: Important
-- **60-70**: Normal priority
-- **40-50**: Low priority
-- **0-20**: Archive/reference
+- **90-100**: Above nearly everything else — the handful of things you want first
+- **70-80**: Upper part of the collection
+- **50-60**: Middle of the pack (the default for new material)
+- **20-40**: Lower part — read it eventually
+- **0-10**: Bottom of the queue — reference, archive, someday
+
+**Your percentages move on their own, and that is correct.**
+
+Because a percentage means "this far up the collection *right now*", it shifts as the collection around it changes. Import 500 new articles and rate half of them highly, and an untouched old document will show a lower percentage than it did last week — not because you demoted it, but because more material now sits above it. Its actual place in your reading order is unchanged relative to everything that was already there.
+
+A fixed number would quietly lie to you here: "70" set in a 100-item collection and "70" set in a 10,000-item collection would claim to mean the same thing while describing completely different positions. The percentage tells you the truth about your collection as it stands today.
+
+**Position X of N.**
+
+Open the priority popup on any item and it shows its live rank underneath the slider — *Position 1* is the single most important element in your collection, *Position N* the least. Reopen it after a big import and you will see the position move. This readout is looked up fresh each time you open it.
+
+**No two items share a place.**
+
+Setting several items to the same percentage does not stack them at one point — each is placed just after the last, so the queue stays a strict order. Bulk-setting 200 documents to 60% arranges all 200 in the neighbourhood of 60%, in order, rather than creating a 200-way tie the queue has to break arbitrarily later.
 
 **Priority Scheduling:**
-Higher priority items are shown more frequently in mixed reviews.
+Higher priority items are shown more frequently in mixed reviews. Priority governs *importance* — what you get to first when there is more material than time. It is separate from FSRS scheduling, which governs *timing* — when a given item is next due. A low-priority card that is badly overdue can still surface ahead of a high-priority one that was reviewed yesterday.
+
+**Extracts inherit from their document.** A new extract starts at its source document's priority, and changing the document's priority carries down to extracts still sitting at the old value. Once you set an extract's priority by hand it stops inheriting and keeps its own place.
 
 ### Queue Ordering & Reordering Behavior
 
