@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   ArrowLeft,
   ArrowsVertical,
@@ -33,7 +33,7 @@ import { useToast } from "../common/Toast";
 import { useConfirmDialog, ConfirmDialog } from "../common/ConfirmDialog";
 import { getAllLearningItems, createLearningItem, exportDeckAsApkg, exportDeckAsCsv, type LearningItem } from "../../api/learning-items";
 import { bulkSuspendItems, bulkUnsuspendItems, bulkDeleteItems } from "../../api/queue";
-import { matchesDeck } from "../../utils/studyDecks";
+import { matchesDeck, swapDeckTags, shouldEnsureBrowserExtensionDeck } from "../../utils/studyDecks";
 import { DynamicVirtualList } from "../common/VirtualList";
 import { DeckManagerCardRow } from "./DeckManagerCardRow";
 import { deleteLearningItem } from "../../lib/database";
@@ -112,6 +112,29 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   useEffect(() => {
     loadAllItems();
   }, [loadAllItems]);
+
+  // Ensure a "Browser Extension" deck exists once per mount when extension-
+  // imported cards are present, so they are surfaced without manual setup.
+  // Detection is by tag filter, not by name, so a renamed deck is not
+  // duplicated. Guarded by a ref so a user deletion is respected for the
+  // remainder of the session (the deck reappears on the next visit).
+  const ensuredBrowserDeckRef = useRef(false);
+  useEffect(() => {
+    if (ensuredBrowserDeckRef.current) return;
+    if (loading) return;
+    if (allCards.length === 0) return;
+    if (!shouldEnsureBrowserExtensionDeck(allCards, decks)) {
+      ensuredBrowserDeckRef.current = true;
+      return;
+    }
+    addDeck(
+      t("review.deckManager.browserExtensionDeckName"),
+      ["browser-extension"],
+      undefined,
+      "tags",
+    );
+    ensuredBrowserDeckRef.current = true;
+  }, [loading, allCards, decks, addDeck, t]);
 
   useEffect(() => {
     const pendingCardId = sessionStorage.getItem("incrementum:pending-flashcard-id");
@@ -605,22 +628,23 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   const handleCardMoveToDeck = useCallback(async (cardId: string, deckId: string) => {
     const deck = decks.find((d) => d.id === deckId);
     if (!deck) return;
-    // Replace card tags with the target deck's tag filters
+    const card = allCards.find((c) => c.id === cardId);
+    if (!card) return;
+    // Swap only the deck-filter tags, preserving provenance and user tags.
+    const nextTags = swapDeckTags(card.tags ?? [], decks, deck);
     setAllCards((prev) =>
-      prev.map((c) =>
-        c.id === cardId ? { ...c, tags: [...deck.tagFilters] } : c
-      )
+      prev.map((c) => (c.id === cardId ? { ...c, tags: nextTags } : c))
     );
     // Persist the tag change via database
     try {
       const { updateLearningItem } = await import("../../lib/database");
-      await updateLearningItem(cardId, { tags: [...deck.tagFilters] });
+      await updateLearningItem(cardId, { tags: nextTags });
       toast.success(`Moved card to "${deck.name}"`);
     } catch {
       toast.error("Failed to move card");
       await loadAllItems(); // Reload to undo optimistic update
     }
-  }, [decks, toast, loadAllItems]);
+  }, [decks, allCards, toast, loadAllItems]);
 
   const deckOptions = useMemo(
     () => sortedDecks.map((d) => ({ id: d.id, name: d.name })),

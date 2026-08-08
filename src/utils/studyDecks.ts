@@ -40,6 +40,48 @@ export function matchesDeckTags(tags: string[], deck: StudyDeck | null): boolean
   return false;
 }
 
+/**
+ * Tags that describe how a card was created rather than which deck it lives in.
+ * These survive any deck move, even when they happen to also be a deck's tag
+ * filter — e.g. a card moved out of the `Browser Extension` deck keeps
+ * `browser-extension` so `tag:browser-extension` remains a durable query.
+ */
+const PROVENANCE_TAGS = new Set(
+  ["browser-extension", "image-occlusion", "ai-generated", "manual"].map(normalize),
+);
+
+/**
+ * Returns the tag set a card should carry after being moved into `targetDeck`.
+ *
+ * Drops only tags that act as filters for decks the card *currently* matches,
+ * adds the target deck's tag filters, and preserves everything else —
+ * provenance tags, unrelated user tags, and tags belonging to decks the card
+ * does not match. Provenance tags are protected even if they coincide with a
+ * matched deck's filter (see PROVENANCE_TAGS).
+ *
+ * Tag comparison reuses the existing `normalize` / `tagMatchesFilter`
+ * semantics so a move and a deck-membership check can never disagree.
+ */
+export function swapDeckTags(
+  cardTags: string[],
+  decks: StudyDeck[],
+  targetDeck: StudyDeck,
+): string[] {
+  const currentDecks = decks.filter((deck) => deck.id !== targetDeck.id);
+
+  const isDroppable = (tag: string): boolean => {
+    if (PROVENANCE_TAGS.has(normalize(tag))) return false;
+    return currentDecks.some((deck) => {
+      if (!matchesDeckTags(cardTags, deck)) return false;
+      return (deck.tagFilters ?? []).some((filter) => tagMatchesFilter(tag, filter));
+    });
+  };
+
+  const kept = cardTags.filter((tag) => !isDroppable(tag));
+
+  return normalizeTagList([...kept, ...(targetDeck.tagFilters ?? [])]);
+}
+
 export function matchesDeck<
   T extends {
     tags: string[];
@@ -118,6 +160,30 @@ export function getDeckTagCandidates(tags: string[]): string[] {
     .filter((tag) => tag && tag.trim().length > 0)
     .filter((tag) => normalize(tag) !== "anki-import")
     .map((tag) => tag.trim());
+}
+
+/** Tag attached to every card imported via the browser extension. */
+export const BROWSER_EXTENSION_TAG = "browser-extension";
+
+/**
+ * Whether the auto-maintained "Browser Extension" deck should be created for
+ * the given cards and decks: true when at least one card carries the
+ * `browser-extension` tag and no existing deck already filters on that tag.
+ *
+ * Detection is by tag filter, not by deck name, so a renamed deck is not
+ * duplicated.
+ */
+export function shouldEnsureBrowserExtensionDeck<
+  T extends { tags?: string[] | null },
+  D extends { tagFilters?: string[] | null },
+>(cards: T[], decks: D[]): boolean {
+  const hasExtensionCard = cards.some((c) =>
+    (c.tags ?? []).some((tag) => normalize(tag) === BROWSER_EXTENSION_TAG),
+  );
+  if (!hasExtensionCard) return false;
+  return !decks.some((d) =>
+    (d.tagFilters ?? []).some((filter) => normalize(filter) === BROWSER_EXTENSION_TAG),
+  );
 }
 
 export interface DeckStatEntry {
