@@ -298,6 +298,11 @@ export function AssistantPanel({
   const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
   const [selectedSectionNodes, setSelectedSectionNodes] = useState<SectionNode[]>([]);
   const [assistantFullContent, setAssistantFullContent] = useState("");
+  // The `#` section index costs a full-document text fetch plus a synchronous
+  // tree build — on an EPUB that is the whole book, and doing it on document
+  // open froze Scroll Mode. Nothing needs it until the user touches the input,
+  // so arm it on first focus instead.
+  const [sectionsArmed, setSectionsArmed] = useState(false);
 
   const SECTION_REGEX = /#{([^}]+)}/g;
 
@@ -321,7 +326,7 @@ export function AssistantPanel({
     flat: assistantSectionFlat,
   } = useDocumentSections({
     documentId: context?.documentId,
-    content: assistantFullContent || context?.content || "",
+    content: sectionsArmed ? assistantFullContent || context?.content || "" : "",
     useStoreOutline: true,
   });
 
@@ -335,7 +340,7 @@ export function AssistantPanel({
 
   // Load full document content for section parsing when documentId changes
   useEffect(() => {
-    if (!context?.documentId) {
+    if (!context?.documentId || !sectionsArmed) {
       setAssistantFullContent("");
       return;
     }
@@ -350,7 +355,7 @@ export function AssistantPanel({
     return () => {
       mounted = false;
     };
-  }, [context?.documentId]);
+  }, [context?.documentId, sectionsArmed]);
 
   // Clean, human-friendly model name formatter
   const getFriendlyModelName = (providerId: string, rawModelName?: string) => {
@@ -2889,7 +2894,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               value={input}
               onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              onFocus={() => setIsInputFocused(true)}
+              onFocus={() => { setIsInputFocused(true); setSectionsArmed(true); }}
               onBlur={() => setIsInputFocused(false)}
               placeholder={attachedImages.length > 0 ? "Ask about the attached image(s)..." : "Ask about your document, or type /help for commands..."}
               className="flex-1 px-3 py-2 bg-background border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary text-foreground text-sm"
