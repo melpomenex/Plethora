@@ -122,17 +122,29 @@ export function Modal() {
   };
 
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && modal.visible) {
+    const handleKey = (e: KeyboardEvent) => {
+      if (!modal.visible) return;
+      if (e.key === "Escape") {
         handleClose();
+        return;
+      }
+      // Enter confirms input-driven modals (prompt, custom bodies like the
+      // priority popup). Skipped for Confirm modals so a destructive yes/no
+      // still needs a deliberate click, and for elements that own Enter
+      // themselves (buttons, textareas, links).
+      if (e.key === "Enter" && modal.type === ModalType.Custom) {
+        const el = e.target as HTMLElement | null;
+        if (el?.closest("button, a, textarea, [contenteditable='true']")) return;
+        e.preventDefault();
+        handleConfirm();
       }
     };
 
     if (modal.visible) {
-      document.addEventListener("keydown", handleEscape);
-      return () => document.removeEventListener("keydown", handleEscape);
+      document.addEventListener("keydown", handleKey);
+      return () => document.removeEventListener("keydown", handleKey);
     }
-  }, [modal.visible, modal.closable]);
+  }, [modal.visible, modal.closable, modal.type]);
 
   useEffect(() => {
     if (modal.visible && modalRef.current) {
