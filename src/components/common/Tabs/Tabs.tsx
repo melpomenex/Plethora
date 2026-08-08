@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useTabsStore, normalizePane, type TabPane } from "../../../stores";
 import { SplitPaneContainer } from "./SplitPaneContainer";
 import { TabContent } from "./TabContent";
@@ -27,7 +27,10 @@ function findFirstTabPane(pane: ReturnType<typeof normalizePane>): TabPane | nul
 export function Tabs() {
   const tabs = useTabsStore((state) => state.tabs);
   const rawRootPane = useTabsStore((state) => state.rootPane);
-  const rootPane = normalizePane(rawRootPane);
+  // Normalization walks the whole pane tree. Running it on every render — which
+  // includes every tab-data change, since this component subscribes to `tabs` —
+  // repeated that walk for nothing whenever the tree itself was unchanged.
+  const rootPane = useMemo(() => normalizePane(rawRootPane), [rawRootPane]);
   const setActiveTab = useTabsStore((state) => state.setActiveTab);
   const closeTab = useTabsStore((state) => state.closeTab);
   const moveTab = useTabsStore((state) => state.moveTab);

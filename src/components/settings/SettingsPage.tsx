@@ -896,6 +896,27 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
 
         <SettingsRow
+          label={t("settings.residentTabCap")}
+          description={t("settings.residentTabCapDesc")}
+        >
+          <select
+            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px]"
+            value={String(general.residentTabCap ?? 8)}
+            aria-label={t("settings.residentTabCap")}
+            onChange={(e) => {
+              updateSettingsCategory("general", { residentTabCap: Number(e.target.value) });
+              onChange();
+            }}
+          >
+            <option value="4">4</option>
+            <option value="8">8</option>
+            <option value="12">12</option>
+            <option value="20">20</option>
+            <option value="0">{t("settings.residentTabCapUnlimited")}</option>
+          </select>
+        </SettingsRow>
+
+        <SettingsRow
           label="Feature Popups"
           description="Show onboarding tips and feature discovery popups"
         >

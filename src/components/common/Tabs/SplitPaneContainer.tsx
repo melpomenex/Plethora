@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, Fragment } from "react";
+import { useState, useRef, useCallback, useEffect, memo, Fragment } from "react";
 import { Pane, TabPane, SplitPane, SplitDirection, Tab } from "../../../stores/tabsStore";
 import { useSettingsStore } from "../../../stores";
 import { TabBar } from "./TabBar";
@@ -26,6 +26,31 @@ interface SplitPaneContainerProps {
 interface DropIndicator {
   paneId: string;
   position: "top" | "bottom" | "left" | "right" | "center";
+}
+
+/**
+ * This pane's own tabs, with a stable array identity.
+ *
+ * The workspace holds one `tabs` array for every pane, so touching a single
+ * tab gives every pane a new array and reconciles every pane's bar and content.
+ * Slicing alone does not fix that — a fresh slice is still a fresh identity —
+ * so the previous slice is reused whenever it holds the same tab objects in the
+ * same order, which lets the memoized views below actually skip.
+ */
+function usePaneTabs(tabs: Tab[], tabIds: string[]): Tab[] {
+  const cached = useRef<Tab[]>([]);
+  const byId = new Map(tabs.map((tab) => [tab.id, tab]));
+  const next: Tab[] = [];
+  for (const id of tabIds) {
+    const tab = byId.get(id);
+    if (tab) next.push(tab);
+  }
+  const previous = cached.current;
+  if (previous.length === next.length && previous.every((tab, index) => tab === next[index])) {
+    return previous;
+  }
+  cached.current = next;
+  return next;
 }
 
 export function SplitPaneContainer({
@@ -68,7 +93,7 @@ export function SplitPaneContainer({
   }
 
   return (
-    <TabPaneView
+    <TabPaneSlot
       pane={pane}
       tabs={tabs}
       onSetActiveTab={onSetActiveTab}
@@ -234,7 +259,19 @@ interface TabPaneViewProps extends Omit<SplitPaneContainerProps, "pane" | "onRes
   pane: TabPane;
 }
 
-function TabPaneView({
+/**
+ * Narrows the workspace-wide `tabs` array to this pane's own tabs before
+ * handing off to the memoized view. Kept as its own (unmemoized) component so
+ * the slice is computed in the parent's render — a slice computed *inside*
+ * `TabPaneView` would still leave the full array in its props, and memo would
+ * never skip.
+ */
+function TabPaneSlot({ pane, tabs, ...rest }: TabPaneViewProps) {
+  const paneTabs = usePaneTabs(tabs, pane.tabIds);
+  return <TabPaneView pane={pane} tabs={paneTabs} {...rest} />;
+}
+
+function TabPaneViewImpl({
   pane,
   tabs,
   onSetActiveTab,
@@ -252,7 +289,8 @@ function TabPaneView({
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const paneTabs = tabs.filter((t) => pane.tabIds.includes(t.id));
+  // Already narrowed to this pane by TabPaneSlot.
+  const paneTabs = tabs;
   const activeTab = paneTabs.find((t) => t.id === pane.activeTabId);
   const splitViewSpawn = useSettingsStore((s) => s.settings.interface.splitViewSpawn);
 
@@ -383,6 +421,22 @@ function TabPaneView({
     onDragEnd();
   }, [draggedTabId, draggedTabSourcePaneId, dropIndicator, pane.id, onMoveTabToPane, onSplitPane, onMoveTabToSplit, onDragEnd]);
 
+  // Stable identities so the memoized TabBar can actually skip: without these,
+  // a re-render of this pane (a drag starting anywhere, for instance) would
+  // hand the bar three fresh functions and force it to reconcile.
+  const handleTabClick = useCallback(
+    (tabId: string) => onSetActiveTab(pane.id, tabId),
+    [onSetActiveTab, pane.id],
+  );
+  const handleTabMove = useCallback(
+    (fromIndex: number, toIndex: number) => onMoveTab(fromIndex, toIndex, pane.id),
+    [onMoveTab, pane.id],
+  );
+  const handleTabDragStart = useCallback(
+    (tabId: string) => onDragStart(tabId, pane.id),
+    [onDragStart, pane.id],
+  );
+
   const getIndicatorStyles = () => {
     if (!dropIndicator || dropIndicator.paneId !== pane.id) return null;
 
@@ -423,11 +477,11 @@ function TabPaneView({
           tabs={paneTabs}
           activeTabId={pane.activeTabId}
           paneId={pane.id}
-          onTabClick={(tabId) => onSetActiveTab(pane.id, tabId)}
+          onTabClick={handleTabClick}
           onTabClose={onCloseTab}
-          onTabMove={(fromIndex, toIndex) => onMoveTab(fromIndex, toIndex, pane.id)}
+          onTabMove={handleTabMove}
           onMoveTabToPane={onMoveTabToPane}
-          onDragStart={(tabId) => onDragStart(tabId, pane.id)}
+          onDragStart={handleTabDragStart}
           onDragEnd={onDragEnd}
           onSplitPane={onSplitPane}
         />
@@ -465,6 +519,14 @@ function TabPaneView({
     </div>
   );
 }
+
+/**
+ * Memoized: a pane re-renders only when its own tabs, its own pane node, or the
+ * drag state change. Every callback it receives is a stable store action or a
+ * `useCallback` from `Tabs`, and `updatePaneInTree` leaves sibling pane nodes
+ * identity-stable, so a change confined to one pane stops at that pane.
+ */
+const TabPaneView = memo(TabPaneViewImpl);
 
 function EmptyPaneState() {
   return (

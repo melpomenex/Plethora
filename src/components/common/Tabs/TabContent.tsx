@@ -1,5 +1,16 @@
-import React, { Suspense, createContext, useContext, memo } from "react";
-import { type Tab } from "../../../stores";
+import React, {
+  Component,
+  Suspense,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  memo,
+} from "react";
+import { useTabsStore, type Tab } from "../../../stores/tabsStore";
+import { useI18n } from "../../../lib/i18n";
 
 interface TabContentProps {
   tabs: Tab[];
@@ -75,6 +86,94 @@ function TabLoader() {
   );
 }
 
+function TabErrorState({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex items-center justify-center h-full p-6">
+      <div className="text-center max-w-md">
+        <div className="text-4xl mb-3">⚠️</div>
+        <h3 className="text-lg font-semibold text-foreground mb-2">
+          {t("tabs.contentError")}
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4 break-words">{error.message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity"
+        >
+          {t("tabs.retryLoad")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface TabErrorBoundaryProps {
+  children: React.ReactNode;
+  /** Bumped by the retry button to remount the subtree below. */
+  resetKey: number;
+  renderFallback: (error: Error) => React.ReactNode;
+}
+
+/**
+ * Scoped to a single tab, so a tab that throws shows an error in its own area
+ * instead of taking its pane — and every sibling tab — down with it.
+ */
+class TabErrorBoundary extends Component<TabErrorBoundaryProps, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidUpdate(prevProps: TabErrorBoundaryProps) {
+    // A retry bumps `resetKey`; clear the captured error so children remount.
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("[TabContent] Tab content failed to render:", error);
+  }
+
+  render() {
+    if (this.state.error) {
+      return this.props.renderFallback(this.state.error);
+    }
+    return this.props.children;
+  }
+}
+
+/**
+ * One mounted tab: its own suspense boundary and its own error boundary.
+ *
+ * Both boundaries are per tab rather than per pane. A single boundary around
+ * the whole pane meant any tab whose lazy chunk had not resolved replaced the
+ * *pane's* content with the loader, and any tab that threw unmounted the pane.
+ */
+function MountedTab({ tab, isActive, paneId }: { tab: Tab; isActive: boolean; paneId?: string }) {
+  const [retryKey, setRetryKey] = useState(0);
+  const retry = useCallback(() => setRetryKey((key) => key + 1), []);
+
+  return (
+    <TabErrorBoundary
+      resetKey={retryKey}
+      renderFallback={(error) => <TabErrorState error={error} onRetry={retry} />}
+    >
+      <Suspense fallback={<TabLoader />}>
+        <TabWrapper
+          key={retryKey}
+          content={tab.content}
+          data={tab.data}
+          isActive={isActive}
+          paneId={paneId}
+        />
+      </Suspense>
+    </TabErrorBoundary>
+  );
+}
+
 function EmptyState() {
   return (
     <div className="flex items-center justify-center h-full">
@@ -92,7 +191,24 @@ function EmptyState() {
 }
 
 export function TabContent({ tabs, activeTabId, paneId }: TabContentProps) {
+  // Tabs this pane has actually shown. A tab is mounted only after it has been
+  // active at least once: restoring a twelve-tab session used to mount twelve
+  // component trees — twelve sets of mount effects, subscriptions and fetches —
+  // to display one. Once mounted a tab stays mounted, so switching away and
+  // back still preserves its state.
+  //
+  // This is tracked here, from renders this pane performed, rather than read
+  // from the store, so `TabContent` remains drivable from plain props. The
+  // store contributes only the other half: which tabs the resident cap has
+  // evicted and must therefore come back down.
+  const activatedRef = useRef<Set<string>>(new Set());
+  const evictedTabIds = useTabsStore((state) => state.evictedTabIds);
+
   const activeTab = tabs.find((t) => t.id === activeTabId);
+
+  useEffect(() => {
+    if (activeTab) activatedRef.current.add(activeTab.id);
+  }, [activeTab]);
 
   if (!activeTab) {
     return <EmptyState />;
@@ -100,27 +216,26 @@ export function TabContent({ tabs, activeTabId, paneId }: TabContentProps) {
 
   return (
     <div className="h-full w-full overflow-hidden bg-background min-h-0">
-      <Suspense fallback={<TabLoader />}>
-        {tabs.map((tab) => {
-          const isActive = tab.id === activeTab.id;
-          return (
-            <div
-              key={tab.id}
-              className={isActive ? "h-full w-full animate-tab-enter" : "hidden h-full w-full"}
-              aria-hidden={!isActive}
-            >
+      {tabs.map((tab) => {
+        const isActive = tab.id === activeTab.id;
+        // The active tab mounts on this very render — the effect above has not
+        // run yet the first time a tab is shown.
+        const isMounted =
+          isActive || (activatedRef.current.has(tab.id) && !evictedTabIds.has(tab.id));
+        return (
+          <div
+            key={tab.id}
+            className={isActive ? "h-full w-full animate-tab-enter" : "hidden h-full w-full"}
+            aria-hidden={!isActive}
+          >
+            {isMounted && (
               <ActiveTabContext.Provider value={isActive}>
-                <TabWrapper
-                  content={tab.content}
-                  data={tab.data}
-                  isActive={isActive}
-                  paneId={paneId}
-                />
+                <MountedTab tab={tab} isActive={isActive} paneId={paneId} />
               </ActiveTabContext.Provider>
-            </div>
-          );
-        })}
-      </Suspense>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -16,7 +16,12 @@ import {
 import { createNewSyncRoomId, getSyncRoomId, setSyncRoomId, rejoinRoom, updateYjsSyncStatus } from "../../lib/yjsSync";
 import { useI18n } from "../../lib/i18n";
 import { isNativeMobile, isPWA } from "../../lib/tauri";
-import { getStartupRequestCounts, getSyncTelemetry, type SyncPhaseSample } from "../../lib/sync/syncTelemetry";
+import {
+  getStartupRequestCounts,
+  getSyncTelemetry,
+  getTabSwitchLatency,
+  type SyncPhaseSample,
+} from "../../lib/sync/syncTelemetry";
 import { startSyncSubsystems } from "../../lib/startSyncSubsystems";
 import { QRCodeCanvas } from "qrcode.react";
 import { SyncQrScanner } from "./SyncQrScanner";
@@ -83,6 +88,7 @@ export function SyncSettings() {
 
   const telemetry = useMemo(() => getSyncTelemetry(), [diagnosticsTick]);
   const startupRequestCounts = useMemo(() => getStartupRequestCounts(), [diagnosticsTick]);
+  const tabSwitchLatency = useMemo(() => getTabSwitchLatency(), [diagnosticsTick]);
   const recentTelemetry = useMemo(() => telemetry.slice(-50), [telemetry]);
   const diagnosticsSummary = useMemo(() => {
     const latest = telemetry[telemetry.length - 1];
@@ -406,6 +412,18 @@ export function SyncSettings() {
           {diagnosticsSummary.startupRequestCount > 0 && (
             <span>{t("syncSettings.diagnosticsStartupRequests", { count: diagnosticsSummary.startupRequestCount })}</span>
           )}
+          {/* The only tab-switch number measured on real hardware, through a
+              real paint — CI benchmarks bound the JS, not the frame. */}
+          <span>
+            {tabSwitchLatency.count === 0
+              ? t("syncSettings.tabSwitchNone")
+              : t("syncSettings.tabSwitchLatency", {
+                  count: tabSwitchLatency.count,
+                  p50: tabSwitchLatency.p50.toFixed(1),
+                  p95: tabSwitchLatency.p95.toFixed(1),
+                  max: tabSwitchLatency.max.toFixed(1),
+                })}
+          </span>
         </div>
 
         {diagnosticsExpanded && (
