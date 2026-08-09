@@ -237,7 +237,8 @@ export class FileManifest {
   addFile(entry: FileManifestEntry): void {
     // Enqueue to the durable outbox first so the delta-log transport receives
     // the entry even when Yjs publishing is suppressed or the map is absent.
-    if (getSyncFeatureFlags().journaledProjection || getSyncFeatureFlags().deltaLogSync) {
+    const flags = getSyncFeatureFlags();
+    if (flags.journaledProjection || flags.deltaLogSync) {
       void enqueueSyncOperation({
         domain: "fileManifest",
         entityKey: entry.id,

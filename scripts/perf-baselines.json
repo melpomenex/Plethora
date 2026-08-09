@@ -8,8 +8,9 @@
   "recordedFrom": "https://github.com/melpomenex/Incrementum/actions/runs/31182419989",
   "benchmarks": {
     "file-manifest/add-1000-entries": {
-      "cost": 14.81,
-      "tolerance": 1.4
+      "cost": 7.84,
+      "tolerance": 1.4,
+      "reason": "addFile called getSyncFeatureFlags() twice per entry (a localStorage+JSON.parse+env read on every call); for the bench's 1000-add loop that was ~76% of addFile time. Read the flags once into a local. Byte-identical: the two reads were synchronous with no await between them, so they observed equal values."
     },
     "postpone/plan-1000-items": {
       "cost": 0.02902,
