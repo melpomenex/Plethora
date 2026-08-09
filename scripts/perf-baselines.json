@@ -16,8 +16,9 @@
       "tolerance": 1.5
     },
     "sm20/review-sequence": {
-      "cost": 214.6,
-      "tolerance": 1.6
+      "cost": 8.5,
+      "tolerance": 1.6,
+      "reason": "reviewM2/reviewM3 replaced structuredClone of the optimizer/matrices (recursive walk of ~57k elements + nested cubes) with hand-written shallow copies (.slice of each mutable array, per-row/per-cell for the number[][][] cubes). ~26x faster, byte-identical output; the commit:false clone is the per-review hot path."
     },
     "queue/build-500-items": {
       "cost": 0.0964,
