@@ -837,6 +837,46 @@ export function EPUBViewer({
           console.warn("EPUBViewer: Failed to apply Section.destroy patch", e);
         }
 
+        // Patch epubjs Queue.prototype.dequeue for the teardown race that throws
+        // "TypeError: undefined is not an object (evaluating 'e.deferred.resolve')".
+        // Rendition.destroy() comments out `this.q.clear()` upstream, and q.stop()
+        // only flips paused/running flags — it does not cancel a tick already
+        // scheduled via requestAnimationFrame. A job dequeued on that final tick can
+        // be a promise-only item (no `task`, hence no `deferred`), or hit the
+        // function-branch after the rendition's internals are torn down. Guard both
+        // branches so the queue drains harmlessly during teardown instead of throwing.
+        try {
+          const QueueProto = (epubBook.spine as any)?.q?.constructor?.prototype as any;
+          if (QueueProto && !QueueProto.__patchedForDeferredGuard) {
+            QueueProto.__patchedForDeferredGuard = true;
+            const originalDequeue = QueueProto.dequeue;
+            QueueProto.dequeue = function () {
+              if (!this._q.length || this.paused) return originalDequeue.apply(this, arguments);
+              const inwait = this._q[0];
+              // Promise-only item (no task) — shift and resolve as a no-op so the
+              // RAF loop in run() terminates cleanly.
+              if (inwait && !inwait.task) {
+                this._q.shift();
+                return inwait.promise ?? Promise.resolve();
+              }
+              // Task item missing its deferred (shouldn't happen, but guard the
+              // crash site directly) — shift and skip the resolve/reject call.
+              if (inwait && !inwait.deferred) {
+                this._q.shift();
+                try {
+                  const result = typeof inwait.task === "function" ? inwait.task.apply(this.context, inwait.args) : undefined;
+                  return result && typeof result.then === "function" ? result : Promise.resolve(result);
+                } catch {
+                  return Promise.resolve();
+                }
+              }
+              return originalDequeue.apply(this, arguments);
+            };
+          }
+        } catch (e) {
+          console.warn("EPUBViewer: Failed to apply Queue.dequeue patch", e);
+        }
+
         const tocData = await epubBook.loaded.navigation;
         
         let filteredToc = tocData.toc;
