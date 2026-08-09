@@ -503,7 +503,29 @@ export function reviewM2(
   commit: boolean,
   random: () => number = Math.random,
 ): M2ReviewResult {
-  const working = commit ? optimizer : structuredClone(optimizer);
+  // Shallow-copy the optimizer, slicing every mutable nested array so the
+  // non-commit path never mutates the caller's optimizer. ClassicM2Optimizer
+  // holds three `number[][]` matrices (matrix/empirical/cell_cases) and two
+  // `number[][][]` cubes (remembered/observed); recordM2/rebuildM2/
+  // updateM2GradeGraphs write through two levels (e.g.
+  // working.remembered[ri][ci][bi]), so each row AND each cell of the cubes
+  // must be a fresh array. The 1-D scalar fields (row_exponent, row_weight,
+  // first_grade*, second_grade*) are sliced once. This is a faithful,
+  // allocation-light replacement for the recursive structuredClone walk that
+  // previously dominated the per-review hot path.
+  const working: ClassicM2Optimizer = commit ? optimizer : {
+    matrix: optimizer.matrix.map((row) => row.slice()),
+    empirical: optimizer.empirical.map((row) => row.slice()),
+    cell_cases: optimizer.cell_cases.map((row) => row.slice()),
+    remembered: optimizer.remembered.map((row) => row.map((cell) => cell.slice())),
+    observed: optimizer.observed.map((row) => row.map((cell) => cell.slice())),
+    row_exponent: optimizer.row_exponent.slice(),
+    row_weight: optimizer.row_weight.slice(),
+    first_grade: optimizer.first_grade.slice(),
+    first_grade_cases: optimizer.first_grade_cases.slice(),
+    second_grade: optimizer.second_grade.slice(),
+    second_grade_cases: optimizer.second_grade_cases.slice(),
+  };
   let used = item.last_review_day < 0 ? 0 : Math.max(1, today - item.last_review_day);
   const remembered = grade >= 3;
   const repetitions = remembered ? Math.min(20, item.repetitions + 1) : 1;
@@ -781,7 +803,22 @@ export function reviewM3(
   grade: number,
   commit: boolean,
 ): M3ReviewResult {
-  const working = commit ? matrices : structuredClone(matrices);
+  // Shallow-copy the matrices: M3MatrixState is a flat bag of `number[]`
+  // arrays, and the non-commit path must not mutate the caller's matrices.
+  // The only writes land on these 8 arrays (recordM3Outcome, recordPreLapse,
+  // and the smoothing update below), so slicing each one is a faithful,
+  // allocation-light replacement for the recursive structuredClone walk over
+  // ~57k elements. Array.prototype.slice hits V8's copy fast path.
+  const working: M3MatrixState = commit ? matrices : {
+    outcome_count: matrices.outcome_count.slice(),
+    outcome_success: matrices.outcome_success.slice(),
+    smoothing_count: matrices.smoothing_count.slice(),
+    smoothing_value: matrices.smoothing_value.slice(),
+    lapse_observed: matrices.lapse_observed.slice(),
+    lapse_remembered: matrices.lapse_remembered.slice(),
+    first_stage_observed: matrices.first_stage_observed.slice(),
+    first_stage_remembered: matrices.first_stage_remembered.slice(),
+  };
   const elapsed = item.last_review_day < 0 ? 0 : Math.max(0, today - item.last_review_day);
   const base = item.previous_interval !== 0 ? Math.max(item.previous_interval, 1) : Math.max(item.stability, 1);
   const retrievability = clampR(Math.exp(Math.log(0.9) * elapsed / base));
