@@ -168,9 +168,18 @@ export async function convertAnkiCardsToLearningItems(
     metadata: Record<string, any>;
   }> = [];
 
+  // Index notes by id once (O(n)) so each card lookup is O(1) instead of a
+  // linear scan of all notes inside the card loop (which would be O(n²)).
+  // First-wins (`has` guard) preserves the exact semantics of
+  // `deck.notes.find(n => n.id === card.noteId)`, which returns the first match.
+  const noteById = new Map<number, AnkiNote>();
+  for (const n of deck.notes) {
+    if (!noteById.has(n.id)) noteById.set(n.id, n);
+  }
+
   for (const card of deck.cards) {
     // Find the note for this card
-    const note = deck.notes.find(n => n.id === card.noteId);
+    const note = noteById.get(card.noteId);
     if (!note) continue;
 
     const questionField = note.fields.find(f =>
