@@ -231,6 +231,24 @@ export function orderScrollItemsByCombinedCriterion<T extends PrioritizableScrol
 ): T[] {
   if (items.length <= 1) return [...items];
 
+  // Precompute the per-item invariant part of each candidate's score once,
+  // instead of recomputing it O(n) times inside the selection loop below.
+  // `stableJitter` is a full FNV-1a BigInt hash of the id (pure, invariant per
+  // item), and is the dominant cost of an O(n²) greedy selection. Hoisting
+  // priority + jitter (and the topic/item classification) out of the inner loop
+  // removes ~n² redundant hashes and keeps the remaining loop arithmetic-only.
+  // The proportion term still depends on the running topicsPlaced/itemsPlaced
+  // counts and is recomputed per position, exactly as before.
+  const n = items.length;
+  const baseScores = new Float64Array(n); // priority + jitter
+  const isTopic = new Uint8Array(n); // 1 if asSortElementType(type) === "topic"
+  for (let i = 0; i < n; i++) {
+    const it = items[i];
+    baseScores[i] =
+      (it.engagementScore ?? 0) + config.jitterWeight * stableJitter(it.id);
+    isTopic[i] = asSortElementType(it.type) === "topic" ? 1 : 0;
+  }
+
   const remaining = new Set(items.map((_, i) => i));
   const result: T[] = [];
   let topicsPlaced = 0;
@@ -239,27 +257,22 @@ export function orderScrollItemsByCombinedCriterion<T extends PrioritizableScrol
   while (remaining.size > 0) {
     let bestRemainingIdx = -1;
     let bestScore = -Infinity;
+    // Imbalance per type this position; one of these is added to the baseScore.
+    const topicImbalance = Math.max(0, itemsPlaced - topicsPlaced);
+    const itemImbalance = Math.max(0, topicsPlaced - itemsPlaced);
+    const topicProportion = config.proportionWeight * Math.tanh(topicImbalance);
+    const itemProportion = config.proportionWeight * Math.tanh(itemImbalance);
     for (const i of remaining) {
-      const it = items[i];
-      const priority = it.engagementScore ?? 0;
-      const type = asSortElementType(it.type);
-      const imbalance =
-        type === "topic"
-          ? itemsPlaced - topicsPlaced
-          : topicsPlaced - itemsPlaced;
-      const proportion = config.proportionWeight * Math.tanh(Math.max(0, imbalance));
-      const jitter = config.jitterWeight * stableJitter(it.id);
-      const score = priority + proportion + jitter;
+      const score = baseScores[i] + (isTopic[i] ? topicProportion : itemProportion);
       if (score > bestScore) {
         bestScore = score;
         bestRemainingIdx = i;
       }
     }
     remaining.delete(bestRemainingIdx);
-    const chosen = items[bestRemainingIdx];
-    if (asSortElementType(chosen.type) === "topic") topicsPlaced++;
+    if (isTopic[bestRemainingIdx]) topicsPlaced++;
     else itemsPlaced++;
-    result.push(chosen);
+    result.push(items[bestRemainingIdx]);
   }
 
   return result;
