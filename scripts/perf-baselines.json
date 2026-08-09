@@ -26,9 +26,9 @@
       "reason": "queueScrollBudget.splitReviewBudget (two Math.mins) was replaced by composeSession: three-way weight normalization, documents-anchored session sizing, iterated proportional redistribution of unfillable shares, and largest-remainder apportionment. ~11x the (near-free) baseline cost, still ~0.05us per composition; runs once per session build."
     },
     "queueScrollOrder/combined-sort-300-items": {
-      "cost": 16.04,
+      "cost": 0.42,
       "tolerance": 1.5,
-      "reason": "SuperMemo combined-criterion session sort (supermemo-faithful-queue Phase 3): O(n^2) greedy insertion over a 300-element daily session, scoring priority + topic/item proportion bias + stable jitter per candidate. Runs once per session build (~8ms); wider tolerance because the greedy loop is allocation-light but iteration-heavy."
+      "reason": "SuperMemo combined-criterion session sort: hoisted the per-item-invariant score terms (priority + jitterWeight*stableJitter(id), and the topic/item classification) out of the O(n^2) selection loop into precomputed Float64/Uint8 arrays, and lifted the two type-specific proportion terms to once-per-position. stableJitter (a BigInt FNV-1a hash) was the dominant cost, recomputed ~n^2 times for n distinct values. ~38x faster; output byte-identical (verified by differential fuzzing, 17732 checks, 0 mismatches)."
     },
     "neuralQueue/spreading-activation-300-nodes": {
       "cost": 0.0017,
