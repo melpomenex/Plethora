@@ -2,6 +2,7 @@ import { describe, expect, test, beforeEach } from "vitest";
 import {
   FRESH_ONBOARDING_TOUR_STATE,
   ONBOARDING_TOUR_LAUNCH_BUDGET,
+  ONBOARDING_TOUR_OPTOUT_STORAGE_KEY,
   ONBOARDING_TOUR_STORAGE_KEY,
   ONBOARDING_TOUR_VERSION,
   incrementLaunchCount,
@@ -209,5 +210,86 @@ describe("onboardingTour policy", () => {
 
   test("fresh-install state is auto-display eligible", () => {
     expect(shouldAutoDisplay(FRESH_ONBOARDING_TOUR_STATE)).toBe(true);
+  });
+});
+
+describe("onboardingTour opt-out tombstone (sync-clobber resilience)", () => {
+  test("markSkipped sets the tombstone", () => {
+    seed({ launchCount: 1 });
+    markSkipped();
+    expect(window.localStorage.getItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY)).toBe("1");
+  });
+
+  test("markCompleted sets the tombstone", () => {
+    seed({ launchCount: 1 });
+    markCompleted();
+    expect(window.localStorage.getItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY)).toBe("1");
+  });
+
+  test("markOptedOut sets the tombstone", () => {
+    seed({ launchCount: 1 });
+    markOptedOut();
+    expect(window.localStorage.getItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY)).toBe("1");
+  });
+
+  test("soft dismissal does NOT set the tombstone", () => {
+    seed({ launchCount: 1 });
+    markDismissed("step-2");
+    expect(window.localStorage.getItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY)).toBeNull();
+  });
+
+  test("a stale sync replay clobbering the record back to enabled still stays opted out", () => {
+    // The user opted out.
+    seed({ launchCount: 1 });
+    markSkipped();
+    expect(shouldAutoDisplay(readOnboardingTourState())).toBe(false);
+
+    // Simulate a stale last-writer-wins replay from the sync layer: the
+    // synced `incrementum-onboarding-tour` record overwrites localStorage
+    // with a pre-opt-out snapshot that has autoDisplayDisabled: false.
+    window.localStorage.setItem(
+      ONBOARDING_TOUR_STORAGE_KEY,
+      JSON.stringify({
+        version: ONBOARDING_TOUR_VERSION,
+        launchCount: 1,
+        autoDisplayDisabled: false,
+        furthestStepId: null,
+        completedAt: null,
+      }),
+    );
+
+    // The tombstone keeps the user's decision intact.
+    const state = readOnboardingTourState();
+    expect(state.autoDisplayDisabled).toBe(true);
+    expect(shouldAutoDisplay(state)).toBe(false);
+  });
+
+  test("the tombstone forces disabled even if the main record is missing entirely", () => {
+    // Edge case: main record nuked by corruption, but tombstone survives.
+    seed({ launchCount: 1 });
+    markSkipped();
+    window.localStorage.removeItem(ONBOARDING_TOUR_STORAGE_KEY);
+
+    const state = readOnboardingTourState();
+    expect(state.autoDisplayDisabled).toBe(true);
+    expect(shouldAutoDisplay(state)).toBe(false);
+  });
+
+  test("resetOnboardingState clears the tombstone so auto-display can resume", () => {
+    seed({ launchCount: 1 });
+    markSkipped();
+    expect(window.localStorage.getItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY)).toBe("1");
+
+    resetOnboardingState();
+    expect(window.localStorage.getItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY)).toBeNull();
+    expect(shouldAutoDisplay(readOnboardingTourState())).toBe(true);
+  });
+
+  test("without a tombstone, a fresh record is unaffected", () => {
+    seed({ launchCount: 0 });
+    expect(window.localStorage.getItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY)).toBeNull();
+    const state = readOnboardingTourState();
+    expect(state.autoDisplayDisabled).toBe(false);
+    expect(shouldAutoDisplay(state)).toBe(true);
   });
 });

@@ -19,6 +19,20 @@ export const ONBOARDING_TOUR_VERSION = 1 as const;
 export const ONBOARDING_TOUR_STORAGE_KEY = "incrementum-onboarding-tour";
 
 /**
+ * Monotonic opt-out tombstone. A separate, one-way boolean key set the
+ * moment the user completes, skips, or opts out of the tour. It is
+ * deliberately kept OUT of the synced record so that a stale
+ * last-writer-wins replay of {@link ONBOARDING_TOUR_STORAGE_KEY} (from a
+ * cached Yjs snapshot or a second device that hasn't seen the opt-out)
+ * can never revive `autoDisplayDisabled` back to `false`.
+ *
+ * The reader ORs this into the returned state; only
+ * {@link resetOnboardingState} clears it. Blocklisted from sync in
+ * `localStorageSync.ts` for the same reason.
+ */
+export const ONBOARDING_TOUR_OPTOUT_STORAGE_KEY = "incrementum-onboarding-tour-optout";
+
+/**
  * Maximum number of *eligible* startup sessions in which the tour may
  * auto-open. Eligibility is computed by the caller (see
  * `useOnboardingAutoOpen`): a session deep-linked into a document or
@@ -82,6 +96,25 @@ export const FRESH_ONBOARDING_TOUR_STATE: OnboardingTourState = {
  * No error is surfaced to the user on any recovery path.
  */
 export function readOnboardingTourState(): OnboardingTourState {
+  // Single exit point so the monotonic opt-out tombstone is applied to
+  // every recovery path uniformly — see {@link applyOptOutTombstone}.
+  return applyOptOutTombstone(readOnboardingTourStateRaw());
+}
+
+/**
+ * Raw reader: parse and harden the versioned record without considering
+ * the opt-out tombstone. Hardening rules (spec: "Corrupt or unparseable
+ * state" + "Unknown future state version"):
+ * - Missing key → fresh install.
+ * - Unparseable JSON → fresh install.
+ * - Wrong shape or partial record → fresh install.
+ * - `version` *newer* than the running app understands → keep the record
+ *   intact and set `autoDisplayDisabled = true` so a downgraded client
+ *   never re-onboards an existing user. Other fields are preserved as-is.
+ *
+ * No error is surfaced to the user on any recovery path.
+ */
+function readOnboardingTourStateRaw(): OnboardingTourState {
   if (typeof window === "undefined" || !window.localStorage) {
     return { ...FRESH_ONBOARDING_TOUR_STATE };
   }
@@ -143,6 +176,23 @@ export function readOnboardingTourState(): OnboardingTourState {
 }
 
 /**
+ * Layer the monotonic opt-out tombstone over the versioned record. If the
+ * tombstone is set, force `autoDisplayDisabled = true` no matter what the
+ * synced record claims — a stale replay must never undo a user's "never
+ * again" decision. The tombstone is a separate key so last-writer-wins on
+ * the main record can't touch it.
+ */
+function applyOptOutTombstone(state: OnboardingTourState): OnboardingTourState {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return state;
+  }
+  if (window.localStorage.getItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY) === "1") {
+    return { ...state, autoDisplayDisabled: true };
+  }
+  return state;
+}
+
+/**
  * True when `parsed` carries every core field with the right type.
  * Shared by the same-version and older-version paths in
  * {@link readOnboardingTourState}: an older version is trusted to migrate
@@ -195,6 +245,16 @@ export function incrementLaunchCount(): OnboardingTourState {
 }
 
 /**
+ * Set the monotonic opt-out tombstone. Called by every terminal transition
+ * so a "never again" decision survives a stale last-writer-wins replay of
+ * the main synced record. Only {@link resetOnboardingState} clears it.
+ */
+function setOptOutTombstone(): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  window.localStorage.setItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY, "1");
+}
+
+/**
  * Transition: terminal — the user reached the final step and clicked
  * Done. Sets `autoDisplayDisabled` and stamps `completedAt`. Resume
  * position is cleared so a later on-demand replay starts fresh
@@ -208,6 +268,7 @@ export function markCompleted(): OnboardingTourState {
     furthestStepId: null,
   };
   writeOnboardingTourState(next);
+  setOptOutTombstone();
   return next;
 }
 
@@ -222,6 +283,7 @@ export function markSkipped(): OnboardingTourState {
     autoDisplayDisabled: true,
   };
   writeOnboardingTourState(next);
+  setOptOutTombstone();
   return next;
 }
 
@@ -271,6 +333,12 @@ export function recordResumePosition(stepId: string): OnboardingTourState {
 export function resetOnboardingState(): OnboardingTourState {
   const next: OnboardingTourState = { ...FRESH_ONBOARDING_TOUR_STATE };
   writeOnboardingTourState(next);
+  // Clear the monotonic opt-out tombstone so a reset genuinely re-enables
+  // auto-display on this device. The tombstone is blocklisted from sync, so
+  // this only affects the local install — a deliberate local action.
+  if (typeof window !== "undefined" && window.localStorage) {
+    window.localStorage.removeItem(ONBOARDING_TOUR_OPTOUT_STORAGE_KEY);
+  }
   return next;
 }
 
