@@ -42,7 +42,7 @@ export interface HighlightLayerProps {
  * Uses viewport.convertToViewportRectangle() which handles
  * the coordinate system transformation.
  */
-function pdfRectToViewportRect(
+export function pdfRectToViewportRect(
   pdfRect: PdfRect,
   viewport: PageViewport
 ): { left: number; top: number; width: number; height: number } | null {

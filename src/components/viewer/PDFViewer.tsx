@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, useReducer, type CSSProperties } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 // URL of the compiled bootstrap worker chunk (src/workers/pdfjs.worker.ts).
 // Vite's worker cache emits ONE chunk for this file shared by both this
@@ -38,20 +38,21 @@ import {
 } from "./pdfNavigationStability";
 import {
   derivePdfTextSelectionCapability,
-  hasSelectableTextInLayer,
   selectionAnchorsInTextLayers,
   selectionIntersectsTextLayers,
   canUsePdfSelectionAction,
   type PdfTextSelectionCapability,
 } from "./pdfTextSelection";
+import {
+  reducePdfSelectionPersistence,
+  initialPdfSelectionPersistenceState,
+  type SelectionClearReason,
+} from "./pdfSelectionPersistence";
 import { useI18n } from "../../lib/i18n";
 import { useVimModeStore } from "../../stores/vimModeStore";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
-// Custom selection engine imports
-import { usePdfCustomSelection } from "./selection";
-import { SelectionRenderer } from "./selection";
 // 3-layer architecture components
-import { HighlightLayer, type StoredHighlight } from "./HighlightLayer";
+import type { StoredHighlight } from "./HighlightLayer";
 import { SelectionPopup, type HighlightColor } from "./SelectionPopup";
 import { OcrRegionSelector } from "./OcrRegionSelector";
 import { OcrProgressOverlay } from "./OcrProgressOverlay";
@@ -258,10 +259,6 @@ function PdfPageIndicator({
     </span>
   );
 }
-
-// Feature flag for custom PDF selection engine
-// Set to true to use geometric selection instead of native DOM selection
-const ENABLE_CUSTOM_PDF_SELECTION = false;
 
 // Configure the PDF.js worker.
 //
@@ -601,11 +598,23 @@ export function PDFViewer({
     }
   }, [pageNumber]);  
 
-  // Selection popup state
-  const [showSelectionPopup, setShowSelectionPopup] = useState(false);
-  const [selectionPopupRect, setSelectionPopupRect] = useState<DOMRect | null>(null);
-  const [pendingSelectionContext, setPendingSelectionContext] = useState<PdfSelectionContext | null>(null);
-  const [nativeSelectedText, setNativeSelectedText] = useState("");
+  // Persisted-selection state: the committed PDF selection (the source of
+  // truth for the per-page overlay), the floating popup visibility/rect, and
+  // the selected text. Every transition goes through
+  // reducePdfSelectionPersistence so the commit/clear semantics are
+  // centralized and unit-tested (see pdfSelectionPersistence.ts).
+  const [persistedSelection, dispatchPersistence] = useReducer(
+    reducePdfSelectionPersistence,
+    initialPdfSelectionPersistenceState,
+  );
+  const persistedSelectionRef = useRef<PdfSelectionContext | null>(null);
+  useEffect(() => {
+    persistedSelectionRef.current = persistedSelection.selection;
+  }, [persistedSelection.selection]);
+  // Bumped when a page viewport changes while a selection is persisted, so the
+  // per-page overlay re-derives its rects even when the geometry change did
+  // not flow through the `scale` prop (e.g. a relayout that resizes pages).
+  const [, setSelectionOverlayNonce] = useState(0);
   const [fallbackPageSize, setFallbackPageSize] = useState<{ width: number; height: number } | null>(null);
   // Bumped by the ResizeObserver so fit-width/fit-page recomputes per-page scale.
   const resizeNonceRef = useRef(0);
@@ -635,6 +644,12 @@ export function PDFViewer({
     pageScaleRefs.current[idx] = viewport.scale;
     recomputePageOffsetsRef.current?.();
     vimRuntimeListenersRef.current.forEach((listener) => listener({ kind: "geometry", pageNumber: idx + 1 }));
+    // Re-derive persisted-selection overlay rects when page geometry changes
+    // (zoom / relayout) even if the change did not flow through the `scale`
+    // prop — the overlay converts from PDF-space rects at render time.
+    if (persistedSelectionRef.current) {
+      setSelectionOverlayNonce((n) => n + 1);
+    }
   }, []);
 
   const handleCanvasRef = useCallback((idx: number, canvas: HTMLCanvasElement | null) => {
@@ -672,10 +687,10 @@ export function PDFViewer({
   const navSettleTargetRef = useRef<{ token: number; targetTop: number; pageNumber: number } | null>(null);
   const pdfNavStabilityEnabledRef = useRef(true);
   const pdfNavStabilityDebugRef = useRef(false);
-  const pdfTextSelectionGestureActiveRef = useRef(false);
-  const showSelectionPopupRef = useRef(false);
-  const ignoreSelectionChangeRef = useRef(false);
   const isTauriRuntime = isTauri();
+  // Host element of the floating selection popup. Clicks on it must not be
+  // treated as "outside any PDF page" clears.
+  const selectionPopupHostRef = useRef<HTMLDivElement | null>(null);
 
   // Position persistence refs
   const docIdRef = useRef<string>("");
@@ -684,129 +699,56 @@ export function PDFViewer({
   const positionSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRestoringPositionRef = useRef(false);
 
-  // Custom PDF selection hook
-  const getSelectionRectFromContext = useCallback((context: PdfSelectionContext): DOMRect | null => {
-    let left = Number.POSITIVE_INFINITY;
-    let top = Number.POSITIVE_INFINITY;
-    let right = Number.NEGATIVE_INFINITY;
-    let bottom = Number.NEGATIVE_INFINITY;
-
-    for (const page of context.pages) {
-      const pageEl = pageContainerRefs.current[page.pageNumber - 1];
-      if (!pageEl) continue;
-      const pageBounds = pageEl.getBoundingClientRect();
-
-      for (const rect of page.viewportRects) {
-        if (rect.width <= 0 || rect.height <= 0) continue;
-        const rectLeft = pageBounds.left + rect.left;
-        const rectTop = pageBounds.top + rect.top;
-        left = Math.min(left, rectLeft);
-        top = Math.min(top, rectTop);
-        right = Math.max(right, rectLeft + rect.width);
-        bottom = Math.max(bottom, rectTop + rect.height);
+  // Central clear path for the persisted selection (spec: explicit clear
+  // semantics). `clearNative` is false only for the in-page-drag trigger, where
+  // the browser is about to start a new selection gesture and must keep its own
+  // range intact — the committed overlay/text still reset.
+  const clearPersistedSelection = useCallback(
+    (reason: SelectionClearReason, clearNative = true) => {
+      dispatchPersistence({ type: "clear", reason });
+      lastSelectionWasPdfRef.current = false;
+      if (clearNative) {
+        window.getSelection()?.removeAllRanges();
       }
-    }
+      onSelectionChange?.("", null);
+    },
+    [onSelectionChange],
+  );
 
-    if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(right) || !Number.isFinite(bottom)) {
-      return null;
-    }
-
-    return new DOMRect(left, top, right - left, bottom - top);
+  // Hide the floating popup without clearing the persisted overlay (scroll,
+  // re-layout, or an action like "Add note" that does not consume the
+  // selection).
+  const hideSelectionPopup = useCallback(() => {
+    dispatchPersistence({ type: "hide-popup" });
   }, []);
 
-  const customSelection = usePdfCustomSelection({
-    pdf,
-    documentId,
-    pageContainerRefs,
-    pageViewportRefs,
-    enabled: ENABLE_CUSTOM_PDF_SELECTION && ocr.flowState === "idle",
-    onSelectionChange: (text, context) => {
-      // Store the selection context for later use (highlight, etc.)
-      setPendingSelectionContext(context);
-
-      // Show popup when there's a selection
-      if (text && context) {
-        const contextRect = getSelectionRectFromContext(context);
-        const selection = window.getSelection();
-        if (contextRect) {
-          setSelectionPopupRect(contextRect);
-          setShowSelectionPopup(true);
-        } else if (selection && selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          setSelectionPopupRect(rect);
-          setShowSelectionPopup(true);
-        }
-      } else {
-        setShowSelectionPopup(false);
-        setSelectionPopupRect(null);
-      }
-
-      // Call parent callback
-      onSelectionChange?.(text, context);
-    },
-  });
-
-  const selectedText = ENABLE_CUSTOM_PDF_SELECTION
-    ? customSelection.selectionState.selectedText
-    : nativeSelectedText;
-
-  useEffect(() => {
-    if (!ENABLE_CUSTOM_PDF_SELECTION) return;
-
-    const handleCopy = (event: ClipboardEvent) => {
-      const text = customSelection.selectionState.selectedText.trim();
-      if (!text || !event.clipboardData) return;
-
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("input, textarea, [contenteditable='true']")) return;
-
-      event.clipboardData.setData("text/plain", text);
-      event.preventDefault();
-    };
-
-    document.addEventListener("copy", handleCopy);
-    return () => document.removeEventListener("copy", handleCopy);
-  }, [customSelection.selectionState.selectedText]);
-
-  // Clear selection highlights from all pages (no-op now since we rely purely on clean native browser highlights)
-  const clearSelectionHighlights = useCallback(() => {}, []);
-
-  // Clear selection helper
+  // Clear selection helper (used by popup actions that consume the selection).
   const clearSelection = useCallback(() => {
-    setShowSelectionPopup(false);
-    showSelectionPopupRef.current = false;
-    setPendingSelectionContext(null);
-    if (ENABLE_CUSTOM_PDF_SELECTION) {
-      customSelection.clearSelection();
-    } else {
-      window.getSelection()?.removeAllRanges();
-      clearSelectionHighlights();
-      setNativeSelectedText("");
-      onSelectionChange?.("", null);
-    }
-  }, [customSelection, clearSelectionHighlights, onSelectionChange]);
+    clearPersistedSelection("action-complete");
+  }, [clearPersistedSelection]);
 
   // Handle highlight creation from popup
   const handleHighlight = useCallback(
     (color: HighlightColor) => {
-      if (!canUsePdfSelectionAction({ selectedText, selectionContext: pendingSelectionContext })) return;
-      onHighlightSelection?.(color, selectedText.trim(), pendingSelectionContext);
+      const { selection, selectedText } = persistedSelection;
+      if (!canUsePdfSelectionAction({ selectedText, selectionContext: selection })) return;
+      onHighlightSelection?.(color, selectedText.trim(), selection);
 
       // Clear selection after highlighting
       clearSelection();
     },
-    [onHighlightSelection, pendingSelectionContext, selectedText, clearSelection]
+    [onHighlightSelection, persistedSelection.selection, persistedSelection.selectedText, clearSelection]
   );
 
   const handleHighlightWithDialog = useCallback(
     (color: HighlightColor) => {
-      if (!canUsePdfSelectionAction({ selectedText, selectionContext: pendingSelectionContext })) return;
-      onHighlightSelectionWithDialog?.(color, selectedText.trim(), pendingSelectionContext);
+      const { selection, selectedText } = persistedSelection;
+      if (!canUsePdfSelectionAction({ selectedText, selectionContext: selection })) return;
+      onHighlightSelectionWithDialog?.(color, selectedText.trim(), selection);
 
       clearSelection();
     },
-    [onHighlightSelectionWithDialog, pendingSelectionContext, selectedText, clearSelection]
+    [onHighlightSelectionWithDialog, persistedSelection.selection, persistedSelection.selectedText, clearSelection]
   );
 
   // Handle copy action from popup
@@ -818,9 +760,9 @@ export function PDFViewer({
   // Handle add note from popup
   const handleAddNote = useCallback(() => {
     // TODO: Implement note modal
-    console.log("Add note for selection:", pendingSelectionContext);
-    setShowSelectionPopup(false);
-  }, [pendingSelectionContext]);
+    console.log("Add note for selection:", persistedSelection.selection);
+    hideSelectionPopup();
+  }, [persistedSelection.selection, hideSelectionPopup]);
 
   // Handle popup dismiss
   const handlePopupDismiss = useCallback(() => {
@@ -1915,13 +1857,11 @@ export function PDFViewer({
         }
       }
       clearNavigationSettleTimeout();
-      // Clear selection highlights on unmount
-      clearSelectionHighlights();
       // Note: per-page PDFPageView teardown (canvas + text layer cancel/destroy)
       // is handled by each PdfPageViewWrapper's own effect cleanup when React
       // unmounts it. No manual cancel loop is needed here.
     };
-  }, [clearNavigationSettleTimeout, clearSelectionHighlights, saveReadingPosition]);
+  }, [clearNavigationSettleTimeout, saveReadingPosition]);
 
   useEffect(() => {
     if (!pdf || numPages <= 0) return;
@@ -2358,37 +2298,26 @@ export function PDFViewer({
     return () => { onVimRuntimeChangeRef.current?.(null); };
   }, [documentId, numPages, pdf]);
 
-  // Draw selection highlights based on current selection (no-op now since we rely purely on clean native browser highlights)
-  const updateSelectionHighlights = useCallback(() => {}, []);
-
-  // Handle text selection changes (native DOM selection - disabled when custom selection is active)
+  // Selection persistence (native DOM selection + committed overlay).
   //
-  // Design: the browser's own native highlight already paints the selection
-  // while the user drags. We therefore commit NOTHING to React state during
-  // the drag — every selectionchange event during a drag would otherwise
-  // trigger setState (popup rect, context, text) and re-render the viewer,
-  // which causes the selection to flicker and, on WKWebView, to disappear on
-  // release when a transient collapsed-selection event clears state.
-  //
-  // Instead we capture the selection ONCE on mouseup (after letting the
-  // browser finalize the range). Clearing happens on a subsequent mousedown
-  // outside any text layer.
+  // Design: the browser's own native highlight paints the selection while the
+  // user drags, so we commit NOTHING to React state during the drag. The range
+  // is captured ONCE on mouseup (after letting the browser finalize it) and
+  // stored through the persistence reducer as the source of truth for the
+  // per-page overlay. Once committed, the overlay no longer depends on the
+  // live native selection: WKWebView drops the document selection whenever
+  // focus moves (popup, assistant panel, other controls), and a dropped native
+  // selection is deliberately NOT a clear signal — there is no selectionchange
+  // handler that clears state. Clearing happens only through the explicit
+  // triggers wired below (see reducePdfSelectionPersistence).
   useEffect(() => {
-    // Skip native selection handling when custom selection is enabled
-    if (ENABLE_CUSTOM_PDF_SELECTION) return;
     if (!onSelectionChange) return;
 
-    const clearSelectionUi = () => {
-      setShowSelectionPopup(false);
-      setSelectionPopupRect(null);
-      setPendingSelectionContext(null);
-      setNativeSelectedText("");
-      showSelectionPopupRef.current = false;
-    };
-
     // Commit the current native selection (if any, and if it lives inside a
-    // PDF text layer) to React state and surface the popup. Returns true when
-    // a valid PDF selection was committed.
+    // PDF text layer) to persisted state and surface the popup. Returns true
+    // when a valid PDF selection was committed. The reducer ignores invalid
+    // selections (collapsed / non-PDF / empty text) and leaves the persisted
+    // state untouched.
     const commitSelection = (): boolean => {
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
@@ -2409,135 +2338,114 @@ export function PDFViewer({
       if (!text) return false;
 
       lastSelectionWasPdfRef.current = true;
-      setPendingSelectionContext(context);
-      setNativeSelectedText(text);
-
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      setSelectionPopupRect(rect);
-      setShowSelectionPopup(true);
-      showSelectionPopupRef.current = true;
-
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      dispatchPersistence({ type: "commit", selection: context, text, rect });
       onSelectionChange(text, context);
       return true;
     };
 
-    // selectionchange fires continuously during a drag. We intentionally do
-    // NOT update React state here — only on mouseup. This handler exists
-    // purely to dismiss a previously-shown popup if the selection becomes
-    // empty/collapsed AFTER mouseup (e.g. the user clicks empty space, which
-    // also fires selectionchange before mousedown in some WebViews).
-    const handleSelectionChange = () => {
-      // While a drag is in progress or we are committing a selection, never touch state.
-      if (pdfTextSelectionGestureActiveRef.current || ignoreSelectionChangeRef.current) return;
-      const selection = window.getSelection();
-      const hasSelection =
-        selection !== null &&
-        selection.rangeCount > 0 &&
-        !selection.isCollapsed &&
-        selection.toString().trim().length > 0;
-      if (!hasSelection && lastSelectionWasPdfRef.current) {
-        lastSelectionWasPdfRef.current = false;
-        clearSelectionHighlights();
-        clearSelectionUi();
-        onSelectionChange("", null);
-      }
-    };
-
-    // Handle mouse up to capture the finalized selection.
-    const handleMouseUp = () => {
-      // The drag is over. Reset the gesture flag so post-mouseup
-      // selectionchange events are honored again (e.g. an external clear).
-      pdfTextSelectionGestureActiveRef.current = false;
-      
-      // Set the ignore flag to filter out transient collapsed-selection events
-      // during the asynchronously scheduled commitSelection and React re-render.
-      ignoreSelectionChangeRef.current = true;
-
-      // Let the browser finalize the selection range before reading it.
-      // WKWebView in particular can report a stale/collapsed selection at
-      // the instant mouseup fires; a short delay lets it settle.
+    // Handle mouse up to capture the finalized selection. WKWebView in
+    // particular can report a stale/collapsed selection at the instant mouseup
+    // fires; a short delay lets the browser settle the range first.
+    const handleMouseUp = (e: MouseEvent) => {
+      // A mouseup on the selection popup (focus moved to a popup control) can
+      // drop the native selection in WKWebView. That is a focus move, NOT a
+      // dismissal — the popup's own click handler decides what happens to the
+      // selection — so never run the empty-selection clear path for it.
+      const releasedOnPopup =
+        e.target instanceof Node && selectionPopupHostRef.current?.contains(e.target) === true;
       setTimeout(() => {
         const committed = commitSelection();
-        if (!committed && lastSelectionWasPdfRef.current) {
+        if (!releasedOnPopup && !committed && lastSelectionWasPdfRef.current) {
           // mouseup landed on an empty/non-PDF selection — drop the old one.
-          lastSelectionWasPdfRef.current = false;
-          clearSelectionHighlights();
-          clearSelectionUi();
-          onSelectionChange("", null);
+          clearPersistedSelection("outside-page-click");
         }
-        
-        // Reset the ignore flag after a short delay to let browser events stabilize
-        setTimeout(() => {
-          ignoreSelectionChangeRef.current = false;
-        }, 200);
       }, 0);
     };
 
-    // Clear highlights only when starting interaction away from text.
+    // Explicit clear semantics (single path via clearPersistedSelection):
+    //  - pointer-down inside a text layer (incl. inter-line whitespace, which
+    //    is delegated to PDF.js's endOfContent handling) starts a new in-page
+    //    selection → clear, but leave the browser's own range untouched so the
+    //    new drag proceeds normally.
+    //  - pointer-down inside the reading surface but outside any text layer
+    //    (page margin, gaps between pages) with no native selection → clear.
+    // Clicks on the floating selection popup are handled by the popup itself
+    // and must NOT clear — focus legitimately moves there. Clicks OUTSIDE the
+    // reading surface (assistant panel, dialogs, other panels) are focus moves
+    // and must NOT clear either: that is exactly the WKWebView focus-loss case
+    // the committed overlay exists to survive.
     const handleMouseDown = (e: MouseEvent) => {
       const target = e.target as Node;
+      if (!(target instanceof Node)) return;
+      if (selectionPopupHostRef.current?.contains(target)) return;
+
       const scrollContainer = scrollContainerRef.current;
       if (!scrollContainer || !scrollContainer.contains(target)) return;
-
-      // Check if user clicked exactly on the transparent textLayer container (whitespace/margin)
-      // rather than an actual text span.
-      const clickedTextLayerWhitespace = textLayerRootsRef.current.some(
-        (layer) => layer && layer === target,
-      );
-      if (clickedTextLayerWhitespace) {
-        pdfTextSelectionGestureActiveRef.current = false;
-        // Prevent selection starting from the whitespace container itself,
-        // which causes the browser to select everything from the top of the container.
-        e.preventDefault();
-
-        // Deselect current selection when clicking on empty whitespace
-        window.getSelection()?.removeAllRanges();
-        clearSelectionHighlights();
-        clearSelectionUi();
-        if (lastSelectionWasPdfRef.current) {
-          lastSelectionWasPdfRef.current = false;
-          onSelectionChange("", null);
-        }
-        return;
-      }
 
       const clickedTextLayer = textLayerRootsRef.current.some(
         (layer) => layer && (layer === target || layer.contains(target)),
       );
-      if (clickedTextLayer) {
-        // A new drag is starting inside a text layer. Mark the gesture active
-        // so selectionchange events during the drag don't mutate state. Hide
-        // any leftover popup from a previous selection.
-        pdfTextSelectionGestureActiveRef.current = true;
-        if (showSelectionPopupRef.current) {
-          clearSelectionUi();
-        }
+      if (clickedTextLayer && persistedSelectionRef.current) {
+        clearPersistedSelection("new-in-page-drag", /* clearNative */ false);
         return;
       }
-      // mousedown outside any text layer: the drag is not a PDF selection.
-      pdfTextSelectionGestureActiveRef.current = false;
       const hasNativeSelection = Boolean(window.getSelection()?.toString().trim());
       if (!hasNativeSelection) {
-        clearSelectionHighlights();
-        clearSelectionUi();
-        if (lastSelectionWasPdfRef.current) {
-          lastSelectionWasPdfRef.current = false;
-          onSelectionChange("", null);
-        }
+        clearPersistedSelection("outside-page-click");
       }
     };
 
-    document.addEventListener("selectionchange", handleSelectionChange);
+    // Escape clears a persisted selection (overlay, popup, downstream state).
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (!persistedSelectionRef.current) return;
+      clearPersistedSelection("escape");
+    };
+
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      document.removeEventListener("selectionchange", handleSelectionChange);
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onSelectionChange, buildPdfSelectionContext, clearSelectionHighlights, updateSelectionHighlights]);
+  }, [onSelectionChange, buildPdfSelectionContext, clearPersistedSelection]);
+
+  // A new document (or a fresh pdf.js proxy) invalidates the persisted
+  // selection's geometry and page context — clear it. `clearPersistedSelection`
+  // is intentionally excluded from the deps: its only dependency is the parent
+  // callback, whose identity may change on unrelated re-renders.
+  useEffect(() => {
+    if (persistedSelectionRef.current) {
+      clearPersistedSelection("document-change");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, pdf]);
+
+  // OCR region selection is a new in-page pointer gesture — clear any persisted
+  // selection when OCR becomes active so the two never overlap.
+  useEffect(() => {
+    if (ocr.flowState !== "idle") {
+      clearPersistedSelection("new-in-page-drag");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ocr.flowState]);
+
+  // Per-page PDF-space rects of the persisted selection, for the overlay.
+  // Pages without rects (or no committed selection) are simply not painted;
+  // committed state survives so scrolling back re-paints them.
+  const selectionPdfRectsByPage = useMemo(() => {
+    const selection = persistedSelection.selection;
+    if (!selection) return null;
+    const map = new Map<number, PdfRect[]>();
+    for (const page of selection.pages) {
+      if (page.pdfRects.length > 0) map.set(page.pageNumber, page.pdfRects);
+    }
+    return map;
+  }, [persistedSelection.selection]);
 
   // Resolve the per-page display scale from the current zoom mode.
   // fit-width / fit-page need the scroll container width/height, so this must
@@ -3450,11 +3358,10 @@ export function PDFViewer({
     const container = scrollContainerRef.current;
     if (container) scrollPositionRef.current = { x: -container.scrollLeft, y: -container.scrollTop };
 
-    // Dismiss selection popup on scroll to prevent floating overlapping menus
-    if (showSelectionPopup) {
-      setShowSelectionPopup(false);
-      setSelectionPopupRect(null);
-      showSelectionPopupRef.current = false;
+    // Dismiss selection popup on scroll to prevent floating overlapping menus.
+    // The persisted overlay stays — the committed selection survives scrolling.
+    if (persistedSelection.popupVisible) {
+      hideSelectionPopup();
     }
 
     if (!container || scrollRafRef.current !== null) return;
@@ -3871,6 +3778,7 @@ export function PDFViewer({
                       scale={pageScales[index] ?? scale}
                       eventBus={eventBusRef.current!}
                       highlights={getHighlightsForPage(pageNum)}
+                      selectionPdfRects={selectionPdfRectsByPage?.get(pageNum) ?? null}
                       ocrActive={ocr.flowState !== "idle" && pageNum === pageNumber}
                       onTextLayerReady={handleTextLayerReady}
                       onViewportChange={handleViewportChange}
@@ -4052,17 +3960,21 @@ export function PDFViewer({
         </div>
       </div>
 
-      {/* Selection Popup - Floating context menu for text selection */}
-      <SelectionPopup
-        visible={showSelectionPopup}
-        selectionRect={selectionPopupRect}
-        selectedText={selectedText}
-        onHighlight={handleHighlight}
-        onHighlightWithDialog={handleHighlightWithDialog}
-        onCopy={handleCopy}
-        onAddNote={handleAddNote}
-        onDismiss={handlePopupDismiss}
-      />
+      {/* Selection Popup - Floating context menu for text selection. Wrapped so
+          mousedowns on the popup can be distinguished from clicks outside any
+          PDF page (which clear the persisted selection). */}
+      <div ref={selectionPopupHostRef}>
+        <SelectionPopup
+          visible={persistedSelection.popupVisible}
+          selectionRect={persistedSelection.popupRect}
+          selectedText={persistedSelection.selectedText}
+          onHighlight={handleHighlight}
+          onHighlightWithDialog={handleHighlightWithDialog}
+          onCopy={handleCopy}
+          onAddNote={handleAddNote}
+          onDismiss={handlePopupDismiss}
+        />
+      </div>
     </div>
   );
 }
