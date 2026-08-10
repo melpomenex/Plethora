@@ -30,6 +30,7 @@ import {
   Notebook,
   Planet,
   Rss,
+  Scissors,
   Sparkle,
   SquaresFour,
   Stack,
@@ -66,6 +67,7 @@ export const TAB_TYPE_ICONS: Record<TabType, Icon> = {
   podcast: Microphone,
   "audiobook-epub-sync": Headphones,
   audiobook: Headphones,
+  extracts: Scissors,
 };
 
 /**
@@ -116,6 +118,7 @@ export {
   Notebook,
   Planet,
   Rss,
+  Scissors,
   Sparkle,
   SquaresFour,
   Stack,
