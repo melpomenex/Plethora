@@ -294,6 +294,12 @@ interface DocumentViewerProps {
     duration?: number;
   } | null) => void;
   hideRatingOrbs?: boolean;
+  /**
+   * Origin the document was opened from. "documents" (library browsing) hides
+   * the inline rating orbs; "queue" (active review) keeps them. Combined with
+   * `hideRatingOrbs` into `shouldHideRatingOrbs`.
+   */
+  openedFrom?: string;
   onEnded?: () => void;
   onArchive?: () => void;
 }
@@ -362,12 +368,17 @@ export function DocumentViewer({
   extractSourceContext,
   onVideoContextChange,
   hideRatingOrbs = false,
+  openedFrom,
   onEnded,
   onArchive,
 }: DocumentViewerProps) {
   const toast = useToast();
   const { t } = useI18n();
   const { theme } = useTheme();
+  // Rating orbs are a queue-review affordance: hide them when the caller opts
+  // out (Scroll Mode renders its own overlay) or when the document was opened
+  // from the library/Documents view rather than the queue.
+  const shouldHideRatingOrbs = hideRatingOrbs || openedFrom === "documents";
   const { hydrateDocument, setCurrentDocument, updateDocument, updateDocumentOptimistic } = useDocumentStore(
     useShallow(s => ({
       hydrateDocument: s.hydrateDocument,
@@ -7093,7 +7104,7 @@ export function DocumentViewer({
         )}
 
         {/* Orb Rating Buttons - right side of viewer */}
-        {!hideRatingOrbs && viewMode === "document" && docType !== "pdf" && docType !== "youtube" && docType !== "audio" && isDocumentInQueue && (
+        {!shouldHideRatingOrbs && viewMode === "document" && docType !== "pdf" && docType !== "youtube" && docType !== "audio" && isDocumentInQueue && (
           <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-3 pointer-events-auto z-40">
             {!hasDocumentHistory ? (
               <button

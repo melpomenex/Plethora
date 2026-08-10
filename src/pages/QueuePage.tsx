@@ -49,7 +49,7 @@ export function QueuePage() {
       type: "document-viewer",
       content: DocumentViewer,
       closable: true,
-      data: { documentId: item.documentId },
+      data: { documentId: item.documentId, openedFrom: "queue" },
     });
   };
 

@@ -57,6 +57,7 @@ export function QueueTab() {
       closable: true,
       data: {
         documentId: item.documentId,
+        openedFrom: "queue",
         ...(item.extractId ? { focusedExtractId: item.extractId } : {}),
       },
     }, paneId);
