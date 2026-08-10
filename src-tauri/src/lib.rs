@@ -1257,6 +1257,7 @@ pub fn run() {
             commands::get_reviewable_extracts,
             commands::get_due_items,
             commands::create_learning_item,
+            commands::create_learning_items_batch,
             commands::update_learning_item_content_with_version,
             commands::update_learning_item_tags,
             commands::update_learning_item_priority,

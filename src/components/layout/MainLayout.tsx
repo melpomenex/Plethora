@@ -19,6 +19,7 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { ThemeBackdrop } from "../common/ThemeBackdrop";
 import { KeyboardShortcutsHelp } from "../common/KeyboardShortcutsHelp";
 import { ImageSaveOverlay } from "../viewer/ImageSaveOverlay";
+import { OcclusionComposerHost } from "../occlusion/OcclusionComposerHost";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { isTauri, invokeCommand, listen } from "../../lib/tauri";
 import type { StartupNotice } from "../../types";
@@ -1452,6 +1453,7 @@ export function MainLayout() {
           onClose={() => useUIStore.getState().setTwitterImportDialogOpen(false)}
         />
         <ImageSaveOverlay />
+        <OcclusionComposerHost />
         <WorkspaceSwitcher isOpen={isWorkspaceSwitcherOpen} onClose={() => setIsWorkspaceSwitcherOpen(false)} />
         <TourHost tourControlRef={tourControlRef} adapter={tourAdapter} />
       </VimiumNavigationProvider>

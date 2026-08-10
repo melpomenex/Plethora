@@ -1589,6 +1589,37 @@ const commandHandlers: Record<string, CommandHandler> = {
         return toCamelCase(item);
     },
 
+    create_learning_items_batch: async (args) => {
+        const rawItems = (args.items ?? args.inputs) as Array<Record<string, unknown>>;
+        const records = rawItems.map((input) =>
+            db.createLearningItemRaw({
+                extract_id: (input.extractId ?? input.extract_id) as string | undefined,
+                document_id: (input.documentId ?? input.document_id) as string | undefined,
+                item_type: (input.itemType ?? input.item_type) as string,
+                question: String(input.question ?? ""),
+                answer: input.answer as string | undefined,
+                cloze_text: (input.clozeText ?? input.cloze_text) as string | undefined,
+                tags: (input.tags ?? input.tag_list) as string[] | undefined,
+                image_asset_ids: (input.imageAssetIds ?? input.image_asset_ids) as string[] | undefined,
+                interaction_metadata: (input.interactionMetadata ?? input.interaction_metadata) as Record<string, unknown> | undefined,
+            }),
+        );
+        // The card writes are one IndexedDB transaction (all or nothing); the
+        // derived document counts and daily-note links are applied afterwards
+        // and may partially fail without affecting the persisted cards.
+        await db.bulkPutLearningItems(records);
+        for (const item of records) {
+            if (item.document_id) {
+                const doc = await db.getDocument(item.document_id);
+                if (doc) {
+                    await db.updateDocument(doc.id, { learning_item_count: doc.learning_item_count + 1 });
+                }
+            }
+            appendDailyNoteLink({ type: "learning_item", id: item.id, title: item.question });
+        }
+        return records.map(toCamelCase);
+    },
+
     check_semantic_duplicate_candidates: async (args) => {
         const question = String(args.question ?? "");
         const limit = Math.max(1, Number(args.limit ?? 5));
