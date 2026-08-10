@@ -22,7 +22,7 @@ import { ImageSaveOverlay } from "../viewer/ImageSaveOverlay";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { isTauri, invokeCommand, listen } from "../../lib/tauri";
 import type { StartupNotice } from "../../types";
-import { checkForUpdates } from "../../utils/updateChecker";
+import { checkForUpdates, setSkippedVersion } from "../../utils/updateChecker";
 import { emitFeedback } from "../../lib/feedback";
 import { PasteExtractDialog } from "../extracts/PasteExtractDialog";
 import { TwitterImportDialog } from "../documents/TwitterImportDialog";
@@ -265,15 +265,20 @@ export function MainLayout() {
   }, [ensureStartup, activeCollectionId]);
 
   // Background update check on startup (desktop only). Runs once, after a
-  // short delay so it doesn't compete with boot. Respects the skip-version
-  // preference via checkForUpdates(); a found update surfaces as a toast the
-  // user can act on or ignore — no auto-prompting.
+  // short delay so it doesn't compete with boot. Each version is shown to the
+  // user at most once: the moment we surface the toast we mark the version
+  // seen via setSkippedVersion(), so checkForUpdates(false) suppresses it on
+  // every subsequent boot for that version. A genuinely new version notifies
+  // once. Manual "Check for Updates" in Settings (force=true) still works.
   useEffect(() => {
     if (!isTauri()) return;
     const timer = window.setTimeout(() => {
       checkForUpdates(false)
         .then((update) => {
           if (!update) return;
+          // Mark this version seen so we never re-nag about it. The user can
+          // still check manually from Settings at any time.
+          setSkippedVersion(update.latestVersion);
           void emitFeedback("update.available", { latestVersion: update.latestVersion }, {
             toast: {
               type: ToastType.Info,

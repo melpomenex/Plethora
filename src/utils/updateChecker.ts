@@ -41,20 +41,36 @@ export interface UpdateInfo {
  * Simple semver compare. Returns >0 if a > b, <0 if a < b, 0 if equal.
  */
 function semverCompare(a: string, b: string): number {
-  const parse = (v: string) =>
-    v
-      .replace(/^v/, "")
-      .split(".")
-      .map((n) => parseInt(n, 10) || 0);
-
-  const pa = parse(a);
-  const pb = parse(b);
+  const pa = parseSemver(a);
+  const pb = parseSemver(b);
 
   for (let i = 0; i < 3; i++) {
     const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
     if (diff !== 0) return diff;
   }
   return 0;
+}
+
+/**
+ * Parse a version string into up to three numeric components, tolerating a
+ * leading `v` (GitHub `tag_name` uses `v2.1.0`; the Tauri manifest `version`
+ * field is bare `2.1.0`). Non-numeric segments fall back to 0.
+ */
+function parseSemver(v: string): number[] {
+  return v
+    .replace(/^v/, "")
+    .split(".")
+    .map((n) => parseInt(n, 10) || 0);
+}
+
+/**
+ * Normalize a version string to bare semver (no leading `v`). The skip/seen
+ * flag stores and compares through this so a fallback from the Tauri manifest
+ * (bare `2.1.0`) to the GitHub Releases API (`tag_name` = `v2.1.0`) can't
+ * break the equality gate and re-nag a version the user has already seen.
+ */
+export function normalizeVersion(version: string): string {
+  return version.replace(/^v/, "");
 }
 
 /**
@@ -78,10 +94,11 @@ export function getSkippedVersion(): string | null {
 }
 
 /**
- * Save a version to the skip list so we don't nag about it.
+ * Save a version to the skip list so we don't nag about it. Stored normalized
+ * to bare semver so the source (Tauri manifest vs. GitHub tag) doesn't matter.
  */
 export function setSkippedVersion(version: string): void {
-  localStorage.setItem(SKIP_VERSION_KEY, version);
+  localStorage.setItem(SKIP_VERSION_KEY, normalizeVersion(version));
 }
 
 /**
@@ -115,7 +132,9 @@ async function checkViaTauriUpdater(
   const latestVersion = update.version;
 
   // Respect the skip list (unless forced) even though the updater found one.
-  if (!force && getSkippedVersion() === latestVersion) {
+  // Compare normalized (bare semver) so a Tauri→GitHub fallback can't bypass
+  // a version the user already saw.
+  if (!force && getSkippedVersion() === normalizeVersion(latestVersion)) {
     return null;
   }
 
@@ -183,7 +202,7 @@ async function checkViaGitHub(
     return null; // up-to-date
   }
 
-  if (!force && getSkippedVersion() === latestVersion) {
+  if (!force && getSkippedVersion() === normalizeVersion(latestVersion)) {
     return null;
   }
 
