@@ -67,6 +67,13 @@ const BLOCKED_KEYS = new Set([
   // peer's absent/stale value un-set it; keeping it device-local means only a
   // local `resetOnboardingState()` can clear it.
   "incrementum-onboarding-tour-optout",
+  // The update-notification "seen/skip version" flag is a per-version
+  // device-local user-intent decision: once a version has been shown (or
+  // skipped), it must not re-nag this device. Syncing it with
+  // last-writer-wins would let a stale peer snapshot (or a second device that
+  // hasn't seen the version yet) un-skip it and revive the nag we just
+  // suppressed. Same reasoning as the onboarding opt-out tombstone above.
+  "incrementum_skip_update_version",
 ]);
 
 const BLOCKED_PREFIXES = [

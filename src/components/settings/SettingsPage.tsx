@@ -38,7 +38,7 @@ import { NumericInput } from "../common";
 import { cn } from "../../utils";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { isTauri } from "../../lib/tauri";
-import { checkForUpdates, type UpdateInfo } from "../../utils/updateChecker";
+import { checkForUpdates, setSkippedVersion, type UpdateInfo } from "../../utils/updateChecker";
 import { useSettingsStore, useTabsStore } from "../../stores";
 import type { DefaultStartupView } from "../../stores/settingsStore";
 import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
@@ -763,6 +763,9 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
     try {
       const result = await checkForUpdates(true);
       if (result) {
+        // Mark this version seen so the startup auto-check won't re-nag about
+        // it after the user has manually viewed it here.
+        setSkippedVersion(result.latestVersion);
         setUpdateInfo(result);
       } else {
         toast.success("You're on the latest version");
