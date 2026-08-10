@@ -659,15 +659,28 @@ export interface GenerateArtifactRequest {
     | "flashcards"
     | "quiz"
     | "report"
+    | "study-guide"
     | "audio"
     | "video"
     | "mind-map"
     | "data-table"
+    | "slide-deck"
+    | "infographic"
     | string;
   instructions?: string;
   difficulty?: string;
   quantity?: string;
   retryCount?: number;
+  /** slide-deck option */
+  format?: "detailed" | "presenter";
+  /** slide-deck option */
+  length?: "default" | "short";
+  /** infographic option */
+  orientation?: "landscape" | "portrait" | "square";
+  /** infographic option */
+  detail?: "concise" | "standard" | "detailed";
+  /** infographic option */
+  style?: string;
 }
 
 export interface FlashcardPayload {
@@ -709,6 +722,8 @@ export interface NotebookLMJob {
     jsonContent?: unknown;
     /** URL for media artifacts (audio, video) */
     mediaUrl?: string;
+    /** Last playback position in seconds for media artifacts (audio, video) */
+    playbackPosition?: number;
   };
 }
 
@@ -732,6 +747,14 @@ export interface ArtifactExportResult {
   mimeType: string;
   fileName: string;
   content: string;
+}
+
+/** Result of importing a completed NotebookLM job into the library. */
+export interface ArtifactImportResult {
+  documentId: string;
+  title: string;
+  fileType: string;
+  alreadyImported: boolean;
 }
 
 export async function notebooklmGetSettings(): Promise<NotebookLMSettings> {
@@ -863,6 +886,36 @@ export async function notebooklmExportJobArtifact(
   return await invokeCommand<ArtifactExportResult>("notebooklm_export_job_artifact", {
     jobId,
     outputFormat,
+  });
+}
+
+/**
+ * Import a completed NotebookLM job into the Incrementum library as a
+ * document. `jobId` refers to a job returned by `notebooklmGetJobs`.
+ * `collectionId` targets a specific collection; omitted/empty lands at the
+ * collection library root.
+ */
+export async function notebooklmImportJobArtifact(
+  jobId: string,
+  collectionId?: string
+): Promise<ArtifactImportResult> {
+  return await invokeCommand<ArtifactImportResult>("notebooklm_import_job_artifact", {
+    jobId,
+    collectionId,
+  });
+}
+
+/**
+ * Persist a media artifact's playback position (seconds) with its job, so
+ * reopening the artifact resumes where the user left off.
+ */
+export async function notebooklmSetArtifactPosition(
+  jobId: string,
+  positionSeconds: number
+): Promise<void> {
+  return await invokeCommand<void>("notebooklm_set_artifact_position", {
+    jobId,
+    positionSeconds,
   });
 }
 

@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DOMPurify from "dompurify";
 import {
   Check,
   CircleNotch,
+  FilePdf,
   Headphones,
+  ImageSquare,
   MapTrifold,
   Plus,
   Table,
@@ -12,13 +14,20 @@ import {
 } from "@phosphor-icons/react";
 import { MindMapViewer, parseMindMapData, type MindMapNode } from "./MindMapViewer";
 import { createLearningItem } from "../../../api/learning-items";
-import { notebooklmGetJob, type NotebookLMJob } from "../../../api/integrations";
+import { readDocumentFile } from "../../../api/documents";
+import {
+  notebooklmGetJob,
+  notebooklmSetArtifactPosition,
+  type NotebookLMJob,
+} from "../../../api/integrations";
 import { convertFileSrc, isTauri } from "../../../lib/tauri";
+import { resolveLocalMediaSource } from "../../viewer/localMediaSource";
 
 export type ArtifactType =
   | "audio"
   | "video"
   | "report"
+  | "study-guide"
   | "data-table"
   | "mind-map"
   | "mind_map"
@@ -98,6 +107,168 @@ function parseVideoContent(content: string): ParsedMediaContent {
   return { url: null, description: content };
 }
 
+/**
+ * Shared resolution for media artifacts (infographic, slide-deck): parses the
+ * content envelope, resolves the file to a displayable URL, and — when the job
+ * is still queued/running — polls the job until its mediaUrl appears.
+ *
+ * Resolution mirrors the app's `resolveLocalMediaSource` strategy: the Tauri
+ * asset URL (convertFileSrc) is tried first; if it fails to load (CSP block,
+ * asset scope denial, or missing file), the file is read through the backend
+ * `read_document_file` IPC and served as a blob URL, which `img-src`/`frame-src`
+ * already permit. Blob URLs are revoked when the component unmounts.
+ */
+function useMediaArtifactResolution(
+  content: string,
+  artifactId?: string,
+  mimeType?: string
+) {
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  const [isResolving, setIsResolving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const parsed = useMemo(() => parseVideoContent(content), [content]);
+  const blobUrlRef = useRef<string | null>(null);
+  // The last raw file path (from the content envelope or job polling) that a
+  // blob fallback should read through the backend.
+  const rawPathRef = useRef<string | null>(parsed.url ?? null);
+
+  const revokeBlobUrl = () => {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+  };
+
+  // Resolve the already-present URL in the content envelope.
+  useEffect(() => {
+    let active = true;
+    rawPathRef.current = parsed.url ?? null;
+    const resolveMediaUrl = async () => {
+      if (!parsed.url) {
+        setMediaUrl(null);
+        return;
+      }
+      setIsResolving(true);
+      try {
+        const resolved = await resolvePlayableMediaUrl(parsed.url);
+        if (active) {
+          // Clear any generating state set by a concurrent poll so the
+          // spinner never masks an already-resolved media URL.
+          setIsGenerating(false);
+          setMediaUrl(resolved);
+        }
+      } catch {
+        if (active) {
+          setIsGenerating(false);
+          setMediaUrl(parsed.url);
+        }
+      } finally {
+        if (active) setIsResolving(false);
+      }
+    };
+    void resolveMediaUrl();
+    return () => {
+      active = false;
+      revokeBlobUrl();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsed.url]);
+
+  /**
+   * Fall back to a blob URL read through the backend when the resolved URL
+   * cannot be loaded (CSP block, asset-scope denial, or missing file). Called
+   * from `<img onError>` / iframe failure so a blocked asset URL still shows
+   * the artifact. Reads the last known raw file path — from the content
+   * envelope or from job polling — so the fallback also works for a media URL
+   * that only became known via `notebooklmGetJob`.
+   */
+  const retryAsBlobUrl = useCallback(async () => {
+    const filePath = rawPathRef.current;
+    if (!filePath || mediaUrl?.startsWith("blob:")) return;
+    try {
+      const bytes = await readDocumentFile(filePath);
+      if (!bytes || bytes.byteLength === 0) {
+        throw new Error("File not found or empty.");
+      }
+      const lower = filePath.toLowerCase();
+      const mime =
+        lower.endsWith(".pdf")
+          ? "application/pdf"
+          : lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+            ? "image/jpeg"
+            : lower.endsWith(".webp")
+              ? "image/webp"
+              : lower.endsWith(".gif")
+                ? "image/gif"
+                : mimeType || "image/png";
+      const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+      revokeBlobUrl();
+      blobUrlRef.current = blobUrl;
+      setMediaUrl(blobUrl);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    }
+  }, [mediaUrl, mimeType]);
+
+  // Poll the job while it is still generating so an in-flight infographic or
+  // slide deck resolves once its media file lands (mirrors AudioViewer).
+  useEffect(() => {
+    if (!artifactId || mediaUrl) return;
+    let active = true;
+    let timer: number | null = null;
+
+    const pollJob = async () => {
+      try {
+        const job = await notebooklmGetJob(artifactId);
+        if (!active || !job) return;
+
+        const rawUrl = job.payload?.mediaUrl?.trim();
+        if (rawUrl) {
+          rawPathRef.current = rawUrl;
+          const resolved = await resolvePlayableMediaUrl(rawUrl);
+          if (active) {
+            // Clear the generating state before revealing the media,
+            // otherwise the spinner branch wins over the media branch.
+            setIsGenerating(false);
+            setMediaUrl(resolved);
+            return;
+          }
+        }
+
+        if (job.status === "queued" || job.status === "running") {
+          setIsGenerating(true);
+          timer = window.setTimeout(pollJob, 2500);
+        } else {
+          setIsGenerating(false);
+        }
+      } catch (error) {
+        if (active) {
+          setLoadError(error instanceof Error ? error.message : "Failed to check generation status");
+        }
+      }
+    };
+
+    void pollJob();
+    return () => {
+      active = false;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [artifactId, mediaUrl]);
+
+  return {
+    mediaUrl,
+    isResolving,
+    isGenerating,
+    loadError,
+    setMediaLoadError: setLoadError,
+    retryAsBlobUrl,
+    parsed,
+  };
+}
+
 export function ArtifactViewer({
   type,
   content,
@@ -156,7 +327,12 @@ export function ArtifactViewer({
         return <AudioViewer content={content} title={title} artifactId={artifactId} />;
       case "video":
         return <VideoViewer content={content} title={title} artifactId={artifactId} />;
+      case "infographic":
+        return <InfographicViewer content={content} title={title} artifactId={artifactId} />;
+      case "slide-deck":
+        return <SlideDeckViewer content={content} title={title} artifactId={artifactId} />;
       case "report":
+      case "study-guide":
         return <ReportViewer content={content} title={title} />;
       case "data-table":
         return (
@@ -250,8 +426,57 @@ function AudioViewer({ content, title, artifactId }: { content: string; title?: 
   const [isResolving, setIsResolving] = useState(false);
   const [jobStatus, setJobStatus] = useState<NotebookLMJob["status"] | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
+  // Holds the resolved source so a blob URL (backend-blob strategy) can be
+  // revoked on unmount — mirrors DocumentViewer's mediaSource handling.
+  const mediaSourceRef = useRef<{ src: string; revokeSrcOnDispose: boolean } | null>(null);
+  // Playback position memory: restore where the user left off and save on
+  // pause/timeupdate/unmount so closing and reopening the artifact resumes.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const restoredFromRef = useRef(false);
+  const lastSavedPositionRef = useRef(0);
+  const savedPositionRef = useRef(0);
 
   const parsed = useMemo(() => parseAudioContent(content), [content]);
+
+  const savePosition = useCallback((seconds: number) => {
+    if (!artifactId || !Number.isFinite(seconds) || seconds < 0) return;
+    // Throttle: only write when the position moved by at least a second.
+    if (Math.abs(seconds - lastSavedPositionRef.current) < 1) return;
+    lastSavedPositionRef.current = seconds;
+    savedPositionRef.current = seconds;
+    void notebooklmSetArtifactPosition(artifactId, seconds).catch(() => {
+      // Best-effort: a failed position write must not break playback.
+    });
+  }, [artifactId]);
+
+  // Seek to the saved position once the media metadata is ready (or directly
+  // if the element already loaded while the position was still being fetched).
+  const seekToSavedPosition = useCallback(() => {
+    const el = audioRef.current;
+    if (!el || restoredFromRef.current) return;
+    // Nothing to restore yet (position still being fetched), or no valid
+    // duration — don't burn the restored flag on a no-op.
+    if (savedPositionRef.current <= 0 || !Number.isFinite(el.duration)) return;
+    if (savedPositionRef.current >= el.duration) {
+      restoredFromRef.current = true; // at the end already
+      return;
+    }
+    restoredFromRef.current = true;
+    el.currentTime = savedPositionRef.current;
+  }, []);
+
+  const handleLoadedMetadata = useCallback(() => {
+    seekToSavedPosition();
+  }, [seekToSavedPosition]);
+
+  const applyResolvedSource = (src: string, revokeOnDispose: boolean) => {
+    if (mediaSourceRef.current?.revokeSrcOnDispose) {
+      URL.revokeObjectURL(mediaSourceRef.current.src);
+    }
+    mediaSourceRef.current = { src, revokeSrcOnDispose: revokeOnDispose };
+    restoredFromRef.current = false;
+    setMediaUrl(src);
+  };
 
   useEffect(() => {
     let active = true;
@@ -260,12 +485,39 @@ function AudioViewer({ content, title, artifactId }: { content: string; title?: 
         setMediaUrl(null);
         return;
       }
+      // Capture any persisted playback position in parallel with media
+      // resolution so loadedmetadata (which may fire as soon as the file
+      // loads) finds it already populated.
+      if (artifactId) {
+        notebooklmGetJob(artifactId)
+          .then((job) => {
+            if (!active || !job) return;
+            if (typeof job.payload?.playbackPosition === "number" && job.payload.playbackPosition > 0) {
+              savedPositionRef.current = job.payload.playbackPosition;
+              // If the media already loaded while the position was being
+              // fetched, seek immediately; otherwise loadedmetadata will.
+              seekToSavedPosition();
+            }
+          })
+          .catch(() => {
+            // Best-effort.
+          });
+      }
       setIsResolving(true);
       try {
-        const resolved = await resolvePlayableMediaUrl(parsed.url);
-        if (active) setMediaUrl(resolved);
+        // Resolve through the app's media-source strategy (asset URL first,
+        // backend-blob fallback) so a blocked or unavailable asset protocol
+        // still yields a playable source — mirrors library audio playback.
+        const resolved = await resolveLocalMediaSource(parsed.url, "audio");
+        if (active) {
+          applyResolvedSource(resolved.src, resolved.revokeSrcOnDispose);
+        } else if (resolved.revokeSrcOnDispose) {
+          // Unmounted mid-resolve: release the blob this call created.
+          URL.revokeObjectURL(resolved.src);
+        }
       } catch {
-        if (active) setMediaUrl(parsed.url);
+        // Last resort: raw URL (works for http(s) remote sources).
+        if (active) applyResolvedSource(parsed.url, false);
       } finally {
         if (active) setIsResolving(false);
       }
@@ -273,7 +525,12 @@ function AudioViewer({ content, title, artifactId }: { content: string; title?: 
     void resolveMediaUrl();
     return () => {
       active = false;
+      if (mediaSourceRef.current?.revokeSrcOnDispose) {
+        URL.revokeObjectURL(mediaSourceRef.current.src);
+      }
+      mediaSourceRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsed.url]);
 
   useEffect(() => {
@@ -288,13 +545,21 @@ function AudioViewer({ content, title, artifactId }: { content: string; title?: 
         setJobStatus(job.status);
         setJobError(job.error || null);
 
+        // Capture any persisted playback position so we can resume where the
+        // user left off once the media is ready.
+        if (typeof job.payload?.playbackPosition === "number" && job.payload.playbackPosition > 0) {
+          savedPositionRef.current = job.payload.playbackPosition;
+        }
+
         const rawUrl = job.payload?.mediaUrl?.trim();
         if (rawUrl) {
-          const resolved = await resolvePlayableMediaUrl(rawUrl);
+          const resolved = await resolveLocalMediaSource(rawUrl, "audio");
           if (active) {
-            setMediaUrl(resolved);
-            return;
+            applyResolvedSource(resolved.src, resolved.revokeSrcOnDispose);
+          } else if (resolved.revokeSrcOnDispose) {
+            URL.revokeObjectURL(resolved.src);
           }
+          return;
         }
 
         if (job.status === "queued" || job.status === "running") {
@@ -314,6 +579,19 @@ function AudioViewer({ content, title, artifactId }: { content: string; title?: 
     };
   }, [artifactId, mediaUrl]);
 
+  // Save the final playback position when the artifact viewer closes, so the
+  // next open resumes where the user left off.
+  useEffect(() => {
+    return () => {
+      if (savedPositionRef.current > 0) {
+        void notebooklmSetArtifactPosition(artifactId ?? "", savedPositionRef.current).catch(() => {
+          // Best-effort.
+        });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifactId]);
+
   const isGenerating = (jobStatus === "queued" || jobStatus === "running");
 
   return (
@@ -332,9 +610,13 @@ function AudioViewer({ content, title, artifactId }: { content: string; title?: 
         {mediaUrl ? (
           <div className="mb-6">
             <audio
+              ref={audioRef}
               controls
               className="w-full"
               src={mediaUrl}
+              onLoadedMetadata={handleLoadedMetadata}
+              onTimeUpdate={(e) => savePosition(e.currentTarget.currentTime)}
+              onPause={(e) => savePosition(e.currentTarget.currentTime)}
             >
               Your browser does not support the audio element.
             </audio>
@@ -370,8 +652,57 @@ function VideoViewer({ content, title, artifactId }: { content: string; title?: 
   const [isResolving, setIsResolving] = useState(false);
   const [jobStatus, setJobStatus] = useState<NotebookLMJob["status"] | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
+  // Holds the resolved source so a blob URL (backend-blob strategy) can be
+  // revoked on unmount — mirrors DocumentViewer's mediaSource handling.
+  const mediaSourceRef = useRef<{ src: string; revokeSrcOnDispose: boolean } | null>(null);
+  // Playback position memory: restore where the user left off and save on
+  // pause/timeupdate/unmount so closing and reopening the artifact resumes.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const restoredFromRef = useRef(false);
+  const lastSavedPositionRef = useRef(0);
+  const savedPositionRef = useRef(0);
 
   const parsed = useMemo(() => parseVideoContent(content), [content]);
+
+  const savePosition = useCallback((seconds: number) => {
+    if (!artifactId || !Number.isFinite(seconds) || seconds < 0) return;
+    // Throttle: only write when the position moved by at least a second.
+    if (Math.abs(seconds - lastSavedPositionRef.current) < 1) return;
+    lastSavedPositionRef.current = seconds;
+    savedPositionRef.current = seconds;
+    void notebooklmSetArtifactPosition(artifactId, seconds).catch(() => {
+      // Best-effort: a failed position write must not break playback.
+    });
+  }, [artifactId]);
+
+  // Seek to the saved position once the video metadata is ready (or directly
+  // if the element already loaded while the position was still being fetched).
+  const seekToSavedPosition = useCallback(() => {
+    const el = videoRef.current;
+    if (!el || restoredFromRef.current) return;
+    // Nothing to restore yet (position still being fetched), or no valid
+    // duration — don't burn the restored flag on a no-op.
+    if (savedPositionRef.current <= 0 || !Number.isFinite(el.duration)) return;
+    if (savedPositionRef.current >= el.duration) {
+      restoredFromRef.current = true; // at the end already
+      return;
+    }
+    restoredFromRef.current = true;
+    el.currentTime = savedPositionRef.current;
+  }, []);
+
+  const handleLoadedMetadata = useCallback(() => {
+    seekToSavedPosition();
+  }, [seekToSavedPosition]);
+
+  const applyResolvedSource = (src: string, revokeOnDispose: boolean) => {
+    if (mediaSourceRef.current?.revokeSrcOnDispose) {
+      URL.revokeObjectURL(mediaSourceRef.current.src);
+    }
+    mediaSourceRef.current = { src, revokeSrcOnDispose: revokeOnDispose };
+    restoredFromRef.current = false;
+    setMediaUrl(src);
+  };
 
   useEffect(() => {
     let active = true;
@@ -380,12 +711,39 @@ function VideoViewer({ content, title, artifactId }: { content: string; title?: 
         setMediaUrl(null);
         return;
       }
+      // Capture any persisted playback position in parallel with media
+      // resolution so loadedmetadata (which may fire as soon as the file
+      // loads) finds it already populated.
+      if (artifactId) {
+        notebooklmGetJob(artifactId)
+          .then((job) => {
+            if (!active || !job) return;
+            if (typeof job.payload?.playbackPosition === "number" && job.payload.playbackPosition > 0) {
+              savedPositionRef.current = job.payload.playbackPosition;
+              // If the media already loaded while the position was being
+              // fetched, seek immediately; otherwise loadedmetadata will.
+              seekToSavedPosition();
+            }
+          })
+          .catch(() => {
+            // Best-effort.
+          });
+      }
       setIsResolving(true);
       try {
-        const resolved = await resolvePlayableMediaUrl(parsed.url);
-        if (active) setMediaUrl(resolved);
+        // Resolve through the app's media-source strategy (asset URL first,
+        // backend-blob fallback) so a blocked or unavailable asset protocol
+        // still yields a playable source — mirrors library video playback.
+        const resolved = await resolveLocalMediaSource(parsed.url, "video");
+        if (active) {
+          applyResolvedSource(resolved.src, resolved.revokeSrcOnDispose);
+        } else if (resolved.revokeSrcOnDispose) {
+          // Unmounted mid-resolve: release the blob this call created.
+          URL.revokeObjectURL(resolved.src);
+        }
       } catch {
-        if (active) setMediaUrl(parsed.url);
+        // Last resort: raw URL (works for http(s) remote sources).
+        if (active) applyResolvedSource(parsed.url, false);
       } finally {
         if (active) setIsResolving(false);
       }
@@ -393,7 +751,12 @@ function VideoViewer({ content, title, artifactId }: { content: string; title?: 
     void resolveMediaUrl();
     return () => {
       active = false;
+      if (mediaSourceRef.current?.revokeSrcOnDispose) {
+        URL.revokeObjectURL(mediaSourceRef.current.src);
+      }
+      mediaSourceRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsed.url]);
 
   useEffect(() => {
@@ -408,13 +771,21 @@ function VideoViewer({ content, title, artifactId }: { content: string; title?: 
         setJobStatus(job.status);
         setJobError(job.error || null);
 
+        // Capture any persisted playback position so we can resume where the
+        // user left off once the media is ready.
+        if (typeof job.payload?.playbackPosition === "number" && job.payload.playbackPosition > 0) {
+          savedPositionRef.current = job.payload.playbackPosition;
+        }
+
         const rawUrl = job.payload?.mediaUrl?.trim();
         if (rawUrl) {
-          const resolved = await resolvePlayableMediaUrl(rawUrl);
+          const resolved = await resolveLocalMediaSource(rawUrl, "video");
           if (active) {
-            setMediaUrl(resolved);
-            return;
+            applyResolvedSource(resolved.src, resolved.revokeSrcOnDispose);
+          } else if (resolved.revokeSrcOnDispose) {
+            URL.revokeObjectURL(resolved.src);
           }
+          return;
         }
 
         if (job.status === "queued" || job.status === "running") {
@@ -434,6 +805,19 @@ function VideoViewer({ content, title, artifactId }: { content: string; title?: 
     };
   }, [artifactId, mediaUrl]);
 
+  // Save the final playback position when the artifact viewer closes, so the
+  // next open resumes where the user left off.
+  useEffect(() => {
+    return () => {
+      if (savedPositionRef.current > 0) {
+        void notebooklmSetArtifactPosition(artifactId ?? "", savedPositionRef.current).catch(() => {
+          // Best-effort.
+        });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artifactId]);
+
   const isGenerating = (jobStatus === "queued" || jobStatus === "running");
 
   return (
@@ -452,9 +836,13 @@ function VideoViewer({ content, title, artifactId }: { content: string; title?: 
         {mediaUrl ? (
           <div className="mb-6">
             <video
+              ref={videoRef}
               controls
               className="w-full rounded-lg"
               src={mediaUrl}
+              onLoadedMetadata={handleLoadedMetadata}
+              onTimeUpdate={(e) => savePosition(e.currentTarget.currentTime)}
+              onPause={(e) => savePosition(e.currentTarget.currentTime)}
             >
               Your browser does not support the video element.
             </video>
@@ -480,6 +868,132 @@ function VideoViewer({ content, title, artifactId }: { content: string; title?: 
           <h4>Summary</h4>
           <div className="whitespace-pre-wrap">{parsed.description}</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function InfographicViewer({ content, title, artifactId }: { content: string; title?: string; artifactId?: string }) {
+  const { mediaUrl, isResolving, isGenerating, loadError, setMediaLoadError, retryAsBlobUrl, parsed } = useMediaArtifactResolution(content, artifactId, "image/png");
+
+  return (
+    <div className="flex flex-col h-full bg-background">
+      <div className="flex items-center gap-3 p-4 border-b border-border bg-card flex-shrink-0">
+        <div className="w-10 h-10 bg-rose-100 dark:bg-rose-950 rounded-lg flex items-center justify-center">
+          <ImageSquare className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-medium text-foreground">{title || "Infographic"}</h3>
+          <p className="text-xs text-muted-foreground">Generated by NotebookLM</p>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto p-6">
+        {isResolving || isGenerating ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <CircleNotch className="w-6 h-6 animate-spin text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">
+                {isGenerating ? "NotebookLM is creating your infographic..." : "Loading infographic..."}
+              </p>
+            </div>
+          </div>
+        ) : mediaUrl ? (
+          <div className="flex items-start justify-center min-h-full">
+            <img
+              src={mediaUrl}
+              alt={title || "Infographic"}
+              onError={() => {
+                // The asset URL may be blocked (CSP img-src) or out of the
+                // asset scope; fall back to a blob URL read through the
+                // backend before giving up. If already on a blob URL, the
+                // image itself is undecodable — surface that.
+                if (mediaUrl.startsWith("blob:")) {
+                  setMediaLoadError("The infographic image could not be displayed.");
+                  return;
+                }
+                void retryAsBlobUrl();
+              }}
+              className="max-w-full h-auto rounded-lg border border-border"
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-center py-8">
+            <ImageSquare className="w-12 h-12 text-muted-foreground mb-3" />
+            <p className="text-sm text-muted-foreground mb-2">Infographic image not available yet.</p>
+            {parsed.description && (
+              <pre className="whitespace-pre-wrap text-xs text-muted-foreground bg-muted p-3 rounded-lg max-w-lg">
+                {parsed.description}
+              </pre>
+            )}
+          </div>
+        )}
+        {loadError && (
+          <p className="mt-3 text-sm text-red-600" role="alert">{loadError}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SlideDeckViewer({ content, title, artifactId }: { content: string; title?: string; artifactId?: string }) {
+  const { mediaUrl, isResolving, isGenerating, loadError, retryAsBlobUrl, parsed } = useMediaArtifactResolution(content, artifactId, "application/pdf");
+
+  return (
+    <div className="flex flex-col h-full bg-background">
+      <div className="flex items-center gap-3 p-4 border-b border-border bg-card flex-shrink-0">
+        <div className="w-10 h-10 bg-teal-100 dark:bg-teal-950 rounded-lg flex items-center justify-center">
+          <FilePdf className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-medium text-foreground">{title || "Slide Deck"}</h3>
+          <p className="text-xs text-muted-foreground">Generated by NotebookLM</p>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto p-6">
+        {isResolving || isGenerating ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <CircleNotch className="w-6 h-6 animate-spin text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">
+                {isGenerating ? "NotebookLM is creating your slide deck..." : "Loading slide deck..."}
+              </p>
+            </div>
+          </div>
+        ) : mediaUrl ? (
+          <div className="flex flex-col h-full">
+            <iframe
+              src={mediaUrl}
+              title={title || "Slide Deck"}
+              className="w-full flex-1 min-h-[480px] rounded-lg border border-border"
+            />
+            {/* iframes do not reliably report failed loads, so offer an
+                explicit fallback that serves the PDF as a blob URL if the
+                asset URL is blocked by CSP or asset scope. */}
+            {!mediaUrl.startsWith("blob:") && (
+              <button
+                onClick={() => void retryAsBlobUrl()}
+                className="mt-2 self-center text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Slide deck not loading? Open with alternate viewer
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-center py-8">
+            <FilePdf className="w-12 h-12 text-muted-foreground mb-3" />
+            <p className="text-sm text-muted-foreground mb-2">Slide deck not available yet.</p>
+            {parsed.description && (
+              <pre className="whitespace-pre-wrap text-xs text-muted-foreground bg-muted p-3 rounded-lg max-w-lg">
+                {parsed.description}
+              </pre>
+            )}
+          </div>
+        )}
+        {loadError && (
+          <p className="mt-3 text-sm text-red-600" role="alert">{loadError}</p>
+        )}
       </div>
     </div>
   );

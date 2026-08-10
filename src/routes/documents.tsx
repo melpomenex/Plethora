@@ -356,6 +356,7 @@ function DocumentCard({ doc, onClick }: { doc: Document; onClick: () => void }) 
       case "video": return "🎬";
       case "audio": return "🎵";
       case "audiobook": return "🎧";
+      case "image": return "🖼️";
       default: return "📄";
     }
   };

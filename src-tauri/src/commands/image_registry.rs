@@ -51,6 +51,41 @@ pub async fn ingest_image_asset(
     ingest_image_bytes(bytes, mime_type, file_name, repo.inner()).await
 }
 
+/// Ingest an image already present on disk (e.g. a downloaded NotebookLM
+/// infographic) into the registry. Deduplicates by content hash, so calling
+/// this for an image already in the registry is a no-op that returns the
+/// existing asset.
+#[tauri::command]
+pub async fn ingest_image_asset_from_path(
+    file_path: String,
+    mime_type: Option<String>,
+    file_name: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<ImageAssetDto> {
+    ingest_image_asset_from_path_inner(&file_path, mime_type, file_name, repo.inner()).await
+}
+
+/// Non-command variant so other modules can register a local image without
+/// constructing a `State` (e.g. the NotebookLM infographic import path).
+pub async fn ingest_image_asset_from_path_inner(
+    file_path: &str,
+    mime_type: Option<String>,
+    file_name: Option<String>,
+    repo: &Repository,
+) -> Result<ImageAssetDto> {
+    let bytes = tokio::fs::read(file_path)
+        .await
+        .map_err(|e| {
+            IncrementumError::NotFound(format!("Failed to read image file {file_path}: {e}"))
+        })?;
+    if bytes.is_empty() {
+        return Err(IncrementumError::InvalidInput(format!(
+            "Image file is empty: {file_path}"
+        )));
+    }
+    ingest_image_bytes(bytes, mime_type, file_name, repo).await
+}
+
 #[tauri::command]
 pub async fn ingest_remote_image_asset(
     image_url: String,

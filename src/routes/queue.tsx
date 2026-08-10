@@ -440,6 +440,9 @@ export function Queue() {
       if (fileType === 'video' || fileType === 'youtube') {
         return "🎬";
       }
+      if (fileType === 'image') {
+        return "🖼️";
+      }
     }
     switch (itemType) {
       case "document":

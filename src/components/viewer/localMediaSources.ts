@@ -37,6 +37,14 @@ export interface LocalMediaProbeResult {
   failure?: LocalMediaProbeFailure;
 }
 
+/**
+ * Browsers can temporarily report 0, NaN, or Infinity while indexing media
+ * metadata (notably downloaded MP4 files). Only publish a usable runtime.
+ */
+export function getFiniteMediaDuration(value: number): number | null {
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 function normalizeCandidate(
   candidate: LocalMediaSourceCandidate,
   index: number,

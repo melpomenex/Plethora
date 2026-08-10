@@ -955,6 +955,7 @@ pub async fn create_document(
         "youtube" => FileType::Youtube,
         "audio" => FileType::Audio,
         "video" => FileType::Video,
+        "image" => FileType::Image,
         _ => FileType::Other,
     };
 

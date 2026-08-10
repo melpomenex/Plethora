@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowsClockwise,
   BookOpen,
@@ -19,6 +19,8 @@ import {
   notebooklmRefreshSource,
   type SourceSummary,
 } from "../../api/integrations";
+import { getDocuments, getDocument } from "../../api/documents";
+import { useToast } from "../common/Toast";
 
 interface NotebookLMSidebarProps {
   notebookId: string;
@@ -27,21 +29,28 @@ interface NotebookLMSidebarProps {
   onCreateNotebook?: () => void;
 }
 
+/** Attaching content above this size is likely to stall the automation layer. */
+const LARGE_SOURCE_THRESHOLD_BYTES = 2 * 1024 * 1024;
+
 export function NotebookLMSidebar({
   notebookId,
   notebookTitle,
   onSourceSelect,
   onCreateNotebook,
 }: NotebookLMSidebarProps) {
+  const toast = useToast();
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [_isLoading, setIsLoading] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
-  const [sourceType, setSourceType] = useState<"url" | "youtube" | "text" | "file">("url");
+  const [sourceType, setSourceType] = useState<"url" | "youtube" | "text" | "file" | "library">("url");
   const [sourceInput, setSourceInput] = useState("");
   const [sourceTitle, setSourceTitle] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [libraryDocuments, setLibraryDocuments] = useState<{ id: string; title: string; fileType: string }[]>([]);
+  const [isLoadingLibrary, setIsLoadingLibrary] = useState(false);
+  const [selectedLibraryDoc, setSelectedLibraryDoc] = useState<string>("");
 
   const loadSources = async () => {
     setIsLoading(true);
@@ -55,7 +64,32 @@ export function NotebookLMSidebar({
     }
   };
 
+  useEffect(() => {
+    void loadSources();
+  }, [notebookId]);
+
+  const loadLibraryDocuments = async () => {
+    setIsLoadingLibrary(true);
+    try {
+      const docs = await getDocuments();
+      setLibraryDocuments(
+        docs
+          .filter((doc) => doc.fileType === "markdown" || doc.fileType === "pdf" || doc.fileType === "html" || doc.fileType === "epub" || doc.fileType === "other")
+          .map((doc) => ({ id: doc.id, title: doc.title, fileType: doc.fileType }))
+      );
+      setSelectedLibraryDoc("");
+    } catch {
+      toast.error("Library", "Failed to load library documents.");
+    } finally {
+      setIsLoadingLibrary(false);
+    }
+  };
+
   const handleAddSource = async () => {
+    if (sourceType === "library") {
+      await handleAddLibrarySource();
+      return;
+    }
     if (!sourceInput.trim()) return;
     setIsAdding(true);
     try {
@@ -69,8 +103,50 @@ export function NotebookLMSidebar({
       setSourceTitle("");
       setShowAddSource(false);
       await loadSources();
-    } catch (error) {
-      console.error("Failed to add source:", error);
+    } catch (error: any) {
+      toast.error("Add Source", error?.message || "Failed to add source.");
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  /** Attach an existing library document as a source (its text content is
+   *  sent through the same `notebooklm_add_source` command). */
+  const handleAddLibrarySource = async () => {
+    if (!selectedLibraryDoc) return;
+    setIsAdding(true);
+    try {
+      const doc = await getDocument(selectedLibraryDoc);
+      if (!doc) {
+        toast.error("Add Source", "Could not load the selected document.");
+        return;
+      }
+      // The document's text content is what NotebookLM can ingest. EPUB and
+      // PDF files are sent with a placeholder body — the automation layer
+      // ingests by title/URL for non-text files.
+      // A source is already attached when its title matches the document's.
+      const existingSource = sources.find((s) => s.title === doc.title);
+      if (existingSource) {
+        toast.warning("Add Source", "This document is already a source on this notebook.");
+        return;
+      }
+      if ((doc.content?.length ?? 0) > LARGE_SOURCE_THRESHOLD_BYTES) {
+        toast.warning(
+          "Large document",
+          "This document is large; attaching it may take a while."
+        );
+      }
+      await notebooklmAddSource({
+        notebookId,
+        kind: "file",
+        content: doc.content || doc.title,
+        title: doc.title,
+      });
+      setShowAddSource(false);
+      setSelectedLibraryDoc("");
+      await loadSources();
+    } catch (error: any) {
+      toast.error("Add Source", error?.message || "Failed to attach library document.");
     } finally {
       setIsAdding(false);
     }
@@ -117,6 +193,8 @@ export function NotebookLMSidebar({
         return "Website";
       case "file":
         return "File";
+      case "library":
+        return "Library";
       case "text":
         return "Text";
       default:
@@ -168,11 +246,14 @@ export function NotebookLMSidebar({
         {/* Add Source Panel */}
         {showAddSource && (
           <div className="mx-3 mb-3 p-3 bg-muted rounded-lg border border-border">
-            <div className="flex gap-1 mb-2">
-              {(["url", "youtube", "text", "file"] as const).map((type) => (
+            <div className="flex gap-1 mb-2 flex-wrap">
+              {(["url", "youtube", "text", "file", "library"] as const).map((type) => (
                 <button
                   key={type}
-                  onClick={() => setSourceType(type)}
+                  onClick={() => {
+                    setSourceType(type);
+                    if (type === "library") void loadLibraryDocuments();
+                  }}
                   className={`px-2 py-1 text-xs rounded-md transition-colors ${
                     sourceType === type
                       ? "bg-primary text-primary-foreground"
@@ -183,33 +264,63 @@ export function NotebookLMSidebar({
                 </button>
               ))}
             </div>
-            <input
-              type="text"
-              value={sourceTitle}
-              onChange={(e) => setSourceTitle(e.target.value)}
-              aria-label="Source title"
-              placeholder="Title (optional)"
-              className="w-full px-2.5 py-1.5 text-sm bg-background border border-border rounded-md mb-2 focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
-            <textarea
-              value={sourceInput}
-              onChange={(e) => setSourceInput(e.target.value)}
-              aria-label="Source input"
-              placeholder={
-                sourceType === "url"
-                  ? "https://example.com"
-                  : sourceType === "youtube"
-                  ? "https://youtube.com/watch?v=..."
-                  : sourceType === "file"
-                  ? "/path/to/file.pdf"
-                  : "Paste your text here..."
-              }
-              className="w-full px-2.5 py-1.5 text-sm bg-background border border-border rounded-md mb-2 min-h-[60px] resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
-            />
+
+            {sourceType === "library" ? (
+              <div className="mb-2">
+                <label className="block text-xs text-muted-foreground mb-1">
+                  Document from your library
+                </label>
+                {isLoadingLibrary ? (
+                  <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+                    <CircleNotch className="w-3.5 h-3.5 animate-spin" />
+                    Loading documents...
+                  </div>
+                ) : (
+                  <select
+                    value={selectedLibraryDoc}
+                    onChange={(e) => setSelectedLibraryDoc(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-sm bg-background border border-border rounded-md mb-2 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  >
+                    <option value="">Select a document...</option>
+                    {libraryDocuments.map((doc) => (
+                      <option key={doc.id} value={doc.id}>
+                        {doc.title}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={sourceTitle}
+                  onChange={(e) => setSourceTitle(e.target.value)}
+                  aria-label="Source title"
+                  placeholder="Title (optional)"
+                  className="w-full px-2.5 py-1.5 text-sm bg-background border border-border rounded-md mb-2 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+                <textarea
+                  value={sourceInput}
+                  onChange={(e) => setSourceInput(e.target.value)}
+                  aria-label="Source input"
+                  placeholder={
+                    sourceType === "url"
+                      ? "https://example.com"
+                      : sourceType === "youtube"
+                      ? "https://youtube.com/watch?v=..."
+                      : sourceType === "file"
+                      ? "/path/to/file.pdf"
+                      : "Paste your text here..."
+                  }
+                  className="w-full px-2.5 py-1.5 text-sm bg-background border border-border rounded-md mb-2 min-h-[60px] resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={handleAddSource}
-                disabled={isAdding || !sourceInput.trim()}
+                disabled={isAdding || (sourceType === "library" ? !selectedLibraryDoc : !sourceInput.trim())}
                 className="flex-1 px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 {isAdding ? (
@@ -297,7 +408,7 @@ export function NotebookLMSidebar({
                       </button>
                     </div>
                   </button>
-                  
+
                   {/* Expanded Actions */}
                   {expandedSources.has(source.id) && (
                     <div className="mx-3 mb-2 px-3 py-2 bg-muted/50 rounded-lg flex items-center gap-1">

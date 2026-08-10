@@ -1845,6 +1845,13 @@ fn podcast_audio_dir(app_handle: &AppHandle) -> std::result::Result<PathBuf, Inc
     Ok(dir)
 }
 
+/// Resolve the podcast-audio directory for a NotebookLM audio import, so the
+/// imported episode file is discoverable by the existing duration backfill
+/// (`get_downloaded_episode_path` scans `podcast-audio` for `<episodeId>.*`).
+pub fn podcast_audio_dir_public(app_handle: &AppHandle) -> std::result::Result<PathBuf, String> {
+    podcast_audio_dir(app_handle).map_err(|e| e.to_string())
+}
+
 /// Find existing downloaded file for an episode (checks common extensions)
 fn find_existing_download(app_handle: &AppHandle, episode_id: &str) -> Option<PathBuf> {
     let dir = podcast_audio_dir(app_handle).ok()?;

@@ -41,6 +41,8 @@ import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { PDFViewer } from "./PDFViewer";
 import { MarkdownViewer } from "./MarkdownViewer";
+import { ImageViewer } from "./ImageViewer";
+import { StructuredDocumentViewer } from "../notebooklm/artifacts/StructuredDocumentViewer";
 import { EPUBViewer } from "./EPUBViewer";
 import { YouTubeViewer } from "./YouTubeViewer";
 import { LocalVideoPlayer } from "./LocalVideoPlayerWrapper";
@@ -120,6 +122,7 @@ import { FlashcardStudioModal } from "../review/FlashcardStudioModal";
 import { resolveLocalMediaSource, type ResolvedLocalMediaSource } from "./localMediaSource";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import type { EpubVimRuntime, PdfVimRuntime } from "../../utils/vim/readerRuntimes";
+import { InlineDocumentTitle } from "./InlineDocumentTitle";
 
 const READER_FOCUS_EVENT = "incrementum-reader-focus-mode-change";
 const READER_FOCUS_CLASS = "incrementum-reader-focus-mode";
@@ -138,16 +141,17 @@ function formatTime(seconds: number): string {
 type ViewMode = "document" | "extracts" | "cards";
 type PdfViewMode = "pdf" | "ocr-html";
 
-type DocumentType = "pdf" | "epub" | "markdown" | "html" | "youtube" | "video" | "audio" | "other";
+type DocumentType = "pdf" | "epub" | "markdown" | "html" | "youtube" | "video" | "audio" | "image" | "other";
 const MARKDOWN_WIDTH_STORAGE_KEY = "incrementum.markdown.width-ch";
 const MARKDOWN_MIN_WIDTH_CH = 80;
 const MARKDOWN_MAX_WIDTH_CH = 180;
 const MARKDOWN_DEFAULT_WIDTH_CH = 120;
 const MARKDOWN_LEGACY_DEFAULT_WIDTH_CH = 82;
 
-const DOCUMENT_TYPES: DocumentType[] = ["pdf", "epub", "markdown", "html", "youtube", "video", "audio"];
+const DOCUMENT_TYPES: DocumentType[] = ["pdf", "epub", "markdown", "html", "youtube", "video", "audio", "image"];
 const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "m4a", "m4b", "aac", "ogg", "flac", "opus"]);
 const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov", "mkv", "avi", "m4v"]);
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif"]);
 
 const normalizeDocumentType = (value?: string): DocumentType | undefined => {
   if (!value) return undefined;
@@ -159,6 +163,7 @@ const normalizeDocumentType = (value?: string): DocumentType | undefined => {
   if (normalized === "htm" || normalized === "html") return "html";
   if (AUDIO_EXTENSIONS.has(normalized)) return "audio";
   if (VIDEO_EXTENSIONS.has(normalized)) return "video";
+  if (IMAGE_EXTENSIONS.has(normalized)) return "image";
   return undefined;
 };
 
@@ -363,8 +368,13 @@ export function DocumentViewer({
   const toast = useToast();
   const { t } = useI18n();
   const { theme } = useTheme();
-  const { hydrateDocument, setCurrentDocument, updateDocument } = useDocumentStore(
-    useShallow(s => ({ hydrateDocument: s.hydrateDocument, setCurrentDocument: s.setCurrentDocument, updateDocument: s.updateDocument }))
+  const { hydrateDocument, setCurrentDocument, updateDocument, updateDocumentOptimistic } = useDocumentStore(
+    useShallow(s => ({
+      hydrateDocument: s.hydrateDocument,
+      setCurrentDocument: s.setCurrentDocument,
+      updateDocument: s.updateDocument,
+      updateDocumentOptimistic: s.updateDocumentOptimistic,
+    }))
   );
   const localDocument = useDocumentStore(s => s.documents.find(d => d.id === documentId));
   const globalCurrentDocument = useDocumentStore(s => s.currentDocument);
@@ -396,6 +406,23 @@ export function DocumentViewer({
   // pane indexes, which otherwise prevents the active viewer from hydrating.
   const tabContextIsActive = useIsActiveTab();
   const isTabActive = tabContextIsActive;
+
+  const renameDocument = useCallback(async (title: string) => {
+    const result = await updateDocumentOptimistic(documentId, { title });
+    if (!result.success) {
+      toast.error(t("viewer.renameFailed"));
+      return false;
+    }
+
+    for (const tab of tabs) {
+      if (tab.data?.documentId === documentId) updateTab(tab.id, { title });
+    }
+    const matchingQueueIds = useQueueStore.getState().items
+      .filter((item) => item.documentId === documentId)
+      .map((item) => item.id);
+    useQueueStore.getState().applyItemDeltas(matchingQueueIds, { documentTitle: title });
+    return true;
+  }, [documentId, tabs, t, toast, updateDocumentOptimistic, updateTab]);
 
   const [pageNumber, setPageNumber] = useState(1);
   const [totalPages, setTotalPages] = useState<number>(0);
@@ -4169,7 +4196,9 @@ export function DocumentViewer({
                   ? "📖"
                   : nextDoc.fileType === "youtube"
                     ? "📺"
-                    : "📄",
+                    : nextDoc.fileType === "image"
+                      ? "🖼️"
+                      : "📄",
             data: { ...currentTab.data, documentId: nextItem.documentId },
           });
         }
@@ -5618,9 +5647,13 @@ export function DocumentViewer({
               >
                 <CaretLeft className="w-5 h-5 text-foreground" />
               </button>
-              <h2 className="min-w-0 flex-1 font-semibold text-foreground line-clamp-1 text-sm">
-                {currentDocument.title}
-              </h2>
+              <InlineDocumentTitle
+                title={currentDocument.title}
+                onSave={renameDocument}
+                renameLabel={t("viewer.renameDocument")}
+                inputLabel={t("viewer.documentTitle")}
+                className="text-sm"
+              />
               {currentDocument.progressPercent !== undefined && currentDocument.progressPercent > 0 && (
                 <span className="text-[10px] text-muted-foreground bg-blue-500/10 text-blue-600 px-1.5 py-0.5 rounded font-medium flex-shrink-0">
                   {Math.round(currentDocument.progressPercent)}%
@@ -5964,9 +5997,13 @@ export function DocumentViewer({
             <CaretLeft className="w-5 h-5" />
           </button>
           <div className="hidden sm:block h-6 w-px bg-border" />
-          <h2 className="min-w-0 flex-1 font-semibold text-foreground line-clamp-1 max-w-[120px] sm:max-w-[200px] md:max-w-md text-sm md:text-base">
-            {currentDocument.title}
-          </h2>
+          <InlineDocumentTitle
+            title={currentDocument.title}
+            onSave={renameDocument}
+            renameLabel={t("viewer.renameDocument")}
+            inputLabel={t("viewer.documentTitle")}
+            className="max-w-[120px] text-sm sm:max-w-[200px] md:max-w-md md:text-base"
+          />
           <span className="hidden sm:inline text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
             {docType.toUpperCase()}
           </span>
@@ -6745,6 +6782,17 @@ export function DocumentViewer({
             </div>
           )
         ) : docType === "markdown" ? (
+          currentDocument.metadata?.structuredContent ? (
+            // Imported NotebookLM structured artifact (mind-map / data-table):
+            // render through the existing structured viewers rather than as
+            // raw JSON text.
+            <div className="h-full overflow-auto">
+              <StructuredDocumentViewer
+                content={currentDocument.metadata.structuredContent}
+                title={currentDocument.title}
+              />
+            </div>
+          ) : (
           <div
             className="reading-surface reading-surface-markdown relative min-h-full h-full overflow-x-hidden"
             style={{ "--reading-markdown-max-width": `${markdownWidthCh}ch` } as CSSProperties}
@@ -6812,6 +6860,7 @@ export function DocumentViewer({
               }}
             />
           </div>
+          )
         ) : docType === "html" ? (
           <div ref={htmlViewerContainerRef} data-html-viewer="true" className="h-full w-full overflow-hidden bg-background relative">
             {!isHtmlFrameReady && (
@@ -7033,6 +7082,12 @@ export function DocumentViewer({
               }}
             />
           </div>
+        ) : docType === "image" ? (
+          <ImageViewer
+            documentId={currentDocument.id}
+            title={currentDocument.title}
+            filePath={currentDocument.filePath}
+          />
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center max-w-md px-4">

@@ -172,7 +172,9 @@ Die Datei sollte ein flaches Objekt sein, das den Fragetext den Kartendaten zuor
 - **Zoom**: Textgröße anpassen
 - **Vollbild**: Ablenkungsfreies Lesen
 - **Suchen**: Text im Dokument suchen
-- **Inhaltsverzeichnis**: Zu Abschnitten springen (falls verfügbar)**Anmerkungstools:**
+- **Inhaltsverzeichnis**: Zu Abschnitten springen (falls verfügbar)
+
+**Anmerkungstools:**
 1. **Text hervorheben**: Text auswählen → Hervorhebungsfarbe auswählen
    - Gelb: Wichtige Konzepte
    - Grün: Beispiele
@@ -265,7 +267,7 @@ Die **SM-20**-Option von Incrementum ist die **Algorithm Arena** – eine rücke
 
 **Wichtige Kennzahlen:**
 - **Stabilität (S)**: Die Schätzung jedes Modells, wie lange der Speicher bestehen bleibt (Tage); Die Arena vereint diese.
-- **Schwierigkeit (D)**: Die Schätzung der Item-Schwierigkeit jedes Modells.
+- **Schwierigkeit (D)**: Die Item-Schwierigkeitsschätzung jedes Modells.
 - **Arena-Gewichte**: Die Live-Mischungsprozentsätze pro Modell, angezeigt in den Lerneinstellungen.
 - **R-Metrik**: Relative Verbesserung der Mischung gegenüber SM-19 allein, berechnet über einen abnehmenden Zeitraum Ihrer Bewertungen.
 
@@ -318,7 +320,9 @@ Die Bewertung eines Dokuments mit „Erneut“ / „Schwer“ / „Gut“ / „E
 | **Schon wieder** | ~4 Stunden | Minuten |
 | **Schwer** | ~1 Tag | 1–2 Tage |
 | **Gut** | ~3 Tage | Tage–Wochen |
-| **Einfach** | ~7 Tage | Wochen |Die Dokumentintervalle sind auf ungefähr **30 Tage** begrenzt, sodass das Material im Wechsel bleibt, und aufeinanderfolgende Gut/Einfach-Bewertungen fügen einen kleinen Bonus hinzu, während aufeinanderfolgende Wieder/Schwierig-Bewertungen einen kleinen Nachteil bedeuten.
+| **Einfach** | ~7 Tage | Wochen |
+
+Die Dokumentintervalle sind auf ungefähr **30 Tage** begrenzt, sodass das Material im Wechsel bleibt, und aufeinanderfolgende Gut/Einfach-Bewertungen fügen einen kleinen Bonus hinzu, während aufeinanderfolgende Wieder/Schwierig-Bewertungen einen kleinen Nachteil bedeuten.
 
 **Der Engaging Scheduler.** Wenn Sie Dokumente aus der Warteschlange lesen, verwendet Incrementum die Variante *Engaging*, die Neuheiten, Sortenausgleich und Serendipity über die Basisintervalle legt, damit Ihre Lesesitzungen abwechslungsreich und interessant bleiben. Diese Engagement-Funktionen wirken sich darauf aus, *welches* Dokument als nächstes erscheint, nicht auf die zugrunde liegende Intervallberechnung.
 
@@ -369,9 +373,10 @@ Frage- und Antwortpaare
 Teile eines Bildes ausblenden (Diagramme, Diagramme)
 
 **Am besten geeignet für:** Anatomie, Karten, Diagramme
-**Manuelles Erstellen:** Fahren Sie in einem beliebigen Dokument über ein Bild und klicken Sie auf **Bildverdeckungskarte erstellen**, um den Editor zu öffnen. Ziehen Sie über das Bild, um eine Region zu zeichnen; verschieben Sie sie durch Ziehen innerhalb der Region, ändern Sie ihre Größe über die Eckgriffe, benennen Sie sie im Bereichsfeld um oder löschen Sie sie (Schaltfläche oder Entf-Taste). Zum Speichern ist mindestens eine Region erforderlich – andernfalls wird das Speichern abgelehnt.
 
-**KI-Vorschläge sind korrigierbar:** Wenn die KI Verdeckungsregionen vorschlägt, öffnet sich der Editor mit den Vorschlägen. Passen Sie die Regionen vor dem Speichern an, ergänzen oder löschen Sie sie; liefert das Modell unbrauchbare Regionen, werden diese an das Bild angepasst und der Editor öffnet sich zur manuellen Bearbeitung – eine Karte ohne verwendbare Regionen wird nie stillschweigend gespeichert.
+**Manuelle Erstellung:** Bewegen Sie den Mauszeiger über ein Bild in einem beliebigen Dokument und klicken Sie auf **Bildverdeckungskarte erstellen**, um den Verdeckungseditor zu öffnen. Zeichnen Sie einen Bereich, indem Sie über das Bild ziehen, verschieben Sie ihn dann durch Ziehen innerhalb des Bereichs, ändern Sie seine Größe über die Eckgriffe, benennen Sie ihn im Bereichsbereich neu oder löschen Sie ihn (Schaltfläche oder Entf-Taste). Sie müssen mindestens eine Region zum Speichern haben – andernfalls wird das Speichern abgelehnt.
+
+**KI-Vorschläge sind korrigierbar:** Wenn die KI Okklusionsbereiche vorschlägt, wird der Editor mit diesen vorab ausgefüllt geöffnet. Passen Sie Regionen vor dem Speichern an, fügen Sie sie hinzu oder löschen Sie sie. Wenn das Modell unbrauchbare Bereiche zurückgibt, werden diese an das Bild geklammert und der Editor wird geöffnet, sodass Sie sie manuell zeichnen können – eine Karte mit null nutzbaren Bereichen wird niemals stillschweigend gespeichert.
 
 ### Karten erstellen
 
@@ -447,7 +452,7 @@ Klicken Sie auf eine beliebige Kartenzeile, um einen Inline-Editor darunter zu e
 - **Lückenkarten** zeigen den Lückentext mit hervorgehobenen Löschbereichen an.
 - **Komplexe Kartentypen** (Multiple-Choice, Bildverdeckung) zeigen eine schreibgeschützte Vorschau mit einem Link „In Studio bearbeiten“.
 - Umschalten zwischen **Suspend/Suspendierung aufheben** mit einem einzigen Klick.
-– Änderungen werden mit **optimistischen Updates** gespeichert – die Benutzeroberfläche wird sofort aktualisiert und wird zurückgesetzt, wenn das Speichern fehlschlägt.
+- Änderungen werden mit **optimistischen Updates** gespeichert – die Benutzeroberfläche wird sofort aktualisiert und wird zurückgesetzt, wenn das Speichern fehlschlägt.
 
 ### Deck-Statistik-Panel
 
@@ -620,24 +625,46 @@ Zeigt neu erstellte Karten an, die noch nicht überprüft wurden
 
 ### Auszüge lesen
 
-Auszugszeilen in der Warteschlange öffnen einen eigenen **Auszugsleser** – der Text des Auszugs selbst ist das Thema, nicht sein Quelldokument. Im Leser können Sie:
+Extraktzeilen in der Warteschlange öffnen einen speziellen **Extraktleser** – der Betreff ist der eigene Text des Extrakts, nicht sein Quelldokument. Mit dem Reader können Sie:
 
-- Den vollständigen Inhalt des Auszugs lesen (reichhaltiges HTML, sofern erhalten, sonst Klartext)
-- Ihn **bewerten** (Erneut / Schwer / Gut / Leicht) – die Warteschlange aktualisiert sich sofort mit dem neuen Zeitplan, ohne Neuladen
-- **Quelldokument öffnen**, um im Dokumentbetrachter zur hervorgehobenen Karte des Auszugs zu springen. Ist das Quelldokument nicht mehr ladbar, ist die Schaltfläche mit einer Erklärung deaktiviert
+- Lesen Sie den vollständigen Inhalt des Auszugs (Rich-HTML, wenn er erhalten bleibt, andernfalls Nur-Text).
+- **Bewerten** Sie es (Erneut / Schwierig / Gut / Leicht) – die Warteschlange wird sofort mit dem neuen Zeitplan aktualisiert, ein Neuladen ist nicht erforderlich
+- **Open-Source-Dokument**, um auf der markierten Karte des Auszugs zurück in den Dokument-Viewer zu springen. Wenn das Quelldokument nicht mehr geladen werden kann, wird die Schaltfläche mit einer Erklärung deaktiviert
 
 ### Prioritätssystem
 
+Jedes Dokument, jeder Auszug und jede Karte befindet sich irgendwo in einer **einzigen Rangliste** – eine Warteschlange, alle Elementtypen zusammen. Priorität hat dieses Ranking. Durch das Festlegen der Priorität für ein Element wird Incrementum mitgeteilt, wo in Ihrer Sammlung es hingehört, und es wird nicht mit einer Bewertung versehen.
+
+**Priorität ist eine Position, keine Bezeichnung.**
+
+Dies ist das SuperMemo-Modell und es ist der Grund dafür, dass sich die Zahlen so verhalten, wie sie es tun. Wenn Sie einen Gegenstand auf 70 % setzen, bewegt er sich zu 70 % an der Spitze Ihrer Sammlung – über etwa 70 % von allem, was Sie besitzen, unter den oberen 30 %. Nichts anderes wird neu nummeriert; Der Artikel wird einfach hineingesteckt.
+
 Legen Sie für jedes Element eine Priorität von 0 bis 100 fest:
 
-- **100**: Kritisch (muss gelernt werden)
-- **80-90**: Wichtig
-- **60-70**: Normale Priorität
-- **40-50**: Niedrige Priorität
-- **0-20**: Archiv/Referenz
+- **90-100**: Vor fast allem anderen – die Handvoll Dinge, die Sie zuerst wollen
+- **70-80**: Oberer Teil der Sammlung
+- **50-60**: Mitte der Packung (Standardeinstellung für neues Material)
+- **20-40**: Unterer Teil – lesen Sie ihn später
+- **0-10**: Am Ende der Warteschlange – Referenz, Archiv, irgendwann
+
+**Ihre Prozentsätze bewegen sich von selbst, und das ist richtig.**
+
+Da ein Prozentsatz „so weit oben in der Sammlung *im Moment*“ bedeutet, verschiebt er sich, wenn sich die Sammlung um ihn herum ändert. Importieren Sie 500 neue Artikel und bewerten Sie die Hälfte davon hoch, und ein unberührtes altes Dokument wird einen niedrigeren Prozentsatz als letzte Woche anzeigen – nicht weil Sie es herabgestuft haben, sondern weil sich jetzt mehr Material darüber befindet. Sein tatsächlicher Platz in Ihrer Lesereihenfolge bleibt im Vergleich zu allem, was bereits dort war, unverändert.
+
+Eine feste Zahl würde Sie hier stillschweigend belügen: „70“ in einer 100-Elemente-Sammlung und „70“ in einer 10.000-Elemente-Sammlung würden behaupten, dasselbe zu bedeuten, beschreiben aber völlig unterschiedliche Positionen. Der Prozentsatz verrät Ihnen die Wahrheit über Ihre Sammlung in der heutigen Form.
+
+**Position X von N.**
+
+Öffnen Sie das Prioritäts-Popup für ein beliebiges Element und es zeigt seinen Live-Rang unter dem Schieberegler an – *Position 1* ist das wichtigste Element in Ihrer Sammlung, *Position N* das geringste. Öffnen Sie es nach einem großen Import erneut und Sie werden sehen, wie sich die Position ändert. Diese Anzeige wird jedes Mal neu angezeigt, wenn Sie sie öffnen.
+
+**Keine zwei Artikel teilen sich einen Platz.**
+
+Wenn Sie mehrere Elemente auf den gleichen Prozentsatz festlegen, werden sie nicht an einem Punkt gestapelt – jedes wird direkt nach dem letzten platziert, sodass die Warteschlange eine strikte Reihenfolge beibehält. Durch die Masseneinstellung von 200 Dokumenten auf 60 % werden alle 200 in der Nähe von 60 % angeordnet, sodass die Warteschlange später willkürlich unterbrochen werden muss, anstatt einen 200-Wege-Gleichstand zu schaffen.
 
 **Prioritätsplanung:**
-Artikel mit höherer Priorität werden in gemischten Bewertungen häufiger angezeigt.
+Artikel mit höherer Priorität werden in gemischten Bewertungen häufiger angezeigt. Priorität bestimmt die *Wichtigkeit* – was Sie zuerst erreichen, wenn mehr Material als Zeit vorhanden ist. Sie unterscheidet sich von der FSRS-Planung, die den *Zeitpunkt* regelt – wann ein bestimmter Artikel das nächste Mal fällig ist. Eine Karte mit niedriger Priorität, die stark überfällig ist, kann immer noch vor einer Karte mit hoher Priorität auftauchen, die gestern überprüft wurde.
+
+**Extrakte erben von ihrem Dokument.** Ein neuer Extrakt beginnt mit der Priorität seines Quelldokuments, und eine Änderung der Priorität des Dokuments wirkt sich auf die Extrakte aus, die noch den alten Wert haben. Sobald Sie die Priorität eines Extrakts manuell festlegen, stoppt die Vererbung und behält seinen eigenen Platz.
 
 ### Verhalten beim Sortieren und Neuordnen von Warteschlangen
 
@@ -648,11 +675,35 @@ Wenn Sie verstehen, wie die Warteschlange Artikel anordnet und warum sich Positi
    - Wenn Sie Überprüfungen abschließen, Elemente verschieben oder Notizen machen, werden die Speicherparameter aktualisiert und die Elemente werden bei der Rückkehr in die Warteschlange automatisch neu eingestuft.
 
 2. **Gewichtete Auswahl-Randomisierung**:
-   – Die Überprüfungs-Engine wendet beim Abrufen von Elementen aus dem Backend einen subtilen Algorithmus mit gewichtetem Abfall an (standardmäßig „Zufälligkeit = 0,3“). Dadurch bleiben Elemente mit ähnlichen Prioritäten ganz oben, während gleichzeitig eine leichte Abwechslung eingeführt wird, um eine Ermüdung der Warteschlange zu vermeiden.
+   - Die Überprüfungs-Engine wendet beim Abrufen von Elementen aus dem Backend einen subtilen Algorithmus mit gewichtetem Abfall an (standardmäßig „Zufälligkeit = 0,3“). Dadurch bleiben Elemente mit ähnlichen Prioritäten ganz oben, während gleichzeitig eine leichte Abwechslung eingeführt wird, um eine Ermüdung der Warteschlange zu vermeiden.
 
 3. **Statussynchronisierung**:
    - Das Durchführen von Aktionen zur Änderung der Warteschlange (z. B. Archivieren eines Dokuments, Massenbearbeitungspriorität oder Ändern von Tags) löst eine Hintergrundaktualisierung aus, wenn Sie zur Warteschlangenansicht zurückkehren, um Ihre Liste mit dem Backend-Datenbankstatus abzugleichen.
    - Passive Ansichtsänderungen oder Tab-Wechsel sorgen für eine stabile lokale Reihenfolge, ohne unerwartete Neuanordnungen auszulösen.
+
+
+### Neural Review („Go neural“)
+
+Neural Review ist ein optionaler, explorativer Modus, der auf SuperMemos *Learn: Go neural* basiert. Anstatt Ihre Prioritätswarteschlange der Reihe nach abzuarbeiten, wird eine neue Überprüfungssequenz erstellt, indem die Aktivierung von einem einzigen Ausgangspunkt aus verteilt wird – dem Artikel, den Sie gerade lesen – und alles, was damit zusammenhängt, an die Oberfläche gebracht wird. Dies ist der Modus, zu dem Sie greifen sollten, wenn Sie einem Thread durch Ihre Sammlung folgen möchten, anstatt sich durch das zu quälen, was fällig ist.
+
+**So verwenden Sie es.** Klicken Sie beim Lesen im Scroll-Modus in der oberen Leiste auf **Neural wechseln**. Die Sitzung wechselt zu einer Ausbreitungs-Aktivierungswarteschlange, die beim aktuellen Dokument, der aktuellen Karte oder dem aktuellen Auszug angesiedelt ist. Die Positionstafel wird violett und zeigt „Neuronale Überprüfung · N verbleibend“ an. Klicken Sie auf **Beenden**, um zu genau der Stelle zurückzukehren, an der Sie sich in Ihrer Lektüre befanden – die neuronale Überprüfung verändert niemals Ihre Prioritätswarteschlange oder Terminplanung. Wenn die Warteschlange zur Neige geht, wird sie automatisch mit dem gerade abgeschlossenen Element wieder aufgefüllt.
+
+**Lernkarten und Auszüge erfordern immer noch eine Bewertung, um voranzukommen**, genau wie im normalen Scroll-Modus, sodass eine neuronale Sitzung weiterhin zur Planung beiträgt. Dokumente können frei weitergegeben werden.
+
+**Wie es entscheidet, was „zusammenhängt“.** Die Aktivierung breitet sich vom Samen aus über fünf Arten von Verbindungen in dieser Reihenfolge aus:
+
+1. **Konzeptgruppen (Tags).** Elemente, die ein Tag mit dem Startwert teilen, werden als Konzept-Peers behandelt. Tagging ist daher doppelt nützlich: Es gruppiert Elemente für die Suche *und* speist die neuronale Überprüfung. Ein nicht getaggtes Element hat keine Konzept-Peers.
+2. **Verweise zwischen Elementen.** Explizite Querverweislinks, sofern vorhanden.
+3. **Nachkommen.** Die Kinder des Samens im Wissensbaum – die Auszüge und Karten innerhalb eines Dokuments, die Karten innerhalb eines Extrakts.
+4. **Semantische Ähnlichkeit.** Wenn Sie Ihre Sammlung für RAG indiziert haben (Einstellungen → Einbettungen & RAG → Sammlung indizieren), werden bei der neuronalen Überprüfung auch Dokumente angezeigt, deren Inhalt dem Seed einbettungsähnlich ist. Weitere ähnliche Dokumente erscheinen früher. Wenn Sie nicht indexiert haben, bleibt diese Quelle einfach still – die anderen vier funktionieren immer noch.
+5. **Elternteil und Geschwister.** Das Elternteil des Seeds (das Dokument, in dem ein Auszug lebt) und seine Geschwister (andere Auszüge im selben Dokument, andere Karten im selben Auszug sowie Dokumente in der Nähe).
+
+Engere Verbindungen – ein direktes Kind, ein nahezu identisches Dokument, ein gemeinsam genutztes Tag – tauchen früher in der Warteschlange auf. Wenn die erste Welle weniger als zwanzig Elemente hervorbringt, dehnt sich die Aktivierung nach außen über die Nachbarn der neu erreichten Elemente aus, bis die Warteschlange voll ist oder nichts weiter erreichbar ist.
+
+**Tipps:**
+- Markieren Sie Elemente, die Sie gemeinsam erkunden möchten – das Tag wird zu einem Konzept, auf das eine neuronale Überprüfung durch die Gruppe folgt.
+- Indizieren Sie Ihre Sammlung, um die semantische Entdeckung freizuschalten; Ohne sie basiert die neuronale Überprüfung allein auf der Baumstruktur und den Tags.
+- Die neuronale Überprüfung ist in Bezug auf Ihre normale Warteschlange schreibgeschützt. Benutzen Sie es frei; Es ändert sich nichts an Ihrer Prioritätsbestellung oder den Fälligkeitsterminen.
 
 
 ### Intelligente Warteschlangen
@@ -675,7 +726,9 @@ Erstellen Sie benutzerdefinierte Warteschlangen mit Filtern:
 
 Tag-Aware Scheduling fügt der Überprüfungswarteschlange semantische Intelligenz hinzu.
 Wenn in den Einstellungen aktiviert, führt TAS zwei Nachbearbeitungsdurchgänge durch
-Ihre fälligen Posten, ohne die zugrunde liegenden SM-20/FSRS-Intervalle zu ändern:- **Voraussetzungs-Gating**: Blockiert Elemente, deren Tag-Voraussetzungen nicht erfüllt sind
+Ihre fälligen Posten, ohne die zugrunde liegenden SM-20/FSRS-Intervalle zu ändern:
+
+- **Voraussetzungs-Gating**: Blockiert Elemente, deren Tag-Voraussetzungen nicht erfüllt sind
   hat den konfigurierten Reifeschwellenwert erreicht.  Grundlegendes Material ist
   stabilisiert, bevor fortgeschrittene Themen angezeigt werden.
 - **Interferenz-Jitter**: Trennt Elemente, die Tags mit hoher Kohärenz teilen
@@ -757,7 +810,9 @@ Für diese Tags wird Interferenz-Jitter angewendet.
 
 Ein Tag ist für einen Artikel **ausgereift**, wenn die SM-20/FSRS-Stabilität dieses Artikels vorliegt
 erfüllt oder überschreitet den „maturityThreshold“ des Tags (Standard 0,8).  Die
-Das Gesamtreifeverhältnis beträgt „matureCount / itemCount“.- Fortschrittsbalken im Voraussetzungseditor zeigen den aktuellen Status jedes Tags an
+Das Gesamtreifeverhältnis beträgt „matureCount / itemCount“.
+
+- Fortschrittsbalken im Voraussetzungseditor zeigen den aktuellen Status jedes Tags an
   Fälligkeitsverhältnis.
 - Voraussetzungs-Gating verwendet zur Entscheidung das konfigurierte „maturityRatio“.
   ob ein Voraussetzungs-Tag „erfüllt“ genug ist, um abhängig zu sein
@@ -916,7 +971,7 @@ Incrementum unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am
 **SM-18 (SuperMemo 18):**
 - Neuester SuperMemo-Algorithmus, rückentwickelt von der Originalanwendung
 - Verwendet eine 3D-SInc-Suchmatrix (Stabilitätssteigerung) für Schwierigkeit, Stabilität und Wiederauffindbarkeit
-- Explizite Schwierigkeitsverfolgung mit Aktualisierungen des nachlaufenden Durchschnitts
+- Explizite Schwierigkeitsverfolgung mit nachlaufenden Durchschnittsaktualisierungen
 - Exponentielles Vergessenskurvenmodell: „R = 0,9^(t/S)“.
 - Ausgeklügelte Fehlerbehandlung mit ausfallabhängiger Stabilitätsreduzierung
 
@@ -951,13 +1006,15 @@ Incrementum unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am
 
 **Maximales Intervall:**
 - Begrenzen Sie die längsten Intervalle (Standardeinstellung: 365 Tage).
-- Verhindert, dass Karten zu weit im Voraus geplant werden**Lange Sicherheitskappe (Videos/Artikel):**
+- Verhindert, dass Karten zu weit im Voraus geplant werden
+
+**Lange Sicherheitskappe (Videos/Artikel):**
 - Bei langen Videos/Artikeln sind positive Bewertungen („Gut“/„Einfach“) berichterstattungsabhängig.
 - Wenn Sie weniger als **25 %** der geschätzten Inhaltszeit verbringen, ist das nächste Intervall auf **1 Tag** begrenzt.
 - Wenn Sie weniger als **50 %** ausgeben, ist das nächste Intervall auf **2 Tage** begrenzt.
 - Wenn Sie weniger als **75 %** ausgeben, ist das nächste Intervall auf **4 Tage** begrenzt.
-– Dadurch wird verhindert, dass lange Inhalte nach einem Teilfortschritt zu weit nach hinten eingeplant werden.
-– Bei Anwendung enthält der Planergrund zur Transparenz einen Hinweis zur **Dauerabhängigen Obergrenze**.
+- Dadurch wird verhindert, dass lange Inhalte nach einem Teilfortschritt zu weit nach hinten eingeplant werden.
+- Bei Anwendung enthält der Planergrund zur Transparenz einen Hinweis zur **Dauerabhängigen Obergrenze**.
 
 ### Überprüfen Sie die Einstellungen
 
@@ -1038,7 +1095,9 @@ Incrementum synchronisiert Ihre Lesedaten auf Ihren Geräten über einen **gemei
 
 #### Datei automatisch herunterladen
 
-Wählen Sie unter **Dateisynchronisierung** aus, wie aggressiv neue Dateien auf jedes Gerät gezogen werden:- **Immer** – Laden Sie jede Datei automatisch herunter, sobald sie im Raum erscheint.
+Wählen Sie unter **Dateisynchronisierung** aus, wie aggressiv neue Dateien auf jedes Gerät gezogen werden:
+
+- **Immer** – Laden Sie jede Datei automatisch herunter, sobald sie im Raum erscheint.
 - **Nur WLAN** – automatischer Download nur über WLAN (nützlich bei mobilen Datentarifen).
 - **Manuell** – niemals automatisch herunterladen; Jede Datei zeigt eine Download-Schaltfläche, auf die Sie bei Bedarf tippen können.
 
@@ -1108,7 +1167,9 @@ Incrementum bietet ein vollständiges Sicherungs- und Wiederherstellungssystem z
 - **Ersetzen**: Vorhandene Elemente mit Sicherungsversionen überschreiben
 - **Zusammenführen**: Neue Kopien aller Elemente erstellen (kann Duplikate erstellen)
 
-**Anwendungsfälle:**| Szenario | Empfohlener Ansatz |
+**Anwendungsfälle:**
+
+| Szenario | Empfohlener Ansatz |
 |----------|-------|
 | **Auf neuen Computer migrieren** | Mit Dateien exportieren, auf neuem Rechner importieren |
 | **Backup vor größeren Änderungen** | Schnelle Nur-Metadaten-Sicherung |
@@ -1204,19 +1265,52 @@ Verwenden Sie NotebookLM in Incrementum, um zu recherchieren, Studienartefakte z
 3. Klicken Sie auf **Verbinden** und wählen Sie den Anbieter („mock“ zum Testen, „cli“ für Live-NotebookLM).
 4. Wählen Sie ein aktives Notizbuch aus oder erstellen Sie es
 
+**Notizbücher erstellen:**
+- Klicken Sie auf **Neues Notizbuch** (Seitenleiste oder leerer Zustand) und geben Sie einen Titel in das In-App-Dialogfeld ein
+- Der Titel wird beim ersten Klick an NotebookLM gesendet – kein zweiter Versuch erforderlich
+- Während ein Notizbuch erstellt wird, zeigt die Schaltfläche einen Spinner an und ist deaktiviert; Misserfolge tauchen als Toast auf, anstatt stillschweigend nichts zu tun
+- Beim Erstellen aus dem leeren Zustand wird das neue Notizbuch automatisch ausgewählt, sodass Ihre nächste Aktion dafür ausgeführt wird
+
 **Was Sie tun können:**
 - Stellen Sie Fragen im NotebookLM-Chat direkt von Incrementum aus
 - Führen Sie Rechercheaufforderungen durch (webgestützte Notebook-Recherche)
 - Artefakte generieren:
   - Karteikarten
   - Quiz
-  - Bericht / Studienführer
+  - Bericht (Briefing-Dokument)
+  - Studienführer
   - Mindmap
   - Datentabelle
+  - Slide Deck (Format: ausführlich/Präsentator, Länge: Standard/kurz)
+  - Infografik (Ausrichtung, Detaillierungsgrad und Stiloptionen)
   - Audioübersicht
   - Videoübersicht
-- Vorschau von Artefakten in der App (einschließlich Audio-/Videoplayer, wenn Medien verfügbar sind)
-- Synchronisieren Sie generierte Karteikarten/Quizelemente in die Incrementum-Überprüfungswarteschlange**Chat-Antworten als Auszüge speichern:**
+- Vorschau der Artefakte in der App:
+  - Text/strukturierte Artefakte (Bericht, Studienführer, Mindmap, Datentabelle) werden in speziellen Viewern gerendert
+  - Audio- und Videoübersichten werden inline über die Mediaplayer der App abgespielt
+  - Infografiken werden als Bilder angezeigt
+  - Foliendecks werden als PDFs angezeigt
+- Synchronisieren Sie generierte Karteikarten/Quizelemente in die Incrementum-Überprüfungswarteschlange
+
+**Artefaktaktionen (im Viewer):**
+- **Kopieren** – kopiert den Artefaktinhalt in Ihre Zwischenablage
+- **Als Markdown kopieren** – kopiert den Markdown-Export (Text und strukturierte Artefakte)
+- **In Bibliothek speichern** – importiert das Artefakt als Dokument in die aktuelle Sammlung; Bereits gespeicherte Artefakte melden dies, anstatt sie zu duplizieren
+- **Exportieren** – speichert das Artefakt als Markdown-Datei über den nativen Speicherdialog (JSON/HTML-Export ist in den Studio-Jobdetails verfügbar)
+
+**Artefakte in die Bibliothek importieren:**
+- Berichte und Studienhandbücher werden als Markdown-Dokumente importiert und stehen für die Warteschlange und Extraktion bereit
+- Mind Maps und Datentabellen werden als strukturierte Dokumente importiert, die für den Betrachter interaktiv bleiben
+- Audioübersichten werden als Elemente im Podcast-Stil importiert; Videoübersichten als Videoelemente
+- Import von Foliendecks als PDF-Dokumente; Infografiken werden als Bilddokumente importiert und auch zur **Bildregistrierung** hinzugefügt (nach Inhalt dedupliziert, sodass beim erneuten Speichern keine Duplikate entstehen).
+- Importierte Artefakte landen im Stammverzeichnis der Sammlungsbibliothek und können zu den gleichen Bedingungen wie andere Bibliothekselemente in die Warteschlange aufgenommen werden
+
+**Quellen hinzufügen:**
+- Fügen Sie eine **URL**, einen **YouTube**-Link, einen eingefügten **Text**, eine lokale **Datei** hinzu oder wählen Sie ein Dokument aus Ihrer **Bibliothek** aus.
+- Bibliotheksdokumente werden über dieselbe Aufnahmepipeline angehängt und zeigen den Status „Ausstehend“ an, bis NotebookLM die Verarbeitung abgeschlossen hat
+- Bereits angehängte Dokumente werden erkannt, sodass Sie keine Duplikate hinzufügen
+
+**Chat-Antworten als Auszüge speichern:**
 1. Öffnen Sie den NotebookLM-Workspace-Chat
 2. Klicken Sie in einer beliebigen Assistentenantwort auf **Als Extrakt speichern**
 3. Optional: Markieren Sie zuerst einen Teil der Antwort, um nur den ausgewählten Text zu speichern
@@ -1231,19 +1325,20 @@ Verwenden Sie NotebookLM in Incrementum, um zu recherchieren, Studienartefakte z
 5. Generieren Sie Lernkarten/Lückentexte/Fragen und Antworten aus diesen Auszügen
 
 **Fehlerbehebung:**
-– Wenn in der Artefaktvorschau angezeigt wird, dass das Medium nicht verfügbar ist, warten Sie, bis die NotebookLM-Generierung abgeschlossen ist, und öffnen Sie das Artefakt erneut.
+- Wenn in der Artefaktvorschau angezeigt wird, dass das Medium nicht verfügbar ist, warten Sie, bis die NotebookLM-Generierung abgeschlossen ist, und öffnen Sie das Artefakt erneut.
+- Wenn ein Video, Audio, eine Infografik oder ein Dia-Deck nicht angezeigt wird, öffnen Sie das Artefakt erneut. Video/Audio und Infografiken versuchen es automatisch über einen alternativen Medienpfad erneut. Diadecks bieten die Option „Mit alternativem Viewer öffnen“, wenn sie nicht geladen werden.
 - Wenn Sie den CLI-Anbieter verwenden, stellen Sie sicher, dass der NotebookLM-Sidecar/CLI in Ihrem Build verfügbar ist.
 - Wenn Sie den Anbieter gewechselt haben oder die Authentifizierung abgelaufen ist, stellen Sie die Verbindung unter Integrationen → NotebookLM erneut her.
 
-
 #### Abschnittserwähnungen (`#`)
 
-Tippen Sie `#` im Assistenten (oder im Flashcard-Studio), um in Ihrer Frage einen Teil eines Dokuments zu erwähnen.
+Geben Sie im Assistenten (oder in Flashcard Studio) „#“ ein, um einen Teil eines Dokuments in Ihrer Frage oder Eingabeaufforderung zu erwähnen.
 
-- Dokumente mit Überschriften oder PDF/EPUB-Gliederung listen ihre Abschnitte wie bisher auf.
-- Ein einfacher importierter Artikel ohne Überschriften erhält einen **abgeleiteten Abschnittsindex**: Absätze werden in beschriftete Segmente gruppiert, sodass das Popup für ein Dokument mit lesbarem Text nie leer ist.
-- Wenn Sie im Dokument **Text ausgewählt** haben, erscheint Ihre Auswahl als erster Eintrag – die Auswahl fügt genau den ausgewählten Text als Kontext hinzu (bei Bedarf auf das Kontextbudget gekürzt, mit Hinweis).
-- Hat das Dokument keinen extrahierbaren Text, zeigt das Popup dies ausdrücklich an, statt eine leere Liste zu zeigen.
+- Dokumente mit Überschriften oder einer PDF/EPUB-Gliederung listen wie bisher ihre Abschnitte auf.
+- Ein einfacher importierter Artikel ohne Überschriften erhält einen **abgeleiteten Abschnittsindex**: Absätze werden in beschriftete Segmente gruppiert, sodass das Popup bei einem Dokument mit lesbarem Text nie leer ist.
+- Wenn Sie im Dokument Text **ausgewählt** haben, wird Ihre Auswahl als erster Eintrag angezeigt. Wenn Sie sie auswählen, wird genau der ausgewählte Text als Kontext angehängt (bei Bedarf auf das Kontextbudget gekürzt, mit einem Hinweis).
+- Wenn das Dokument keinen extrahierbaren Text enthält, wird dies im Popup explizit angezeigt, anstatt eine leere Liste anzuzeigen.
+
 #### MCP-Server
 
 **Model Context Protocol (MCP)-Server:**
@@ -1363,7 +1458,7 @@ Incrementum kann RSS-Feeds von beliebten Newsletter-Plattformen automatisch erke
 
 - **Substack**: Fügen Sie „/feed“ zu jeder Substack-URL hinzu
   - Beispiel: „https://author.substack.com“ → „https://author.substack.com/feed“.
-- **Beehiiv**: Erkennt den Endpunkt „/feed“ automatisch
+- **Beehiiv**: Erkennt automatisch den „/feed“-Endpunkt
 - **Ghost-Blogs**: Erkennt den Endpunkt „/rss/“ automatisch
 - **Buttondown**: Fügen Sie „/feed“ zur Newsletter-URL hinzu
 - **Generisch**: Erkennt RSS-Feeds automatisch aus HTML-Tags „<link>“.
@@ -1413,7 +1508,9 @@ Die meisten Newsletter-Plattformen veröffentlichen RSS-Feeds:
 - Automatische Umfrage für neue Artikel
 - Artikel als Dokumente importieren
 - Wichtige Punkte automatisch extrahieren
-- Erstellen Sie Karten aus Feeds**Empfohlene Feeds:**
+- Erstellen Sie Karten aus Feeds
+
+**Empfohlene Feeds:**
 - Nachrichtenseiten (BBC, CNN usw.)
 - Blogs in Ihrem Bereich
 - Forschungszeitschriften
@@ -1540,11 +1637,13 @@ llama.cpp bietet einen kompakten lokalen LLM-Server für GLM-OCR, ohne dass eine
    - Einstellungen → OCR → Anbieter: **GLM-OCR (Lokal)**
    - Backend: **vLLM (GPU)** (dies ist der llama.cpp/vLLM-Modus – funktioniert für beide)
    - Endpunkt: „http://localhost:8080/v1“.
-   - Modell: Ihr Modelldateiname (z. B. „Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf“)**Leistungstipps:**
+   - Modell: Ihr Modelldateiname (z. B. „Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf“)
+
+**Leistungstipps:**
 - Verwenden Sie „-c 16384“ oder höher für lange Dokumente (Standard 4096 ist für die meisten OCR-Aufgaben zu klein)
 - Verwenden Sie „-t $(nproc)“, um alle CPU-Threads zu nutzen
 - Die Q4_K_M-Quantisierung bietet den besten Kompromiss zwischen Qualität und Geschwindigkeit für die CPU-Inferenz
-– Erstellen Sie für die GPU-Beschleunigung llama.cpp mit CUDA-, Metal- oder Vulkan-Unterstützung
+- Erstellen Sie für die GPU-Beschleunigung llama.cpp mit CUDA-, Metal- oder Vulkan-Unterstützung
 
 **Einrichtung (GLM-OCR mit vLLM):**
 
@@ -1796,7 +1895,9 @@ Die Funktion **Vorschauintervall** zeigt Ihnen genau an, wann jede Karte für al
 3. Wählen Sie die Bewertung basierend auf:
    - Ihr aktueller Rückruf
    - Wie schnell willst du es wiedersehen?
-   - Ihr Zeitplan (z. B. bevorstehende Prüfung)**Beispielstrategie:**
+   - Ihr Zeitplan (z. B. bevorstehende Prüfung)
+
+**Beispielstrategie:**
 - Prüfung in 2 Wochen: Bewerten Sie wichtige Karten mit „Einfach“, um sie bald wieder zu sehen
 - Anstrengender Tag: Bewerten Sie „Gut“ oder „Einfach“, um Bewertungen zu platzieren
 - Möchten Sie meistern: Bewerten Sie „Schwer“, um häufiger zu überprüfen
@@ -1929,7 +2030,9 @@ Aktivieren Sie die Debug-Protokollierung (Einstellungen → Erweitert → Debug-
 **Datenexport:**
 Exportieren Sie Ihre Daten vor größeren Änderungen (Einstellungen → Backup → Exportieren)
 
-### Erholung**Versehentliches Löschen:**
+### Erholung
+
+**Versehentliches Löschen:**
 1. Backups prüfen (Einstellungen → Backup)
 2. Stellen Sie die aktuelle Sicherung wieder her
 3. Kontaktieren Sie den Support, wenn kein Backup verfügbar ist
@@ -2048,6 +2151,9 @@ Exportieren Sie Ihre Daten vor größeren Änderungen (Einstellungen → Backup 
 A: Sie können Newsletter auf zwei Arten hinzufügen:
 1. **Newsletter-Verzeichnis**: Klicken Sie auf RSS → Newsletter-Symbol (📬) → Durchsuchen und abonnieren Sie kuratierte Newsletter
 2. **Direkte URL**: Kopieren Sie eine beliebige Newsletter-URL (Substack, Beehiiv usw.) → RSS → Feed hinzufügen → URL einfügen. Incrementum erkennt den RSS-Feed automatisch.
+
+**F: Warum werden auf meinem NotebookLM keine Videos, Audiodateien, Infografiken oder Folien angezeigt?**
+A: Für Medienartefakte muss ihre Datei generiert und bereit sein, bevor sie in der Vorschau angezeigt werden kann. Warten Sie, bis die Generierung abgeschlossen ist, und öffnen Sie dann das Artefakt erneut. Video/Audio und Infografiken versuchen es automatisch über einen alternativen Medienpfad erneut, und Foliendecks bieten die Option „Mit alternativem Viewer öffnen“, wenn sie nicht geladen werden. Wenn es immer noch fehlschlägt, verbinden Sie NotebookLM erneut unter Einstellungen → Integrationen und generieren Sie das Artefakt neu.
 
 **F: Welche Newsletter-Plattformen werden unterstützt?**
 A: Incrementum unterstützt RSS-Feeds von Substack-, Beehiiv-, Ghost-Blogs, Buttondown-, ConvertKit-, Revue-, Medium- und WordPress-Sites. Die meisten Newsletter veröffentlichen RSS-Feeds – suchen Sie auf der Website des Newsletters nach einem RSS-Link oder fügen Sie „/feed“ zur URL hinzu.

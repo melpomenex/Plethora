@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Images as a document type** — image files can now be stored, listed, and opened as first-class library documents with their own viewer (display, zoom, pan) instead of falling through to the generic type. Infographics imported from NotebookLM arrive this way, and are OCR'd on import through your configured provider so they stay extractable.
+
+### Changed
+
+- **NotebookLM Study Guide now produces a study guide** — the Studio's "Study Guide" button previously requested the briefing-doc report format; it now requests the study-guide format the label always promised. Previously generated jobs are unaffected.
+
 ## [2.1.1] - 2026-08-09
 
 ### Fixed & Improved

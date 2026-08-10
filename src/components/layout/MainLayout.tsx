@@ -26,7 +26,7 @@ import { checkForUpdates, setSkippedVersion } from "../../utils/updateChecker";
 import { emitFeedback } from "../../lib/feedback";
 import { PasteExtractDialog } from "../extracts/PasteExtractDialog";
 import { TwitterImportDialog } from "../documents/TwitterImportDialog";
-import { Desktop, ListChecks, SquaresFour, BookOpen, TextT, YoutubeLogo } from "@phosphor-icons/react";
+import { Desktop, ListChecks, SquaresFour, BookOpen, ImageSquare, TextT, YoutubeLogo } from "@phosphor-icons/react";
 import { syncActivePaneTabId } from "./activePaneSync";
 import { TOUR_ANCHORS, tourAnchor } from "../onboarding/tour/anchors";
 import { TourHost, type TourControl, type TourNavigationAdapter } from "../onboarding/tour/TourHost";
@@ -473,6 +473,7 @@ export function MainLayout() {
                   icon: doc.fileType === "pdf" ? <TextT className="w-4 h-4 text-red-500" />
                     : doc.fileType === "epub" ? <BookOpen className="w-4 h-4 text-blue-500" />
                     : doc.fileType === "youtube" ? <YoutubeLogo className="w-4 h-4 text-red-600" />
+                    : doc.fileType === "image" ? <ImageSquare className="w-4 h-4 text-rose-500" />
                     : <TextT className="w-4 h-4 text-muted-foreground" />,
                   type: "document-viewer",
                   content: DocumentViewer,

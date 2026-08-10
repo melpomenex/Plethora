@@ -152,7 +152,9 @@ Une fois importé, ouvrez n'importe quel document pour accéder :
 - **Zoom** : Ajustez la taille du texte
 - **Plein écran** : lecture sans distraction
 - **Recherche** : rechercher du texte dans le document
-- **Table des matières** : accéder aux sections (si disponible)**Outils d'annotation :**
+- **Table des matières** : accéder aux sections (si disponible)
+
+**Outils d'annotation :**
 1. **Surligner le texte** : Sélectionnez le texte → Choisissez la couleur de surbrillance
    - Jaune : Concepts importants
    - Vert : Exemples
@@ -298,7 +300,9 @@ L'évaluation d'un document avec Encore / Difficile / Bon / Facile semble identi
 | **Encore** | ~4 heures | minutes |
 | **Dur** | ~1 jour | 1 à 2 jours |
 | **Bien** | ~3 jours | jours-semaines |
-| **Facile** | ~7 jours | semaines |Les intervalles entre les documents sont limités à environ **30 jours** afin que le matériel reste en rotation, et les notes consécutives Bon/Facile ajoutent un petit bonus tandis que les notes consécutives Encore/Difficile ajoutent une petite pénalité.
+| **Facile** | ~7 jours | semaines |
+
+Les intervalles entre les documents sont limités à environ **30 jours** afin que le matériel reste en rotation, et les notes consécutives Bon/Facile ajoutent un petit bonus tandis que les notes consécutives Encore/Difficile ajoutent une petite pénalité.
 
 **Le planificateur engageant.** Lorsque vous lisez des documents à partir de la file d'attente, Incrementum utilise la variante *Engaging*, qui superpose l'injection de nouveauté, l'équilibrage des variétés et le hasard au-dessus des intervalles de base afin que vos sessions de lecture restent variées et intéressantes. Ces fonctionnalités d'engagement affectent *quel* document apparaîtra ensuite, et non les calculs d'intervalle sous-jacents.
 
@@ -349,9 +353,10 @@ Paires de questions et réponses
 Masquer des parties d'une image (schémas, graphiques)
 
 **Idéal pour :** Anatomie, cartes, diagrammes
-**Création manuelle :** survolez une image dans un document et cliquez sur **Créer une carte d'occlusion d'image** pour ouvrir l'éditeur. Dessinez une zone en glissant sur l'image, déplacez-la en la faisant glisser à l'intérieur, redimensionnez-la via les poignées d'angle, renommez-la dans le panneau ou supprimez-la (bouton ou touche Suppr). Au moins une zone est requise pour enregistrer ; sinon, l'enregistrement est refusé.
 
-**Les propositions de l'IA sont corrigeables :** lorsque l'IA propose des zones d'occlusion, l'éditeur s'ouvre pré-rempli. Ajustez, ajoutez ou supprimez des zones avant d'enregistrer ; si le modèle renvoie des zones inutilisables, elles sont recadrées sur l'image et l'éditeur s'ouvre pour les dessiner manuellement — une carte sans zone utilisable n'est jamais enregistrée silencieusement.
+**Création manuelle :** Passez la souris sur une image dans n'importe quel document et cliquez sur **Créer une carte d'occlusion d'image** pour ouvrir l'éditeur d'occlusion. Dessinez une région en la faisant glisser sur l'image, puis déplacez-la en la faisant glisser à l'intérieur de la région, redimensionnez-la via les poignées de coin, réétiquetez-la dans le panneau de région ou supprimez-la (bouton ou touche Suppr). Vous devez avoir au moins une région à sauvegarder, sinon la sauvegarde est refusée.
+
+**Les propositions de l'IA sont corrigibles :** Lorsque l'IA propose des régions d'occlusion, l'éditeur s'ouvre pré-rempli avec celles-ci. Ajustez, ajoutez ou supprimez des régions avant de sauvegarder ; si le modèle renvoie des régions inutilisables, elles sont fixées à l'image et l'éditeur s'ouvre pour que vous puissiez les dessiner manuellement — une carte avec zéro région utilisable n'est jamais enregistrée silencieusement.
 
 ### Création de cartes
 
@@ -475,7 +480,7 @@ Sélectionnez plusieurs cartes à l'aide des cases à cocher, puis utilisez la b
 **Séances de révision mixtes (fiches + documents) :**
 - Les sessions de révision peuvent inclure des **éléments d'apprentissage** et des **documents** qui doivent être lus.
 - Lorsqu'un document apparaît, vous pouvez l'ouvrir directement depuis la fiche de session.
-- L'évaluation d'un document planifie sa prochaine date de lecture via le **Planificateur de lecture incrémentielle** (intervalles courts et plafonnés) — distinct des algorithmes de la carte mémoire. Voir [Programmation de lecture de documents](#document-reading-schedule-incremental-reading).
+- L'évaluation d'un document planifie sa prochaine date de lecture via le **Planificateur de lecture incrémentiel** (intervalles courts et plafonnés) — distinct des algorithmes de la carte mémoire. Voir [Programmation de lecture de documents](#document-reading-schedule-incremental-reading).
 
 **Interface d'évaluation :**
 Après avoir révélé la réponse, quatre boutons d'évaluation apparaissent :
@@ -598,26 +603,48 @@ Affiche les cartes nouvellement créées qui n'ont pas encore été examinées
    - **Suspendre** : masquer temporairement les avis
    - **Supprimer** : Supprimer définitivement
 
-### Lire les extraits
+### Lecture d'extraits
 
-Les lignes d'extrait dans la file ouvrent un **lecteur d'extraits** dédié : le texte de l'extrait est le sujet, pas son document source. Depuis le lecteur, vous pouvez :
+Les lignes d'extraction dans la file d'attente ouvrent un **lecteur d'extrait** dédié : le texte de l'extrait est le sujet, et non son document source. Depuis le lecteur, vous pouvez :
 
-- Lire le contenu complet de l'extrait (HTML enrichi s'il est conservé, texte brut sinon)
-- Le **noter** (Encore / Difficile / Bien / Facile) — la file est mise à jour immédiatement avec le nouveau calendrier, sans rechargement
-- **Ouvrir le document source** pour revenir au visualiseur de documents sur la carte surlignée de l'extrait. Si le document source ne peut plus être chargé, le bouton est désactivé avec une explication
+- Lire le contenu complet de l'extrait (HTML riche lorsqu'il est conservé, texte brut dans le cas contraire)
+- **Évaluez** (Encore / Difficile / Bon / Facile) - la file d'attente se met à jour immédiatement avec le nouveau calendrier, aucun rechargement n'est nécessaire
+- **Document open source** pour revenir à la visionneuse de documents sur la carte en surbrillance de l'extrait. Si le document source ne peut plus être chargé, le bouton est désactivé avec une explication
 
 ### Système de priorité
 
+Chaque document, extrait et carte se trouve quelque part dans une **liste classée unique** : une file d'attente, tous les types d'éléments ensemble. La priorité est ce classement. Définir la priorité sur un élément revient à indiquer à Incrementum *où il appartient dans votre collection*, sans lui attacher de score.
+
+**La priorité est une position, pas une étiquette.**
+
+Il s’agit du modèle SuperMemo, et c’est la raison pour laquelle les chiffres se comportent comme ils le font. Lorsque vous définissez un objet à 70 %, il se déplace jusqu'à 70 % de la hauteur de votre collection, soit au-dessus d'environ 70 % de tout ce que vous possédez, en dessous des 30 % supérieurs. Rien d'autre n'est renuméroté ; l'article s'insère simplement.
+
 Définissez la priorité de 0 à 100 sur n'importe quel élément :
 
-- **100** : Critique (à apprendre)
-- **80-90** : important
-- **60-70** : Priorité normale
-- **40-50** : Faible priorité
-- **0-20** : Archive/référence
+- **90-100** : par-dessus presque tout le reste – la poignée de choses que vous voulez en premier
+- **70-80** : Partie supérieure de la collection
+- **50-60** : Milieu du pack (valeur par défaut pour les nouveaux matériaux)
+- **20-40** : Partie inférieure — lisez-la éventuellement
+- **0-10** : bas de la file d'attente — référence, archive, un jour
+
+**Vos pourcentages évoluent d'eux-mêmes, et c'est exact.**
+
+Parce qu'un pourcentage signifie « jusqu'ici dans la collection *en ce moment* », il change à mesure que la collection qui l'entoure change. Importez 500 nouveaux articles et attribuez une note élevée à la moitié d'entre eux, et un ancien document intact affichera un pourcentage inférieur à celui de la semaine dernière - non pas parce que vous l'avez rétrogradé, mais parce que davantage de documents se trouvent désormais au-dessus. Sa place réelle dans votre ordre de lecture reste inchangée par rapport à tout ce qui s'y trouvait déjà.
+
+Un nombre fixe vous mentirait ici : « 70 » dans une collection de 100 articles et « 70 » dans une collection de 10 000 articles prétendraient signifier la même chose tout en décrivant des positions complètement différentes. Le pourcentage vous dit la vérité sur votre collection telle qu’elle existe aujourd’hui.
+
+**Position X de N.**
+
+Ouvrez la fenêtre contextuelle de priorité sur n'importe quel élément et elle affiche son classement en direct sous le curseur — *Position 1* est l'élément le plus important de votre collection, *Position N* le moins. Rouvrez-le après une grosse importation et vous verrez la position bouger. Cette lecture est recherchée à chaque fois que vous l'ouvrez.
+
+**Il n'y a pas deux éléments qui partagent une place.**
+
+Définir plusieurs éléments sur le même pourcentage ne les empile pas en un seul point : chacun est placé juste après le dernier, de sorte que la file d'attente reste dans un ordre strict. La définition groupée de 200 documents à 60 % organise les 200 aux alentours de 60 %, dans l'ordre, plutôt que de créer une égalité à 200 que la file d'attente doit rompre arbitrairement plus tard.
 
 **Planification prioritaire :**
-Les éléments plus prioritaires sont affichés plus fréquemment dans les avis mitigés.
+Les éléments plus prioritaires sont affichés plus fréquemment dans les avis mitigés. La priorité régit l'*importance* — ce à quoi vous arrivez en premier lorsqu'il y a plus de matériel que de temps. Il est distinct de la planification FSRS, qui régit le *timing* — la prochaine échéance d'un élément donné. Une carte de faible priorité qui est en retard peut toujours apparaître avant une carte de haute priorité qui a été examinée hier.
+
+**Les extraits héritent de leur document.** Un nouvel extrait démarre avec la priorité de son document source, et la modification de la priorité du document s'applique aux extraits toujours à l'ancienne valeur. Une fois que vous avez défini manuellement la priorité d'un extrait, il cesse d'hériter et conserve sa propre place.
 
 ### Comportement de classement et de réorganisation des files d'attente
 
@@ -633,6 +660,30 @@ Comprendre comment la file d'attente classe les éléments et pourquoi les posit
 3. **Synchronisation de l'état** :
    - L'exécution d'actions de modification de la file d'attente (telles que l'archivage d'un document, la priorité d'édition en masse ou la modification de balises) déclenche une actualisation en arrière-plan lors du retour à la vue de la file d'attente pour que votre liste reste alignée sur l'état de la base de données principale.
    - Les changements de vue passifs ou les changements d'onglets maintiennent un ordre local stable sans déclencher de remaniements inattendus.
+
+
+### Examen neuronal (« Devenez neuronal »)
+
+L'examen neuronal est un mode exploratoire facultatif construit sur *Learn : Go neural* de SuperMemo. Au lieu de parcourir votre file d'attente prioritaire dans l'ordre, il crée une nouvelle séquence de révision en **diffusant l'activation** à partir d'un seul point de départ - l'élément que vous lisez actuellement - et en faisant apparaître tout ce qui y est connecté. C'est le mode à privilégier lorsque vous souhaitez suivre un fil de discussion dans votre collection plutôt que de parcourir ce qui est dû.
+
+**Comment l'utiliser.** Pendant la lecture en mode défilement, cliquez sur **Devenir neuronal** dans la barre supérieure. La session passe à une file d'attente d'activation de diffusion amorcée au niveau du document, de la carte ou de l'extrait actuel ; la pilule de position devient violette et indique « Examen neuronal · N restant ». Cliquez sur **Quitter** pour revenir exactement là où vous en étiez dans votre lecture : l'examen neuronal ne modifie jamais votre file d'attente prioritaire ou votre planification. Lorsque la file d'attente est faible, elle se remplit automatiquement à partir de l'élément que vous venez de terminer.
+
+**Les flashcards et les extraits nécessitent toujours une note pour avancer**, tout comme en mode défilement normal, donc une session neuronale contribue toujours à la planification. Les documents avancent librement.
+
+**Comment il décide de ce qui est « lié ».** L'activation se propage vers l'extérieur à partir de la graine via cinq types de connexions, dans cet ordre :
+
+1. **Groupes de concepts (balises).** Les éléments partageant une balise avec la graine sont traités comme des pairs conceptuels. Le marquage est donc doublement utile : il regroupe les éléments à rechercher *et* alimente l'examen neuronal. Un élément non balisé n’a aucun concept homologue.
+2. **Références inter-éléments.** Liens de références croisées explicites, le cas échéant.
+3. **Descendants.** Les enfants de la graine dans l'arbre des connaissances — les extraits et les cartes dans un document, les cartes dans un extrait.
+4. **Similitude sémantique.** Lorsque vous avez indexé votre collection pour RAG (Paramètres → Intégrations et RAG → Collection d'index), l'examen neuronal fait également apparaître les documents dont le contenu est similaire à celui de la graine. D'autres documents similaires apparaissent plus tôt. Si vous n’avez pas indexé, cette source reste simplement silencieuse – les quatre autres fonctionnent toujours.
+5. **Parent et frères et sœurs.** Le parent de la graine (le document dans lequel réside un extrait) et ses frères et sœurs (autres extraits dans le même document, autres cartes dans le même extrait, plus les documents proches).
+
+Des connexions plus étroites – un enfant direct, un document presque identique, une balise partagée – apparaissent plus tôt dans la file d'attente. Lorsque la première vague produit moins de vingt éléments, l'activation s'étend vers les voisins des éléments nouvellement atteints jusqu'à ce que la file d'attente soit pleine ou que plus rien ne soit accessible.
+
+**Conseils :**
+- Marquez les éléments que vous souhaitez explorer ensemble - la balise devient un examen neuronal de groupe conceptuel qui suivra.
+- Indexez votre collection pour débloquer la découverte sémantique ; sans cela, l'examen neuronal repose uniquement sur la structure arborescente et les balises.
+- L'examen neuronal est en lecture seule par rapport à votre file d'attente normale. Utilisez-le librement ; rien concernant votre commande prioritaire ou les dates d'échéance ne change.
 
 
 ### Files d'attente intelligentes
@@ -655,7 +706,9 @@ Créez des files d'attente personnalisées avec des filtres :
 
 Tag-Aware Scheduling ajoute une intelligence sémantique à la file d'attente de révision.
 Lorsqu'il est activé dans Paramètres, TAS applique deux passes de post-traitement
-vos éléments dus sans modifier les intervalles SM-20/FSRS sous-jacents :- **Prerequisite Gating** : bloque les éléments dont les prérequis de balise ne sont pas remplis.
+vos éléments dus sans modifier les intervalles SM-20/FSRS sous-jacents :
+
+- **Prerequisite Gating** : bloque les éléments dont les prérequis de balise ne sont pas remplis.
   atteint le seuil d'échéance configuré.  Le matériel de base est
   stabilisé avant l'apparition des sujets avancés.
 - **Interference Jitter** : sépare les éléments partageant des balises à haute cohérence
@@ -737,7 +790,9 @@ une gigue d’interférence est appliquée à ces balises.
 
 Une balise est **mature** pour un élément lorsque la stabilité SM-20/FSRS de cet élément
 atteint ou dépasse le « maturityThreshold » de la balise (par défaut 0,8).  Le
-le ratio de maturité global est « matureCount / itemCount ».- Les barres de progression dans l'éditeur de prérequis affichent le niveau actuel de chaque balise.
+le ratio de maturité global est « matureCount / itemCount ».
+
+- Les barres de progression dans l'éditeur de prérequis affichent le niveau actuel de chaque balise.
   taux de maturité.
 - Le contrôle des prérequis utilise le « maturityRatio » configuré pour décider
   si une balise de prérequis est suffisamment « satisfaite » pour déverrouiller la dépendance
@@ -931,7 +986,9 @@ Incrementum prend en charge quatre algorithmes de planification. Choisissez celu
 
 **Intervalle maximum :**
 - Limiter les intervalles les plus longs (365 jours par défaut)
-- Empêche les cartes d'être programmées trop loin**Capuchon de sécurité long (Vidéos/Articles) :**
+- Empêche les cartes d'être programmées trop loin
+
+**Capuchon de sécurité long (Vidéos/Articles) :**
 - Pour les vidéos/articles longs, les notes positives (« Bon »/« Facile ») tiennent compte de la couverture.
 - Si vous passez moins de **25 %** de la durée estimée du contenu, l'intervalle suivant est limité à **1 jour**.
 - Si vous dépensez moins de **50 %**, l'intervalle suivant est limité à **2 jours**.
@@ -1018,7 +1075,9 @@ Incrementum synchronise vos données de lecture sur vos appareils via une **sall
 
 #### Téléchargement automatique du fichier
 
-Sous **File Sync**, choisissez le degré d'agressivité avec lequel les nouveaux fichiers sont extraits sur chaque appareil :- **Toujours** : téléchargez automatiquement chaque fichier dès qu'il apparaît dans la pièce.
+Sous **File Sync**, choisissez le degré d'agressivité avec lequel les nouveaux fichiers sont extraits sur chaque appareil :
+
+- **Toujours** : téléchargez automatiquement chaque fichier dès qu'il apparaît dans la pièce.
 - **WiFi uniquement** — téléchargement automatique uniquement sur WiFi (utile sur les forfaits de données mobiles).
 - **Manuel** — jamais de téléchargement automatique ; chaque fichier affiche un bouton de téléchargement sur lequel vous appuyez quand vous le souhaitez.
 
@@ -1088,7 +1147,9 @@ Incrementum fournit un système complet de sauvegarde et de restauration pour pr
 - **Remplacer** : écraser les éléments existants avec des versions de sauvegarde
 - **Fusion** : créez de nouvelles copies de tous les éléments (peut créer des doublons)
 
-**Cas d'utilisation :**| Scénario | Approche recommandée |
+**Cas d'utilisation :**
+
+| Scénario | Approche recommandée |
 |----------|-----------|
 | **Migrer vers un nouvel ordinateur** | Exporter avec des fichiers, importer sur une nouvelle machine |
 | **Sauvegarde avant les changements majeurs** | Sauvegarde rapide des métadonnées uniquement |
@@ -1184,21 +1245,54 @@ Utilisez NotebookLM dans Incrementum pour rechercher, générer des artefacts d'
 3. Cliquez sur **Connect** et choisissez le fournisseur (`mock` pour les tests, `cli` pour Live NotebookLM)
 4. Sélectionnez ou créez un bloc-notes actif
 
+**Création de cahiers :**
+- Cliquez sur **Nouveau bloc-notes** (barre latérale ou état vide) et saisissez un titre dans la boîte de dialogue de l'application.
+- Le titre est envoyé à NotebookLM dès le premier clic — aucune deuxième tentative n'est nécessaire
+- Pendant la création d'un bloc-notes, le bouton affiche une double flèche et est désactivé ; les échecs font surface comme un toast au lieu de ne rien faire en silence
+- La création à partir de l'état vide sélectionne automatiquement le nouveau bloc-notes, de sorte que votre prochaine action s'exécute sur celui-ci.
+
 **Ce que vous pouvez faire :**
 - Posez des questions dans le chat NotebookLM directement depuis Incrementum
 - Exécuter des invites de recherche (recherche de cahiers assistée par Web)
 - Générer des artefacts :
   - Cartes mémoire
   - Quiz
-  - Rapport / Guide d'étude
+  - Rapport (document d'information)
+  - Guide d'étude
   - Carte mentale
   - Tableau de données
+  - Slide Deck (format : détaillé/présentateur, durée : par défaut/court)
+  - Infographie (options d'orientation, de niveau de détail et de style)
   - Aperçu audio
   - Aperçu vidéo
-- Prévisualisez les artefacts dans l'application (y compris les lecteurs audio/vidéo lorsque le média est disponible)
-- Synchronisez les flashcards/éléments de quiz générés dans la file d'attente de révision Incrementum**Enregistrer les réponses au chat sous forme d'extraits :**
+- Aperçu des artefacts dans l'application :
+  - Le texte/les artefacts structurés (rapport, guide d'étude, carte mentale, tableau de données) s'affichent dans des visionneuses dédiées
+  - Les aperçus audio et vidéo sont lus en ligne via les lecteurs multimédias de l'application
+  - Affichage des infographies sous forme d'images
+  - Les présentations de diapositives s'affichent au format PDF
+- Synchronisez les flashcards/éléments de quiz générés dans la file d'attente de révision Incrementum
+
+**Actions d'artefacts (dans la visionneuse) :**
+- **Copier** — copie le contenu de l'artefact dans votre presse-papiers
+- **Copier en tant que Markdown** : copie l'exportation Markdown (texte et artefacts structurés)
+- **Enregistrer dans la bibliothèque** — importe l'artefact dans la collection actuelle en tant que document ; les artefacts déjà enregistrés signalent qu'au lieu de dupliquer
+- **Exporter** — enregistre l'artefact en tant que fichier Markdown via la boîte de dialogue d'enregistrement native (l'exportation JSON/HTML est disponible dans les détails de la tâche Studio)
+
+**Importation d'artefacts dans la bibliothèque :**
+- Importation de rapports et de guides d'étude sous forme de documents Markdown, prêts pour la file d'attente et l'extraction
+- Les cartes mentales et les tableaux de données sont importés sous forme de documents structurés qui conservent leurs visualiseurs interactifs
+- Importation des aperçus audio sous forme d'éléments de style podcast ; Aperçus vidéo sous forme d'éléments vidéo
+- Importation de diapositives sous forme de documents PDF ; Les infographies sont importées en tant que documents image et sont également ajoutées au **Registre d'images** (dédupliquées par le contenu, afin que la réenregistrement ne crée pas de doublons).
+- Les artefacts importés atterrissent à la racine de la bibliothèque de collection et deviennent éligibles pour la file d'attente aux mêmes conditions que les autres éléments de la bibliothèque.
+
+**Ajout de sources :**
+- Ajoutez une **URL**, un lien **YouTube**, un **texte** collé, un **fichier** local ou choisissez un document dans votre **Bibliothèque**.
+- Les documents de la bibliothèque sont attachés via le même pipeline d'ingestion et affichent l'état en attente jusqu'à ce que NotebookLM ait fini de les traiter.
+- Les documents déjà joints sont détectés afin que vous n'ajoutiez pas de doublons
+
+**Enregistrer les réponses au chat sous forme d'extraits :**
 1. Ouvrez le chat de l'espace de travail NotebookLM
-2. Sur n'importe quelle réponse de l'assistant, cliquez sur ** Enregistrer en tant qu'extrait **
+2. Sur n'importe quelle réponse de l'assistant, cliquez sur **Enregistrer en tant qu'extrait**.
 3. Facultatif : mettez d'abord en surbrillance une partie de la réponse pour enregistrer uniquement le texte sélectionné.
 4. Incrementum crée un extrait lié à NotebookLM avec des métadonnées thread/source
 5. Les réponses enregistrées affichent un indicateur **déjà enregistré** pour éviter les doublons
@@ -1212,18 +1306,19 @@ Utilisez NotebookLM dans Incrementum pour rechercher, générer des artefacts d'
 
 **Dépannage :**
 - Si l'aperçu de l'artefact indique que le média n'est pas disponible, attendez la fin de la génération NotebookLM et rouvrez l'artefact.
+- Si une vidéo, un audio, une infographie ou un diaporama ne s'affiche pas, rouvrez l'artefact : la vidéo/l'audio et l'infographie réessayent automatiquement via un autre chemin multimédia ; les diaporamas offrent une option « Ouvrir avec un autre visualiseur » lorsqu'ils ne se chargent pas.
 - Si vous utilisez le fournisseur `cli`, assurez-vous que le side-car/CLI NotebookLM est disponible dans votre build.
 - Si vous avez changé de fournisseur ou si l'authentification a expiré, reconnectez-vous dans Intégrations → NotebookLM.
 
+#### Mentions de section (`#`)
 
-#### Mentions de sections (`#`)
+Tapez « # » dans l'Assistant (ou dans Flashcard Studio) pour mentionner une partie d'un document dans votre question ou invite.
 
-Tapez `#` dans l'Assistant (ou dans Flashcard Studio) pour mentionner une partie d'un document dans votre question.
+- Les documents avec des titres ou un plan PDF/EPUB répertorient leurs sections, comme auparavant.
+- Un article simple importé sans titre obtient un **index de section dérivé** : les paragraphes sont regroupés en segments étiquetés, de sorte que la fenêtre contextuelle n'est jamais vide pour un document contenant du texte lisible.
+- Si vous avez du texte **sélectionné** dans le document, votre sélection apparaît comme première entrée — en la choisissant, vous attachez exactement le texte sélectionné comme contexte (tronqué au budget contextuel si nécessaire, avec un avis).
+- Si le document ne contient pas de texte extractible, la popup le dit explicitement au lieu d'afficher une liste vide.
 
-- Les documents avec des titres ou un sommaire PDF/EPUB listent leurs sections, comme avant.
-- Un article importé sans titres obtient un **index de sections dérivé** : les paragraphes sont regroupés en segments étiquetés, donc la fenêtre contextuelle n'est jamais vide pour un document avec du texte lisible.
-- Si vous avez du texte **sélectionné** dans le document, votre sélection apparaît comme première entrée : la choisir attache exactement le texte sélectionné comme contexte (tronqué au budget de contexte si nécessaire, avec un avis).
-- Si le document n'a pas de texte extractible, la fenêtre contextuelle l'indique explicitement au lieu d'afficher une liste vide.
 #### Serveurs MCP
 
 **Serveurs MCP (Model Context Protocol) :**
@@ -1250,7 +1345,7 @@ Configurez les fournisseurs d'IA pour la génération de cartes :
 - Anthropique (Claude)
 - Ollama (modèles locaux comme Llama, Mistral, Qwen)
 - OpenRouter (accès à de nombreux modèles, y compris les niveaux gratuits)
-- llama.cpp / vLLM (tout modèle GGUF via API compatible OpenAI)
+- llama.cpp / vLLM (n'importe quel modèle GGUF via API compatible OpenAI)
 - Points de terminaison d'API personnalisés
 
 **Paramètres par fournisseur :**
@@ -1393,7 +1488,9 @@ La plupart des plateformes de newsletter publient des flux RSS :
 - Sondage automatique pour les nouveaux articles
 - Importer des articles sous forme de documents
 - Extraire automatiquement les points clés
-- Créer des cartes à partir de flux**Flux recommandés :**
+- Créer des cartes à partir de flux
+
+**Flux recommandés :**
 - Sites d'information (BBC, CNN, etc.)
 - Blogs dans votre domaine
 - Revues de recherche
@@ -1455,7 +1552,7 @@ Remarques :
 
 Créez des transcriptions pour les livres audio afin de permettre la sélection et la synchronisation du texte.
 
-1. Importer un livre audio
+1. Importez un livre audio
 2. Ouvrez la visionneuse de livres audio
 3. Cliquez sur **Démarrer la transcription locale**
 4. Surveillez les progrès et ouvrez le panneau de transcription
@@ -1520,7 +1617,9 @@ llama.cpp fournit un serveur LLM local léger pour GLM-OCR sans nécessiter de G
    - Paramètres → OCR → Fournisseur : **GLM-OCR (Local)**
    - Backend : **vLLM (GPU)** (c'est le mode llama.cpp/vLLM — fonctionne pour les deux)
    - Point de terminaison : `http://localhost:8080/v1`
-   - Modèle : votre nom de fichier de modèle (par exemple, `Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf`)**Conseils de performances :**
+   - Modèle : votre nom de fichier de modèle (par exemple, `Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf`)
+
+**Conseils de performances :**
 - Utilisez `-c 16384` ou supérieur pour les documents longs (4096 par défaut est trop petit pour la plupart des tâches OCR)
 - Utilisez `-t $(nproc)` pour utiliser tous les threads du CPU
 - La quantification Q4_K_M offre le meilleur compromis qualité/vitesse pour l'inférence CPU
@@ -1721,7 +1820,7 @@ A : ATP (adénosine triphosphate)
 - Les cartes "Encore" sont des opportunités d'apprentissage
 - En cas d'oubli fréquent (>30 %), pensez à :
   - Diminution de la rétention souhaitée (85-90%)
-  - Créer des cartes plus simples
+  - Création de cartes plus simples
   - Ajout de plus de contexte
   - Réviser plus fréquemment
 
@@ -1776,7 +1875,9 @@ La fonction **Intervalle de prévisualisation** vous indique exactement quand ch
 3. Choisissez la note en fonction de :
    - Votre rappel actuel
    - Dans combien de temps tu veux le revoir
-   - Votre emploi du temps (par exemple, examen à venir)**Exemple de stratégie :**
+   - Votre emploi du temps (par exemple, examen à venir)
+
+**Exemple de stratégie :**
 - Examen dans 2 semaines : Notez « Facile » sur les cartes importantes pour les revoir bientôt
 - Journée chargée : notez "Bon" ou "Facile" pour espacer les avis
 - Vous voulez maîtriser : notez "Difficile" pour réviser plus fréquemment
@@ -1909,7 +2010,9 @@ Activez la journalisation du débogage (Paramètres → Avancé → Mode déboga
 **Exportation de données :**
 Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde → Exporter)
 
-### Récupération**Suppression accidentelle :**
+### Récupération
+
+**Suppression accidentelle :**
 1. Vérifiez les sauvegardes (Paramètres → Sauvegarde)
 2. Restaurer à partir d'une sauvegarde récente
 3. Contactez le support si aucune sauvegarde n'est disponible
@@ -2028,6 +2131,9 @@ Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde 
 R : Vous pouvez ajouter des newsletters de deux manières :
 1. **Répertoire des newsletters** : cliquez sur RSS → Icône de newsletter (📬) → Parcourez et abonnez-vous aux newsletters organisées
 2. **URL directe** : copiez n'importe quelle URL de newsletter (Substack, Beehiiv, etc.) → RSS → Ajouter un flux → Coller l'URL. Incrementum découvrira automatiquement le flux RSS.
+
+**Q : Pourquoi ma vidéo, mon audio, mon infographie ou mon diaporama NotebookLM ne s'affichent-ils pas ?**
+R : Les artefacts multimédias nécessitent que leur fichier soit généré et prêt avant de pouvoir être prévisualisés. Attendez la fin de la génération, puis rouvrez l'artefact : les vidéos/audio et les infographies réessayent automatiquement via un autre chemin multimédia, et les diaporamas proposent une option "Ouvrir avec un autre visualiseur" lorsqu'ils ne se chargent pas. Si l'échec persiste, reconnectez NotebookLM dans Paramètres → Intégrations et régénérez l'artefact.
 
 **Q : Quelles plateformes de newsletter sont prises en charge ?**
 R : Incrementum prend en charge les flux RSS des sites Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium et WordPress. La plupart des newsletters publient des flux RSS – consultez le site Web de la newsletter pour un lien RSS ou essayez d'ajouter « /feed » à l'URL.

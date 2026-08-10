@@ -49,6 +49,7 @@ import { isTauri } from "../../lib/tauri";
 import { TranscriptionButton } from "../transcription";
 import {
   classifyLocalMediaError,
+  getFiniteMediaDuration,
   getLocalMediaSourceKey,
   normalizeLocalMediaSources,
   probeLocalMediaSource,
@@ -179,6 +180,23 @@ export function LocalVideoPlayer({
   useEffect(() => {
     durationRef.current = duration;
   }, [duration]);
+
+  const syncMediaDuration = useCallback(() => {
+    const media = videoRef.current;
+    if (!media) return;
+
+    const nextDuration = getFiniteMediaDuration(media.duration);
+    if (nextDuration === null || Math.abs(nextDuration - durationRef.current) < 0.01) return;
+
+    // Update the ref immediately so closely-spaced loadedmetadata,
+    // durationchange, and canplay events do not publish the same value twice.
+    durationRef.current = nextDuration;
+    setDuration(nextDuration);
+    onLoad?.({
+      duration: nextDuration,
+      title: title || t(mediaType === "audio" ? "viewer.audio" : "viewer.video"),
+    });
+  }, [mediaType, onLoad, t, title]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1085,9 +1103,7 @@ export function LocalVideoPlayer({
 
   const handleLoadedMetadata = useCallback(() => {
     if (videoRef.current) {
-      const mediaDuration = videoRef.current.duration;
-      setDuration(mediaDuration);
-      onLoad?.({ duration: mediaDuration, title: title || t(mediaType === "audio" ? "viewer.audio" : "viewer.video") });
+      syncMediaDuration();
       if (startTimeRef.current > 0) {
         videoRef.current.currentTime = startTimeRef.current;
       }
@@ -1095,9 +1111,10 @@ export function LocalVideoPlayer({
         videoRef.current.playbackRate = playbackRate;
       }
     }
-  }, [activeSourceStrategy, mediaType, onLoad, playbackRate, t, title]);
+  }, [playbackRate, syncMediaDuration]);
 
   const handleCanPlay = useCallback(() => {
+    syncMediaDuration();
     setPlayError(null);
     setSourceFailure(null);
     setSourceFailureStrategy(null);
@@ -1105,7 +1122,7 @@ export function LocalVideoPlayer({
       resumePlaybackAfterFallbackRef.current = false;
       void attemptPlay('fallback-resume');
     }
-  }, [activeSourceStrategy, attemptPlay, mediaType]);
+  }, [activeSourceStrategy, attemptPlay, mediaType, syncMediaDuration]);
 
   const handlePause = useCallback(() => {
     setIsPlaying(false);
@@ -1153,9 +1170,10 @@ export function LocalVideoPlayer({
       ref={videoRef}
       aria-label="Local media player"
       src={activeSrc}
-      preload="none"
+      preload="metadata"
       className="sr-only"
       onLoadedMetadata={handleLoadedMetadata}
+      onDurationChange={syncMediaDuration}
       onCanPlay={handleCanPlay}
       onWaiting={() => {
       }}
@@ -1174,10 +1192,11 @@ export function LocalVideoPlayer({
     <video
       ref={videoRef}
       src={activeSrc}
-      preload="none"
+      preload="metadata"
       playsInline
       className="w-full max-h-full bg-black cursor-pointer"
       onLoadedMetadata={handleLoadedMetadata}
+      onDurationChange={syncMediaDuration}
       onCanPlay={handleCanPlay}
       onWaiting={() => {
       }}

@@ -108,11 +108,30 @@ def split_sections(text: str) -> list[str]:
 
 
 def normalize_generated_markdown(markdown: str) -> str:
-    return (
+    result = (
         markdown.replace("\r\n", "\n")
         .replace("---##", "---\n\n##")
         .replace("---###", "---\n\n###")
     )
+    # Google sometimes emits fullwidth hash signs / non-ASCII bullet markers;
+    # normalize them back to markdown syntax so headings and list items render.
+    lines: list[str] = []
+    for line in result.splitlines():
+        stripped = line.lstrip()
+        indent = line[: len(line) - len(stripped)]
+        if stripped.startswith("＃＃＃＃ "):
+            lines.append(f"{indent}#### {stripped[4:].strip()}")
+        elif stripped.startswith("＃＃＃ "):
+            lines.append(f"{indent}### {stripped[3:].strip()}")
+        elif stripped.startswith("＃＃ "):
+            lines.append(f"{indent}## {stripped[2:].strip()}")
+        elif stripped.startswith("＃ "):
+            lines.append(f"{indent}# {stripped[1:].strip()}")
+        elif stripped.startswith("・") or stripped.startswith("– "):
+            lines.append(f"{indent}- {stripped.lstrip('・– ')}")
+        else:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def strip_embedded_table_of_contents(markdown: str) -> str:
@@ -148,7 +167,11 @@ def translate_document(text: str, target: str) -> str:
         translated_chunks = [
             translate_chunk(chunk, target) for chunk in split_text(section)
         ]
-        translated_sections.append("".join(translated_chunks))
+        # Google's endpoint returns each chunk without preserving the blank
+        # lines between source paragraphs, which would glue tables/list items
+        # to the following paragraph. Re-insert the paragraph break that
+        # split_text created from `\n\n`.
+        translated_sections.append("\n\n".join(chunk.strip() for chunk in translated_chunks))
     translated = "".join(translated_sections)
     translated = normalize_generated_markdown(translated)
     translated = strip_embedded_table_of_contents(translated)
