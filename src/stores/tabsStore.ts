@@ -29,7 +29,8 @@ export type TabType =
   | "audiobook-epub-sync"
   | "audiobook"
   | "extract-reader"
-  | "document-extracts";
+  | "document-extracts"
+  | "extracts";
 
 export interface Tab {
   id: string;
@@ -289,6 +290,7 @@ const SINGLE_INSTANCE_TAB_TYPES: ReadonlySet<TabType> = new Set([
   "doc-qa",
   "notebooklm",
   "audiobook",
+  "extracts",
 ]);
 
 /**

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTabsStore, useDocumentStore, useUIStore, useSettingsStore } from "../stores";
 import { captureAndSaveScreenshot } from "../utils/screenshotCaptureFlow";
 import { useI18n } from "../lib/i18n";
@@ -15,6 +15,7 @@ import {
   NotebookLMTab,
   PodcastTab,
   AudiobooksTab,
+  ExtractsTab,
 } from "./tabs/TabRegistry";
 import { WebArticleImportDialog } from "./import/WebArticleImportDialog";
 import { KnowledgeGraphPage } from "../pages/KnowledgeGraphPage";
@@ -45,6 +46,7 @@ import {
   Newspaper,
   Planet,
   Rss,
+  Scissors,
   Sparkle,
   SquaresFour,
   TextT,
@@ -69,6 +71,10 @@ interface ToolbarButton {
 interface ToolbarButtonProps {
   button: ToolbarButton;
   orientation?: "horizontal" | "vertical";
+  /** When true the toolbar rail is expanded: show the visible text label next
+   * to the icon and suppress the native `title` so the OS tooltip does not
+   * fight the visible label. */
+  expanded?: boolean;
 }
 
 /**
@@ -93,7 +99,7 @@ function tourAnchorForButton(buttonId: string): { "data-tour"?: string } {
   return id ? { "data-tour": id } : {};
 }
 
-function ToolbarButtonItem({ button, orientation = "horizontal" }: ToolbarButtonProps) {
+function ToolbarButtonItem({ button, orientation = "horizontal", expanded = false }: ToolbarButtonProps) {
   const Icon = button.icon;
 
   const handleAuxClick = (e: React.MouseEvent) => {
@@ -112,7 +118,7 @@ function ToolbarButtonItem({ button, orientation = "horizontal" }: ToolbarButton
       onClick={button.action}
       onAuxClick={handleAuxClick}
       disabled={button.disabled}
-      title={`${button.label} (${button.shortcut})`}
+      title={expanded ? undefined : `${button.label} (${button.shortcut})`}
       data-toolbar-orientation={orientation}
       {...tourAnchorForButton(button.id)}
       className={cn(
@@ -127,6 +133,9 @@ function ToolbarButtonItem({ button, orientation = "horizontal" }: ToolbarButton
       <span className="toolbar-button-indicator" aria-hidden="true" />
       <span className="toolbar-button-content">
         <Icon className={isVertical ? "w-5 h-5" : "w-5 h-5"} />
+      </span>
+      <span className="toolbar-button-label" aria-hidden="true">
+        {button.label}
       </span>
       <span className="sr-only">{button.label}</span>
     </button>
@@ -149,6 +158,94 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const isVertical = position === "left" || position === "right";
   const [showUrlImportDialog, setShowUrlImportDialog] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // Hover/focus expansion: the rail reveals each button's text label when the
+  // pointer rests over it (or keyboard focus enters it) and collapses back to
+  // icons when the pointer and focus both leave. Asymmetric delays stop the
+  // rail flapping open when the cursor merely crosses it. The actual widening
+  // is CSS-driven off the `data-expanded` attribute; this state is the only
+  // JS involved.
+  // ---------------------------------------------------------------------------
+  const OPEN_DELAY_MS = 120;
+  const CLOSE_DELAY_MS = 250;
+  const [expanded, setExpanded] = useState(false);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether the pointer currently rests over the rail / a button inside it
+  // holds focus. The collapse rules are "collapse only when BOTH are gone", so
+  // a click into the content area (which blurs the rail's button while the
+  // pointer still hovers it) must not collapse the rail under the cursor, and
+  // tabbing out must not leave it expanded.
+  const pointerInsideRef = useRef(false);
+  const focusInsideRef = useRef(false);
+
+  const clearOpenTimer = () => {
+    if (openTimerRef.current !== null) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current !== null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    // Clear both timers on unmount so a pending close can't toggle state
+    // (or warn) after the component is gone.
+    return () => {
+      clearOpenTimer();
+      clearCloseTimer();
+    };
+  }, []);
+
+  const handlePointerEnter = () => {
+    pointerInsideRef.current = true;
+    // Pointer re-entering cancels a pending collapse.
+    clearCloseTimer();
+    if (openTimerRef.current !== null) return;
+    openTimerRef.current = setTimeout(() => {
+      openTimerRef.current = null;
+      setExpanded(true);
+    }, OPEN_DELAY_MS);
+  };
+
+  const handlePointerLeave = () => {
+    pointerInsideRef.current = false;
+    clearOpenTimer();
+    // A button holding keyboard focus keeps the rail expanded even after the
+    // pointer leaves — it collapses only once focus leaves too.
+    if (focusInsideRef.current) return;
+    if (closeTimerRef.current !== null) return;
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setExpanded(false);
+    }, CLOSE_DELAY_MS);
+  };
+
+  // Focus parity: entering any toolbar button expands immediately (no open
+  // delay — keyboard users should not have to wait). Leaving the whole toolbar
+  // collapses immediately, unless the pointer still rests over it (a click in
+  // the content area blurs the rail while the cursor remains on it).
+  const handleFocusIn = () => {
+    focusInsideRef.current = true;
+    clearOpenTimer();
+    clearCloseTimer();
+    setExpanded(true);
+  };
+
+  const handleFocusOut = (e: React.FocusEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    focusInsideRef.current = false;
+    clearOpenTimer();
+    clearCloseTimer();
+    if (!pointerInsideRef.current) {
+      setExpanded(false);
+    }
+  };
 
   const handleImportFile = async () => {
     const imported = await openFilePickerAndImport();
@@ -408,6 +505,27 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     });
   };
 
+  // Extracts button (library-wide extracts tab)
+  const handleExtracts = () => {
+    addTab({
+      title: t("extractsTab.title"),
+      icon: <Scissors className="w-4 h-4 text-muted-foreground" />,
+      type: "extracts",
+      content: ExtractsTab,
+      closable: true,
+    });
+  };
+
+  const handleExtractsBackground = () => {
+    addTabInBackground({
+      title: t("extractsTab.title"),
+      icon: "✂️",
+      type: "extracts",
+      content: ExtractsTab,
+      closable: true,
+    });
+  };
+
   // Screenshot button
   const handleScreenshot = () => {
     void captureAndSaveScreenshot()
@@ -638,6 +756,15 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       backgroundAction: handleNotebookLMBackground,
       group: 3,
     },
+    {
+      id: "extracts",
+      icon: Scissors,
+      label: t("toolbar.extracts"),
+      shortcut: "",
+      action: handleExtracts,
+      backgroundAction: handleExtractsBackground,
+      group: 3,
+    },
     /* {
       id: "screenshot",
       icon: Camera,
@@ -676,42 +803,60 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const groups = Array.from(new Set(buttons.map((b) => b.group))).sort();
 
-  const toolbarContent = isVertical ? (
-    <div className={`h-full bg-card ${position === "left" ? "border-r border-border" : "border-l border-border"} flex flex-col`}>
-      <CollectionSwitcher />
-      <div className="flex-1 overflow-y-auto py-2 px-1">
-        <div className="flex flex-col gap-1">
-          {groups.map((group, groupIndex) => (
-            <div key={group} className="flex flex-col">
-              {buttons
-                .filter((b) => b.group === group)
-                .map((button) => (
-                  <ToolbarButtonItem key={button.id} button={button} orientation="vertical" />
+  const railHandlers = {
+    onPointerEnter: handlePointerEnter,
+    onPointerLeave: handlePointerLeave,
+    onFocus: handleFocusIn,
+    onBlur: handleFocusOut,
+  };
+
+  const toolbarContent = (
+    <div
+      data-toolbar-position={position}
+      data-expanded={expanded || undefined}
+      {...railHandlers}
+      className={cn("toolbar-rail relative", isVertical && "h-full")}
+    >
+      <div className={cn("toolbar-surface", isVertical && "h-full")}>
+        {isVertical ? (
+          <div className={`h-full bg-card ${position === "left" ? "border-r border-border" : "border-l border-border"} flex flex-col`}>
+            <CollectionSwitcher />
+            <div className="flex-1 overflow-y-auto py-2 px-1">
+              <div className="flex flex-col gap-1">
+                {groups.map((group, groupIndex) => (
+                  <div key={group} className="flex flex-col">
+                    {buttons
+                      .filter((b) => b.group === group)
+                      .map((button) => (
+                        <ToolbarButtonItem key={button.id} button={button} orientation="vertical" expanded={expanded} />
+                      ))}
+                    {groupIndex < groups.length - 1 && (
+                      <div className="w-6 h-px bg-border mx-auto my-1" />
+                    )}
+                  </div>
                 ))}
-              {groupIndex < groups.length - 1 && (
-                <div className="w-6 h-px bg-border mx-auto my-1" />
-              )}
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  ) : (
-    <div className="sticky top-0 z-40 bg-card border-b border-border">
-      <div className="flex items-center px-2 py-1 gap-1">
-        <CollectionSwitcher />
-        {groups.map((group, groupIndex) => (
-          <div key={group} className="flex items-center gap-1">
-            {buttons
-              .filter((b) => b.group === group)
-              .map((button) => (
-                <ToolbarButtonItem key={button.id} button={button} />
-              ))}
-            {groupIndex < groups.length - 1 && (
-              <div className="w-px h-6 bg-border mx-1" />
-            )}
           </div>
-        ))}
+        ) : (
+          <div className="bg-card border-b border-border">
+            <div className="flex items-center px-2 py-1 gap-1">
+              <CollectionSwitcher />
+              {groups.map((group, groupIndex) => (
+                <div key={group} className="flex items-center gap-1">
+                  {buttons
+                    .filter((b) => b.group === group)
+                    .map((button) => (
+                      <ToolbarButtonItem key={button.id} button={button} expanded={expanded} />
+                    ))}
+                  {groupIndex < groups.length - 1 && (
+                    <div className="w-px h-6 bg-border mx-1" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

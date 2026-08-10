@@ -29,6 +29,7 @@ export const SettingsTab = debugLazy("SettingsTab", () => import("../settings/Se
 
 export const DocumentViewer = debugLazy("DocumentViewer", () => import("../viewer/DocumentViewerWrapper").then(m => ({ default: m.DocumentViewer })));
 export const DocumentExtractsTab = debugLazy("DocumentExtractsTab", () => import("./DocumentExtractsTab").then(m => ({ default: m.DocumentExtractsTab })));
+export const ExtractsTab = debugLazy("ExtractsTab", () => import("./ExtractsTab").then(m => ({ default: m.ExtractsTab })));
 export const ExtractReader = debugLazy("ExtractReader", () => import("./ExtractReader").then(m => ({ default: m.ExtractReader })));
 export const KnowledgeNetworkTab = debugLazy("KnowledgeNetworkTab", () => import("./knowledge/KnowledgeNetworkTab").then(m => ({ default: m.KnowledgeNetworkTab })));
 export const KnowledgeSphereTab = debugLazy("KnowledgeSphereTab", () => import("./knowledge/KnowledgeSphereTab").then(m => ({ default: m.KnowledgeSphereTab })));
@@ -49,6 +50,7 @@ export const TAB_TYPE_ICONS: Record<string, string> = {
   podcast: "🎙️", "knowledge-sphere": "🌐", "knowledge-network": "🕸️",
   "doc-qa": "💬", notebooklm: "🤖", "image-registry": "🖼️",
   "web-browser": "🌐", "document-viewer": "📄", "document-extracts": "🔖", "extract-reader": "📑", "continue-reading": "📖",
+  extracts: "✂️",
   "queue-scroll": "📜", "audiobook-epub-sync": "🎧",
   audiobook: "🎧",
 };
@@ -76,6 +78,7 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   podcast: { content: PodcastTab, title: "Podcasts", icon: "🎙️", closable: true },
   "audiobook-epub-sync": { content: DocumentViewer, title: "Audiobook Sync", icon: "🎧", closable: true },
   audiobook: { content: AudiobooksTab, title: "Audiobooks", icon: "🎧", closable: true },
+  extracts: { content: ExtractsTab, title: "Extracts", icon: "✂️", closable: true },
 };
 
 /**

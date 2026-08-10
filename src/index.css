@@ -1298,6 +1298,134 @@
     transform: translateX(0.04rem);
   }
 
+  /* ─────────────────────────────────────────────────────────────────────────
+   * Toolbar hover/focus expansion.
+   *
+   * The rail stays in flow at its collapsed size; the `.toolbar-surface`
+   * inside it is always absolutely positioned, so widening it when expanded
+   * overlays the content area and never reflows it. The `expanded` boolean in
+   * Toolbar.tsx toggles `data-expanded`; everything below is pure CSS.
+   * ─────────────────────────────────────────────────────────────────────── */
+  .toolbar-rail {
+    position: relative;
+    flex-shrink: 0;
+  }
+  .toolbar-rail[data-toolbar-position="left"],
+  .toolbar-rail[data-toolbar-position="right"] {
+    width: var(--toolbar-rail-w, 3rem);
+  }
+  .toolbar-rail[data-toolbar-position="top"] {
+    height: var(--toolbar-rail-h, 3rem);
+  }
+
+  .toolbar-surface {
+    position: absolute;
+    z-index: 40;
+    transition:
+      width 200ms ease-out,
+      height 200ms ease-out,
+      box-shadow 200ms ease-out;
+  }
+  /* Left rail: fixed to the rail, expands rightward over the content. */
+  .toolbar-rail[data-toolbar-position="left"] .toolbar-surface {
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: var(--toolbar-rail-w, 3rem);
+  }
+  /* Right rail: expands leftward over the content. */
+  .toolbar-rail[data-toolbar-position="right"] .toolbar-surface {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: var(--toolbar-rail-w, 3rem);
+  }
+  /* Top strip: spans the full width, expands downward over the content. No
+   * overflow clip here — the CollectionSwitcher dropdown inside it needs
+   * overflow visible (it opens below the strip over the content). Labels are
+   * display:none while collapsed, so nothing leaks while collapsed either. */
+  .toolbar-rail[data-toolbar-position="top"] .toolbar-surface {
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--toolbar-rail-h, 3rem);
+  }
+
+  .toolbar-rail[data-expanded][data-toolbar-position="left"] .toolbar-surface {
+    width: var(--toolbar-expanded-w, 11.5rem);
+    box-shadow: 10px 0 28px rgba(15, 23, 42, 0.16);
+  }
+  .toolbar-rail[data-expanded][data-toolbar-position="right"] .toolbar-surface {
+    width: var(--toolbar-expanded-w, 11.5rem);
+    box-shadow: -10px 0 28px rgba(15, 23, 42, 0.16);
+  }
+  .toolbar-rail[data-expanded][data-toolbar-position="top"] .toolbar-surface {
+    height: var(--toolbar-expanded-h, 3.75rem);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+  }
+
+  /* Labels: hidden entirely while collapsed (so they take no layout space and
+   * cannot be clipped or reflow the rail), revealed next to the icon when the
+   * rail expands. */
+  .toolbar-button-label {
+    display: none;
+    white-space: nowrap;
+    font-size: 0.8125rem;
+    line-height: 1;
+  }
+
+  .toolbar-rail[data-expanded] .toolbar-button-label {
+    display: inline-block;
+    animation: toolbar-label-in-vertical 180ms ease-out;
+  }
+  .toolbar-rail[data-expanded] .toolbar-button[data-toolbar-orientation="vertical"] {
+    justify-content: flex-start;
+  }
+
+  /* Top strip: the label sits below the icon, so expanded buttons stack
+   * vertically and the strip grows taller (downward over the content). */
+  .toolbar-rail[data-expanded] .toolbar-button[data-toolbar-orientation="horizontal"] {
+    flex-direction: column;
+    gap: 0.15rem;
+    min-height: 3.25rem;
+    padding-block: 0.35rem;
+  }
+  .toolbar-rail[data-expanded] .toolbar-button[data-toolbar-orientation="horizontal"] .toolbar-button-label {
+    animation-name: toolbar-label-in-horizontal;
+  }
+
+  @keyframes toolbar-label-in-vertical {
+    from {
+      opacity: 0;
+      transform: translateX(-0.25rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  @keyframes toolbar-label-in-horizontal {
+    from {
+      opacity: 0;
+      transform: translateY(0.25rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Reduced motion: both states still work, just without the slide/width
+   * animation. */
+  @media (prefers-reduced-motion: reduce) {
+    .toolbar-surface {
+      transition: none;
+    }
+    .toolbar-rail[data-expanded] .toolbar-button-label {
+      animation: none;
+    }
+  }
+
   .settings-menu-item {
     position: relative;
     isolation: isolate;

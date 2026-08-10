@@ -41,6 +41,11 @@ interface ExtractState {
   extracts: any[];
   extractsInitialized: boolean;
   isLoading: boolean;
+  /** Last load failure message, or null when the last load succeeded (or none
+   * has run yet). `loadExtracts` swallows errors (existing callers fire it and
+   * forget), so surfaces like the Extracts tab read this to render an error
+   * state with a retry control. */
+  error: string | null;
   lastHighlightColor: string;
   /** The document id currently reflected in `extracts` (so the sync-event
    * refresh knows which document to reload). Null when no doc loaded. */
@@ -56,11 +61,12 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
   extracts: [],
   extractsInitialized: false,
   isLoading: false,
+  error: null,
   lastHighlightColor: "#fef08a",
   loadedDocumentId: null,
 
   loadExtracts: async (documentId) => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
       // Dynamic import keeps this store from eagerly pulling the full extracts
       // API (and its sync-entity re-exports) at module load on the web shell.
@@ -74,7 +80,10 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
       });
     } catch (error) {
       console.error("Failed to load extracts:", error);
-      set({ isLoading: false });
+      set({
+        isLoading: false,
+        error: error instanceof Error ? error.message : "Failed to load extracts",
+      });
     }
   },
 
