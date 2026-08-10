@@ -1,17 +1,14 @@
 ### Added
 
-- **NotebookLM artifact import** — every Studio artifact type can now be brought into your library: Reports and Study Guides import as Markdown documents; Mind Maps and Data Tables keep their interactive viewers; Audio Overviews import as podcast-style items, Video Overviews as video items; Slide Decks import as PDFs; and Infographics import as image documents that are also added to the Image Registry (deduplicated by content). Imported artifacts land at the collection library root and become Queue-eligible.
-- **Image document type** — images are now a first-class file type with their own viewer (display, zoom, pan), shown distinctly in library listings and tabs.
-- **Slide Deck and Infographic generation** — two new Studio tiles with per-type options (deck format/length, infographic orientation/detail/style), plus a dedicated Report tile.
-- **Artifact viewer actions** — Copy, Copy as Markdown, Save to Library (honors the active collection), and Export via the native save dialog.
-- **Playback position memory** — video and audio artifacts remember where you left off, and the position carries over when the artifact is imported into the library.
-- **Handbook search** — search the in-app handbook with jump-to-match navigation.
-- **Attach library documents as sources** — pick an existing library document to add as a NotebookLM source, with pending-status tracking and duplicate detection.
+- **Redesigned Schedule workspace** — the Schedule tab is now a unified three-level workspace: a header with date scope and Agenda/Data grid toggle, a workload band with an interactive 14-day forecast rail and insight strip, and a windowed content region built from a pure schedule view model.
+- **Image Occlusion Composer** — a dedicated full-screen composer is now the single authoring surface for occlusion cards: draw, select, move and resize (corner/edge handles), zoom and pan (100–800% with fit-to-view), keyboard nudge/resize, multi-select, undo/redo, touch-first input, and in-context AI suggestions you can accept or reject.
+- **Library-wide Extracts tab** — a new Extracts toolbar button opens a tab listing extracts across all documents, grouped by source document with jump-to-source navigation, and the toolbar rail expands on hover to reveal button labels.
+- **Q&A answers cite exact locations** — document Q&A answers now carry retrieval citations as structured data and render an interactive sources footer that jumps to the exact passage the answer came from.
 
 ### Fixed & Improved
 
-- **Notebook creation works on the first click** — the title is sent directly to NotebookLM via an in-app dialog (no more `window.prompt`/closure bug), with spinner and error toasts; creating from the empty state selects the new notebook.
-- **Artifact viewing fixed for images, PDFs, video, and audio** — infographics display as images and slide decks as PDFs; video/audio now resolve through the app's media pipeline with a blob fallback, so previously "unplayable" artifacts play.
-- **Study Guide now produces a study guide** — the tile was previously generating a briefing doc; the backend `study-guide` arm is now reachable.
-- **NotebookLM CLI JSON parsing fixed** — notebook creation and source-add now parse the pinned CLI's nested output shapes, so both operations succeed instead of failing with "did not return ID".
-- **Handbook translation pipeline fixed** — translated handbooks no longer lose paragraph breaks (table rows/list items glued to paragraphs) and fullwidth/marker characters are normalized.
+- **Accurate PDF text selection** — PDF selection now spans correctly and the committed-selection overlay persists, so highlights and selections stay put.
+- **Queue View decluttered** — the unused "Manual Browse" mode is removed: no more toolbar toggle, browse control bar, or conditional hint. The queue stays fully navigable by clicking items, and the inspector keeps showing details for the focused item.
+- **Desktop audiobook playback fixed** — audio plays back through a loopback media server instead of stalling.
+- **EPUB source jumps fixed** — jumping to a source span lands on the right page anchor, and document Q&A focus stays on the Whole Library scope.
+- **Rating orbs hidden in Documents view** — opening a document from the Documents view no longer flashes the queue's rating orbs.
