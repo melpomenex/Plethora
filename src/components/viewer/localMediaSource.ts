@@ -1,6 +1,6 @@
 import { readDocumentFile } from "../../api/documents";
 import { getBrowserFile } from "../../lib/browser-file-store";
-import { convertFileSrc, isTauri, isNativeMobile, invokeCommand } from "../../lib/tauri";
+import { isTauri, isNativeMobile, invokeCommand } from "../../lib/tauri";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 
 export type LocalMediaType = "video" | "audio";
@@ -47,7 +47,7 @@ const AUDIO_MIME_TYPES: Record<string, string> = {
   mp3: "audio/mpeg",
 };
 
-export const MOBILE_SOURCE_RESOLUTION_TIMEOUT_MS = 10_000;
+export const SOURCE_RESOLUTION_TIMEOUT_MS = 10_000;
 
 export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -159,46 +159,6 @@ export async function resolveLocalMediaSource(
   }
 
   const mimeType = inferMimeType(filePath, mediaType);
-
-  if (isNativeMobile()) {
-    try {
-      // Use the local streaming HTTP server with Range request support.
-      // The Tauri asset protocol (convertFileSrc) buffers the entire file
-      // into memory on Android, causing OOM crashes for large audiobooks.
-      const streamUrl = await withTimeout(
-        invokeCommand<string>("get_media_stream_url", { filePath }),
-        MOBILE_SOURCE_RESOLUTION_TIMEOUT_MS,
-        "Timed out while resolving the local mobile media stream.",
-      );
-      if (!streamUrl?.startsWith("http://127.0.0.1:")) {
-        throw new Error("The local mobile media stream returned an invalid URL.");
-      }
-      logAudiobookDiagnostic("source_resolution", {
-        filePath,
-        strategy: "local-media-server",
-        status: "success",
-        mimeType,
-      });
-      return {
-        src: streamUrl,
-        mimeType,
-        mediaType,
-        originalPath: filePath,
-        strategy: "local-media-server",
-        revokeSrcOnDispose: false,
-        attempts: [{ strategy: "local-media-server", status: "success", detail: "Using local streaming HTTP server on mobile." }],
-      };
-    } catch (error) {
-      logAudiobookDiagnostic("source_resolution", {
-        filePath,
-        strategy: "local-media-server",
-        status: "failed",
-        message: error instanceof Error ? error.message : String(error),
-      }, "error");
-      throw new Error(`Failed to resolve media source on mobile: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
   const attempts: LocalMediaResolutionAttempt[] = [];
 
   if (!isTauri() && filePath.startsWith("browser-file://")) {
@@ -232,74 +192,61 @@ export async function resolveLocalMediaSource(
     });
   }
 
-  // On Linux (WebKitGTK), the asset:// protocol from convertFileSrc works for <video>/<audio>
-  // elements (which use the GStreamer media pipeline), but not for XMLHttpRequest-based loading
-  // (e.g. EPUB.js). Blob URLs also fail on WebKitGTK because the media pipeline cannot
-  // perform range requests on blob URLs. So on Linux, try asset:// first for media.
-  const isLinuxWebKit = isTauri() && /Linux/.test(navigator.platform);
-
-  if (isLinuxWebKit) {
-    // On Linux, skip the blob fallback entirely if asset works,
-    // since WebKitGTK cannot play blob: URLs with H.264 content.
+  // One loopback streaming path for desktop and mobile: the media server
+  // (get_media_stream_url) serves Range-capable HTTP and authorizes only
+  // app-managed roots plus paths granted at URL-mint time (documents imported
+  // in place). The Tauri asset protocol is NOT used: this app declares no
+  // `app.security.assetProtocol` block, so convertFileSrc URLs are never
+  // served. WebKitGTK gets the same loopback HTTP (with Range support), which
+  // its GStreamer pipeline handles natively — the old Linux asset special case
+  // is gone.
+  if (isTauri()) {
     try {
-      const assetUrl = await convertFileSrc(filePath);
-      attempts.push({
-        strategy: "tauri-asset",
+      const streamUrl = await withTimeout(
+        invokeCommand<string>("get_media_stream_url", { filePath }),
+        SOURCE_RESOLUTION_TIMEOUT_MS,
+        "Timed out while resolving the local media stream.",
+      );
+      if (!streamUrl?.startsWith("http://127.0.0.1:")) {
+        throw new Error("The local media stream returned an invalid URL.");
+      }
+      logAudiobookDiagnostic("source_resolution", {
+        filePath,
+        strategy: "local-media-server",
         status: "success",
-        detail: `Resolved via convertFileSrc(); skipped blob probe on WebKitGTK.`,
+        mimeType,
       });
       return {
-        src: assetUrl,
+        src: streamUrl,
         mimeType,
         mediaType,
         originalPath: filePath,
-        strategy: "tauri-asset",
+        strategy: "local-media-server",
         revokeSrcOnDispose: false,
-        attempts,
+        attempts: [{ strategy: "local-media-server", status: "success", detail: "Using the loopback media server." }],
       };
     } catch (error) {
+      logAudiobookDiagnostic("source_resolution", {
+        filePath,
+        strategy: "local-media-server",
+        status: "failed",
+        message: error instanceof Error ? error.message : String(error),
+      }, "error");
       attempts.push({
-        strategy: "tauri-asset",
+        strategy: "local-media-server",
         status: "failed",
         detail: error instanceof Error ? error.message : String(error),
       });
-    }
-  } else if (isTauri()) {
-    try {
-      const assetUrl = await convertFileSrc(filePath);
-      const probe = await probeMediaSource(assetUrl, mediaType, mimeType);
-      if (!probe.ok) {
-        attempts.push({
-          strategy: "tauri-asset",
-          status: "failed",
-          detail: probe.detail,
-        });
-      } else {
-        attempts.push({
-          strategy: "tauri-asset",
-          status: "success",
-          detail: `Resolved via convertFileSrc(); ${probe.detail}`,
-        });
-        return {
-          src: assetUrl,
-          mimeType,
-          mediaType,
-          originalPath: filePath,
-          strategy: "tauri-asset",
-          revokeSrcOnDispose: false,
-          attempts,
-        };
+      // Reading the whole file over IPC into a JS byte array is not viable on
+      // mobile (OOM on large audiobooks), so mobile throws here; desktop falls
+      // through to the backend-blob last resort below.
+      if (isNativeMobile()) {
+        throw new Error(`Failed to resolve media source: ${error instanceof Error ? error.message : String(error)}`);
       }
-    } catch (error) {
-      attempts.push({
-        strategy: "tauri-asset",
-        status: "failed",
-        detail: error instanceof Error ? error.message : String(error),
-      });
     }
   } else {
     attempts.push({
-      strategy: "tauri-asset",
+      strategy: "local-media-server",
       status: "skipped",
       detail: "Not running in Tauri.",
     });
