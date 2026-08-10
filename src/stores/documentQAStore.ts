@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { SectionSourceReference } from "../utils/sectionIndex";
+import type { RagHit } from "../api/rag";
 
 export interface ToolCall {
   name: string;
@@ -15,6 +16,13 @@ export interface Message {
   content: string;
   timestamp: number;
   sourceDocuments?: string[];
+  /**
+   * Structured retrieval citations for assistant answers produced from library
+   * RAG. Optional so sessions persisted before this field existed keep
+   * rendering exactly as saved (their sources are baked into `content` as
+   * markdown text and must not gain a duplicated footer).
+   */
+  citations?: RagHit[];
   toolCalls?: ToolCall[];
   mentionedDocumentIds?: string[];
   sourceContext?: SectionSourceReference;

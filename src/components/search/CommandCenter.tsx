@@ -8,13 +8,10 @@ import { useExtractStore } from "../../stores/extractStore";
 import { calculateRelevanceScore, extractSearchTerms, fuzzyMatch, highlightSearchTerms } from "./SearchUtils";
 import { getDocuments as fetchDocuments } from "../../api/documents";
 import { isTauri } from "../../lib/tauri";
-import {
-  DocumentViewer,
-} from "../../components/tabs/TabRegistry";
+
 import { Command, CommandCategory, getDefaultCommands } from "../common/CommandPalette";
 import { useI18n } from "../../lib/i18n";
 import {
-  BookOpen,
   Books,
   Brain,
   ChartBar,
@@ -28,9 +25,7 @@ import {
   Play,
   SquaresFour,
   Sun,
-  TextT,
   XLogo,
-  ImageSquare, YoutubeLogo,
 } from "@phosphor-icons/react";
 import type { Document, Extract } from "../../types/document";
 import type { StudyDeck } from "../../types/study-decks";
@@ -40,6 +35,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { findMatchingSections } from "./sectionRegistry";
 import type { ExactSearchHitLocation, SearchHit } from "../../types/searchHit";
 import { registerCommandPaletteOpenEvents } from "../../utils/commandPaletteEvents";
+import { openDocumentAtLocation } from "../../utils/openDocumentAtLocation";
 import { getSubscribedFeedsAuto, type FeedItem } from "../../api/rss";
 import { searchArticlesAuto } from "../../api/rss-search";
 import { useRssStudyStore } from "../../stores/rssStudyStore";
@@ -1450,54 +1446,8 @@ export function CommandCenter() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
   const openDocumentInTab = useCallback((documentId: string, options?: { highlightQuery?: string; initialJump?: ExactSearchHitLocation }) => {
-    const doc = documentsRef.current.find(d => d.id === documentId);
-    const jumpRequestId = options?.initialJump ? `${Date.now()}-${Math.random().toString(36).slice(2)}` : undefined;
-    if (doc) {
-      addTab({
-        title: doc.title,
-        icon: doc.fileType === "pdf" ? <TextT className="w-4 h-4 text-red-500" /> 
-          : doc.fileType === "epub" ? <BookOpen className="w-4 h-4 text-blue-500" /> 
-          : doc.fileType === "youtube" ? <YoutubeLogo className="w-4 h-4 text-red-600" /> 
-          : doc.fileType === "image" ? <ImageSquare className="w-4 h-4 text-rose-500" /> 
-          : <TextT className="w-4 h-4 text-muted-foreground" />,
-        type: "document-viewer",
-        content: DocumentViewer,
-        closable: true,
-        data: {
-          documentId: doc.id,
-          highlightQuery: options?.highlightQuery,
-          initialJump: options?.initialJump,
-          jumpRequestId,
-          autoPlay: options?.initialJump?.kind === "youtube" || options?.initialJump?.kind === "audio",
-        },
-      });
-    } else {
-      // Document might not be in cache yet (just imported), reload and retry
-      loadDocuments().then(() => {
-        const freshDoc = useDocumentStore.getState().documents.find(d => d.id === documentId);
-        if (freshDoc) {
-          addTab({
-            title: freshDoc.title,
-            icon: freshDoc.fileType === "pdf" ? <TextT className="w-4 h-4 text-red-500" /> 
-              : freshDoc.fileType === "epub" ? <BookOpen className="w-4 h-4 text-blue-500" /> 
-              : freshDoc.fileType === "youtube" ? <YoutubeLogo className="w-4 h-4 text-red-600" /> 
-              : freshDoc.fileType === "image" ? <ImageSquare className="w-4 h-4 text-rose-500" /> 
-              : <TextT className="w-4 h-4 text-muted-foreground" />,
-            type: "document-viewer",
-            content: DocumentViewer,
-            closable: true,
-            data: {
-              documentId: freshDoc.id,
-              highlightQuery: options?.highlightQuery,
-              initialJump: options?.initialJump,
-              jumpRequestId,
-              autoPlay: options?.initialJump?.kind === "youtube" || options?.initialJump?.kind === "audio",
-            },
-          });
-        }
-      });
-    }
-  }, [addTab, loadDocuments]);
+    openDocumentAtLocation(documentId, options ?? {}, addTab);
+  }, [addTab]);
 
   useEffect(() => {
     return registerCommandPaletteOpenEvents(

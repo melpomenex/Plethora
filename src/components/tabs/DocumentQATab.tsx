@@ -61,6 +61,7 @@ import {
   type ChatFlashcardArtifact,
 } from "../../features/assistant/chatFlashcardArtifacts";
 import { formatRelativeTime } from "../../utils/relativeTime";
+import { DocumentQASources, sourcesCopyText } from "./DocumentQASources";
 import {
   STORAGE_KEYS as SESSION_STORAGE_KEYS,
   createSession,
@@ -1525,15 +1526,6 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
             ragOptions
           );
 
-          // Render answer with a citations footer.
-          const citationsBlock =
-            ragResult.citations.length > 0
-              ? "\n\n---\n**Sources:**\n" +
-                ragResult.citations
-                  .map((c, i) => `[${i + 1}] **${c.documentTitle}** (score ${c.score.toFixed(2)})`)
-                  .join("\n")
-              : "";
-
           // The library was never searched — say so instead of letting the
           // answer read as "I looked and your notes have nothing on this".
           if (ragResult.retrievalState === "empty-index") {
@@ -1547,14 +1539,17 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
             return;
           }
 
+          // `content` is the answer alone; the retrieval citations ride along as
+          // structured data so the sources footer can render them interactively.
           const ragMessage = {
             id: `assistant-${Date.now()}`,
             role: "assistant" as const,
-            content: ragResult.answer + citationsBlock,
+            content: ragResult.answer,
             timestamp: Date.now(),
             sourceDocuments: ragResult.citations.length > 0
               ? ragResult.citations.map(c => c.documentId)
               : undefined,
+            citations: ragResult.citations.length > 0 ? ragResult.citations : undefined,
           };
           addMessage(ragMessage);
           setIsProcessing(false);
@@ -2152,7 +2147,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                       {message.role === "assistant" && (
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(message.content);
+                            navigator.clipboard.writeText(sourcesCopyText(message.content, message.citations));
                             setCopiedMessageId(message.id);
                             setTimeout(() => setCopiedMessageId(null), 2000);
                           }}
@@ -2170,6 +2165,15 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                         className="prose prose-sm max-w-none"
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
                       />
+                      {/* Interactive sources footer — renders only when the
+                          message carries structured citations (older persisted
+                          messages have their sources baked into content as text
+                          and must not gain a second footer). */}
+                      {message.role === "assistant" &&
+                        message.citations &&
+                        message.citations.length > 0 && (
+                          <DocumentQASources citations={message.citations} />
+                        )}
                     </>
                   )}
 
