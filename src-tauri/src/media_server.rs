@@ -25,8 +25,9 @@ use axum::{
     Router,
 };
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Instant,
 };
 use tokio::{
@@ -43,7 +44,23 @@ static MEDIA_SERVER_PORT: OnceCell<u16> = OnceCell::const_new();
 #[derive(Clone)]
 pub(crate) struct MediaServerState {
     pub(crate) allowed_roots: Arc<Vec<PathBuf>>,
+    /// Canonical paths granted for this process lifetime by
+    /// `get_media_stream_url` for documents imported in place (outside the
+    /// app-managed roots). The stream handler accepts a path under an allowed
+    /// root **or** present in this set.
+    ///
+    /// ponytail: the set grows per session, unbounded in principle. In practice
+    /// it is bounded by the number of distinct media files opened in one
+    /// session; a signed-token scheme is the upgrade path if stream URLs ever
+    /// become shareable outside the app.
+    pub(crate) granted_paths: Arc<Mutex<HashSet<PathBuf>>>,
 }
+
+/// The media server state shared with Tauri commands. The listener itself is
+/// a process-wide [`OnceCell`] (`MEDIA_SERVER_PORT`); this mirrors the state so
+/// commands such as `get_media_stream_url` can grant a canonical path to the
+/// stream handler before the frontend requests it.
+static MEDIA_SERVER_STATE: OnceCell<MediaServerState> = OnceCell::const_new();
 
 #[derive(serde::Deserialize)]
 struct StreamParams {
@@ -65,7 +82,12 @@ pub async fn start(app_handle: &tauri::AppHandle) -> Result<u16, String> {
 
             let state = MediaServerState {
                 allowed_roots: Arc::new(allowed_roots),
+                granted_paths: Arc::new(Mutex::new(HashSet::new())),
             };
+            // Share the state (and its grant set) with Tauri commands. The
+            // port OnceCell guarantees this closure runs once per process, so
+            // the set() below is a no-op on any later call.
+            let _ = MEDIA_SERVER_STATE.set(state.clone());
             let app = Router::new()
                 .route("/stream", get(stream_handler))
                 .merge(crate::epub_server::router())
@@ -104,10 +126,7 @@ pub(crate) fn allowed_media_roots(app_handle: &tauri::AppHandle) -> Result<Vec<P
     Ok(vec![app_data, app_cache])
 }
 
-pub(crate) fn canonical_path_within_roots(
-    path: &Path,
-    roots: &[PathBuf],
-) -> Result<PathBuf, StatusCode> {
+fn canonicalize_media_file(path: &Path) -> Result<PathBuf, StatusCode> {
     let canonical = std::fs::canonicalize(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             StatusCode::NOT_FOUND
@@ -120,12 +139,44 @@ pub(crate) fn canonical_path_within_roots(
     if !metadata.is_file() {
         return Err(StatusCode::FORBIDDEN);
     }
+    Ok(canonical)
+}
 
-    if roots.iter().any(|root| {
+fn is_within_roots(canonical: &Path, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| {
         std::fs::canonicalize(root)
             .map(|canonical_root| canonical.starts_with(canonical_root))
             .unwrap_or(false)
-    }) {
+    })
+}
+
+pub(crate) fn canonical_path_within_roots(
+    path: &Path,
+    roots: &[PathBuf],
+) -> Result<PathBuf, StatusCode> {
+    let canonical = canonicalize_media_file(path)?;
+    if is_within_roots(&canonical, roots) {
+        Ok(canonical)
+    } else {
+        Err(StatusCode::FORBIDDEN)
+    }
+}
+
+/// Like [`canonical_path_within_roots`], but additionally accepts a canonical
+/// path that was explicitly granted via [`get_media_stream_url`] (a document
+/// imported in place, outside the app-managed roots). Everything else keeps the
+/// same 404 / 403 behaviour.
+pub(crate) fn canonical_path_within_roots_or_granted(
+    path: &Path,
+    roots: &[PathBuf],
+    granted_paths: &Mutex<HashSet<PathBuf>>,
+) -> Result<PathBuf, StatusCode> {
+    let canonical = canonicalize_media_file(path)?;
+    let granted = granted_paths
+        .lock()
+        .map(|set| set.contains(&canonical))
+        .unwrap_or(false);
+    if is_within_roots(&canonical, roots) || granted {
         Ok(canonical)
     } else {
         Err(StatusCode::FORBIDDEN)
@@ -246,7 +297,11 @@ async fn stream_handler(
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
 
-    let file_path = match canonical_path_within_roots(&requested_path, &state.allowed_roots) {
+    let file_path = match canonical_path_within_roots_or_granted(
+        &requested_path,
+        &state.allowed_roots,
+        &state.granted_paths,
+    ) {
         Ok(path) => path,
         Err(status) => {
             tracing::warn!(
@@ -354,18 +409,74 @@ async fn stream_handler(
 }
 
 /// Return an `http://127.0.0.1:<port>/stream?path=<encoded>` URL for a
-/// validated app-managed file. Starts the media server on first call.
+/// validated media file.
+///
+/// A path is authorized when it lies under an app-managed root (app data or
+/// app cache directory) **or** it is the stored `file_path` of a document
+/// registered in the repository (desktop imports keep the user's original
+/// location instead of copying into an app directory). Authorized out-of-root
+/// paths are inserted into the server's grant set, which the stream handler
+/// consults on the hot path without any database access. Starts the media
+/// server on first call.
 #[tauri::command]
 pub async fn get_media_stream_url(
     app_handle: tauri::AppHandle,
     file_path: String,
+    repo: tauri::State<'_, crate::database::Repository>,
 ) -> Result<String, String> {
     let roots = allowed_media_roots(&app_handle)?;
-    let canonical = canonical_path_within_roots(Path::new(&file_path), &roots)
-        .map_err(|status| format!("Cannot stream media file (HTTP {})", status.as_u16()))?;
+    let mut granted = false;
+    let canonical = match canonical_path_within_roots(Path::new(&file_path), &roots) {
+        Ok(path) => path,
+        Err(_) => {
+            // Outside the app-managed roots. Authorize only when the path is
+            // the stored file path of a registered document, then grant the
+            // canonical path so the stream handler serves it without a lookup.
+            let canonical = canonicalize_media_file(Path::new(&file_path)).map_err(|status| {
+                match status {
+                    StatusCode::NOT_FOUND => {
+                        "Cannot stream media file: file not found on disk".to_string()
+                    }
+                    _ => "Cannot stream media file: path is not a regular file".to_string(),
+                }
+            })?;
+            let mut registered = repo
+                .document_exists_with_file_path(&file_path)
+                .await
+                .map_err(|error| format!("Cannot stream media file: failed to verify registration: {error}"))?;
+            // The request path may differ from the stored `file_path` in
+            // separators/`..`/symlink normalization — fall back to matching
+            // the canonical path too (both lookups are parameterized; this
+            // only runs for out-of-root paths).
+            if !registered {
+                let canonical_string = canonical.to_string_lossy();
+                registered = repo
+                    .document_exists_with_file_path(&canonical_string)
+                    .await
+                    .map_err(|error| format!("Cannot stream media file: failed to verify registration: {error}"))?;
+            }
+            if !registered {
+                return Err(
+                    "Cannot stream media file: path is not inside an app-managed directory and is not the file path of a registered document (HTTP 403)"
+                        .to_string(),
+                );
+            }
+            granted = true;
+            canonical
+        }
+    };
     let metadata = std::fs::metadata(&canonical)
         .map_err(|error| format!("Cannot stat media file: {error}"))?;
     let port = start(&app_handle).await?;
+    if granted {
+        if let Some(state) = MEDIA_SERVER_STATE.get() {
+            state
+                .granted_paths
+                .lock()
+                .map_err(|_| "Cannot stream media file: grant set lock poisoned".to_string())?
+                .insert(canonical.clone());
+        }
+    }
     let canonical_string = canonical.to_string_lossy().into_owned();
     let encoded = urlencoding::encode(&canonical_string);
     tracing::info!(
@@ -389,6 +500,14 @@ mod tests {
     fn test_state(root: &Path) -> MediaServerState {
         MediaServerState {
             allowed_roots: Arc::new(vec![root.to_path_buf()]),
+            granted_paths: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
+    fn test_state_with_grant(root: &Path, granted: HashSet<PathBuf>) -> MediaServerState {
+        MediaServerState {
+            allowed_roots: Arc::new(vec![root.to_path_buf()]),
+            granted_paths: Arc::new(Mutex::new(granted)),
         }
     }
 
@@ -557,5 +676,105 @@ mod tests {
         assert_eq!(parse_range("bytes=-3", 10), Ok((7, 9)));
         assert!(parse_range("bytes=10-", 10).is_err());
         assert!(parse_range("bytes=1-2,4-5", 10).is_err());
+    }
+
+    #[tokio::test]
+    async fn granted_path_outside_app_roots_streams() {
+        let bytes = b"granted-audiobook-bytes";
+        let allowed_root =
+            std::env::temp_dir().join(format!("incrementum-media-{}", Uuid::new_v4()));
+        fs::create_dir_all(&allowed_root).expect("create allowed root");
+        // The file lives in a sibling directory that is NOT under the allowed
+        // root — this is the desktop "imported in place" case.
+        let library_root =
+            std::env::temp_dir().join(format!("incrementum-library-{}", Uuid::new_v4()));
+        fs::create_dir_all(&library_root).expect("create library root");
+        let path = library_root.join("book.m4b");
+        fs::write(&path, bytes).expect("write test media");
+
+        let granted = HashSet::from([std::fs::canonicalize(&path).expect("canonicalize")]);
+        let app = Router::new()
+            .route("/stream", get(stream_handler))
+            .with_state(test_state_with_grant(&allowed_root, granted));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/stream?path={}",
+                        urlencoding::encode(&path.to_string_lossy())
+                    ))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+            bytes
+        );
+        fs::remove_dir_all(allowed_root).expect("cleanup allowed root");
+        fs::remove_dir_all(library_root).expect("cleanup library root");
+    }
+
+    #[tokio::test]
+    async fn ungranted_path_outside_app_roots_is_refused_with_403() {
+        let allowed_root =
+            std::env::temp_dir().join(format!("incrementum-media-{}", Uuid::new_v4()));
+        fs::create_dir_all(&allowed_root).expect("create allowed root");
+        let library_root =
+            std::env::temp_dir().join(format!("incrementum-library-{}", Uuid::new_v4()));
+        fs::create_dir_all(&library_root).expect("create library root");
+        let path = library_root.join("book.m4b");
+        fs::write(&path, b"some bytes").expect("write test media");
+
+        let app = Router::new()
+            .route("/stream", get(stream_handler))
+            .with_state(test_state(&allowed_root));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/stream?path={}",
+                        urlencoding::encode(&path.to_string_lossy())
+                    ))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        fs::remove_dir_all(allowed_root).expect("cleanup allowed root");
+        fs::remove_dir_all(library_root).expect("cleanup library root");
+    }
+
+    #[tokio::test]
+    async fn path_with_spaces_and_non_ascii_round_trips_through_url_encoding() {
+        let bytes = b"unicode-fixture-bytes";
+        let (root, _) = temp_file(bytes);
+        let path = root.join("book - part 1 - 日本語.m4b");
+        fs::write(&path, bytes).expect("write unicode-named media");
+
+        let app = Router::new()
+            .route("/stream", get(stream_handler))
+            .with_state(test_state(&root));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/stream?path={}",
+                        urlencoding::encode(&path.to_string_lossy())
+                    ))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+            bytes
+        );
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }

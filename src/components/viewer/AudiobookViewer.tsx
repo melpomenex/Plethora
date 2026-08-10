@@ -59,7 +59,7 @@ import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { startTranscription } from "../../api/transcription";
-import { convertFileSrc, invokeCommand, isTauri, listen } from "../../lib/tauri";
+import { invokeCommand, isTauri, listen } from "../../lib/tauri";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { readDocumentFile, updateDocument as updateDocumentApi, updateDocumentProgressAuto, updateDocumentContent, getDocument } from "../../api/documents";
 import { getDocumentPosition, saveDocumentPosition, timePosition } from "../../api/position";
@@ -311,6 +311,10 @@ export function AudiobookViewer({
   const [sleepTimer, setSleepTimer] = useState<SleepTimer | null>(null);
   const [fallbackSrc, setFallbackSrc] = useState<string | null>(null);
   const [hasTriedFallback, setHasTriedFallback] = useState(false);
+  // Bumped by retryPlayback to re-run source preparation after a failure, so
+  // the retry control actually re-resolves the media source instead of leaving
+  // an idle player with no src.
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [localCoverUrl, setLocalCoverUrl] = useState<string | undefined>(document.coverImageUrl);
   const [preparedPlaybackPath, setPreparedPlaybackPath] = useState<string | null>(null);
   const [preparedPlaybackSrc, setPreparedPlaybackSrc] = useState<string | null>(null);
@@ -561,18 +565,15 @@ export function AudiobookViewer({
           return;
         }
 
-        // On native mobile, resolve a URL through the local streaming media
-        // server (get_media_stream_url) instead of the Tauri asset protocol
-        // (convertFileSrc). On Android the asset protocol buffers the entire
+        // All Tauri platforms (desktop and mobile) resolve through the local
+        // streaming media server (get_media_stream_url) — Range-capable HTTP,
+        // no asset protocol. On Android the asset protocol buffers the entire
         // file into a Java WebResourceResponse body, which OOMs for large
-        // audiobooks/podcasts (see src-tauri/src/media_server.rs). The media
-        // server honours HTTP Range requests so only the needed bytes stream.
-        const resolvePlaybackUrl = async (path: string): Promise<string> => {
-          if (isNativeMobile()) {
-            return invokeCommand<string>("get_media_stream_url", { filePath: path });
-          }
-          return convertFileSrc(path);
-        };
+        // audiobooks/podcasts (see src-tauri/src/media_server.rs); on desktop
+        // the asset protocol is disabled entirely (no app.security.assetProtocol
+        // block), so convertFileSrc URLs are never served.
+        const resolvePlaybackUrl = async (path: string): Promise<string> =>
+          invokeCommand<string>("get_media_stream_url", { filePath: path });
 
         // m4b transcoding via prepareAudiobookPlayback (ffmpeg) is desktop-only:
         // Android has no ffmpeg sidecar, so the transcode throws and leaves the
@@ -589,7 +590,7 @@ export function AudiobookViewer({
             logAudiobookDiagnostic("source_resolution", {
               documentId: document.id,
               filePath: preparedPath,
-              strategy: "tauri-asset",
+              strategy: "local-media-server",
               status: "success",
             });
           }
@@ -602,7 +603,7 @@ export function AudiobookViewer({
             logAudiobookDiagnostic("source_resolution", {
               documentId: document.id,
               filePath: document.filePath,
-              strategy: "tauri-asset",
+              strategy: "local-media-server",
               status: "success",
             });
           }
@@ -618,6 +619,12 @@ export function AudiobookViewer({
         if (!cancelled) {
           setPreparedPlaybackPath(null);
           setPreparedPlaybackSrc(null);
+          // Surface the failure instead of leaving the player idle with a
+          // cleared source: the error notice + retry render from here.
+          setPlaybackError({
+            kind: "source",
+            message: `${t("viewer.unableToLoadAudio")}: ${error instanceof Error ? error.message : String(error)}`,
+          });
         }
       }
     })();
@@ -625,7 +632,7 @@ export function AudiobookViewer({
     return () => {
       cancelled = true;
     };
-  }, [document.filePath]);
+  }, [document.filePath, retryAttempt]);
 
   useEffect(() => {
     if (!isTauri() || !episodeId) {
@@ -642,12 +649,11 @@ export function AudiobookViewer({
         const localPath = await getDownloadedEpisodePath(episodeId);
         if (localPath) {
           if (!cancelled) {
-            // Mobile: stream via the local media server (Range requests) — the
-            // Tauri asset protocol (convertFileSrc) buffers the whole file into
-            // the Java heap on Android and OOMs on large podcasts.
-            const localUrl = isNativeMobile()
-              ? await invokeCommand<string>("get_media_stream_url", { filePath: localPath })
-              : await convertFileSrc(localPath);
+            // Stream via the local media server (Range requests) on every
+            // platform — the Tauri asset protocol (convertFileSrc) buffers the
+            // whole file into the Java heap on Android and OOMs on large
+            // podcasts, and is disabled (unserved) on desktop.
+            const localUrl = await invokeCommand<string>("get_media_stream_url", { filePath: localPath });
             setPodcastLocalSrc(localUrl);
             setIsDownloading(false);
           }
@@ -677,9 +683,7 @@ export function AudiobookViewer({
           const downloadedPath = await downloadEpisodeAudio(episodeId, remoteAudioUrl, undefined);
 
           if (!cancelled) {
-            const localUrl = isNativeMobile()
-              ? await invokeCommand<string>("get_media_stream_url", { filePath: downloadedPath })
-              : await convertFileSrc(downloadedPath);
+            const localUrl = await invokeCommand<string>("get_media_stream_url", { filePath: downloadedPath });
             setPodcastLocalSrc(localUrl);
             setIsDownloading(false);
 
@@ -1506,6 +1510,9 @@ export function AudiobookViewer({
     setHasTriedFallback(false);
     setPlaybackError(null);
     setFallbackSrc(null);
+    // Re-run source preparation (get_media_stream_url) so the retry either
+    // recovers a now-available source or re-surfaces the error.
+    setRetryAttempt((attempt) => attempt + 1);
     window.setTimeout(() => {
       const audio = audioRef.current;
       if (!audio) return;

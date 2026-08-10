@@ -318,6 +318,7 @@ mod tests {
     fn test_state(root: &std::path::Path) -> MediaServerState {
         MediaServerState {
             allowed_roots: Arc::new(vec![root.to_path_buf()]),
+            granted_paths: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         }
     }
 
