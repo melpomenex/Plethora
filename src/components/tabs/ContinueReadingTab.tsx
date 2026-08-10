@@ -82,7 +82,9 @@ export function ContinueReadingTab() {
         ? "📖"
         : fileType === "youtube"
           ? "📺"
-          : "📄";
+          : fileType === "image"
+            ? "🖼️"
+            : "📄";
 
     addTab({
       title: doc.title,

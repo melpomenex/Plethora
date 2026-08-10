@@ -124,6 +124,7 @@ pub enum FileType {
     Youtube,
     Audio,
     Video,
+    Image,
     Other,
 }
 
@@ -153,6 +154,15 @@ pub struct DocumentMetadata {
     pub article_html: Option<String>,
     pub extracted_images: Option<Vec<DocumentImageAsset>>,
     pub file_id: Option<String>,
+    /// Source NotebookLM notebook for an imported artifact.
+    pub source_notebook_id: Option<String>,
+    /// Source NotebookLM job for an imported artifact (backs the
+    /// already-imported check).
+    pub source_job_id: Option<String>,
+    /// Structured JSON content preserved from a structured artifact import
+    /// (mind-map, data-table), so the imported document stays renderable
+    /// through the existing structured viewers.
+    pub structured_content: Option<serde_json::Value>,
 
     // Virtual & Physical Chunking Fields
     pub parent_document_id: Option<String>,

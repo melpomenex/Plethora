@@ -72,6 +72,7 @@ impl Repository {
             "youtube" => FileType::Youtube,
             "audio" => FileType::Audio,
             "video" => FileType::Video,
+            "image" => FileType::Image,
             _ => FileType::Other,
         }
     }
@@ -6575,6 +6576,38 @@ impl Repository {
         }
     }
 
+    /// Get-or-create the "NotebookLM Imports" podcast feed used as the home
+    /// for imported audio artifacts. Deduplicated by a synthetic feed_url so
+    /// repeated imports reuse one feed rather than creating duplicates.
+    pub async fn ensure_notebooklm_podcast_feed(
+        &self,
+    ) -> Result<crate::models::podcast::PodcastFeed> {
+        const FEED_URL: &str = "notebooklm://imports";
+        if let Some(feed) = self.get_podcast_feed_by_url(FEED_URL).await? {
+            return Ok(feed);
+        }
+        let now = Utc::now().to_rfc3339();
+        let feed = crate::models::podcast::PodcastFeed {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: "NotebookLM Imports".to_string(),
+            description: Some(
+                "Audio Overviews and podcasts imported from NotebookLM artifacts.".to_string(),
+            ),
+            image_url: None,
+            author: None,
+            language: None,
+            link: None,
+            feed_url: FEED_URL.to_string(),
+            last_fetched: Some(now.clone()),
+            subscribed_at: now,
+            sort_order: i32::MAX,
+            auto_transcribe: false,
+            transcribe_language: None,
+        };
+        self.insert_podcast_feed(&feed).await?;
+        Ok(feed)
+    }
+
     pub async fn get_podcast_feed_by_url(
         &self,
         feed_url: &str,
@@ -6699,6 +6732,41 @@ impl Repository {
         .bind(episode.file_size)
         .bind(&episode.image_url)
         .bind(&episode.link)
+        .bind(&now)
+        .execute(self.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Insert a podcast episode row with an explicit id, so a library Document
+    /// can reference the episode (e.g. an imported NotebookLM audio artifact
+    /// whose `metadata.source` is `podcast:<episode-id>`). No-op if the id
+    /// already exists.
+    pub async fn insert_podcast_episode_with_id(
+        &self,
+        episode_id: &str,
+        feed_id: &str,
+        title: &str,
+        audio_url: &str,
+        duration: Option<i64>,
+    ) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r#"
+            INSERT OR IGNORE INTO podcast_episodes (
+                id, feed_id, guid, title, description, published_date,
+                duration, audio_url, audio_type, file_size, image_url,
+                link, played, playback_position, date_added
+            ) VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, ?6, NULL, NULL, NULL, NULL, 0, 0.0, ?7)
+            "#,
+        )
+        .bind(episode_id)
+        .bind(feed_id)
+        .bind(episode_id)
+        .bind(title)
+        .bind(duration)
+        .bind(audio_url)
         .bind(&now)
         .execute(self.pool())
         .await?;

@@ -18,6 +18,7 @@ import {
   Globe,
   GridFour,
   Headphones,
+  ImageSquare,
   Link,
   List,
   MagnifyingGlass,
@@ -145,6 +146,7 @@ function getCoverFallbackIcon(fileType: Document["fileType"]) {
   if (fileType === "youtube") return YoutubeLogo;
   if (fileType === "pdf") return TextT;
   if (fileType === "audio") return Headphones;
+  if (fileType === "image") return ImageSquare;
   return BookOpen;
 }
 
@@ -156,6 +158,7 @@ function coverFallbackGradient(fileType: Document["fileType"]): string {
     case "audio": return "bg-gradient-to-br from-amber-900/60 via-amber-800/30 to-transparent";
     case "video": return "bg-gradient-to-br from-violet-900/60 via-violet-800/30 to-transparent";
     case "markdown": return "bg-gradient-to-br from-emerald-900/60 via-emerald-800/30 to-transparent";
+    case "image": return "bg-gradient-to-br from-rose-900/60 via-rose-800/30 to-transparent";
     default: return "bg-gradient-to-br from-slate-900/60 via-slate-800/30 to-transparent";
   }
 }

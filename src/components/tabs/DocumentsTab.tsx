@@ -2,7 +2,7 @@ import { DocumentsView } from "../documents/DocumentsView";
 import { useTabsStore } from "../../stores";
 import { DocumentExtractsTab, DocumentViewer } from "./TabRegistry";
 import type { Document } from "../../types/document";
-import { BookOpen, TextT, YoutubeLogo } from "@phosphor-icons/react";
+import { BookOpen, ImageSquare, TextT, YoutubeLogo } from "@phosphor-icons/react";
 import { AudiobookEpubSyncView } from "../viewer/AudiobookEpubSyncView";
 
 export function DocumentsTab() {
@@ -14,6 +14,7 @@ export function DocumentsTab() {
       icon: doc.fileType === "pdf" ? <TextT className="w-4 h-4 text-red-500" />
         : doc.fileType === "epub" ? <BookOpen className="w-4 h-4 text-blue-500" />
         : doc.fileType === "youtube" ? <YoutubeLogo className="w-4 h-4 text-red-600" />
+        : doc.fileType === "image" ? <ImageSquare className="w-4 h-4 text-rose-500" />
         : <TextT className="w-4 h-4 text-muted-foreground" />,
       type: "document-viewer",
       content: DocumentViewer,

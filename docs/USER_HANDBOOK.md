@@ -1283,19 +1283,50 @@ Use NotebookLM inside Incrementum to research, generate study artifacts, and sav
 3. Click **Connect** and choose provider (`mock` for testing, `cli` for live NotebookLM)
 4. Select or create an active notebook
 
+**Creating notebooks:**
+- Click **New Notebook** (sidebar or empty state) and enter a title in the in-app dialog
+- The title is sent to NotebookLM on the first click — no second attempt needed
+- While a notebook is being created the button shows a spinner and is disabled; failures surface as a toast instead of silently doing nothing
+- Creating from the empty state selects the new notebook automatically, so your next action runs against it
+
 **What You Can Do:**
 - Ask questions in NotebookLM chat directly from Incrementum
 - Run research prompts (web-assisted notebook research)
 - Generate artifacts:
   - Flashcards
   - Quiz
-  - Report / Study Guide
+  - Report (briefing document)
+  - Study Guide
   - Mind Map
   - Data Table
+  - Slide Deck (format: detailed/presenter, length: default/short)
+  - Infographic (orientation, detail level, and style options)
   - Audio Overview
   - Video Overview
-- Preview artifacts in-app (including audio/video players when media is available)
+- Preview artifacts in-app:
+  - Text/structured artifacts (Report, Study Guide, Mind Map, Data Table) render in dedicated viewers
+  - Audio and Video Overviews play inline through the app's media players
+  - Infographics display as images
+  - Slide Decks display as PDFs
 - Sync generated flashcards/quiz items into Incrementum review queue
+
+**Artifact actions (in the viewer):**
+- **Copy** — copies the artifact content to your clipboard
+- **Copy as Markdown** — copies the Markdown export (text and structured artifacts)
+- **Save to Library** — imports the artifact into the current collection as a document; already-saved artifacts report that instead of duplicating
+- **Export** — saves the artifact as a Markdown file through the native save dialog (JSON/HTML export is available from the Studio job details)
+
+**Importing artifacts into the library:**
+- Reports and Study Guides import as Markdown documents, ready for the queue and extraction
+- Mind Maps and Data Tables import as structured documents that keep their interactive viewers
+- Audio Overviews import as podcast-style items; Video Overviews as video items
+- Slide Decks import as PDF documents; Infographics import as image documents and are also added to the **Image Registry** (deduplicated by content, so re-saving doesn't create duplicates)
+- Imported artifacts land at the collection library root and become eligible for the Queue on the same terms as other library items
+
+**Adding sources:**
+- Add a **URL**, **YouTube** link, pasted **text**, a local **file**, or pick a document from your **Library**
+- Library documents attach through the same ingestion pipeline and show pending status until NotebookLM finishes processing them
+- Already-attached documents are detected so you don't add duplicates
 
 **Save Chat Responses as Extracts:**
 1. Open NotebookLM workspace chat
@@ -1313,6 +1344,7 @@ Use NotebookLM inside Incrementum to research, generate study artifacts, and sav
 
 **Troubleshooting:**
 - If artifact preview says media is unavailable, wait for NotebookLM generation to finish and reopen the artifact.
+- If a video, audio, infographic, or slide deck fails to display, reopen the artifact — video/audio and infographics retry through an alternate media path automatically; slide decks offer an "Open with alternate viewer" option when they do not load.
 - If using `cli` provider, ensure the NotebookLM sidecar/CLI is available in your build.
 - If you changed providers or auth expired, reconnect in Integrations → NotebookLM.
 
@@ -2137,6 +2169,9 @@ Export your data before major changes (Settings → Backup → Export)
 A: You can add newsletters in two ways:
 1. **Newsletter Directory**: Click RSS → Newsletter icon (📬) → Browse and subscribe to curated newsletters
 2. **Direct URL**: Copy any newsletter URL (Substack, Beehiiv, etc.) → RSS → Add Feed → Paste URL. Incrementum will auto-discover the RSS feed.
+
+**Q: Why won't my NotebookLM video, audio, infographic, or slide deck display?**
+A: Media artifacts need their file to be generated and ready before they can be previewed. Wait for generation to finish, then reopen the artifact — video/audio and infographics retry through an alternate media path automatically, and slide decks offer an "Open with alternate viewer" option when they do not load. If it still fails, reconnect NotebookLM in Settings → Integrations and regenerate the artifact.
 
 **Q: Which newsletter platforms are supported?**
 A: Incrementum supports RSS feeds from Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium, and WordPress sites. Most newsletters publish RSS feeds - check the newsletter's website for an RSS link or try adding `/feed` to the URL.

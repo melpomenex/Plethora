@@ -637,6 +637,11 @@ pub fn run() {
         })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        // Filesystem access for writeTextFile/readFile from
+        // @tauri-apps/plugin-fs (used by app-state export, image save, and
+        // NotebookLM artifact export). Dialog-picked paths are granted scope
+        // automatically; the fs:default permission covers the rest.
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         // OS info — available on all targets (desktop + android + ios).
         // The frontend uses platform() to detect native mobile builds so it
@@ -1280,6 +1285,7 @@ pub fn run() {
             commands::get_all_learning_items,
             commands::check_semantic_duplicate_candidates,
             commands::ingest_image_asset,
+            commands::ingest_image_asset_from_path,
             commands::ingest_remote_image_asset,
             commands::list_image_assets,
             commands::get_image_asset,
@@ -1465,12 +1471,14 @@ pub fn run() {
             notebooklm::notebooklm_generate_artifact,
             notebooklm::notebooklm_get_jobs,
             notebooklm::notebooklm_get_job,
+            notebooklm::notebooklm_set_artifact_position,
             notebooklm::notebooklm_preview_flashcards,
             notebooklm::notebooklm_preview_quiz_import,
             notebooklm::notebooklm_sync_flashcards,
             notebooklm::notebooklm_sync_quiz,
             notebooklm::notebooklm_sync_preview_items,
             notebooklm::notebooklm_export_job_artifact,
+            notebooklm::notebooklm_import_job_artifact,
             notebooklm::notebooklm_check_cli,
             notebooklm::notebooklm_cli_login,
             notebooklm::notebooklm_cli_logout,

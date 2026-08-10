@@ -1,4 +1,4 @@
-export type ReadingDocType = "pdf" | "epub" | "markdown" | "html" | "youtube" | "audio" | "video" | "other";
+export type ReadingDocType = "pdf" | "epub" | "markdown" | "html" | "youtube" | "audio" | "video" | "image" | "other";
 
 export interface ReadingSession {
   id: string;

@@ -30,7 +30,7 @@ import {
   Sun,
   TextT,
   XLogo,
-  YoutubeLogo,
+  ImageSquare, YoutubeLogo,
 } from "@phosphor-icons/react";
 import type { Document, Extract } from "../../types/document";
 import type { StudyDeck } from "../../types/study-decks";
@@ -1458,6 +1458,7 @@ export function CommandCenter() {
         icon: doc.fileType === "pdf" ? <TextT className="w-4 h-4 text-red-500" /> 
           : doc.fileType === "epub" ? <BookOpen className="w-4 h-4 text-blue-500" /> 
           : doc.fileType === "youtube" ? <YoutubeLogo className="w-4 h-4 text-red-600" /> 
+          : doc.fileType === "image" ? <ImageSquare className="w-4 h-4 text-rose-500" /> 
           : <TextT className="w-4 h-4 text-muted-foreground" />,
         type: "document-viewer",
         content: DocumentViewer,
@@ -1480,6 +1481,7 @@ export function CommandCenter() {
             icon: freshDoc.fileType === "pdf" ? <TextT className="w-4 h-4 text-red-500" /> 
               : freshDoc.fileType === "epub" ? <BookOpen className="w-4 h-4 text-blue-500" /> 
               : freshDoc.fileType === "youtube" ? <YoutubeLogo className="w-4 h-4 text-red-600" /> 
+              : freshDoc.fileType === "image" ? <ImageSquare className="w-4 h-4 text-rose-500" /> 
               : <TextT className="w-4 h-4 text-muted-foreground" />,
             type: "document-viewer",
             content: DocumentViewer,

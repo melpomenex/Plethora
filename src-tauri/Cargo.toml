@@ -24,6 +24,7 @@ tauri = { version = "=2.11.0", features = ["unstable", "macos-private-api"] }
 # DevTools are opened at runtime via INCREMENTUM_OPEN_DEVTOOLS env var.
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2.7"
+tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-updater = "2"

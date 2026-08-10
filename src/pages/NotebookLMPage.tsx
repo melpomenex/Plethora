@@ -9,6 +9,8 @@ import {
   CaretDown,
   Check,
   CircleNotch,
+  Copy,
+  DownloadSimple,
   Gear,
   WarningCircle,
   X,
@@ -17,6 +19,7 @@ import { NotebookLMSidebar } from "../components/notebooklm/NotebookLMSidebar";
 import { NotebookLMChat } from "../components/notebooklm/NotebookLMChat";
 import { NotebookLMStudio } from "../components/notebooklm/NotebookLMStudio";
 import { NotebookLMLoginPanel } from "../components/notebooklm/NotebookLMLoginPanel";
+import { isStructuredArtifactType, canViewArtifactType, isPayloadBackedArtifactType } from "../components/notebooklm/artifactTypes";
 import { ArtifactViewer, type ArtifactType } from "../components/notebooklm/artifacts";
 import {
   notebooklmSetSettings,
@@ -27,12 +30,16 @@ import {
   notebooklmCreateNotebook,
   notebooklmSelectNotebook,
   notebooklmCLILogin,
+  notebooklmExportJobArtifact,
+  notebooklmImportJobArtifact,
   type NotebookSummary,
   type ImportPreviewItem,
   type NotebookLMJob,
 } from "../api/integrations";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useToast } from "../components/common/Toast";
+import { useCollectionStore } from "../stores/collectionStore";
+import { isTauri } from "../lib/tauri";
 
 type ConnectionState = "checking" | "connected" | "disconnected" | "error";
 
@@ -50,8 +57,10 @@ export function NotebookLMPage() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [newNotebookTitle, setNewNotebookTitle] = useState("");
-  const [_isCreating, setIsCreating] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
   const [viewingArtifact, setViewingArtifact] = useState<NotebookLMJob | null>(null);
   const [artifactContent, setArtifactContent] = useState<string | null>(null);
 
@@ -189,20 +198,37 @@ export function NotebookLMPage() {
     }
   };
 
-  const handleCreateNotebook = async () => {
-    if (!newNotebookTitle.trim()) return;
+  const handleCreateNotebook = async (title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      setCreateError(t("notebooklm.titleRequired"));
+      return;
+    }
+    setCreateError(null);
     setIsCreating(true);
     try {
-      const notebook = await notebooklmCreateNotebook(newNotebookTitle.trim());
+      const notebook = await notebooklmCreateNotebook(trimmed);
       setNotebooks((prev) => [...prev, notebook]);
+      // Creating from the empty state must land the user in the new
+      // notebook without further action.
       setSelectedNotebook(notebook);
       await notebooklmSelectNotebook(notebook.id);
-      setNewNotebookTitle("");
+      setShowCreateModal(false);
+      setCreateTitle("");
     } catch (error: any) {
-      console.error("Failed to create notebook:", error);
+      toast.error(
+        t("notebooklm.createFailed"),
+        error?.message || t("notebooklm.createFailedDesc")
+      );
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const openCreateModal = () => {
+    setCreateTitle("");
+    setCreateError(null);
+    setShowCreateModal(true);
   };
 
   const handleSyncToIncrementum = (items: ImportPreviewItem[]) => {
@@ -220,8 +246,7 @@ export function NotebookLMPage() {
     let content: string;
 
     // Check if this is a structured artifact type that needs jsonContent
-    const structuredTypes = ["mind-map", "mind_map", "mindmap", "data-table", "data_table", "datatable"];
-    const isStructuredArtifact = structuredTypes.includes(job.artifactType.toLowerCase());
+    const isStructuredArtifact = isStructuredArtifactType(job.artifactType);
 
     if (isStructuredArtifact) {
       // For structured artifacts like mind-maps and data-tables, prefer jsonContent.
@@ -286,6 +311,87 @@ export function NotebookLMPage() {
   const handleAddArtifactToQueue = () => {
     toast.success(t("queue.addedToQueue"), t("notebooklm.addedToQueue"));
     setViewingArtifact(null);
+  };
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(t("notebooklm.copied"));
+    } catch (error) {
+      toast.error(t("notebooklm.copyFailed"), String(error));
+    }
+  };
+
+  const handleCopyArtifact = () => {
+    if (!artifactContent) return;
+    void copyText(artifactContent);
+  };
+
+  const handleCopyArtifactAsMarkdown = async () => {
+    if (!viewingArtifact) return;
+    try {
+      const result = await notebooklmExportJobArtifact(viewingArtifact.id, "markdown");
+      await copyText(result.content);
+    } catch (error: any) {
+      toast.error(t("notebooklm.copyFailed"), error?.message || String(error));
+    }
+  };
+
+  const handleSaveArtifactToLibrary = async () => {
+    if (!viewingArtifact) return;
+    if (viewingArtifact.status !== "succeeded") {
+      toast.error(t("notebooklm.saveNotReadyTitle"), t("notebooklm.jobNotSucceeded"));
+      return;
+    }
+    try {
+      const activeCollectionId = useCollectionStore.getState().activeCollectionId;
+      const result = await notebooklmImportJobArtifact(
+        viewingArtifact.id,
+        activeCollectionId || undefined
+      );
+      if (result.alreadyImported) {
+        toast.info(t("notebooklm.alreadyImported"), result.title);
+      } else {
+        toast.success(t("notebooklm.savedToLibrary"), result.title);
+      }
+      setViewingArtifact(null);
+      setArtifactContent(null);
+    } catch (error: any) {
+      toast.error(t("notebooklm.saveFailed"), error?.message || String(error));
+    }
+  };
+
+  const handleExportArtifact = async (format: "json" | "markdown" | "html") => {
+    if (!viewingArtifact) return;
+    try {
+      const result = await notebooklmExportJobArtifact(viewingArtifact.id, format);
+      if (isTauri()) {
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+        const extension = format === "json" ? "json" : format === "markdown" ? "md" : "html";
+        const filePath = await save({
+          title: t("notebooklm.exportArtifact"),
+          defaultPath: result.fileName,
+          filters: [{ name: format.toUpperCase(), extensions: [extension] }],
+        });
+        if (!filePath) return;
+        await writeTextFile(filePath, result.content);
+        toast.success(t("notebooklm.exported"), filePath);
+      } else {
+        const blob = new Blob([result.content], { type: result.mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = result.fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // Revoke on the next tick so Firefox does not cancel the download.
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      }
+    } catch (error: any) {
+      toast.error(t("notebooklm.exportFailed"), error?.message || String(error));
+    }
   };
 
   if (connectionState === "checking") {
@@ -509,13 +615,7 @@ export function NotebookLMPage() {
             <NotebookLMSidebar
               notebookId={selectedNotebook.id}
               notebookTitle={selectedNotebook.title}
-              onCreateNotebook={() => {
-                const title = prompt("Enter notebook title:");
-                if (title) {
-                  setNewNotebookTitle(title);
-                  handleCreateNotebook();
-                }
-              }}
+              onCreateNotebook={openCreateModal}
             />
             <NotebookLMChat
               notebookId={selectedNotebook.id}
@@ -564,11 +664,7 @@ export function NotebookLMPage() {
                 </div>
               )}
               <button
-                onClick={() => {
-                  const title = prompt(t("notebooklm.enterNotebookTitle")) || t("notebooklm.newNotebook");
-                  setNewNotebookTitle(title);
-                  handleCreateNotebook();
-                }}
+                onClick={openCreateModal}
                 className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity"
               >
                 {t("notebooklm.createNotebook")}
@@ -577,6 +673,77 @@ export function NotebookLMPage() {
           </div>
         )}
       </div>
+
+      {/* Create Notebook Modal */}
+      {showCreateModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-notebook-title"
+        >
+          <div className="w-full max-w-md bg-card rounded-xl shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
+              <h3 id="create-notebook-title" className="font-semibold text-foreground">
+                {t("notebooklm.newNotebook")}
+              </h3>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                disabled={isCreating}
+                className="p-2 hover:bg-muted rounded-lg transition-colors disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4">
+              <label className="block text-sm font-medium text-foreground mb-2">
+                {t("notebooklm.enterNotebookTitle")}
+              </label>
+              <input
+                type="text"
+                value={createTitle}
+                onChange={(e) => setCreateTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !isCreating) {
+                    handleCreateNotebook(createTitle);
+                  }
+                }}
+                autoFocus
+                disabled={isCreating}
+                className="w-full px-3 py-2.5 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-60"
+              />
+              {createError && (
+                <p className="text-xs text-red-600 dark:text-red-400 mt-2" role="alert">
+                  {createError}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-4 py-3 bg-muted/30 border-t border-border">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                disabled={isCreating}
+                className="px-4 py-2 text-sm font-medium text-foreground bg-background border border-border rounded-md hover:bg-muted transition-colors disabled:opacity-60"
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                onClick={() => handleCreateNotebook(createTitle)}
+                disabled={isCreating}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-opacity"
+              >
+                {isCreating ? (
+                  <>
+                    <CircleNotch className="w-4 h-4 animate-spin" />
+                    {t("notebooklm.creating")}
+                  </>
+                ) : (
+                  t("notebooklm.createNotebook")
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Artifact Viewer Modal */}
       {viewingArtifact && artifactContent && (
@@ -591,18 +758,63 @@ export function NotebookLMPage() {
                   {new Date(viewingArtifact.updatedAt).toLocaleDateString()}
                 </span>
               </div>
-              <button
-                onClick={() => {
-                  setViewingArtifact(null);
-                  setArtifactContent(null);
-                }}
-                className="p-2 hover:bg-muted rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleCopyArtifact}
+                  disabled={!artifactContent}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors disabled:opacity-50"
+                  title={t("notebooklm.copyArtifact")}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  {t("notebooklm.copy")}
+                </button>
+                {isPayloadBackedArtifactType(viewingArtifact.artifactType) && (
+                  <button
+                    onClick={() => void handleCopyArtifactAsMarkdown()}
+                    disabled={!viewingArtifact}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors disabled:opacity-50"
+                    title={t("notebooklm.copyAsMarkdown")}
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    {t("notebooklm.copyAsMarkdown")}
+                  </button>
+                )}
+                {canViewArtifactType(viewingArtifact.artifactType) && (
+                  <button
+                    onClick={() => void handleSaveArtifactToLibrary()}
+                    disabled={!viewingArtifact}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors disabled:opacity-50"
+                    title={t("notebooklm.saveToLibrary")}
+                  >
+                    <DownloadSimple className="w-3.5 h-3.5" />
+                    {t("notebooklm.saveToLibrary")}
+                  </button>
+                )}
+                {isPayloadBackedArtifactType(viewingArtifact.artifactType) && (
+                  <button
+                    onClick={() => void handleExportArtifact("markdown")}
+                    disabled={!viewingArtifact}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors disabled:opacity-50"
+                    title={t("notebooklm.exportArtifact")}
+                  >
+                    <DownloadSimple className="w-3.5 h-3.5" />
+                    {t("notebooklm.export")}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setViewingArtifact(null);
+                    setArtifactContent(null);
+                  }}
+                  className="p-2 hover:bg-muted rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-hidden">
               <ArtifactViewer
+                key={viewingArtifact.id}
                 type={viewingArtifact.artifactType as ArtifactType}
                 content={artifactContent}
                 title={`${viewingArtifact.artifactType} - ${selectedNotebook?.title || ""}`}

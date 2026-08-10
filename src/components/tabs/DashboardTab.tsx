@@ -259,7 +259,9 @@ export function DashboardTab() {
         ? "📖"
         : fileType === "youtube"
           ? "📺"
-          : "📄";
+          : fileType === "image"
+            ? "🖼️"
+            : "📄";
 
     addTab({
       title: doc.title,

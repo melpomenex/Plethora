@@ -1,5 +1,7 @@
 use crate::database::Repository;
 use crate::error::AppError;
+use crate::models::document::{Document, DocumentMetadata, FileType};
+use crate::models::collection::DEFAULT_COLLECTION_ID;
 use crate::models::{ItemType, LearningItem};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -118,6 +120,10 @@ pub struct ArtifactPayload {
     pub json_content: Option<serde_json::Value>,
     /// URL or file path for media artifacts (audio, video)
     pub media_url: Option<String>,
+    /// Last playback position in seconds for media artifacts (audio, video).
+    /// Persisted with the job so reopening an artifact resumes where the user
+    /// left off, and carried into the library document position on import.
+    pub playback_position: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +149,16 @@ pub struct GenerateArtifactRequest {
     pub difficulty: Option<String>,
     pub quantity: Option<String>,
     pub retry_count: Option<u8>,
+    /// slide-deck option: `detailed` (default) or `presenter`
+    pub format: Option<String>,
+    /// slide-deck option: `default` or `short`
+    pub length: Option<String>,
+    /// infographic option: `landscape` (default), `portrait`, or `square`
+    pub orientation: Option<String>,
+    /// infographic option: `concise`, `standard` (default), or `detailed`
+    pub detail: Option<String>,
+    /// infographic option: visual style passed through to the CLI
+    pub style: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1172,6 +1188,61 @@ fn notebook_usize(v: &serde_json::Value, keys: &[&str]) -> Option<usize> {
     None
 }
 
+/// Parse the JSON output of `notebooklm source add --json` (and other
+/// single-source commands) into a `SourceSummary`.
+///
+/// The pinned CLI (0.8.0rc1) wraps the source in a top-level `source` object:
+/// `{"source": {"id", "title", "type", "url"}}`. Older shapes put the fields
+/// at the top level directly. Both are accepted; returns `None` when no id
+/// can be found.
+fn parse_source_summary_json(value: &serde_json::Value) -> Option<SourceSummary> {
+    let inner = value.get("source").unwrap_or(value);
+    let id = notebook_text(inner, &["id", "source_id"])?;
+    let title = notebook_text(inner, &["title", "name"]).unwrap_or_else(|| "Source".to_string());
+    let kind = notebook_text(inner, &["kind", "type"]).unwrap_or_else(|| "unknown".to_string());
+    let status =
+        notebook_text(inner, &["status"]).unwrap_or_else(|| "unknown".to_string());
+    Some(SourceSummary {
+        id,
+        title,
+        kind,
+        status,
+    })
+}
+
+/// Parse the JSON output of `notebooklm source list --json` into source
+/// summaries. Accepts both a bare array and the `{"sources": [...]}` envelope.
+fn parse_source_list_json(value: &serde_json::Value) -> Vec<SourceSummary> {
+    let source_array = if let Some(arr) = value.as_array() {
+        arr.clone()
+    } else {
+        value
+            .get("sources")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+    };
+    source_array.iter().filter_map(parse_source_summary_json).collect()
+}
+
+/// Parse the JSON output of `notebooklm create <title> --json` into a
+/// `NotebookSummary`.
+///
+/// The pinned CLI (0.8.0rc1) wraps the created notebook in a top-level
+/// `notebook` object: `{"notebook": {"id", "title", "created_at", ...}}`.
+/// Older CLI shapes put `id`/`title` at the top level directly. Both are
+/// accepted; returns `None` when no id can be found.
+fn parse_create_notebook_json(value: &serde_json::Value, fallback_title: &str) -> Option<NotebookSummary> {
+    let inner = value.get("notebook").unwrap_or(value);
+    let id = notebook_text(inner, &["id", "notebook_id"])?;
+    let title = notebook_text(inner, &["title", "name"]).unwrap_or_else(|| fallback_title.to_string());
+    Some(NotebookSummary {
+        id,
+        title,
+        sources_count: 0,
+    })
+}
+
 async fn cli_use_notebook(ctx: &ProviderContext, notebook_id: &str) -> Result<(), AppError> {
     run_notebooklm_command(ctx, &["use".to_string(), notebook_id.to_string()]).await?;
     Ok(())
@@ -1233,6 +1304,8 @@ fn cli_list_filter_for(app_artifact_type: &str) -> &'static str {
         "video" => "video",
         "quiz" => "quiz",
         "report" => "report",
+        "slide-deck" => "slide-deck",
+        "infographic" => "infographic",
         _ => "all",
     }
 }
@@ -1396,18 +1469,12 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         )
         .await?;
         if let Some(json) = result.json() {
-            let id = notebook_text(&json, &["id", "notebook_id"]).ok_or_else(|| {
-                AppError::IntegrationError(
-                    "NotebookLM CLI create did not return notebook ID".to_string(),
-                )
-            })?;
-            let title =
-                notebook_text(&json, &["title", "name"]).unwrap_or_else(|| title.to_string());
-            return Ok(NotebookSummary {
-                id,
-                title,
-                sources_count: 0,
-            });
+            return parse_create_notebook_json(&json, title)
+                .ok_or_else(|| {
+                    AppError::IntegrationError(
+                        "NotebookLM CLI create did not return notebook ID".to_string(),
+                    )
+                });
         }
         Err(AppError::IntegrationError(
             "NotebookLM CLI create returned non-JSON output. Re-run command manually with --json."
@@ -1447,33 +1514,7 @@ impl NotebookLMProvider for CliNotebookLMProvider {
             return Ok(vec![]);
         };
 
-        let source_array = if let Some(arr) = json.as_array() {
-            arr.clone()
-        } else {
-            json.get("sources")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default()
-        };
-
-        Ok(source_array
-            .iter()
-            .filter_map(|item| {
-                let id = notebook_text(item, &["id", "source_id"])?;
-                let title =
-                    notebook_text(item, &["title", "name"]).unwrap_or_else(|| "Source".to_string());
-                let kind =
-                    notebook_text(item, &["kind", "type"]).unwrap_or_else(|| "unknown".to_string());
-                let status =
-                    notebook_text(item, &["status"]).unwrap_or_else(|| "unknown".to_string());
-                Some(SourceSummary {
-                    id,
-                    title,
-                    kind,
-                    status,
-                })
-            })
-            .collect())
+        Ok(parse_source_list_json(&json))
     }
 
     async fn add_source(
@@ -1516,22 +1557,17 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                 "NotebookLM CLI source add returned non-JSON output.".to_string(),
             ));
         };
-        let id = notebook_text(&json, &["id", "source_id"]).ok_or_else(|| {
+        let mut summary = parse_source_summary_json(&json).ok_or_else(|| {
             AppError::IntegrationError(
                 "NotebookLM CLI source add did not return source ID".to_string(),
             )
         })?;
-        let title = notebook_text(&json, &["title", "name"])
-            .or_else(|| req.title.clone())
-            .unwrap_or_else(|| req.content.chars().take(60).collect());
-        let kind = notebook_text(&json, &["kind", "type"]).unwrap_or_else(|| req.kind.clone());
-        let status = notebook_text(&json, &["status"]).unwrap_or_else(|| "processing".to_string());
-        Ok(SourceSummary {
-            id,
-            title,
-            kind,
-            status,
-        })
+        // A freshly added source is processing until ingestion resolves; the
+        // CLI summary carries no status field for the add path.
+        if summary.status == "unknown" {
+            summary.status = "processing".to_string();
+        }
+        Ok(summary)
     }
 
     async fn refresh_source(
@@ -1623,8 +1659,11 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         if let Some(json) = result.json() {
             let answer = notebook_text(&json, &["answer", "response", "text"])
                 .unwrap_or_else(|| result.stdout.clone());
+            // The pinned CLI (0.8.0rc1) emits references as `references` (an
+            // array of {source_id, ...}); older shapes used `sources`.
             let sources = json
-                .get("sources")
+                .get("references")
+                .or_else(|| json.get("sources"))
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
@@ -1834,6 +1873,58 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                 generate_args.push("--wait".to_string());
                 generate_args.push("--json".to_string());
             }
+            "slide-deck" => {
+                generate_args.push("slide-deck".to_string());
+                if let Some(instructions) =
+                    req.instructions.as_ref().filter(|s| !s.trim().is_empty())
+                {
+                    generate_args.push(instructions.trim().to_string());
+                }
+                if let Some(format) = req.format.as_ref() {
+                    let f = format.trim().to_lowercase();
+                    if f == "detailed" || f == "presenter" {
+                        generate_args.push("--format".to_string());
+                        generate_args.push(f);
+                    }
+                }
+                if let Some(length) = req.length.as_ref() {
+                    let l = length.trim().to_lowercase();
+                    if l == "default" || l == "short" {
+                        generate_args.push("--length".to_string());
+                        generate_args.push(l);
+                    }
+                }
+                generate_args.push("--wait".to_string());
+                generate_args.push("--json".to_string());
+            }
+            "infographic" => {
+                generate_args.push("infographic".to_string());
+                if let Some(instructions) =
+                    req.instructions.as_ref().filter(|s| !s.trim().is_empty())
+                {
+                    generate_args.push(instructions.trim().to_string());
+                }
+                if let Some(orientation) = req.orientation.as_ref() {
+                    let o = orientation.trim().to_lowercase();
+                    if o == "landscape" || o == "portrait" || o == "square" {
+                        generate_args.push("--orientation".to_string());
+                        generate_args.push(o);
+                    }
+                }
+                if let Some(detail) = req.detail.as_ref() {
+                    let d = detail.trim().to_lowercase();
+                    if d == "concise" || d == "standard" || d == "detailed" {
+                        generate_args.push("--detail".to_string());
+                        generate_args.push(d);
+                    }
+                }
+                if let Some(style) = req.style.as_ref().filter(|s| !s.trim().is_empty()) {
+                    generate_args.push("--style".to_string());
+                    generate_args.push(style.trim().to_string());
+                }
+                generate_args.push("--wait".to_string());
+                generate_args.push("--json".to_string());
+            }
             _ => {
                 return Err(AppError::IntegrationError(format!(
                     "Unsupported NotebookLM artifact type for CLI provider: {}",
@@ -1954,6 +2045,46 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                 payload.raw_text = Some(format!(
                     "{} overview generated via NotebookLM CLI.",
                     artifact_type
+                ));
+            }
+            "slide-deck" => {
+                let output_path = artifact_dir.join(format!("{}.pdf", file_stem));
+                let mut download = vec![
+                    "download".to_string(),
+                    "slide-deck".to_string(),
+                    output_path.to_string_lossy().to_string(),
+                ];
+                if let Some(id) = artifact_id.as_ref() {
+                    download.push("--artifact".to_string());
+                    download.push(id.clone());
+                }
+                download.push("--notebook".to_string());
+                download.push(notebook_id.to_string());
+                run_notebooklm_command(ctx, &download).await?;
+                payload.media_url = Some(output_path.to_string_lossy().to_string());
+                payload.raw_text = Some(format!(
+                    "Slide deck generated via NotebookLM CLI: {}",
+                    output_path.display()
+                ));
+            }
+            "infographic" => {
+                let output_path = artifact_dir.join(format!("{}.png", file_stem));
+                let mut download = vec![
+                    "download".to_string(),
+                    "infographic".to_string(),
+                    output_path.to_string_lossy().to_string(),
+                ];
+                if let Some(id) = artifact_id.as_ref() {
+                    download.push("--artifact".to_string());
+                    download.push(id.clone());
+                }
+                download.push("--notebook".to_string());
+                download.push(notebook_id.to_string());
+                run_notebooklm_command(ctx, &download).await?;
+                payload.media_url = Some(output_path.to_string_lossy().to_string());
+                payload.raw_text = Some(format!(
+                    "Infographic generated via NotebookLM CLI: {}",
+                    output_path.display()
                 ));
             }
             "report" | "study-guide" => {
@@ -3437,6 +3568,26 @@ pub async fn notebooklm_get_job(
     Ok(jobs.jobs.into_iter().find(|j| j.id == job_id))
 }
 
+/// Persist a media artifact's playback position (seconds) with its job so
+/// reopening the artifact resumes where the user left off.
+#[tauri::command]
+pub async fn notebooklm_set_artifact_position(
+    app: tauri::AppHandle,
+    job_id: String,
+    position_seconds: f64,
+) -> Result<(), AppError> {
+    let root = integration_root(&app)?;
+    let mut jobs = load_jobs(&root)?;
+    let job = jobs
+        .jobs
+        .iter_mut()
+        .find(|j| j.id == job_id)
+        .ok_or_else(|| AppError::NotFound(format!("Job {job_id} not found")))?;
+    job.payload.playback_position = Some(position_seconds.max(0.0));
+    save_jobs(&root, &jobs)?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn notebooklm_preview_flashcards(
     app: tauri::AppHandle,
@@ -3600,6 +3751,33 @@ pub async fn notebooklm_export_job_artifact(
                 lines.push(String::new());
             }
         }
+        // Text content (reports, study guides) and structured content
+        // (mind-maps, data-tables) live outside flashcards/quiz payloads —
+        // omitting them produced an empty file for those types.
+        if let Some(raw) = job.payload.raw_text.as_ref().filter(|r| !r.trim().is_empty()) {
+            if !lines.is_empty() {
+                lines.push(String::new());
+            }
+            lines.push("# Content".to_string());
+            lines.push(String::new());
+            lines.push(raw.trim().to_string());
+            lines.push(String::new());
+        }
+        if let Some(json) = job.payload.json_content.as_ref() {
+            if !json.is_null() {
+                if !lines.is_empty() {
+                    lines.push(String::new());
+                }
+                lines.push("# Structured Content".to_string());
+                lines.push(String::new());
+                lines.push(serde_json::to_string_pretty(json)?);
+            }
+        }
+        if lines.iter().all(|l| l.trim().is_empty()) {
+            return Err(AppError::IntegrationError(
+                "This artifact has no content to export.".to_string(),
+            ));
+        }
         (
             "text/markdown".to_string(),
             lines.join("\n"),
@@ -3616,9 +3794,15 @@ pub async fn notebooklm_export_job_artifact(
             "html".to_string(),
         )
     } else {
+        let payload_json = serde_json::to_string_pretty(&job.payload)?;
+        if payload_json.trim().is_empty() {
+            return Err(AppError::IntegrationError(
+                "This artifact has no content to export.".to_string(),
+            ));
+        }
         (
             "application/json".to_string(),
-            serde_json::to_string_pretty(&job.payload)?,
+            payload_json,
             "json".to_string(),
         )
     };
@@ -3628,6 +3812,519 @@ pub async fn notebooklm_export_job_artifact(
         mime_type,
         file_name: format!("notebooklm-{}-{}.{}", job.artifact_type, job.id, extension),
         content,
+    })
+}
+
+/// Result of importing a completed NotebookLM job into the library.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactImportResult {
+    pub document_id: String,
+    pub title: String,
+    pub file_type: String,
+    pub already_imported: bool,
+}
+
+fn file_type_string(file_type: &FileType) -> &'static str {
+    match file_type {
+        FileType::Pdf => "pdf",
+        FileType::Epub => "epub",
+        FileType::Markdown => "markdown",
+        FileType::Html => "html",
+        FileType::Youtube => "youtube",
+        FileType::Audio => "audio",
+        FileType::Video => "video",
+        FileType::Image => "image",
+        FileType::Other => "other",
+    }
+}
+
+/// Human-readable title for an imported artifact, from the job's artifact
+/// summary when it is meaningful, else a type-based fallback.
+fn import_title(job: &NotebookLMJob, artifact_type: &str) -> String {
+    if let Some(artifact) = &job.artifact {
+        let title = artifact.title.trim();
+        if !title.is_empty() && !title.ends_with(" result") {
+            return title.to_string();
+        }
+    }
+    let label = artifact_type.replace('-', " ");
+    let words = label.split_whitespace().collect::<Vec<_>>();
+    let title = words
+        .iter()
+        .map(|w| {
+            let mut chars = w.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("NotebookLM {}", title)
+}
+
+/// A storage directory for imported NotebookLM media files, under the app
+/// data dir so files survive sandbox revocation like other library media.
+fn notebooklm_imports_dir_from_ctx(ctx: &ProviderContext) -> Result<PathBuf, AppError> {
+    let dir = ctx.app_dir.join("incrementum").join("notebooklm-imports");
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Retrieve an artifact's media through the CLI `download` subcommand into a
+/// temp path, verify the transfer, then move it into app-managed storage.
+/// Returns the final file path. On any failure the temp file is deleted and
+/// nothing is left behind; auth failures are surfaced distinctly so the user
+/// knows to reconnect rather than regenerate.
+async fn retrieve_artifact_media(
+    ctx: &ProviderContext,
+    notebook_id: &str,
+    artifact_id: Option<&str>,
+    artifact_type: &str,
+    ext: &str,
+) -> Result<PathBuf, AppError> {
+    let temp_dir = ctx.app_dir.join("artifacts");
+    fs::create_dir_all(&temp_dir)?;
+    let temp_path = temp_dir.join(format!(
+        "import-{}-{}.{}",
+        artifact_type.replace('/', "-"),
+        Uuid::new_v4().simple(),
+        ext
+    ));
+
+    let mut download = vec![
+        "download".to_string(),
+        artifact_type.to_string(),
+        temp_path.to_string_lossy().to_string(),
+    ];
+    if let Some(id) = artifact_id {
+        download.push("--artifact".to_string());
+        download.push(id.to_string());
+    }
+    download.push("--notebook".to_string());
+    download.push(notebook_id.to_string());
+
+    if let Err(err) = run_notebooklm_command(ctx, &download).await {
+        let _ = fs::remove_file(&temp_path);
+        let message = err.to_string();
+        if is_auth_error(&message) {
+            return Err(AppError::IntegrationError(format!(
+                "NotebookLM session is no longer authenticated. Reconnect before importing this artifact: {message}"
+            )));
+        }
+        return Err(AppError::IntegrationError(format!(
+            "Failed to download {} artifact: {message}",
+            artifact_type
+        )));
+    }
+
+    // Verify the transfer completed: the file must exist and be non-empty.
+    let metadata = fs::metadata(&temp_path).map_err(|e| {
+        let _ = fs::remove_file(&temp_path);
+        AppError::IntegrationError(format!(
+            "Downloaded {} artifact is missing (transfer did not complete): {e}",
+            artifact_type
+        ))
+    })?;
+    if metadata.len() == 0 {
+        let _ = fs::remove_file(&temp_path);
+        return Err(AppError::IntegrationError(format!(
+            "Downloaded {} artifact is empty; import aborted.",
+            artifact_type
+        )));
+    }
+
+    let imports_dir = match notebooklm_imports_dir_from_ctx(ctx) {
+        Ok(dir) => dir,
+        Err(err) => {
+            let _ = fs::remove_file(&temp_path);
+            return Err(err);
+        }
+    };
+    let final_path = imports_dir.join(
+        temp_path
+            .file_name()
+            .ok_or_else(|| AppError::Internal("no temp file name".to_string()))?,
+    );
+    fs::rename(&temp_path, &final_path).map_err(|e| {
+        let _ = fs::remove_file(&temp_path);
+        AppError::Internal(format!("Failed to move downloaded artifact into place: {e}"))
+    })?;
+    Ok(final_path)
+}
+
+/// The `commands::ocr_image_file` result, mapped into an optional text so the
+/// import path can treat OCR as best-effort without naming a provider.
+async fn ocr_imported_infographic(image_path: &str) -> Option<String> {
+    let request = crate::commands::ocr::OCRImageRequest {
+        image_path: vec![PathBuf::from(image_path)],
+        provider: None,
+        language: None,
+    };
+    match crate::commands::ocr::ocr_image_file(request).await {
+        Ok(response) => {
+            let text = response.text.trim().to_string();
+            if text.is_empty() { None } else { Some(text) }
+        }
+        Err(err) => {
+            tracing::warn!(
+                "notebooklm.import.ocr.failed best-effort; image still imported: {}",
+                err
+            );
+            None
+        }
+    }
+}
+
+/// Build the origin metadata shared by every imported artifact.
+fn origin_metadata(job: &NotebookLMJob, structured: Option<serde_json::Value>) -> DocumentMetadata {
+    let mut metadata = DocumentMetadata {
+        source: Some("notebooklm".to_string()),
+        source_notebook_id: Some(job.notebook_id.clone()),
+        source_job_id: Some(job.id.clone()),
+        ..Default::default()
+    };
+    if let Some(json) = structured {
+        metadata.structured_content = Some(json);
+    }
+    metadata
+}
+
+/// Import a completed job as a library Document at the collection root.
+#[tauri::command]
+pub async fn notebooklm_import_job_artifact(
+    app: tauri::AppHandle,
+    job_id: String,
+    collection_id: Option<String>,
+    repo: tauri::State<'_, Repository>,
+) -> Result<ArtifactImportResult, AppError> {
+    let root = integration_root(&app)?;
+    let jobs = load_jobs(&root)?;
+    let job = jobs
+        .jobs
+        .into_iter()
+        .find(|j| j.id == job_id)
+        .ok_or_else(|| AppError::NotFound(format!("Job {job_id} not found")))?;
+
+    if job.status != "succeeded" {
+        return Err(AppError::IntegrationError(format!(
+            "Job {job_id} has status '{}'; only succeeded jobs can be imported",
+            job.status
+        )));
+    }
+
+    let artifact_type = normalize_cli_type(&job.artifact_type);
+
+    // Already-imported check: a document whose metadata records this job id.
+    let existing = repo
+        .list_documents()
+        .await?
+        .into_iter()
+        .find(|d| {
+            d.metadata
+                .as_ref()
+                .and_then(|m| m.source_job_id.as_deref())
+                == Some(job.id.as_str())
+        });
+    if let Some(existing) = existing {
+        tracing::info!(
+            "notebooklm.import.already_imported job_id={} document_id={}",
+            job.id,
+            existing.id
+        );
+        // Heal a missing podcast episode row for a previously-imported audio
+        // artifact. `insert_podcast_episode_with_id` is INSERT OR IGNORE, so
+        // this is safe to re-run on every already-imported request — a failed
+        // episode insert on the original import no longer leaves the audio
+        // permanently without its podcast row.
+        if artifact_type == "audio" {
+            if let Ok(feed) = repo.ensure_notebooklm_podcast_feed().await {
+                let _ = repo
+                    .insert_podcast_episode_with_id(
+                        &job.id,
+                        &feed.id,
+                        &existing.title,
+                        &existing.file_path,
+                        None,
+                    )
+                    .await;
+            }
+        }
+        return Ok(ArtifactImportResult {
+            document_id: existing.id,
+            title: existing.title,
+            file_type: file_type_string(&existing.file_type).to_string(),
+            already_imported: true,
+        });
+    }
+
+    let title = import_title(&job, &artifact_type);
+
+    // Dispatch per artifact type. Text/structured types build directly from
+    // the job payload; media types retrieve the file first.
+    let document = match artifact_type.as_str() {
+        "report" | "study-guide" => {
+            let text = job.payload.raw_text.clone().ok_or_else(|| {
+                AppError::IntegrationError(format!(
+                    "{} artifact has no text content to import; regenerate it.",
+                    artifact_type
+                ))
+            })?;
+            if text.trim().is_empty() {
+                return Err(AppError::IntegrationError(format!(
+                    "{} artifact has no text content to import; regenerate it.",
+                    artifact_type
+                )));
+            }
+            let mut doc = Document::with_collection(
+                title,
+                format!("notebooklm://{}", job.id),
+                FileType::Markdown,
+                None,
+            );
+            doc.content = Some(text);
+            doc.metadata = Some(origin_metadata(&job, None));
+            doc
+        }
+        "mind-map" | "data-table" => {
+            let json_content = job.payload.json_content.clone().ok_or_else(|| {
+                AppError::IntegrationError(format!(
+                    "{} artifact has no structured JSON content; regenerate it.",
+                    artifact_type
+                ))
+            })?;
+            if json_content.is_null() {
+                return Err(AppError::IntegrationError(format!(
+                    "{} artifact has no structured JSON content; regenerate it.",
+                    artifact_type
+                )));
+            }
+            let text = job
+                .payload
+                .raw_text
+                .clone()
+                .unwrap_or_else(|| json_content.to_string());
+            let mut doc = Document::with_collection(
+                title,
+                format!("notebooklm://{}", job.id),
+                FileType::Markdown,
+                None,
+            );
+            doc.content = Some(text);
+            doc.metadata = Some(origin_metadata(&job, Some(json_content)));
+            doc
+        }
+        "audio" | "video" | "slide-deck" | "infographic" => {
+            let ctx = provider_context(&app, root.clone()).await;
+            let artifact_id = job.artifact.as_ref().map(|a| a.id.clone());
+
+            let ext = match artifact_type.as_str() {
+                "audio" => "mp3",
+                "video" => "mp4",
+                "slide-deck" => "pdf",
+                "infographic" => "png",
+                _ => unreachable!(),
+            };
+            let media_path = retrieve_artifact_media(
+                &ctx,
+                &job.notebook_id,
+                artifact_id.as_deref(),
+                &artifact_type,
+                ext,
+            )
+            .await?;
+
+            let file_type = match artifact_type.as_str() {
+                "audio" => FileType::Audio,
+                "video" => FileType::Video,
+                "slide-deck" => FileType::Pdf,
+                "infographic" => FileType::Image,
+                _ => unreachable!(),
+            };
+
+            let mut doc = Document::with_collection(
+                title.clone(),
+                media_path.to_string_lossy().to_string(),
+                file_type,
+                None,
+            );
+
+            if artifact_type == "audio" {
+                // Register as a podcast episode so the existing podcast
+                // surface plays it and the `probeAudioDuration` backfill
+                // (PodcastManager, lofty-backed) populates duration. The
+                // episode id is the job id, kept stable so re-import after a
+                // failed run does not duplicate rows. The file must live in
+                // the podcast-audio dir named `<episodeId>.<ext>` so
+                // `get_downloaded_episode_path` resolves it. The episode ROW
+                // is inserted only after the document row is created (see
+                // below) so a failed import leaves no phantom episode.
+                let audio_dir = crate::commands::podcast::podcast_audio_dir_public(&app)
+                    .map_err(|e| AppError::IntegrationError(format!(
+                        "Failed to resolve podcast audio dir: {e}"
+                    )))?;
+                let episode_path = audio_dir.join(format!("{}.{}", job.id, ext));
+                if episode_path != media_path {
+                    // Re-import after a failed run may leave a stale file
+                    // behind (the episode row is ignored if present, but the
+                    // file should reflect the current download). Overwrite
+                    // explicitly rather than relying on platform-dependent
+                    // rename semantics.
+                    if episode_path.exists() {
+                        fs::remove_file(&episode_path).map_err(|e| {
+                            AppError::Internal(format!(
+                                "Failed to clear stale imported audio: {e}"
+                            ))
+                        })?;
+                    }
+                    fs::rename(&media_path, &episode_path).map_err(|e| {
+                        let _ = fs::remove_file(&media_path);
+                        AppError::Internal(format!(
+                            "Failed to place imported audio into podcast storage: {e}"
+                        ))
+                    })?;
+                }
+                let mut metadata = origin_metadata(&job, None);
+                metadata.source = Some(format!("podcast:{}", job.id));
+                doc.metadata = Some(metadata);
+                doc.file_path = episode_path.to_string_lossy().to_string();
+            } else {
+                doc.metadata = Some(origin_metadata(&job, None));
+            }
+
+            if artifact_type == "infographic" {
+                // Best-effort OCR through the user's configured provider. A
+                // failure still imports the image; the text layer is a bonus.
+                if let Some(text) =
+                    ocr_imported_infographic(&media_path.to_string_lossy()).await
+                {
+                    doc.content = Some(text);
+                }
+            }
+            doc
+        }
+        "flashcards" | "quiz" => {
+            return Err(AppError::IntegrationError(
+                "Flashcards and quizzes import through the existing sync flow, not the artifact import command."
+                    .to_string(),
+            ));
+        }
+        other => {
+            return Err(AppError::IntegrationError(format!(
+                "Unsupported NotebookLM artifact type for import: {}",
+                other
+            )));
+        }
+    };
+
+    let mut document = document;
+    // Imported artifacts land at the collection library root (None resolves
+    // to the default collection), so they enter the Queue on the same terms
+    // as any other library item.
+    document.collection_id = collection_id
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| crate::models::collection::DEFAULT_COLLECTION_ID.to_string());
+    document.priority_rating = 8;
+    document.priority_score = 8.0;
+    if !document.tags.iter().any(|t| t == "notebooklm") {
+        document.tags.push("notebooklm".to_string());
+    }
+
+    let created = repo.create_document(&document).await?;
+
+    // Make the document due immediately so it lands in front of the Queue.
+    // `create_document` does not persist scheduling columns, so set it after.
+    repo.update_document_scheduling(&created.id, Some(Utc::now()), None, None, None, None)
+        .await?;
+
+    // Audio artifacts register their podcast episode row only now, after the
+    // document row exists — a failed import leaves no phantom episode.
+    if artifact_type == "audio" {
+        let feed = repo.ensure_notebooklm_podcast_feed().await?;
+        let episode_path = &document.file_path;
+        repo.insert_podcast_episode_with_id(
+            &job.id,
+            &feed.id,
+            &created.title,
+            episode_path,
+            None,
+        )
+        .await?;
+    }
+
+    // Infographics also register in the image registry so the artifact is
+    // available as an image asset (deduplicated by content hash — if the
+    // image is already registered this is a no-op returning the existing
+    // asset). Best-effort: a registry failure must not fail the import.
+    if artifact_type == "infographic" {
+        let file_path = document.file_path.clone();
+        let file_name = std::path::Path::new(&file_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.to_string());
+        // Derive the mime from the file extension so a JPEG/WebP infographic
+        // is not mislabeled as PNG (the CLI downloads infographics as .png,
+        // but staying extension-aware is cheap and future-proof).
+        let lower = file_path.to_lowercase();
+        let mime = if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+            "image/jpeg"
+        } else if lower.ends_with(".webp") {
+            "image/webp"
+        } else if lower.ends_with(".gif") {
+            "image/gif"
+        } else {
+            "image/png"
+        };
+        if let Err(err) =
+            crate::commands::image_registry::ingest_image_asset_from_path_inner(
+                &file_path,
+                Some(mime.to_string()),
+                file_name,
+                repo.inner(),
+            )
+            .await
+        {
+            tracing::warn!(
+                "notebooklm.import.image_registry failed job_id={} err={}",
+                job.id,
+                err
+            );
+        }
+    }
+
+    // Carry the artifact's saved playback position into the imported library
+    // document (audio/video), so playback resumes where the user left off
+    // even after import. Best-effort: a position write must not fail import.
+    if (artifact_type == "audio" || artifact_type == "video") {
+        if let Some(position_seconds) = job.payload.playback_position {
+            let position = crate::models::position::DocumentPosition::Time {
+                seconds: position_seconds.max(0.0) as u32,
+                total_duration: None,
+            };
+            let service = crate::services::PositionService::new(repo.pool().clone());
+            if let Err(err) = service.save_position(&created.id, &position).await {
+                tracing::warn!(
+                    "notebooklm.import.position carry failed job_id={} err={}",
+                    job.id,
+                    err
+                );
+            }
+        }
+    }
+
+    tracing::info!(
+        "notebooklm.import.created job_id={} document_id={} type={}",
+        job.id,
+        created.id,
+        artifact_type
+    );
+
+    Ok(ArtifactImportResult {
+        document_id: created.id,
+        title: created.title,
+        file_type: file_type_string(&created.file_type).to_string(),
+        already_imported: false,
     })
 }
 
@@ -4162,6 +4859,94 @@ mod tests {
     }
 
     #[test]
+    fn parses_nested_notebook_create_json() {
+        // The pinned CLI (0.8.0rc1) wraps the created notebook in a top-level
+        // `notebook` object. This is the shape that previously produced
+        // "NotebookLM CLI create did not return notebook ID".
+        let json = serde_json::json!({
+            "notebook": {
+                "id": "nb_123",
+                "title": "My Notebook",
+                "created_at": "2026-08-10T00:00:00Z"
+            }
+        });
+        let parsed = parse_create_notebook_json(&json, "fallback").unwrap();
+        assert_eq!(parsed.id, "nb_123");
+        assert_eq!(parsed.title, "My Notebook");
+    }
+
+    #[test]
+    fn parses_flat_notebook_create_json() {
+        // Older CLI shapes put id/title at the top level.
+        let json = serde_json::json!({
+            "id": "nb_456",
+            "name": "Flat Notebook"
+        });
+        let parsed = parse_create_notebook_json(&json, "fallback").unwrap();
+        assert_eq!(parsed.id, "nb_456");
+        assert_eq!(parsed.title, "Flat Notebook");
+    }
+
+    #[test]
+    fn create_json_without_id_is_none() {
+        let json = serde_json::json!({ "notebook": { "title": "no id" } });
+        assert!(parse_create_notebook_json(&json, "fallback").is_none());
+    }
+
+    #[test]
+    fn parses_nested_source_add_json() {
+        // The pinned CLI (0.8.0rc1) wraps the added source in a top-level
+        // `source` object. This is the shape that previously produced
+        // "NotebookLM CLI source add did not return source ID".
+        let json = serde_json::json!({
+            "source": {
+                "id": "src_123",
+                "title": "My Source",
+                "type": "url",
+                "url": "https://example.com"
+            }
+        });
+        let parsed = parse_source_summary_json(&json).unwrap();
+        assert_eq!(parsed.id, "src_123");
+        assert_eq!(parsed.title, "My Source");
+        assert_eq!(parsed.kind, "url");
+    }
+
+    #[test]
+    fn parses_flat_source_add_json() {
+        let json = serde_json::json!({
+            "id": "src_456",
+            "title": "Flat Source",
+            "type": "text",
+            "status": "processing"
+        });
+        let parsed = parse_source_summary_json(&json).unwrap();
+        assert_eq!(parsed.id, "src_456");
+        assert_eq!(parsed.status, "processing");
+    }
+
+    #[test]
+    fn source_add_json_without_id_is_none() {
+        let json = serde_json::json!({ "source": { "title": "no id" } });
+        assert!(parse_source_summary_json(&json).is_none());
+    }
+
+    #[test]
+    fn parses_source_list_envelope() {
+        let json = serde_json::json!({
+            "sources": [
+                { "id": "a", "title": "One", "type": "url" },
+                { "id": "b", "title": "Two", "type": "text" }
+            ],
+            "count": 2
+        });
+        let parsed = parse_source_list_json(&json);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].id, "a");
+        assert_eq!(parsed[1].kind, "text");
+    }
+
+    #[test]
     fn identifies_auth_errors() {
         assert!(is_auth_error("HTTP 401 Unauthorized"));
         assert!(is_auth_error("session expired"));
@@ -4309,6 +5094,50 @@ mod tests {
         replace_job(&root, &job).expect("expired write");
         let loaded = load_jobs(&root).expect("load jobs");
         assert_eq!(loaded.jobs[0].status, "expired-auth");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn persists_media_playback_position() {
+        // A video artifact's playback position must survive a save → reload
+        // round trip so reopening the artifact resumes where the user left off.
+        let root = std::env::temp_dir().join(format!("notebooklm-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create temp dir");
+        let now = Utc::now().to_rfc3339();
+
+        let mut job = NotebookLMJob {
+            id: "job_video".to_string(),
+            notebook_id: "nb_1".to_string(),
+            artifact_type: "video".to_string(),
+            status: "succeeded".to_string(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            error: None,
+            artifact: None,
+            payload: ArtifactPayload {
+                media_url: Some("/tmp/video.mp4".to_string()),
+                ..ArtifactPayload::default()
+            },
+        };
+        replace_job(&root, &job).expect("write job");
+
+        // Simulate the set-position command: update the job's payload and save.
+        let mut jobs = load_jobs(&root).expect("load jobs");
+        let saved = jobs
+            .jobs
+            .iter_mut()
+            .find(|j| j.id == "job_video")
+            .expect("find job");
+        saved.payload.playback_position = Some(42.0);
+        save_jobs(&root, &jobs).expect("save position");
+
+        let reloaded = load_jobs(&root).expect("reload jobs");
+        assert_eq!(
+            reloaded.jobs[0].payload.playback_position,
+            Some(42.0),
+            "playback position must survive the job save/reload round trip"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

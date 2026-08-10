@@ -10,7 +10,7 @@ export function DocumentsPage() {
   const handleOpenDocument = (doc: Document) => {
     addTab({
       title: doc.title,
-      icon: doc.fileType === "pdf" ? "📕" : doc.fileType === "epub" ? "📖" : doc.fileType === "youtube" ? "📺" : "📄",
+      icon: doc.fileType === "pdf" ? "📕" : doc.fileType === "epub" ? "📖" : doc.fileType === "youtube" ? "📺" : doc.fileType === "image" ? "🖼️" : "📄",
       type: "document-viewer",
       content: DocumentViewer,
       closable: true,

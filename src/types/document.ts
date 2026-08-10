@@ -6,7 +6,7 @@ export interface Document {
   id: string;
   title: string;
   filePath: string;
-  fileType: "pdf" | "epub" | "markdown" | "html" | "youtube" | "audio" | "video" | "other";
+  fileType: "pdf" | "epub" | "markdown" | "html" | "youtube" | "audio" | "video" | "image" | "other";
   content?: string;  // Extracted text content
   contentHash?: string;
   /**
@@ -90,6 +90,12 @@ export interface DocumentMetadata {
     src: string;
     alt?: string;
   }>;
+  // NotebookLM artifact origin
+  sourceNotebookId?: string;
+  sourceJobId?: string;
+  /** Structured JSON preserved from a NotebookLM structured-artifact import
+   *  (mind-map, data-table); renders through the structured viewers. */
+  structuredContent?: unknown;
   // ArXiv metadata
   arxivId?: string;
   arxivUrl?: string;

@@ -172,7 +172,9 @@ Una vez importado, abra cualquier documento para acceder:
 - **Zoom**: ajusta el tamaño del texto
 - **Pantalla completa**: lectura sin distracciones
 - **Buscar**: busque texto dentro del documento
-- **Tabla de contenido**: saltar a las secciones (si están disponibles)**Herramientas de anotación:**
+- **Tabla de contenido**: saltar a las secciones (si están disponibles)
+
+**Herramientas de anotación:**
 1. **Texto resaltado**: Seleccione texto → Elija color de resaltado
    - Amarillo: Conceptos importantes
    - Verde: Ejemplos
@@ -318,7 +320,9 @@ Calificar un documento con Nuevamente / Difícil / Bueno / Fácil parece idénti
 | **Otra vez** | ~4 horas | minutos |
 | **Duro** | ~1 día | 1–2 días |
 | **Bueno** | ~3 días | días–semanas |
-| **Fácil** | ~7 días | semanas |Los intervalos entre documentos tienen un límite de aproximadamente **30 días** para que el material permanezca en rotación, y las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación, mientras que las calificaciones consecutivas Nuevamente/Difícil agregan una pequeña penalización.
+| **Fácil** | ~7 días | semanas |
+
+Los intervalos entre documentos tienen un límite de aproximadamente **30 días** para que el material permanezca en rotación, y las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación, mientras que las calificaciones consecutivas Nuevamente/Difícil agregan una pequeña penalización.
 
 **El Programador Engaging.** Cuando lees documentos de la cola, Incrementum utiliza la variante *Engaging*, que combina inyección de novedad, equilibrio de variedad y serendipia además de los intervalos base para que tus sesiones de lectura sigan siendo variadas e interesantes. Estas características de participación afectan *qué* documento aparece a continuación, no las matemáticas de intervalo subyacentes.
 
@@ -369,9 +373,10 @@ Parejas de preguntas y respuestas
 Ocultar partes de una imagen (diagramas, tablas)
 
 **Mejor para:** Anatomía, mapas, diagramas
-**Creación manual:** Pase el cursor sobre una imagen en cualquier documento y haga clic en **Crear tarjeta de oclusión de imagen** para abrir el editor. Dibuje una región arrastrando sobre la imagen, muévala arrastrando dentro de la región, redimensiónela con las asas de las esquinas, vuelva a etiquetarla en el panel o elimínela (botón o tecla Supr). Debe tener al menos una región para guardar; de lo contrario, el guardado se rechaza.
 
-**Las propuestas de IA son corregibles:** cuando la IA propone regiones de oclusión, el editor se abre con ellas precargadas. Ajústelas, añádalas o elimínelas antes de guardar; si el modelo devuelve regiones inutilizables, se recortan a la imagen y el editor se abre para dibujarlas manualmente; nunca se guarda silenciosamente una tarjeta sin regiones utilizables.
+**Autoría manual:** Pase el cursor sobre una imagen en cualquier documento y haga clic en **Crear tarjeta de oclusión de imagen** para abrir el editor de oclusión. Dibuje una región arrastrándola por la imagen, luego muévala arrastrándola dentro de la región, cambie su tamaño mediante los controladores de las esquinas, vuelva a etiquetarla en el panel de región o elimínela (botón o tecla Eliminar). Debe tener al menos una región para guardar; de lo contrario, se rechazará el guardado.
+
+**Las propuestas de IA se pueden corregir:** Cuando la IA propone regiones de oclusión, el editor abre las opciones precargadas. Ajuste, agregue o elimine regiones antes de guardar; Si el modelo devuelve regiones inutilizables, se fijan a la imagen y se abre el editor para que puedas dibujarlas manualmente; una tarjeta sin regiones utilizables nunca se guarda en silencio.
 
 ### Creando tarjetas
 
@@ -618,26 +623,48 @@ Muestra tarjetas recién creadas que aún no se han revisado
    - **Suspender**: Ocultar temporalmente de las reseñas
    - **Eliminar**: Eliminar permanentemente
 
-### Leer extractos
+### Extractos de lectura
 
-Las filas de extractos en la cola abren un **lector de extractos** dedicado: el texto del extracto es el tema, no su documento de origen. Desde el lector puede:
+Las filas de extracción en la cola abren un **lector de extractos** dedicado: el texto del extracto es el tema, no el documento fuente. Desde el lector podrás:
 
-- Leer el contenido completo del extracto (HTML enriquecido si se conservó, texto plano en caso contrario)
-- **Calificarlo** (Otra vez / Difícil / Bien / Fácil): la cola se actualiza de inmediato con el nuevo calendario, sin recargar
-- **Abrir documento de origen** para saltar al visor de documentos en la tarjeta resaltada del extracto. Si el documento de origen ya no se puede cargar, el botón se desactiva con una explicación
+- Lea el contenido completo del extracto (HTML enriquecido cuando se conserva, texto sin formato en caso contrario)
+- **Califíquelo** (Otra vez / Difícil / Bueno / Fácil): la cola se actualiza inmediatamente con el nuevo programa, no es necesario recargar
+- **Documento de código abierto** para volver al visor de documentos en la tarjeta resaltada del extracto. Si el documento fuente ya no se puede cargar, el botón se desactiva con una explicación.
 
 ### Sistema de prioridades
 
+Cada documento, extracto y tarjeta se encuentra en algún lugar de una **lista clasificada única**: una cola, todos los tipos de elementos juntos. La prioridad es ese ranking. Establecer prioridad en un elemento es decirle a Incrementum *a qué parte de su colección pertenece*, sin asignarle una puntuación.
+
+**La prioridad es una posición, no una etiqueta.**
+
+Este es el modelo SuperMemo y es la razón por la que los números se comportan como lo hacen. Cuando configuras un artículo al 70%, se mueve hasta el punto 70% de tu colección: por encima de aproximadamente el 70% de todo lo que posees, por debajo del 30% superior. No se renumera nada más; el artículo simplemente encaja.
+
 Establezca prioridad 0-100 en cualquier elemento:
 
-- **100**: Crítico (debe aprender)
-- **80-90**: Importante
-- **60-70**: Prioridad normal
-- **40-50**: prioridad baja
-- **0-20**: Archivo/referencia
+- **90-100**: Por encima de casi todo lo demás: las pocas cosas que deseas primero
+- **70-80**: Parte superior de la colección
+- **50-60**: mitad del paquete (el valor predeterminado para material nuevo)
+- **20-40**: parte inferior; léelo eventualmente
+- **0-10**: final de la cola: referencia, archivo, algún día
+
+**Tus porcentajes se mueven por sí solos y eso es correcto.**
+
+Debido a que un porcentaje significa "hasta aquí en la colección *ahora mismo*", cambia a medida que cambia la colección a su alrededor. Importe 500 artículos nuevos y califique altamente la mitad de ellos, y un documento antiguo intacto mostrará un porcentaje más bajo que el de la semana pasada, no porque lo haya degradado, sino porque ahora hay más material encima de él. Su lugar real en su orden de lectura no cambia en relación con todo lo que ya estaba allí.
+
+Un número fijo le mentiría silenciosamente aquí: "70" establecido en una colección de 100 elementos y "70" establecido en una colección de 10,000 elementos afirmarían significar lo mismo pero describirían posiciones completamente diferentes. El porcentaje le dice la verdad sobre su colección tal como está hoy.
+
+**Posición X de N.**
+
+Abra la ventana emergente de prioridad en cualquier elemento y mostrará su clasificación en vivo debajo del control deslizante: *Posición 1* es el elemento más importante de su colección, *Posición N* el menos importante. Vuelva a abrirlo después de una gran importación y verá que la posición se mueve. Esta lectura se busca nueva cada vez que la abre.
+
+**No hay dos elementos que compartan un lugar.**
+
+Establecer varios elementos en el mismo porcentaje no los apila en un punto: cada uno se coloca justo después del último, por lo que la cola mantiene un orden estricto. La configuración masiva de 200 documentos al 60% organiza los 200 en la vecindad del 60%, en orden, en lugar de crear un empate de 200 direcciones, la cola tiene que romperse arbitrariamente más tarde.
 
 **Programación prioritaria:**
-Los elementos de mayor prioridad se muestran con más frecuencia en reseñas mixtas.
+Los elementos de mayor prioridad se muestran con más frecuencia en reseñas mixtas. La prioridad gobierna la *importancia*: a qué llegas primero cuando hay más material que tiempo. Es independiente de la programación FSRS, que rige el *timing*: cuándo es el próximo vencimiento de un artículo determinado. Una tarjeta de baja prioridad que esté muy atrasada aún puede aparecer antes que una de alta prioridad que fue revisada ayer.
+
+**Los extractos heredan de su documento.** Un nuevo extracto comienza con la prioridad de su documento de origen, y el cambio de prioridad del documento se traslada a los extractos que aún tienen el valor anterior. Una vez que estableces manualmente la prioridad de un extracto, éste deja de heredar y conserva su propio lugar.
 
 ### Comportamiento de ordenamiento y reordenamiento de colas
 
@@ -653,6 +680,30 @@ Comprender cómo la cola ordena los elementos y por qué cambian las posiciones 
 3. **Sincronización de estado**:
    - La realización de acciones de modificación de la cola (como archivar un documento, editar la prioridad en masa o modificar etiquetas) activa una actualización en segundo plano al regresar a la vista de la cola para mantener la lista alineada con el estado de la base de datos backend.
    - Los cambios de vista pasiva o los cambios de pestañas mantienen el orden local estable sin provocar reorganizaciones inesperadas.
+
+
+### Revisión neuronal ("Vuélvete neuronal")
+
+La revisión neuronal es un modo exploratorio opcional creado en *Learn: Go neural* de SuperMemo. En lugar de trabajar en su cola de prioridades en orden, crea una nueva secuencia de revisión **difundiendo la activación** desde un único punto de partida (el elemento que está leyendo actualmente) y mostrando todo lo relacionado con él. Es el modo al que recurrir cuando quieres seguir un hilo a través de tu colección en lugar de esforzarte en lo que corresponde.
+
+**Cómo usarlo.** Mientras lees en modo de desplazamiento, haz clic en **Ir neuronal** en la barra superior. La sesión cambia a una cola de activación de difusión sembrada en el documento, tarjeta o extracto actual; la pastilla de posición se vuelve violeta y dice "Revisión neuronal · N restante". Haga clic en **Salir** para regresar exactamente al lugar donde se encontraba en su lectura: la revisión neuronal nunca altera su cola de prioridades o programación. Cuando la cola se agota, se recarga automáticamente desde el elemento que acaba de terminar.
+
+**Las tarjetas didácticas y los extractos aún requieren una calificación para avanzar**, al igual que en el modo de desplazamiento normal, por lo que una sesión neuronal aún contribuye a la programación. Los documentos avanzan libremente.
+
+**Cómo decide qué está "relacionado".** La activación se propaga desde la semilla a través de cinco tipos de conexiones, en este orden:
+
+1. **Grupos de conceptos (etiquetas).** Los elementos que comparten una etiqueta con la semilla se tratan como pares de conceptos. Por lo tanto, el etiquetado es doblemente útil: agrupa elementos para la búsqueda *y* alimenta la revisión neuronal. Un elemento sin etiquetar no tiene pares conceptuales.
+2. **Referencias entre elementos.** Enlaces de referencia cruzada explícitos, cuando estén presentes.
+3. **Descendientes**. Los hijos de la semilla en el árbol de conocimiento: los extractos y las tarjetas dentro de un documento, las tarjetas dentro de un extracto.
+4. **Similitud semántica.** Cuando haya indexado su colección para RAG (Configuración → Incrustaciones y RAG → Colección de índice), la revisión neuronal también muestra documentos cuyo contenido es similar a la semilla. Más documentos similares aparecerán antes. Si no ha indexado, esta fuente simplemente permanece en silencio; las otras cuatro aún funcionan.
+5. **Padre y hermanos.** El padre de la semilla (el documento en el que reside un extracto) y sus hermanos (otros extractos en el mismo documento, otras tarjetas en el mismo extracto, más documentos cercanos).
+
+Las conexiones más cercanas (un hijo directo, un documento casi idéntico, una etiqueta compartida) aparecen más temprano en la cola. Cuando la primera ola produce menos de veinte elementos, la activación se expande hacia afuera a través de los elementos vecinos de los elementos recién alcanzados hasta que la cola se llena o no se puede alcanzar nada más.
+
+**Consejos:**
+- Etiquete los elementos que desea explorar juntos: la etiqueta se convierte en un concepto al que seguirá una revisión neuronal del grupo.
+- Indexa tu colección para desbloquear el descubrimiento semántico; sin él, la revisión neuronal se basa únicamente en la estructura del árbol y las etiquetas.
+- La revisión neuronal es de solo lectura con respecto a su cola normal. Úselo libremente; No cambia nada sobre su orden de prioridad o fechas de vencimiento.
 
 
 ### Colas inteligentes
@@ -675,7 +726,9 @@ Crea colas personalizadas con filtros:
 
 La programación basada en etiquetas agrega inteligencia semántica a la cola de revisión.
 Cuando está habilitado en Configuración, TAS aplica dos pases de posprocesamiento
-sus artículos vencidos sin cambiar los intervalos subyacentes SM-20/FSRS:- **Requisito previo de acceso**: bloquea elementos cuyos requisitos previos de etiqueta no tienen.
+sus artículos vencidos sin cambiar los intervalos subyacentes SM-20/FSRS:
+
+- **Requisito previo de acceso**: bloquea elementos cuyos requisitos previos de etiqueta no tienen.
   alcanzado el umbral de madurez configurado.  El material fundamental es
   estabilizado antes de que aparezcan temas avanzados.
 - **Interferencia Jitter**: separa elementos que comparten etiquetas de alta coherencia
@@ -757,7 +810,9 @@ Se aplica fluctuación de interferencia para esas etiquetas.
 
 Una etiqueta es **madura** para un artículo cuando la estabilidad SM-20/FSRS de ese artículo
 cumple o excede el `maturityThreshold` de la etiqueta (predeterminado 0.8).  el
-El índice de madurez general es `matureCount / itemCount`.- Las barras de progreso en el Editor de requisitos previos muestran la situación actual de cada etiqueta.
+El índice de madurez general es `matureCount / itemCount`.
+
+- Las barras de progreso en el Editor de requisitos previos muestran la situación actual de cada etiqueta.
   relación de madurez.
 - La activación de requisitos previos utiliza el `maturityRatio` configurado para decidir
   si una etiqueta de requisito previo está lo suficientemente "satisfecha" para desbloquear dependientes
@@ -951,7 +1006,9 @@ Incrementum admite cuatro algoritmos de programación. Elige el que mejor se ada
 
 **Intervalo máximo:**
 - Limitar los intervalos más largos (365 días por defecto)
-- Evita que las tarjetas se programen con demasiada antelación**Gorra de seguridad de forma larga (vídeos/artículos):**
+- Evita que las tarjetas se programen con demasiada antelación
+
+**Gorra de seguridad de forma larga (vídeos/artículos):**
 - Para vídeos/artículos largos, las calificaciones positivas ("Bueno"/"Fácil") tienen en cuenta la cobertura.
 - Si dedicas menos del **25%** del tiempo estimado al contenido, el siguiente intervalo tendrá un límite de **1 día**.
 - Si gastas menos del **50 %**, el siguiente intervalo tendrá un límite de **2 días**.
@@ -1038,7 +1095,9 @@ Incrementum sincroniza sus datos de lectura en sus dispositivos a través de una
 
 #### Descarga automática de archivos
 
-En **Sincronización de archivos**, elija la agresividad con la que se cargan los archivos nuevos en cada dispositivo:- **Siempre**: descarga cada archivo automáticamente tal como aparece en la sala.
+En **Sincronización de archivos**, elija la agresividad con la que se cargan los archivos nuevos en cada dispositivo:
+
+- **Siempre**: descarga cada archivo automáticamente tal como aparece en la sala.
 - **Solo WiFi**: descarga automática solo en WiFi (útil en planes de datos móviles).
 - **Manual** — nunca descarga automática; Cada archivo muestra un botón de descarga que puedes tocar cuando lo desees.
 
@@ -1108,7 +1167,9 @@ Incrementum proporciona un sistema completo de copia de seguridad y restauració
 - **Reemplazar**: sobrescribe elementos existentes con versiones de respaldo
 - **Fusionar**: crea nuevas copias de todos los elementos (puede crear duplicados)
 
-**Casos de uso:**| Escenario | Enfoque recomendado |
+**Casos de uso:**
+
+| Escenario | Enfoque recomendado |
 |----------|---------------------|
 | **Migrar a una computadora nueva** | Exportar con archivos, importar en una máquina nueva |
 | **Copia de seguridad antes de cambios importantes** | Copia de seguridad rápida solo de metadatos |
@@ -1204,19 +1265,52 @@ Utilice NotebookLM dentro de Incrementum para investigar, generar artefactos de 
 3. Haga clic en **Conectar** y elija el proveedor (`mock` para realizar pruebas, `cli` para NotebookLM en vivo)
 4. Seleccione o cree un cuaderno activo
 
+**Creación de cuadernos:**
+- Haga clic en **Nuevo cuaderno** (barra lateral o estado vacío) e ingrese un título en el cuadro de diálogo de la aplicación
+- El título se envía a NotebookLM con el primer clic; no es necesario un segundo intento
+- Mientras se crea un cuaderno, el botón muestra una rueda giratoria y está deshabilitado; Los fracasos surgen como un brindis en lugar de no hacer nada en silencio.
+- Al crear desde el estado vacío, se selecciona el nuevo cuaderno automáticamente, por lo que su próxima acción se ejecuta en él
+
 **Qué puedes hacer:**
 - Haga preguntas en el chat de NotebookLM directamente desde Incrementum
 - Ejecutar indicaciones de investigación (investigación en cuaderno asistida por web)
 - Generar artefactos:
   - Tarjetas didácticas
   - Prueba
-  - Informe / Guía de estudio
+  - Informe (documento informativo)
+  - Guía de estudio
   - Mapa mental
   - Tabla de datos
+  - Presentación de diapositivas (formato: detallado/presentador, duración: predeterminado/corto)
+  - Infografía (orientación, nivel de detalle y opciones de estilo)
   - Descripción general de audio
   - Descripción general del vídeo
-- Vista previa de artefactos en la aplicación (incluidos reproductores de audio/vídeo cuando hay medios disponibles)
-- Sincronizar tarjetas didácticas/elementos de cuestionario generados en la cola de revisión de Incrementum**Guardar respuestas de chat como extractos:**
+- Vista previa de artefactos en la aplicación:
+  - Texto/artefactos estructurados (informe, guía de estudio, mapa mental, tabla de datos) renderizados en visores dedicados
+  - Las descripciones generales de audio y video se reproducen en línea a través de los reproductores multimedia de la aplicación.
+  - Las infografías se muestran como imágenes.
+  - Las presentaciones de diapositivas se muestran como archivos PDF
+- Sincronizar tarjetas didácticas/elementos de cuestionario generados en la cola de revisión de Incrementum
+
+**Acciones de artefactos (en el visor):**
+- **Copiar**: copia el contenido del artefacto en el portapapeles.
+- **Copiar como Markdown**: copia la exportación de Markdown (texto y artefactos estructurados)
+- **Guardar en la biblioteca**: importa el artefacto a la colección actual como un documento; Los artefactos ya guardados informan que en lugar de duplicarse
+- **Exportar**: guarda el artefacto como un archivo Markdown a través del cuadro de diálogo de guardado nativo (la exportación JSON/HTML está disponible en los detalles del trabajo de Studio)
+
+**Importando artefactos a la biblioteca:**
+- Los informes y guías de estudio se importan como documentos Markdown, listos para la cola y la extracción.
+- Los mapas mentales y las tablas de datos se importan como documentos estructurados que mantienen a sus visores interactivos.
+- Las resúmenes de audio se importan como elementos de estilo podcast; Resúmenes de vídeo como elementos de vídeo
+- Importación de presentaciones de diapositivas como documentos PDF; Las infografías se importan como documentos de imagen y también se agregan al **Registro de imágenes** (desduplicadas por contenido, por lo que volver a guardarlas no crea duplicados)
+- Los artefactos importados llegan a la raíz de la biblioteca de la colección y se vuelven elegibles para la cola en los mismos términos que otros artículos de la biblioteca.
+
+**Agregando fuentes:**
+- Agregue una **URL**, un enlace de **YouTube**, un **texto** pegado, un **archivo** local o elija un documento de su **Biblioteca**
+- Los documentos de la biblioteca se adjuntan a través del mismo canal de ingesta y muestran el estado pendiente hasta que NotebookLM termine de procesarlos.
+- Se detectan los documentos ya adjuntos para que no agregues duplicados
+
+**Guardar respuestas de chat como extractos:**
 1. Abra el chat del espacio de trabajo de NotebookLM
 2. En cualquier respuesta del asistente, haga clic en **Guardar como extracto**
 3. Opcional: resalte primero parte de la respuesta para guardar solo el texto seleccionado
@@ -1232,18 +1326,19 @@ Utilice NotebookLM dentro de Incrementum para investigar, generar artefactos de 
 
 **Solución de problemas:**
 - Si la vista previa del artefacto indica que los medios no están disponibles, espere a que finalice la generación de NotebookLM y vuelva a abrir el artefacto.
+- Si no se muestra un video, audio, infografía o diapositivas, vuelva a abrir el artefacto: el video/audio y la infografía vuelven a intentarlo a través de una ruta de medios alternativa automáticamente; Las presentaciones de diapositivas ofrecen la opción "Abrir con visor alternativo" cuando no se cargan.
 - Si utiliza el proveedor `cli`, asegúrese de que el sidecar/CLI de NotebookLM esté disponible en su compilación.
 - Si cambió de proveedor o la autenticación expiró, vuelva a conectarse en Integraciones → NotebookLM.
 
+#### Menciones de sección (`#`)
 
-#### Menciones de secciones (`#`)
+Escriba `#` en el Asistente (o en Flashcard Studio) para mencionar parte de un documento en su pregunta o mensaje.
 
-Escriba `#` en el Asistente (o en Flashcard Studio) para mencionar parte de un documento en su pregunta o indicación.
+- Los documentos con títulos o un esquema PDF/EPUB enumeran sus secciones, como antes.
+- Un artículo importado simple y sin encabezados obtiene un **índice de sección derivado**: los párrafos se agrupan en segmentos etiquetados, por lo que la ventana emergente nunca está vacía para un documento que tiene texto legible.
+- Si tiene texto **seleccionado** en el documento, su selección aparece como la primera entrada; al elegirla, se adjunta exactamente el texto seleccionado como contexto (truncado al presupuesto de contexto si es necesario, con un aviso).
+- Si el documento no tiene texto extraíble, la ventana emergente lo dice explícitamente en lugar de mostrar una lista vacía.
 
-- Los documentos con encabezados o un esquema PDF/EPUB enumeran sus secciones, como antes.
-- Un artículo importado sin encabezados obtiene un **índice de secciones derivado**: los párrafos se agrupan en segmentos etiquetados, por lo que la ventana emergente nunca está vacía para un documento con texto legible.
-- Si tiene texto **seleccionado** en el documento, su selección aparece como primer entrada: elegirla adjunta exactamente el texto seleccionado como contexto (recortado al presupuesto de contexto si es necesario, con un aviso).
-- Si el documento no tiene texto extraíble, la ventana emergente lo indica explícitamente en lugar de mostrar una lista vacía.
 #### Servidores MCP
 
 **Servidores de protocolo de contexto modelo (MCP):**
@@ -1413,7 +1508,9 @@ La mayoría de las plataformas de boletines publican canales RSS:
 - Encuesta automática para nuevos artículos.
 - Importar artículos como documentos.
 - Extraer puntos clave automáticamente
-- Crear tarjetas a partir de feeds.**Feeds recomendadas:**
+- Crear tarjetas a partir de feeds.
+
+**Feeds recomendadas:**
 - Sitios de noticias (BBC, CNN, etc.)
 - Blogs en tu campo.
 - Revistas de investigación
@@ -1540,7 +1637,9 @@ llama.cpp proporciona un servidor LLM local liviano para GLM-OCR sin requerir un
    - Configuración → OCR → Proveedor: **GLM-OCR (Local)**
    - Backend: **vLLM (GPU)** (este es el modo llama.cpp/vLLM; funciona para ambos)
    - Punto final: `http://localhost:8080/v1`
-   - Modelo: el nombre de archivo de su modelo (por ejemplo, `Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf`)**Consejos de rendimiento:**
+   - Modelo: el nombre de archivo de su modelo (por ejemplo, `Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf`)
+
+**Consejos de rendimiento:**
 - Utilice `-c 16384` o superior para documentos largos (el valor predeterminado 4096 es demasiado pequeño para la mayoría de las tareas de OCR)
 - Utilice `-t $(nproc)` para utilizar todos los subprocesos de la CPU
 - La cuantificación Q4_K_M ofrece la mejor relación calidad/velocidad para la inferencia de la CPU
@@ -1796,7 +1895,9 @@ La función **Intervalo de vista previa** le muestra exactamente cuándo aparece
 3. Elija la calificación según:
    - Su retiro actual
    - ¿Qué tan pronto quieres volver a verlo?
-   - Su horario (por ejemplo, el examen que se acerca)**Estrategia de ejemplo:**
+   - Su horario (por ejemplo, el examen que se acerca)
+
+**Estrategia de ejemplo:**
 - Examen en 2 semanas: califique "Fácil" en tarjetas importantes para volver a verlas pronto
 - Día ocupado: califique "Bueno" o "Fácil" para espaciar las reseñas
 - Quiere dominar: Califique "Difícil" para revisar con más frecuencia
@@ -1929,7 +2030,9 @@ Habilite el registro de depuración (Configuración → Avanzado → Modo de dep
 **Exportación de datos:**
 Exporte sus datos antes de cambios importantes (Configuración → Copia de seguridad → Exportar)
 
-### Recuperación**Eliminación accidental:**
+### Recuperación
+
+**Eliminación accidental:**
 1. Verifique las copias de seguridad (Configuración → Copia de seguridad)
 2. Restaurar desde una copia de seguridad reciente
 3. Póngase en contacto con el soporte si no hay una copia de seguridad disponible
@@ -2048,6 +2151,9 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 R: Puedes agregar boletines de dos maneras:
 1. **Directorio de boletines**: haga clic en RSS → Icono de boletín (📬) → Explore y suscríbase a boletines seleccionados.
 2. **URL directa**: Copie la URL de cualquier boletín (Substack, Beehiiv, etc.) → RSS → Agregar fuente → Pegar URL. Incrementum descubrirá automáticamente la fuente RSS.
+
+**P: ¿Por qué no se muestran los videos, audios, infografías o presentaciones de diapositivas de mi NotebookLM?**
+R: Los artefactos multimedia necesitan que su archivo se genere y esté listo antes de poder obtener una vista previa. Espere a que finalice la generación, luego vuelva a abrir el artefacto: el video/audio y las infografías vuelven a intentarlo automáticamente a través de una ruta de medios alternativa, y las presentaciones de diapositivas ofrecen la opción "Abrir con un visor alternativo" cuando no se cargan. Si aún falla, vuelva a conectar NotebookLM en Configuración → Integraciones y regenere el artefacto.
 
 **P: ¿Qué plataformas de boletines son compatibles?**
 R: Incrementum admite fuentes RSS de sitios Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium y WordPress. La mayoría de los boletines publican canales RSS; consulte el sitio web del boletín para obtener un enlace RSS o intente agregar `/feed` a la URL.
