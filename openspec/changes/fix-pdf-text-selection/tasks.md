@@ -38,3 +38,26 @@
 - [ ] 5.4 Verify creating an extract from PDF selection prepopulates selected text and source context.
 - [ ] 5.5 Verify creating a learning item or flashcard from PDF selection carries selected text and source context.
 - [ ] 5.6 Verify an image-only or no-text-layer PDF does not enable false selection-based actions.
+
+## 6. Reconciliation with fix-pdf-selection-persistence (2026-08)
+
+The `fix-pdf-selection-persistence` change was implemented against the same
+handlers (mouseup commit, mousedown clear, selectionchange). Outcome:
+
+- **2.2 / 2.3 superseded in part.** 2.2 ("preserve text + context after pointer
+  release") is now stronger: the committed `PdfSelectionContext` is persisted
+  through `reducePdfSelectionPersistence` and painted as a per-page overlay
+  that survives focus moves. 2.3's "clear when the selection becomes empty,
+  collapsed, or whitespace-only" was the headline bug — a dropped *native*
+  selection is no longer a clear signal. Clear semantics are now explicit
+  (new in-page drag, click outside a page, `Escape`, document change, action
+  completion, OCR region selection); a `selectionchange`-driven clear must not
+  be reintroduced.
+- **Remaining tasks still valid:** 3.5 (learning-item/flashcard flows), 4.4
+  (DocumentViewer handoff tests), and the 5.x manual checks are independent of
+  the persistence layer and remain open as originally scoped. The committed
+  selection's text/context is available via `onSelectionChange` exactly as
+  before, so downstream consumers need no changes.
+- **No code reverts needed** — the two changes do not conflict; this change
+  fixed the selection itself, the other fixed the actions on a selection.
+

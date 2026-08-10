@@ -9,6 +9,8 @@ import * as pdfjsLib from "pdfjs-dist";
 import { PDFPageView, EventBus } from "pdfjs-dist/web/pdf_viewer.mjs";
 import type { PageViewport } from "pdfjs-dist";
 import { HighlightLayer, type StoredHighlight } from "./HighlightLayer";
+import { SelectionOverlay } from "./SelectionOverlay";
+import type { PdfRect } from "../../types/selection";
 import { hasSelectableTextInLayer } from "./pdfTextSelection";
 import { cn } from "../../utils";
 
@@ -25,6 +27,10 @@ const PDF_TO_CSS_UNITS = 96 / 72;
 // One process-wide type alias so we don't fight pdf.js's any-typed exports.
 type PdfPageViewInstance = InstanceType<typeof PDFPageView>;
 
+// Stable empty array so `selectionPdfRects ?? EMPTY` keeps a constant reference
+// (a fresh `[]` per render would defeat SelectionOverlay's useMemo on pdfRects).
+const EMPTY_PDF_RECTS: PdfRect[] = [];
+
 export interface PdfPageViewWrapperProps {
   /** The loaded pdf.js document. The wrapper fetches its page on mount. */
   pdf: pdfjsLib.PDFDocumentProxy;
@@ -36,6 +42,8 @@ export interface PdfPageViewWrapperProps {
   eventBus: EventBus;
   /** Saved highlights to render over the page. */
   highlights: StoredHighlight[];
+  /** PDF-space rects of a persisted selection on this page (null = none). */
+  selectionPdfRects?: PdfRect[] | null;
   /** Whether OCR region selection is active (disables text-layer pointer events). */
   ocrActive: boolean;
   /** Called once the text layer has rendered, with the `.textLayer` root div. */
@@ -75,6 +83,7 @@ export function PdfPageViewWrapper({
   scale,
   eventBus,
   highlights,
+  selectionPdfRects,
   ocrActive,
   onTextLayerReady,
   onViewportChange,
@@ -266,6 +275,15 @@ export function PdfPageViewWrapper({
             console.log("Highlight clicked:", highlight);
             // TODO: Show highlight options menu
           }}
+        />
+        {/* Persisted-selection overlay: re-derives its rects from the selection's
+            PDF-space rects through the current viewport on every render, so it
+            tracks the passage across zoom / relayout. Painted only while this
+            page is rendered; committed state lives in the viewer. */}
+        <SelectionOverlay
+          pageIndex={pageIndex}
+          viewport={pageViewRef.current?.viewport ?? null}
+          pdfRects={selectionPdfRects ?? EMPTY_PDF_RECTS}
         />
       </div>
       {/* OCR overlays (region selector / progress / preview) render above
