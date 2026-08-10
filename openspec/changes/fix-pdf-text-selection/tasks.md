@@ -60,4 +60,3 @@ handlers (mouseup commit, mousedown clear, selectionchange). Outcome:
   before, so downstream consumers need no changes.
 - **No code reverts needed** — the two changes do not conflict; this change
   fixed the selection itself, the other fixed the actions on a selection.
-
