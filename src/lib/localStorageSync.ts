@@ -58,6 +58,15 @@ const BLOCKED_KEYS = new Set([
   // travel with the user so a second device does not re-onboard an existing
   // user. See `src/lib/onboardingTour.ts` and the onboarding-display-policy
   // spec.
+  //
+  // `incrementum-onboarding-tour-optout` IS blocked. It is a monotonic
+  // one-way ratchet set the moment the user opts out of the tour, layered on
+  // top of the synced record so a stale last-writer-wins replay of the main
+  // key can never revive `autoDisplayDisabled` back to false (which would
+  // re-onboard a user who already said "never again"). Syncing it would let a
+  // peer's absent/stale value un-set it; keeping it device-local means only a
+  // local `resetOnboardingState()` can clear it.
+  "incrementum-onboarding-tour-optout",
 ]);
 
 const BLOCKED_PREFIXES = [
