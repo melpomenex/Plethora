@@ -5,7 +5,7 @@ The "Customize Session" modal exposes tag, category, priority range, and exclude
 ## What Changes
 
 - Make `visibleItems` in `ReviewQueueView` respect the session customization filters (tags, categories, priority range, exclude suspended) so the queue list reflects what the user configured
-- Ensure `selectableItems` and manual browse also reflect the filtered set
+- Ensure `selectableItems` also reflects the filtered set
 - Add comprehensive tests for all session customization filters in `reviewUx.ts` (`applyFilters`) and `SessionCustomizeModal.tsx`
 - Verify item type, tag, category, priority range, and exclude-suspended filters each work independently and in combination
 
