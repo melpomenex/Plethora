@@ -89,7 +89,7 @@ export function useQueueNavigation() {
       type: "document-viewer",
       content: QueueDocumentViewer,
       closable: true,
-      data: { documentId: item.documentId },
+      data: { documentId: item.documentId, openedFrom: "queue" },
     });
     setActiveTab('main', tabId);
   }, [addTab, setActiveTab]);

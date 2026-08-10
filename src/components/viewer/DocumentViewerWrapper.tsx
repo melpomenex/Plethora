@@ -29,6 +29,11 @@ interface DocumentViewerWithAssistantProps {
   autoPlay?: boolean;
   focusedExtractId?: string;
   extractSourceContext?: ExtractSourceContext;
+  // Origin the document was opened from. "documents" hides the rating orbs
+  // (library browsing); "queue" keeps them (active review). Forwarded to the
+  // underlying viewer so the tab-data signal survives the wrapper.
+  openedFrom?: string;
+  hideRatingOrbs?: boolean;
 }
 
 export function DocumentViewer({
@@ -39,6 +44,8 @@ export function DocumentViewer({
   autoPlay,
   focusedExtractId,
   extractSourceContext,
+  openedFrom,
+  hideRatingOrbs,
 }: DocumentViewerWithAssistantProps) {
   const isActiveTab = useIsActiveTab();
   const [selection, setSelection] = useState("");
@@ -354,6 +361,8 @@ export function DocumentViewer({
         onPdfOcrContextTextChange={setPdfOcrContextText}
         contextPageWindow={2}
         onVideoContextChange={setVideoContext}
+        openedFrom={openedFrom}
+        hideRatingOrbs={hideRatingOrbs}
       />
     </div>
   );

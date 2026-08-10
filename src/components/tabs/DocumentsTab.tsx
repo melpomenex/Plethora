@@ -19,7 +19,7 @@ export function DocumentsTab() {
       type: "document-viewer",
       content: DocumentViewer,
       closable: true,
-      data: { documentId: doc.id },
+      data: { documentId: doc.id, openedFrom: "documents" },
     });
   };
 
