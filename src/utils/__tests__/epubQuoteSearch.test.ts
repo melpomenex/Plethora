@@ -34,6 +34,40 @@ describe("tolerantPhraseRegex", () => {
 });
 
 describe("collectSectionCfiMatches", () => {
+  it("matches a phrase split across text nodes by an inline element", () => {
+    // `<a id="page_7"/>` page anchors split paragraphs into text nodes and
+    // drop the whitespace the indexed text had — the match must span nodes.
+    const doc = new DOMParser().parseFromString(
+      '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>why this is so <a id="page_7"/>in a later chapter. Frequently, my obligatory athletes come to class.</p></body></html>',
+      "text/xml"
+    );
+    const section = {
+      document: doc,
+      cfiFromRange: () => "epubcfi(/6/4!)",
+    };
+    const cfis = collectSectionCfiMatches(
+      section,
+      tolerantPhraseRegex("why this is so in a later chapter. Frequently, my obligatory athletes come to class")
+    );
+    expect(cfis.length).toBeGreaterThan(0);
+  });
+
+  it("matches a phrase spanning a paragraph boundary", () => {
+    const doc = new DOMParser().parseFromString(
+      '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>End of the first paragraph.</p><p>Start of the second paragraph with the cited passage.</p></body></html>',
+      "text/xml"
+    );
+    const section = {
+      document: doc,
+      cfiFromRange: () => "epubcfi(/6/4!)",
+    };
+    const cfis = collectSectionCfiMatches(
+      section,
+      tolerantPhraseRegex("first paragraph. Start of the second paragraph with the cited passage")
+    );
+    expect(cfis.length).toBeGreaterThan(0);
+  });
+
   it("collects one CFI per match from a section's DOM", () => {
     const doc = new DOMParser().parseFromString(
       "<html><body><p>Intro words.</p><p>The cited passage lives here.</p></body></html>",

@@ -272,13 +272,20 @@ export function DocumentQATab() {
     scrollToBottom();
   }, [messages]);
 
+  // Seed the focus selector once on mount. The Q&A tab is a long-lived
+  // singleton, so re-running on every currentDocument/documents change would
+  // yank the user's explicit choice (e.g. "Whole Library (RAG)") whenever a
+  // source click or any other action opens a document viewer (which updates
+  // the store's currentDocument).
   useEffect(() => {
-    if (currentDocument) {
-      setSelectedDocumentId(currentDocument.id);
-    } else if (documents.length > 0 && !selectedDocumentId) {
-      setSelectedDocumentId(documents[0].id);
-    }
-  }, [currentDocument, documents]);
+    setSelectedDocumentId((prev) => {
+      if (prev) return prev;
+      if (currentDocument) return currentDocument.id;
+      if (documents.length > 0) return documents[0].id;
+      return "";
+    });
+    // Intentionally mount-only: later changes must not overwrite the choice.
+  }, []);
 
   // Detect chapter references in the query reactively
   useEffect(() => {
