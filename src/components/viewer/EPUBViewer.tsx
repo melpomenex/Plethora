@@ -23,6 +23,7 @@ import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 import { buildSegmentCfiMap, findActiveSegment, type SyncSegment } from "../../utils/epubSync";
 import { dispatchCommandPaletteOpen, isCommandPaletteOpenShortcut } from "../../utils/commandPaletteShortcut";
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
+import { tolerantPhraseRegex, collectSectionCfiMatches } from "../../utils/epubQuoteSearch";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
 import type { EpubVimRuntime } from "../../utils/vim/readerRuntimes";
@@ -1677,6 +1678,45 @@ export function EPUBViewer({
     reportLiveSearchResults(searchQuery?.trim() ?? "", results, activeIndex);
   }, [removeSearchAnnotations, rendition, reportLiveSearchResults, searchQuery]);
 
+  /**
+   * Full-book passage search. epubjs has no `Book.search` in the bundled
+   * version (only per-section exact `Section.search`), so a citation jump used
+   * to fall through to the visible-content search — which only scans the
+   * currently displayed section — and landed on the book's title page when the
+   * passage was in another chapter. Load each linear spine section and match
+   * with a tolerant phrase regex (flexible whitespace + typographic
+   * punctuation), stopping at the first section that matches (spine order =
+   * reading order).
+   */
+  const searchEntireBook = useCallback(
+    async (query: string): Promise<string[]> => {
+      if (!book || !query.trim()) return [];
+      const spine = book.spine as { each?: (fn: (s: any) => void) => void; spineItems?: any[] } | undefined;
+      const sections: any[] = [];
+      if (spine?.each) {
+        spine.each((section: any) => sections.push(section));
+      } else if (Array.isArray(spine?.spineItems)) {
+        sections.push(...spine.spineItems);
+      }
+      if (sections.length === 0) return [];
+
+      const regex = tolerantPhraseRegex(query);
+      const cfis: string[] = [];
+      for (const section of sections) {
+        if (section?.linear === false) continue;
+        try {
+          await section.load(book.load.bind(book));
+        } catch {
+          continue;
+        }
+        cfis.push(...collectSectionCfiMatches(section, regex));
+        if (cfis.length > 0) break;
+      }
+      return cfis;
+    },
+    [book]
+  );
+
   const applySearchHighlights = useCallback(async () => {
     if (!highlightQuery || !highlightQuery.trim()) return;
     if (!rendition || !book) return;
@@ -1715,7 +1755,20 @@ export function EPUBViewer({
       .filter(Boolean)
       .map((cfi: any) => String(cfi));
 
-    // Fall back to visible-content DOM search when book.search returns nothing
+    // Fall back to a tolerant full-book search when book.search (or its
+    // absence — epubjs ships no Book.search) finds nothing: the passage can be
+    // in any chapter, and only scanning the visible section left the viewer on
+    // the title page.
+    if (cfis.length === 0) {
+      try {
+        cfis = await searchEntireBook(query);
+      } catch (error) {
+        console.warn("EPUBViewer: full-book search failed:", error);
+        cfis = [];
+      }
+    }
+
+    // Last resort: search the currently visible content only.
     if (cfis.length === 0) {
       cfis = searchVisibleContents(query);
     }
@@ -1752,14 +1805,16 @@ export function EPUBViewer({
         }
       }
     }
-  }, [book, highlightQuery, initialCfi, initialSearchMatchIndex, initialSearchTextQuote, rendition, searchVisibleContents]);
+  }, [book, highlightQuery, initialCfi, initialSearchMatchIndex, initialSearchTextQuote, rendition, searchEntireBook, searchVisibleContents]);
 
   useEffect(() => {
     let cancelled = false;
+    // Full-book passage searches can load many sections; give them room to
+    // finish before declaring the jump failed.
     const timeout = setTimeout(() => {
       if (cancelled) return;
       console.warn("EPUBViewer: applySearchHighlights timed out, skipping exact navigation");
-    }, 3000);
+    }, 15000);
     applySearchHighlights().finally(() => {
       clearTimeout(timeout);
     });
