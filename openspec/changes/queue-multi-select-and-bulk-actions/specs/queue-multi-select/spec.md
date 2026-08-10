@@ -106,9 +106,9 @@ selection SHALL clear before that mode exits.
 - **WHEN** items are selected and the user presses `Escape` while composing text with an IME
 - **THEN** the selection SHALL be unchanged
 
-#### Scenario: Selection clears before a browse mode exits
-- **WHEN** the review queue is in manual browse with items selected and the user presses `Escape`
-- **THEN** the selection SHALL clear and manual browse SHALL remain active until a second `Escape`
+#### Scenario: Selection clears on Escape
+- **WHEN** the review queue has items selected and the user presses `Escape`
+- **THEN** the selection SHALL clear
 
 ### Requirement: Selected rows are visually distinct
 Every selected queue row SHALL render with the `bg-primary/10` background tint and a

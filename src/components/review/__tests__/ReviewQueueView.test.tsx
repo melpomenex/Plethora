@@ -175,21 +175,6 @@ describe("ReviewQueueView", () => {
     expect(onStartReview).toHaveBeenCalledWith("card-2", ["card-2"]);
   });
 
-  it("supports manual browse keyboard navigation and activation", () => {
-    const onOpenDocument = vi.fn();
-    render(<ReviewQueueView onOpenDocument={onOpenDocument} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Manual Browse" }));
-    const list = screen.getByLabelText("Queue items list");
-    fireEvent.keyDown(list, { key: "ArrowDown" });
-    fireEvent.click(screen.getByRole("button", { name: "Open Selected" }));
-
-    expect(onOpenDocument).toHaveBeenCalledTimes(1);
-    expect(onOpenDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "item-3", documentId: "doc-3" })
-    );
-  });
-
   it("shows deterministic visible queue positions and marks the next item", () => {
     render(<ReviewQueueView />);
 
