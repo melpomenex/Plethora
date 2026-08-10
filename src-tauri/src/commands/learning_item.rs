@@ -287,6 +287,70 @@ pub async fn create_learning_item(
     Ok(created)
 }
 
+/// One card in a `create_learning_items_batch` request. Mirrors the fields the
+/// frontend sends for `create_learning_item`, without prerequisite handling
+/// (batch flows have no prerequisites).
+#[derive(serde::Deserialize)]
+pub struct CreateLearningItemBatchEntry {
+    #[serde(rename = "item_type")]
+    pub item_type: String,
+    pub question: String,
+    pub answer: Option<String>,
+    #[serde(rename = "cloze_text")]
+    pub cloze_text: Option<String>,
+    #[serde(rename = "extract_id")]
+    pub extract_id: Option<String>,
+    #[serde(rename = "document_id")]
+    pub document_id: Option<String>,
+    pub tags: Option<Vec<String>>,
+    #[serde(rename = "image_asset_ids")]
+    pub image_asset_ids: Option<Vec<String>>,
+    #[serde(rename = "interaction_metadata")]
+    pub interaction_metadata: Option<serde_json::Value>,
+}
+
+/// Create several cards in one transaction (all or none), reporting the whole
+/// session's result. Used by the Image Occlusion Composer, where one authoring
+/// session produces multiple cards. Semantic duplicate detection is skipped by
+/// design on this path.
+#[tauri::command]
+pub async fn create_learning_items_batch(
+    items: Vec<CreateLearningItemBatchEntry>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<LearningItem>> {
+    let mut to_create: Vec<LearningItem> = Vec::with_capacity(items.len());
+    for entry in items {
+        let item_type = match entry.item_type.as_str() {
+            "flashcard" => ItemType::Flashcard,
+            "cloze" => ItemType::Cloze,
+            "qa" => ItemType::Qa,
+            _ => ItemType::Basic,
+        };
+        let mut item = LearningItem::new(item_type, entry.question);
+        item.extract_id = entry.extract_id.clone();
+        item.document_id = entry.document_id;
+        item.answer = entry.answer;
+        item.cloze_text = entry.cloze_text;
+        item.tags = entry.tags.unwrap_or_default();
+        item.image_asset_ids = entry.image_asset_ids.unwrap_or_default();
+        item.interaction_metadata = entry.interaction_metadata;
+        if item.extract_id.is_some() && item.document_id.is_none() {
+            if let Some(ext_id) = &item.extract_id {
+                if let Ok(Some(extract)) = repo.get_extract(ext_id).await {
+                    item.document_id = Some(extract.document_id);
+                }
+            }
+        }
+        to_create.push(item);
+    }
+
+    let created = repo.create_learning_items_batch(&to_create).await?;
+    for item in &created {
+        append_daily_note_learning_item_link(&item.id, &item.question, &repo).await?;
+    }
+    Ok(created)
+}
+
 /// Set a learning item's user-set priority (supermemo-faithful-queue Phase 3).
 /// Mirrors `update_document_priority`: the slider is the authoritative
 /// importance rank on the 0-100 scale; the score is derived from it. FSRS

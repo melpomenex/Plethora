@@ -218,6 +218,15 @@ export function ImageRegistryLibrary({
     await ingestFiles(files);
   }, [ingestFiles]);
 
+  /** Open the Image Occlusion Composer for an asset already in the registry. */
+  const dispatchOcclusionRequest = useCallback((assetId: string) => {
+    window.dispatchEvent(
+      new CustomEvent("incrementum:create-image-occlusion", {
+        detail: { assetId },
+      }),
+    );
+  }, []);
+
   /**
    * Ingested images get a generated name (`saved-image-<timestamp>.png`), which
    * is unusable for finding anything later. Renaming is display-only: cards and
@@ -421,6 +430,19 @@ export function ImageRegistryLibrary({
               <Trash className="h-4 w-4" />
               {t("imageRegistry.deleteSelected")}
             </button>
+            <button
+              type="button"
+              data-testid="create-occlusion-card"
+              onClick={() => {
+                if (selectedIds.length === 1) dispatchOcclusionRequest(selectedIds[0]);
+              }}
+              disabled={isBusy || selectedIds.length !== 1}
+              title={t("imageRegistry.createOcclusionCardDesc")}
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+            >
+              <FrameCorners className="h-4 w-4" />
+              {t("imageRegistry.createOcclusionCard")}
+            </button>
             {showCloseButton && onClose && (
               <button
                 type="button"
@@ -512,11 +534,25 @@ export function ImageRegistryLibrary({
                             {t("imageRegistry.available")}
                           </span>
                         )}
-                        {selected && (
-                          <span className="rounded-full bg-primary p-1 text-primary-foreground">
-                            <Check className="h-3 w-3" />
-                          </span>
-                        )}
+                        <span className="flex items-center gap-1">
+                          {selected && (
+                            <span className="rounded-full bg-primary p-1 text-primary-foreground">
+                              <Check className="h-3 w-3" />
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={t("imageRegistry.createOcclusionCard")}
+                            title={t("imageRegistry.createOcclusionCardDesc")}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              dispatchOcclusionRequest(asset.id);
+                            }}
+                            className="rounded-full bg-black/60 p-1.5 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                          >
+                            <FrameCorners className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
                       </div>
                     </div>
                     <div className="space-y-2 px-3 py-3">

@@ -946,30 +946,6 @@ export function DocumentViewer({
   } | null>(null);
   const lastSelectionRef = useRef("");
 
-  useEffect(() => {
-    const handleImageOcclusionRequest = (
-      event: CustomEvent<{ assetId?: string; documentId?: string }>,
-    ) => {
-      const { assetId, documentId: sourceDocumentId } = event.detail ?? {};
-      if (!isTabActive || !assetId || sourceDocumentId !== documentId) return;
-      setFlashcardStudioSeed({
-        key: `image-occlusion-${assetId}-${Date.now()}`,
-        documentId,
-        draftCardType: "image-occlusion",
-        imageAssetId: assetId,
-        resetDraftCards: true,
-        autoEditDraft: true,
-      });
-    };
-    window.addEventListener(
-      "incrementum:create-image-occlusion",
-      handleImageOcclusionRequest as EventListener,
-    );
-    return () => window.removeEventListener(
-      "incrementum:create-image-occlusion",
-      handleImageOcclusionRequest as EventListener,
-    );
-  }, [documentId, isTabActive]);
   // Guard that suppresses selection re-population for a short window after an
   // extract is created. On mobile (esp. EPUB/OCR-HTML), creating an extract
   // applies a highlight whose DOM mutation re-fires the viewer's selection

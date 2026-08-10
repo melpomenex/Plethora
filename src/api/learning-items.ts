@@ -185,6 +185,33 @@ export async function createLearningItem(input: CreateLearningItemInput): Promis
   return item;
 }
 
+/**
+ * Create several cards in one transactional write: either every card is
+ * persisted or none are, and the whole-session result is returned. Used by the
+ * Image Occlusion Composer, where one authoring session can produce many cards.
+ *
+ * Semantic duplicate detection is intentionally skipped on this path — the
+ * composer deliberately creates near-identical cards (same question, one
+ * hidden region each), which the single-item path would reject. Callers that
+ * need duplicate checks must use `createLearningItem` per card.
+ */
+export async function createLearningItemsBatch(
+  inputs: CreateLearningItemInput[],
+): Promise<LearningItem[]> {
+  const items = await invokeCommand<LearningItem[]>("create_learning_items_batch", {
+    items: inputs,
+  });
+  void (async () => {
+    try {
+      const { publishCards } = await import("../lib/sync/entities/flashcards");
+      await publishCards(items);
+    } catch (err) {
+      console.warn("[learning-items] batch sync publish failed (non-fatal)", err);
+    }
+  })();
+  return items;
+}
+
 export async function checkSemanticDuplicateCandidates(
   question: string,
   limit: number = 5

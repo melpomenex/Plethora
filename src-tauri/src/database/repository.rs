@@ -457,8 +457,18 @@ impl Repository {
                 title = excluded.title,
                 file_path = excluded.file_path,
                 file_type = excluded.file_type,
-                content = excluded.content,
-                content_hash = excluded.content_hash,
+                -- Sync publishes deliberately omit the (regenerable) extracted
+                -- text and content hash (see frontend publishDocument), and the
+                -- file-sync registration path upserts content-less summaries.
+                -- A conflict-update must therefore never wipe content this
+                -- device already has: keep the existing row's content/content_hash
+                -- whenever the incoming row carries no content. Content_hash
+                -- follows content so the pair stays consistent.
+                content = COALESCE(excluded.content, documents.content),
+                content_hash = CASE
+                    WHEN excluded.content IS NULL THEN documents.content_hash
+                    ELSE COALESCE(excluded.content_hash, documents.content_hash)
+                END,
                 total_pages = excluded.total_pages,
                 current_page = excluded.current_page,
                 current_scroll_percent = excluded.current_scroll_percent,
@@ -666,6 +676,18 @@ impl Repository {
             );
         }
         Ok(result)
+    }
+
+    /// Return true when a document is registered with exactly this `file_path`.
+    /// Used by the media server to authorize streaming files that were
+    /// imported in place (outside the app-managed directories).
+    pub async fn document_exists_with_file_path(&self, file_path: &str) -> Result<bool> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT id FROM documents WHERE file_path = ? LIMIT 1")
+                .bind(file_path)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.is_some())
     }
 
     pub async fn find_document_by_url(&self, url: &str) -> Result<Option<Document>> {
@@ -2613,6 +2635,121 @@ impl Repository {
         tx.commit().await?;
 
         Ok(item.clone())
+    }
+
+    /// Create several learning items in a single transaction: either all are
+    /// written or none are. Each item goes through the same INSERT + element
+    /// tree edge as `create_learning_item`, inside one shared transaction.
+    /// Used by the Image Occlusion Composer's multi-card save. Duplicate
+    /// detection is intentionally not applied (callers opt in to this path for
+    /// flows that deliberately create many near-identical cards).
+    pub async fn create_learning_items_batch(
+        &self,
+        items: &[LearningItem],
+    ) -> Result<Vec<LearningItem>> {
+        let mut tx = self.pool.begin().await?;
+
+        for item in items {
+            let item_type_str = format!("{:?}", item.item_type).to_lowercase();
+            let state_str = format!("{:?}", item.state).to_lowercase();
+            let tags_json = serde_json::to_string(&item.tags)?;
+            let image_asset_ids_json = serde_json::to_string(&item.image_asset_ids)?;
+            let interaction_metadata_json = item
+                .interaction_metadata
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?;
+            let cloze_ranges_json = item
+                .cloze_ranges
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?;
+
+            let (stability, difficulty) = item
+                .memory_state
+                .as_ref()
+                .map(|s| (Some(s.stability), Some(s.difficulty)))
+                .unwrap_or((None, None));
+
+            let priority_score =
+                crate::algorithms::calculate_document_priority_score(None, item.priority_slider);
+
+            sqlx::query(
+                r#"
+                INSERT INTO learning_items (
+                    id, collection_id, extract_id, document_id, item_type, question,
+                    answer, cloze_text, cloze_ranges, difficulty, interval,
+                    ease_factor, due_date, date_created, date_modified,
+                    last_review_date, review_count, lapses, state,
+                    is_suspended, tags, image_asset_ids, interaction_metadata, memory_state_stability, memory_state_difficulty,
+                    algorithm_type, algorithm_state, updated_at,
+                    priority_slider, priority_score, priority_explicitly_set
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)
+                "#,
+            )
+            .bind(&item.id)
+            .bind(&item.collection_id)
+            .bind(&item.extract_id)
+            .bind(&item.document_id)
+            .bind(item_type_str)
+            .bind(&item.question)
+            .bind(&item.answer)
+            .bind(&item.cloze_text)
+            .bind(cloze_ranges_json)
+            .bind(item.difficulty)
+            .bind(item.interval)
+            .bind(item.ease_factor)
+            .bind(item.due_date)
+            .bind(item.date_created)
+            .bind(item.date_modified)
+            .bind(item.last_review_date)
+            .bind(item.review_count)
+            .bind(item.lapses)
+            .bind(&state_str)
+            .bind(item.is_suspended)
+            .bind(&tags_json)
+            .bind(&image_asset_ids_json)
+            .bind(&interaction_metadata_json)
+            .bind(stability)
+            .bind(difficulty)
+            .bind(&item.algorithm_type)
+            .bind(&item.algorithm_state)
+            .bind(&item.updated_at)
+            .bind(item.priority_slider)
+            .bind(priority_score)
+            .bind(item.priority_explicitly_set)
+            .execute(&mut *tx)
+            .await?;
+
+            let parent_node = if let Some(extract_id) = &item.extract_id {
+                find_node_id_in_tx(&mut tx, ElementKind::Extract, extract_id)
+                    .await
+                    .ok()
+                    .flatten()
+            } else if let Some(doc_id) = &item.document_id {
+                find_node_id_in_tx(&mut tx, ElementKind::Document, doc_id)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+            if let Some(parent_id) = parent_node {
+                let created_at = item.date_created.to_rfc3339();
+                register_node_in_tx(
+                    &mut tx,
+                    ElementKind::LearningItem,
+                    &item.id,
+                    ELEMENT_TYPE_ITEM,
+                    Some(parent_id),
+                    &created_at,
+                )
+                .await?;
+            }
+        }
+
+        tx.commit().await?;
+        Ok(items.to_vec())
     }
 
     pub async fn get_due_learning_items(
@@ -8233,6 +8370,61 @@ mod tests {
         // create_document goes through the default (priority_explicitly_set = 0);
         // only update_document_priority flips it to true.
         assert!(!read.priority_explicitly_set);
+    }
+
+    /// Regression: sync publishes strip the (regenerable) extracted-text fields
+    /// (see frontend `publishDocument`), and the file-sync registration path
+    /// upserts content-less summaries. `upsert_synced_document` must therefore
+    /// never wipe content/content_hash this device already has when the
+    /// incoming row carries no content — otherwise documents silently become
+    /// unopenable and RAG citations to them can never resolve.
+    #[tokio::test]
+    async fn synced_upsert_preserves_local_content_when_incoming_has_none() {
+        let repo = setup_repo().await;
+
+        // Local row with extracted content, as written by the import pipeline.
+        let mut local = Document::new(
+            "SyncBook".to_string(),
+            "/tmp/syncbook.epub".to_string(),
+            FileType::Epub,
+        );
+        local.content = Some("extracted text that must survive sync".to_string());
+        local.content_hash = Some("local-hash".to_string());
+        let created = repo.create_document(&local).await.expect("create");
+
+        // A stripped sync publish for the same id: newer clock, no content, and
+        // only the sender's content_hash (kept on the wire by publishDocument).
+        let mut remote = Document::new(
+            "SyncBook".to_string(),
+            String::new(),
+            FileType::Epub,
+        );
+        remote.id = created.id.clone();
+        remote.content = None;
+        remote.content_hash = Some("remote-hash".to_string());
+        remote.date_modified = created.date_modified + chrono::Duration::seconds(60);
+        repo.upsert_synced_document(&remote).await.expect("upsert");
+
+        let read = repo
+            .get_document(&created.id)
+            .await
+            .expect("get")
+            .expect("found");
+        // Local content and its hash must survive the content-less upsert.
+        assert_eq!(read.content.as_deref(), Some("extracted text that must survive sync"));
+        assert_eq!(read.content_hash.as_deref(), Some("local-hash"));
+
+        // A genuinely content-bearing upsert still updates both fields.
+        remote.content = Some("re-extracted newer text".to_string());
+        remote.content_hash = Some("newer-hash".to_string());
+        repo.upsert_synced_document(&remote).await.expect("upsert with content");
+        let read = repo
+            .get_document(&created.id)
+            .await
+            .expect("get")
+            .expect("found");
+        assert_eq!(read.content.as_deref(), Some("re-extracted newer text"));
+        assert_eq!(read.content_hash.as_deref(), Some("newer-hash"));
     }
 
     /// documents.extract_count / learning_item_count are maintained by the

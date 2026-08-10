@@ -68,7 +68,7 @@ import {
   type CreateLearningItemInput,
 } from "../../api/learning-items";
 import { getExtracts, type Extract } from "../../api/extracts";
-import { chatWithContext, type LLMMessage, type LLMMessageContentPart } from "../../api/llm";
+import { chatWithContext, type LLMMessage } from "../../api/llm";
 import {
   notebooklmGenerateArtifact,
   notebooklmGetSettings,
@@ -77,8 +77,8 @@ import {
   notebooklmSelectNotebook,
   type NotebookSummary,
 } from "../../api/integrations";
-import { getImageAssetById, ingestImageFile, listImageAssets, type ImageAsset } from "../../api/image-registry";
-import { clampRegions } from "../../utils/occlusion";
+import { ingestImageFile, listImageAssets, type ImageAsset } from "../../api/image-registry";
+import { modelSupportsImageInput, normalizeOcclusionRegions } from "../../utils/occlusionAI";
 import { getVideoTranscript } from "../../api/video-extracts";
 import { extractYouTubeID, fetchYouTubeTranscript } from "../../api/youtube";
 import { renderMarkdown } from "../../utils/markdown";
@@ -91,7 +91,8 @@ import { buildChapterQAContext, getChapterTitles } from "../../utils/chapterUtil
 import { resolveFlashcardTarget, type FlashcardTargetOverride } from "../../utils/flashcardTarget";
 import { NumericInput } from "../common";
 import type { ImageOcclusionRegion, MultipleChoiceOption } from "../../types/learningItemInteractions";
-import { OcclusionRegionEditor, OcclusionLightbox } from "../occlusion/OcclusionRegionEditor";
+import { OcclusionLightbox } from "../occlusion/OcclusionLightbox";
+import { StudioOcclusionComposerLauncher } from "./studio/StudioOcclusionComposerLauncher";
 import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
 import { ExtractBrowserPanel } from "./ExtractBrowserPanel";
 import { extractDocumentText, getDocument } from "../../api/documents";
@@ -289,36 +290,6 @@ Rules for excellent flashcards:
 - If the user is just chatting, answer normally without JSON`;
 }
 
-const IMAGE_OCCLUSION_SYSTEM_PROMPT = `You create image occlusion flashcards from one or more study images.
-
-Return a JSON code block with this exact schema:
-
-\`\`\`json
-{
-  "cards": [
-    {
-      "type": "image-occlusion",
-      "imageAssetId": "exact-registry-asset-id",
-      "question": "What is hidden here?",
-      "answer": "Short reveal explanation",
-      "regions": [
-        { "bbox": [ymin, xmin, ymax, xmax], "label": "optional short label" }
-      ]
-    }
-  ]
-}
-\`\`\`
-
-Rules:
-- Return ONLY the JSON code block.
-- Use the provided imageAssetId values exactly as given.
-- bbox is [ymin, xmin, ymax, xmax] with each value in the range 0–1000, normalized to the full image dimensions.
-- Create 1-4 useful hidden regions per image when the image supports it.
-- Hide labels, terms, callouts, diagram parts, answers, or key visual anchors.
-- Do not create tiny unusable boxes. Keep regions readable and reasonably tight.
-- Skip images that do not contain good occlusion targets.
-- Keep the question and answer concise.
-- Never invent imageAssetId values that were not provided.`;
 
 const QUICK_TEMPLATES: QuickTemplate[] = [
   {
@@ -395,75 +366,6 @@ function normalizeCardType(value?: string): DraftCardType | null {
     return "image-occlusion";
   }
   return null;
-}
-
-function clampPercent(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, value));
-}
-
-function normalizeOcclusionRegions(value: unknown): ImageOcclusionRegion[] {
-  if (!Array.isArray(value)) return [];
-  const normalized: ImageOcclusionRegion[] = [];
-  value.forEach((entry, index) => {
-      const region = entry as Record<string, unknown>;
-      let x: number, y: number, width: number, height: number;
-
-      if (Array.isArray(region.bbox) && region.bbox.length >= 4) {
-        const [ymin, xmin, ymax, xmax] = (region.bbox as number[]).map(Number);
-        x = clampPercent(xmin / 10);
-        y = clampPercent(ymin / 10);
-        width = clampPercent((xmax - xmin) / 10);
-        height = clampPercent((ymax - ymin) / 10);
-      } else {
-        x = clampPercent(Number(region.x));
-        y = clampPercent(Number(region.y));
-        width = clampPercent(Number(region.width));
-        height = clampPercent(Number(region.height));
-      }
-
-      if (width <= 0 || height <= 0) return;
-      normalized.push({
-        id: (typeof region.id === "string" ? region.id : null) || `region-${index + 1}`,
-        x,
-        y,
-        width: Math.min(width, 100 - x),
-        height: Math.min(height, 100 - y),
-        label: typeof region.label === "string" ? region.label : undefined,
-        color: typeof region.color === "string" ? region.color : undefined,
-      });
-    });
-  return normalized;
-}
-
-function modelSupportsImageInput(provider: string, model?: string, baseUrl?: string): boolean {
-  const normalizedModel = (model || "").trim().toLowerCase();
-  const normalizedBaseUrl = (baseUrl || "").trim().toLowerCase();
-
-  if (!normalizedModel) return false;
-
-  if (provider === "anthropic") {
-    return /claude-3|claude-3-5|claude-3\.5|claude-3-7|claude-sonnet|claude-opus|claude-haiku/.test(normalizedModel);
-  }
-
-  if (provider === "openai") {
-    return /gpt-4o|gpt-4\.1|gpt-5|gpt-4-turbo|\bo1\b|\bo3\b|vision|vl|llava|glm-4v|qwen.*vl|minicpm-v|gemma-?3|llama-3\.2-vision/.test(normalizedModel)
-      || (normalizedBaseUrl.includes("localhost") && /llava|vision|vl|glm-4v|qwen.*vl|minicpm-v|gemma-?3/.test(normalizedModel));
-  }
-
-  if (provider === "openrouter") {
-    return /gpt-4o|gpt-4\.1|gpt-5|\bo1\b|\bo3\b|claude|gemini|gemma-?3|grok-4|grok-2-vision|vision|vl|llava|pixtral|glm-4v|qwen.*vl|minicpm-v|llama-3\.1|llama-3\.2|llama-4|mistral-small|phi-3\.5-vision|phi-4/.test(normalizedModel);
-  }
-
-  if (provider === "ollama") {
-    return /llava|bakllava|vision|vl|qwen.*vl|minicpm-v|gemma-?3|llama-3\.2-vision/.test(normalizedModel);
-  }
-
-  if (provider === "gemini") {
-    return /gemini/.test(normalizedModel);
-  }
-
-  return false;
 }
 
 function parseCardsFromResponse(content: string, sourceMessageId: string): { cards: DraftCard[]; cleaned: string } {
@@ -660,7 +562,7 @@ function parseCardsFromResponse(content: string, sourceMessageId: string): { car
             : typeof e.imageOcclusionAssetId === "string"
             ? e.imageOcclusionAssetId.trim()
             : "";
-        const imageOcclusionRegions = normalizeOcclusionRegions(e.regions ?? e.imageOcclusionRegions);
+        const imageOcclusionRegions = normalizeOcclusionRegions(e.regions ?? e.imageOcclusionRegions).regions;
         if (!imageOcclusionAssetId || imageOcclusionRegions.length === 0) return;
         cards.push({
           ...baseCard,
@@ -1497,10 +1399,10 @@ function CardPreview({
                 ))}
               </select>
             </div>
-            <OcclusionRegionEditor
-              asset={previewAsset}
+            <StudioOcclusionComposerLauncher
+              assetId={editForm.imageOcclusionAssetId}
               regions={(editForm.imageOcclusionRegions as ImageOcclusionRegion[] | undefined) || []}
-              onChange={(regions) => setEditForm((form) => ({ ...form, imageOcclusionRegions: regions }))}
+              onRegionsChange={(regions) => setEditForm((form) => ({ ...form, imageOcclusionRegions: regions }))}
             />
           </>
         )}
@@ -2083,10 +1985,10 @@ function CardEditLightbox({
                   ))}
                 </select>
               </div>
-              <OcclusionRegionEditor
-                asset={previewAsset}
+              <StudioOcclusionComposerLauncher
+                assetId={editForm.imageOcclusionAssetId}
                 regions={(editForm.imageOcclusionRegions as ImageOcclusionRegion[] | undefined) || []}
-                onChange={(regions) => onEditFormChange((form) => ({ ...form, imageOcclusionRegions: regions }))}
+                onRegionsChange={(regions) => onEditFormChange((form) => ({ ...form, imageOcclusionRegions: regions }))}
               />
             </div>
           )}
@@ -3066,7 +2968,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     }
   }, [isOpen, seed, createBlankDraftCard, startFreshSession, messages.length, draftCards.length]);
 
-  const handleGenerateImageOcclusions = async () => {
+  // Image occlusion now opens the Image Occlusion Composer (mounted at the app
+  // shell) for the selected image, where AI suggestion happens in-context with
+  // per-region review. The usable/needs-manual-authoring bucket split is gone.
+  const handleGenerateImageOcclusions = () => {
     if (isSending) return;
     if (!currentProvider) {
       toast.error(t("flashcardStudio.noLlmProvider"), t("flashcardStudio.noLlmProviderDesc"));
@@ -3080,156 +2985,15 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       toast.error(t("flashcardStudio.noImageSelected"), t("flashcardStudio.noImageSelectedDesc"));
       return;
     }
-
-    setIsSending(true);
-    setViewMode("chat");
-
-    const promptText = input.trim() || t("flashcardStudio.imageOcclusionAutoPrompt");
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      content: promptText,
-      timestamp: Date.now(),
-    };
-    setMessages((prev) => [...prev, userMessage]);
-
-    try {
-      const fullAssets = (
-        await Promise.all(selectedImageAssetIds.map((assetId) => getImageAssetById(assetId)))
-      ).filter((asset): asset is ImageAsset => Boolean(asset));
-
-      if (fullAssets.length === 0) {
-        throw new Error(t("flashcardStudio.noImageSelectedDesc"));
-      }
-
-      const userContent: LLMMessageContentPart[] = [];
-      const contextBlocks: string[] = [];
-
-      if (selectedDocument?.title) {
-        contextBlocks.push(`Related document: ${selectedDocument.title}`);
-      }
-      if (selectedDeck?.name) {
-        contextBlocks.push(`Target deck: ${selectedDeck.name}`);
-      }
-      if (contextContent?.trim()) {
-        contextBlocks.push(`Reference context:\n${contextContent.trim()}`);
-      }
-
-      userContent.push({
-        type: "text",
-        text: [
-          promptText,
-          "",
-          "Create image occlusion flashcards from the study images below.",
-          "Use the exact imageAssetId assigned to each image.",
-          "Return one JSON code block only.",
-          contextBlocks.length > 0 ? `\nSupporting context:\n${contextBlocks.join("\n\n")}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      });
-
-      fullAssets.forEach((asset, index) => {
-        userContent.push({
-          type: "text",
-          text: `Image ${index + 1}\nimageAssetId: ${asset.id}\nfileName: ${asset.file_name || "untitled"}\nTask: hide the most useful answer-bearing labels or regions in this image.`,
-        });
-        userContent.push({
-          type: "image_url",
-          imageUrl: asset.data_url,
-        });
-      });
-
-      const llmMessages: LLMMessage[] = [
-        { role: "system", content: IMAGE_OCCLUSION_SYSTEM_PROMPT },
-        { role: "user", content: userContent },
-      ];
-
-      const hasDocumentContent = !!(contextContent?.trim());
-      const response = await chatWithContext(
-        currentProvider.provider,
-        currentProvider.model,
-        llmMessages,
-        {
-          type: hasDocumentContent ? "document" : "general",
-          documentId: hasDocumentContent ? selectedDocument?.id : undefined,
-          content: contextContent,
-          contextWindowTokens: maxTokens,
+    window.dispatchEvent(
+      new CustomEvent("incrementum:create-image-occlusion", {
+        detail: {
+          assetId: selectedImageAssetIds[0],
+          documentId: selectedDocument?.id ?? undefined,
+          deckId: selectedDeck?.id,
         },
-        currentProvider.apiKey,
-        currentProvider.baseUrl?.trim() || undefined,
-        currentProvider.temperature,
-        currentProvider.maxTokens,
-        currentProvider.systemPrompt,
-        aiControls.contextFromRelatedCards,
-        aiControls.documentSnippetLength
-      );
-
-      const assistantId = `assistant-${Date.now()}`;
-      const { cards, cleaned } = parseCardsFromResponse(response.content, assistantId);
-      const rawOcclusionCards = cards.filter((card) => card.type === "image-occlusion");
-
-      // Usable-AI-output handling: clamp/drop out-of-bounds regions. Cards that
-      // still have usable regions are added pre-filled so the user can correct
-      // them before saving; cards whose regions collapsed to nothing open in
-      // the editor with the image so the user can author regions manually —
-      // never silently saving a card with zero usable regions.
-      const usableCards: DraftCard[] = [];
-      const needsManualAuthoring: DraftCard[] = [];
-      for (const card of rawOcclusionCards) {
-        if (!card.imageOcclusionAssetId) continue; // no image to author on — drop
-        const clamped = clampRegions(card.imageOcclusionRegions || []);
-        if (clamped.length > 0) {
-          usableCards.push({ ...card, imageOcclusionRegions: clamped });
-        } else {
-          needsManualAuthoring.push({ ...card, imageOcclusionRegions: [] });
-        }
-      }
-
-      const assistantMessage: ChatMessage = {
-        id: assistantId,
-        role: "assistant",
-        content: cleaned || response.content,
-        timestamp: Date.now(),
-        cardsGenerated: rawOcclusionCards.length,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      if (rawOcclusionCards.length === 0) {
-        throw new Error(t("flashcardStudio.imageOcclusionNoCards"));
-      }
-
-      setDraftCards((prev) => [...needsManualAuthoring, ...usableCards, ...prev]);
-      // Open the editor pre-filled from the AI proposal (or empty, for manual
-      // authoring) so proposed regions can be corrected before saving.
-      const firstEditable = usableCards[0] ?? needsManualAuthoring[0];
-      if (firstEditable) {
-        setEditingCardId(firstEditable.id);
-        setViewMode("chat");
-      }
-      toast.success(
-        t("flashcardStudio.imageOcclusionCardsGenerated", { count: rawOcclusionCards.length }),
-        needsManualAuthoring.length > 0
-          ? t("flashcardStudio.imageOcclusionRegionsUnusable", { count: needsManualAuthoring.length })
-          : t("flashcardStudio.imageOcclusionCardsGeneratedDesc")
-      );
-    } catch (error) {
-      toast.error(
-        t("flashcardStudio.imageOcclusionGenerationFailed"),
-        error instanceof Error ? error.message : t("flashcardStudio.failedReachLlm")
-      );
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: "system",
-          content: `Error: ${error instanceof Error ? error.message : t("flashcardStudio.imageOcclusionGenerationFailed")}`,
-          timestamp: Date.now(),
-        },
-      ]);
-    } finally {
-      setIsSending(false);
-    }
+      }),
+    );
   };
 
   const handleSend = async (customPrompt?: string) => {

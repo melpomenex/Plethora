@@ -1525,33 +1525,6 @@ export function QueueScrollPage() {
     return documentsMap.get(currentItem.documentId) ?? null;
   }, [currentItem, documentsMap]);
 
-  useEffect(() => {
-    const handleImageOcclusionRequest = (
-      event: CustomEvent<{ assetId?: string; documentId?: string }>,
-    ) => {
-      const { assetId, documentId: sourceDocumentId } = event.detail ?? {};
-      // DocumentViewer handles its own images. QueueScroll owns direct RSS
-      // images, whose hover events do not carry a document id.
-      if (!isActiveTab || !assetId || sourceDocumentId) return;
-      setFlashcardStudioSeed({
-        key: `queue-image-occlusion-${assetId}-${Date.now()}`,
-        documentId: currentDocument?.id ?? currentItem?.documentId ?? null,
-        draftCardType: "image-occlusion",
-        imageAssetId: assetId,
-        resetDraftCards: true,
-        autoEditDraft: true,
-      });
-    };
-    window.addEventListener(
-      "incrementum:create-image-occlusion",
-      handleImageOcclusionRequest as EventListener,
-    );
-    return () => window.removeEventListener(
-      "incrementum:create-image-occlusion",
-      handleImageOcclusionRequest as EventListener,
-    );
-  }, [currentDocument?.id, currentItem?.documentId, isActiveTab]);
-
   // Keep a small cross-device download horizon ahead of the reader. This is
   // fire-and-forget and bounded to the current item plus the next two
   // documents; queue rendering and navigation never wait for file sync.
