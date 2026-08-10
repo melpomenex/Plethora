@@ -107,7 +107,7 @@ export function SpreadModal({
       {/* Modal / Bottom sheet */}
       <div
         className={cn(
-          "relative bg-background border border-border rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-xl animate-in slide-in-from-bottom-4 sm:zoom-in-95",
+          "relative bg-background border border-border rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-xl animate-in slide-in-from-bottom-4 sm:zoom-in-95 motion-reduce:animate-none motion-reduce:transition-none",
           isMobile ? "max-h-[85vh]" : "max-h-[80vh]",
         )}
       >
