@@ -4779,6 +4779,9 @@ export const en: Dict = {
   "itemDetails.viewItemsWithTag": 'View items tagged "{tag}"',
   "itemDetails.tagAddFailed": "Failed to add tag",
   "itemDetails.tagRemoveFailed": "Failed to remove tag",
+
+  "tagEditor.editTags": "Edit tags ({count})",
+  "tagEditor.editTagsTitle": "Edit tags",
   "itemDetails.tagItemsModalTitle": 'Tagged "{tag}"',
   "itemDetails.tagItemsLoading": "Loading tagged items...",
   "itemDetails.tagItemsLoadFailed": "Failed to load tagged items",
@@ -5535,6 +5538,8 @@ export const en: Dict = {
   "schedule.expandItem": "Show details",
   "schedule.collapseItem": "Hide details",
   "schedule.gridHeaderLabel": "Schedule data grid",
+
+  "schedule.gridDetailLabel": "Item details — aligned to schedule columns",
   "schedule.postponeDays": "Postpone {count} days",
   "schedule.retrievability": "Retrievability",
   "schedule.progress": "Progress",

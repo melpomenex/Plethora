@@ -4671,6 +4671,8 @@ export const zh: Dict = {
   "schedule.expandItem": "显示详情",
   "schedule.collapseItem": "隐藏详情",
   "schedule.gridHeaderLabel": "日程数据网格",
+
+  "schedule.gridDetailLabel": "项目详情——与日程列对齐",
   "schedule.postponeDays": "推迟 {count} 天",
   "schedule.retrievability": "可提取性",
   "schedule.progress": "进度",
@@ -5206,6 +5208,9 @@ export const zh: Dict = {
   "itemDetails.tagItemsLoading": "正在加载带标签的项...",
   "itemDetails.tagItemsModalTitle": "{tag}",
   "itemDetails.tagRemoveFailed": "移除标签失败",
+
+  "tagEditor.editTags": "编辑标签（{count}）",
+  "tagEditor.editTagsTitle": "编辑标签",
   "itemDetails.viewItemsWithTag": "{tag}",
   "kindleImport.importAsPlainText": "作为纯文本导入",
   "kindleImport.notKindleFile": "此文件似乎不是 Kindle 剪辑文件。",

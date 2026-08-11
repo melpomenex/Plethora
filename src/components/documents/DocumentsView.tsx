@@ -49,6 +49,8 @@ import { tourAnchor } from "../onboarding/tour/anchors";
 import { ConfirmDialog, useConfirmDialog } from "../common/ConfirmDialog";
 import { DocumentCardSkeleton, DocumentGridSkeleton } from "../common/Skeleton";
 import { DragDropUpload } from "../common/DragDropUpload";
+import { CompactTagEditor } from "../common/CompactTagEditor";
+import { ItemTagEditor } from "../common/ItemTagEditor";
 import type { MarkdownBundle } from "../../utils/markdownBundleImport";
 import { useMarkdownBundleImport } from "../../hooks/useMarkdownBundleImport";
 import type { Document } from "../../types/document";
@@ -107,7 +109,6 @@ import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts
 
 const MODE_STORAGE_KEY = "documentsViewMode";
 const SAVED_VIEWS_KEY = "documentsSavedViews";
-const MAX_VISIBLE_TAGS = 3;
 
 type CompactDocumentFilter = "all" | "priority" | "recent" | "active" | "parked" | "highlights" | "cards";
 
@@ -1713,7 +1714,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                                 {getNextAction(doc)}
                               </span>
                             )}
-                            <TagsInline tags={doc.tags} />
+                            <CompactTagEditor target={{ type: "document", id: doc.id, tags: doc.tags }} previewLimit={3} />
                           </div>
                           {isMobile && (
                             <div className="mt-3">
@@ -1982,22 +1983,16 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
 
                   <div>
                     <div className="text-xs text-muted-foreground mb-2">{t("graph.tags")}</div>
-                    <div className="flex flex-wrap gap-2">
-                      {activeDocument.tags.length === 0 ? (
-                        <span className="text-xs text-muted-foreground">
-                          {t("documentsView.noTags")}
-                        </span>
-                      ) : (
-                        activeDocument.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="px-2 py-1 text-xs bg-primary/10 text-primary rounded"
-                          >
-                            {tag}
-                          </span>
-                        ))
-                      )}
-                    </div>
+                    {activeDocument.tags.length === 0 ? (
+                      <span className="text-xs text-muted-foreground">
+                        {t("documentsView.noTags")}
+                      </span>
+                    ) : (
+                      <ItemTagEditor
+                        target={{ type: "document", id: activeDocument.id, tags: activeDocument.tags }}
+                        dense
+                      />
+                    )}
                   </div>
 
                   <div>
@@ -3077,7 +3072,7 @@ function CompactDocumentRow({
             <DueDateBadge doc={doc} />
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
-            <TagsInline tags={doc.tags} />
+            <CompactTagEditor target={{ type: "document", id: doc.id, tags: doc.tags }} previewLimit={3} />
             <button
               type="button"
               onClick={(event) => {
@@ -3255,14 +3250,12 @@ function CardSearchResults({ cards, onOpenCard, onClearSearch, documentResultsCo
                   <span className="px-1.5 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground rounded">
                     {getCardTypeLabel(card, t)}
                   </span>
-                  {(card.tags ?? []).slice(0, 4).map((tag) => (
-                    <span
-                      key={tag}
-                      className="px-1.5 py-0.5 text-[10px] bg-primary/10 text-primary rounded"
-                    >
-                      {tag}
-                    </span>
-                  ))}
+                  {(card.tags ?? []).length > 0 && (
+                    <CompactTagEditor
+                      target={{ type: "learning-item", id: card.id, tags: card.tags ?? [] }}
+                      previewLimit={2}
+                    />
+                  )}
                 </div>
               </div>
             </button>
@@ -3275,29 +3268,6 @@ function CardSearchResults({ cards, onOpenCard, onClearSearch, documentResultsCo
         </p>
       )}
     </section>
-  );
-}
-
-function TagsInline({ tags }: { tags: string[] }) {
-  const { t } = useI18n();
-  if (!tags || tags.length === 0) {
-    return <span className="text-xs text-muted-foreground">{t("documentsView.noTags")}</span>;
-  }
-  const visible = tags.slice(0, MAX_VISIBLE_TAGS);
-  const remaining = tags.length - visible.length;
-  return (
-    <div className="flex flex-wrap gap-1">
-      {visible.map((tag) => (
-        <span key={tag} className="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded">
-          {tag}
-        </span>
-      ))}
-      {remaining > 0 && (
-        <span className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded">
-          +{remaining}
-        </span>
-      )}
-    </div>
   );
 }
 
@@ -3786,14 +3756,7 @@ function LibraryCard({
           </div>
           {(doc.extractCount > 0 || doc.learningItemCount > 0) && <ProgressBar doc={doc} />}
           {doc.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-0.5">
-              {doc.tags.slice(0, 2).map((tag) => (
-                <span key={tag} className="px-1.5 py-0.5 text-[10px] bg-primary/10 text-primary/80 rounded">{tag}</span>
-              ))}
-              {doc.tags.length > 2 && (
-                <span className="px-1.5 py-0.5 text-[10px] bg-muted text-muted-foreground rounded">+{doc.tags.length - 2}</span>
-              )}
-            </div>
+            <CompactTagEditor target={{ type: "document", id: doc.id, tags: doc.tags }} previewLimit={2} className="mt-0.5" />
           )}
         </div>
       </div>

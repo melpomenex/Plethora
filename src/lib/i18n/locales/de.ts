@@ -5056,6 +5056,8 @@ export const de: Dict = {
   "schedule.expandItem": "Details anzeigen",
   "schedule.collapseItem": "Details ausblenden",
   "schedule.gridHeaderLabel": "Zeitplan-Datentabelle",
+
+  "schedule.gridDetailLabel": "Elementdetails — an Zeitplan-Spalten ausgerichtet",
   "schedule.postponeDays": "Um {count} Tage verschieben",
   "schedule.retrievability": "Abrufbarkeit",
   "schedule.progress": "Fortschritt",
@@ -5403,6 +5405,9 @@ export const de: Dict = {
   "itemDetails.tagItemsLoading": "Getaggte Elemente werden geladen...",
   "itemDetails.tagItemsModalTitle": "{tag}",
   "itemDetails.tagRemoveFailed": "Tag konnte nicht entfernt werden",
+
+  "tagEditor.editTags": "Tags bearbeiten ({count})",
+  "tagEditor.editTagsTitle": "Tags bearbeiten",
   "itemDetails.viewItemsWithTag": "{tag}",
   "kindleImport.importAsPlainText": "Als reinen Text importieren",
   "kindleImport.notKindleFile": "Diese Datei sieht nicht nach einer Kindle-Clippings-Datei aus.",

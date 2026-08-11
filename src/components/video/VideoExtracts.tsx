@@ -580,7 +580,8 @@ export function VideoExtractCard({
         </p>
       )}
 
-      {/* Tags */}
+      {/* Tags — video extracts live in a separate video_extracts table (like
+          RSS), so they are read-only from the shared item-tag editor's view */}
       {extract.tags.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
           {extract.tags.map((tag) => (

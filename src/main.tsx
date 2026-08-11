@@ -352,6 +352,18 @@ if (!isTauri()) {
   });
 }
 
+// Cross-surface tag reconciliation: after a successful tag mutation anywhere,
+// mounted document/extract/queue consumers merge the persisted tag list in
+// place (no full reload). See openspec change
+// unify-tag-editing-and-align-schedule-grid, task 2.3.
+import('./lib/tagEditing/storeReconciliation')
+  .then(({ wireTagUpdateReconciliation }) => {
+    wireTagUpdateReconciliation();
+  })
+  .catch((error) => {
+    console.error('[Tag Editing] Reconciliation wiring failed:', error);
+  });
+
 const rootEl = document.getElementById("root") as HTMLElement;
 const reactRoot = ReactDOM.createRoot(rootEl);
 const endFirstPaint = markSyncPhaseStart("first-paint");

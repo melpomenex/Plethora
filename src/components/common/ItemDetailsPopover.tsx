@@ -5,14 +5,13 @@ import {
   Eye,
   EyeSlash,
   Info,
-  Plus,
   Trash,
   X,
 } from "@phosphor-icons/react";
 import { getDocument, dismissDocument, updateDocument } from "../../api/documents";
 import { useToast } from "../common/Toast";
-import { getExtract, updateExtract } from "../../api/extracts";
-import { getLearningItem, updateLearningItemTags } from "../../api/learning-items";
+import { getExtract } from "../../api/extracts";
+import { getLearningItem } from "../../api/learning-items";
 import { getAlgorithmParams } from "../../api/algorithm";
 import { previewReviewIntervals, formatInterval, type PreviewIntervals } from "../../api/review";
 import type { TaggedItemSummary } from "../../api/tags";
@@ -21,6 +20,7 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../lib/i18n";
 import { useModal } from "./Modal";
 import { TagItemsModalContent } from "./TagItemsModal";
+import { ItemTagEditor } from "./ItemTagEditor";
 
 export type ItemDetailsTarget =
   | {
@@ -198,9 +198,6 @@ export function ItemDetailsPopover({
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
   const [isUpdatingDismiss, setIsUpdatingDismiss] = useState(false);
-  const [localTags, setLocalTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState("");
-  const [isSavingTag, setIsSavingTag] = useState(false);
   const [isPostponing, setIsPostponing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [localModifier, setLocalModifier] = useState<string>("");
@@ -274,22 +271,17 @@ export function ItemDetailsPopover({
     }
   }, [isOpen]);
 
-  // Reset to the prop-supplied tags whenever the popover opens or the target
-  // changes; the loadItemDetails effect below reconciles with the freshly
-  // fetched item once it resolves, since target.tags can be stale.
-  useEffect(() => {
-    if (!isOpen) return;
-    setLocalTags(target.type === "rss" ? [] : target.tags ?? []);
-    setTagInput("");
-  }, [isOpen, targetKey]);
-
-  useEffect(() => {
-    if (!details.raw) return;
-    const rawTags = (details.raw as { tags?: unknown }).tags;
+  // Freshly fetched tags win over the (possibly stale) prop seed so the shared
+  // editor reconciles against the persisted item, matching the previous
+  // fetch-and-resync behavior.
+  const editorTags = useMemo(() => {
+    if (target.type === "rss") return [];
+    const rawTags = (details.raw as { tags?: unknown } | null)?.tags;
     if (Array.isArray(rawTags)) {
-      setLocalTags(rawTags.filter((tag): tag is string => typeof tag === "string"));
+      return rawTags.filter((tag): tag is string => typeof tag === "string");
     }
-  }, [details.raw]);
+    return target.tags ?? [];
+  }, [target, details.raw]);
 
   useEffect(() => {
     if (details.intervalModifier != null) {
@@ -299,73 +291,6 @@ export function ItemDetailsPopover({
 
   const handleToggle = () => {
     setIsOpen((prev) => !prev);
-  };
-
-  const persistTags = async (nextTags: string[]) => {
-    if (target.type === "document") {
-      const rawDoc = details.raw as unknown as import("../../types/document").Document | null;
-      if (!rawDoc) throw new Error("Document details not loaded yet");
-      await updateDocument(target.id, { ...rawDoc, tags: nextTags });
-    } else if (target.type === "extract") {
-      await updateExtract({ id: target.id, tags: nextTags });
-    } else if (target.type === "learning-item") {
-      await updateLearningItemTags(target.id, nextTags);
-    }
-  };
-
-  const handleAddTag = async () => {
-    if (!canEditTags) return;
-    const trimmed = tagInput.trim();
-    if (!trimmed) return;
-    if (localTags.some((existing) => existing.toLowerCase() === trimmed.toLowerCase())) {
-      setTagInput("");
-      return;
-    }
-
-    const previousTags = localTags;
-    setLocalTags([...localTags, trimmed]);
-    setTagInput("");
-    setIsSavingTag(true);
-    try {
-      await persistTags([...localTags, trimmed]);
-    } catch (err) {
-      console.error("Failed to add tag", err);
-      setLocalTags(previousTags);
-      setTagInput(trimmed);
-      toast.error(
-        t("itemDetails.tagAddFailed"),
-        err instanceof Error ? err.message : t("itemDetails.pleaseTryAgain")
-      );
-    } finally {
-      setIsSavingTag(false);
-    }
-  };
-
-  const handleRemoveTag = async (tagToRemove: string) => {
-    if (!canEditTags) return;
-    const previousTags = localTags;
-    const nextTags = localTags.filter((existing) => existing !== tagToRemove);
-    setLocalTags(nextTags);
-    setIsSavingTag(true);
-    try {
-      await persistTags(nextTags);
-    } catch (err) {
-      console.error("Failed to remove tag", err);
-      setLocalTags(previousTags);
-      toast.error(
-        t("itemDetails.tagRemoveFailed"),
-        err instanceof Error ? err.message : t("itemDetails.pleaseTryAgain")
-      );
-    } finally {
-      setIsSavingTag(false);
-    }
-  };
-
-  const handleTagInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      void handleAddTag();
-    }
   };
 
   const handleTagClick = (tag: string) => {
@@ -509,61 +434,24 @@ export function ItemDetailsPopover({
               )}
             </div>
 
-            {(localTags.length > 0 || target.category || canEditTags) && (
+            {(editorTags.length > 0 || target.category || canEditTags) && (
               <div className="space-y-1">
                 {target.category && (
                   <div className="text-xs text-foreground/80">{t("itemDetails.category")}: {target.category}</div>
                 )}
-                <div className="flex flex-wrap items-center gap-1">
-                  {localTags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-muted/60 text-xs text-foreground border border-border/50"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => handleTagClick(tag)}
-                        className="hover:underline"
-                        title={t("itemDetails.viewItemsWithTag", { tag })}
-                      >
-                        {tag}
-                      </button>
-                      {canEditTags && (
-                        <button
-                          type="button"
-                          onClick={() => void handleRemoveTag(tag)}
-                          disabled={isSavingTag}
-                          aria-label={t("itemDetails.removeTag", { tag })}
-                          className="text-muted-foreground hover:text-destructive disabled:opacity-50"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </span>
-                  ))}
-                  {canEditTags && (
-                    <div className="inline-flex items-center gap-1">
-                      <input
-                        type="text"
-                        value={tagInput}
-                        onChange={(event) => setTagInput(event.target.value)}
-                        onKeyDown={handleTagInputKeyDown}
-                        placeholder={t("itemDetails.addTagPlaceholder")}
-                        disabled={isSavingTag}
-                        className="w-24 px-1.5 py-0.5 text-xs rounded border border-border/50 bg-background focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void handleAddTag()}
-                        disabled={isSavingTag || !tagInput.trim()}
-                        aria-label={t("itemDetails.addTag")}
-                        className="text-muted-foreground hover:text-foreground disabled:opacity-30"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
+                {canEditTags && (
+                  <ItemTagEditor
+                    target={{ type: target.type, id: target.id, tags: editorTags }}
+                    onTagClick={handleTagClick}
+                    onTagsPersisted={(tags) => {
+                      // Keep the popover's raw snapshot in sync so a later
+                      // re-open shows the persisted list, not the stale seed.
+                      setDetails((prev) =>
+                        prev.raw ? { ...prev, raw: { ...prev.raw, tags } } : prev
+                      );
+                    }}
+                  />
+                )}
               </div>
             )}
 

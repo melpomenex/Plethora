@@ -5056,6 +5056,8 @@ export const es: Dict = {
   "schedule.expandItem": "Mostrar detalles",
   "schedule.collapseItem": "Ocultar detalles",
   "schedule.gridHeaderLabel": "Tabla de datos del horario",
+
+  "schedule.gridDetailLabel": "Detalles del elemento — alineados con las columnas",
   "schedule.postponeDays": "Posponer {count} días",
   "schedule.retrievability": "Recuperabilidad",
   "schedule.progress": "Progreso",
@@ -5399,6 +5401,9 @@ export const es: Dict = {
   "itemDetails.tagItemsLoading": "Cargando elementos etiquetados...",
   "itemDetails.tagItemsModalTitle": "{tag}",
   "itemDetails.tagRemoveFailed": "Error al quitar la etiqueta",
+
+  "tagEditor.editTags": "Editar etiquetas ({count})",
+  "tagEditor.editTagsTitle": "Editar etiquetas",
   "itemDetails.viewItemsWithTag": "{tag}",
   "kindleImport.importAsPlainText": "Importar como texto sin formato",
   "kindleImport.notKindleFile": "Este archivo no parece ser un archivo de recortes de Kindle.",

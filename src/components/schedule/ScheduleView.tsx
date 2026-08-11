@@ -19,6 +19,7 @@ import {
 } from "./ScheduleStates";
 import { useToast } from "../common/Toast";
 import { cn } from "../../utils";
+import { subscribeItemTagsUpdated } from "../../lib/tagEditing/itemTagEvents";
 
 interface ScheduleViewProps {
   isMobile?: boolean;
@@ -190,6 +191,16 @@ export function ScheduleView({ isMobile = false, onStartReview, onOpenDocument }
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Cross-surface tag reconciliation: when a tag mutation is persisted from
+  // ANY surface (Queue, Documents, graph, ...), perform the same bounded
+  // refresh used after postpone so the visible schedule item converges on the
+  // persisted tag list without a full reload.
+  useEffect(() => {
+    return subscribeItemTagsUpdated(() => {
+      void reconcileAfterMutation();
+    });
+  }, [reconcileAfterMutation]);
 
   const handlePostpone = useCallback(
     async (itemId: string, days: number, itemType?: string) => {

@@ -30,6 +30,7 @@ import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { ReviewTab } from "../tabs/TabRegistry";
 import { cn } from "../../utils";
 import { DynamicVirtualList } from "../common/VirtualList";
+import { CompactTagEditor } from "../common/CompactTagEditor";
 import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils/ankiLatex";
 import { analyzeCardQuality } from "../../utils/cardQuality";
 import { printFlashcards } from "../../utils/printFlashcards";
@@ -471,15 +472,11 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
 
             {/* Tags */}
             {card.tags.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {card.tags.map((tag, index) => (
-                  <span
-                    key={index}
-                    className="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded"
-                  >
-                    {tag}
-                  </span>
-                ))}
+              <div className="mt-2">
+                <CompactTagEditor
+                  target={{ type: "learning-item", id: card.id, tags: card.tags }}
+                  previewLimit={3}
+                />
               </div>
             )}
             {prereqByCard[card.id]?.length ? (

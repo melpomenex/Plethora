@@ -22,6 +22,7 @@ import { ExportQueueDialog } from "../components/queue/ExportQueueDialog";
 import { PostponeAllDialog } from "../components/queue/PostponeAllDialog";
 import { AutoPostponePrompt } from "../components/queue/AutoPostponePrompt";
 import { DynamicVirtualList } from "../components/common/VirtualList";
+import { CompactTagEditor } from "../components/common/CompactTagEditor";
 import type { QueueItem } from "../types/queue";
 import type { SortOptions } from "../types/api";
 import { useCollectionStore } from "../stores/collectionStore";
@@ -755,14 +756,22 @@ export function Queue() {
                               {item.category}
                             </span>
                           )}
-                          {item.tags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="inline-block px-2 py-0.5 text-xs bg-primary/10 text-primary rounded"
-                            >
-                              {tag}
-                            </span>
-                          ))}
+                          {item.tags.length > 0 && (
+                            item.itemType === "document" || item.itemType === "extract" || item.itemType === "learning-item" ? (
+                              <CompactTagEditor
+                                target={{ type: item.itemType, id: item.id, tags: item.tags }}
+                                previewLimit={3}
+                              />
+                            ) : (
+                              <span className="flex flex-wrap gap-1">
+                                {item.tags.slice(0, 3).map((tag) => (
+                                  <span key={tag} className="inline-block px-2 py-0.5 text-xs bg-primary/10 text-primary rounded">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </span>
+                            )
+                          )}
                           {item.dueDate && (
                             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                               <span className="w-2 h-2 rounded-full bg-blue-500" />

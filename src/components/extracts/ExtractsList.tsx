@@ -9,7 +9,6 @@ import {
   SidebarSimple,
   Sparkle,
   Square,
-  Tag,
   TextT,
   Trash,
   WarningCircle,
@@ -28,6 +27,7 @@ import { GeneratedCardsPopover } from "../common/GeneratedCardsPopover";
 import { useI18n } from "../../lib/i18n";
 import { FlashcardStudioModal } from "../review/FlashcardStudioModal";
 import { EditableContentPalette } from "../common/EditableContentPalette";
+import { CompactTagEditor } from "../common/CompactTagEditor";
 import { CreateExtractDialog } from "./CreateExtractDialog";
 import { applyAnchoredTextHighlights, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
 import type { TextSelectionContext } from "../../types/selection";
@@ -697,19 +697,10 @@ export function ExtractsList({
 
               {/* Tags */}
               {(extract.tags?.length ?? 0) > 0 && (
-                <div className="flex items-center gap-1">
-                  <Tag className="w-3 h-3" />
-                  <div className="flex gap-1">
-                    {(extract.tags ?? []).map((tag, index) => (
-                      <span
-                        key={index}
-                        className="px-2 py-0.5 bg-primary/10 text-primary rounded"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+                <CompactTagEditor
+                  target={{ type: "extract", id: extract.id, tags: extract.tags ?? [] }}
+                  previewLimit={3}
+                />
               )}
             </div>
 
