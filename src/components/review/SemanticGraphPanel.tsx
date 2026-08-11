@@ -19,6 +19,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { ObsidianGraph } from "../graph/ObsidianGraph";
+import { CompactTagEditor } from "../common/CompactTagEditor";
 import { type GraphNode, type GraphEdge, GraphNodeType } from "../graph/KnowledgeGraph";
 import { buildSemanticGraph as buildSemanticGraphFromEngine, type EmbeddingStatus, type EmbeddingConfig } from "../../utils/semanticEngine";
 import { calculateItemSimilarity, scoreFocalTopic } from "../../utils/semanticRelations";
@@ -860,7 +861,21 @@ export function SemanticGraphPanel({
                   Category: <span className="text-foreground/80 font-medium">{selectedNodeDetails.originalItem.category}</span>
                 </div>
               )}
-              {selectedNodeDetails.originalItem.tags?.length > 0 && (
+              {selectedNodeDetails.originalItem.tags?.length > 0 &&
+                selectedNodeDetails.originalItem.itemType !== "rss-article" && (
+                <div className="mt-3">
+                  <CompactTagEditor
+                    target={{
+                      type: selectedNodeDetails.originalItem.itemType as "document" | "extract" | "learning-item",
+                      id: selectedNodeDetails.originalItem.id,
+                      tags: selectedNodeDetails.originalItem.tags ?? [],
+                    }}
+                    previewLimit={4}
+                  />
+                </div>
+              )}
+              {selectedNodeDetails.originalItem.itemType === "rss-article" &&
+                (selectedNodeDetails.originalItem.tags?.length ?? 0) > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-3">
                   {selectedNodeDetails.originalItem.tags.map((tag) => (
                     <span

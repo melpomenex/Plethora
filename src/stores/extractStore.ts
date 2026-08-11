@@ -55,6 +55,8 @@ interface ExtractState {
   updateExtract: (id: string, data: LegacyExtractData) => Promise<void>;
   deleteExtract: (id: string) => Promise<void>;
   setLastHighlightColor: (color: string) => void;
+  /** Locally merge a persisted tag list into the matching extract row (no API call). */
+  patchExtractTags: (id: string, tags: string[]) => void;
 }
 
 export const useExtractStore = create<ExtractState>((set, get) => ({
@@ -140,6 +142,14 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
       console.error("Failed to delete extract:", error);
       throw error;
     }
+  },
+
+  patchExtractTags: (id, tags) => {
+    set((state) => ({
+      extracts: state.extracts.map((extract) =>
+        extract && extract.id === id ? { ...extract, tags } : extract
+      ),
+    }));
   },
 
   setLastHighlightColor: (color) => set({ lastHighlightColor: color }),

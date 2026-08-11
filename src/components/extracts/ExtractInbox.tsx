@@ -22,6 +22,7 @@ import { getExtracts, deleteExtract, type Extract } from "../../api/extracts";
 import { summarizeContent, extractKeyPoints, generateQuestions } from "../../api/ai";
 import { cn } from "../../utils";
 import { RichContentRenderer } from "../common/RichContentRenderer";
+import { CompactTagEditor } from "../common/CompactTagEditor";
 import { useI18n } from "../../lib/i18n";
 
 interface ExtractInboxProps {
@@ -243,10 +244,10 @@ export function ExtractInbox({ onSelectExtract }: ExtractInboxProps) {
                                         {readingTime} min read
                                     </span>
                                     {extract.tags?.length > 0 && (
-                                        <span className="flex items-center gap-1">
-                                            <Target className="w-3.5 h-3.5" />
-                                            {extract.tags.join(", ")}
-                                        </span>
+                                        <CompactTagEditor
+                                            target={{ type: "extract", id: extract.id, tags: extract.tags ?? [] }}
+                                            previewLimit={3}
+                                        />
                                     )}
                                 </div>
                             </div>

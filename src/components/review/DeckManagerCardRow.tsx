@@ -7,6 +7,7 @@ import {
 } from "@phosphor-icons/react";
 import type { LearningItem } from "../../api/learning-items";
 import { CardContextMenu } from "./CardContextMenu";
+import { CompactTagEditor } from "../common/CompactTagEditor";
 
 interface DeckManagerCardRowProps {
   card: LearningItem;
@@ -229,17 +230,11 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
       {/* Tags */}
       {!isMobile && (
         <div className="flex-1 min-w-0 flex items-center gap-0.5 overflow-hidden hidden lg:block">
-          {card.tags.slice(0, 2).map((tag) => (
-            <span
-              key={tag}
-              className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground truncate max-w-[80px]"
-              title={tag}
-            >
-              {tag}
-            </span>
-          ))}
-          {card.tags.length > 2 && (
-            <span className="text-[10px] text-muted-foreground">+{card.tags.length - 2}</span>
+          {card.tags.length > 0 && (
+            <CompactTagEditor
+              target={{ type: "learning-item", id: card.id, tags: card.tags }}
+              previewLimit={2}
+            />
           )}
         </div>
       )}

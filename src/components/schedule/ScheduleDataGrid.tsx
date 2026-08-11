@@ -20,6 +20,7 @@ import type { ScheduleActionCallbacks } from "../../lib/scheduleActions";
 import { QUICK_POSTPONE_PRESETS } from "./ScheduleItemActions";
 import { ScheduleItemDetails, severityClasses } from "./ScheduleItemDetails";
 import { ScheduleItemContextMenu } from "./ScheduleItemContextMenu";
+import { GRID_COLUMNS } from "./scheduleGridColumns";
 
 const TYPE_ICONS = {
   document: BookOpen,
@@ -100,35 +101,40 @@ export function ScheduleDataGrid({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Grid header — sticky, readable, not hover-dependent */}
-      <div
-        className="grid items-center gap-2 px-3 py-2 border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-10"
-        style={{ gridTemplateColumns: GRID_COLUMNS }}
-        role="row"
-        aria-label={t("schedule.gridHeaderLabel")}
-      >
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground" />
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground min-w-0 truncate">
-          {t("schedule.title")}
-        </div>
-        {COLUMN_LABELS.map((key) => (
-          <div
-            key={key}
-            className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right tabular-nums whitespace-nowrap"
-          >
-            {t(key)}
-          </div>
-        ))}
-        <div className="w-24" />
-      </div>
-
-      {/* Virtualized body */}
+      {/* One scroll viewport for header AND rows: the sticky header lives
+          inside the same overflow container as the virtualized rows, so both
+          compute column positions from the same available inline width
+          (including any vertical scrollbar gutter) and scroll horizontally
+          together when the pane is narrower than the grid. */}
       <div
         ref={scrollRef}
         data-testid="schedule-grid-scroll"
         className="relative flex-1 overflow-auto overscroll-contain"
         role="rowgroup"
       >
+        {/* Grid header — sticky, readable, not hover-dependent */}
+        <div
+          className="sticky top-0 z-10 grid items-center gap-2 px-3 py-2 border-b border-border bg-background/95 backdrop-blur-sm"
+          style={{ gridTemplateColumns: GRID_COLUMNS }}
+          role="row"
+          aria-label={t("schedule.gridHeaderLabel")}
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground" />
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground min-w-0 truncate">
+            {t("schedule.title")}
+          </div>
+          {COLUMN_LABELS.map((key) => (
+            <div
+              key={key}
+              className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right tabular-nums whitespace-nowrap"
+            >
+              {t(key)}
+            </div>
+          ))}
+          <div className="w-24" />
+        </div>
+
+        {/* Virtualized body */}
         <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = flat[virtualRow.index];
@@ -195,9 +201,6 @@ export function ScheduleDataGrid({
     </div>
   );
 }
-
-const GRID_COLUMNS =
-  "1.5rem minmax(160px, 1fr) 2.5rem 3rem 4rem 3rem 3rem 5rem 4.5rem 6rem 5rem 4rem 6.5rem 6.5rem";
 
 interface DataGridRowProps {
   item: ScheduleDayItem;
@@ -394,11 +397,13 @@ function DataGridRow({
         </div>
       </div>
 
-      {/* Expanded detail participates in layout (measured row) */}
+      {/* Expanded detail participates in layout (measured row). Grid mode
+          spans the same column tracks as the row, so no title indent is
+          applied — the shared GRID_COLUMNS definition keeps metrics aligned. */}
       {isExpanded && (
-        <div className="px-3 pb-2.5 pl-[calc(1.5rem+0.75rem)]">
+        <div className="px-3 pb-2.5">
           <div className="pt-2 border-t border-border/50">
-            <ScheduleItemDetails item={item} callbacks={callbacks} busy={busy} />
+            <ScheduleItemDetails item={item} callbacks={callbacks} busy={busy} mode="grid" />
           </div>
         </div>
       )}

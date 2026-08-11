@@ -92,10 +92,11 @@ describe("CardPreviewPanel", () => {
     expect(screen.getByText("Cloze Text")).toBeInTheDocument();
   });
 
-  it("shows 'No tags' when card has no tags", () => {
+  it("shows an editable tag affordance when card has no tags", () => {
     const card = makeCard({ tags: [] });
     render(<CardPreviewPanel card={card} />);
-    expect(screen.getByText("No tags")).toBeInTheDocument();
+    // The compact tag editor keeps an add affordance even with zero tags.
+    expect(screen.getByLabelText("tagEditor.editTags")).toBeInTheDocument();
   });
 
   it("switches to Edit tab on click", () => {

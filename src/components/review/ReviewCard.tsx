@@ -14,6 +14,7 @@ import { getImageAssetById } from "../../api/image-registry";
 import { normalizeClozeSyntax } from "../../utils/cloze";
 import { CardSourceContext } from "./CardSourceContext";
 import { useI18n } from "../../lib/i18n";
+import { CompactTagEditor } from "../common/CompactTagEditor";
 import type {
   ImageOcclusionRegion,
   LearningItemInteractionMetadata,
@@ -486,17 +487,10 @@ export const ReviewCard = React.memo(function ReviewCard({
           {getItemTypeLabel(itemType)}
         </span>
         {(card.tags?.length ?? 0) > 0 && (
-          <>
-            <span className="text-foreground/60" aria-hidden="true">•</span>
-            {card.tags.slice(0, 2).map((tag) => (
-              <span
-                key={tag}
-                className="px-2 py-0.5 text-xs bg-muted/60 text-foreground border border-border/50 rounded"
-              >
-                {tag}
-              </span>
-            ))}
-          </>
+          <CompactTagEditor
+            target={{ type: "learning-item", id: card.id, tags: card.tags ?? [] }}
+            previewLimit={2}
+          />
         )}
         {/* TTS Controls for Question */}
         {isSupported && (

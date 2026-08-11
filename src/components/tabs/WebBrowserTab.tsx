@@ -47,6 +47,7 @@ import {
 import { isTauri } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
 import { getShortcutCombo } from "../common/KeyboardShortcuts";
+import { CompactTagEditor } from "../common/CompactTagEditor";
 import { createExtract, type CreateExtractInput } from "../../api/extracts";
 import { createLearningItem } from "../../api/learning-items";
 import { createDocument, fetchUrlContent, readDocumentFile } from "../../api/documents";
@@ -1229,13 +1230,11 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
                                 </p>
                               )}
                               {extract.tags && extract.tags.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mb-2">
-                                  {extract.tags.map((tag) => (
-                                    <span key={tag} className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </div>
+                                <CompactTagEditor
+                                  target={{ type: "extract", id: extract.id, tags: extract.tags }}
+                                  previewLimit={3}
+                                  className="mb-2"
+                                />
                               )}
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <Clock className="w-3 h-3" />

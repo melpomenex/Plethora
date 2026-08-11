@@ -4972,6 +4972,8 @@ export const ja: Dict = {
   "schedule.expandItem": "詳細を表示",
   "schedule.collapseItem": "詳細を隠す",
   "schedule.gridHeaderLabel": "スケジュールデータグリッド",
+
+  "schedule.gridDetailLabel": "項目の詳細 — スケジュール列に合わせて整列",
   "schedule.postponeDays": "{count} 日延期",
   "schedule.retrievability": "想起率",
   "schedule.progress": "進捗",
@@ -5318,6 +5320,9 @@ export const ja: Dict = {
   "itemDetails.tagItemsLoading": "タグ付きアイテムを読み込み中...",
   "itemDetails.tagItemsModalTitle": "{tag}",
   "itemDetails.tagRemoveFailed": "タグの削除に失敗しました",
+
+  "tagEditor.editTags": "タグを編集 ({count})",
+  "tagEditor.editTagsTitle": "タグを編集",
   "itemDetails.viewItemsWithTag": "{tag}",
   "kindleImport.importAsPlainText": "プレーンテキストとしてインポート",
   "kindleImport.notKindleFile": "このファイルは Kindle のクリッピングファイルではないようです。",

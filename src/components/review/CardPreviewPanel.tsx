@@ -13,6 +13,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { useToast } from "../common/Toast";
+import { CompactTagEditor } from "../common/CompactTagEditor";
 import { useI18n } from "../../lib/i18n";
 import {
   updateLearningItemContentWithVersion,
@@ -109,15 +110,10 @@ export function CardPreviewPanel({
           Tags
         </div>
         <div className="flex flex-wrap gap-1">
-          {card.tags.length > 0 ? (
-            card.tags.map((tag) => (
-              <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                {tag}
-              </span>
-            ))
-          ) : (
-            <span className="text-[10px] text-muted-foreground">No tags</span>
-          )}
+          <CompactTagEditor
+            target={{ type: "learning-item", id: card.id, tags: card.tags }}
+            previewLimit={4}
+          />
         </div>
       </div>
     </div>
