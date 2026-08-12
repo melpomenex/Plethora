@@ -123,7 +123,10 @@ test("happy path: every phase sampled, result written, reliable", async (t) => {
     spawnApp: fakeSpawn.spawnApp,
     appClient: makeFakeApp(),
     sampleTree: makeStableSampler(),
-    options: { ...baseOptions, outputPath },
+    // The sampler is injected, so only the protocol matters here — bypass the
+    // Linux-only platform gate so these tests run on any host (debug-only flag
+    // added for exactly this).
+    options: { ...baseOptions, outputPath, allowUnsupportedPlatform: true },
   });
 
   assert.equal(outcome.ok, true);
@@ -152,7 +155,7 @@ test("a document that fails to open exits non-zero with no result file", async (
       onOpen: async (step) => ({ step: step.step, status: "error", error: "document failed to open (fixture)" }),
     }),
     sampleTree: makeStableSampler(),
-    options: { ...baseOptions, outputPath, stepTimeoutMs: 2_000 },
+    options: { ...baseOptions, outputPath, stepTimeoutMs: 2_000, allowUnsupportedPlatform: true },
   });
 
   assert.equal(outcome.ok, false);
@@ -169,7 +172,7 @@ test("an application that exits mid-scenario exits non-zero with no result file"
     spawnApp: fakeSpawn.spawnApp,
     appClient: makeFakeApp({ hangAfterSteps: 1 }),
     sampleTree: makeStableSampler(),
-    options: { ...baseOptions, outputPath, stepTimeoutMs: 400 },
+    options: { ...baseOptions, outputPath, stepTimeoutMs: 400, allowUnsupportedPlatform: true },
   });
 
   assert.equal(outcome.ok, false);
@@ -189,6 +192,7 @@ test("a settle timeout samples anyway and marks the run unreliable", async (t) =
       ...baseOptions,
       outputPath,
       settle: { intervalMs: 10, timeoutMs: 250 },
+      allowUnsupportedPlatform: true,
     },
   });
 

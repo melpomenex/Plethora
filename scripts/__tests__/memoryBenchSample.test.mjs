@@ -115,7 +115,14 @@ test("platform gate: missing smaps_rollup is unsupported and names what is neede
   assert.match(out.reason, /smaps_rollup is unavailable/);
 });
 
-test("platform gate: supported on Linux with a readable smaps_rollup", () => {
-  const out = checkMemoryCollectionSupported({ platform: "linux", procRoot: "/proc" });
+test("platform gate: supported on Linux with a readable smaps_rollup", (t) => {
+  // Fixture /proc root (macOS has no /proc, so build one) with a readable
+  // self/smaps_rollup — the gate must accept it.
+  const root = mkdtempSync(join(tmpdir(), "membench-platform-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const self = join(root, "self");
+  mkdirSync(self, { recursive: true });
+  writeFileSync(join(self, "smaps_rollup"), "Pss: 100 kB\n");
+  const out = checkMemoryCollectionSupported({ platform: "linux", procRoot: root });
   assert.equal(out.supported, true);
 });

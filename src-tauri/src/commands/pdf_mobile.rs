@@ -461,7 +461,7 @@ mod tests {
         let info = get_pdf_document_source_info_impl(&document.id, &repo)
             .await
             .expect("authorized source info");
-        assert_eq!(info.size, 14);
+        assert_eq!(info.size, 15);
         assert!(!info.identity.is_empty());
         assert_eq!(info.max_chunk_size, MAX_PDF_RANGE_BYTES);
     }

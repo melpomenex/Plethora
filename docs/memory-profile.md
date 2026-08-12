@@ -399,9 +399,25 @@ Findings from §1.4 turned into fixes (tasks 5.1–5.4):
   the resolver itself (no dangling URL). A robustness guard was added to the
   media probe (`media.play?.()?.catch`) so non-browser runtimes cannot throw
   synchronously.
+- **5.5 observers / timers / listeners / in-flight requests on unmount.**
+  Re-audited every reader-owned resource against the §1.4 inventory: all
+  per-instance `window`/`document` listeners and both `ResizeObserver`s are
+  removed/disconnected, the position-save and navigation-settle timers are
+  cleared (position flushed), the reflow scheduler and OCR controller are
+  cancelled, and native range transports are aborted on unmount. The one
+  remaining inventory item — `vimRuntimeListenersRef`, a `Set` of
+  reader-owned listeners — is now explicitly cleared in the unmount cleanup
+  (`PDFViewer.tsx`) so it cannot outlive the reader even if the vim adapter's
+  `onVimRuntimeChange(null)` unsubscribe chain has not run yet.
+- **5.7 mid-load close cancellation test.** `readerTabMidLoadClose.test.tsx`
+  exercises the real `createPdfDocumentHolder` against a controllable
+  in-flight loading task: closing a tab mid-load destroys the loading task,
+  issues no further backend requests, and surfaces no user-visible error —
+  including when the load's rejection lands after unmount (the `mounted`
+  guard swallows it).
 
 Phase 4's heap-snapshot evidence (snapshot C retaining paths) is still to be
-recorded; 5.1-5.4 stand on the Phase-1 code inventory until then.
+recorded; 5.1-5.7 stand on the Phase-1 code inventory until then.
 
 ---
 
