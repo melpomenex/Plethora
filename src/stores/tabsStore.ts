@@ -253,6 +253,15 @@ function flushPendingTabsSave(): void {
   save?.();
 }
 
+/**
+ * Whether a debounced workspace-persistence save is currently pending. Exposed
+ * for the memory-benchmark harness's quiescence signal (a pending save is an
+ * in-flight position-persistence task); harmless and unused otherwise.
+ */
+export function hasPendingTabsSave(): boolean {
+  return pendingTabsSaveTimer !== null || pendingTabsSave !== null;
+}
+
 function installTabsPersistenceListeners(): void {
   if (tabsPersistenceListenersInstalled || typeof window === "undefined") return;
   tabsPersistenceListenersInstalled = true;
@@ -319,6 +328,20 @@ export function isTabTypeEvictable(type: TabType): boolean {
 }
 
 /**
+ * Tab types that are expensive document readers (design D11, task 8.1).
+ *
+ * These are governed by the separate `general.readerTabCap` (default 2:
+ * active plus one warm) and are NOT in `EVICTABLE_TAB_TYPES`, so the general
+ * resident cap never unmounts them; only the reader cap may. Non-reader tabs
+ * are never evicted on account of the reader cap.
+ */
+const READER_TAB_TYPES: ReadonlySet<TabType> = new Set(["document-viewer"]);
+
+export function isTabTypeReader(type: TabType): boolean {
+  return READER_TAB_TYPES.has(type);
+}
+
+/**
  * Fallback resident cap, used when a persisted settings blob predates the
  * setting (or when a test mocks the settings store without it). Kept as a local
  * constant rather than read from `defaultSettings` so this module does not
@@ -327,10 +350,22 @@ export function isTabTypeEvictable(type: TabType): boolean {
  */
 export const DEFAULT_RESIDENT_TAB_CAP = 8;
 
+/**
+ * Fallback reader cap (task 8.1), pinned equal to the shipped default (2:
+ * active reader plus one warm) by a test.
+ */
+export const DEFAULT_READER_TAB_CAP = 2;
+
 /** The configured resident cap, or the default when settings do not carry one. */
 function residentTabCap(): number {
   const configured = useSettingsStore.getState().settings?.general?.residentTabCap;
   return typeof configured === "number" ? configured : DEFAULT_RESIDENT_TAB_CAP;
+}
+
+/** The configured reader cap, or the default when settings do not carry one. */
+function readerTabCap(): number {
+  const configured = useSettingsStore.getState().settings?.general?.readerTabCap;
+  return typeof configured === "number" ? configured : DEFAULT_READER_TAB_CAP;
 }
 
 /** Every pane's active tab — all of them are exempt from eviction. */
@@ -344,18 +379,24 @@ function collectActivePaneTabIds(pane: Pane, into: Set<string> = new Set()): Set
 }
 
 /**
- * Apply the resident-tab cap, returning the new evicted set (the same one when
- * nothing needed evicting, so subscribers do not re-render).
+ * Apply the resident-tab cap and the reader cap, returning the new evicted set
+ * (the same one when nothing needed evicting, so subscribers do not re-render).
  *
  * Residency is derived, not stored: a tab is mounted when it has been activated
  * at least once — i.e. it appears in `activeTabHistory`, which is kept in
  * least-recently-active-first order and filtered to open tabs — and has not
  * since been evicted. Walking that history from the front therefore visits
  * candidates in exactly LRU order.
+ *
+ * The reader cap (task 8.2) is applied in the same pass: after the general cap
+ * has its say, readers beyond `readerCap` are evicted LRU-first. Reader types
+ * are never evicted by the general cap and non-reader tabs are never evicted
+ * by the reader cap.
  */
 function applyResidentCap(
   state: Pick<TabsState, "tabs" | "rootPane" | "activeTabHistory" | "evictedTabIds">,
   cap: number,
+  readerCap: number,
 ): ReadonlySet<string> {
   if (!Number.isFinite(cap) || cap <= 0) return state.evictedTabIds;
 
@@ -363,20 +404,43 @@ function applyResidentCap(
   const resident = state.activeTabHistory.filter(
     (id) => openTabsById.has(id) && !state.evictedTabIds.has(id),
   );
-  if (resident.length <= cap) return state.evictedTabIds;
-
   const exempt = collectActivePaneTabIds(state.rootPane);
-  let overBy = resident.length - cap;
   let next: Set<string> | null = null;
-
-  for (const id of resident) {
-    if (overBy <= 0) break;
-    if (exempt.has(id)) continue;
-    const tab = openTabsById.get(id);
-    if (!tab || !EVICTABLE_TAB_TYPES.has(tab.type)) continue;
+  const evict = (id: string) => {
     if (!next) next = new Set(state.evictedTabIds);
     next.add(id);
-    overBy -= 1;
+  };
+
+  // General cap pass: evicts only EVICTABLE_TAB_TYPES.
+  if (resident.length > cap) {
+    let overBy = resident.length - cap;
+    for (const id of resident) {
+      if (overBy <= 0) break;
+      if (exempt.has(id)) continue;
+      const tab = openTabsById.get(id);
+      if (!tab || !EVICTABLE_TAB_TYPES.has(tab.type)) continue;
+      evict(id);
+      overBy -= 1;
+    }
+  }
+
+  // Reader cap pass: evicts only readers beyond the cap, LRU-first. A reader
+  // the general pass already evicted is not resident, so it cannot be
+  // double-counted here.
+  if (Number.isFinite(readerCap) && readerCap > 0) {
+    const residentReaders = resident.filter((id) => {
+      const tab = openTabsById.get(id);
+      return !!tab && READER_TAB_TYPES.has(tab.type);
+    });
+    if (residentReaders.length > readerCap) {
+      let overBy = residentReaders.length - readerCap;
+      for (const id of residentReaders) {
+        if (overBy <= 0) break;
+        if (exempt.has(id)) continue;
+        evict(id);
+        overBy -= 1;
+      }
+    }
   }
 
   // No eligible candidate: the cap is exceeded and stays exceeded. Keeping a
@@ -889,6 +953,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
             evictedTabIds: applyResidentCap(
               { tabs: state.tabs, rootPane, activeTabHistory, evictedTabIds },
               residentTabCap(),
+              readerTabCap(),
             ),
           };
         });

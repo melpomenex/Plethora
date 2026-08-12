@@ -1,5 +1,10 @@
 # Linux (WebKitGTK) Known Limitations
 
+> **Memory behavior:** for how Incrementum's runtime memory is structured, how
+> the memory benchmark measures it, and the baselines/thresholds that guard
+> it, see [docs/memory-profile.md](memory-profile.md). The memory benchmark
+> requires WebKitGTK 4.1 and a display (or Xvfb).
+
 The Linux AppImage uses WebKitGTK as its web engine. While WebKitGTK works well for most app functionality, it has some known limitations compared to the macOS (WKWebView) and Windows (WebView2/Chromium) builds.
 
 ## YouTube Playback Performance

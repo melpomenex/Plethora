@@ -291,6 +291,7 @@ Analytics → View stats, charts, and streaks
 | [Feature Overview](docs/FEATURES_IMPLEMENTED.md) | Complete feature list and implementation status |
 | [Installation Guide](docs/INSTALL.md) | Detailed setup instructions |
 | [OCR Features](docs/OCR_FEATURES.md) | Text extraction from images |
+| [Memory Profile](docs/memory-profile.md) | Runtime memory map, the memory benchmark, baselines and thresholds |
 
 ### Developer Documentation
 

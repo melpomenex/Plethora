@@ -249,6 +249,14 @@ interface GeneralSettings {
    * every tab mounted forever, which is the pre-cap behavior.
    */
   residentTabCap: number;
+  /**
+   * How many expensive document readers (PDF/EPUB `document-viewer` tabs) may
+   * stay mounted at once: the active reader plus a small number of warm ones.
+   * Beyond this, the least recently used reader is unmounted (its reading
+   * position is flushed first) and restored on reactivation. `0` keeps every
+   * reader mounted; non-reader tabs are never evicted on account of this cap.
+   */
+  readerTabCap: number;
 }
 
 /**
@@ -595,6 +603,10 @@ export const defaultSettings: Settings = {
     // Deliberately above typical usage, so most sessions never evict anything;
     // it exists to bound a workspace that has grown all day.
     residentTabCap: 8,
+    // Active reader plus one warm reader (design D11): keeps the common
+    // alt-tab-between-two-documents flow reload-free while bounding how many
+    // full document instances are resident at once.
+    readerTabCap: 2,
   },
   appearance: {
     theme: "system",

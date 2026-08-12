@@ -1135,6 +1135,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             wait_for_backend_ready,
+            commands::memory_scenario::get_memory_scenario_config,
             download_update_apk,
             consume_startup_notice,
             restore_local_db_backup,

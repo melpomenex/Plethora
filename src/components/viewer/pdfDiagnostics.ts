@@ -13,6 +13,12 @@ export interface PdfDiagnosticsSnapshot {
   classification?: PdfAnalysisClassification;
   ocrState?: "idle" | "queued" | "processing" | "ready" | "failed" | "cancelled";
   errorCategory?: PdfErrorCategory;
+  /**
+   * Set when a whole-file load was used in a runtime where the range source
+   * was expected (task 6.3): a silent regression to whole-file loading must be
+   * observable in diagnostics and in the memory benchmark.
+   */
+  fallbackReason?: string;
 }
 
 export function pdfSizeBucket(bytes?: number | null): PdfDiagnosticsSnapshot["sizeBucket"] {
@@ -44,6 +50,15 @@ export class PdfDiagnostics {
   recordRange(bytes: number): void {
     this.snapshot.rangeRequests += 1;
     this.snapshot.rangeBytes += Math.max(0, bytes);
+  }
+
+  /**
+   * Record that a whole-file load was used instead of the range source
+   * (task 6.3). `reason` must be a stable machine-readable token.
+   */
+  recordFallback(reason: string): void {
+    this.snapshot.fallbackReason = reason;
+    this.snapshot.sourceStrategy = "file-data";
   }
 
   update(values: Partial<Omit<PdfDiagnosticsSnapshot, "sourceStrategy" | "sizeBucket" | "rangeRequests" | "rangeBytes">>): void {

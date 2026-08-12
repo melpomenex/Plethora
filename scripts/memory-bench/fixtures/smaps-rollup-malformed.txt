@@ -1,0 +1,4 @@
+not a rollup at all
+Rss: definitely not a number kB
+Pss: 4096 kB and some trailing garbage that does not fit the pattern
+<empty line that is actually absent>

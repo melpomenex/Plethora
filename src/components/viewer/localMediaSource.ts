@@ -137,7 +137,12 @@ async function probeMediaSource(
     media.load();
     // Attempt actual playback to verify the codec is supported.
     // On WebKitGTK, loadedmetadata can fire even when the codec cannot be decoded.
-    media.play().catch(() => {});
+    // Guard play() for runtimes that do not implement playback (jsdom, tests).
+    try {
+      media.play?.()?.catch(() => {});
+    } catch {
+      /* non-browser runtime without play() */
+    }
   });
 }
 

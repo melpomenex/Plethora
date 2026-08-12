@@ -109,6 +109,59 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
   AbortException: class AbortException extends Error {},
 }));
 
+// jsdom does not implement DOMMatrix, but the real pdf.js build constructs one
+// at module scope (`const SCALE_MATRIX = new DOMMatrix()`). Provide a
+// functional-enough stub so tests that load the real engine
+// (pdfRangeSourceBehavior.test.ts) can run; the rest of the suite uses the
+// pdfjs mock above and never touches this.
+if (typeof globalThis.DOMMatrix === "undefined") {
+  class DOMMatrixStub {
+    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+    m11 = 1; m12 = 0; m13 = 0; m14 = 0;
+    m21 = 0; m22 = 1; m23 = 0; m24 = 0;
+    m31 = 0; m32 = 0; m33 = 1; m34 = 0;
+    m41 = 0; m42 = 0; m43 = 0; m44 = 1;
+    is2D = true;
+    isIdentity = true;
+    constructor(init?: string | number[]) {
+      if (typeof init === "string") {
+        const parts = init.split(/[ ,]+/).map(Number);
+        if (parts.length === 6) this._set(parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]);
+      } else if (Array.isArray(init) && init.length === 6) {
+        this._set(init[0], init[1], init[2], init[3], init[4], init[5]);
+      }
+    }
+    _set(a: number, b: number, c: number, d: number, e: number, f: number) {
+      this.a = a; this.b = b; this.c = c; this.d = d; this.e = e; this.f = f;
+      this.m11 = a; this.m12 = b; this.m21 = c; this.m22 = d; this.m41 = e; this.m42 = f;
+      this.isIdentity = a === 1 && b === 0 && c === 0 && d === 1 && e === 0 && f === 0;
+    }
+    multiply(other: DOMMatrixStub) { return this._compose(other); }
+    multiplySelf(other: DOMMatrixStub) { const r = this._compose(other); this._set(r.a, r.b, r.c, r.d, r.e, r.f); return this; }
+    preMultiplySelf(other: DOMMatrixStub) { const r = other._compose(this); this._set(r.a, r.b, r.c, r.d, r.e, r.f); return this; }
+    translate(tx = 0, ty = 0) { return this._compose(new DOMMatrixStub([1, 0, 0, 1, tx, ty])); }
+    translateSelf(tx = 0, ty = 0) { this.e += tx; this.f += ty; this._set(this.a, this.b, this.c, this.d, this.e, this.f); return this; }
+    scale(sx = 1, sy = 1) { return this._compose(new DOMMatrixStub([sx, 0, 0, sy, 0, 0])); }
+    scaleSelf(sx = 1, sy = 1) { this.a *= sx; this.b *= sx; this.c *= sy; this.d *= sy; this._set(this.a, this.b, this.c, this.d, this.e, this.f); return this; }
+    inverse() { const det = this.a * this.d - this.b * this.c; if (det === 0) return new DOMMatrixStub(); return new DOMMatrixStub([this.d / det, -this.b / det, -this.c / det, this.a / det, (this.c * this.f - this.d * this.e) / det, (this.b * this.e - this.a * this.f) / det]); }
+    _compose(other: DOMMatrixStub) {
+      return new DOMMatrixStub([
+        this.a * other.a + this.c * other.b,
+        this.b * other.a + this.d * other.b,
+        this.a * other.c + this.c * other.d,
+        this.b * other.c + this.d * other.d,
+        this.a * other.e + this.c * other.f + this.e,
+        this.b * other.e + this.d * other.f + this.f,
+      ]);
+    }
+  }
+  Object.defineProperty(globalThis, "DOMMatrix", {
+    value: DOMMatrixStub,
+    configurable: true,
+    writable: true,
+  });
+}
+
 // Mock window.__TAURI__ for Tauri 2.0
 Object.defineProperty(window, "__TAURI__", {
   value: {

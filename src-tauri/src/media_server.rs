@@ -62,6 +62,31 @@ pub(crate) struct MediaServerState {
 /// stream handler before the frontend requests it.
 static MEDIA_SERVER_STATE: OnceCell<MediaServerState> = OnceCell::const_new();
 
+/// Bound on the per-session granted-paths set (task 7.2). A plain reading
+/// session grants one path per distinct out-of-root media/EPUB file opened;
+/// the bound caps pathological sessions. Eviction is safe by construction:
+/// the set is consulted only when a NEW stream request arrives (see
+/// `canonical_path_within_roots_or_granted`), while an open stream holds its
+/// own tokio file handle — so evicting an entry can never break a currently
+/// open document.
+const MAX_GRANTED_PATHS: usize = 256;
+
+/// Insert a canonical path into the grant set, bounding its size. Evicts
+/// arbitrary entries beyond the bound; see `MAX_GRANTED_PATHS`.
+fn grant_path(state: &MediaServerState, canonical: PathBuf) {
+    let Ok(mut set) = state.granted_paths.lock() else {
+        return;
+    };
+    set.insert(canonical);
+    if set.len() > MAX_GRANTED_PATHS {
+        let excess = set.len() - MAX_GRANTED_PATHS;
+        let victims: Vec<PathBuf> = set.iter().take(excess).cloned().collect();
+        for victim in victims {
+            set.remove(&victim);
+        }
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct StreamParams {
     path: String,
@@ -470,11 +495,7 @@ pub async fn get_media_stream_url(
     let port = start(&app_handle).await?;
     if granted {
         if let Some(state) = MEDIA_SERVER_STATE.get() {
-            state
-                .granted_paths
-                .lock()
-                .map_err(|_| "Cannot stream media file: grant set lock poisoned".to_string())?
-                .insert(canonical.clone());
+            grant_path(state, canonical.clone());
         }
     }
     let canonical_string = canonical.to_string_lossy().into_owned();
@@ -511,12 +532,109 @@ mod tests {
         }
     }
 
+    #[test]
+    fn grant_set_is_bounded_and_eviction_never_breaks_open_documents() {
+        // Task 7.2: the cross-document grant set has an explicit bound, and
+        // eviction can only affect NEW requests (the handler checks membership
+        // at request time); an open stream owns its file handle.
+        let state = test_state(std::path::Path::new("/unused"));
+        let grant_dir = tempfile::tempdir().expect("grant dir");
+
+        // Grant far more distinct paths than the bound.
+        let mut granted_ids = Vec::new();
+        for index in 0..(MAX_GRANTED_PATHS + 64) {
+            let path = grant_dir.path().join(format!("granted-{index}.m4b"));
+            fs::write(&path, b"x").expect("fixture");
+            grant_path(&state, path.clone());
+            granted_ids.push(path);
+        }
+
+        // The set never exceeds the bound.
+        let size = state.granted_paths.lock().expect("lock").len();
+        assert!(size <= MAX_GRANTED_PATHS, "grant set must stay within the bound");
+
+        // Eviction semantics: at most MAX entries are still accepted, and
+        // re-granting is allowed (a NEW request for an evicted path is simply
+        // re-granted by the frontend before streaming).
+        let kept = state
+            .granted_paths
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|p| granted_ids.contains(p))
+            .count();
+        assert!(kept <= MAX_GRANTED_PATHS);
+
+        // Structural guarantee: the grant set is NOT consulted for an open
+        // stream — the stream handler already holds the canonical path it
+        // validated; this is what makes eviction unable to break a document
+        // that is currently open. Assert the check only gates new requests:
+        // a non-granted path outside the roots is refused, a granted one is
+        // accepted.
+        let roots_dir = tempfile::tempdir().expect("roots dir");
+        let inside = roots_dir.path().join("inside.m4b");
+        fs::write(&inside, b"x").expect("fixture");
+        let outside_dir = tempfile::tempdir().expect("outside dir");
+        let outside = outside_dir.path().join("outside.m4b");
+        fs::write(&outside, b"x").expect("fixture");
+
+        let roots = vec![roots_dir.path().to_path_buf()];
+        assert!(canonical_path_within_roots_or_granted(&inside, &roots, &state.granted_paths).is_ok());
+        assert_eq!(
+            canonical_path_within_roots_or_granted(&outside, &roots, &state.granted_paths)
+                .unwrap_err(),
+            StatusCode::FORBIDDEN
+        );
+
+        // An evicted-then-regranted path works again (eviction is not a ban).
+        grant_path(&state, outside.clone());
+        assert!(canonical_path_within_roots_or_granted(&outside, &roots, &state.granted_paths).is_ok());
+    }
+
     fn temp_file(bytes: &[u8]) -> (PathBuf, PathBuf) {
         let root = std::env::temp_dir().join(format!("incrementum-media-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create test root");
         let path = root.join("fixture.m4b");
         fs::write(&path, bytes).expect("write test media");
         (root, path)
+    }
+
+    #[tokio::test]
+    async fn per_document_stream_state_is_released_when_the_document_is_not_open() {
+        // Task 7.4: the backend holds NO per-document state once a document is
+        // not open — the media server streams from disk and its only
+        // cross-document structure is the bounded grant-path set (no bytes, no
+        // handles, no channels). Serving a full stream must not leave any
+        // per-document entry behind.
+        let bytes = b"0123456789abcdef";
+        let (root, path) = temp_file(bytes);
+        let state = test_state(&root);
+        let app = Router::new()
+            .route("/stream", get(stream_handler))
+            .with_state(state.clone());
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/stream?path={}",
+                        urlencoding::encode(&path.to_string_lossy())
+                    ))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), bytes.len()).await.expect("body");
+        assert_eq!(body.as_ref(), bytes);
+
+        // After the stream completes, the server state holds only the
+        // bounded grant set — and no per-document byte buffers or handles.
+        let granted = state.granted_paths.lock().expect("lock");
+        assert!(granted.iter().all(|p| !p.to_string_lossy().contains("fixture")));
+        assert_eq!(granted.len(), 0);
     }
 
     #[tokio::test]

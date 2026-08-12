@@ -23,6 +23,7 @@ vi.mock("../collectionStore", () => ({
 }));
 
 let configuredCap: number | undefined = 8;
+let configuredReaderCap: number | undefined = 2;
 
 // Partial mock: only the live settings accessor is replaced, so the assertion
 // that `DEFAULT_RESIDENT_TAB_CAP` matches the shipped default reads the real
@@ -33,7 +34,13 @@ vi.mock("../settingsStore", async (importOriginal) => {
     ...actual,
     useSettingsStore: {
       getState: () => ({
-        settings: { general: { restoreSession: true, residentTabCap: configuredCap } },
+        settings: {
+          general: {
+            restoreSession: true,
+            residentTabCap: configuredCap,
+            readerTabCap: configuredReaderCap,
+          },
+        },
       }),
     },
   };
@@ -44,7 +51,9 @@ import {
   createSplitPane,
   createTabPane,
   isTabTypeEvictable,
+  isTabTypeReader,
   DEFAULT_RESIDENT_TAB_CAP,
+  DEFAULT_READER_TAB_CAP,
   type Pane,
   type Tab,
   type TabType,
@@ -86,10 +95,12 @@ const PINNED: TabType = "document-viewer";
 describe("resident tab cap", () => {
   beforeEach(() => {
     configuredCap = 8;
+    configuredReaderCap = 2;
   });
 
   it("agrees with the shipped default", () => {
     expect(DEFAULT_RESIDENT_TAB_CAP).toBe(defaultSettings.general.residentTabCap);
+    expect(DEFAULT_READER_TAB_CAP).toBe(defaultSettings.general.readerTabCap);
   });
 
   it("only treats the opted-in tab types as evictable", () => {
@@ -128,7 +139,7 @@ describe("resident tab cap", () => {
     expect([...useTabsStore.getState().evictedTabIds]).toEqual([]);
   });
 
-  it("leaves the cap exceeded rather than evicting a non-evictable tab", () => {
+  it("leaves the general cap exceeded rather than evicting a non-evictable tab", () => {
     configuredCap = 2;
     const tabs = [
       makeTab("viewer-1", PINNED),
@@ -140,7 +151,9 @@ describe("resident tab cap", () => {
 
     useTabsStore.getState().setActiveTab(pane.id, "viewer-3");
 
-    expect([...useTabsStore.getState().evictedTabIds]).toEqual([]);
+    // The GENERAL cap does not evict readers — but the READER cap does
+    // (default 2, task 8.2): activating a third reader evicts the LRU one.
+    expect([...useTabsStore.getState().evictedTabIds]).toEqual(["viewer-1"]);
   });
 
   it("skips ineligible candidates and evicts the oldest eligible one", () => {
@@ -243,5 +256,114 @@ describe("resident tab cap", () => {
     useTabsStore.getState().closeTab("a");
 
     expect(useTabsStore.getState().evictedTabIds.has("a")).toBe(false);
+  });
+});
+
+describe("reader tab cap (task 8.2)", () => {
+  beforeEach(() => {
+    configuredCap = 8;
+    configuredReaderCap = 2;
+  });
+
+  it("classifies document viewers as readers and nothing else", () => {
+    expect(isTabTypeReader("document-viewer")).toBe(true);
+    expect(isTabTypeReader("dashboard")).toBe(false);
+    expect(isTabTypeReader("queue")).toBe(false);
+  });
+
+  it("opening past the cap evicts the least recently used reader", () => {
+    const tabs = ["r1", "r2", "r3"].map((id) => makeTab(id, PINNED));
+    const pane = createTabPane(["r1", "r2", "r3"], "r2");
+    seed(tabs, pane, ["r1", "r2"]);
+
+    useTabsStore.getState().setActiveTab(pane.id, "r3");
+
+    // r1 is the oldest reader and not active -> evicted; r2 stays warm.
+    expect([...useTabsStore.getState().evictedTabIds]).toEqual(["r1"]);
+    // The evicted tab remains listed in the workspace.
+    expect(useTabsStore.getState().tabs.map((t) => t.id)).toEqual(["r1", "r2", "r3"]);
+  });
+
+  it("alternating between two readers within the cap reloads neither", () => {
+    const tabs = ["r1", "r2"].map((id) => makeTab(id, PINNED));
+    const pane = createTabPane(["r1", "r2"], "r1");
+    seed(tabs, pane, ["r1", "r2"]);
+
+    useTabsStore.getState().setActiveTab(pane.id, "r1");
+    expect([...useTabsStore.getState().evictedTabIds]).toEqual([]);
+    useTabsStore.getState().setActiveTab(pane.id, "r2");
+    expect([...useTabsStore.getState().evictedTabIds]).toEqual([]);
+  });
+
+  it("activating a non-reader tab evicts no reader", () => {
+    configuredCap = 2; // general cap tight, so the non-reader side is stressed
+    const tabs = [
+      makeTab("r1", PINNED),
+      makeTab("r2", PINNED),
+      makeTab("dash", EVICTABLE),
+      makeTab("dash2", EVICTABLE),
+    ];
+    const pane = createTabPane(["r1", "r2", "dash", "dash2"], "dash");
+    seed(tabs, pane, ["r1", "r2", "dash"]);
+
+    useTabsStore.getState().setActiveTab(pane.id, "dash2");
+
+    // Readers are at the cap but the activated tab is not a reader: no reader
+    // is evicted; only the general cap's evictable types may go.
+    expect(useTabsStore.getState().evictedTabIds.has("r1")).toBe(false);
+    expect(useTabsStore.getState().evictedTabIds.has("r2")).toBe(false);
+  });
+
+  it("a lowered reader cap applies on the next activation", () => {
+    configuredReaderCap = 1;
+    const tabs = ["r1", "r2"].map((id) => makeTab(id, PINNED));
+    const pane = createTabPane(["r1", "r2"], "r1");
+    seed(tabs, pane, ["r1", "r2"]);
+
+    useTabsStore.getState().setActiveTab(pane.id, "r2");
+
+    // Cap 1 = active reader only; the warm one is evicted.
+    expect([...useTabsStore.getState().evictedTabIds]).toEqual(["r1"]);
+  });
+
+  it("a reader cap of 0 keeps every reader mounted", () => {
+    configuredReaderCap = 0;
+    const tabs = ["r1", "r2", "r3"].map((id) => makeTab(id, PINNED));
+    const pane = createTabPane(["r1", "r2", "r3"], "r2");
+    seed(tabs, pane, ["r1", "r2"]);
+
+    useTabsStore.getState().setActiveTab(pane.id, "r3");
+
+    expect([...useTabsStore.getState().evictedTabIds]).toEqual([]);
+  });
+
+  it("reactivating an evicted reader makes it resident again and re-evicts LRU", () => {
+    const tabs = ["r1", "r2", "r3"].map((id) => makeTab(id, PINNED));
+    const pane = createTabPane(["r1", "r2", "r3"], "r2");
+    seed(tabs, pane, ["r1", "r2"]);
+
+    useTabsStore.getState().setActiveTab(pane.id, "r3");
+    expect(useTabsStore.getState().evictedTabIds.has("r1")).toBe(true);
+
+    useTabsStore.getState().setActiveTab(pane.id, "r1");
+
+    expect(useTabsStore.getState().evictedTabIds.has("r1")).toBe(false);
+    // The cap still holds: r1 came back, so the next-oldest reader goes.
+    expect([...useTabsStore.getState().evictedTabIds]).toEqual(["r2"]);
+  });
+
+  it("closing a reader removes it from the evicted set", () => {
+    const tabs = ["r1", "r2", "r3"].map((id) => makeTab(id, PINNED));
+    const pane = createTabPane(["r1", "r2", "r3"], "r2");
+    seed(tabs, pane, ["r1", "r2"]);
+
+    useTabsStore.getState().setActiveTab(pane.id, "r3");
+    expect(useTabsStore.getState().evictedTabIds.has("r1")).toBe(true);
+
+    useTabsStore.getState().closeTab("r1");
+
+    expect(useTabsStore.getState().evictedTabIds.has("r1")).toBe(false);
+    // Only r2 + r3 remain: within the cap, nothing else is evicted.
+    expect([...useTabsStore.getState().evictedTabIds]).toEqual([]);
   });
 });
