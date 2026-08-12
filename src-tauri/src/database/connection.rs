@@ -419,10 +419,45 @@ mod tests {
         let (db, _) = Database::open_or_recover(db_path.clone()).await.unwrap();
         db.migrate().await.unwrap();
         db.close().await;
-        let size_before = std::fs::metadata(&db_path).unwrap().len();
+        // `close()` returns before the sqlx SQLite background thread's final
+        // WAL checkpoint necessarily finishes: the checkpoint can still write
+        // the full database through its already-open fd AFTER we chmod the
+        // path (fd writes bypass the permission check), growing the file and
+        // racing the assertions below. Wait until the file size is stable so
+        // the database is fully settled before we measure it or lock it down.
+        // (Observed on macOS/APFS; the WAL file itself may legitimately
+        // persist, so stability of the main file — not `-wal` absence — is
+        // the deterministic signal.)
+        let settle_deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut last_len = std::fs::metadata(&db_path).unwrap().len();
+        let mut stable_reads = 0;
+        loop {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            let len = std::fs::metadata(&db_path).unwrap().len();
+            if len == last_len {
+                stable_reads += 1;
+                if stable_reads >= 3 {
+                    break;
+                }
+            } else {
+                stable_reads = 0;
+                last_len = len;
+            }
+            assert!(
+                std::time::Instant::now() < settle_deadline,
+                "database did not finish settling"
+            );
+        }
+        let size_before = last_len;
 
         // …that we cannot open (SQLITE_CANTOPEN, not a corruption verdict).
         std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // The mode change is not atomic with a subsequent open on macOS/APFS:
+        // a fresh sqlite open within the first milliseconds can still succeed
+        // (the vnode's permission check lags the chmod; observed flakily even
+        // though a plain `File::open` reports the new mode). Sleep briefly so
+        // the permission change is fully effective before reopening.
+        tokio::time::sleep(Duration::from_millis(10)).await;
 
         let result = Database::open_or_recover(db_path.clone()).await;
         assert!(result.is_err(), "unopenable DB should surface an error");

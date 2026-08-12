@@ -46,9 +46,9 @@
 - [x] 5.2 Release per-page rendering state on unmount: page views, canvases, the rendered-page set, `textCacheRef`, and any decoded-page or reflow cache held by the viewer.
 - [x] 5.3 Audit `EPUBViewer` teardown against the snapshot-C retaining paths and close whatever remains: `Rendition` / `Book` destruction ordering, the epub.js task queue, iframe content, and any listener that outlives them.
 - [x] 5.4 Revoke every object URL created for a document on disposal, and add a test that no object URL created by a reader survives its unmount.
-- [ ] 5.5 Disconnect observers, clear timers, remove listeners, and abort in-flight requests owned by a reader on unmount; verify each against the Phase 4 retaining paths.
+- [x] 5.5 Disconnect observers, clear timers, remove listeners, and abort in-flight requests owned by a reader on unmount; verify each against the Phase 4 retaining paths.
 - [x] 5.6 Add tests that closing one reader tab disposes its resources and leaves sibling tabs rendering and interactive.
-- [ ] 5.7 Add a test that closing a tab mid-load cancels the pending load, issues no further backend requests, and surfaces no user-visible error.
+- [x] 5.7 Add a test that closing a tab mid-load cancels the pending load, issues no further backend requests, and surfaces no user-visible error.
 - [ ] 5.8 Re-run the harness and record the delta attributable to disposal alone.
 
 ## 6. Desktop document byte transfer (Phase 4 fix)

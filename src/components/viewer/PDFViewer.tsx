@@ -1425,6 +1425,10 @@ export function PDFViewer({
       pageOffsetsRef.current = [];
       reflowSchedulerRef.current?.cancel();
       reflowOcrRef.current?.cancel();
+      // Task 5.5: drop reader-owned listeners even if the vim adapter's
+      // unsubscribe chain (onVimRuntimeChange(null) -> adapter.dispose) has
+      // not run yet — the Set must not outlive the reader.
+      vimRuntimeListenersRef.current.clear();
       canvasRefs.current = [];
       textLayerRootsRef.current = [];
       pageViewportRefs.current = [];

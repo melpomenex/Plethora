@@ -587,7 +587,26 @@ mod tests {
         );
 
         // An evicted-then-regranted path works again (eviction is not a ban).
-        grant_path(&state, outside.clone());
+        // Grant the CANONICAL path, exactly as the production handler does
+        // (`grant_path(state, canonical)` at the stream handler); the raw
+        // tempdir path differs from its canonical form on macOS
+        // (`/var/folders` -> `/private/var/folders`).
+        let canonical_outside = std::fs::canonicalize(&outside).expect("canonicalize outside");
+        // The set is at the bound, and eviction picks ARBITRARY entries
+        // (HashSet iteration order) — a single grant at capacity could evict
+        // the very path just added, making the assertion below order-dependent.
+        // Deterministically free a slot first (simulating an eviction), so the
+        // re-grant is guaranteed to survive.
+        {
+            let mut set = state.granted_paths.lock().expect("lock");
+            // The exact members at the bound are nondeterministic; drop any
+            // current member (e.g. the first granted fixture path that is
+            // still resident) to make room.
+            if let Some(victim) = set.iter().find(|p| granted_ids.iter().any(|g| g == *p)).cloned() {
+                set.remove(&victim);
+            }
+        }
+        grant_path(&state, canonical_outside);
         assert!(canonical_path_within_roots_or_granted(&outside, &roots, &state.granted_paths).is_ok());
     }
 
