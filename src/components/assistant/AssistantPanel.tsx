@@ -561,6 +561,14 @@ export function AssistantPanel({
       gradient: "from-orange-500/15 to-amber-500/5 hover:from-orange-500/20",
       breathingDot: "bg-orange-500 shadow-[0_0_8px_#f97316]",
     },
+    {
+      id: "gemini",
+      name: "Gemini",
+      icon: Sparkle,
+      color: "text-blue-400",
+      gradient: "from-blue-400/15 to-indigo-500/5 hover:from-blue-400/20",
+      breathingDot: "bg-blue-400 shadow-[0_0_8px_#60a5fa]",
+    },
     { 
       id: "ollama", 
       name: "Ollama", 
