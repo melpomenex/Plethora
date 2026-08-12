@@ -32,7 +32,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useDocumentStore, useTabsStore, useQueueStore } from "../../stores";
 import { useShallow } from "zustand/react/shallow";
 import { convertFileSrc, isNativeMobile, isTauri } from "../../lib/tauri";
-import { shouldUseNativeMobilePdfSource } from "./pdfFeatureFlags";
+import { markBusy } from "../../lib/memoryScenario/activity";
+import { shouldUseNativePdfRangeSource } from "./pdfFeatureFlags";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import { clearInvalidSyncedFilePath } from "../../lib/fileSyncRegistration";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -2006,7 +2007,7 @@ export function DocumentViewer({
     return items;
   }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t]);
 
-  const loadDocumentData = useCallback(async (doc: typeof currentDocument) => {
+  const loadDocumentDataInner = useCallback(async (doc: typeof currentDocument) => {
     if (!doc) return;
 
     setIsLoading(true);
@@ -2040,19 +2041,29 @@ export function DocumentViewer({
         return;
       }
       try {
-        // On native mobile, reading a whole PDF into a JS Uint8Array via
-        // readDocumentFile() OOMs Android for large files (a ~180MB document
-        // allocates a fixed ~189MB array and blows the 512MB Java heap at
-        // launch when a document tab is session-restored as active). Instead,
-        // hand pdf.js a streaming URL (convertFileSrc) so the viewer fetches
-        // only the pages it needs.
-        if (isNativeMobile() && inferredType === "pdf") {
-          if (shouldUseNativeMobilePdfSource({ nativeMobile: true, fileType: inferredType })) {
+        // The bounded-range PDF source (PDFDataRangeTransport over the native
+        // read_pdf_document_range command) is the default load path for PDFs in
+        // the Tauri runtime on desktop AND mobile (design D10): pdf.js pulls
+        // only the byte ranges it needs, so no whole-file buffer crosses the
+        // IPC boundary. The whole-file readDocumentFile path below remains as
+        // an explicit fallback when the range source is disabled or the
+        // platform has no native commands (web/PWA).
+        if (inferredType === "pdf" && isTauri()) {
+          if (shouldUseNativePdfRangeSource({ isTauriRuntime: true, fileType: inferredType })) {
             setUseNativePdfRange(true);
-          } else {
-            const url = await convertFileSrc(doc.filePath);
-            setPdfUrl(url);
+            setIsLoading(false);
+            return;
           }
+        }
+
+        // On native mobile with the range source disabled, handing pdf.js a
+        // streaming URL (convertFileSrc) still avoids reading the whole file
+        // into a JS Uint8Array (a ~180MB document allocates a fixed ~189MB
+        // array and blows the 512MB Java heap at launch when a document tab is
+        // session-restored as active).
+        if (isNativeMobile() && inferredType === "pdf") {
+          const url = await convertFileSrc(doc.filePath);
+          setPdfUrl(url);
           setIsLoading(false);
           return;
         }
@@ -2224,6 +2235,21 @@ export function DocumentViewer({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- complex init callback with many captured values; intentional empty deps
   }, []);
+
+  // Busy-marking wrapper for the memory benchmark harness: an in-flight
+  // document load counts as a non-quiescent state (memoryScenario/activity.ts).
+  // `markBusy` is a runtime-gated no-op unless the harness env is present.
+  const loadDocumentData = useCallback(
+    async (doc: typeof currentDocument) => {
+      markBusy(true);
+      try {
+        await loadDocumentDataInner(doc);
+      } finally {
+        markBusy(false);
+      }
+    },
+    [loadDocumentDataInner],
+  );
 
   useEffect(() => {
     if (!isTabActive) return;

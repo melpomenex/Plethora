@@ -920,6 +920,28 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
 
         <SettingsRow
+          label={t("settings.readerTabCap")}
+          description={t("settings.readerTabCapDesc")}
+        >
+          <select
+            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px]"
+            value={String(general.readerTabCap ?? 2)}
+            aria-label={t("settings.readerTabCap")}
+            onChange={(e) => {
+              updateSettingsCategory("general", { readerTabCap: Number(e.target.value) });
+              onChange();
+            }}
+          >
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="0">{t("settings.readerTabCapUnlimited")}</option>
+          </select>
+        </SettingsRow>
+
+        <SettingsRow
           label="Feature Popups"
           description="Show onboarding tips and feature discovery popups"
         >

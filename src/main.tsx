@@ -364,6 +364,19 @@ import('./lib/tagEditing/storeReconciliation')
     console.error('[Tag Editing] Reconciliation wiring failed:', error);
   });
 
+// Memory benchmark harness (bound-runtime-memory-and-gate): drives the app
+// through a deterministic scenario when the harness env vars are present.
+// Inert in any other configuration (the backend command returns null).
+if (isTauri()) {
+  import('./lib/memoryScenario/host')
+    .then(({ startMemoryScenario }) => {
+      void startMemoryScenario();
+    })
+    .catch((error) => {
+      console.error('[Memory Scenario] Host failed to start:', error);
+    });
+}
+
 const rootEl = document.getElementById("root") as HTMLElement;
 const reactRoot = ReactDOM.createRoot(rootEl);
 const endFirstPaint = markSyncPhaseStart("first-paint");

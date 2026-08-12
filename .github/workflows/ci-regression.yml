@@ -162,3 +162,60 @@ jobs:
           name: bench-results
           path: .bench/results.json
           if-no-files-found: error
+
+  memory:
+    # Non-blocking diagnostic (design D9): shared-runner memory is too
+    # environment-dependent to gate on, so this job records the numbers and
+    # uploads them as artifacts. It is `continue-on-error`, is not a required
+    # check, and nothing depends on it — the blocking `performance` job above
+    # is unchanged.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Sync node version and setup cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Install WebKitGTK and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev xvfb
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build the app (debug)
+        run: npm run tauri:build:local:debug
+
+      - name: Provision the corpus
+        run: node scripts/memory-bench/driver.js --provision
+
+      - name: Run the memory scenario under Xvfb
+        run: xvfb-run -a node scripts/memory-bench/driver.js --output .bench/memory-result.json
+
+      # Warn-only: regressions are visible in the log and the evaluation
+      # record below, but a mismatch against the baseline profile or an
+      # unreliable run exits 2 and the job's continue-on-error keeps the
+      # workflow green while the artifact shows what happened.
+      - name: Check memory budget (warn-only)
+        run: node scripts/check-memory-budget.mjs --warn-only
+
+      - name: Upload memory result and evaluation record
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-result
+          path: |
+            .bench/memory-result.json
+            .bench/memory-evaluation.json
+          if-no-files-found: warn

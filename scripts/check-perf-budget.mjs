@@ -36,6 +36,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { formatSignificant, printAlignedTable } from "./report-helpers.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
@@ -49,10 +50,11 @@ const STALE_BASELINE_FACTOR = 0.75;
  * Costs range from ~0.001 (cheap benches) to thousands (heavy ones), so a
  * fixed number of decimals would round tiny costs to 0.0 and lose the signal.
  * Four significant digits keep both ends meaningful.
+ *
+ * Shared with the memory gate via scripts/report-helpers.mjs (task 11.12);
+ * the behavior is unchanged.
  */
-function formatCost(c) {
-  return Number(c.toPrecision(4)).toString();
-}
+const formatCost = formatSignificant;
 
 /**
  * Compare measured benchmark results against recorded baselines. Pure function
@@ -185,19 +187,22 @@ export function main(argv = process.argv) {
   console.log(`[perf-budget] anchor ${anchor.name}: ${anchor.hz.toFixed(1)} hz`);
 
   // Aligned summary table: benchmark, baseline cost, measured cost, ratio, verdict.
-  const pad = (s, n) => String(s).padEnd(n);
-  console.log(
-    pad("benchmark", 34) + pad("baseline", 12) + pad("measured", 12) + pad("ratio", 8) + "verdict"
+  printAlignedTable(
+    [
+      { label: "benchmark", width: 34 },
+      { label: "baseline", width: 12 },
+      { label: "measured", width: 12 },
+      { label: "ratio", width: 8 },
+      { label: "verdict", width: 0 },
+    ],
+    rows.map((row) => [
+      row.name,
+      row.baselineCost == null ? "—" : formatCost(row.baselineCost),
+      row.measuredCost == null ? "—" : formatCost(row.measuredCost),
+      row.ratio == null ? "—" : `${row.ratio.toFixed(2)}×`,
+      row.verdict,
+    ]),
   );
-  for (const row of rows) {
-    console.log(
-      pad(row.name, 34) +
-        pad(row.baselineCost == null ? "—" : formatCost(row.baselineCost), 12) +
-        pad(row.measuredCost == null ? "—" : formatCost(row.measuredCost), 12) +
-        pad(row.ratio == null ? "—" : `${row.ratio.toFixed(2)}×`, 8) +
-        row.verdict
-    );
-  }
 
   for (const w of warnings) {
     console.warn(`[perf-budget] WARN:\n  - ${w}`);

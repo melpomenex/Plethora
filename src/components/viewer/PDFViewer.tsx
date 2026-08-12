@@ -29,6 +29,9 @@ import type { DocumentMetadata, Document } from "../../types/document";
 import { saveDocumentPosition, getDocumentPosition, pagePosition, scrollPosition as createScrollPosition } from "../../api/position";
 import { getDocumentAuto, updateDocumentProgressAuto } from "../../api/documents";
 import { getFormFactor, isTauri } from "../../lib/tauri";
+import { shouldUseNativePdfRangeSource, isPdfFeatureEnabled } from "./pdfFeatureFlags";
+import { markBusy } from "../../lib/memoryScenario/activity";
+import { createPdfDocumentHolder } from "../../lib/pdf/pdfDocumentHolder";
 import {
   deriveCurrentPageFromOffsets,
   isNavigationSettled,
@@ -63,7 +66,6 @@ import { createNativePdfRangeSource, type NativePdfRangeTransport } from "./nati
 import { normalizePdfError, pdfErrorUserMessage, pdfRecoveryActionsFor, shouldRetryPdfWorker, type NormalizedPdfError } from "./pdfErrors";
 import { PdfDiagnostics } from "./pdfDiagnostics";
 import { initialPdfReaderState, reducePdfReaderState } from "./pdfReaderState";
-import { isPdfFeatureEnabled } from "./pdfFeatureFlags";
 import { createBrowserPdfReflowCache } from "./pdfReflowCache";
 import { createPdfReflowDocument, pdfReflowCacheKey, type PdfReflowBlock, type PdfReflowDocument } from "./pdfReflowTypes";
 import { PdfReflowScheduler } from "./pdfReflowScheduler";
@@ -1218,6 +1220,10 @@ export function PDFViewer({
   useEffect(() => {
     let mounted = true;
     const nativeTransports: NativePdfRangeTransport[] = [];
+    // Owns the pdf.js loading task / document for THIS effect instance, so a
+    // document change destroys the old document and an unmount destroys the
+    // last one (task 5.1).
+    const pdfDocumentHolder = createPdfDocumentHolder();
 
     const loadPDF = async () => {
       setIsLoading(true);
@@ -1230,6 +1236,16 @@ export function PDFViewer({
       setReaderState(reducePdfReaderState(initialPdfReaderState, { type: "OPEN" }));
       setPasswordValue("");
       passwordSubmitRef.current = null;
+
+      // Task 6.3: a whole-file load in the Tauri runtime is an explicit
+      // fallback and must be observable — a silent regression to whole-file
+      // loading would otherwise be invisible until the memory benchmark moves.
+      if (!useNativeRange && fileData && isTauriRuntime) {
+        const flagOn = shouldUseNativePdfRangeSource({ isTauriRuntime: true, fileType: "pdf" });
+        diagnosticsRef.current.recordFallback(
+          flagOn ? "range-source-unavailable" : "range-source-disabled",
+        );
+      }
 
       try {
         const loadDocument = async () => {
@@ -1266,6 +1282,7 @@ export function PDFViewer({
                 disableAutoFetch: false,
                 disableFontFace: shouldDisableFontFace,
               } as any);
+              pdfDocumentHolder.setLoadingTask(loadingTask);
               return await awaitLoadingTask(loadingTask, native.failure);
             };
 
@@ -1300,6 +1317,7 @@ export function PDFViewer({
             try {
               const source = sourceFactory.create();
               const loadingTask = pdfjsLib.getDocument(source as any);
+              pdfDocumentHolder.setLoadingTask(loadingTask);
               return await awaitLoadingTask(loadingTask);
             } catch (workerError) {
               // Some packaged runtimes fail to initialize the PDF worker.
@@ -1316,6 +1334,7 @@ export function PDFViewer({
                 await ensureFakeWorkerModuleLoaded();
                 const source = sourceFactory.create();
                 const fallbackTask = pdfjsLib.getDocument(source as any);
+                pdfDocumentHolder.setLoadingTask(fallbackTask);
                 return await awaitLoadingTask(fallbackTask);
               } catch (fallbackError) {
                 lastError = fallbackError;
@@ -1338,6 +1357,7 @@ export function PDFViewer({
         setTextSelectionCapability(initialCapability);
         onTextSelectionCapabilityChange?.(initialCapability);
         setPdf(pdfDoc);
+        pdfDocumentHolder.setDocument(pdfDoc);
         if (!useNativeRange) {
           const fingerprint = (pdfDoc as any).fingerprints?.[0] ?? (pdfDoc as any).fingerprint ?? documentId;
           setPdfSourceIdentity({ identity: String(fingerprint), fingerprint: String(fingerprint) });
@@ -1394,8 +1414,20 @@ export function PDFViewer({
 
     return () => {
       mounted = false;
+      // Task 5.1: destroy the pdf.js document and its loading task (this also
+      // aborts an in-flight load). Runs on unmount AND on document change.
+      pdfDocumentHolder.reset();
       for (const transport of nativeTransports) transport.abort();
       passwordSubmitRef.current = null;
+      // Task 5.2: release per-page rendering state held by the viewer.
+      textCacheRef.current.clear();
+      renderedPagesRef.current.clear();
+      pageOffsetsRef.current = [];
+      reflowSchedulerRef.current?.cancel();
+      reflowOcrRef.current?.cancel();
+      canvasRefs.current = [];
+      textLayerRootsRef.current = [];
+      pageViewportRefs.current = [];
     };
     // Note: onLoad is intentionally excluded from deps - it's a callback that
     // shouldn't trigger reloading the PDF source.
@@ -1636,23 +1668,30 @@ export function PDFViewer({
       return;
     }
 
-    console.log("[PDFViewer] Saving reading position:", { docId, position });
-
-    // Save to localStorage as backup
-    localStorage.setItem(`pdf-position-${docId}`, JSON.stringify(position));
-
-    // Save to backend
+    // The harness treats an in-flight position persistence as non-quiescent
+    // (memoryScenario/activity.ts); a runtime-gated no-op otherwise.
+    markBusy(true);
     try {
-      await saveDocumentPosition(docId, position);
-      
-      // Also update document progress if it's a page position
-      if (position.type === 'page') {
-        await updateDocumentProgressAuto(docId, position.page, null, null);
+      console.log("[PDFViewer] Saving reading position:", { docId, position });
+
+      // Save to localStorage as backup
+      localStorage.setItem(`pdf-position-${docId}`, JSON.stringify(position));
+
+      // Save to backend
+      try {
+        await saveDocumentPosition(docId, position);
+        
+        // Also update document progress if it's a page position
+        if (position.type === 'page') {
+          await updateDocumentProgressAuto(docId, position.page, null, null);
+        }
+        
+        lastSavedPositionRef.current = position;
+      } catch (err) {
+        console.warn("[PDFViewer] Failed to save position to backend:", err);
       }
-      
-      lastSavedPositionRef.current = position;
-    } catch (err) {
-      console.warn("[PDFViewer] Failed to save position to backend:", err);
+    } finally {
+      markBusy(false);
     }
   }, []);
 

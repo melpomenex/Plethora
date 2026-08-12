@@ -1,0 +1,9 @@
+7f8a1c000000-7f8a1c400000 ---p 00000000 00:00 0                          [rollup]
+Rss:                4096 kB
+Pss:                4 MiB
+Pss_Anon:           4096 kB
+Pss_File:           4096 kB
+Pss_Shmem:             0 kB
+Private_Dirty:       4096 kB
+Swap:                  0 kB
+Locked:                0 kB

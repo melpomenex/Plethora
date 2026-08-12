@@ -1,24 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { isPdfFeatureEnabled, PDF_FEATURE_KEYS, shouldUseNativeMobilePdfSource } from "../pdfFeatureFlags";
+import {
+  isPdfFeatureEnabled,
+  isNativePdfRangeEnabled,
+  PDF_FEATURE_KEYS,
+  shouldUseNativePdfRangeSource,
+} from "../pdfFeatureFlags";
 import { normalizePdfError, pdfErrorUserMessage, shouldRetryPdfWorker } from "../pdfErrors";
 import { PdfDiagnostics, pdfSizeBucket } from "../pdfDiagnostics";
 
-describe("mobile PDF feature flags", () => {
+describe("PDF range-source feature flag (task 6.1)", () => {
   beforeEach(() => localStorage.clear());
 
-  it("enables the native source and keeps semantic reflow independent", () => {
-    expect(isPdfFeatureEnabled("nativeMobileRangeSource")).toBe(true);
+  it("enables the range source by default and keeps semantic reflow independent", () => {
     expect(isPdfFeatureEnabled("semanticReflow")).toBe(false);
-    localStorage.setItem(PDF_FEATURE_KEYS.nativeMobileRangeSource, "false");
     localStorage.setItem(PDF_FEATURE_KEYS.semanticReflow, "true");
-    expect(isPdfFeatureEnabled("nativeMobileRangeSource")).toBe(false);
     expect(isPdfFeatureEnabled("semanticReflow")).toBe(true);
+    expect(isNativePdfRangeEnabled()).toBe(true);
+    localStorage.setItem(PDF_FEATURE_KEYS.nativePdfRangeSource, "false");
+    expect(isNativePdfRangeEnabled()).toBe(false);
   });
 
-  it("selects native ranges only for native-mobile PDFs", () => {
-    expect(shouldUseNativeMobilePdfSource({ nativeMobile: true, fileType: "pdf" })).toBe(true);
-    expect(shouldUseNativeMobilePdfSource({ nativeMobile: false, fileType: "pdf" })).toBe(false);
-    expect(shouldUseNativeMobilePdfSource({ nativeMobile: true, fileType: "epub" })).toBe(false);
+  it("honors a pre-rename mobile-only disable as a migration fallback", () => {
+    // No renamed key set: the legacy mobile-only key still controls the flag.
+    localStorage.setItem(PDF_FEATURE_KEYS.legacyNativeMobileRangeSource, "false");
+    expect(isNativePdfRangeEnabled()).toBe(false);
+    // The renamed key wins once set.
+    localStorage.setItem(PDF_FEATURE_KEYS.nativePdfRangeSource, "true");
+    expect(isNativePdfRangeEnabled()).toBe(true);
+  });
+
+  it("selects native ranges for any Tauri PDF, never for web or non-PDFs", () => {
+    expect(shouldUseNativePdfRangeSource({ isTauriRuntime: true, fileType: "pdf" })).toBe(true);
+    expect(shouldUseNativePdfRangeSource({ isTauriRuntime: false, fileType: "pdf" })).toBe(false);
+    expect(shouldUseNativePdfRangeSource({ isTauriRuntime: true, fileType: "epub" })).toBe(false);
   });
 });
 

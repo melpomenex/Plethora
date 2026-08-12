@@ -270,14 +270,16 @@ async fn inspect_document_pdf(
     inspect_pdf_path(Path::new(&document.file_path), include_fingerprint)
 }
 
-#[tauri::command]
-pub async fn get_pdf_document_source_info(
-    document_id: String,
-    repo: State<'_, Repository>,
+/// Range-command core, factored out of the Tauri commands so the
+/// authorization and identity-change behavior is unit-testable without a
+/// Tauri runtime (task 6.4). The commands are thin wrappers over these.
+pub async fn get_pdf_document_source_info_impl(
+    document_id: &str,
+    repo: &Repository,
 ) -> std::result::Result<PdfDocumentSourceInfo, PdfNativeError> {
-    let inspected = inspect_document_pdf(&document_id, &repo, true).await?;
+    let inspected = inspect_document_pdf(document_id, repo, true).await?;
     Ok(PdfDocumentSourceInfo {
-        document_id,
+        document_id: document_id.to_string(),
         size: inspected.size,
         identity: inspected.identity,
         fingerprint: inspected.fingerprint,
@@ -286,14 +288,24 @@ pub async fn get_pdf_document_source_info(
 }
 
 #[tauri::command]
-pub async fn read_pdf_document_range(
+pub async fn get_pdf_document_source_info(
     document_id: String,
+    repo: State<'_, Repository>,
+) -> std::result::Result<PdfDocumentSourceInfo, PdfNativeError> {
+    get_pdf_document_source_info_impl(&document_id, &repo).await
+}
+
+/// Read one bounded byte range, re-validating the source identity first.
+/// A changed identity fails with `pdf_source_changed` — no bytes from the
+/// changed file are ever delivered (task 6.4).
+pub async fn read_pdf_document_range_impl(
+    document_id: &str,
     offset: u64,
     length: u64,
-    expected_identity: String,
-    repo: State<'_, Repository>,
-) -> std::result::Result<tauri::ipc::Response, PdfNativeError> {
-    let inspected = inspect_document_pdf(&document_id, &repo, false).await?;
+    expected_identity: &str,
+    repo: &Repository,
+) -> std::result::Result<Vec<u8>, PdfNativeError> {
+    let inspected = inspect_document_pdf(document_id, repo, false).await?;
     if inspected.identity != expected_identity {
         return Err(PdfNativeError::new(
             "pdf_source_changed",
@@ -305,22 +317,41 @@ pub async fn read_pdf_document_range(
     // page-turn burst of range reads can't stall async runtime workers
     // (design D5). `inspected` moves into the closure (it is only needed for
     // this read).
-    let bytes =
-        tokio::task::spawn_blocking(move || read_range_from_path(&inspected, offset, length))
-            .await
-            .map_err(|error| {
-                PdfNativeError::new(
-                    "pdf_source_unavailable",
-                    format!("The PDF range read task failed: {error}"),
-                    true,
-                )
-            })??;
+    tokio::task::spawn_blocking(move || read_range_from_path(&inspected, offset, length))
+        .await
+        .map_err(|error| {
+            PdfNativeError::new(
+                "pdf_source_unavailable",
+                format!("The PDF range read task failed: {error}"),
+                true,
+            )
+        })?
+}
+
+#[tauri::command]
+pub async fn read_pdf_document_range(
+    document_id: String,
+    offset: u64,
+    length: u64,
+    expected_identity: String,
+    repo: State<'_, Repository>,
+) -> std::result::Result<tauri::ipc::Response, PdfNativeError> {
+    let bytes = read_pdf_document_range_impl(
+        &document_id,
+        offset,
+        length,
+        &expected_identity,
+        &repo,
+    )
+    .await?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::connection::Database;
+    use crate::models::Document;
     use std::io::Write;
 
     fn fixture(bytes: &[u8]) -> (tempfile::TempDir, InspectedPdf) {
@@ -331,6 +362,23 @@ mod tests {
         file.sync_all().unwrap();
         let inspected = inspect_pdf_path(&path, true).unwrap();
         (dir, inspected)
+    }
+
+    /// In-memory repository with one PDF document pointing at `file_bytes`.
+    async fn repo_with_pdf(file_bytes: &[u8]) -> (Repository, tempfile::TempDir, Document) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.pdf");
+        std::fs::write(&path, file_bytes).unwrap();
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+        db.migrate().await.expect("migrate");
+        let repo = Repository::new(db.pool().clone());
+        let document = Document::new(
+            "range-test".to_string(),
+            path.to_string_lossy().to_string(),
+            FileType::Pdf,
+        );
+        repo.create_document(&document).await.expect("document");
+        (repo, dir, document)
     }
 
     #[test]
@@ -401,5 +449,69 @@ mod tests {
         let changed = inspect_pdf_path(&path, true).unwrap();
         assert_ne!(inspected.identity, changed.identity);
         assert_ne!(inspected.fingerprint, changed.fingerprint);
+    }
+
+    // ------------------------------------------------------------------
+    // Task 6.4 — range access preserves the existing authorization scoping.
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn source_info_serves_an_authorized_document() {
+        let (repo, _dir, document) = repo_with_pdf(b"%PDF-0123456789").await;
+        let info = get_pdf_document_source_info_impl(&document.id, &repo)
+            .await
+            .expect("authorized source info");
+        assert_eq!(info.size, 14);
+        assert!(!info.identity.is_empty());
+        assert_eq!(info.max_chunk_size, MAX_PDF_RANGE_BYTES);
+    }
+
+    #[tokio::test]
+    async fn unknown_document_id_is_refused() {
+        let (repo, _dir, _document) = repo_with_pdf(b"%PDF-0123456789").await;
+        let error = get_pdf_document_source_info_impl("does-not-exist", &repo)
+            .await
+            .expect_err("unknown document must be refused");
+        assert!(matches!(error.code, "pdf_source_unavailable" | "pdf_source_missing"));
+    }
+
+    #[tokio::test]
+    async fn non_pdf_document_is_refused() {
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+        db.migrate().await.expect("migrate");
+        let repo = Repository::new(db.pool().clone());
+        let document = Document::new("txt".to_string(), "/tmp/whatever.txt".to_string(), FileType::Markdown);
+        repo.create_document(&document).await.expect("document");
+        let error = get_pdf_document_source_info_impl(&document.id, &repo)
+            .await
+            .expect_err("non-PDF must be refused");
+        assert_eq!(error.code, "pdf_not_pdf");
+    }
+
+    #[tokio::test]
+    async fn identity_change_fails_the_range_instead_of_mixed_content() {
+        let (repo, dir, document) = repo_with_pdf(b"%PDF-before").await;
+        let info = get_pdf_document_source_info_impl(&document.id, &repo)
+            .await
+            .expect("source info");
+
+        // The file is replaced after the source was resolved.
+        std::fs::write(dir.path().join("library.pdf"), b"%PDF-after-and-longer").unwrap();
+
+        // The stale expected_identity must fail; no bytes are delivered.
+        let error = read_pdf_document_range_impl(&document.id, 0, 5, &info.identity, &repo)
+            .await
+            .expect_err("changed source must fail");
+        assert_eq!(error.code, "pdf_source_changed");
+
+        // Re-resolving yields the new identity, and reads then succeed.
+        let refreshed = get_pdf_document_source_info_impl(&document.id, &repo)
+            .await
+            .expect("re-resolve");
+        assert_ne!(refreshed.identity, info.identity);
+        let bytes = read_pdf_document_range_impl(&document.id, 0, 4, &refreshed.identity, &repo)
+            .await
+            .expect("read after refresh");
+        assert_eq!(bytes, b"%PDF");
     }
 }

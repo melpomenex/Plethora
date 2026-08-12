@@ -1,0 +1,111 @@
+/**
+ * Result writer (task 3.8).
+ *
+ * Every sample is keyed by stage and cycle index, and the file carries the
+ * environment block that materially affects the numbers: OS + kernel, web
+ * engine version, app version + build profile, CPU model, total RAM, display
+ * server, cycle count, corpus identity, and the settle parameters — plus the
+ * `reliable` flag so a consumer can reject an unreliable run without parsing
+ * prose (memory-benchmark-harness spec "Results are machine-readable and carry
+ * their environment").
+ */
+
+import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+
+function readFile(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** Machine-profile fields recorded with every result. */
+export function collectEnvironment({ appVersion = null, buildProfile = null } = {}) {
+  return {
+    platform: process.platform,
+    osRelease: readOsRelease(),
+    kernel: readKernel(),
+    webkitGtkVersion: null, // filled by the driver when detectable
+    appVersion,
+    buildProfile,
+    cpuModel: readCpuModel(),
+    totalRamBytes: readTotalRam(),
+    displayServer: process.env.DISPLAY ? "x11" : process.env.WAYLAND_DISPLAY ? "wayland" : null,
+    cwd: process.cwd(),
+  };
+}
+
+function readOsRelease() {
+  const text = readFile("/etc/os-release");
+  return /^PRETTY_NAME="?(.*?)"?$/m.exec(text ?? "")?.[1] ?? null;
+}
+
+function readKernel() {
+  const text = readFile("/proc/sys/kernel/osrelease");
+  return text?.trim() ?? null;
+}
+
+function readCpuModel() {
+  const text = readFile("/proc/cpuinfo");
+  const line = text?.split("\n").find((l) => l.startsWith("model name"));
+  return line ? line.split(":")[1].trim() : null;
+}
+
+function readTotalRam() {
+  const text = readFile("/proc/meminfo");
+  const line = text?.split("\n").find((l) => l.startsWith("MemTotal"));
+  if (!line) return null;
+  const kb = Number(/(\d+)/.exec(line)?.[1]);
+  return Number.isFinite(kb) ? kb * 1024 : null;
+}
+
+/**
+ * Write the result file.
+ *
+ * @param {object} options
+ * @param {string} options.path - output path (default .bench/memory-result.json)
+ * @param {Array<{key: string, stage: string, cycle: number|null, sample: object}>} options.samples
+ * @param {object} options.environment
+ * @param {boolean} options.reliable
+ * @param {string} [options.unreliableReason]
+ * @param {number} options.cycleCount
+ * @param {object} options.corpus - { items, corpusDir, itemHashes, manifestSha256 }
+ * @param {object} options.settleParams
+ * @param {string} options.startedAtIso
+ * @returns {{ path: string, wrote: boolean }}
+ */
+export function writeResult({
+  path,
+  samples,
+  environment,
+  reliable,
+  unreliableReason,
+  cycleCount,
+  corpus,
+  settleParams,
+  startedAtIso,
+}) {
+  const payload = {
+    schema: "incrementum-memory-benchmark-v1",
+    startedAt: startedAtIso,
+    finishedAt: new Date().toISOString(),
+    reliable,
+    ...(unreliableReason ? { unreliableReason } : {}),
+    cycleCount,
+    settleParams,
+    environment,
+    corpus: {
+      manifestSha256: corpus.manifestSha256 ?? null,
+      items: corpus.items,
+      corpusDir: corpus.corpusDir,
+      itemHashes: corpus.itemHashes ?? {},
+    },
+    samples,
+  };
+
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(payload, null, 2));
+  return { path, wrote: true };
+}

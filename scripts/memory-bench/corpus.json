@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "description": "Memory benchmark corpus manifest (design D12). Each item records where it comes from and its content hash; the harness provisions .bench/corpus/ from this file and refuses to run on any hash mismatch.",
+  "items": {
+    "pdf-1": {
+      "fileName": "pdf-1.pdf",
+      "type": "pdf",
+      "source": {
+        "kind": "generated",
+        "script": "generate-fixture-pdf.mjs",
+        "pages": 3,
+        "label": "Memory benchmark fixture"
+      },
+      "sha256": "1074dc1272a880d69965982ac2233b88d6f539898ca2ea360a953954888f6497",
+      "description": "Deterministic 3-page text PDF (pdf.js-renderable, validated by test)"
+    },
+    "pdf-2": {
+      "fileName": "pdf-2.pdf",
+      "type": "pdf",
+      "source": {
+        "kind": "generated",
+        "script": "generate-fixture-pdf.mjs",
+        "pages": 5,
+        "label": "Memory benchmark fixture"
+      },
+      "sha256": "ac3c8ff2061bc6c80e4f8e9b0019b1e9c803580299292fdc69d1d9e9ee773fbb",
+      "description": "Deterministic 5-page text PDF"
+    },
+    "epub-1": {
+      "fileName": "epub-1.epub",
+      "type": "epub",
+      "source": {
+        "kind": "generated",
+        "script": "generate-fixture-epub.mjs",
+        "chapters": 3,
+        "title": "Memory Benchmark Fixture"
+      },
+      "sha256": "1fc271d6aa62657b22dff4a6bb5c7521fc4394e99119ec603cab0724e1508035",
+      "description": "Deterministic 3-chapter EPUB (JSZip-validated; self-provisioning for CI)"
+    },
+    "epub-2": {
+      "fileName": "epub-2.epub",
+      "type": "epub",
+      "source": {
+        "kind": "generated",
+        "script": "generate-fixture-epub.mjs",
+        "chapters": 5,
+        "title": "Memory Benchmark Fixture"
+      },
+      "sha256": "bc315d26ac6d183fa3ece1826a2aabd2bfeb426140d40a434e7bdc75a4f8feee",
+      "description": "Deterministic 5-chapter EPUB"
+    }
+  }
+}

@@ -22,6 +22,7 @@ pub mod learning_item;
 pub mod legacy_import;
 pub mod llm;
 pub mod mcp;
+pub mod memory_scenario;
 pub mod notifications;
 pub mod ocr;
 pub mod ocr_runtime;
