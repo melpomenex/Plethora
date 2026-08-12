@@ -115,12 +115,16 @@ export async function runScenario(deps) {
   // 1. Platform gate: unsupported -> no result file.
   const platform = checkMemoryCollectionSupported({ procRoot });
   if (!platform.supported) {
-    return {
-      ok: false,
-      reliable: false,
-      reason: `unsupported environment: ${platform.reason}`,
-      resultWritten: false,
-    };
+    if (options.allowUnsupportedPlatform) {
+      log(`WARNING: platform not supported for measurement (${platform.reason}); running anyway (debug-only, numbers are NOT comparable)`);
+    } else {
+      return {
+        ok: false,
+        reliable: false,
+        reason: `unsupported environment: ${platform.reason}`,
+        resultWritten: false,
+      };
+    }
   }
 
   // 2. Corpus (provision + verify).
@@ -338,6 +342,7 @@ function parseArgs(argv) {
       case "--settle-timeout-ms": options.settle.timeoutMs = Number(next()); break;
       case "--step-timeout-ms": options.stepTimeoutMs = Number(next()); break;
       case "--provision": options.provisionOnly = true; break;
+      case "--allow-unsupported-platform": options.allowUnsupportedPlatform = true; break;
       case "--help": case "-h": options.help = true; break;
       default:
         console.error(`unknown option: ${arg}`);
@@ -359,6 +364,7 @@ Options:
   --settle-timeout-ms <n>   settle timeout (default 30000)
   --step-timeout-ms <n>     per-step report timeout (default 120000)
   --provision               only provision the corpus and exit
+  --allow-unsupported-platform  debug-only: run even without a memory collector
 `;
 
 async function main() {
@@ -418,6 +424,7 @@ async function main() {
       outputPath: options.output,
       settle: options.settle,
       stepTimeoutMs: options.stepTimeoutMs,
+      allowUnsupportedPlatform: options.allowUnsupportedPlatform,
     },
   });
 
