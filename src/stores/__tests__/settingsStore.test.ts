@@ -141,3 +141,42 @@ describe("settingsStore Arena review mode", () => {
     expect(stored.state.settings.learning.sm20ArenaReviewMode).toBe("choose");
   });
 });
+
+describe("settingsStore sessionItemTypes default", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: cloneDefaults() });
+  });
+
+  it("defaults all three item types to enabled (matching the composition defaults)", () => {
+    expect(defaultSettings.smartQueue.sessionItemTypes).toEqual({
+      documents: true,
+      extracts: true,
+      learningItems: true,
+    });
+  });
+
+  it("keeps a persisted sessionItemTypes with extracts disabled through rehydration", async () => {
+    // A user who deliberately unchecked Extracts (customization flag set)
+    // keeps that selection after the all-true default change.
+    localStorage.setItem("incrementum-settings", JSON.stringify({
+      state: {
+        settings: {
+          smartQueue: {
+            sessionItemTypes: { documents: true, extracts: false, learningItems: true },
+            sessionItemTypesCustomized: true,
+          },
+        },
+      },
+      version: 6,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState().settings.smartQueue.sessionItemTypes).toEqual({
+      documents: true,
+      extracts: false,
+      learningItems: true,
+    });
+  });
+});

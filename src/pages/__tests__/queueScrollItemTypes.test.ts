@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { gateScrollItemsByType, resolveMissingExtractContent } from "../queueScrollItemTypes";
+import { gateScrollItemsByComposition, gateScrollItemsByType, resolveMissingExtractContent } from "../queueScrollItemTypes";
 import type { SessionItemTypes } from "../../utils/reviewUx";
 import type { Extract } from "../../api/extracts";
 import type { QueueItem } from "../../types/queue";
@@ -69,6 +69,46 @@ describe("gateScrollItemsByType", () => {
       EXTRACTS_ONLY,
     );
     expect(gated.map((i) => i.id)).toEqual(["r1", "p1"]);
+  });
+});
+
+describe("gateScrollItemsByComposition", () => {
+  it("a 0 share excludes a type whose toggle is checked", () => {
+    // Extracts are checked in the Queue, but a 0% share excludes them from
+    // the optimal session: the composition is the sole control.
+    const gated = gateScrollItemsByComposition(
+      [doc("d1"), extract("e1"), flashcard("f1"), extract("e2")],
+      { documents: 60, extracts: 0, flashcards: 40 },
+    );
+    expect(gated.map((i) => i.id)).toEqual(["d1", "f1"]);
+  });
+
+  it("a >0 share includes a type whose toggle is unchecked", () => {
+    // Even if the Queue toggle were off, a positive share keeps the type
+    // eligible for the optimal session.
+    const gated = gateScrollItemsByComposition(
+      [doc("d1"), flashcard("f1"), extract("e1")],
+      { documents: 60, extracts: 15, flashcards: 40 },
+    );
+    expect(gated.map((i) => i.id)).toEqual(["d1", "f1", "e1"]);
+  });
+
+  it("all-zero shares drop every toggle-covered type", () => {
+    const gated = gateScrollItemsByComposition(
+      [doc("d1"), extract("e1"), flashcard("f1"), doc("d2")],
+      { documents: 0, extracts: 0, flashcards: 0 },
+    );
+    expect(gated).toEqual([]);
+  });
+
+  // Feed items are not covered by the shares and draw from the Documents
+  // share downstream, so they always pass the gate itself.
+  it("feed items pass regardless of the shares", () => {
+    const gated = gateScrollItemsByComposition(
+      [doc("d1"), rss("r1"), podcast("p1"), flashcard("f1")],
+      { documents: 0, extracts: 0, flashcards: 40 },
+    );
+    expect(gated.map((i) => i.id)).toEqual(["r1", "p1", "f1"]);
   });
 });
 

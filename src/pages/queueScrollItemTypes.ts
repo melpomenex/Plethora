@@ -34,6 +34,34 @@ export function gateScrollItemsByType<T extends { type: string }>(
 }
 
 /**
+ * Gate a list of scroll items by the composition shares (Documents /
+ * Extracts / Flashcards) for the optimal Scroll Mode path.
+ *
+ * A type with a share above 0 is eligible for the session; a type with a
+ * share of 0 contributes no items. The Customize Queue item-type toggles do
+ * NOT apply here — the composition shares are the sole control over an
+ * Optimal Session's membership. Types the shares do not cover (rss, podcast)
+ * always pass and draw from the Documents share, matching `composeSession`.
+ */
+export function gateScrollItemsByComposition<T extends { type: string }>(
+  items: T[],
+  composition: { documents: number; extracts: number; flashcards: number }
+): T[] {
+  return items.filter((item) => {
+    switch (item.type) {
+      case "document":
+        return composition.documents > 0;
+      case "flashcard":
+        return composition.flashcards > 0;
+      case "extract":
+        return composition.extracts > 0;
+      default:
+        return true;
+    }
+  });
+}
+
+/**
  * Resolve full extract content for sequential Scroll Mode queue items.
  *
  * Queue rows for extracts that are NOT part of the currently-due extract set

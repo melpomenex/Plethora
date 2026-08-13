@@ -52,8 +52,8 @@ export const DEFAULT_CUSTOMIZATION: SessionCustomization = {
   },
   itemTypes: {
     documents: true,
-    extracts: false,
-    learningItems: false,
+    extracts: true,
+    learningItems: true,
   },
   semanticStudy: {
     enabled: false,

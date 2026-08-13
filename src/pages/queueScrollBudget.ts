@@ -25,6 +25,16 @@ export interface CompositionInput {
   available: CompositionTargets;
 }
 
+export interface ComposedSession extends CompositionTargets {
+  /**
+   * How far each type fell short of its requested share (`requested −
+   * allocated`, never negative). A type that could not fill its share is
+   * reported here so the UI can name it instead of silently reweighting;
+   * the same shape as `selectByQuotaInOrder`'s shortfall.
+   */
+  shortfall: CompositionTargets;
+}
+
 /**
  * Compute how many items of each type a scroll session should hold.
  *
@@ -42,7 +52,7 @@ export interface CompositionInput {
  * whichever remaining active type has the largest target with items
  * available; when no type is active, return all zeros.
  */
-export function composeSession({ targets, available }: CompositionInput): CompositionTargets {
+export function composeSession({ targets, available }: CompositionInput): ComposedSession {
   // Type indices: 0 = documents, 1 = extracts, 2 = flashcards.
   const t = [
     Math.max(0, targets.documents),
@@ -50,7 +60,14 @@ export function composeSession({ targets, available }: CompositionInput): Compos
     Math.max(0, targets.flashcards),
   ];
   const targetSum = t[0] + t[1] + t[2];
-  if (targetSum <= 0) return { documents: 0, extracts: 0, flashcards: 0 };
+  if (targetSum <= 0) {
+    return {
+      documents: 0,
+      extracts: 0,
+      flashcards: 0,
+      shortfall: { documents: 0, extracts: 0, flashcards: 0 },
+    };
+  }
 
   // Normalize the targets to weights `w` (each target's share of the sum).
   const w = [t[0] / targetSum, t[1] / targetSum, t[2] / targetSum];
@@ -68,8 +85,17 @@ export function composeSession({ targets, available }: CompositionInput): Compos
       if (w[i] > 0 && avail[i] > 0 && (anchor === -1 || t[i] > t[anchor])) anchor = i;
     }
   }
-  if (anchor === -1) return { documents: 0, extracts: 0, flashcards: 0 };
+  if (anchor === -1) {
+    return {
+      documents: 0,
+      extracts: 0,
+      flashcards: 0,
+      shortfall: { documents: 0, extracts: 0, flashcards: 0 },
+    };
+  }
   const n = avail[anchor] / w[anchor];
+  // Each type's ideal share before clamping (used for the shortfall report).
+  const ideal = [w[0] * n, w[1] * n, w[2] * n];
 
   // Iterated proportional redistribution: each pass fills up to the ideal
   // share, clamped by what remains available; the leftover moves on to the
@@ -122,5 +148,10 @@ export function composeSession({ targets, available }: CompositionInput): Compos
     documents: result[0],
     extracts: result[1],
     flashcards: result[2],
+    shortfall: {
+      documents: Math.max(0, Math.round(ideal[0]) - result[0]),
+      extracts: Math.max(0, Math.round(ideal[1]) - result[1]),
+      flashcards: Math.max(0, Math.round(ideal[2]) - result[2]),
+    },
   };
 }

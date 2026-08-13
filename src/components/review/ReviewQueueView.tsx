@@ -175,9 +175,6 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     useSettingsStore.getState().settings.smartQueue.queueStrategyPreset as PriorityPreset
   );
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
-  const itemTypesCustomized = useSettingsStore(
-    (s) => s.settings.smartQueue.sessionItemTypesCustomized ?? false
-  );
   const handleSetPreset = (value: PriorityPreset) => {
     setPreset(value);
     updateSettingsCategory("smartQueue", { queueStrategyPreset: value });
@@ -211,7 +208,17 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       semanticStudy: { ...localDefault.semanticStudy, ...baseDefault?.semanticStudy }
     };
 
-    const saved = useSettingsStore.getState().settings.smartQueue.sessionItemTypes;
+    // A saved selection only wins when the user actually customized the
+    // toggles. Before this change the stored `sessionItemTypes` default was
+    // documents-only, so every pre-existing user has that value persisted
+    // without ever opening the modal; the `sessionItemTypesCustomized` flag
+    // distinguishes "deliberately set" from "never touched". Un-customized
+    // users get the all-true default, matching the composition shares.
+    const smartQueue = useSettingsStore.getState().settings.smartQueue;
+    const saved =
+      smartQueue.sessionItemTypesCustomized === true
+        ? smartQueue.sessionItemTypes
+        : undefined;
     if (saved) {
       return {
         ...finalDefault,
@@ -422,21 +429,16 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
    * Which item types the reading queue shows.
    *
    * The Customize Queue toggles are authoritative once the user has actually
-   * changed them. Due All used to bypass them entirely ("Due All promises every
-   * due item type"), so unchecking Learning Items there did nothing at all —
-   * and Due All is the default filter, which made the toggles look inert.
-   *
-   * Until the user changes them, each filter keeps its own default: Due All
-   * shows every due type, the narrower reading filters are documents-first.
-   * A single stored `sessionItemTypes` object cannot carry both defaults, which
-   * is why the "has the user customized this" flag exists.
+   * changed them. The stored `sessionItemTypes` default now enables all three
+   * types (matching the default composition shares), so an un-customized user
+   * sees every type under every filter mode — no per-filter special-casing is
+   * needed. A saved selection still wins because the initial
+   * `sessionCustomization` state is seeded from the stored value.
    */
-  const effectiveItemTypes = useMemo(() => {
-    if (!itemTypesCustomized && queueFilterMode === "due-all") {
-      return { documents: true, extracts: true, learningItems: true };
-    }
-    return sessionCustomization.itemTypes;
-  }, [itemTypesCustomized, queueFilterMode, sessionCustomization.itemTypes]);
+  const effectiveItemTypes = useMemo(
+    () => sessionCustomization.itemTypes,
+    [sessionCustomization.itemTypes]
+  );
 
   const visibleItems = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -957,7 +959,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     }
 
     if (onOpenScrollMode) {
-      onOpenScrollMode({ mode: "optimal", itemTypes: effectiveItemTypes });
+      // The composition shares are the sole control over an Optimal
+      // Session's membership — no item-type gating is forwarded.
+      onOpenScrollMode({ mode: "optimal" });
       return;
     }
     onStartReview?.();

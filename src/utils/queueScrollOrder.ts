@@ -191,11 +191,19 @@ export interface CombinedSortConfig {
   proportionWeight: number;
   /** Weight of the stable per-id jitter (breaks equal-priority ties). */
   jitterWeight: number;
+  /**
+   * Target share of topic (reading) items in the placed mix, in [0, 1].
+   * Defaults to 0.5 (parity), which reproduces the historical behaviour
+   * exactly. A session whose composed counts are single-type gets 0 or 1,
+   * where the proportion bias short-circuits and priority alone orders it.
+   */
+  targetTopicShare?: number;
 }
 
 export const DEFAULT_COMBINED_SORT_CONFIG: CombinedSortConfig = {
   proportionWeight: 15,
   jitterWeight: 5,
+  targetTopicShare: 0.5,
 };
 
 /**
@@ -258,8 +266,23 @@ export function orderScrollItemsByCombinedCriterion<T extends PrioritizableScrol
     let bestRemainingIdx = -1;
     let bestScore = -Infinity;
     // Imbalance per type this position; one of these is added to the baseScore.
-    const topicImbalance = Math.max(0, itemsPlaced - topicsPlaced);
-    const itemImbalance = Math.max(0, topicsPlaced - itemsPlaced);
+    // The bias pulls the placed mix toward `targetTopicShare` (topics) instead
+    // of a fixed 50/50: a type in deficit of its target share gets the bonus,
+    // so a 60/40 session reads 60/40 while scrolling, not only in its totals.
+    // The deficit is measured in placed-item units (`placed − placed/target`),
+    // which makes the 0.5 default reproduce the historical parity terms
+    // exactly. With a target of 0 or 1 the session is single-type —
+    // short-circuit so priority alone orders it.
+    const placed = topicsPlaced + itemsPlaced;
+    const targetTopicShare = config.targetTopicShare ?? 0.5;
+    const topicImbalance =
+      targetTopicShare > 0 && targetTopicShare < 1
+        ? Math.max(0, placed - topicsPlaced / targetTopicShare)
+        : 0;
+    const itemImbalance =
+      targetTopicShare > 0 && targetTopicShare < 1
+        ? Math.max(0, placed - itemsPlaced / (1 - targetTopicShare))
+        : 0;
     const topicProportion = config.proportionWeight * Math.tanh(topicImbalance);
     const itemProportion = config.proportionWeight * Math.tanh(itemImbalance);
     for (const i of remaining) {

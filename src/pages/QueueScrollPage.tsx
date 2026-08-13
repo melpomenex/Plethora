@@ -58,9 +58,10 @@ import { FlashcardStudioModal } from "../components/review/FlashcardStudioModal"
 import { LearningCardsList } from "../components/learning/LearningCardsList";
 import { submitReview } from "../api/review";
 import { composeSession } from "./queueScrollBudget";
-import { orderScrollItemsByCombinedCriterion, selectByQuotaInOrder } from "../utils/queueScrollOrder";
-import { gateScrollItemsByType, resolveMissingExtractContent } from "./queueScrollItemTypes";
+import { DEFAULT_COMBINED_SORT_CONFIG, orderScrollItemsByCombinedCriterion, selectByQuotaInOrder } from "../utils/queueScrollOrder";
+import { gateScrollItemsByComposition, gateScrollItemsByType, resolveMissingExtractContent } from "./queueScrollItemTypes";
 import { FLASHCARD_REVEAL_EVENT, resolveScrollRatingKey } from "./queueScrollKeyboard";
+import { shouldBuildScrollSession } from "./queueScrollSessionLifecycle";
 import {
   getUnreadItemsAuto,
   getSubscribedFeedsAuto,
@@ -310,24 +311,6 @@ async function buildNeuralScrollItems(
   return (await neuralBuildNeuralScrollItems(entries, documentsMap, fallbackTitle)) as ScrollItem[];
 }
 
-/**
- * Zero out the extract/flashcard composition targets that are unchecked in
- * the Queue's item-type selection, so their share is redistributed across the
- * checked types instead of being reserved for a type that contributes
- * nothing. The documents target is deliberately left alone: RSS and podcast
- * items are not governed by the Documents toggle and still draw from the
- * documents share.
- */
-function zeroUncheckedTargets(
-  targets: { documents: number; extracts: number; flashcards: number },
-  itemTypes: SessionItemTypes
-): { documents: number; extracts: number; flashcards: number } {
-  const next = { ...targets };
-  if (itemTypes.learningItems === false) next.flashcards = 0;
-  if (itemTypes.extracts === false) next.extracts = 0;
-  return next;
-}
-
 // Session storage keys for smart resume
 const SESSION_KEYS = {
   LAST_POSITION: "scroll-mode-last-position",
@@ -454,6 +437,15 @@ export function QueueScrollPage() {
     setIsImageExpanded(settings.rssQueue.showCoverImage ?? false);
   }, [currentIndex, settings.rssQueue.showCoverImage]);
   const [scrollItems, setScrollItems] = useState<ScrollItem[]>([]);
+  // Composition report of the last-built OPTIMAL session (the path where the
+  // shares are authoritative): what each type supplied and how far it fell
+  // short of its share. Shown as a note in the Queue Settings panel. The
+  // sequential path clears it — its session is a list replay with top-ups, so
+  // a share gap there is not the final session's gap.
+  const [compositionReport, setCompositionReport] = useState<{
+    counts: { documents: number; extracts: number; flashcards: number };
+    shortfall: { documents: number; extracts: number; flashcards: number };
+  } | null>(null);
   // ── Neural review mode ("Go neural") ────────────────────────────────────
   // When active, scrollItems come from the neural_queue (spreading activation
   // seeded at the item the user was reading) instead of the normal queue.
@@ -1052,10 +1044,15 @@ export function QueueScrollPage() {
     return val;
   }, []);
 
-  // Interleave: Due flashcards first, then documents, then RSS
-  // Skip during rating to prevent race conditions
+  // Build/rebuild the composed session from its external inputs. Rating and
+  // dismissal mutate the established session in place via
+  // `advanceAfterRemoval`; rebuilding when that lock is released would restart
+  // the mix at the current numeric index and replace the queued successor.
+  const wasRatingOnLastBuildEffectRunRef = useRef(false);
   useEffect(() => {
-    if (isRating) return;
+    const wasRating = wasRatingOnLastBuildEffectRunRef.current;
+    wasRatingOnLastBuildEffectRunRef.current = isRating;
+    if (!shouldBuildScrollSession({ isRating, wasRating })) return;
     // Neural mode owns scrollItems — the normal queue-build must not overwrite
     // the spreading-activation session. It re-runs when neural mode is exited
     // (isNeuralMode flips to false, restoring the snapshot separately).
@@ -1188,10 +1185,20 @@ export function QueueScrollPage() {
 
         // The composition targets apply here too, with the Queue item-type
         // toggles taking precedence: an unchecked type contributes no items
-        // and its share is redistributed across the checked types.
+        // and its share is redistributed across the checked types. (The
+        // zeroing matters for the top-ups below — without it, an unchecked
+        // type's share would pull due items of that type back into the
+        // session from outside the gated list.)
         const itemTypes = activeTabQueueData.itemTypes;
+        const sequentialTargets = {
+          documents: settings.scrollQueue.composition.documents,
+          extracts:
+            itemTypes.extracts === false ? 0 : settings.scrollQueue.composition.extracts,
+          flashcards:
+            itemTypes.learningItems === false ? 0 : settings.scrollQueue.composition.flashcards,
+        };
         const composed = composeSession({
-          targets: zeroUncheckedTargets(settings.scrollQueue.composition, itemTypes),
+          targets: sequentialTargets,
           available: {
             documents: documentPool.length,
             extracts: extractPool.length,
@@ -1261,6 +1268,7 @@ export function QueueScrollPage() {
             ...toppedFlashcards.slice(flashcardPool.length).slice(0, shortfall.flashcards),
           ];
           if (!cancelled) {
+            setCompositionReport(null);
             setScrollItems([...selected, ...extras]);
           }
           return;
@@ -1282,6 +1290,7 @@ export function QueueScrollPage() {
         ]);
 
         if (!cancelled) {
+          setCompositionReport(null);
           setScrollItems(mixedItems);
         }
         return;
@@ -1299,20 +1308,21 @@ export function QueueScrollPage() {
         ? dueExtracts.filter(ex => subsetDocIds.has(ex.document_id))
         : dueExtracts;
 
-      // Honour the Queue's item-type selection: an unchecked type contributes
-      // no items. Gated at the source lists so composeSession and
-      // orderScrollItemsByCombinedCriterion compute against real totals. Feed
-      // items (RSS, podcast) are not covered by the three toggles and stay
-      // settings-driven.
-      const itemTypes = activeTabQueueData.itemTypes;
-      const flashcardItems: ScrollItem[] = gateScrollItemsByType(
+      // Honour the composition shares: a type participates iff its share is
+      // above 0. Gated at the source lists so composeSession and
+      // orderScrollItemsByCombinedCriterion compute against real totals. The
+      // Customize Queue toggles do not apply to the optimal path — the shares
+      // are the sole control. Feed items (RSS, podcast) are not covered by
+      // the shares and stay settings-driven, drawing from the Documents share.
+      const compositionTargets = settings.scrollQueue.composition;
+      const flashcardItems: ScrollItem[] = gateScrollItemsByComposition(
         toFlashcardScrollItems(activeFlashcards, getStableRandom),
-        itemTypes,
+        compositionTargets,
       );
 
-      const docItems: ScrollItem[] = gateScrollItemsByType(
+      const docItems: ScrollItem[] = gateScrollItemsByComposition(
         toDocumentScrollItems(documentQueueItems, documentsMap, getStableRandom),
-        itemTypes,
+        compositionTargets,
       );
 
       const rssSettings = settings.rssQueue ?? defaultSettings.rssQueue;
@@ -1469,20 +1479,21 @@ export function QueueScrollPage() {
         }
       }
 
-      const extractItems: ScrollItem[] = gateScrollItemsByType(
+      const extractItems: ScrollItem[] = gateScrollItemsByComposition(
         toExtractScrollItems(
           activeExtracts,
           documentsMap,
           t("queueScroll.unknownDocument"),
           getStableRandom,
         ),
-        itemTypes,
+        compositionTargets,
       );
 
       // Compose the session from the three composition sliders. Feed items
       // (RSS, podcast) draw from the Documents share, so they count toward the
-      // documents availability alongside documents themselves.
-      const targets = zeroUncheckedTargets(settings.scrollQueue.composition, itemTypes);
+      // documents availability alongside documents themselves. The shares are
+      // passed unmodified — the composition is authoritative for this path.
+      const targets = settings.scrollQueue.composition;
       const nonReviewItems = [...docItems, ...rssItems, ...podcastItems];
       const composed = composeSession({
         targets,
@@ -1496,17 +1507,40 @@ export function QueueScrollPage() {
       const limitedFlashcards = flashcardItems.slice(0, composed.flashcards);
       const limitedExtracts = extractItems.slice(0, composed.extracts);
 
-      // Order by SuperMemo's combined criterion (Phase 3): priority (primary)
-      // + topic/item proportion bias + stable per-id jitter. Higher-priority
-      // items surface first, with a topic/item mix so a flashcard-heavy
-      // source doesn't present all flashcards up front.
-      const mixedItems = orderScrollItemsByCombinedCriterion([
-        ...limitedDocuments,
-        ...limitedFlashcards,
-        ...limitedExtracts,
-      ]);
+      // The session's presentation order tracks the configured mix: the
+      // combined-criterion sort's proportion bias targets the topic share of
+      // the COMPOSED counts (documents + extracts vs flashcards), so a 60/40
+      // setting reads as 60/40 while scrolling, and scarcity is handled for
+      // free (a short type's deficit is already reflected in the counts). A
+      // single-type session gets a 0 or 1 target, where the bias short-
+      // circuits and priority alone orders the session.
+      const composedTotal =
+        composed.documents + composed.extracts + composed.flashcards;
+      const targetTopicShare =
+        composedTotal > 0
+          ? (composed.documents + composed.extracts) / composedTotal
+          : 0.5;
+      const mixedItems = orderScrollItemsByCombinedCriterion(
+        [
+          ...limitedDocuments,
+          ...limitedFlashcards,
+          ...limitedExtracts,
+        ],
+        {
+          ...DEFAULT_COMBINED_SORT_CONFIG,
+          targetTopicShare,
+        }
+      );
 
       if (!cancelled) {
+        setCompositionReport({
+          counts: {
+            documents: composed.documents,
+            extracts: composed.extracts,
+            flashcards: composed.flashcards,
+          },
+          shortfall: composed.shortfall,
+        });
         setScrollItems(mixedItems);
       }
     };
@@ -1515,7 +1549,6 @@ export function QueueScrollPage() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, isNeuralMode, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedDocumentIds, customSubset]);
 
   // Current item (for display during transition)
@@ -3560,6 +3593,9 @@ export function QueueScrollPage() {
       setCurrentIndex(0);
       setRenderedIndex(0);
       setIsNeuralMode(true);
+      // The neural session is not composition-composed; clear the note so the
+      // settings panel does not show a stale optimal-session report.
+      setCompositionReport(null);
       setNeuralRemaining(await getNeuralQueueRemaining());
       toast.success(t("neural.reviewMode"));
     } catch (error) {
@@ -4234,6 +4270,7 @@ export function QueueScrollPage() {
         ratingOrbsPosition={settings.scrollQueue.ratingOrbsPosition}
         onUpdateSetting={(key, value) => updateSettingsCategory('scrollQueue', { [key]: value })}
         onUpdateComposition={(composition) => updateSettingsCategory('scrollQueue', { composition })}
+        compositionReport={compositionReport}
       />
 
       {/* Overlay Controls */}
