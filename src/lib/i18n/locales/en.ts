@@ -2678,8 +2678,13 @@ export const en: Dict = {
   "viewer.searchNoMatches": "0 matches",
   "viewer.overallProgress": "Overall Progress",
   "viewer.transcribing": "Transcribing...",
-  "viewer.startLocalTranscription": "Start Local Transcription",
-  "viewer.usesWhisper": "Uses <strong>Local STT</strong> for high-accuracy offline transcription.",
+  "viewer.startTranscriptionWith": "Transcribe with {engine}",
+  "viewer.transcriptionUses": "Uses {engine}.",
+  "viewer.partialTranscript": "Partial transcript",
+  "viewer.partialTranscriptDescription": "This transcript stopped before the audio ended. Continue from the last saved section.",
+  "viewer.continueTranscriptionWith": "Continue with {engine}",
+  "viewer.transcriptionContinuing": "Continuing with {engine} from the last checkpoint ({progress}% complete).",
+  "viewer.mobileTranscriptionSubstitution": "Local transcription is unavailable on mobile, so Groq is being used instead.",
   "viewer.sleepTimerTitle": "Sleep Timer",
   "viewer.partOf": "Part {current} of {total}",
 
@@ -3729,6 +3734,8 @@ export const en: Dict = {
   "settings.audioDefaultModelDesc": "Preferred model for auto-transcribe and quick actions",
   "settings.audioNoModels": "No models available",
   "settings.audioInstalled": "Installed",
+  "settings.audioNotInstalled": "Not installed",
+  "settings.audioPreferredModelUnavailable": "{model} is selected but not installed. Download it before transcribing; your selection will not be changed automatically.",
   "settings.audioDownloadToEnable": "Download a model to enable auto-transcription",
   "settings.audioDownloadToEnableDesc":
     "Choose a model below. Each model includes a short description to help you decide.",
@@ -3783,6 +3790,7 @@ export const en: Dict = {
     "Files over 25MB are automatically split into chunks and transcribed seamlessly. No file size limits!",
   "settings.audioFreeTierCovers": "For most users, the free tier covers ~8 hours of audio per day.",
   "settings.audioTranscriptionQueue": "Transcription Queue",
+  "settings.audioLocalTranscriptionQueue": "Local Transcription Queue",
   "settings.audioTranscribeAll": "Transcribe All",
   "settings.audioNoPendingTranscriptions": "No pending transcriptions",
   "settings.audioNoPendingTranscriptionsDesc":

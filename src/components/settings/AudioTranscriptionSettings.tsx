@@ -27,10 +27,14 @@ import {
   XCircle,
 } from "@phosphor-icons/react";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
-import { downloadTranscriptionModel, deleteTranscriptionModel, enqueueAllUntranscribed } from "../../api/transcription";
+import {
+  deleteTranscriptionModel,
+  downloadTranscriptionModel,
+  enqueueAllUntranscribed,
+} from "../../api/transcription";
 import { useTranscriptionQueueStore } from "../../stores/transcriptionQueueStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { isTauri, isPWA, isNativeMobile } from "../../lib/tauri";
+import { invokeCommand, isTauri, isPWA, isNativeMobile } from "../../lib/tauri";
 import {
   isGroqConfigured,
   validateGroqApiKey,
@@ -43,8 +47,19 @@ import {
 import { cn } from "../../utils";
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
+import { resolveTranscription } from "../../lib/transcriptionProvider";
+import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
+import { transcribeAudiobookWithGroq } from "../../api/audiobooks";
 
 type Provider = 'local' | 'groq';
+
+interface UntranscribedMediaDocument {
+  id: string;
+  filePath: string;
+}
+
+const listUntranscribedMediaDocuments = (): Promise<UntranscribedMediaDocument[]> =>
+  invokeCommand("get_untranscribed_media_documents");
 
 export function AudioTranscriptionSettings() {
   const { t } = useI18n();
@@ -122,7 +137,7 @@ export function AudioTranscriptionSettings() {
   const handleDownload = async (id: string) => {
     try {
       await downloadTranscriptionModel(id);
-      fetchProfiles();
+      await fetchProfiles();
       toast.success("Download Complete", `Model "${id}" has been successfully downloaded and verified.`);
     } catch (error) {
       console.error("Failed to download model:", error);
@@ -136,7 +151,7 @@ export function AudioTranscriptionSettings() {
   const handleDelete = async (id: string) => {
     try {
       await deleteTranscriptionModel(id);
-      fetchProfiles();
+      await fetchProfiles();
     } catch (error) {
       console.error("Failed to delete model:", error);
     }
@@ -165,9 +180,26 @@ export function AudioTranscriptionSettings() {
     [downloadProgress]
   );
 
+  const preferredProfile = useMemo(
+    () => profiles.find((profile) => profile.id === audioSettings.preferredModelId),
+    [profiles, audioSettings.preferredModelId],
+  );
+  const preferredModelUnavailable = !!audioSettings.preferredModelId && !preferredProfile?.installed;
+  const transcriptionResolution = useMemo(
+    () => resolveTranscription(
+      audioSettings,
+      profiles,
+      isNativeMobile() ? "native-mobile" : "desktop",
+    ),
+    [audioSettings, profiles],
+  );
+
   useEffect(() => {
     if (profiles.length === 0) return;
-    if (audioSettings.preferredModelId && profiles.some((profile) => profile.id === audioSettings.preferredModelId)) return;
+    // An explicit preference remains authoritative even when unavailable. The
+    // warning/download affordance above surfaces that state without silently
+    // switching to a different installed model.
+    if (audioSettings.preferredModelId) return;
     const installed = profiles.find((profile) => profile.installed);
     const fallback = installed?.id ?? profiles[0].id;
     if (fallback && fallback !== audioSettings.preferredModelId) {
@@ -342,12 +374,30 @@ export function AudioTranscriptionSettings() {
                 {(() => {
                   return profiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
-                      {profile.name}{profile.installed ? ` (${t("settings.audioInstalled")})` : ""}
+                      {profile.name} ({profile.installed ? t("settings.audioInstalled") : t("settings.audioNotInstalled")})
                     </option>
                   ));
                 })()}
               </select>
             </label>
+            {preferredModelUnavailable && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  {t("settings.audioPreferredModelUnavailable", {
+                    model: preferredProfile?.name ?? audioSettings.preferredModelId ?? "",
+                  })}
+                </p>
+                {preferredProfile && (
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(preferredProfile.id)}
+                    className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                  >
+                    {t("settings.audioDownload")}
+                  </button>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Model Prompt */}
@@ -387,8 +437,8 @@ export function AudioTranscriptionSettings() {
             <div className="grid gap-4">
               {profiles.map((profile) => {
                 const progress = downloadProgress[profile.id];
-                const isDownloading = progress !== undefined && progress < 100 && currentStatus === 'downloading';
-                const isInstalled = profile.installed || progress === 100;
+                const isDownloading = progress !== undefined && currentStatus === 'downloading';
+                const isInstalled = profile.installed;
                 
                 return (
                   <div 
@@ -411,7 +461,7 @@ export function AudioTranscriptionSettings() {
                             Desktop Whisper
                           </span>
                         )}
-                        {progress === 100 && !isDownloading && (
+                        {isInstalled && !isDownloading && (
                           <CheckCircle className="w-4 h-4 text-green-500" />
                         )}
                       </div>
@@ -844,23 +894,40 @@ export function AudioTranscriptionSettings() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Playlist className="w-5 h-5 text-muted-foreground" />
-              <h4 className="font-semibold text-foreground">{t("settings.audioTranscriptionQueue")}</h4>
+              <h4 className="font-semibold text-foreground">{t("settings.audioLocalTranscriptionQueue")}</h4>
             </div>
             <button
               onClick={async () => {
                 setEnqueuingAll(true);
                 try {
-                  const provider = audioSettings.provider;
-                  const modelId = provider === 'groq'
-                    ? audioSettings.groq.model
-                    : (audioSettings.preferredModelId || 'distil-small.en');
-                  const result = await enqueueAllUntranscribed(provider, modelId, audioSettings.language);
-                  await queueStore.fetchQueue();
-                  if (result.enqueued > 0) {
+                  if (transcriptionResolution.ok === false) {
+                    showTranscriptionResolutionFailure(transcriptionResolution, toast);
+                    return;
                   }
-                  if (result.skipped.length > 0) {
-                    const names = result.skipped.map(s => `"${s.title}"`).join(", ");
-                    console.warn(`Skipped ${result.skipped.length} file(s) — not found: ${names}`);
+                  if (transcriptionResolution.provider === "groq") {
+                    const documents = await listUntranscribedMediaDocuments();
+                    const results = await Promise.allSettled(documents.map((document) =>
+                      transcribeAudiobookWithGroq(
+                        document.id,
+                        document.filePath,
+                        audioSettings.language === "auto" ? undefined : audioSettings.language,
+                      )
+                    ));
+                    const completed = results.filter((result) => result.status === "fulfilled").length;
+                    const failed = results.length - completed;
+                    if (completed > 0) toast.success("Cloud transcription complete", `${completed} item(s) transcribed with Groq.`);
+                    if (failed > 0) toast.error("Some transcriptions failed", `${failed} item(s) could not be transcribed with Groq.`);
+                  } else {
+                    const result = await enqueueAllUntranscribed(
+                      "local",
+                      transcriptionResolution.modelId,
+                      audioSettings.language,
+                    );
+                    await queueStore.fetchQueue();
+                    if (result.skipped.length > 0) {
+                      const names = result.skipped.map(s => `"${s.title}"`).join(", ");
+                      console.warn(`Skipped ${result.skipped.length} file(s) — not found: ${names}`);
+                    }
                   }
                 } catch (e) {
                   console.error("Failed to enqueue:", e);
@@ -868,7 +935,7 @@ export function AudioTranscriptionSettings() {
                   setEnqueuingAll(false);
                 }
               }}
-              disabled={enqueuingAll}
+              disabled={enqueuingAll || !transcriptionResolution.ok}
               className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-muted/50 disabled:opacity-50"
             >
               {enqueuingAll ? (

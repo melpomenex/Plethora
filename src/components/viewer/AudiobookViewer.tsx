@@ -11,7 +11,7 @@
  - Progress tracking
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   ArrowCounterClockwise,
   ArrowsInSimple,
@@ -58,7 +58,11 @@ import { useToast } from "../common/Toast";
 import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { startTranscription } from "../../api/transcription";
+import {
+  enqueueAutoTranscription,
+  getTranscriptionStatus,
+  type TranscriptionQueueEntry,
+} from "../../api/transcription";
 import { invokeCommand, isTauri, listen } from "../../lib/tauri";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { readDocumentFile, updateDocument as updateDocumentApi, updateDocumentProgressAuto, updateDocumentContent, getDocument } from "../../api/documents";
@@ -72,6 +76,17 @@ import { findActiveWordIndex, type WordTiming } from "../../utils/wordTimings";
 import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
 import { usePaletteActionListener } from "../../commandPalette/paletteActionEvents";
 import { useIsActiveTab } from "../common/Tabs";
+import {
+  describeResolution,
+  resolveTranscription,
+  type SuccessfulResolution,
+} from "../../lib/transcriptionProvider";
+import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
+import { useTranscriptionResolution } from "../../hooks/useTranscriptionResolution";
+import {
+  buildMediaTranscriptSections,
+  type SectionNode,
+} from "../../utils/sectionIndex";
 
 export type AudiobookPlaybackErrorKind = "source" | "codec";
 
@@ -134,6 +149,8 @@ interface AudiobookViewerProps {
   onBack?: () => void;
   /** Hide the large repeated title block when a parent podcast shell already labels the episode. */
   hideTitleHeader?: boolean;
+  /** Publishes transcript-backed chapters to the surrounding Assistant panel. */
+  onAssistantSectionsChange?: (sections: SectionNode[]) => void;
 }
 
 interface AudiobookBookmark {
@@ -232,6 +249,7 @@ export function AudiobookViewer({
   onEpisodeEnded,
   onBack,
   hideTitleHeader = false,
+  onAssistantSectionsChange,
 }: AudiobookViewerProps) {
   const internalAudioRef = useRef<HTMLAudioElement>(null);
   const audioRef = externalAudioRef ?? internalAudioRef;
@@ -271,7 +289,22 @@ export function AudiobookViewer({
     setSkipNotification(null);
     showSuccess("Playing skipped segment: " + getCategoryDisplayName(category as any));
   };
-  const { profiles, fetchProfiles, currentStatus, activeJob, activeSegments, loadTranscript, transcriptionProgress } = useTranscriptionStore();
+  const {
+    profiles,
+    fetchProfiles,
+    currentStatus,
+    activeJob,
+    activeSegments,
+    activeTranscriptBookId,
+    activeTranscriptStatus,
+    activeTranscriptChapterId,
+    loadTranscript,
+    transcriptionProgress,
+  } = useTranscriptionStore();
+  const documentTranscriptSegments = useMemo(
+    () => activeTranscriptBookId === document.id ? activeSegments : [],
+    [activeSegments, activeTranscriptBookId, document.id],
+  );
   
   // Core playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -327,10 +360,7 @@ export function AudiobookViewer({
 
   // Podcast transcript state (podcasts are stored separately from document/audiobook transcripts)
   const isPodcast = !!episodeId;
-  const audioTranscriptionSettings = useSettingsStore((state) => state.settings.audioTranscription);
-  const displayProvider = isNativeMobile()
-    ? (audioTranscriptionSettings.provider === "local" ? "groq" : audioTranscriptionSettings.provider)
-    : audioTranscriptionSettings.provider;
+  const configuredTranscriptionResolution = useTranscriptionResolution();
   const isMobile = useMobileShell();
   const [showMobileDetails, setShowMobileDetails] = useState(false);
   const [podcastTranscriptText, setPodcastTranscriptText] = useState<string | null>(null);
@@ -338,6 +368,22 @@ export function AudiobookViewer({
   const [podcastTranscriptionProgress, setPodcastTranscriptionProgress] = useState<{ status: string; progress: number } | null>(null);
   const [podcastTranscriptStatus, setPodcastTranscriptStatus] = useState<string | null>(null);
   const [hasLoadedStatus, setHasLoadedStatus] = useState(false);
+
+  const assistantTranscriptSections = useMemo(() => {
+    const hasRealChapters = chapters.length > 1
+      || (chapters.length === 1
+        && chapters[0]?.title
+        && chapters[0].title.trim().toLowerCase() !== "chapter 1");
+    if (!hasRealChapters) return [];
+    const timedSegments = isPodcast
+      ? podcastTranscriptSegments
+      : (transcript?.segments || documentTranscriptSegments);
+    return buildMediaTranscriptSections(document.id, chapters, timedSegments);
+  }, [chapters, document.id, documentTranscriptSegments, isPodcast, podcastTranscriptSegments, transcript?.segments]);
+
+  useEffect(() => {
+    onAssistantSectionsChange?.(assistantTranscriptSections);
+  }, [assistantTranscriptSections, onAssistantSectionsChange]);
 
   // Bookmark annotations state
   const [showBookmarkNoteModal, setShowBookmarkNoteModal] = useState(false);
@@ -360,6 +406,8 @@ export function AudiobookViewer({
   // the provider is Groq — the auto-transcription queue worker has no Groq path,
   // so we drive the dedicated transcribe_audio_file_groq command from here.
   const [audiobookTranscriptionProgress, setAudiobookTranscriptionProgress] = useState<{ status: string; progress: number; message?: string } | null>(null);
+  const [activeTranscriptionResolution, setActiveTranscriptionResolution] = useState<SuccessfulResolution | null>(null);
+  const [localQueueEntry, setLocalQueueEntry] = useState<TranscriptionQueueEntry | null>(null);
 
   const shouldPlayAfterDownloadRef = useRef(false);
   const pendingAutoplayAfterDownloadRef = useRef(false);
@@ -1054,7 +1102,7 @@ export function AudiobookViewer({
                 wordTimings: s.wordTimings,
               }))
             : (podcastTranscriptText || "").split(/(?<=[.!?])\s+/).map((s, i) => s.trim()).filter(Boolean).map((text, i) => ({ id: `pod-seg-${i}`, startTime: 0, endTime: 0, text })))
-        : (transcript?.segments || activeSegments);
+        : (transcript?.segments || documentTranscriptSegments);
       if (allSegments.length > 0) {
         const checkTime = sponsorBlockCuts.length > 0
           ? mapCutTimeToOriginalTime(time, sponsorBlockCuts)
@@ -1105,7 +1153,7 @@ export function AudiobookViewer({
         setBuffered(audioRef.current.buffered.end(audioRef.current.buffered.length - 1));
       }
     }
-  }, [activeSegmentId, activeSegments, currentPartIndex, showTranscript, toGlobalSeconds, transcript, sponsorBlockCuts, sponsorBlockSegments, isPodcast, podcastTranscriptSegments, podcastTranscriptText]);
+  }, [activeSegmentId, currentPartIndex, documentTranscriptSegments, showTranscript, toGlobalSeconds, transcript, sponsorBlockCuts, sponsorBlockSegments, isPodcast, podcastTranscriptSegments, podcastTranscriptText]);
   
   const [isWaitingForSeek, setIsWaitingForSeek] = useState(false);
   const seekRetryCountRef = useRef(0);
@@ -1558,7 +1606,7 @@ export function AudiobookViewer({
       const element = globalThis.document.getElementById(`segment-${initialTranscriptSegmentId}`);
       element?.scrollIntoView?.({ block: "center" });
     }, 0);
-  }, [activeSegments.length, initialTranscriptSegmentId, showTranscript, transcript?.segments?.length]);
+  }, [documentTranscriptSegments.length, initialTranscriptSegmentId, showTranscript, transcript?.segments?.length]);
 
   useEffect(() => {
     return () => {
@@ -2019,23 +2067,80 @@ export function AudiobookViewer({
     }
     return chapters[0];
   };
+
+  const refreshLocalQueueStatus = useCallback(async () => {
+    if (!isTauri() || isPodcast) return;
+    try {
+      const entry = await getTranscriptionStatus(document.id);
+      setLocalQueueEntry(entry);
+      if (entry) {
+        const targetChapterId = entry.chapterId || document.id;
+        // On restart the Zustand store is empty even though the queue and its
+        // checkpointed segments are durable. Load the queue's exact transcript
+        // row before rendering progress/Continue so the saved prefix is visible.
+        if (entry.status === "completed" || activeTranscriptChapterId !== targetChapterId) {
+          await loadTranscript(document.id, targetChapterId);
+        }
+      }
+    } catch {
+      // Queue status is supplemental UI state; transcript loading still works
+      // when an older build has no matching queue entry.
+    }
+  }, [activeTranscriptChapterId, document.id, isPodcast, loadTranscript]);
+
+  useEffect(() => {
+    if (!isTauri() || isPodcast) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void refreshLocalQueueStatus();
+    void listen<void>("transcription://queue-updated", () => {
+      if (!cancelled) void refreshLocalQueueStatus();
+    }).then((dispose) => {
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [isPodcast, refreshLocalQueueStatus]);
   
   const handleTranscribe = async () => {
+    let currentProfiles = profiles;
+    if (currentProfiles.length === 0) {
+      await fetchProfiles();
+      currentProfiles = useTranscriptionStore.getState().profiles;
+    }
+    const currentAudioSettings = useSettingsStore.getState().settings.audioTranscription;
+    const resolution = resolveTranscription(
+      currentAudioSettings,
+      currentProfiles,
+      isNativeMobile() ? "native-mobile" : "desktop",
+    );
+    if (resolution.ok === false) {
+      showTranscriptionResolutionFailure(
+        resolution,
+        { error: showError, info: showInfo, success: showSuccess },
+        handleTranscribe,
+      );
+      return;
+    }
+    setActiveTranscriptionResolution(resolution);
+    const engine = describeResolution(resolution);
+
     // Podcasts use their own transcription pipeline (keyed by episodeId), and
     // the audio is fetched by the backend — so document.filePath is often empty.
     if (isPodcast) {
       if (!episodeId) return;
       const allSettings = useSettingsStore.getState().settings;
-      const audioSettings = allSettings.audioTranscription;
-      const language = audioSettings.language || "en";
+      const language = currentAudioSettings.language || "en";
       try {
         setPodcastTranscriptionProgress({ status: "starting", progress: 0 });
         // On mobile the local Whisper/sherpa-onnx sidecar + FFmpeg pipeline
         // doesn't work — route to Groq cloud transcription (which also yields
         // word-level timestamps for karaoke highlighting). Falls back to the
         // local command on desktop (when the provider isn't groq).
-        const useGroq = audioSettings.provider === "groq" || isNativeMobile();
-        if (useGroq) {
+        if (resolution.provider === "groq") {
           const audioUrl = remoteAudioUrl || document.filePath;
           if (!audioUrl) {
             showError("Transcription Failed", "No audio URL available for this episode.");
@@ -2043,10 +2148,10 @@ export function AudiobookViewer({
           }
           await transcribePodcastEpisodeWithGroq(episodeId, audioUrl, language);
         } else {
-          const modelId = audioSettings.preferredModelId || "distil-small.en";
           const autoSegment = allSettings.documents.autoProcessOnImport;
-          await transcribePodcastEpisode(episodeId, modelId, language, autoSegment);
+          await transcribePodcastEpisode(episodeId, resolution.modelId, language, autoSegment);
         }
+        showSuccess("Transcription Started", `Transcribing with ${engine}.`);
       } catch (err) {
         setPodcastTranscriptionProgress(null);
         showError("Transcription Failed", String(err));
@@ -2059,64 +2164,21 @@ export function AudiobookViewer({
       return;
     }
 
-    const settings = useSettingsStore.getState().settings.audioTranscription;
-    const provider = isNativeMobile()
-      ? (settings.provider === "local" ? "groq" : settings.provider)
-      : settings.provider;
-
     try {
-      let currentProfiles = profiles;
-      if (currentProfiles.length === 0) {
-        await fetchProfiles();
-        currentProfiles = useTranscriptionStore.getState().profiles;
-      }
-
-      const installed = currentProfiles.filter((p) => p.installed);
-
-      // Define quality ranks for local models (highest quality first)
-      const MODEL_QUALITY_RANK = [
-        "parakeet-tdt-ctc-110m",  // Parakeet TDT-CTC 110M - ~126MB (SOTA English, very fast)
-        "sense-voice-small",      // SenseVoice Small - ~234MB (SOTA zh/en/ja/ko/yue)
-        "small",                  // Whisper Small (Multilingual Balanced) - ~488MB
-        "distil-small.en",        // Whisper Distil Small (English Fast) - ~336MB
-        "base",                   // Whisper Base (Multilingual Fast) - ~148MB
-      ];
-
-      // Determine model to use
-      let bestModelId = settings.preferredModelId;
-      const isPreferredInstalled = installed.some((p) => p.id === bestModelId);
-
-      if (!bestModelId || !isPreferredInstalled) {
-        if (installed.length > 0) {
-          // Sort installed by rank
-          const sortedInstalled = [...installed].sort((a, b) => {
-            let rankA = MODEL_QUALITY_RANK.indexOf(a.id);
-            let rankB = MODEL_QUALITY_RANK.indexOf(b.id);
-            if (rankA === -1) rankA = 999;
-            if (rankB === -1) rankB = 999;
-            return rankA - rankB;
-          });
-          bestModelId = sortedInstalled[0].id;
-        } else {
-          bestModelId = "distil-small.en"; // Fallback default
-        }
-      }
-
-      const isGroq = provider === "groq";
-      const language = settings.language === "auto" ? undefined : (settings.language || "en");
+      const language = currentAudioSettings.language === "auto" ? undefined : (currentAudioSettings.language || "en");
 
       // Route transcription based on model & provider.
       // Groq (always on mobile, or when the user picks Groq on desktop) goes
       // through the dedicated transcribe_audio_file_groq command — the
       // auto-transcription queue worker only knows local Whisper/Parakeet models
       // and has no Groq path, so queueing "groq" there fails to find a model.
-      if (isGroq) {
+      if (resolution.provider === "groq") {
         if (!document.filePath) {
           showError("Transcription Error", "No file path available for this document");
           return;
         }
         setAudiobookTranscriptionProgress({ status: "starting", progress: 0 });
-        showInfo("Transcribing via Groq…", "Your audiobook is being transcribed. You can keep listening while it runs.");
+        showInfo("Transcription Started", `Transcribing with ${engine}. You can keep listening while it runs.`);
         try {
           await audiobookApi.transcribeAudiobookWithGroq(document.id, document.filePath, language);
           // The command persists segments to the transcript tables; reload them
@@ -2129,17 +2191,24 @@ export function AudiobookViewer({
           showError("Transcription Failed", String(err));
         }
       } else {
-        const finalModelId = bestModelId;
         const currentChapter = getCurrentChapter();
-        const chapterId = currentChapter?.id?.toString() || "default";
-        await startTranscription(
+        // A partial legacy transcript may live under the chapter selected when
+        // the old in-memory job began. Continue that exact row; new jobs keep
+        // the viewer's current chapter identity in the durable queue.
+        const chapterId = activeTranscriptStatus !== "completed" && activeTranscriptChapterId
+          ? activeTranscriptChapterId
+          : currentChapter?.id?.toString() || "default";
+        await enqueueAutoTranscription(
           document.id,
-          chapterId,
           document.filePath,
-          finalModelId,
-          settings.language || "en"
+          resolution.provider,
+          resolution.modelId,
+          currentAudioSettings.language || "en",
+          undefined,
+          chapterId,
         );
-        showSuccess("Transcription Started", "Transcribing in background...");
+        await refreshLocalQueueStatus();
+        showSuccess("Transcription Started", `Transcribing in the background with ${engine}.`);
       }
     } catch (err) {
       showError("Transcription Failed", String(err));
@@ -2148,9 +2217,22 @@ export function AudiobookViewer({
 
   const isCurrentTranscribing = isPodcast
     ? !!podcastTranscriptionProgress
-    : (activeJob?.bookId === document.id || !!audiobookTranscriptionProgress);
+    : (activeJob?.bookId === document.id
+      || !!audiobookTranscriptionProgress
+      || localQueueEntry?.status === "pending"
+      || localQueueEntry?.status === "processing");
 
   const isTranscribing = isCurrentTranscribing || podcastTranscriptStatus === "transcribing" || podcastTranscriptStatus === "downloading";
+  const displayedTranscriptionResolution = activeTranscriptionResolution
+    ?? (configuredTranscriptionResolution.ok ? configuredTranscriptionResolution : null);
+  const displayedEngine = displayedTranscriptionResolution
+    ? describeResolution(displayedTranscriptionResolution)
+    : describeResolution(configuredTranscriptionResolution);
+  const localQueueIsActive = localQueueEntry?.status === "pending" || localQueueEntry?.status === "processing";
+  const hasPartialAudiobookTranscript = !isPodcast
+    && !transcript?.segments?.length
+    && documentTranscriptSegments.length > 0
+    && activeTranscriptStatus !== "completed";
 
   // Text selection for extracts
   const handleTextSelection = () => {
@@ -2365,7 +2447,7 @@ export function AudiobookViewer({
     if (!showTranscript) return;
     if (isPodcast) return; // podcasts use the effect above, not the document transcript store
     if (transcript?.segments?.length) return;
-    if (activeSegments.length > 0) return;
+    if (documentTranscriptSegments.length > 0) return;
 
     // Try loading transcript with several possible chapter IDs:
     // 1. document.id (how auto-transcription stores it)
@@ -2386,7 +2468,7 @@ export function AudiobookViewer({
     showTranscript,
     isPodcast,
     transcript?.segments?.length,
-    activeSegments.length,
+    documentTranscriptSegments.length,
     loadTranscript,
     document.id,
     currentChapter?.id,
@@ -2394,8 +2476,8 @@ export function AudiobookViewer({
 
   // Sync transcript to documents.content so the AI assistant can access it
   useEffect(() => {
-    if (!isTauri() || activeSegments.length === 0 || transcript?.segments?.length) return;
-    const fullText = activeSegments.map(s => s.text).join(" ");
+    if (!isTauri() || documentTranscriptSegments.length === 0 || transcript?.segments?.length) return;
+    const fullText = documentTranscriptSegments.map(s => s.text).join(" ");
     if (!fullText) return;
     (async () => {
       try {
@@ -2405,7 +2487,7 @@ export function AudiobookViewer({
         }
       } catch { /* non-critical */ }
     })();
-  }, [activeSegments.length, document.id, isTauri, transcript?.segments?.length]);
+  }, [documentTranscriptSegments, document.id, isTauri, transcript?.segments?.length]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -3136,7 +3218,7 @@ export function AudiobookViewer({
               className="flex-1 overflow-y-auto overscroll-contain p-4"
               onMouseUp={handleTextSelection}
             >
-              {(transcript || activeSegments.length > 0 || hasPodcastTranscript) ? (
+              {(transcript || documentTranscriptSegments.length > 0 || hasPodcastTranscript) ? (
                 <>
                   {/* Extract button for selected text */}
                   {selectedText && (
@@ -3155,7 +3237,7 @@ export function AudiobookViewer({
 
                   {/* Transcript segments */}
                   <div className="space-y-2">
-                    {(hasPodcastTranscript ? podcastDisplaySegments : (transcript?.segments || activeSegments)).map((segment, idx) => {
+                    {(hasPodcastTranscript ? podcastDisplaySegments : (transcript?.segments || documentTranscriptSegments)).map((segment, idx) => {
                       const id = (segment as any).id || `seg-${idx}`;
                       const startTime = (segment as any).startTime ?? (segment as any).start_ms / 1000;
                       const displayTime = sponsorBlockCuts.length > 0
@@ -3202,6 +3284,35 @@ export function AudiobookViewer({
                       );
                     })}
                   </div>
+
+                  {hasPartialAudiobookTranscript && (
+                    <div
+                      role="status"
+                      className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-left"
+                    >
+                      <p className="text-sm font-semibold text-foreground">
+                        {t("viewer.partialTranscript")}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {localQueueIsActive
+                          ? t("viewer.transcriptionContinuing", {
+                              engine: displayedEngine,
+                              progress: localQueueEntry?.progress ?? 0,
+                            })
+                          : t("viewer.partialTranscriptDescription")}
+                      </p>
+                      {!localQueueIsActive && (
+                        <button
+                          type="button"
+                          onClick={handleTranscribe}
+                          className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+                        >
+                          <Microphone className="h-4 w-4" />
+                          {t("viewer.continueTranscriptionWith", { engine: displayedEngine })}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : isTranscribing ? (
                 <div className="flex flex-col items-center justify-center h-full py-16 px-6 text-center animate-[fadeIn_0.3s_ease-out]">
@@ -3221,19 +3332,19 @@ export function AudiobookViewer({
                     {isPodcast
                       ? (podcastTranscriptionProgress?.status === "downloading" || podcastTranscriptStatus === "downloading"
                           ? "Downloading audio file for transcription..."
-                          : "Transcribing podcast episode using Groq Cloud Whisper...")
-                      : (audiobookTranscriptionProgress?.message || "Transcribing audiobook using Groq Cloud Whisper...")}
+                          : `Transcribing podcast episode using ${displayedEngine}…`)
+                      : (audiobookTranscriptionProgress?.message || `Transcribing audiobook using ${displayedEngine}…`)}
                   </p>
 
                   {/* Progress bar */}
                   <div className="w-full max-w-xs bg-muted/60 border border-border/40 rounded-full h-2.5 overflow-hidden shadow-inner">
                     <div
                       className="h-full bg-gradient-to-r from-primary to-orange-500 rounded-full transition-all duration-500 ease-out"
-                      style={{ width: `${isPodcast ? (podcastTranscriptionProgress?.progress ?? 10) : (audiobookTranscriptionProgress?.progress ?? transcriptionProgress ?? 10)}%` }}
+                      style={{ width: `${isPodcast ? (podcastTranscriptionProgress?.progress ?? 10) : (audiobookTranscriptionProgress?.progress ?? localQueueEntry?.progress ?? transcriptionProgress ?? 10)}%` }}
                     />
                   </div>
                   <span className="text-xs font-semibold text-primary mt-2">
-                    {isPodcast ? (podcastTranscriptionProgress?.progress ?? 10) : (audiobookTranscriptionProgress?.progress ?? transcriptionProgress ?? 10)}% Completed
+                    {isPodcast ? (podcastTranscriptionProgress?.progress ?? 10) : (audiobookTranscriptionProgress?.progress ?? localQueueEntry?.progress ?? transcriptionProgress ?? 10)}% Completed
                   </span>
                 </div>
               ) : (
@@ -3248,13 +3359,15 @@ export function AudiobookViewer({
                     >
                       <div className="flex items-center gap-2">
                         <Microphone className="w-5 h-5" />
-                        {isNativeMobile()
-                          ? `Transcribe with ${displayProvider === "groq" ? "Groq" : displayProvider}`
-                          : t("viewer.startLocalTranscription")
-                        }
+                        {t("viewer.startTranscriptionWith", { engine: displayedEngine })}
                       </div>
                     </button>
-                    <p className="text-xs" dangerouslySetInnerHTML={{ __html: t("viewer.usesWhisper") }} />
+                    <p className="text-xs">{t("viewer.transcriptionUses", { engine: displayedEngine })}</p>
+                    {displayedTranscriptionResolution?.substitution === "mobile-no-local" && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        {t("viewer.mobileTranscriptionSubstitution")}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}

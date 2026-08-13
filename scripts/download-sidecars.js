@@ -74,6 +74,15 @@ function sidecarExecutableName(baseName, targetTriple) {
   return `${baseName}-${targetTriple}${ext}`;
 }
 
+function isUsableSidecar(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return stat.isFile() && stat.size > 0;
+  } catch {
+    return false;
+  }
+}
+
 function ensureWhisperSource() {
   if (fs.existsSync(path.join('whisper.cpp', 'CMakeLists.txt'))) {
     return;
@@ -134,16 +143,17 @@ function sherpaAssetForTarget(targetTriple) {
 /// The upstream tarball ships a `bin/sherpa-onnx-offline` executable plus a
 /// `lib/libonnxruntime.<ver>.{dylib,so,dll}`. We:
 ///   1. Download + extract the tarball.
-///   2. Copy `bin/sherpa-onnx-offline` to `<BIN_DIR>/sherpa-onnx-<triple>` (Tauri externalBin naming).
+///   2. Copy `bin/sherpa-onnx-offline` to the platform-specific Tauri externalBin
+///      name (`sherpa-onnx-<triple>` or `sherpa-onnx-<triple>.exe`).
 ///   3. Copy the onnxruntime shared lib into <BIN_DIR> alongside it, so the
 ///      @executable_path / @executable_path/../Resources/bin rpaths resolve it
 ///      the same way whisper's libwhisper/libggml dylibs are resolved.
 ///   4. On macOS, add the dev + prod rpaths and re-sign (build.rs redoes this on
 ///      every build too, but doing it here makes the binary runnable immediately).
 function ensureSherpaSidecar(targetTriple) {
-  const sherpaName = `sherpa-onnx-${targetTriple}`;
+  const sherpaName = sidecarExecutableName('sherpa-onnx', targetTriple);
   const sherpaPath = path.join(BIN_DIR, sherpaName);
-  if (fs.existsSync(sherpaPath)) {
+  if (isUsableSidecar(sherpaPath)) {
     return;
   }
 
@@ -179,16 +189,16 @@ function ensureSherpaSidecar(targetTriple) {
     if (!offlineBin) throw new Error('sherpa-onnx tarball missing bin/sherpa-onnx-offline');
     fs.copyFileSync(offlineBin, sherpaPath);
 
-    // 2. Copy the onnxruntime shared lib into BIN_DIR (next to whisper's dylibs).
-    //    The build.rs rpath patching (@executable_path + @executable_path/../Resources/bin)
-    //    resolves it from there in both dev and bundled-.app layouts.
-    const libDir = path.join(extracted, 'lib');
-    if (fs.existsSync(libDir)) {
-      for (const f of fs.readdirSync(libDir)) {
-        if (f.startsWith('libonnxruntime') || f.startsWith('onnxruntime')) {
-          fs.copyFileSync(path.join(libDir, f), path.join(BIN_DIR, f));
-        }
-      }
+    // 2. Copy runtime libraries into BIN_DIR. Upstream layouts differ: Unix
+    // archives put them under lib/, while Windows packages may use bin/.
+    // Search recursively so PATH/rpath resolution works on every platform.
+    if (assetInfo.os === 'windows') {
+      findAndCopyLibs(extracted, BIN_DIR, '.dll');
+    } else if (assetInfo.os === 'macos') {
+      findAndCopyLibs(extracted, BIN_DIR, '.dylib');
+    } else {
+      findAndCopyLibs(extracted, BIN_DIR, '.so');
+      findAndCopyLibs(extracted, BIN_DIR, '.so.1');
     }
 
     // 3. On macOS, add rpaths + re-sign so the binary is runnable as-is.
@@ -223,6 +233,9 @@ function ensureSherpaSidecar(targetTriple) {
   } catch (err) {
     console.warn(`⚠️  sherpa-onnx provisioning failed for ${targetTriple}: ${err.message}`);
     console.warn('   Parakeet local transcription will be unavailable. Whisper/Groq still work.');
+    if (process.env.CI) {
+      throw err;
+    }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -982,7 +995,7 @@ async function main() {
   const ffmpegPath = path.join(BIN_DIR, ffmpegName);
   const whisperPath = path.join(BIN_DIR, whisperName);
   const notebooklmPath = path.join(BIN_DIR, notebooklmName);
-  const sherpaName = `sherpa-onnx-${targetTriple}`;
+  const sherpaName = sidecarExecutableName('sherpa-onnx', targetTriple);
   const sherpaPath = path.join(BIN_DIR, sherpaName);
   const notebooklmSidecarPresent = fs.existsSync(notebooklmPath);
   const notebooklmSkipped = process.env.SKIP_NOTEBOOKLM_SIDECAR === '1';
@@ -996,11 +1009,12 @@ async function main() {
     ? notebooklmSidecarPresent
     : notebooklmPortableReady;
 
-  // If both sidecars are already present (as in release/source builds), skip download/build.
+  // Zero-byte placeholders satisfy Tauri's externalBin path checks but cannot run.
+  // Only skip provisioning when every required executable is a non-empty file.
   if (
-    fs.existsSync(ffmpegPath)
-    && fs.existsSync(whisperPath)
-    && fs.existsSync(sherpaPath)
+    isUsableSidecar(ffmpegPath)
+    && isUsableSidecar(whisperPath)
+    && isUsableSidecar(sherpaPath)
     && (!notebooklmMustExist || notebooklmSidecarPresent)
     && (!notebooklmRequired || notebooklmRuntimeReady)
   ) {
@@ -1021,6 +1035,11 @@ async function main() {
     return;
   }
 
+  // Sherpa is distributed as a prebuilt sidecar, so provision it before any
+  // platform-specific Whisper build. A missing compiler must not prevent
+  // Parakeet/SenseVoice from becoming usable.
+  ensureSherpaSidecar(targetTriple);
+
   if (platform === 'linux') {
     // Linux FFmpeg (vestigial: ffmpeg isn't a Tauri externalBin — it's resolved
     // from PATH / deb `depends` at runtime — but we still stage a binary for
@@ -1028,39 +1047,48 @@ async function main() {
     // produce a wrong-arch ffmpeg (e.g. an x86_64 binary labeled
     // ffmpeg-aarch64-unknown-linux-gnu on the arm64 runner).
     const isArm64 = targetTriple.startsWith('aarch64');
-    console.log('Downloading FFmpeg (Linux)...');
-    const ffmpegArchive = `ffmpeg-linux-${isArm64 ? 'arm64' : 'x64'}.tar.xz`;
-    const ffmpegUrls = isArm64
-      ? [
-          'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz',
-          'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz',
-        ]
-      : [
-          'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz',
-          'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz',
-        ];
-    // Static ffmpeg builds are tens of MB; anything under 1MB is an error page.
-    downloadFile(ffmpegUrls, ffmpegArchive, { minBytes: 1024 * 1024 });
-    execSync(`tar -xf ${shellQuote(ffmpegArchive)}`);
-    const extractedFolders = fs.readdirSync('.')
-      .filter(f => f.startsWith('ffmpeg-') && fs.statSync(f).isDirectory());
-    const ffmpegBinary = extractedFolders
-      .map(folder => findFileRecursive(folder, 'ffmpeg'))
-      .find(Boolean);
+    if (!isUsableSidecar(ffmpegPath)) {
+      console.log('Downloading FFmpeg (Linux)...');
+      const ffmpegArchive = `ffmpeg-linux-${isArm64 ? 'arm64' : 'x64'}.tar.xz`;
+      const ffmpegUrls = isArm64
+        ? [
+            'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz',
+            'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz',
+          ]
+        : [
+            'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz',
+            'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz',
+          ];
+      // Static ffmpeg builds are tens of MB; anything under 1MB is an error page.
+      downloadFile(ffmpegUrls, ffmpegArchive, { minBytes: 1024 * 1024 });
+      execSync(`tar -xf ${shellQuote(ffmpegArchive)}`);
+      const extractedFolders = fs.readdirSync('.')
+        .filter(f => f.startsWith('ffmpeg-') && fs.statSync(f).isDirectory());
+      const ffmpegBinary = extractedFolders
+        .map(folder => findFileRecursive(folder, 'ffmpeg'))
+        .find(Boolean);
 
-    if (!ffmpegBinary) {
-      throw new Error('Downloaded FFmpeg archive did not contain an ffmpeg binary.');
-    }
+      if (!ffmpegBinary) {
+        throw new Error('Downloaded FFmpeg archive did not contain an ffmpeg binary.');
+      }
 
-    fs.copyFileSync(ffmpegBinary, path.join(BIN_DIR, ffmpegName));
-    fs.rmSync(ffmpegArchive, { force: true });
-    for (const folder of extractedFolders) {
-      fs.rmSync(folder, { recursive: true, force: true });
+      fs.copyFileSync(ffmpegBinary, path.join(BIN_DIR, ffmpegName));
+      fs.rmSync(ffmpegArchive, { force: true });
+      for (const folder of extractedFolders) {
+        fs.rmSync(folder, { recursive: true, force: true });
+      }
     }
 
     // Linux Whisper (building from source using CMake)
     console.log('Building Whisper (Linux)...');
-    if (!fs.existsSync(path.join(BIN_DIR, whisperName))) {
+    if (!isUsableSidecar(path.join(BIN_DIR, whisperName))) {
+      if (!commandExists('cmake')) {
+        const message = 'CMake is unavailable; skipping the optional local Whisper sidecar build.';
+        if (process.env.CI) {
+          throw new Error(message);
+        }
+        console.warn(`⚠️  ${message} Parakeet/SenseVoice remain available through sherpa-onnx.`);
+      } else {
         console.log('Building Whisper.cpp from source...');
         ensureWhisperSource();
         
@@ -1096,6 +1124,7 @@ async function main() {
             console.log('Note: patchelf not available, binary may need LD_LIBRARY_PATH set');
         }
         // execSync('rm -rf whisper.cpp');
+      }
     }
 
   } else if (platform === 'darwin') {
@@ -1128,7 +1157,7 @@ async function main() {
     }
 
     // Mac Whisper (Build from source using CMake)
-    if (!fs.existsSync(whisperPath)) {
+    if (!isUsableSidecar(whisperPath)) {
         console.log('Building Whisper.cpp from source...');
         ensureWhisperSource();
         
@@ -1196,7 +1225,7 @@ async function main() {
     }
 
     // Windows Whisper (build from source via CMake)
-    if (!fs.existsSync(path.join(BIN_DIR, whisperName))) {
+    if (!isUsableSidecar(path.join(BIN_DIR, whisperName))) {
       console.log('Building Whisper.cpp from source...');
       ensureWhisperSource();
 
@@ -1219,10 +1248,6 @@ async function main() {
       findAndCopyLibs('whisper.cpp/build', BIN_DIR, '.dll');
     }
   }
-
-  // Provision the sherpa-onnx sidecar (used by Parakeet local transcription).
-  // Platform-agnostic: downloads the right prebuilt tarball for the target triple.
-  ensureSherpaSidecar(targetTriple);
 
   // Seed a Windows DLL placeholder so tauri.windows.conf.json's `bin/*.dll`
   // resource glob is never empty (it would be if sherpa-onnx provisioning
@@ -1270,6 +1295,16 @@ async function main() {
     }
   } catch {
     // Windows might fail chmod, ignore
+  }
+
+  const unusableTranscriptionSidecars = [whisperPath, sherpaPath]
+    .filter(sidecarPath => !isUsableSidecar(sidecarPath));
+  if (unusableTranscriptionSidecars.length > 0) {
+    const message = `Required transcription sidecars are missing or empty: ${unusableTranscriptionSidecars.join(', ')}`;
+    if (process.env.CI) {
+      throw new Error(message);
+    }
+    console.warn(`⚠️  ${message}`);
   }
 
   console.log('Sidecars ready:', fs.readdirSync(BIN_DIR));

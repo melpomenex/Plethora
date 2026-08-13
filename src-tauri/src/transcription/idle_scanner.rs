@@ -2,6 +2,7 @@ use super::auto_queue::AutoTranscriptionQueue;
 use super::model_manager::ModelManager;
 use crate::database::Repository;
 use crate::models::TranscriptionQueueEntry;
+use crate::commands::transcription_config::read_transcription_config;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
@@ -84,39 +85,41 @@ impl IdleScanner {
                     continue;
                 }
 
+                let config = match read_transcription_config(&repo).await {
+                    Some(config) => config,
+                    None => {
+                        eprintln!("Idle scanner skipped: transcription_config is missing or invalid");
+                        continue;
+                    }
+                };
+                if config.provider != "local" {
+                    eprintln!(
+                        "Idle scanner skipped: configured provider '{}' is not supported by the local queue",
+                        config.provider
+                    );
+                    continue;
+                }
+                let model_id = match config.preferred_model_id {
+                    Some(model_id) => model_id,
+                    None => {
+                        eprintln!("Idle scanner skipped: no configured transcription model");
+                        continue;
+                    }
+                };
+
                 let model_manager = match ModelManager::new(&app_handle) {
                     Ok(m) => m,
                     Err(_) => continue,
                 };
-
-                let installed_profiles: Vec<_> = model_manager
-                    .list_profiles()
-                    .into_iter()
-                    .filter(|p| p.installed)
-                    .collect();
-
-                if installed_profiles.is_empty() {
+                if !model_manager.is_model_installed(&model_id) {
+                    eprintln!(
+                        "Idle scanner skipped: configured model '{}' is not installed",
+                        model_id
+                    );
                     continue;
                 }
-
-                // Prefer a SenseVoice or Parakeet model for background auto-transcription
-                // (best quality of the local options); otherwise fall back to any other
-                // installed model (typically Whisper). SenseVoice is preferred first
-                // because it covers the most languages (zh/en/ja/ko/yue).
-                let selected_profile = installed_profiles
-                    .iter()
-                    .find(|p| p.id.starts_with("sense-voice-"))
-                    .or_else(|| {
-                        installed_profiles
-                            .iter()
-                            .find(|p| p.id.starts_with("parakeet-"))
-                    })
-                    .or_else(|| installed_profiles.first())
-                    .unwrap(); // Safe because list is not empty
-
                 let provider = "local";
-                let model_id = &selected_profile.id;
-                let language = "en";
+                let language = config.language;
 
                 let mut enqueued = 0u32;
                 for (doc_id, _title, file_path) in untranscribed {
@@ -124,8 +127,8 @@ impl IdleScanner {
                         doc_id,
                         file_path,
                         provider.to_string(),
-                        model_id.to_string(),
-                        language.to_string(),
+                        model_id.clone(),
+                        language.clone(),
                     );
                     // Low priority for idle-scanned documents
                     let entry = TranscriptionQueueEntry {

@@ -177,6 +177,7 @@ pub async fn enqueue_auto_transcription(
     model_id: String,
     language: String,
     priority: Option<i32>,
+    chapter_id: Option<String>,
 ) -> Result<()> {
     if !Path::new(&audio_path).exists() {
         return Err(crate::error::IncrementumError::NotFound(format!(
@@ -185,21 +186,39 @@ pub async fn enqueue_auto_transcription(
         )));
     }
 
-    // Don't enqueue if a completed or pending entry already exists
+    let target_chapter_id = chapter_id.as_deref().unwrap_or(&document_id);
+
+    // Do not duplicate active work. A completed queue row only blocks the same
+    // transcript target when that transcript is actually complete; this lets a
+    // legacy partial transcript acquire its first durable queue entry.
     let existing = repo
         .get_transcription_queue_entry(&document_id)
         .await
         .map_err(|e| crate::error::IncrementumError::Internal(e.to_string()))?;
     if let Some(entry) = existing {
-        if entry.status == TranscriptionJobStatus::Completed
-            || entry.status == TranscriptionJobStatus::Pending
+        if entry.status == TranscriptionJobStatus::Pending
             || entry.status == TranscriptionJobStatus::Processing
         {
             return Ok(());
         }
+        if entry.status == TranscriptionJobStatus::Completed
+            && entry.transcript_chapter_id() == target_chapter_id
+        {
+            let completed: Option<String> = sqlx::query_scalar(
+                "SELECT status FROM transcripts WHERE book_id = ? AND chapter_id = ?",
+            )
+            .bind(&document_id)
+            .bind(target_chapter_id)
+            .fetch_optional(repo.pool())
+            .await?;
+            if completed.as_deref() == Some("completed") {
+                return Ok(());
+            }
+        }
     }
 
-    let entry = TranscriptionQueueEntry::new(document_id, audio_path, provider, model_id, language);
+    let mut entry = TranscriptionQueueEntry::new(document_id, audio_path, provider, model_id, language);
+    entry.chapter_id = chapter_id;
     let entry = TranscriptionQueueEntry {
         priority: priority.unwrap_or(0),
         ..entry
@@ -286,6 +305,30 @@ pub struct EnqueueAllResult {
 pub struct SkippedEntry {
     pub title: String,
     pub reason: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UntranscribedMediaDocument {
+    pub id: String,
+    pub title: String,
+    pub file_path: String,
+}
+
+#[command]
+pub async fn get_untranscribed_media_documents(
+    repo: State<'_, Repository>,
+) -> Result<Vec<UntranscribedMediaDocument>> {
+    Ok(repo
+        .get_untranscribed_media_documents()
+        .await?
+        .into_iter()
+        .map(|(id, title, file_path)| UntranscribedMediaDocument {
+            id,
+            title,
+            file_path,
+        })
+        .collect())
 }
 
 #[command]

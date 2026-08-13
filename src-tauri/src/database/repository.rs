@@ -6338,10 +6338,11 @@ impl Repository {
             TranscriptionJobStatus::Cancelled => "cancelled",
         };
         sqlx::query(
-            "INSERT INTO transcription_queue (id, document_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
+            "INSERT INTO transcription_queue (id, document_id, chapter_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
         )
         .bind(&entry.id)
         .bind(&entry.document_id)
+        .bind(&entry.chapter_id)
         .bind(&entry.audio_path)
         .bind(&entry.provider)
         .bind(&entry.model_id)
@@ -6360,8 +6361,8 @@ impl Repository {
     }
 
     pub async fn dequeue_next_transcription(&self) -> Result<Option<TranscriptionQueueEntry>> {
-        let row = sqlx::query_as::<_, (String, String, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32)>(
-            "SELECT id, document_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress FROM transcription_queue WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT 1"
+        let row = sqlx::query_as::<_, (String, String, Option<String>, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32)>(
+            "SELECT id, document_id, chapter_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress FROM transcription_queue WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT 1"
         )
         .fetch_optional(self.pool())
         .await?;
@@ -6370,6 +6371,7 @@ impl Repository {
             Some((
                 id,
                 document_id,
+                chapter_id,
                 audio_path,
                 provider,
                 model_id,
@@ -6385,6 +6387,7 @@ impl Repository {
             )) => Ok(Some(TranscriptionQueueEntry {
                 id,
                 document_id,
+                chapter_id,
                 audio_path,
                 provider,
                 model_id,
@@ -6457,7 +6460,7 @@ impl Repository {
     }
 
     pub async fn reset_transcription_to_pending(&self, id: &str, retry_count: i32) -> Result<()> {
-        sqlx::query("UPDATE transcription_queue SET status = 'pending', retry_count = ?1, error_message = NULL, started_at = NULL, progress = 0 WHERE id = ?2")
+        sqlx::query("UPDATE transcription_queue SET status = 'pending', retry_count = ?1, error_message = NULL, started_at = NULL WHERE id = ?2")
             .bind(retry_count)
             .bind(id)
             .execute(self.pool())
@@ -6469,8 +6472,8 @@ impl Repository {
         &self,
         document_id: &str,
     ) -> Result<Option<TranscriptionQueueEntry>> {
-        let row = sqlx::query_as::<_, (String, String, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32)>(
-            "SELECT id, document_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress FROM transcription_queue WHERE document_id = ?1 ORDER BY created_at DESC LIMIT 1"
+        let row = sqlx::query_as::<_, (String, String, Option<String>, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32)>(
+            "SELECT id, document_id, chapter_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress FROM transcription_queue WHERE document_id = ?1 ORDER BY created_at DESC LIMIT 1"
         )
         .bind(document_id)
         .fetch_optional(self.pool())
@@ -6480,6 +6483,7 @@ impl Repository {
             Some((
                 id,
                 document_id,
+                chapter_id,
                 audio_path,
                 provider,
                 model_id,
@@ -6495,6 +6499,7 @@ impl Repository {
             )) => Ok(Some(TranscriptionQueueEntry {
                 id,
                 document_id,
+                chapter_id,
                 audio_path,
                 provider,
                 model_id,
@@ -6523,8 +6528,8 @@ impl Repository {
             TranscriptionJobStatus::Failed => "failed",
             TranscriptionJobStatus::Cancelled => "cancelled",
         };
-        let rows = sqlx::query_as::<_, (String, String, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32)>(
-            "SELECT id, document_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress FROM transcription_queue WHERE status = ?1 ORDER BY priority DESC, created_at ASC"
+        let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32)>(
+            "SELECT id, document_id, chapter_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress FROM transcription_queue WHERE status = ?1 ORDER BY priority DESC, created_at ASC"
         )
         .bind(status_str)
         .fetch_all(self.pool())
@@ -6536,6 +6541,7 @@ impl Repository {
                 |(
                     id,
                     document_id,
+                    chapter_id,
                     audio_path,
                     provider,
                     model_id,
@@ -6552,6 +6558,7 @@ impl Repository {
                     TranscriptionQueueEntry {
                         id,
                         document_id,
+                        chapter_id,
                         audio_path,
                         provider,
                         model_id,
@@ -6573,8 +6580,8 @@ impl Repository {
     pub async fn get_full_transcription_queue(
         &self,
     ) -> Result<Vec<TranscriptionQueueEntryWithDoc>> {
-        let rows = sqlx::query_as::<_, (String, String, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32, String)>(
-            "SELECT tq.id, tq.document_id, tq.audio_path, tq.provider, tq.model_id, tq.language, tq.status, tq.error_message, tq.priority, tq.created_at, tq.started_at, tq.completed_at, tq.retry_count, tq.progress, COALESCE(d.title, 'Unknown') FROM transcription_queue tq LEFT JOIN documents d ON tq.document_id = d.id ORDER BY tq.priority DESC, tq.created_at ASC"
+        let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, String, String, String, Option<String>, i32, String, Option<String>, Option<String>, i32, i32, String)>(
+            "SELECT tq.id, tq.document_id, tq.chapter_id, tq.audio_path, tq.provider, tq.model_id, tq.language, tq.status, tq.error_message, tq.priority, tq.created_at, tq.started_at, tq.completed_at, tq.retry_count, tq.progress, COALESCE(d.title, 'Unknown') FROM transcription_queue tq LEFT JOIN documents d ON tq.document_id = d.id ORDER BY tq.priority DESC, tq.created_at ASC"
         )
         .fetch_all(self.pool())
         .await?;
@@ -6585,6 +6592,7 @@ impl Repository {
                 |(
                     id,
                     document_id,
+                    chapter_id,
                     audio_path,
                     provider,
                     model_id,
@@ -6603,6 +6611,7 @@ impl Repository {
                         entry: TranscriptionQueueEntry {
                             id,
                             document_id,
+                            chapter_id,
                             audio_path,
                             provider,
                             model_id,
@@ -7856,6 +7865,48 @@ mod tests {
         let mut hasher = Sha256::new();
         hasher.update(bytes);
         format!("{:x}", hasher.finalize())
+    }
+
+    #[tokio::test]
+    async fn transcription_queue_preserves_resume_chapter_and_progress_across_restart_reset() {
+        let repo = setup_repo().await;
+        let document = repo
+            .create_document(&Document::new(
+                "Long audiobook".to_string(),
+                "/tmp/long-audiobook.m4b".to_string(),
+                FileType::Audio,
+            ))
+            .await
+            .expect("create audio document");
+        let mut entry = TranscriptionQueueEntry::new(
+            document.id.clone(),
+            document.file_path.clone(),
+            "local".to_string(),
+            "parakeet-tdt-ctc-110m".to_string(),
+            "en".to_string(),
+        );
+        entry.chapter_id = Some("chapter-17".to_string());
+        entry.status = TranscriptionJobStatus::Processing;
+        entry.progress = 71;
+        repo.enqueue_transcription(&entry).await.expect("enqueue");
+
+        // This is the same reset performed when the app starts after an
+        // interrupted transcription. It must keep both the target row and the
+        // checkpoint-derived progress so process_next can resume it.
+        repo.reset_processing_transcriptions()
+            .await
+            .expect("reset interrupted queue entry");
+
+        let resumed = repo
+            .dequeue_next_transcription()
+            .await
+            .expect("dequeue")
+            .expect("pending resume entry");
+        assert_eq!(resumed.document_id, document.id);
+        assert_eq!(resumed.chapter_id.as_deref(), Some("chapter-17"));
+        assert_eq!(resumed.transcript_chapter_id(), "chapter-17");
+        assert_eq!(resumed.progress, 71);
+        assert_eq!(resumed.status, TranscriptionJobStatus::Pending);
     }
 
     #[tokio::test]

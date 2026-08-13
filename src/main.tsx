@@ -112,6 +112,7 @@ import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./deb
 import { installConsoleLogcatBridge } from "./lib/consoleLogcatBridge";
 import { markSyncPhaseStart } from "./lib/sync/syncTelemetry";
 import { startReminderScheduler } from "./lib/feedback/reminderScheduler";
+import { startTranscriptionConfigMirror } from "./lib/transcriptionConfigMirror";
 
 import { MainLayout } from "./components/layout/MainLayout";
 import { DevPerformanceMonitor } from "./components/common/PerformanceMonitor";
@@ -215,6 +216,10 @@ void installConsoleLogcatBridge();
 
 // Initialize PWA (works in both Tauri and Web)
 initializePWA();
+
+// Background Rust transcription flows cannot read WebView localStorage. Keep a
+// secret-free mirror of the selected provider/model/language in app_settings.
+startTranscriptionConfigMirror();
 
 // Dynamically load only the user's selected font from bundled @fontsource packages.
 // Inter is imported statically as the critical default (see utils/fonts.ts).

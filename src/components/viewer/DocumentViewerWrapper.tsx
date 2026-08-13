@@ -19,6 +19,7 @@ import {
   type ResolvedAssistantContext,
 } from "../../utils/assistantContext";
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
+import type { SectionNode } from "../../utils/sectionIndex";
 
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
 
@@ -85,6 +86,7 @@ export function DocumentViewer({
   const [assistantStatus, setAssistantStatus] = useState<"ready" | "loading" | "unavailable">("loading");
   const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | undefined>(undefined);
   const [assistantSource, setAssistantSource] = useState<string | undefined>(undefined);
+  const [mediaSections, setMediaSections] = useState<SectionNode[]>([]);
   const [assistantPosition, setAssistantPosition] = useState<AssistantPosition>(() => {
     const saved = localStorage.getItem(ASSISTANT_POSITION_KEY);
     return saved === "left" ? "left" : "right";
@@ -134,6 +136,14 @@ export function DocumentViewer({
   useEffect(() => {
     currentDocRef.current = currentDoc;
   }, [currentDoc]);
+
+  useEffect(() => {
+    setMediaSections([]);
+  }, [documentId]);
+
+  const handleMediaSectionsChange = useCallback((sections: SectionNode[]) => {
+    setMediaSections(sections);
+  }, []);
 
   useEffect(() => {
     if (!isActiveTab) return;
@@ -304,6 +314,7 @@ export function DocumentViewer({
       status: assistantStatus,
       statusMessage: assistantStatusMessage,
       source: assistantSource,
+      sections: mediaSections.length > 0 ? mediaSections : undefined,
       resolveForPrompt: resolveContextForPrompt,
     };
 
@@ -332,6 +343,7 @@ export function DocumentViewer({
     assistantStatusMessage,
     contextWindowTokens,
     documentId,
+    mediaSections,
     resolveContextForPrompt,
     scrollState,
     selection,
@@ -368,6 +380,7 @@ export function DocumentViewer({
         onPdfOcrContextTextChange={setPdfOcrContextText}
         contextPageWindow={2}
         onVideoContextChange={setVideoContext}
+        onMediaSectionsChange={handleMediaSectionsChange}
         openedFrom={openedFrom}
         hideRatingOrbs={hideRatingOrbs}
       />

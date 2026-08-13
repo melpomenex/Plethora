@@ -91,6 +91,8 @@ export interface AssistantContext {
   status?: "ready" | "loading" | "unavailable";
   statusMessage?: string;
   source?: string;
+  /** Authoritative viewer-supplied sections (for example timed audiobook chapters). */
+  sections?: SectionNode[];
   resolveForPrompt?: (prompt: string) => Promise<ResolvedAssistantContext>;
 }
 
@@ -322,13 +324,15 @@ export function AssistantPanel({
 
   // Document sections for # mentions
   const {
-    tree: assistantSectionTree,
-    flat: assistantSectionFlat,
+    tree: documentSectionTree,
+    flat: documentSectionFlat,
   } = useDocumentSections({
     documentId: context?.documentId,
     content: sectionsArmed ? assistantFullContent || context?.content || "" : "",
     useStoreOutline: true,
   });
+  const assistantSectionTree = context?.sections?.length ? context.sections : documentSectionTree;
+  const assistantSectionFlat = context?.sections?.length ? context.sections : documentSectionFlat;
 
   // The user's live text selection in the source document is offered as the
   // first `#` mention entry when one exists (spec: "asking about a certain
@@ -340,7 +344,7 @@ export function AssistantPanel({
 
   // Load full document content for section parsing when documentId changes
   useEffect(() => {
-    if (!context?.documentId || !sectionsArmed) {
+    if (!context?.documentId || !sectionsArmed || context.sections?.length) {
       setAssistantFullContent("");
       return;
     }
@@ -355,7 +359,7 @@ export function AssistantPanel({
     return () => {
       mounted = false;
     };
-  }, [context?.documentId, sectionsArmed]);
+  }, [context?.documentId, context?.sections?.length, sectionsArmed]);
 
   // Clean, human-friendly model name formatter
   const getFriendlyModelName = (providerId: string, rawModelName?: string) => {
@@ -1201,8 +1205,15 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       let sourceContext: SectionSourceReference | undefined;
       // Selection mentions carry exactly the selected text; structural sections
       // resolve against the document's canonical text. Both are combined below.
-      const selectionNodes = selectedSectionNodes.filter((n) => n.source === "selection");
-      const sectionNodes = selectedSectionNodes.filter((n) => n.source !== "selection");
+      // Timed media sections already carry their authoritative transcript text,
+      // just like a live text selection. They must not be reconciled against
+      // flattened documents.content, which has no chapter character offsets.
+      const selectionNodes = selectedSectionNodes.filter(
+        (n) => n.source === "selection" || n.source === "media-transcript",
+      );
+      const sectionNodes = selectedSectionNodes.filter(
+        (n) => n.source !== "selection" && n.source !== "media-transcript",
+      );
       let selectionContext = "";
       let selectionTruncated = false;
       if (selectionNodes.length > 0) {

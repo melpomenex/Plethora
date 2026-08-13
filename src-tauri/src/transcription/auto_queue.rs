@@ -36,6 +36,13 @@ impl AutoTranscriptionQueue {
                 tracing::warn!("Failed to reset processing transcriptions: {}", e);
             }
 
+            // Interrupted jobs already contain durable audio/model/chapter
+            // metadata. Wake the queue immediately instead of leaving them
+            // pending until an unrelated enqueue happens later.
+            if let Err(e) = Self::process_next(&repo, &app, &active_inner).await {
+                tracing::warn!("Failed to resume transcription queue on startup: {}", e);
+            }
+
             loop {
                 tokio::select! {
                     Some(cmd) = rx.recv() => {
@@ -129,7 +136,7 @@ impl AutoTranscriptionQueue {
             &entry.id,
             TranscriptionJobStatus::Processing,
             None,
-            Some(0),
+            Some(entry.progress),
         )
         .await?;
         {
@@ -193,6 +200,7 @@ impl AutoTranscriptionQueue {
         repo: &Repository,
         app: &AppHandle,
     ) -> anyhow::Result<()> {
+        ensure_local_provider(&entry.provider)?;
         let engine = TranscriptionEngine::new(app.clone());
         let model_manager = ModelManager::new(app)?;
 
@@ -212,24 +220,46 @@ impl AutoTranscriptionQueue {
             ));
         }
 
-        // Prepare audio
-        let wav_path = engine
-            .prepare_audio(std::path::Path::new(&entry.audio_path))
-            .await?;
+        let chapter_id = entry.transcript_chapter_id();
 
-        sqlx::query("INSERT OR REPLACE INTO transcripts (book_id, chapter_id, model_used, language, status) VALUES (?, ?, ?, ?, 'processing')")
+        // Preserve the transcript row and its checkpointed segments. SQLite
+        // REPLACE deletes the existing row, cascading into transcript_segments.
+        sqlx::query("INSERT INTO transcripts (book_id, chapter_id, model_used, language, status) VALUES (?, ?, ?, ?, 'processing') ON CONFLICT(book_id, chapter_id) DO UPDATE SET model_used = excluded.model_used, language = excluded.language, status = 'processing', error_message = NULL, updated_at = CURRENT_TIMESTAMP")
             .bind(&entry.document_id)
-            .bind(&entry.document_id)
+            .bind(chapter_id)
             .bind(&entry.model_id)
             .bind(&entry.language)
             .execute(repo.pool())
             .await?;
 
-        // Collect segments
-        let segments: Arc<Mutex<Vec<TranscriptSegment>>> = Arc::new(Mutex::new(Vec::new()));
-        let segments_clone = segments.clone();
+        let transcript_id: i64 = sqlx::query_scalar(
+            "SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?",
+        )
+        .bind(&entry.document_id)
+        .bind(chapter_id)
+        .fetch_one(repo.pool())
+        .await?;
+        let resume_start_ms: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(end_ms), 0) FROM transcript_segments WHERE transcript_id = ?",
+        )
+        .bind(transcript_id)
+        .fetch_one(repo.pool())
+        .await?;
+
+        // Prepare only the untranscribed tail. New segment timestamps are
+        // offset onto the original media timeline in the callback below.
+        let wav_path = engine
+            .prepare_audio_from(std::path::Path::new(&entry.audio_path), resume_start_ms)
+            .await?;
+        let remaining_duration_ms = engine.wav_duration_ms(&wav_path).unwrap_or(0);
+        let progress_floor = entry
+            .progress
+            .max(checkpoint_progress(resume_start_ms, remaining_duration_ms))
+            .clamp(0, 99);
+        repo.update_transcription_progress(&entry.id, progress_floor)
+            .await?;
+
         let repo_clone = repo.clone();
-        let entry_id = entry.id.clone();
         let app_clone = app.clone();
 
         // Throttle per-tick progress writes (Finding G, Part 2): emit/DB-write
@@ -243,7 +273,8 @@ impl AutoTranscriptionQueue {
         let progress_entry_id = entry.id.clone();
         let progress_repo = repo.clone();
         let progress_app = app.clone();
-        let progress_cb: Box<dyn Fn(i32) + Send + Sync> = Box::new(move |p: i32| {
+        let progress_cb: Box<dyn Fn(i32) + Send + Sync> = Box::new(move |remaining_p: i32| {
+            let p = map_remaining_progress(progress_floor, remaining_p);
             let is_final = p >= 100;
             let last = last_progress.load(Ordering::Relaxed);
             let pct_changed = (p - last).abs() >= 1;
@@ -281,31 +312,27 @@ impl AutoTranscriptionQueue {
         // consumer task drains it, doing multi-row INSERTs in batches within one
         // transaction and emitting one `transcription://segments-batch` event per
         // batch. This removes the thundering-herd of spawned tasks racing the pool
-        // and preserves FIFO ordering. The in-memory `segments_clone` vec is still
-        // appended so the final full-text assembly below works regardless of DB
-        // timing.
+        // and preserves FIFO ordering.
         let (seg_tx, seg_rx) = mpsc::unbounded_channel::<TranscriptSegment>();
-        let consumer_doc_id = entry_id.clone();
         let flush_handle: tokio::task::JoinHandle<()> = tokio::spawn(spawn_segment_consumer(
             seg_rx,
             repo_clone,
             app_clone,
-            consumer_doc_id,
+            transcript_id,
+            entry.document_id.clone(),
+            chapter_id.to_string(),
         ));
 
-        // Shared on_segment closure: append to the in-memory buffer AND enqueue
-        // for batched persistence.
+        // Shared on_segment closure: map the remaining-file timestamp back to
+        // the original timeline, then enqueue it for batched persistence.
         let on_segment = move |seg: TranscriptSegment| {
-            segments_clone
-                .lock()
-                .expect("transcription segments mutex poisoned")
-                .push(seg.clone());
+            let seg = offset_segment(seg, resume_start_ms);
             // Unbounded send only fails if the consumer ended (cancelled job);
             // best-effort drop in that case.
             let _ = seg_tx.send(seg);
         };
 
-        if is_sense_voice {
+        let transcription_result = if is_sense_voice {
             engine
                 .transcribe_sensevoice(
                     &wav_path,
@@ -314,7 +341,7 @@ impl AutoTranscriptionQueue {
                     on_segment,
                     Some(progress_cb),
                 )
-                .await?;
+                .await
         } else if is_parakeet {
             engine
                 .transcribe_parakeet(
@@ -324,7 +351,7 @@ impl AutoTranscriptionQueue {
                     on_segment,
                     Some(progress_cb),
                 )
-                .await?;
+                .await
         } else {
             engine
                 .transcribe(
@@ -334,25 +361,29 @@ impl AutoTranscriptionQueue {
                     on_segment,
                     Some(progress_cb),
                 )
-                .await?;
-        }
+                .await
+        };
 
         // Drop the sender + await the consumer so the final buffered batch is
-        // flushed to the DB before we mark the transcript completed.
+        // flushed before completion or before a retry after an engine error.
         // (seg_tx is the only sender; it goes out of scope here.)
         let _ = flush_handle.await;
+        transcription_result?;
 
-        let full_text: String = {
-            let all_segments = segments
-                .lock()
-                .expect("transcription segments mutex poisoned");
-            all_segments
-                .iter()
-                .map(|s| s.text.trim())
-                .filter(|t| !t.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
+        // Assemble from persisted old + new segments. Using only this run's
+        // in-memory vector would overwrite documents.content with the tail.
+        let persisted_text: Vec<String> = sqlx::query_scalar(
+            "SELECT text FROM transcript_segments WHERE transcript_id = ? ORDER BY start_ms, id",
+        )
+        .bind(transcript_id)
+        .fetch_all(repo.pool())
+        .await?;
+        let full_text = persisted_text
+            .iter()
+            .map(|text| text.trim())
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
 
         if !full_text.is_empty() {
             sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
@@ -363,11 +394,8 @@ impl AutoTranscriptionQueue {
         }
 
         // Mark transcript as completed
-        sqlx::query(
-            "UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?",
-        )
-        .bind(&entry.document_id)
-        .bind(&entry.document_id)
+        sqlx::query("UPDATE transcripts SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .bind(transcript_id)
         .execute(repo.pool())
         .await?;
 
@@ -377,6 +405,77 @@ impl AutoTranscriptionQueue {
         }
 
         Ok(())
+    }
+}
+
+fn checkpoint_progress(resume_start_ms: i64, remaining_duration_ms: i64) -> i32 {
+    let total = resume_start_ms.saturating_add(remaining_duration_ms);
+    if resume_start_ms <= 0 || total <= 0 {
+        return 0;
+    }
+    ((resume_start_ms.saturating_mul(100) / total) as i32).clamp(0, 99)
+}
+
+fn map_remaining_progress(progress_floor: i32, remaining_progress: i32) -> i32 {
+    let floor = progress_floor.clamp(0, 99);
+    let remaining = remaining_progress.clamp(0, 100);
+    floor + ((100 - floor) * remaining / 100)
+}
+
+fn offset_segment(mut segment: TranscriptSegment, offset_ms: i64) -> TranscriptSegment {
+    segment.start_ms = segment.start_ms.saturating_add(offset_ms);
+    segment.end_ms = segment.end_ms.saturating_add(offset_ms);
+    segment
+}
+
+fn ensure_local_provider(provider: &str) -> anyhow::Result<()> {
+    if provider != "local" {
+        return Err(anyhow::anyhow!(
+            "Provider mismatch: the local transcription queue cannot execute provider '{}'.",
+            provider
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        checkpoint_progress, ensure_local_provider, map_remaining_progress, offset_segment,
+    };
+    use crate::transcription::engine::TranscriptSegment;
+
+    #[test]
+    fn rejects_non_local_provider_before_model_resolution() {
+        let error = ensure_local_provider("groq").unwrap_err().to_string();
+        assert!(error.contains("Provider mismatch"));
+        assert!(error.contains("groq"));
+    }
+
+    #[test]
+    fn maps_a_two_and_a_half_hour_checkpoint_onto_the_remaining_audio() {
+        let checkpoint_ms = 2 * 60 * 60 * 1_000 + 30 * 60 * 1_000;
+        let remaining_ms = 60 * 60 * 1_000;
+        let floor = checkpoint_progress(checkpoint_ms, remaining_ms);
+
+        assert_eq!(floor, 71);
+        assert_eq!(map_remaining_progress(floor, 0), 71);
+        assert_eq!(map_remaining_progress(floor, 50), 85);
+        assert_eq!(map_remaining_progress(floor, 100), 100);
+    }
+
+    #[test]
+    fn offsets_tail_segments_back_to_the_original_media_timeline() {
+        let segment = TranscriptSegment {
+            start_ms: 0,
+            end_ms: 30_000,
+            text: "continued text".to_string(),
+            confidence: 0.9,
+        };
+
+        let resumed = offset_segment(segment, 9_000_000);
+        assert_eq!(resumed.start_ms, 9_000_000);
+        assert_eq!(resumed.end_ms, 9_030_000);
     }
 }
 
@@ -402,17 +501,10 @@ async fn spawn_segment_consumer(
     mut rx: mpsc::UnboundedReceiver<TranscriptSegment>,
     repo: Repository,
     app_handle: AppHandle,
-    document_id: String,
+    transcript_id: i64,
+    book_id: String,
+    chapter_id: String,
 ) {
-    // Resolve transcript_id once (book_id = chapter_id = document_id).
-    let transcript_id: i64 =
-        sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
-            .bind(&document_id)
-            .bind(&document_id)
-            .fetch_one(repo.pool())
-            .await
-            .unwrap_or(0);
-
     let mut buffer: Vec<TranscriptSegment> = Vec::with_capacity(N_SEGMENTS_PER_BATCH);
     let mut deadline = tokio::time::Instant::now() + FLUSH_INTERVAL;
 
@@ -423,13 +515,13 @@ async fn spawn_segment_consumer(
                     Some(seg) => {
                         buffer.push(seg);
                         if buffer.len() >= N_SEGMENTS_PER_BATCH {
-                            flush_segment_batch(&repo, &app_handle, transcript_id, &mut buffer).await;
+                            flush_segment_batch(&repo, &app_handle, transcript_id, &book_id, &chapter_id, &mut buffer).await;
                             deadline = tokio::time::Instant::now() + FLUSH_INTERVAL;
                         }
                     }
                     None => {
                         if !buffer.is_empty() {
-                            flush_segment_batch(&repo, &app_handle, transcript_id, &mut buffer).await;
+                            flush_segment_batch(&repo, &app_handle, transcript_id, &book_id, &chapter_id, &mut buffer).await;
                         }
                         break;
                     }
@@ -437,7 +529,7 @@ async fn spawn_segment_consumer(
             }
             _ = tokio::time::sleep_until(deadline) => {
                 if !buffer.is_empty() {
-                    flush_segment_batch(&repo, &app_handle, transcript_id, &mut buffer).await;
+                    flush_segment_batch(&repo, &app_handle, transcript_id, &book_id, &chapter_id, &mut buffer).await;
                 }
                 deadline = tokio::time::Instant::now() + FLUSH_INTERVAL;
             }
@@ -452,6 +544,8 @@ async fn flush_segment_batch(
     repo: &Repository,
     app_handle: &AppHandle,
     transcript_id: i64,
+    book_id: &str,
+    chapter_id: &str,
     buffer: &mut Vec<TranscriptSegment>,
 ) {
     if buffer.is_empty() {
@@ -464,7 +558,7 @@ async fn flush_segment_batch(
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!("Failed to begin segment batch txn: {}", e);
-                emit_segment_batch(app_handle, buffer);
+                emit_segment_batch(app_handle, book_id, chapter_id, buffer);
                 buffer.clear();
                 return;
             }
@@ -472,7 +566,7 @@ async fn flush_segment_batch(
 
         for chunk in buffer.chunks(SEG_ROWS_PER_STMT) {
             let mut builder: QueryBuilder<Sqlite> = QueryBuilder::new(
-                "INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) ",
+                "INSERT OR IGNORE INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) ",
             );
             builder.push_values(chunk.iter(), |mut b, seg| {
                 b.push_bind(transcript_id)
@@ -484,7 +578,7 @@ async fn flush_segment_batch(
             if let Err(e) = builder.build().execute(&mut *tx).await {
                 tracing::warn!("Failed to insert segment batch: {}", e);
                 let _ = tx.rollback().await;
-                emit_segment_batch(app_handle, buffer);
+                emit_segment_batch(app_handle, book_id, chapter_id, buffer);
                 buffer.clear();
                 return;
             }
@@ -495,15 +589,33 @@ async fn flush_segment_batch(
         }
     }
 
-    emit_segment_batch(app_handle, buffer);
+    emit_segment_batch(app_handle, book_id, chapter_id, buffer);
     buffer.clear();
 }
 
-fn emit_segment_batch(app_handle: &AppHandle, segments: &[TranscriptSegment]) {
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SegmentBatchPayload {
+    book_id: String,
+    chapter_id: String,
+    segments: Vec<TranscriptSegment>,
+}
+
+fn emit_segment_batch(
+    app_handle: &AppHandle,
+    book_id: &str,
+    chapter_id: &str,
+    segments: &[TranscriptSegment],
+) {
     if segments.is_empty() {
         return;
     }
-    if let Err(e) = app_handle.emit("transcription://segments-batch", segments) {
+    let payload = SegmentBatchPayload {
+        book_id: book_id.to_string(),
+        chapter_id: chapter_id.to_string(),
+        segments: segments.to_vec(),
+    };
+    if let Err(e) = app_handle.emit("transcription://segments-batch", payload) {
         tracing::debug!("Failed to emit segments-batch: {}", e);
     }
 }

@@ -28,6 +28,14 @@ pub struct TranscriptionEngine {
     app_handle: AppHandle,
 }
 
+pub(crate) fn sidecar_executable_name(name: &str, target_triple: &str) -> String {
+    if target_triple.contains("windows") {
+        format!("{}-{}.exe", name, target_triple)
+    } else {
+        format!("{}-{}", name, target_triple)
+    }
+}
+
 static VULKAN_CHECKED: AtomicBool = AtomicBool::new(false);
 static VULKAN_AVAILABLE: AtomicBool = AtomicBool::new(false);
 
@@ -125,19 +133,20 @@ impl TranscriptionEngine {
     /// name is what Tauri's bundler actually writes into a production bundle.
     fn sidecar_path(&self, name: &str) -> Option<PathBuf> {
         let triple = env!("TAURI_TARGET_TRIPLE");
+        let suffixed_name = sidecar_executable_name(name, triple);
         let candidates: Vec<PathBuf> = [
             // 1. Dev source bin/ (CARGO_MANIFEST_DIR is baked at compile time).
             Some(
                 PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                     .join("bin")
-                    .join(format!("{}-{}", name, triple)),
+                    .join(&suffixed_name),
             ),
             // 2. Resource dir bin/ (where resources globs land in prod).
             self.app_handle
                 .path()
                 .resource_dir()
                 .ok()
-                .map(|d| d.join("bin").join(format!("{}-{}", name, triple))),
+                .map(|d| d.join("bin").join(&suffixed_name)),
             // 3. Bundled externalBin: next to the main exe, bare name (no triple).
             //    On macOS this is Contents/MacOS/<name>; on Windows <exe_dir>/<name>.exe.
             std::env::current_exe().ok().and_then(|e| {
@@ -216,6 +225,13 @@ impl TranscriptionEngine {
     /// Converts audio to 16kHz WAV as required by whisper.cpp.
     /// Emits "transcription://phase" with "preparing" so the UI can show a preparing state.
     pub async fn prepare_audio(&self, input_path: &Path) -> Result<PathBuf> {
+        self.prepare_audio_from(input_path, 0).await
+    }
+
+    /// Converts the untranscribed tail of an audio file to 16kHz mono WAV.
+    /// `start_ms` is measured on the original media timeline and is used by the
+    /// persistent queue to resume after the last checkpointed segment.
+    pub async fn prepare_audio_from(&self, input_path: &Path, start_ms: i64) -> Result<PathBuf> {
         let _ = self.app_handle.emit(
             "transcription://phase",
             PhasePayload {
@@ -233,19 +249,36 @@ impl TranscriptionEngine {
 
         let output_path = temp_dir.join(format!("{}.wav", uuid::Uuid::new_v4()));
 
+        let mut args = vec![
+            "-i".to_string(),
+            input_path
+                .to_str()
+                .expect("input path is valid UTF-8")
+                .to_string(),
+        ];
+        if start_ms > 0 {
+            // Put -ss after -i for accurate seeking. A checkpoint is a transcript
+            // boundary, so avoiding a coarse keyframe seek matters more than the
+            // small startup cost for audio-only media.
+            args.push("-ss".to_string());
+            args.push(format!("{:.3}", start_ms as f64 / 1000.0));
+        }
+        args.extend([
+            "-ar".to_string(),
+            "16000".to_string(),
+            "-ac".to_string(),
+            "1".to_string(),
+            "-c:a".to_string(),
+            "pcm_s16le".to_string(),
+            "-y".to_string(),
+            output_path
+                .to_str()
+                .expect("output path is valid UTF-8")
+                .to_string(),
+        ]);
+
         let (mut rx, _) = crate::utils::ffmpeg::ffmpeg_command(&self.app_handle)?
-            .args([
-                "-i",
-                input_path.to_str().expect("input path is valid UTF-8"),
-                "-ar",
-                "16000",
-                "-ac",
-                "1",
-                "-c:a",
-                "pcm_s16le",
-                "-y",
-                output_path.to_str().expect("output path is valid UTF-8"),
-            ])
+            .args(args)
             .spawn()?;
 
         let mut success = false;
@@ -272,6 +305,10 @@ impl TranscriptionEngine {
         }
 
         Ok(output_path)
+    }
+
+    pub(crate) fn wav_duration_ms(&self, wav_path: &Path) -> Option<i64> {
+        get_wav_duration_ms(wav_path)
     }
 
     pub async fn transcribe(
@@ -856,4 +893,21 @@ fn build_wav_chunk(
     wav.extend_from_slice(&(pcm_data.len() as u32).to_le_bytes());
     wav.extend_from_slice(pcm_data);
     wav
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sidecar_executable_name;
+
+    #[test]
+    fn sidecar_names_follow_tauri_platform_convention() {
+        assert_eq!(
+            sidecar_executable_name("sherpa-onnx", "x86_64-pc-windows-msvc"),
+            "sherpa-onnx-x86_64-pc-windows-msvc.exe"
+        );
+        assert_eq!(
+            sidecar_executable_name("sherpa-onnx", "aarch64-apple-darwin"),
+            "sherpa-onnx-aarch64-apple-darwin"
+        );
+    }
 }

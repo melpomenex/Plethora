@@ -125,6 +125,7 @@ import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import type { EpubVimRuntime, PdfVimRuntime } from "../../utils/vim/readerRuntimes";
 import { InlineDocumentTitle } from "./InlineDocumentTitle";
 import { ItemStatsButton } from "../stats/ItemStatsButton";
+import type { SectionNode } from "../../utils/sectionIndex";
 
 const READER_FOCUS_EVENT = "incrementum-reader-focus-mode-change";
 const READER_FOCUS_CLASS = "incrementum-reader-focus-mode";
@@ -295,6 +296,7 @@ interface DocumentViewerProps {
     currentTime?: number;
     duration?: number;
   } | null) => void;
+  onMediaSectionsChange?: (sections: SectionNode[]) => void;
   hideRatingOrbs?: boolean;
   /**
    * Origin the document was opened from. "documents" (library browsing) hides
@@ -369,6 +371,7 @@ export function DocumentViewer({
   focusedExtractId,
   extractSourceContext,
   onVideoContextChange,
+  onMediaSectionsChange,
   hideRatingOrbs = false,
   openedFrom,
   onEnded,
@@ -6758,6 +6761,7 @@ export function DocumentViewer({
               onEpisodeEnded={onEnded}
               onBack={handleBack}
               hideTitleHeader={true}
+              onAssistantSectionsChange={onMediaSectionsChange}
             />
           )
         ) : docType === "video" ? (

@@ -14,6 +14,34 @@ const tauriMocks = vi.hoisted(() => ({
   listen: vi.fn(() => Promise.resolve(() => {})),
 }));
 
+const transcriptionMocks = vi.hoisted(() => ({
+  enqueueAutoTranscription: vi.fn(),
+  getTranscriptionStatus: vi.fn(),
+  fetchProfiles: vi.fn(async () => {}),
+  loadTranscript: vi.fn(async () => {}),
+  profiles: [] as Array<Record<string, unknown>>,
+  activeJob: null as { bookId: string; chapterId: string } | null,
+  activeSegments: [] as Array<Record<string, unknown>>,
+  activeTranscriptBookId: null as string | null,
+  activeTranscriptStatus: null as "pending" | "processing" | "completed" | "failed" | null,
+  activeTranscriptChapterId: null as string | null,
+}));
+
+const settingsMocks = vi.hoisted(() => ({
+  audioTranscription: {
+    provider: "local" as "local" | "groq",
+    preferredModelId: "parakeet-tdt-ctc-110m" as string | undefined,
+    language: "en",
+    groq: { apiKey: "key", model: "whisper-large-v3-turbo" as const },
+  },
+}));
+
+const toastMocks = vi.hoisted(() => ({
+  success: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+}));
+
 vi.mock("../../../lib/tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../lib/tauri")>();
   return {
@@ -26,7 +54,11 @@ vi.mock("../../../lib/tauri", async (importOriginal) => {
 });
 
 vi.mock("../../../lib/i18n", () => ({
-  useI18n: () => ({ t: (key: string) => key, locale: "en" }),
+  useI18n: () => ({
+    t: (key: string, params?: Record<string, unknown>) =>
+      params?.engine ? `${key} ${params.engine}` : key,
+    locale: "en",
+  }),
 }));
 
 vi.mock("../../../lib/audiobookDiagnostics", () => ({
@@ -84,29 +116,41 @@ vi.mock("../../../api/podcast", () => ({
 }));
 
 vi.mock("../../../api/transcription", () => ({
-  startTranscription: vi.fn(),
+  enqueueAutoTranscription: transcriptionMocks.enqueueAutoTranscription,
+  getTranscriptionStatus: transcriptionMocks.getTranscriptionStatus,
+  getTranscriptionProfiles: vi.fn(async () => transcriptionMocks.profiles),
+  downloadTranscriptionModel: vi.fn(),
 }));
 
-vi.mock("../common/Toast", () => ({
-  useToast: () => ({ success: vi.fn(), info: vi.fn(), error: vi.fn() }),
+vi.mock("../../common/Toast", () => ({
+  useToast: () => toastMocks,
 }));
 
-vi.mock("../common/Tabs", () => ({
+vi.mock("../../common/Tabs", () => ({
   useIsActiveTab: () => true,
 }));
 
-vi.mock("../../../stores/useTranscriptionStore", () => ({
-  useTranscriptionStore: () => ({
-    profiles: [],
-    fetchProfiles: vi.fn(),
+vi.mock("../../../stores/useTranscriptionStore", () => {
+  const state = () => ({
+    profiles: transcriptionMocks.profiles,
+    fetchProfiles: transcriptionMocks.fetchProfiles,
     currentStatus: null,
-    activeJob: null,
-    activeSegments: [],
-    loadTranscript: vi.fn(),
-    transcriptionProgress: {},
-  }),
-  getState: () => ({ profiles: [], activeSegments: [] }),
-}));
+    activeJob: transcriptionMocks.activeJob,
+    activeSegments: transcriptionMocks.activeSegments,
+    activeTranscriptBookId: transcriptionMocks.activeTranscriptBookId,
+    activeTranscriptStatus: transcriptionMocks.activeTranscriptStatus,
+    activeTranscriptChapterId: transcriptionMocks.activeTranscriptChapterId,
+    loadTranscript: transcriptionMocks.loadTranscript,
+    transcriptionProgress: 25,
+  });
+  return {
+    useTranscriptionStore: Object.assign(
+      (selector?: (value: ReturnType<typeof state>) => unknown) =>
+        selector ? selector(state()) : state(),
+      { getState: state },
+    ),
+  };
+});
 
 vi.mock("../../../stores/settingsStore", () => ({
   useSettingsStore: Object.assign(
@@ -114,14 +158,19 @@ vi.mock("../../../stores/settingsStore", () => ({
       const state = {
         settings: {
           general: { language: "en" },
-          audioTranscription: { provider: "groq" },
+          documents: { autoProcessOnImport: false },
+          audioTranscription: settingsMocks.audioTranscription,
         },
       };
       return selector ? selector(state) : state;
     },
     {
       getState: () => ({
-        settings: { general: { language: "en" }, audioTranscription: { provider: "groq" } },
+        settings: {
+          general: { language: "en" },
+          documents: { autoProcessOnImport: false },
+          audioTranscription: settingsMocks.audioTranscription,
+        },
       }),
     },
   ),
@@ -209,6 +258,30 @@ describe("desktop audiobook source resolution failures", () => {
     audiobookApiMocks.extractAudioCoverArt.mockReset().mockResolvedValue(null);
     audiobookApiMocks.searchAudiobookCover.mockReset().mockResolvedValue([]);
     audiobookApiMocks.parseAudiobookMetadata.mockReset().mockResolvedValue({});
+    transcriptionMocks.enqueueAutoTranscription.mockReset().mockResolvedValue(undefined);
+    transcriptionMocks.getTranscriptionStatus.mockReset().mockResolvedValue(null);
+    transcriptionMocks.fetchProfiles.mockClear();
+    transcriptionMocks.loadTranscript.mockClear();
+    transcriptionMocks.profiles = [{
+      id: "parakeet-tdt-ctc-110m",
+      name: "Parakeet TDT-CTC 110M",
+      installed: true,
+      description: "",
+      url: "",
+      sha256: "",
+      size_bytes: 1,
+    }];
+    transcriptionMocks.activeJob = null;
+    transcriptionMocks.activeSegments = [];
+    transcriptionMocks.activeTranscriptBookId = null;
+    transcriptionMocks.activeTranscriptStatus = null;
+    transcriptionMocks.activeTranscriptChapterId = null;
+    settingsMocks.audioTranscription.provider = "local";
+    settingsMocks.audioTranscription.preferredModelId = "parakeet-tdt-ctc-110m";
+    settingsMocks.audioTranscription.groq.apiKey = "key";
+    toastMocks.success.mockClear();
+    toastMocks.info.mockClear();
+    toastMocks.error.mockClear();
   });
 
   it("surfaces playbackError when source resolution fails instead of leaving the player idle", async () => {
@@ -277,5 +350,139 @@ describe("desktop audiobook source resolution failures", () => {
     });
     // No error is surfaced for a successful resolution.
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("transcription provider routing and labels", () => {
+  beforeEach(() => {
+    tauriMocks.isTauri.mockReturnValue(true);
+    tauriMocks.isNativeMobile.mockReturnValue(false);
+    tauriMocks.invokeCommand.mockReset().mockResolvedValue(
+      "http://127.0.0.1:43123/stream?path=test-book.mp3",
+    );
+    transcriptionMocks.enqueueAutoTranscription.mockReset().mockResolvedValue(undefined);
+    transcriptionMocks.getTranscriptionStatus.mockReset().mockResolvedValue(null);
+    transcriptionMocks.profiles = [{
+      id: "parakeet-tdt-ctc-110m",
+      name: "Parakeet TDT-CTC 110M",
+      installed: true,
+      description: "",
+      url: "",
+      sha256: "",
+      size_bytes: 1,
+    }];
+    transcriptionMocks.activeSegments = [];
+    transcriptionMocks.activeTranscriptBookId = null;
+    transcriptionMocks.activeJob = null;
+    transcriptionMocks.activeTranscriptStatus = null;
+    transcriptionMocks.activeTranscriptChapterId = null;
+    settingsMocks.audioTranscription.provider = "local";
+    settingsMocks.audioTranscription.preferredModelId = "parakeet-tdt-ctc-110m";
+    settingsMocks.audioTranscription.groq.apiKey = "key";
+    toastMocks.error.mockClear();
+  });
+
+  function openTranscript() {
+    fireEvent.click(screen.getByTitle("viewer.transcript"));
+  }
+
+  it("names local Parakeet in progress without mentioning Groq", () => {
+    transcriptionMocks.activeJob = { bookId: "book-1", chapterId: "default" };
+    render(<AudiobookViewer document={desktopDocument()} />);
+    openTranscript();
+    const panel = screen.getByText(/Transcribing audiobook using Local STT · Parakeet/);
+    expect(panel).toBeInTheDocument();
+    expect(panel).not.toHaveTextContent("Groq");
+  });
+
+  it("names Groq in progress without local or offline wording", () => {
+    settingsMocks.audioTranscription.provider = "groq";
+    transcriptionMocks.activeJob = { bookId: "book-1", chapterId: "default" };
+    render(<AudiobookViewer document={desktopDocument()} />);
+    openTranscript();
+    const panel = screen.getByText(/Transcribing audiobook using Groq · Whisper Large v3 Turbo/);
+    expect(panel.textContent?.toLowerCase()).not.toMatch(/local|offline/);
+  });
+
+  it("updates the idle CTA when the configured provider changes", () => {
+    const view = render(<AudiobookViewer document={desktopDocument()} />);
+    openTranscript();
+    expect(screen.getByText(/viewer.startTranscriptionWith Local STT · Parakeet/)).toBeInTheDocument();
+
+    settingsMocks.audioTranscription.provider = "groq";
+    view.rerender(<AudiobookViewer document={desktopDocument()} />);
+    expect(screen.getByText(/viewer.startTranscriptionWith Groq · Whisper Large v3 Turbo/)).toBeInTheDocument();
+  });
+
+  it("does not enqueue when the preferred local model is not installed", async () => {
+    transcriptionMocks.profiles = transcriptionMocks.profiles.map((profile) => ({
+      ...profile,
+      installed: false,
+    }));
+    render(<AudiobookViewer document={desktopDocument()} />);
+    openTranscript();
+    fireEvent.click(screen.getByText(/viewer.startTranscriptionWith Parakeet TDT-CTC 110M is not installed/));
+
+    await waitFor(() => {
+      expect(toastMocks.error).toHaveBeenCalledWith(
+        "Model not installed",
+        expect.stringContaining("Parakeet TDT-CTC 110M"),
+        expect.any(Object),
+      );
+    });
+    expect(transcriptionMocks.enqueueAutoTranscription).not.toHaveBeenCalled();
+  });
+
+  it("continues a saved partial transcript using its original chapter key", async () => {
+    transcriptionMocks.activeSegments = [
+      { start_ms: 8_970_000, end_ms: 9_000_000, text: "Saved at two and a half hours.", confidence: 0.9 },
+    ];
+    transcriptionMocks.activeTranscriptBookId = "book-1";
+    transcriptionMocks.activeTranscriptStatus = "processing";
+    transcriptionMocks.activeTranscriptChapterId = "legacy-chapter-17";
+
+    render(<AudiobookViewer document={desktopDocument()} />);
+    openTranscript();
+
+    expect(screen.getByText("viewer.partialTranscript")).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/viewer.continueTranscriptionWith Local STT · Parakeet/));
+
+    await waitFor(() => {
+      expect(transcriptionMocks.enqueueAutoTranscription).toHaveBeenCalledWith(
+        "book-1",
+        "/Users/test/Music/test-book.mp3",
+        "local",
+        "parakeet-tdt-ctc-110m",
+        "en",
+        undefined,
+        "legacy-chapter-17",
+      );
+    });
+  });
+
+  it("reloads the durable queue chapter when recovering after an app restart", async () => {
+    transcriptionMocks.getTranscriptionStatus.mockResolvedValue({
+      id: "queue-1",
+      documentId: "book-1",
+      chapterId: "chapter-17",
+      audioPath: "/Users/test/Music/test-book.mp3",
+      provider: "local",
+      modelId: "parakeet-tdt-ctc-110m",
+      language: "en",
+      status: "processing",
+      errorMessage: null,
+      priority: 0,
+      createdAt: "2026-08-13T00:00:00Z",
+      startedAt: "2026-08-13T00:01:00Z",
+      completedAt: null,
+      retryCount: 0,
+      progress: 71,
+    });
+
+    render(<AudiobookViewer document={desktopDocument()} />);
+
+    await waitFor(() => {
+      expect(transcriptionMocks.loadTranscript).toHaveBeenCalledWith("book-1", "chapter-17");
+    });
   });
 });

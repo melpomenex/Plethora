@@ -2671,6 +2671,26 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE reading_sessions ADD COLUMN last_heartbeat_at TEXT;
         "#,
     ),
+    // Migration 084: make long-running audiobook transcription resumable.
+    // Queue entries need to retain the exact transcript chapter selected by
+    // the viewer. The unique segment index turns checkpoint replays at an
+    // engine timestamp boundary into harmless INSERT OR IGNORE operations.
+    Migration::new(
+        "084_resumable_transcription",
+        r#"
+        ALTER TABLE transcription_queue ADD COLUMN chapter_id TEXT;
+
+        DELETE FROM transcript_segments
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM transcript_segments
+            GROUP BY transcript_id, start_ms, end_ms, text
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_transcript_segments_checkpoint
+            ON transcript_segments(transcript_id, start_ms, end_ms, text);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

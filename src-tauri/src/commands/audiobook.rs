@@ -707,20 +707,12 @@ pub async fn generate_audiobook_transcript(
     let model_manager =
         ModelManager::new(&app_handle).map_err(|e| IncrementumError::Internal(e.to_string()))?;
 
-    let mut selected_model = model;
+    let selected_model = model;
     if !model_manager.is_model_installed(&selected_model) {
-        if let Some(fallback) = model_manager
-            .list_profiles()
-            .into_iter()
-            .find(|p| model_manager.is_model_installed(&p.id))
-        {
-            selected_model = fallback.id;
-        } else {
-            return Err(IncrementumError::InvalidInput(format!(
-                "Model '{}' is not installed. Download it in Settings > Audio Transcription.",
-                selected_model
-            )));
-        }
+        return Err(IncrementumError::InvalidInput(format!(
+            "Model '{}' is not installed. Download it in Settings > Audio Transcription.",
+            selected_model
+        )));
     }
 
     let input_path = Path::new(&file_path);

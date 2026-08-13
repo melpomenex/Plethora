@@ -211,17 +211,18 @@ impl ModelManager {
     /// verdict hides the Download button entirely.
     fn sidecar_path(&self, name: &str) -> Option<PathBuf> {
         let triple = env!("TAURI_TARGET_TRIPLE");
+        let suffixed_name = super::engine::sidecar_executable_name(name, triple);
         let mut candidates: Vec<PathBuf> = Vec::new();
 
         // 1 & 2: the dev-source / resource bin dir resolved at construction.
         if let Some(bin_dir) = self.sidecar_bin_dir.as_ref() {
-            candidates.push(bin_dir.join(format!("{}-{}", name, triple)));
+            candidates.push(bin_dir.join(&suffixed_name));
         }
         // Dev source dir (CARGO_MANIFEST_DIR baked at compile time).
         candidates.push(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("bin")
-                .join(format!("{}-{}", name, triple)),
+                .join(&suffixed_name),
         );
         // 3: bundled externalBin — next to the main exe, bare name (no triple).
         if let Some(exe_dir) = std::env::current_exe()
@@ -280,8 +281,24 @@ impl ModelManager {
     }
 
     pub async fn download_model(&self, id: &str, app_handle: AppHandle) -> Result<()> {
+        if !self.profiles.iter().any(|profile| profile.id == id) {
+            return Err(anyhow!("Model profile not found for {}", id));
+        }
+        if !self.is_sidecar_usable(id) {
+            return Err(anyhow!(
+                "The local transcription engine required by '{}' is unavailable. Rebuild or reinstall the app with transcription sidecars included.",
+                id
+            ));
+        }
         if Self::is_sherpa_model(id) {
-            return self.download_sherpa_model(id, app_handle).await;
+            self.download_sherpa_model(id, app_handle).await?;
+            if !self.is_model_installed(id) {
+                return Err(anyhow!(
+                    "Model '{}' downloaded but failed installation verification",
+                    id
+                ));
+            }
+            return Ok(());
         }
 
         let profile = self
@@ -350,6 +367,13 @@ impl ModelManager {
         }
 
         fs::rename(&temp_path, &dest_path)?;
+
+        if !self.is_model_installed(id) {
+            return Err(anyhow!(
+                "Model '{}' downloaded but failed installation verification",
+                id
+            ));
+        }
 
         app_handle.emit("transcription://download-complete", id.to_string())?;
 

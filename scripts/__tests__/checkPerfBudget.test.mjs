@@ -10,11 +10,11 @@ import { comparePerfResults, ANCHOR_NAME } from "../check-perf-budget.mjs";
 /** Fixed anchor so fixture costs are easy to compute by hand (anchorHz = 1000). */
 const anchor = { name: ANCHOR_NAME, hz: 1000 };
 
-function results(benches: Array<{ name: string; hz: number }>) {
+function results(benches) {
   return [anchor, ...benches];
 }
 
-function baselines(entries: Record<string, { cost: number; tolerance?: number }>) {
+function baselines(entries) {
   return { defaultTolerance: 1.25, benchmarks: entries };
 }
 
@@ -78,6 +78,31 @@ test("per-benchmark tolerance overrides the default", () => {
   });
   assert.equal(out.failures.length, 0);
   assert.equal(out.rows.find((r) => r.name === "lenient")?.verdict, "PASS");
+});
+
+test("median cohort calibration removes a runner-wide shift but preserves an individual regression", () => {
+  const entries = {
+    a: { cost: 10 },
+    b: { cost: 10 },
+    c: { cost: 10 },
+    d: { cost: 10 },
+    hot: { cost: 10 },
+  };
+  const out = comparePerfResults({
+    // Four paths and the runner anchor shifted together by 2x relative to the
+    // baseline cohort; hot has an additional 50% regression (raw ratio 3x).
+    results: results([
+      { name: "a", hz: 50 },
+      { name: "b", hz: 50 },
+      { name: "c", hz: 50 },
+      { name: "d", hz: 50 },
+      { name: "hot", hz: 1000 / 30 },
+    ]),
+    baselines: baselines(entries),
+  });
+  assert.equal(out.environmentScale, 2);
+  assert.equal(out.rows.find((r) => r.name === "a")?.verdict, "PASS");
+  assert.equal(out.rows.find((r) => r.name === "hot")?.verdict, "FAIL");
 });
 
 test("missing anchor is signalled as not comparable (anchor null, nothing compared)", () => {

@@ -10,13 +10,24 @@ verify_resources() {
   echo "Verifying macOS bundle for sidecar binaries in: $search_dir"
 
   local whisper_sidecar
-  whisper_sidecar="$(find "$search_dir" -maxdepth 3 -type f \( -name 'whisper-*' -o -name 'whisper' \) | head -n 1 || true)"
+  whisper_sidecar="$(find "$search_dir" -maxdepth 3 -type f -size +0c \( -name 'whisper-*' -o -name 'whisper' \) | head -n 1 || true)"
   if [[ -z "$whisper_sidecar" ]]; then
-    echo "Missing whisper sidecar in $search_dir"
+    echo "Missing non-empty whisper sidecar in $search_dir"
     return 1
   fi
 
   echo "Found whisper sidecar: $whisper_sidecar"
+
+  local sherpa_sidecar
+  sherpa_sidecar="$(find "$search_dir" -maxdepth 3 -type f -size +0c \( -name 'sherpa-onnx-*' -o -name 'sherpa-onnx' \) | head -n 1 || true)"
+  if [[ -z "$sherpa_sidecar" ]]; then
+    echo "Missing non-empty sherpa-onnx sidecar in $search_dir"
+    return 1
+  fi
+
+  echo "Found sherpa sidecar: $sherpa_sidecar"
+  codesign --verify --strict "$whisper_sidecar"
+  codesign --verify --strict "$sherpa_sidecar"
 
   # Check for NotebookLM runtime
   local notebooklm_runtime
@@ -41,6 +52,18 @@ verify_resources() {
   fi
 
   return 0
+}
+
+verify_transcription_runtime() {
+  local app_bundle="$1"
+  local onnx_runtime
+  onnx_runtime="$(find "$app_bundle/Contents/Resources" -type f -size +0c -name '*onnxruntime*.dylib' | head -n 1 || true)"
+  if [[ -z "$onnx_runtime" ]]; then
+    echo "Missing non-empty ONNX Runtime dylib in $app_bundle"
+    return 1
+  fi
+  echo "Found ONNX Runtime: $onnx_runtime"
+  node scripts/verify-transcription-sidecars.mjs --root "$app_bundle"
 }
 
 verify_binary_links() {
@@ -123,11 +146,13 @@ if [[ ${#resource_dirs[@]} -gt 0 ]]; then
     # Check MacOS directory for external binaries first
     if [[ -d "$macos_dir" ]]; then
       verify_resources "$macos_dir"
+      verify_transcription_runtime "$app_dir"
       verify_notebooklm_bundle "$app_dir"
       verify_binary_links "$app_dir"
     else
       # Fallback to Resources
       verify_resources "$resources"
+      verify_transcription_runtime "$app_dir"
       verify_notebooklm_bundle "$app_dir"
       verify_binary_links "$app_dir"
     fi
@@ -194,6 +219,7 @@ for dmg in "${dmg_files[@]}"; do
     # Fallback to Resources if MacOS doesn't exist
     verify_resources "$resources"
   fi
+  verify_transcription_runtime "$app_bundle"
   verify_notebooklm_bundle "$app_bundle"
   result=$?
   if [[ $result -eq 0 ]]; then

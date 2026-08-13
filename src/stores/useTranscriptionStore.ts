@@ -12,6 +12,9 @@ interface TranscriptionState {
   downloadProgress: Record<string, number>;
   transcriptionProgress: number;
   activeSegments: TranscriptSegment[];
+  activeTranscriptBookId: string | null;
+  activeTranscriptStatus: 'pending' | 'processing' | 'completed' | 'failed' | null;
+  activeTranscriptChapterId: string | null;
   currentStatus: 'idle' | 'processing' | 'downloading';
   activeJob: { bookId: string, chapterId: string } | null;
   
@@ -29,6 +32,9 @@ export const useTranscriptionStore = create<TranscriptionState>((set) => ({
   downloadProgress: {},
   transcriptionProgress: 0,
   activeSegments: [],
+  activeTranscriptBookId: null,
+  activeTranscriptStatus: null,
+  activeTranscriptChapterId: null,
   currentStatus: 'idle',
   activeJob: null,
 
@@ -40,9 +46,19 @@ export const useTranscriptionStore = create<TranscriptionState>((set) => ({
   loadTranscript: async (bookId: string, chapterId: string) => {
     const response = await getTranscript(bookId, chapterId);
     if (response) {
-      set({ activeSegments: response.segments });
+      set({
+        activeSegments: response.segments,
+        activeTranscriptBookId: bookId,
+        activeTranscriptStatus: response.status,
+        activeTranscriptChapterId: chapterId,
+      });
     } else {
-      set({ activeSegments: [] });
+      set({
+        activeSegments: [],
+        activeTranscriptBookId: null,
+        activeTranscriptStatus: null,
+        activeTranscriptChapterId: null,
+      });
     }
   },
 
@@ -107,8 +123,12 @@ if (isTauri()) {
     useTranscriptionStore.getState().setStatus('downloading');
   });
 
-  safeListen<void>("transcription://download-complete", () => {
-    useTranscriptionStore.getState().setStatus('idle');
+  safeListen<string>("transcription://download-complete", (event) => {
+    const state = useTranscriptionStore.getState();
+    state.setStatus('idle');
+    void state.fetchProfiles().finally(() => {
+      useTranscriptionStore.getState().setDownloadProgress(event.payload, 0);
+    });
   });
 
   safeListen<{ book_id: string; chapter_id: string }>("transcription://status-change", (event) => {
@@ -122,8 +142,19 @@ if (isTauri()) {
   });
 
   // Batched segment events (Finding G, Part 2): one event per batch of segments.
-  safeListen<TranscriptSegment[]>("transcription://segments-batch", (event) => {
-    useTranscriptionStore.getState().addSegments(event.payload);
+  safeListen<{
+    bookId: string;
+    chapterId: string;
+    segments: TranscriptSegment[];
+  }>("transcription://segments-batch", (event) => {
+    const payload = event.payload;
+    const state = useTranscriptionStore.getState();
+    if (
+      state.activeTranscriptBookId === payload.bookId
+      && state.activeTranscriptChapterId === payload.chapterId
+    ) {
+      state.addSegments(payload.segments);
+    }
   });
 
   safeListen<void>("transcription://idle", () => {
