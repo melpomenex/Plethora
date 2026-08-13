@@ -9,6 +9,17 @@ export interface ScrollComposition {
   flashcards: number;
 }
 
+/**
+ * What the last-built Optimal Session supplied per type, and how far each
+ * type fell short of its configured share. `null` (or a missing prop) means
+ * no note — either no session was built yet or the session was list-sourced,
+ * where composition is only a thinning guide and top-ups can fill the gap.
+ */
+export interface CompositionReport {
+  counts: ScrollComposition;
+  shortfall: ScrollComposition;
+}
+
 interface ScrollQueueSettingsProps {
   isOpen: boolean;
   onClose: () => void;
@@ -17,6 +28,7 @@ interface ScrollQueueSettingsProps {
   ratingOrbsPosition?: "left" | "right" | "top" | "bottom";
   onUpdateSetting: (key: string, value: number | boolean | string) => void;
   onUpdateComposition: (composition: ScrollComposition) => void;
+  compositionReport?: CompositionReport | null;
 }
 
 const COMPOSITION_SLIDERS = [
@@ -33,9 +45,14 @@ export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
   ratingOrbsPosition,
   onUpdateSetting,
   onUpdateComposition,
+  compositionReport,
 }: ScrollQueueSettingsProps) {
   const { t } = useI18n();
   if (!isOpen) return null;
+
+  const shortTypes = compositionReport
+    ? COMPOSITION_SLIDERS.filter(({ key }) => compositionReport.shortfall[key] > 0)
+    : [];
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/50 backdrop-blur-sm pointer-events-auto">
@@ -77,6 +94,19 @@ export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
             <p className="text-xs text-muted-foreground mt-2">
               {t("queue.compositionHelp")}
             </p>
+            {shortTypes.length > 0 && compositionReport && (
+              <div role="note" className="text-xs text-amber-600 dark:text-amber-400 mt-2 space-y-0.5">
+                {shortTypes.map(({ key, labelKey }) => (
+                  <p key={key}>
+                    {t("queue.compositionShortfall", {
+                      type: t(labelKey),
+                      count: String(compositionReport.counts[key]),
+                      share: String(composition[key]),
+                    })}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between">

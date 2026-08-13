@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_COMBINED_SORT_CONFIG,
   MAX_SAME_TYPE_CONSECUTIVE,
   orderScrollItemsByCombinedCriterion,
   orderScrollItemsByPriority,
@@ -206,6 +207,59 @@ describe("orderScrollItemsByCombinedCriterion", () => {
   it("returns short inputs without dropping items", () => {
     const items = [card("c1", 5)];
     expect(orderScrollItemsByCombinedCriterion(items)).toEqual(items);
+  });
+});
+
+describe("orderScrollItemsByCombinedCriterion targetTopicShare", () => {
+  // Counts match the 60/40 target exactly (24 topics, 16 items), so the mix
+  // can be sustained end to end and no type is exhausted early — a
+  // same-type tail would otherwise be forced by availability, not by the sort.
+  const equalMix = () => [
+    ...Array.from({ length: 24 }, (_, i) => doc(`d${i}`, 50)),
+    ...Array.from({ length: 16 }, (_, i) => card(`c${i}`, 50)),
+  ];
+
+  it("a 60/40 target puts ~12 documents and ~8 flashcards in the first 20 items", () => {
+    const ordered = orderScrollItemsByCombinedCriterion(equalMix(), {
+      ...DEFAULT_COMBINED_SORT_CONFIG,
+      targetTopicShare: 0.6,
+    });
+    const first20 = ordered.slice(0, 20);
+    const docs = first20.filter((item) => item.type === "document").length;
+    const cards = first20.length - docs;
+    expect(docs).toBeGreaterThanOrEqual(10);
+    expect(docs).toBeLessThanOrEqual(14);
+    expect(cards).toBeGreaterThanOrEqual(6);
+    expect(cards).toBeLessThanOrEqual(10);
+    // The same-type run guard holds end to end when the counts match the
+    // target.
+    const types = ordered.map((item) => item.type);
+    expect(longestRunOf(types, "document")).toBeLessThanOrEqual(
+      MAX_SAME_TYPE_CONSECUTIVE
+    );
+    expect(longestRunOf(types, "flashcard")).toBeLessThanOrEqual(
+      MAX_SAME_TYPE_CONSECUTIVE
+    );
+  });
+
+  it("a 1.0 target applies no proportion bias (identical to a 0.0 target)", () => {
+    const items = equalMix();
+    const full = orderScrollItemsByCombinedCriterion(items, {
+      ...DEFAULT_COMBINED_SORT_CONFIG,
+      targetTopicShare: 1,
+    });
+    const none = orderScrollItemsByCombinedCriterion(items, {
+      ...DEFAULT_COMBINED_SORT_CONFIG,
+      targetTopicShare: 0,
+    });
+    expect(full.map((item) => item.id)).toEqual(none.map((item) => item.id));
+    // And the bias is genuinely active for an interior target: the 0.5 order
+    // alternates, so it must differ from the unbiased order.
+    const half = orderScrollItemsByCombinedCriterion(items, {
+      ...DEFAULT_COMBINED_SORT_CONFIG,
+      targetTopicShare: 0.5,
+    });
+    expect(half.map((item) => item.id)).not.toEqual(none.map((item) => item.id));
   });
 });
 

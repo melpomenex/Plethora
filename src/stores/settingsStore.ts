@@ -825,8 +825,8 @@ export const defaultSettings: Settings = {
     queueStrategyPreset: "maximize-retention",
     sessionItemTypes: {
       documents: true,
-      extracts: false,
-      learningItems: false,
+      extracts: true,
+      learningItems: true,
     },
   },
   tts: createDefaultTTSSettings(),

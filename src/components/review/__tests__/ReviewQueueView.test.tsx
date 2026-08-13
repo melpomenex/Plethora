@@ -4,6 +4,7 @@ import { ReviewQueueView } from "../ReviewQueueView";
 import { TabContent } from "../../common/Tabs/TabContent";
 import type { Tab } from "../../../stores/tabsStore";
 import type { QueueItem } from "../../../types/queue";
+import { defaultSettings, useSettingsStore } from "../../../stores/settingsStore";
 
 const mockStore = vi.hoisted(() => {
   const store: Record<string, any> = {
@@ -137,10 +138,9 @@ describe("ReviewQueueView", () => {
     render(<ReviewQueueView onOpenScrollMode={onOpenScrollMode} />);
     fireEvent.click(screen.getByText("Start Optimal Session"));
     expect(onOpenScrollMode).toHaveBeenCalledTimes(1);
-    expect(onOpenScrollMode).toHaveBeenCalledWith({
-      mode: "optimal",
-      itemTypes: { documents: true, extracts: false, learningItems: false },
-    });
+    // The optimal path forwards NO item-type gating: the composition shares
+    // are the sole control over an Optimal Session's membership.
+    expect(onOpenScrollMode).toHaveBeenCalledWith({ mode: "optimal" });
   });
 
   it("routes scroll mode button to scroll mode with visible items and queue-list mode option", () => {
@@ -154,7 +154,10 @@ describe("ReviewQueueView", () => {
         expect.objectContaining({ id: "item-3", documentId: "doc-3" }),
       ]),
       mode: "queue-list",
-      itemTypes: { documents: true, extracts: false, learningItems: false },
+      // The list-sourced path still carries the effective item-type selection
+      // (all three enabled under the new all-true default, since this user
+      // never customized the toggles).
+      itemTypes: { documents: true, extracts: true, learningItems: true },
     });
   });
 
@@ -178,9 +181,38 @@ describe("ReviewQueueView", () => {
   it("shows deterministic visible queue positions and marks the next item", () => {
     render(<ReviewQueueView />);
 
-    expect(screen.getByLabelText("Queue position 1 of 2")).toBeInTheDocument();
-    expect(screen.getByLabelText("Queue position 2 of 2")).toBeInTheDocument();
-    expect(screen.getByText("Up next · #1 of 2")).toBeInTheDocument();
+    // The all-true default item-type selection shows every type: both
+    // documents plus the learning item.
+    expect(screen.getByLabelText("Queue position 1 of 3")).toBeInTheDocument();
+    expect(screen.getByLabelText("Queue position 3 of 3")).toBeInTheDocument();
+    expect(screen.getByText("Up next · #1 of 3")).toBeInTheDocument();
+  });
+
+  it("shows all types for a pre-existing user who never customized the toggles", async () => {
+    // Every pre-existing user has the old documents-only default persisted
+    // (the whole settings object is written on any save) without ever opening
+    // Customize Queue. The customization flag — not the stored value —
+    // distinguishes a deliberate selection, so the all-true default must win:
+    // the queue list still shows the learning item.
+    const persisted = JSON.parse(JSON.stringify(defaultSettings)) as typeof defaultSettings;
+    persisted.smartQueue.sessionItemTypes = {
+      documents: true,
+      extracts: false,
+      learningItems: false,
+    };
+    localStorage.setItem("incrementum-settings", JSON.stringify({
+      state: { settings: persisted },
+      version: 6,
+    }));
+    await useSettingsStore.persist.rehydrate();
+    render(<ReviewQueueView />);
+    expect(screen.getAllByText("Review Item").length).toBeGreaterThan(0);
+
+    // Restore the pristine store for the remaining tests.
+    localStorage.clear();
+    useSettingsStore.setState({
+      settings: JSON.parse(JSON.stringify(defaultSettings)) as typeof defaultSettings,
+    });
   });
 });
 
