@@ -89,7 +89,7 @@ import { useIsActiveTab } from "../common/Tabs";
 import { invokeCommand, isTauri, isNativeMobile } from "../../lib/tauri";
 import { renderPdfCover } from "../../lib/pdfCoverRender";
 import { DocumentFileSyncBadge } from "../sync/DocumentFileSyncBadge";
-import { importAnkiPackage } from "../../utils/ankiImport";
+import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
 import { useI18n } from "../../lib/i18n";
 import { findCompanionDoc } from "../../utils/documentPairing";
 import { useTranscriptionQueueStore } from "../../stores/transcriptionQueueStore";
@@ -638,15 +638,21 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const handleAnkiPackage = useCallback(
     async (filePath: string) => {
       try {
-        const decks = await importAnkiPackage(filePath);
-        // TODO: Show a dialog to let user select which decks to import
-        // For now, just log success
-        await loadDocuments();
+        const imported = await importAnkiPackageFromPicker(filePath);
+        const deckNames = inferAnkiDeckNames(imported);
+        useStudyDeckStore.getState().ensureDecksExist(deckNames);
+        const allCards = await getAllLearningItems();
+        setLearningItems(Array.isArray(allCards) ? allCards : []);
+        toast.success(
+          "Anki import complete",
+          `${imported.length} card${imported.length === 1 ? "" : "s"} imported into ${deckNames.length || 1} deck${deckNames.length === 1 ? "" : "s"}.`,
+        );
       } catch (err) {
         console.error("Failed to import Anki package:", err);
+        toast.error("Anki import failed", err instanceof Error ? err.message : "Unknown import error");
       }
     },
-    [loadDocuments]
+    [toast]
   );
 
   const handleStudyJsonDeck = useCallback(

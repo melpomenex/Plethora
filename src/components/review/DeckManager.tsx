@@ -34,6 +34,7 @@ import { useConfirmDialog, ConfirmDialog } from "../common/ConfirmDialog";
 import { getAllLearningItems, createLearningItem, exportDeckAsApkg, exportDeckAsCsv, type LearningItem } from "../../api/learning-items";
 import { bulkSuspendItems, bulkUnsuspendItems, bulkDeleteItems } from "../../api/queue";
 import { matchesDeck, swapDeckTags, shouldEnsureBrowserExtensionDeck } from "../../utils/studyDecks";
+import { inferAnkiDeckNames } from "../../utils/ankiImport";
 import { DynamicVirtualList } from "../common/VirtualList";
 import { DeckManagerCardRow } from "./DeckManagerCardRow";
 import { deleteLearningItem } from "../../lib/database";
@@ -135,6 +136,19 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     );
     ensuredBrowserDeckRef.current = true;
   }, [loading, allCards, decks, addDeck, t]);
+
+  // Repair card-only Anki imports that predate automatic study-deck creation.
+  // Keep the once-per-mount guard so deleting a deck is respected until the
+  // user leaves this surface, matching Browser Extension deck behavior.
+  const ensuredAnkiDecksRef = useRef(false);
+  useEffect(() => {
+    if (ensuredAnkiDecksRef.current || loading) return;
+    const names = inferAnkiDeckNames(allCards);
+    if (names.length > 0) {
+      useStudyDeckStore.getState().ensureDecksExist(names);
+    }
+    ensuredAnkiDecksRef.current = true;
+  }, [loading, allCards]);
 
   useEffect(() => {
     const pendingCardId = sessionStorage.getItem("incrementum:pending-flashcard-id");

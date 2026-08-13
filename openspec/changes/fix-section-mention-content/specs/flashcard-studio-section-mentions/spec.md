@@ -102,7 +102,7 @@ If a focused section cannot be resolved at generation time, or can only be resol
 
 ### Requirement: Generated flashcard artifact actions
 
-When the beside-document Assistant or Document Q&A creates flashcards, the generated-card collection SHALL
+When the beside-document Assistant, Podcast Assistant, or Document Q&A creates flashcards, the generated-card collection SHALL
 preserve the normalized tool-call tags and use its `deck:<name>` tag to expose a
 state-aware primary action in the collection header. If the named deck does not
 exist, the action SHALL create a document-bound deck for those cards when a
@@ -112,10 +112,21 @@ provide a compact action to copy the complete generated batch. These controls
 SHALL have accessible names, keyboard focus treatment, and status feedback,
 without displacing per-card open/retry behavior.
 
+For a `batch_create_cards` call, the collection SHALL render one artifact per
+valid card and SHALL map the batch's persisted result ids and errors to the
+corresponding artifacts. The batch call SHALL NOT also appear as generic raw
+tool JSON. A partially failed batch SHALL NOT offer a whole-batch retry that
+would duplicate successful sibling cards.
+
 #### Scenario: Generated cards do not yet have a deck
 
 - **WHEN** a generated flashcard collection carries `deck:A Thousand Brains` and no case-insensitive exact-name deck exists
 - **THEN** the header shows `Create deck`, creates `A Thousand Brains` bound to the current document (retaining its title tag metadata), and then reflects that the deck exists
+
+#### Scenario: Unbound generated deck excludes unrelated cards
+
+- **WHEN** a generated collection without a document id creates a deck carrying the tag filter `Podcast Episode`
+- **THEN** the deck uses tag filtering, includes cards tagged `Podcast Episode` or `deck:Podcast Episode`, and excludes untagged cards and cards belonging to other named decks
 
 #### Scenario: Generated cards already have a deck
 
@@ -126,6 +137,70 @@ without displacing per-card open/retry behavior.
 
 - **WHEN** the user activates the header's copy action
 - **THEN** every generated card in the response is copied in a readable Q&A/cloze format and the control provides success feedback
+
+#### Scenario: Podcast Assistant renders a batch as a card collection
+
+- **WHEN** Podcast Assistant successfully executes `batch_create_cards` for a transcript and the normalized call carries `deck:<episode title>`
+- **THEN** it shows each generated card in the shared Flashcards collection with persisted state, copy, and the state-aware `Create deck` / `Open deck` action, and does not expose the batch parameter JSON as a generic tool row
+
+#### Scenario: Partial Podcast batch failure avoids duplicate retry
+
+- **WHEN** some cards in a Podcast Assistant batch save successfully and another card fails
+- **THEN** each result is shown on its corresponding card, and the failed row does not offer an action that would resubmit the entire batch and duplicate its successful siblings
+
+### Requirement: Resizable Podcast Assistant
+
+On desktop, the Podcast View Assistant panel SHALL be horizontally resizable
+through the shared Assistant resize handle, constrained to 300–800 pixels, and
+the selected width SHALL persist through the existing Assistant width setting.
+The resize control SHALL expose vertical-separator semantics and support arrow
+keys. On mobile, Podcast Assistant SHALL fill the swipe sheet and SHALL NOT show
+the desktop resize handle.
+
+#### Scenario: Resize Podcast Assistant with pointer or keyboard
+
+- **WHEN** a desktop user drags the Podcast Assistant's left edge or focuses the resize separator and presses an arrow key
+- **THEN** the Podcast chat host and Assistant content resize together within 300–800 pixels and the updated width is restored on the next open
+
+#### Scenario: Podcast Assistant remains full-width on mobile
+
+- **WHEN** Podcast Assistant is opened in the mobile swipe sheet
+- **THEN** it fills the sheet width and omits the desktop resize separator without changing swipe-to-dismiss behavior
+
+### Requirement: Imported and generated deck membership isolation
+
+An unbound deck with one or more tag filters SHALL default to tag-filtered
+membership and SHALL NOT behave as an all-library deck. A document-bound deck
+may use `all` membership only within its matching document. Persisted unbound
+decks created by the former all-library default SHALL be repaired to tag
+filtering while retaining their ids, names, and filters.
+
+An Anki APKG import SHALL create or repair a tag-filtered study deck for every
+source deck name represented by the imported cards. This SHALL apply to Review
+and Documents drag/drop import surfaces. When older card-only Anki imports are
+present without study-deck records, Review SHALL reconstruct the missing named
+decks from the persisted Anki import tags without duplicating or rewriting the
+cards.
+
+#### Scenario: Legacy named deck no longer matches the whole library
+
+- **WHEN** persisted study-deck state contains an unbound deck with non-empty tag filters and `filterType: all`
+- **THEN** migration changes that deck to `filterType: tags`, preserves its stable identity, and unrelated or untagged cards no longer appear in it
+
+#### Scenario: Anki import creates its named deck
+
+- **WHEN** an APKG imports cards tagged with `anki-import`, their note model, and source deck name `Anatomy 1K`
+- **THEN** a tag-filtered `Anatomy 1K` study deck exists and includes those cards without including cards from other imports or cards with no matching deck tag
+
+#### Scenario: Historical Anki cards restore a missing deck
+
+- **WHEN** the library contains card-only Anki imports whose final import tag records a source deck name but no matching study-deck record exists
+- **THEN** opening Review Home or Deck Manager creates the missing tag-filtered deck once, without creating documents or changing the imported card rows
+
+#### Scenario: Documents drag/drop persists Anki cards and deck
+
+- **WHEN** the user drops an APKG onto Documents
+- **THEN** the application runs the same learning-item import used by Review, creates the source-named tag deck, refreshes card search data, and reports the imported card count
 
 ### Requirement: Document card saves include document-deck membership
 

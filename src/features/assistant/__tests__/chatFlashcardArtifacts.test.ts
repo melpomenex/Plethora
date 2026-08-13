@@ -40,4 +40,64 @@ describe("chat flashcard artifact normalization", () => {
     expect(artifact.source).toEqual(source);
     expect(artifact.source).not.toHaveProperty("content");
   });
+
+  it("expands a batch tool call into card artifacts instead of generic JSON", () => {
+    const calls = [{
+      name: "batch_create_cards",
+      parameters: {
+        tags: ["deck:Podcast Episode", "shared"],
+        cards: [
+          { type: "qa", question: "First question?", answer: "First answer.", tags: ["shared", "first"] },
+          { type: "cloze", question: "The {{second}} answer is hidden." },
+        ],
+      },
+      status: "success",
+      result: {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            created: 2,
+            results: [
+              { success: true, id: "card-1" },
+              { success: true, id: "card-2" },
+            ],
+          }),
+        }],
+      },
+    }];
+
+    const artifacts = toolCallsToFlashcardArtifacts("podcast-message", calls, { timestamp: 456 });
+
+    expect(artifacts).toHaveLength(2);
+    expect(artifacts[0]).toMatchObject({
+      id: "podcast-message:card:0:0",
+      type: "qa",
+      front: "First question?",
+      back: "First answer.",
+      persistedCardId: "card-1",
+      status: "saved",
+      tags: ["deck:Podcast Episode", "shared", "first"],
+    });
+    expect(artifacts[1]).toMatchObject({
+      type: "cloze",
+      front: "The {{second}} answer is hidden.",
+      persistedCardId: "card-2",
+      status: "saved",
+    });
+    expect(getFlashcardArtifactDeckName(artifacts)).toBe("Podcast Episode");
+    expect(nonFlashcardToolCalls(calls)).toEqual([]);
+  });
+
+  it("surfaces partial batch failures without offering an unsafe whole-batch retry", () => {
+    const [artifact] = toolCallsToFlashcardArtifacts("message-1", [{
+      name: "batch_create_cards",
+      parameters: { cards: [{ type: "qa", question: "Q", answer: "A" }] },
+      status: "success",
+      result: {
+        content: [{ type: "text", text: JSON.stringify({ results: [{ success: false, error: "Database busy" }] }) }],
+      },
+    }]);
+
+    expect(artifact).toMatchObject({ status: "failed", error: "Database busy", retryable: false });
+  });
 });

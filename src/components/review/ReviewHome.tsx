@@ -24,7 +24,7 @@ import { FlashcardStudioModal } from "./FlashcardStudioModal";
 import { ReviewDecksModal } from "./ReviewDecksModal";
 import { ReviewPreviewModal } from "./ReviewPreviewModal";
 import { invokeCommand, openFilePicker } from "../../lib/tauri";
-import { importAnkiPackageFromPicker } from "../../utils/ankiImport";
+import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
@@ -51,22 +51,6 @@ function parseDueDate(value?: string) {
 function formatMinutes(totalSeconds: number) {
   const totalMinutes = Math.max(1, Math.round(totalSeconds / 60));
   return `${totalMinutes} min`;
-}
-
-function inferAnkiDeckNames(imported: unknown[]): string[] {
-  const names = new Set<string>();
-  for (const item of imported) {
-    if (!item || typeof item !== "object") continue;
-    const tagsRaw = (item as { tags?: unknown }).tags;
-    if (!Array.isArray(tagsRaw)) continue;
-    const tags = tagsRaw.filter((t): t is string => typeof t === "string" && t.trim().length > 0);
-    if (!tags.some((tag) => tag.toLowerCase() === "anki-import")) continue;
-    const deckName = tags[tags.length - 1]?.trim();
-    if (deckName && deckName.toLowerCase() !== "anki-import") {
-      names.add(deckName);
-    }
-  }
-  return Array.from(names);
 }
 
 export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps) {
@@ -160,6 +144,18 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   useEffect(() => {
     if (isActiveTab) loadDeckStats();
   }, [activeCollectionId, isActiveTab]);
+
+  // Anki imports create card-only learning items, so the old document-based
+  // deck seeding path cannot discover them after restart. Reconcile from the
+  // importer's stable tag contract and repair any legacy all-library deck with
+  // the same name through ensureDecksExist's tag-filtered upsert.
+  useEffect(() => {
+    if (isStatsLoading || allItems.length === 0) return;
+    const names = inferAnkiDeckNames(allItems);
+    if (names.length > 0) {
+      useStudyDeckStore.getState().ensureDecksExist(names);
+    }
+  }, [allItems, isStatsLoading]);
 
   useEffect(() => {
     const handler = () => setIsFlashcardStudioOpen(true);

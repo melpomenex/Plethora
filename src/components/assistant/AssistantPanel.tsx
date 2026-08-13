@@ -137,6 +137,8 @@ interface AssistantPanelProps {
   selectedProvider?: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter";
   onProviderChange?: (provider: "openai" | "anthropic" | "gemini" | "deepseek" | "ollama" | "openrouter") => void;
   appendContextMessages?: boolean;
+  /** Fill the host width and disable the desktop drag handle (used by mobile sheets). */
+  fillContainer?: boolean;
 }
 
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
@@ -275,6 +277,7 @@ export function AssistantPanel({
   selectedProvider: externalSelectedProvider,
   onProviderChange,
   appendContextMessages = true,
+  fillContainer = false,
 }: AssistantPanelProps) {
   const { t } = useI18n();
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -1613,7 +1616,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
   };
 
   const executeToolCalls = async (messageId: string, calls: ToolCall[]) => {
-    const results: Array<{ name: string; status: "success" | "error"; error?: string }> = [];
+    const results: Array<{ name: string; status: "success" | "error"; count?: number; error?: string }> = [];
     // Track deck names created in this batch so we can tag subsequent cards with matching tags
     const batchDeckNames: string[] = [];
     const createsCards = calls.some((call) => CARD_CREATION_TOOL_NAMES.has(call.name));
@@ -1628,10 +1631,13 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
     for (let index = 0; index < calls.length; index += 1) {
       const call = calls[index];
+      const createdCount = call.name === "batch_create_cards" && Array.isArray(call.parameters.cards)
+        ? call.parameters.cards.length
+        : 1;
       if (missingDocumentDeckTitle && CARD_CREATION_TOOL_NAMES.has(call.name)) {
         const error = "Could not resolve the document title, so the card was not saved without its document deck.";
         updateToolCall(messageId, index, { status: "error", result: error });
-        results.push({ name: call.name, status: "error", error });
+        results.push({ name: call.name, status: "error", count: createdCount, error });
         continue;
       }
       let parameters = normalizeToolParameters(call.name, call.parameters, resolvedDocumentTitle);
@@ -1667,10 +1673,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
             result: JSON.stringify(result.content),
             status: "error",
           });
-          results.push({ name: call.name, status: "error", error: "Tool returned error" });
+          results.push({ name: call.name, status: "error", count: createdCount, error: "Tool returned error" });
         } else {
           updateToolCall(messageId, index, { result, status: "success" });
-          results.push({ name: call.name, status: "success" });
+          results.push({ name: call.name, status: "success", count: createdCount });
         }
 
         // The extract was created directly by the Rust-side MCP tool, bypassing
@@ -1715,14 +1721,14 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           result: errorMsg,
           status: "error",
         });
-        results.push({ name: call.name, status: "error", error: errorMsg });
+        results.push({ name: call.name, status: "error", count: createdCount, error: errorMsg });
       }
     }
 
     return results;
   };
 
-  const buildConfirmationMessage = (results: Array<{ name: string; status: "success" | "error"; error?: string }>) => {
+  const buildConfirmationMessage = (results: Array<{ name: string; status: "success" | "error"; count?: number; error?: string }>) => {
     const succeeded = results.filter((r) => r.status === "success");
     const failed = results.filter((r) => r.status === "error");
 
@@ -1731,7 +1737,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     if (succeeded.length > 0) {
       const counts: Record<string, number> = {};
       succeeded.forEach((r) => {
-        counts[r.name] = (counts[r.name] || 0) + 1;
+        counts[r.name] = (counts[r.name] || 0) + (r.count ?? 1);
       });
 
       const hasCards = counts["create_qa_card"] || counts["create_cloze_card"] || counts["batch_create_cards"];
@@ -2138,6 +2144,17 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     setIsResizing(true);
   };
 
+  const handleResizeKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const direction = e.key === "ArrowLeft" ? -1 : 1;
+    const delta = position === "right" ? -direction * 24 : direction * 24;
+    const newWidth = Math.max(300, Math.min(800, width + delta));
+    setWidth(newWidth);
+    localStorage.setItem(ASSISTANT_WIDTH_KEY, newWidth.toString());
+    onWidthChange?.(newWidth);
+  };
+
   // Sync external position prop
   useEffect(() => {
     if (externalPosition && externalPosition !== position) {
@@ -2539,7 +2556,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   return (
     <div
       className={`flex flex-col h-full max-h-full min-h-0 overflow-hidden bg-card ${position === "right" ? "border-l" : "border-r"} border-border relative ${className}`}
-      style={{ width: isCollapsed ? "auto" : width }}
+      style={{ width: fillContainer ? "100%" : isCollapsed ? "auto" : width }}
       onContextMenu={(e) => handleContextMenu(e)}
     >
       {/* Header */}
@@ -3149,14 +3166,24 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       />
 
       {/* Resize Handle - positioned based on panel position */}
-      <div
-        onMouseDown={handleResizeStart}
-        className={`absolute top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary/20 transition-colors group ${position === "right" ? "left-0" : "right-0"
-          }`}
-      >
-        <div className={`absolute top-1/2 -translate-y-1/2 w-1 h-8 bg-border group-hover:bg-primary/50 rounded ${position === "right" ? "left-0" : "right-0"
-          }`} />
-      </div>
+      {!fillContainer && (
+        <div
+          onMouseDown={handleResizeStart}
+          onKeyDown={handleResizeKeyDown}
+          role="separator"
+          aria-label="Resize Assistant panel"
+          aria-orientation="vertical"
+          aria-valuemin={300}
+          aria-valuemax={800}
+          aria-valuenow={width}
+          tabIndex={0}
+          className={`absolute top-0 bottom-0 z-10 w-1 cursor-ew-resize hover:bg-primary/20 focus-visible:bg-primary/30 focus-visible:outline-none transition-colors group ${position === "right" ? "left-0" : "right-0"
+            }`}
+        >
+          <div className={`absolute top-1/2 -translate-y-1/2 w-1 h-8 bg-border group-hover:bg-primary/50 rounded ${position === "right" ? "left-0" : "right-0"
+            }`} />
+        </div>
+      )}
     </div>
   );
 }

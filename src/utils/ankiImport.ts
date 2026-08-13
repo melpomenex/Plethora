@@ -40,6 +40,40 @@ export interface AnkiDeck {
 }
 
 /**
+ * Recover Anki deck names from imported learning-item tags.
+ *
+ * Both native and browser importers append `anki-import`, the note model, and
+ * finally the source deck name. Prefer an explicit `deck:` tag when present so
+ * future/imported variants remain unambiguous; otherwise use that established
+ * final-tag contract for legacy imports.
+ */
+export function inferAnkiDeckNames(imported: unknown[]): string[] {
+  const names = new Map<string, string>();
+  for (const item of imported) {
+    if (!item || typeof item !== "object") continue;
+    const tagsRaw = (item as { tags?: unknown }).tags;
+    if (!Array.isArray(tagsRaw)) continue;
+    const tags = tagsRaw
+      .filter((tag): tag is string => typeof tag === "string")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    const markerIndex = tags.findIndex((tag) => tag.toLowerCase() === "anki-import");
+    if (markerIndex < 0) continue;
+
+    const explicitDeckTags = tags.filter((tag) => tag.toLowerCase().startsWith("deck:"));
+    const candidates = explicitDeckTags.length > 0
+      ? explicitDeckTags.map((tag) => tag.slice(5).trim())
+      : [tags[tags.length - 1]];
+    for (const candidate of candidates) {
+      if (!candidate || candidate.toLowerCase() === "anki-import") continue;
+      const key = candidate.toLowerCase();
+      if (!names.has(key)) names.set(key, candidate);
+    }
+  }
+  return Array.from(names.values());
+}
+
+/**
  * Validate an Anki package file
  */
 export async function validateAnkiPackage(filePath: string): Promise<boolean> {

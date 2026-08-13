@@ -68,4 +68,12 @@ describe("ChatFlashcardCollection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open deck A Thousand Brains" }));
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
+
+  it("does not offer a retry that would duplicate successful batch siblings", () => {
+    const onRetry = vi.fn();
+    const failedBatchCard = { ...artifact(0, "failed"), retryable: false };
+    render(<ChatFlashcardCollection artifacts={[failedBatchCard]} onRetry={onRetry} />);
+
+    expect(screen.queryByRole("button", { name: /Retry saving flashcard/ })).not.toBeInTheDocument();
+  });
 });

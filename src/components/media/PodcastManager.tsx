@@ -90,6 +90,15 @@ interface PodcastManagerProps {
   onPlayEpisode?: (feed: PodcastFeed, episode: PodcastEpisode) => void;
 }
 
+const PODCAST_ASSISTANT_DEFAULT_WIDTH = 400;
+
+function readPodcastAssistantWidth(): number {
+  const stored = Number.parseInt(localStorage.getItem("assistant-panel-width") ?? "", 10);
+  return Number.isFinite(stored)
+    ? Math.max(300, Math.min(800, stored))
+    : PODCAST_ASSISTANT_DEFAULT_WIDTH;
+}
+
 export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   const { t } = useI18n();
   const isMobile = useMobileShell();
@@ -159,6 +168,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
     const saved = localStorage.getItem("podcast-player-width");
     return saved ? parseInt(saved, 10) : 320;
   });
+  const [assistantWidth, setAssistantWidth] = useState(readPodcastAssistantWidth);
   const [refreshErrors, setRefreshErrors] = useState<Record<string, string>>({});
   const migrationRun = useRef(false);
   const confirmDialog = useConfirmDialog();
@@ -2367,14 +2377,17 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
           <div
             ref={chatSwipe.elementRef as React.RefObject<HTMLDivElement>}
             className={cn(
-              "relative w-full max-w-[500px] bg-card border-l border-border flex flex-col shadow-lg",
+              "relative bg-card border-l border-border flex flex-col shadow-lg",
+              isMobile ? "w-full" : "flex-none",
               isMobile && "safe-top safe-bottom",
               isMobile && !chatSwipe.state.isDragging && "transition-transform duration-300"
             )}
             style={
               isMobile && chatSwipe.state.isDragging && (chatSwipe.state.direction === "left" || chatSwipe.state.direction === "right")
                 ? { transform: `translateX(${chatSwipe.state.offsetX}px)` }
-                : undefined
+                : isMobile
+                  ? undefined
+                  : { width: assistantWidth, maxWidth: "calc(100vw - 48px)" }
             }
           >
             {/* Header */}
@@ -2422,6 +2435,8 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                   },
                 }}
                 className="h-full border-0"
+                fillContainer={isMobile}
+                onWidthChange={setAssistantWidth}
               />
             </div>
           </div>

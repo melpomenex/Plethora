@@ -36,7 +36,7 @@ import { FSRSInspector, useFSRSInspector } from "./FSRSInspector";
 import { useToast } from "../common/Toast";
 import { bulkDeleteItems, bulkSuspendItems } from "../../api/queue";
 import { invokeCommand, openFilePicker } from "../../lib/tauri";
-import { importAnkiPackageFromPicker } from "../../utils/ankiImport";
+import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { renderAnkiHtmlWithLatex } from "../../utils/ankiLatex";
@@ -50,22 +50,6 @@ import { ConfirmDialog } from "../common/ConfirmDialog";
 
 interface ReviewSessionProps {
   onExit: () => void;
-}
-
-function inferAnkiDeckNames(imported: unknown[]): string[] {
-  const names = new Set<string>();
-  for (const item of imported) {
-    if (!item || typeof item !== "object") continue;
-    const tagsRaw = (item as { tags?: unknown }).tags;
-    if (!Array.isArray(tagsRaw)) continue;
-    const tags = tagsRaw.filter((t): t is string => typeof t === "string" && t.trim().length > 0);
-    if (!tags.some((tag) => tag.toLowerCase() === "anki-import")) continue;
-    const deckName = tags[tags.length - 1]?.trim();
-    if (deckName && deckName.toLowerCase() !== "anki-import") {
-      names.add(deckName);
-    }
-  }
-  return Array.from(names);
 }
 
 function ensureAnkiStudyDecks(deckNames: string[]): string[] {
