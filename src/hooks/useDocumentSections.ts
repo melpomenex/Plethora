@@ -43,6 +43,9 @@ export function useDocumentSections(options: UseDocumentSectionsOptions): UseDoc
   const content = useMemo(() => normalizeContent(rawContent), [rawContent]);
 
   const outlineStore = useDocumentOutlineStore((s) => s.outlineByDocId);
+  const mediaSections = useDocumentOutlineStore((s) =>
+    documentId ? s.mediaSectionsByDocId.get(documentId) : undefined
+  );
 
   const resolvedPdfOutline = useMemo(() => {
     if (pdfOutline) return pdfOutline;
@@ -72,6 +75,14 @@ export function useDocumentSections(options: UseDocumentSectionsOptions): UseDoc
   }, [resolvedPdfOutline, resolvedEpubToc]);
 
   const { tree, flat } = useMemo(() => {
+    // Audiobook chapters are already resolved against timestamped transcript
+    // segments by the viewer. They are the authoritative catalog for every #
+    // mention surface and must take precedence over headings heuristically
+    // rebuilt from the flattened transcript text.
+    if (mediaSections?.length) {
+      return { tree: mediaSections, flat: mediaSections };
+    }
+
     if (!content && !resolvedPdfOutline && !resolvedEpubToc) {
       return { tree: [] as SectionNode[], flat: [] as SectionNode[] };
     }
@@ -102,7 +113,7 @@ export function useDocumentSections(options: UseDocumentSectionsOptions): UseDoc
     setCache(cacheKey, { tree: finalTree, flat: finalFlat, hash: `${contentHashResolved}:${outlineHash}` });
 
     return { tree: finalTree, flat: finalFlat };
-  }, [content, resolvedPdfOutline, resolvedEpubToc, contentHashResolved, outlineHash, documentId]);
+  }, [content, resolvedPdfOutline, resolvedEpubToc, contentHashResolved, outlineHash, documentId, mediaSections]);
 
   const idMap = useMemo(() => buildIdMap(flat), [flat]);
 

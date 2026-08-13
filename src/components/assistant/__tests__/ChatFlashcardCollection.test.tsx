@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ChatFlashcardCollection } from "../ChatFlashcardCollection";
 import type { ChatFlashcardArtifact } from "../../../features/assistant/chatFlashcardArtifacts";
@@ -10,6 +10,7 @@ const artifact = (index: number, status: ChatFlashcardArtifact["status"] = "save
   front: index % 2 ? `The {{answer ${index}}} is hidden.` : `Question ${index}`,
   back: index % 2 ? undefined : `Answer ${index}`,
   status,
+  tags: ["deck:A Thousand Brains"],
   error: status === "failed" ? "Could not save" : undefined,
   createdAt: 1,
 });
@@ -36,5 +37,35 @@ describe("ChatFlashcardCollection", () => {
     expect(onOpen).toHaveBeenCalledWith(failed);
     fireEvent.click(screen.getByRole("button", { name: /Retry saving flashcard/ }));
     expect(onRetry).toHaveBeenCalledWith(failed);
+  });
+
+  it("offers compact copy and deck actions from the collection header", async () => {
+    const onCopy = vi.fn().mockResolvedValue(true);
+    const onCreate = vi.fn();
+    const cards = [artifact(0), artifact(1)];
+    const { rerender } = render(
+      <ChatFlashcardCollection
+        artifacts={cards}
+        onCopy={onCopy}
+        deckAction={{ name: "A Thousand Brains", exists: false, onCreate, onOpen: vi.fn() }}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy all flashcards" }));
+    });
+    expect(onCopy).toHaveBeenCalledWith(cards);
+    fireEvent.click(screen.getByRole("button", { name: "Create deck A Thousand Brains" }));
+    expect(onCreate).toHaveBeenCalledTimes(1);
+
+    const onOpen = vi.fn();
+    rerender(
+      <ChatFlashcardCollection
+        artifacts={cards}
+        deckAction={{ name: "A Thousand Brains", exists: true, onCreate, onOpen }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open deck A Thousand Brains" }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });

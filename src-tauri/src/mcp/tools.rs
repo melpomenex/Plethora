@@ -245,6 +245,7 @@ impl MCPToolRegistry {
                 "type": "object",
                 "properties": {
                     "document_id": {"type": "string", "description": "Optional document ID to associate all cards"},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to associate with every created card"},
                     "cards": {
                         "type": "array",
                         "items": {
@@ -252,7 +253,8 @@ impl MCPToolRegistry {
                             "properties": {
                                 "question": {"type": "string"},
                                 "answer": {"type": "string"},
-                                "type": {"type": "string"}
+                                "type": {"type": "string"},
+                                "tags": {"type": "array", "items": {"type": "string"}}
                             }
                         }
                     }
@@ -1333,6 +1335,14 @@ impl MCPToolRegistry {
         let cards = args["cards"].as_array().ok_or("cards array is required")?;
         let document_id = args["document_id"].as_str();
         let image_asset_ids = args["image_asset_ids"].as_array();
+        let shared_tags: Vec<String> = args["tags"]
+            .as_array()
+            .map(|tags| {
+                tags.iter()
+                    .filter_map(|tag| tag.as_str().map(|value| value.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
         let mut results = vec![];
 
         for card in cards {
@@ -1350,6 +1360,7 @@ impl MCPToolRegistry {
                 let mut item = LearningItem::new(item_type, question.to_string());
                 item.answer = answer.map(|a| a.to_string());
                 item.document_id = document_id.map(|id| id.to_string());
+                item.tags = merge_batch_card_tags(&shared_tags, card);
                 if let Some(image_asset_ids) = image_asset_ids {
                     item.image_asset_ids = image_asset_ids
                         .iter()
@@ -1875,6 +1886,18 @@ impl MCPToolRegistry {
     }
 }
 
+fn merge_batch_card_tags(shared_tags: &[String], card: &serde_json::Value) -> Vec<String> {
+    let mut merged = shared_tags.to_vec();
+    if let Some(card_tags) = card["tags"].as_array() {
+        for tag in card_tags.iter().filter_map(|tag| tag.as_str()) {
+            if !merged.iter().any(|existing| existing == tag) {
+                merged.push(tag.to_string());
+            }
+        }
+    }
+    merged
+}
+
 /// Format seconds as MM:SS or HH:MM:SS
 fn format_seconds(seconds: f64) -> String {
     let total_seconds = seconds as i64;
@@ -1886,5 +1909,25 @@ fn format_seconds(seconds: f64) -> String {
         format!("{}:{:02}:{:02}", hours, minutes, secs)
     } else {
         format!("{}:{:02}", minutes, secs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_batch_card_tags;
+    use serde_json::json;
+
+    #[test]
+    fn batch_cards_keep_document_deck_and_card_specific_tags() {
+        let shared = vec!["deck:A New Theory of Intelligence".to_string()];
+        let card = json!({ "tags": ["chapter:008", "deck:A New Theory of Intelligence"] });
+
+        assert_eq!(
+            merge_batch_card_tags(&shared, &card),
+            vec![
+                "deck:A New Theory of Intelligence".to_string(),
+                "chapter:008".to_string(),
+            ],
+        );
     }
 }

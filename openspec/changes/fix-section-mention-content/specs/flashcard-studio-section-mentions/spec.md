@@ -11,6 +11,31 @@ The resolved context SHALL contain the actual body text of the selected section(
 - **WHEN** the user has focused section(s) active and sends a generation request
 - **THEN** only the resolved text of the focused section(s) (plus neighbor context, within the token budget) is passed to the LLM as document context — not the whole document
 
+#### Scenario: Focus survives continued prompt editing
+
+- **WHEN** the user inserts a section mention such as `#{008}` and continues typing the generation request over multiple keystrokes
+- **THEN** the selected section remains attached to the visible token, and generation uses section 008's resolved transcript/body rather than falling back to the beginning of the document
+
+#### Scenario: Submitted transcript chip is the context contract
+
+- **WHEN** the submitted Assistant message contains a visible `Transcript > 008` chip encoded as `#{008}`, but the pick-time UI selection state is missing or stale
+- **THEN** the system re-resolves `008` from the current authoritative transcript sections and sends only section 008's transcript text as document context, excluding the foreword and whole-transcript fallback
+
+#### Scenario: Document Q&A lists the same audiobook chapters
+
+- **WHEN** an audiobook exposes transcript-backed chapters such as `001` through `050` and the user types `#` in Document Q&A while focused on that audiobook
+- **THEN** Document Q&A lists the same complete authoritative chapter catalog as the Assistant beside the audiobook, with the same titles, transcript previews, and section identities rather than a partial heading list rebuilt from flattened transcript text
+
+#### Scenario: Document Q&A opens without a resident audiobook viewer
+
+- **WHEN** Document Q&A is opened directly or after restart and no viewer-published chapter catalog is resident
+- **THEN** it rebuilds the catalog from stored audiobook chapters plus timed transcript segments (falling back to parsed metadata and persisted transcription), shows a transcript-chapter loading state while doing so, and only falls back to document headings when no timed catalog is available
+
+#### Scenario: Document Q&A sends a timed chapter directly
+
+- **WHEN** the user chooses chapter `008` from Document Q&A and submits a prompt containing the visible `#{008}` chip
+- **THEN** the token is rehydrated against the current chapter catalog and chapter 008's attached transcript content is sent directly, without requiring document character offsets and without including chapter 001 or foreword content
+
 #### Scenario: Section range resolved against current document text
 
 - **WHEN** the selected section's stored character range is stale relative to the freshly loaded document text
@@ -59,3 +84,70 @@ If a focused section cannot be resolved at generation time, or can only be resol
 
 - **WHEN** a focused section title matches multiple current headings and the breadcrumb cannot disambiguate them
 - **THEN** the validation message states that the section matched multiple headings, including the count of considered candidates, and does not pick one arbitrarily
+
+#### Scenario: Visible chip cannot be rehydrated
+
+- **WHEN** the submitted message contains a section chip whose token is absent from the current section list, or whose title matches multiple sections without a pick-time disambiguator
+- **THEN** the system reports that the visible chip is unavailable or ambiguous, makes no provider request, and does not silently send full-document content
+
+### Requirement: Generated flashcard artifact actions
+
+When the beside-document Assistant or Document Q&A creates flashcards, the generated-card collection SHALL
+preserve the normalized tool-call tags and use its `deck:<name>` tag to expose a
+state-aware primary action in the collection header. If the named deck does not
+exist, the action SHALL create a document-bound deck for those cards when a
+document id is present (otherwise a tag-filtered deck). If it exists, the action
+SHALL open Review with that deck selected. The header SHALL also
+provide a compact action to copy the complete generated batch. These controls
+SHALL have accessible names, keyboard focus treatment, and status feedback,
+without displacing per-card open/retry behavior.
+
+#### Scenario: Generated cards do not yet have a deck
+
+- **WHEN** a generated flashcard collection carries `deck:A Thousand Brains` and no case-insensitive exact-name deck exists
+- **THEN** the header shows `Create deck`, creates `A Thousand Brains` bound to the current document (retaining its title tag metadata), and then reflects that the deck exists
+
+#### Scenario: Generated cards already have a deck
+
+- **WHEN** the generated flashcard collection's tagged deck already exists
+- **THEN** the header shows `Open deck`, and activation opens the Review deck manager focused on that deck
+
+#### Scenario: Copy generated batch
+
+- **WHEN** the user activates the header's copy action
+- **THEN** every generated card in the response is copied in a readable Q&A/cloze format and the control provides success feedback
+
+### Requirement: Document card saves include document-deck membership
+
+When the Assistant beside a document or audiobook, or Document Q&A focused on a document, saves a generated card, the save parameters SHALL include the current `document_id` and a
+`deck:<document title>` tag. The document title SHALL be resolved from Assistant
+context metadata, the document store, or the persisted document record. The
+matching title deck SHALL be upserted as a document-bound deck after a successful
+card write. Batch card creation SHALL apply the same shared document-deck tag to
+every persisted card. If the document title cannot be resolved, the system SHALL
+not persist the card without deck membership and SHALL surface a retryable error.
+
+#### Scenario: Audiobook context initially omits its title
+
+- **WHEN** the Assistant creates cards for an audiobook whose context has a document id but no `metadata.title`
+- **THEN** the save path resolves the title from the document store or persisted document, writes every card with `document_id` and `deck:<audiobook title>`, and upserts that title as a document-bound deck
+
+#### Scenario: Batch card creation carries the title deck
+
+- **WHEN** `batch_create_cards` receives a shared `deck:<document title>` tag
+- **THEN** every created learning item persists that tag, merged without duplication with any per-card tags
+
+#### Scenario: Document title remains unavailable
+
+- **WHEN** a document-associated card is ready to save but context, store, and persisted-document lookup provide no title
+- **THEN** the card tool is not invoked, the artifact reports that it was not saved without its document deck, and no unassigned card is created
+
+#### Scenario: Previously saved untagged audiobook cards are restored to the title deck
+
+- **WHEN** a persisted Assistant conversation contains successful card tool calls for the current audiobook from a build that saved `document_id` but omitted deck tags
+- **THEN** reopening the audiobook upserts its title as a document-bound deck, and those existing cards are included through their document ownership without requiring destructive database rewriting
+
+#### Scenario: Document Q&A generated set has deck actions and ownership
+
+- **WHEN** Document Q&A creates or retries a flashcard set while focused on a document
+- **THEN** every saved card carries that document's id and title deck tag, the generated-set header offers copy plus state-aware create/open-deck actions, and the resulting deck is bound to the source document

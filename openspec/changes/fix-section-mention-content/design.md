@@ -31,7 +31,7 @@ The reported bug ("model only gets the title page", and "stale or ambiguous" on 
 
 **Non-Goals:**
 
-- Reworking the section tree UX, the popup, or the token syntax. Those are out of scope; the interaction model is unchanged.
+- Reworking the section tree interaction model or token syntax. The popup gains a loading state and a shared authoritative data source, but selection, filtering, and keyboard behavior remain unchanged.
 - Changing how documents are imported or extracted at the source. Browser/EPUB extraction quality is a separate concern; this change only makes the *recovery* that already exists in `get_document` available to `extract_document_text`.
 - Multi-document mention spanning. Already unsupported; remains so.
 - Replacing the regex-based heading parser with a structural parser. We extend it, not replace it.
@@ -68,6 +68,107 @@ Surface the existing `code` (`wrong-document` / `ambiguous` / `unresolved`) and,
 
 - *Why:* the current message is identical for "wrong document", "multiple matches", and "no current range", making support triage and future regression reproduction hard. The information already exists in `FocusedSectionContextResult.unresolved`; only the presentation is missing.
 
+### D6. Keep the selected section attached while editing after a `#` mention
+
+The Assistant and Document Q&A input handlers use a global `SECTION_REGEX` for
+multi-token match/replace operations. Before boolean token checks with
+`RegExp.test`, reset `lastIndex` to zero and reset it again afterward. A global
+regular expression is stateful: without this reset, consecutive keystrokes after
+inserting `#{008}` alternate between finding and missing the same visible token.
+The miss clears the selected `SectionNode`, so generation silently falls back to
+generic document context while the UI still appears focused on the chapter.
+
+- *Why:* keep the existing token grammar and global replace behavior, but make
+  presence checks deterministic. A separate non-global regex would also work;
+  explicit resets are the smallest change and mirror Flashcard Studio's existing
+  guarded check.
+
+### D7. Make the submitted section chip authoritative at send time
+
+Resolve every `#{...}` token in the submitted prompt back to the current viewer
+section list immediately before building LLM context. The pick-time React
+`selectedSectionNodes` array is retained only as a disambiguation hint; it is no
+longer the sole source of the payload. If a visible token cannot be resolved, or
+matches multiple current sections without a selected-node disambiguator, abort
+before the provider call with an actionable message. Never treat that state as
+an unscoped request and fall back to full-document content.
+
+- *Why:* the chat bubble renders its `Transcript > 008` chip from the serialized
+  message token, while the old send path read a separate state array. That made
+  it possible for the UI and payload to disagree even after fixing the known
+  global-regex state leak. Rehydrating from the exact submitted message creates
+  one source of truth and makes the visible chip a testable context contract.
+
+### D8. Give generated-card artifacts deck-aware primary actions
+
+On both the beside-document Assistant and Document Q&A surfaces, preserve
+normalized card tool-call tags on each chat artifact and derive its
+deck from the real `deck:<name>` tag. The artifact header shows a compact batch
+copy action plus one primary action: `Create deck` when that named deck is not
+in `useStudyDeckStore`, changing to `Open deck` as soon as it exists. Creating a
+deck binds it to the current document (and retains the title tag for portable
+membership); opening it
+selects that deck, switches Review to the deck manager, and activates the Review
+tab. A document-bound deck uses `filterType: "all"` so it includes every card
+owned by that audiobook, including legacy cards whose title tag was previously
+omitted; a non-document deck remains tag-filtered.
+
+- *Why:* generated cards already carry their intended deck tag, so the artifact
+  should expose the next action in place without inventing a second ownership
+  model. A single state-aware primary button avoids competing CTAs in the narrow
+  chat rail; copy is the only secondary batch action because it is useful,
+  reversible, and does not navigate away. Sharing one artifact component keeps
+  this interaction identical between the Assistant and Document Q&A.
+
+### D9. Resolve the document deck before persisting generated cards
+
+Every document viewer supplies `metadata.title` in its Assistant context. The
+Assistant and Document Q&A card execution paths still resolve defensively
+through the title sources available to each surface: context metadata when
+present, the document store, then `get_document`. Before invoking a
+card tool it injects both `document_id` and `deck:<normalized document title>`.
+If a document id exists but no title can be resolved, that card write fails
+closed instead of creating an unassigned card. After a successful write, the
+same title/document pair is upserted into the study-deck store. The Rust
+`batch_create_cards` tool persists shared top-level tags on every card (merged
+with per-card tags), matching the single-card tools. On conversation restore, a
+successful historical card tool call also upserts the document-bound title deck;
+this makes already-saved untagged cards visible through their `document_id`.
+Document Q&A applies the same rules to initial execution, per-card retry, and
+NotebookLM research-draft saves, and repairs successful historical Q&A card
+calls from their stored document ownership.
+
+- *Why:* the reported 008 retry produced correct cortical-column cards, proving
+  section scoping was fixed, but the database rows had `tags = []`. The document
+  wrapper had omitted `metadata.title`, and the batch backend ignored normalized
+  top-level tags entirely. Deck membership must be part of the save invariant,
+  not a best-effort UI step after an otherwise successful write.
+
+### D10. Share the audiobook's authoritative chapter catalog across surfaces
+
+Publish transcript-backed `media-transcript` sections from the audiobook viewer
+into a document-keyed in-memory catalog. `useDocumentSections` gives that
+catalog precedence over heuristic headings, so the beside-audiobook Assistant
+and Document Q&A render the same chapter list and stable section identities.
+When Document Q&A opens without a resident viewer, rebuild the same catalog from
+the audiobook's stored chapters and timed transcript, falling back to parsed
+media metadata and persisted Whisper segments. While that catalog loads, show a
+specific `Loading transcript chapters…` state instead of a misleading partial
+heading list.
+
+At send time, Document Q&A rehydrates serialized title tokens such as `#{008}`
+against the current catalog. Timed chapters and live selections use their
+attached authoritative content directly; only structural document headings are
+resolved through character offsets in canonical document text.
+
+- *Why:* the Assistant received chapters directly from `AudiobookViewer`, while
+  Document Q&A independently parsed flattened `documents.content`. That created
+  different picker inventories. Copying the chapter rows alone would still fail:
+  Document Q&A serialized a title token but looked it up as an internal id, then
+  attempted to resolve range-less timed chapters against flattened text. One
+  catalog plus mixed direct/structural resolution makes parity a data contract,
+  not duplicated presentation.
+
 ## Risks / Trade-offs
 
 - **[Heading-level remap could shift existing trees]** → The `documentSectionCache` is keyed by content hash, so changing the parser invalidates caches and rebuilds trees for every open document on next load. Mitigation: this is correct (the old tree was wrong); the rebuild is bounded and already happens on any content change. Add a unit test asserting that a flat `# A / # B` Markdown doc still resolves to the same two sections (just with corrected relative levels).
@@ -75,6 +176,10 @@ Surface the existing `code` (`wrong-document` / `ambiguous` / `unresolved`) and,
 - **[Empty-body retry hides genuinely missing content]** → A real section that is empty in the source (e.g. a part-divider page) would now be reported `unresolved` instead of silently sent empty. Mitigation: that is the desired behavior — an empty section provides no context, and surfacing it is better than sending a blank block. Document this in the spec scenario.
 - **[`extract_document_text` now writes to the DB]** → Calling `extract_document_text` will, in the placeholder/short-browser cases, persist healed content. Mitigation: `get_document` already does exactly this and it is idempotent; the helper only writes when content actually changes. The YouTube and HTTP-short-circuit paths are untouched and remain side-effect-free reads.
 - **[Regex heading parser limitations remain]** → Documents with no recognizable headings still rely on `buildHeuristicParagraphSections`. This change does not weaken that fallback.
+- **[A manually typed chip can now resolve]** → Exact `#{title}` text resolves just like a picker-created chip. Ambiguous duplicate titles are blocked unless the pick-time selection identifies one, so this does not introduce arbitrary matching.
+- **[Deck names can collide]** → Deck existence uses case-insensitive exact names derived from the persisted `deck:` tag. Existing unrelated decks are never renamed or overwritten; the store's normal deduplication rules remain in force.
+- **[Title lookup can fail]** → A document card is not persisted when all three title sources are unavailable. This is intentionally fail-closed: the artifact reports the actionable error and can be retried once document metadata is available, avoiding another saved-but-unassigned card.
+- **[Viewer catalog is ephemeral]** → The shared catalog is intentionally not persisted because it duplicates large transcript content. Document Q&A reconstructs it from existing audiobook metadata/transcript storage after restart; when neither source has timed data, it falls back to the normal document heading catalog after loading completes.
 
 ## Migration Plan
 

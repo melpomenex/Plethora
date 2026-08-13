@@ -51,6 +51,72 @@ export interface FocusedSectionContextResult {
   failure?: "ambiguous" | "unresolved";
 }
 
+export interface SectionMentionResolution {
+  /** Mention tokens in submitted-message order, without the `#{...}` wrapper. */
+  tokens: string[];
+  /** The authoritative nodes those tokens resolve to, deduplicated by id. */
+  nodes: SectionNode[];
+  unresolved: string[];
+  ambiguous: string[];
+}
+
+/**
+ * Resolve the section chips encoded in the submitted prompt back to their
+ * authoritative nodes. The prompt is the source of truth because it is also
+ * what renders the visible chip in chat; React's pick-time selection array is
+ * only a disambiguation hint. This prevents a visible section chip and the
+ * actual LLM payload from silently diverging.
+ */
+export function resolvePromptSectionMentions(
+  prompt: string,
+  selectedNodes: SectionNode[],
+  availableNodes: SectionNode[],
+): SectionMentionResolution {
+  const tokens = Array.from(prompt.matchAll(/#{([^}]+)}/g), (match) => match[1].trim()).filter(Boolean);
+  const nodes: SectionNode[] = [];
+  const unresolved: string[] = [];
+  const ambiguous: string[] = [];
+
+  for (const token of tokens) {
+    const selectedMatches = selectedNodes.filter((node) => node.id === token || node.title === token);
+    const availableIdMatch = availableNodes.find((node) => node.id === token);
+    const availableTitleMatches = availableNodes.filter((node) => node.title === token);
+
+    let resolved: SectionNode | undefined;
+    if (selectedMatches.length === 1) {
+      // Prefer the current viewer snapshot when the picked node still exists;
+      // transcript text may have advanced since the chip was inserted.
+      resolved = availableNodes.find((node) => node.id === selectedMatches[0].id);
+      if (!resolved && availableTitleMatches.length === 1) {
+        resolved = availableTitleMatches[0];
+      } else if (!resolved && availableTitleMatches.length > 1) {
+        ambiguous.push(token);
+        continue;
+      } else if (!resolved) {
+        unresolved.push(token);
+        continue;
+      }
+    } else if (selectedMatches.length > 1) {
+      ambiguous.push(token);
+      continue;
+    } else if (availableIdMatch) {
+      resolved = availableIdMatch;
+    } else if (availableTitleMatches.length === 1) {
+      resolved = availableTitleMatches[0];
+    } else if (availableTitleMatches.length > 1) {
+      ambiguous.push(token);
+      continue;
+    } else {
+      unresolved.push(token);
+      continue;
+    }
+
+    if (!nodes.some((node) => node.id === resolved.id)) nodes.push(resolved);
+  }
+
+  return { tokens, nodes, unresolved, ambiguous };
+}
+
 interface HeadingInfo {
   title: string;
   level: number;
@@ -1164,6 +1230,111 @@ export function buildSelectionFocusedContext(
   }
 
   return { content: blocks.join("\n\n---\n\n"), truncated, labels };
+}
+
+/**
+ * Resolve a # mention set that may contain both character-range headings and
+ * direct-content entries such as timed audiobook chapters or live selections.
+ * Timed chapters must never be forced through document character offsets: the
+ * transcript text attached by the media viewer is already authoritative.
+ */
+export function resolveMixedSectionFocusedContext(
+  selected: SectionNode[],
+  available: SectionNode[],
+  fullContent: string,
+  options: {
+    documentId?: string;
+    maxTokens?: number;
+    includeNeighbors?: boolean;
+    radiusChars?: number;
+  } = {},
+): FocusedSectionContextResult {
+  const directSources = new Set<SectionNode["source"]>(["selection", "media-transcript"]);
+  const directRequested = selected.filter((section) => directSources.has(section.source));
+  const structuralRequested = selected.filter((section) => !directSources.has(section.source));
+  const documentId = options.documentId;
+  const fullContentHash = hashSectionContent(fullContent);
+
+  const directResolved: SectionNode[] = [];
+  const directUnresolved: SectionContextDiagnostic[] = [];
+  for (const requested of directRequested) {
+    const current = available.find((section) =>
+      section.id === requested.id && directSources.has(section.source)
+    );
+    const label = sectionLabel(requested);
+    if (documentId && requested.documentId && requested.documentId !== documentId) {
+      directUnresolved.push({
+        id: requested.id,
+        label,
+        reason: "belongs to a different document",
+        code: "wrong-document",
+      });
+    } else if (!current?.content.trim()) {
+      directUnresolved.push({
+        id: requested.id,
+        label,
+        reason: "is no longer available in the current section catalog",
+        code: "unresolved",
+      });
+    } else {
+      directResolved.push({ ...current, documentId: documentId ?? current.documentId });
+    }
+  }
+
+  if (directUnresolved.length > 0) {
+    return {
+      ok: false,
+      content: "",
+      labels: directResolved.map(sectionLabel),
+      estimatedTokens: 0,
+      truncated: false,
+      sections: directResolved,
+      unresolved: directUnresolved,
+      source: {
+        documentId,
+        sectionIds: directResolved.map((section) => section.id),
+        labels: directResolved.map(sectionLabel),
+        contentHash: fullContentHash,
+        contextKey: hashSectionContent(`mixed:${documentId ?? "unknown"}:${directResolved.map((section) => section.id).join(",")}`),
+        ranges: [],
+      },
+      failure: "unresolved",
+    };
+  }
+
+  const structural = structuralRequested.length > 0
+    ? resolveSectionFocusedContext(structuralRequested, available, fullContent, options)
+    : null;
+  if (structural && !structural.ok) return structural;
+
+  const direct = directResolved.length > 0
+    ? buildSelectionFocusedContext(directResolved, { maxTokens: options.maxTokens })
+    : { content: "", truncated: false, labels: [] };
+  const blocks = [structural?.content, direct.content].filter(Boolean) as string[];
+  const sections = [...(structural?.sections ?? []), ...directResolved];
+  const labels = [...(structural?.labels ?? []), ...directResolved.map(sectionLabel)];
+  const content = blocks.join("\n\n---\n\n");
+  const sourceContentHash = fullContent
+    ? fullContentHash
+    : hashSectionContent(directResolved.map((section) => section.content).join("\n"));
+
+  return {
+    ok: sections.length === selected.length && sections.length > 0,
+    content,
+    labels,
+    estimatedTokens: estimateTokens(content),
+    truncated: Boolean(structural?.truncated || direct.truncated),
+    sections,
+    unresolved: [],
+    source: {
+      documentId,
+      sectionIds: sections.map((section) => section.id),
+      labels,
+      contentHash: sourceContentHash,
+      contextKey: hashSectionContent(`mixed:${documentId ?? "unknown"}:${sourceContentHash}:${sections.map((section) => section.id).join(",")}`),
+      ranges: structural?.source.ranges ?? [],
+    },
+  };
 }
 
 export function getCache(key: string): LRUEntry | undefined {

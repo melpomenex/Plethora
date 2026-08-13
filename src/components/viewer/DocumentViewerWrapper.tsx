@@ -20,6 +20,7 @@ import {
 } from "../../utils/assistantContext";
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
 import type { SectionNode } from "../../utils/sectionIndex";
+import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
 
@@ -87,6 +88,7 @@ export function DocumentViewer({
   const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | undefined>(undefined);
   const [assistantSource, setAssistantSource] = useState<string | undefined>(undefined);
   const [mediaSections, setMediaSections] = useState<SectionNode[]>([]);
+  const setSharedMediaSections = useDocumentOutlineStore((state) => state.setMediaSections);
   const [assistantPosition, setAssistantPosition] = useState<AssistantPosition>(() => {
     const saved = localStorage.getItem(ASSISTANT_POSITION_KEY);
     return saved === "left" ? "left" : "right";
@@ -143,7 +145,8 @@ export function DocumentViewer({
 
   const handleMediaSectionsChange = useCallback((sections: SectionNode[]) => {
     setMediaSections(sections);
-  }, []);
+    if (documentId) setSharedMediaSections(documentId, sections);
+  }, [documentId, setSharedMediaSections]);
 
   useEffect(() => {
     if (!isActiveTab) return;
@@ -335,6 +338,12 @@ export function DocumentViewer({
       ...base,
       type: "document" as const,
       position: scrollState,
+      metadata: {
+        // Generated cards use this title for their document deck. The
+        // audiobook context previously omitted it, so successful card writes
+        // had document_id but an empty tag list.
+        title: currentDoc?.title,
+      },
     };
   }, [
     assistantContent,
@@ -342,6 +351,7 @@ export function DocumentViewer({
     assistantStatus,
     assistantStatusMessage,
     contextWindowTokens,
+    currentDoc?.title,
     documentId,
     mediaSections,
     resolveContextForPrompt,

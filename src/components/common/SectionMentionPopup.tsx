@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect } from "react";
-import { BookOpen, Hash, Selection } from "@phosphor-icons/react";
+import { BookOpen, CircleNotch, Hash, Selection } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { SectionNode } from "../../utils/sectionIndex";
 import { estimateTokens } from "../../utils/sectionIndex";
@@ -16,6 +16,9 @@ interface SectionMentionPopupProps {
   maxHeight?: number;
   /** Live document selection offered as the first entry when one exists. */
   selectionEntry?: SectionNode | null;
+  /** Prevents a partial fallback list while an authoritative catalog loads. */
+  isLoading?: boolean;
+  loadingLabel?: string;
 }
 
 function matchesQuery(node: SectionNode, q: string): boolean {
@@ -77,6 +80,8 @@ export function SectionMentionPopup({
   open,
   maxHeight = 320,
   selectionEntry,
+  isLoading = false,
+  loadingLabel = "Loading sections…",
 }: SectionMentionPopupProps) {
   const { t } = useI18n();
   const parentRef = useRef<HTMLDivElement>(null);
@@ -145,14 +150,16 @@ export function SectionMentionPopup({
         <div className="flex items-center gap-2 min-w-0">
           <BookOpen className="w-4 h-4 text-muted-foreground flex-shrink-0" />
           <span className="text-xs font-medium text-foreground truncate">
-            {showNoSectionsState
+            {isLoading
+              ? loadingLabel
+              : showNoSectionsState
               ? t("sectionMention.noSectionsAvailable")
               : isBareHash
               ? t("sectionMention.sectionsInDocument", { count: entries.length })
               : t("sectionMention.matchingSections", { count: filtered.length })}
           </span>
         </div>
-        {!showNoSectionsState && (
+        {!showNoSectionsState && !isLoading && (
           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded flex-shrink-0">
             {isBareHash ? "Type to filter…" : `${filtered.length} results`}
           </span>
@@ -164,7 +171,12 @@ export function SectionMentionPopup({
         className="overflow-y-auto"
         style={{ maxHeight: `${maxHeight}px`, minHeight: "80px" }}
       >
-        {showNoSectionsState ? (
+        {isLoading ? (
+          <div className="flex min-h-24 items-center justify-center gap-2 px-4 text-sm text-muted-foreground" role="status">
+            <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+            <span>{loadingLabel}</span>
+          </div>
+        ) : showNoSectionsState ? (
           <div className="p-4 text-center text-sm text-muted-foreground">
             {t("sectionMention.noSectionsAvailableBody")}
           </div>
@@ -237,12 +249,12 @@ export function SectionMentionPopup({
         )}
       </div>
 
-      <div className="px-2 py-1.5 border-t border-border bg-muted/20 text-[10px] text-muted-foreground flex items-center gap-3">
+      {!isLoading && <div className="px-2 py-1.5 border-t border-border bg-muted/20 text-[10px] text-muted-foreground flex items-center gap-3">
         <span>↑↓ navigate</span>
         <span>↵ select</span>
         <span>Esc close</span>
         {isBareHash && <span>Tab expand</span>}
-      </div>
+      </div>}
     </div>
   );
 }

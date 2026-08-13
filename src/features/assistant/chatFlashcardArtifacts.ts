@@ -17,6 +17,8 @@ export interface ChatFlashcardArtifact {
   back?: string;
   status: ChatFlashcardStatus;
   persistedCardId?: string;
+  /** Normalized tool-call tags, used to connect the artifact to its smart deck. */
+  tags: string[];
   error?: string;
   source?: SectionSourceReference;
   createdAt: number;
@@ -45,6 +47,22 @@ export function normalizeParsedToolCall(value: unknown): ChatToolCall | null {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => stringValue(item))
+    .filter((item, index, values) => Boolean(item) && values.indexOf(item) === index);
+}
+
+export function getFlashcardArtifactDeckName(artifacts: ChatFlashcardArtifact[]): string | undefined {
+  for (const artifact of artifacts) {
+    const deckTag = artifact.tags.find((tag) => tag.toLowerCase().startsWith("deck:"));
+    const name = deckTag?.slice(5).trim();
+    if (name) return name;
+  }
+  return undefined;
 }
 
 function resultText(result: unknown): string {
@@ -105,6 +123,7 @@ export function toolCallsToFlashcardArtifacts(
       back,
       status: call.status === "success" ? "saved" : call.status === "error" ? "failed" : "pending",
       persistedCardId: extractPersistedCardId(call.result),
+      tags: stringList(call.parameters.tags),
       error: call.status === "error" ? resultText(call.result) || "Card could not be saved." : undefined,
       source: options.source,
       createdAt,
@@ -125,4 +144,3 @@ export function buildFlashcardToolInstruction(toolNames: string[]): string {
   if (cardTools.length === 0) return "";
   return `When the user explicitly asks to create, save, add, or make flashcards, use ${cardTools.join(" or ")} in one tool_calls block. When they ask only to preview, brainstorm, or discuss card ideas, do not save cards. Never duplicate created cards as raw JSON, a markdown table, or a prose card list.`;
 }
-

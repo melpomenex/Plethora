@@ -16,12 +16,59 @@ import {
   convertEpubTocToSectionNodes,
   buildSectionsSnapshot,
   buildMediaTranscriptSections,
+  resolvePromptSectionMentions,
+  resolveMixedSectionFocusedContext,
   resolveSectionFocusedContext,
   type SectionContextDiagnostic,
   type SectionNode,
 } from "./sectionIndex";
 
 describe("sectionIndex", () => {
+  it("rehydrates the submitted 008 chip from authoritative transcript sections", () => {
+    const available = buildMediaTranscriptSections(
+      "book-1",
+      [
+        { id: 1, title: "001", startTime: 0, endTime: 60 },
+        { id: 8, title: "008", startTime: 60, endTime: 120 },
+      ],
+      [
+        { start_ms: 5_000, end_ms: 20_000, text: "FOREWORD_ONLY" },
+        { start_ms: 70_000, end_ms: 90_000, text: "NEOCORTEX_CHAPTER_008" },
+      ],
+    );
+
+    // Reproduces the production split-brain state: the message still has the
+    // visible chip, but the pick-time React array has been cleared.
+    const resolved = resolvePromptSectionMentions(
+      "#{008} create a set of flashcards for this section",
+      [],
+      available,
+    );
+
+    expect(resolved.unresolved).toEqual([]);
+    expect(resolved.ambiguous).toEqual([]);
+    expect(resolved.nodes).toHaveLength(1);
+    expect(resolved.nodes[0].title).toBe("008");
+    expect(resolved.nodes[0].content).toContain("NEOCORTEX_CHAPTER_008");
+    expect(resolved.nodes[0].content).not.toContain("FOREWORD_ONLY");
+  });
+
+  it("refuses to guess when a visible section chip is unresolved or ambiguous", () => {
+    const duplicate = (id: string): SectionNode => ({
+      id,
+      title: "008",
+      level: 1,
+      breadcrumb: ["Transcript"],
+      preview: "",
+      content: id,
+      children: [],
+      parentId: null,
+    });
+
+    expect(resolvePromptSectionMentions("#{missing}", [], []).unresolved).toEqual(["missing"]);
+    expect(resolvePromptSectionMentions("#{008}", [], [duplicate("a"), duplicate("b")]).ambiguous).toEqual(["008"]);
+  });
+
   it("builds transcript-backed media chapters from overlapping timestamps", () => {
     const sections = buildMediaTranscriptSections(
       "book-1",
@@ -57,6 +104,35 @@ describe("sectionIndex", () => {
 
     expect(sections).toHaveLength(1);
     expect(sections[0].title).toBe("Available");
+  });
+
+  it("resolves timed transcript chapters directly without falling back to flattened document text", () => {
+    const sections = buildMediaTranscriptSections(
+      "book-1",
+      [
+        { id: 1, title: "001", startTime: 0, endTime: 60 },
+        { id: 8, title: "008", startTime: 60, endTime: 120 },
+      ],
+      [
+        { startTime: 5, endTime: 20, text: "FOREWORD_ONLY" },
+        { startTime: 70, endTime: 90, text: "CORTICAL_COLUMN_CONTENT" },
+      ],
+    );
+    const chapter008 = sections.find((section) => section.title === "008")!;
+
+    const focused = resolveMixedSectionFocusedContext(
+      [chapter008],
+      sections,
+      "FOREWORD_ONLY flattened transcript without chapter offsets",
+      { documentId: "book-1", maxTokens: 500 },
+    );
+
+    expect(focused.ok).toBe(true);
+    expect(focused.labels).toEqual(["Transcript > 008"]);
+    expect(focused.content).toContain("CORTICAL_COLUMN_CONTENT");
+    expect(focused.content).not.toContain("FOREWORD_ONLY");
+    expect(focused.source.sectionIds).toEqual([chapter008.id]);
+    expect(focused.source.ranges).toEqual([]);
   });
 
   it("parses markdown headings with levels", () => {
