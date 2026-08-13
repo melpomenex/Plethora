@@ -34,9 +34,9 @@ import { supportsVision } from "../../utils/visionCapability";
 import { chatWithContext, type LLMMessage, type LLMMessageContentPart } from "../../api/llm";
 import { callIncrementumMCPTool, getIncrementumMCPTools, type MCPTool } from "../../api/mcp";
 import { renderMarkdown } from "../../utils/markdown";
-import { useSettingsStore, useLLMProvidersStore, useTabsStore } from "../../stores";
+import { useDocumentStore, useSettingsStore, useLLMProvidersStore, useReviewStore, useTabsStore } from "../../stores";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
-import { SettingsTab } from "../tabs/TabRegistry";
+import { ReviewTab, SettingsTab } from "../tabs/TabRegistry";
 import { ShareMessageDialog } from "./ShareMessageDialog";
 import { copyToClipboard, generateSingleMessageMarkdown, type ConversationMessage } from "../../api/integrations";
 import { useI18n } from "../../lib/i18n";
@@ -56,6 +56,7 @@ import {
   createSelectionSection,
   describeSectionDiagnostic,
   hashSectionContent,
+  resolvePromptSectionMentions,
   resolveSectionFocusedContext,
   type SectionNode,
   type SectionSourceReference,
@@ -66,6 +67,7 @@ import { createDocumentQaRequestContent, loadDocumentQaText } from "../../featur
 import { ChatFlashcardCollection } from "./ChatFlashcardCollection";
 import {
   buildFlashcardToolInstruction,
+  getFlashcardArtifactDeckName,
   nonFlashcardToolCalls,
   toolCallsToFlashcardArtifacts,
   type ChatFlashcardArtifact,
@@ -143,6 +145,14 @@ const ASSISTANT_CONVERSATIONS_KEY = "assistant-panel-conversations-v1";
 const MAX_STORED_MESSAGES = 200;
 const MAX_ATTACHED_IMAGES = 4;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB raw file limit
+const CARD_CREATION_TOOL_NAMES = new Set(["create_qa_card", "create_cloze_card", "batch_create_cards"]);
+const ATTACHABLE_TOOL_NAMES = new Set([...CARD_CREATION_TOOL_NAMES, "create_extract"]);
+
+const getDocumentDeckName = (title?: string): string | undefined => {
+  const trimmed = title?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/\s*\([^)]*\)\s*$/, "").trim() || trimmed;
+};
 
 interface StoredConversation {
   messages: Message[];
@@ -313,6 +323,29 @@ export function AssistantPanel({
   const [isInputHovered, setIsInputHovered] = useState(false);
   const contextWindowTokens = useSettingsStore((state) => state.settings.ai.maxTokens);
   const aiControls = useSettingsStore((state) => state.settings.ai.aiControls);
+  const studyDecks = useStudyDeckStore((state) => state.decks);
+  const storedDocumentTitle = useDocumentStore((state) => {
+    const documentId = context?.documentId;
+    if (!documentId) return undefined;
+    return state.documents.find((document) => document.id === documentId)?.title
+      ?? (state.currentDocument?.id === documentId ? state.currentDocument.title : undefined);
+  });
+  const assistantDocumentTitle = context?.metadata?.title ?? storedDocumentTitle;
+
+  // Repair successful card batches from builds that attached document_id but
+  // omitted the title tag/deck. Conversations persist their tool-call status,
+  // so reopening the audiobook can restore the document-bound deck; that deck
+  // immediately includes the already-saved cards by document ownership.
+  useEffect(() => {
+    const documentId = context?.documentId;
+    const deckName = getDocumentDeckName(assistantDocumentTitle);
+    if (!documentId || !deckName) return;
+    const hasSavedDocumentCards = messages.some((message) =>
+      message.toolCalls?.some((call) => CARD_CREATION_TOOL_NAMES.has(call.name) && call.status === "success"),
+    );
+    if (!hasSavedDocumentCards) return;
+    useStudyDeckStore.getState().addDeck(deckName, [deckName], documentId, "all");
+  }, [assistantDocumentTitle, context?.documentId, messages]);
 
   // Model selection UI states and store subscription
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
@@ -1090,6 +1123,27 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     prompt: string,
     contextData: Record<string, unknown>
   ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string; sourceContext?: SectionSourceReference }> => {
+    const mentionCandidates = selectionSection
+      ? [selectionSection, ...assistantSectionFlat]
+      : assistantSectionFlat;
+    const mentionResolution = resolvePromptSectionMentions(
+      prompt,
+      selectedSectionNodes,
+      mentionCandidates,
+    );
+    const hasSectionMentions = mentionResolution.tokens.length > 0;
+    if (mentionResolution.ambiguous.length > 0) {
+      throw new Error(
+        `The section chip “${mentionResolution.ambiguous[0]}” matches more than one section. Choose the intended section again; no request was made.`,
+      );
+    }
+    if (mentionResolution.unresolved.length > 0) {
+      throw new Error(
+        `The section chip “${mentionResolution.unresolved[0]}” is no longer available. Choose it again; no request was made.`,
+      );
+    }
+    const promptSectionNodes = mentionResolution.nodes;
+
     try {
       // Get all providers to check if selected provider exists but is disabled
       const allProviders = useLLMProvidersStore.getState().providers;
@@ -1208,10 +1262,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       // Timed media sections already carry their authoritative transcript text,
       // just like a live text selection. They must not be reconciled against
       // flattened documents.content, which has no chapter character offsets.
-      const selectionNodes = selectedSectionNodes.filter(
+      const selectionNodes = promptSectionNodes.filter(
         (n) => n.source === "selection" || n.source === "media-transcript",
       );
-      const sectionNodes = selectedSectionNodes.filter(
+      const sectionNodes = promptSectionNodes.filter(
         (n) => n.source !== "selection" && n.source !== "media-transcript",
       );
       let selectionContext = "";
@@ -1270,7 +1324,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceContext = focused.source;
         const request = createDocumentQaRequestContent({
           documentContext: finalResolvedContent,
-          userQuestion: prompt.replace(SECTION_REGEX, "").trim(),
+          userQuestion: prompt.replace(/#{([^}]+)}/g, "").trim(),
           focusLabel: [...focused.labels, ...selectionNodes.map((n) => n.title)].join(", "),
         });
         const lastUserIdx = llmMessages.map((message) => message.role).lastIndexOf("user");
@@ -1357,7 +1411,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       return { content: response.content, imagesStripped, modelName, sourceContext };
     } catch (error) {
       console.error("LLM API error:", error);
-      if (selectedSectionNodes.length > 0) throw error;
+      if (hasSectionMentions) throw error;
       // Better error handling - Tauri errors can be strings or objects
       const errorMessage = error instanceof Error
         ? error.message
@@ -1562,16 +1616,30 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     const results: Array<{ name: string; status: "success" | "error"; error?: string }> = [];
     // Track deck names created in this batch so we can tag subsequent cards with matching tags
     const batchDeckNames: string[] = [];
+    const createsCards = calls.some((call) => CARD_CREATION_TOOL_NAMES.has(call.name));
+    const resolvedDocumentTitle = createsCards
+      ? await resolveDocumentTitleForCards()
+      : assistantDocumentTitle;
+    const missingDocumentDeckTitle = Boolean(
+      createsCards
+      && context?.documentId
+      && !getDocumentDeckName(resolvedDocumentTitle),
+    );
 
     for (let index = 0; index < calls.length; index += 1) {
       const call = calls[index];
-      let parameters = normalizeToolParameters(call.name, call.parameters);
+      if (missingDocumentDeckTitle && CARD_CREATION_TOOL_NAMES.has(call.name)) {
+        const error = "Could not resolve the document title, so the card was not saved without its document deck.";
+        updateToolCall(messageId, index, { status: "error", result: error });
+        results.push({ name: call.name, status: "error", error });
+        continue;
+      }
+      let parameters = normalizeToolParameters(call.name, call.parameters, resolvedDocumentTitle);
 
       // If this is a card/extract call and we created decks earlier in this batch,
       // ensure the card tags include the deck names so tag-based filtering works.
       if (batchDeckNames.length > 0) {
-        const cardTools = new Set(["create_qa_card", "create_cloze_card", "batch_create_cards", "create_extract"]);
-        if (cardTools.has(call.name)) {
+        if (ATTACHABLE_TOOL_NAMES.has(call.name)) {
           const existingTags: string[] = Array.isArray(parameters.tags)
             ? parameters.tags.map((t: unknown) => String(t))
             : [];
@@ -1633,13 +1701,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
             if (deckName) {
               const store = useStudyDeckStore.getState();
               const baseName = deckName.replace(/\s*\([^)]*\)\s*$/, "").trim() || deckName;
-              const exists = store.decks.some((d) => {
-                const dBase = d.name.replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase();
-                return dBase === baseName.toLowerCase() || d.name.toLowerCase() === deckName.toLowerCase();
-              });
-              if (!exists) {
-                store.addDeck(baseName, [baseName]);
-              }
+              const documentId = parameters.document_id as string | undefined;
+              // addDeck deduplicates by name and repairs an existing entry.
+              // A document deck is document-scoped rather than tag-only, which
+              // also includes older audiobook cards created without deck tags.
+              store.addDeck(baseName, [baseName], documentId, documentId ? "all" : "tags");
             }
           }
         }
@@ -1709,33 +1775,41 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     );
   };
 
-  const normalizeToolParameters = (toolName: string, parameters: Record<string, unknown>) => {
+  const resolveDocumentTitleForCards = async (): Promise<string | undefined> => {
+    if (assistantDocumentTitle?.trim()) return assistantDocumentTitle;
+    if (!context?.documentId) return undefined;
+    try {
+      return (await getDocument(context.documentId))?.title?.trim() || undefined;
+    } catch (error) {
+      console.warn("[Assistant] Could not resolve document title for generated-card deck:", error);
+      return undefined;
+    }
+  };
+
+  const normalizeToolParameters = (
+    toolName: string,
+    parameters: Record<string, unknown>,
+    documentTitleOverride?: string,
+  ) => {
     const normalized = { ...parameters };
     const documentId = context?.documentId;
-    const docTitle = context?.metadata?.title;
-    const attachableTools = new Set([
-      "create_cloze_card",
-      "create_qa_card",
-      "create_extract",
-      "batch_create_cards",
-    ]);
+    const deckName = getDocumentDeckName(documentTitleOverride ?? assistantDocumentTitle);
 
-    if (documentId && attachableTools.has(toolName) && normalized.document_id == null) {
+    if (documentId && ATTACHABLE_TOOL_NAMES.has(toolName)) {
       normalized.document_id = documentId;
     }
 
     // Auto-tag with deck:<base title> for card/extract tools.
     // Strips parenthetical author info (e.g. "Book (Author)" → "deck:Book")
     // so tags match deck names more reliably.
-    if (docTitle && attachableTools.has(toolName)) {
-      const baseTitle = docTitle.replace(/\s*\([^)]*\)\s*$/, "").trim();
-      const deckTag = `deck:${baseTitle || docTitle}`;
+    if (deckName && ATTACHABLE_TOOL_NAMES.has(toolName)) {
+      const deckTag = `deck:${deckName}`;
       const existingTags: string[] = Array.isArray(normalized.tags)
-        ? normalized.tags.map((t: unknown) => String(t))
+        ? normalized.tags
+          .map((t: unknown) => String(t))
+          .filter((tag) => !tag.toLowerCase().startsWith("deck:"))
         : [];
-      if (!existingTags.some((t) => t.toLowerCase() === deckTag.toLowerCase())) {
-        normalized.tags = [...existingTags, deckTag];
-      }
+      normalized.tags = [...existingTags, deckTag];
     }
 
     return normalized;
@@ -1749,13 +1823,58 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     }));
   };
 
+  const findChatDeck = (name: string) => {
+    const normalized = name.trim().toLowerCase();
+    return useStudyDeckStore.getState().decks.find((deck) => deck.name.trim().toLowerCase() === normalized);
+  };
+
+  const createChatDeck = (name: string) => {
+    const store = useStudyDeckStore.getState();
+    store.addDeck(name, [name], context?.documentId, context?.documentId ? "all" : "tags");
+    toast.success("Deck created", `“${name}” is ready in Review.`);
+  };
+
+  const openChatDeck = (name: string) => {
+    const deck = findChatDeck(name);
+    if (!deck) {
+      toast.error("Deck unavailable", `Create “${name}” first.`);
+      return;
+    }
+    useReviewStore.getState().setSelectedDeckId(deck.id);
+    useReviewStore.getState().setReviewTabMode("deck-manager");
+    useTabsStore.getState().addTab({
+      title: "Review",
+      icon: "🧠",
+      type: "review",
+      content: ReviewTab,
+      closable: true,
+    });
+  };
+
+  const copyChatCards = async (artifacts: ChatFlashcardArtifact[]) => {
+    const markdown = artifacts.map((artifact, index) => {
+      if (artifact.type === "qa") {
+        return `${index + 1}. **Q:** ${artifact.front}\n   **A:** ${artifact.back ?? ""}`;
+      }
+      return `${index + 1}. ${artifact.front}`;
+    }).join("\n\n");
+    const success = await copyToClipboard(markdown);
+    if (success) toast.success("Flashcards copied", `${artifacts.length} card${artifacts.length === 1 ? "" : "s"} copied to the clipboard.`);
+    else toast.error("Could not copy flashcards");
+    return success;
+  };
+
   const retryChatCard = async (messageId: string, artifact: ChatFlashcardArtifact) => {
     const message = messages.find((item) => item.id === messageId);
     const call = message?.toolCalls?.[artifact.callIndex];
     if (!call) return;
     updateToolCall(messageId, artifact.callIndex, { status: "pending", result: undefined });
     try {
-      const parameters = normalizeToolParameters(call.name, call.parameters);
+      const parameters = normalizeToolParameters(
+        call.name,
+        call.parameters,
+        await resolveDocumentTitleForCards(),
+      );
       const result = await callIncrementumMCPTool(call.name, parameters);
       updateToolCall(messageId, artifact.callIndex, {
         parameters,
@@ -1887,7 +2006,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       setSectionQuery("");
     }
 
+    // SECTION_REGEX is global because the send path removes every mention.
+    // RegExp.test() advances a global regex's lastIndex, though, so consecutive
+    // keystrokes after inserting one token alternated true/false and silently
+    // dropped the selected section while leaving the visible token in place.
+    SECTION_REGEX.lastIndex = 0;
     const hasTokens = SECTION_REGEX.test(value);
+    SECTION_REGEX.lastIndex = 0;
     if (!hasTokens && selectedSectionNodes.length > 0) {
       setSelectedSectionNodes([]);
     }
@@ -2793,12 +2918,24 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   timestamp: message.timestamp,
                 });
                 const genericTools = nonFlashcardToolCalls(message.toolCalls);
+                const deckName = getFlashcardArtifactDeckName(artifacts)
+                  ?? (artifacts.length > 0 ? getDocumentDeckName(assistantDocumentTitle) : undefined);
+                const existingDeck = deckName
+                  ? studyDecks.find((deck) => deck.name.trim().toLowerCase() === deckName.trim().toLowerCase())
+                  : undefined;
                 return (
                 <>
                   <ChatFlashcardCollection
                     artifacts={artifacts}
                     onOpen={openChatCard}
                     onRetry={(artifact) => void retryChatCard(message.id, artifact)}
+                    onCopy={copyChatCards}
+                    deckAction={deckName ? {
+                      name: deckName,
+                      exists: Boolean(existingDeck),
+                      onCreate: () => createChatDeck(deckName),
+                      onOpen: () => openChatDeck(deckName),
+                    } : undefined}
                   />
                   {genericTools.length > 0 && <div className="mt-2 space-y-1">
                   {genericTools.map((tool, idx) => (

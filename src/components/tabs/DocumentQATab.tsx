@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useDocumentQAStore, useStudyDeckStore, type QAMessage, type QAToolCall } from "../../stores";
+import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useDocumentQAStore, useReviewStore, useStudyDeckStore, useTabsStore, type QAMessage, type QAToolCall } from "../../stores";
 import { chatWithContext, type LLMMessage } from "../../api/llm";
 import { getDocument, extractDocumentText } from "../../api/documents";
 import { getExtracts, patchDocumentExtractCount } from "../../api/extracts";
 import { callIncrementumMCPTool, getIncrementumMCPTools } from "../../api/mcp";
-import { getIntegrationSettings, notebooklmGetSettings } from "../../api/integrations";
+import { copyToClipboard, getIntegrationSettings, notebooklmGetSettings } from "../../api/integrations";
 import {
   buildClozeFromSelection,
   buildQaFromSelection,
@@ -50,18 +50,24 @@ import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
   buildDocumentSections,
   describeSectionDiagnostic,
-  resolveSectionFocusedContext,
+  resolvePromptSectionMentions,
+  resolveMixedSectionFocusedContext,
   type FocusedSectionContextResult,
   type SectionNode,
 } from "../../utils/sectionIndex";
 import { ChatFlashcardCollection } from "../assistant/ChatFlashcardCollection";
 import {
+  getFlashcardArtifactDeckName,
   nonFlashcardToolCalls,
   toolCallsToFlashcardArtifacts,
   type ChatFlashcardArtifact,
 } from "../../features/assistant/chatFlashcardArtifacts";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { DocumentQASources, sourcesCopyText } from "./DocumentQASources";
+import { ReviewTab } from "./TabRegistry";
+import { useToast } from "../common/Toast";
+import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
+import { loadAudiobookSectionCatalog } from "../../features/documentQa/audiobookSectionCatalog";
 import {
   STORAGE_KEYS as SESSION_STORAGE_KEYS,
   createSession,
@@ -89,6 +95,14 @@ interface DocumentMention {
 // Mention token format in input: @{documentId}
 const MENTION_REGEX = /@{([^}]+)}/g;
 const SECTION_REGEX = /#{([^}]+)}/g;
+const CARD_CREATION_TOOL_NAMES = new Set(["create_qa_card", "create_cloze_card", "batch_create_cards"]);
+const ATTACHABLE_TOOL_NAMES = new Set([...CARD_CREATION_TOOL_NAMES, "create_extract"]);
+
+const getDocumentDeckName = (title?: string): string | undefined => {
+  const trimmed = title?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.replace(/\s*\([^)]*\)\s*$/, "").trim() || trimmed;
+};
 
 export function DocumentQATab() {
   // Use store for persistent state
@@ -136,6 +150,10 @@ export function DocumentQATab() {
   const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
   const [selectedSections, setSelectedSections] = useState<SectionNode[]>([]);
   const [fullContent, setFullContent] = useState("");
+  const [mediaCatalogLoad, setMediaCatalogLoad] = useState<{
+    documentId?: string;
+    status: "idle" | "loading" | "ready";
+  }>({ status: "idle" });
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
   // --- Document Q&A sessions (see documentQaSessions.ts) ---
@@ -196,8 +214,6 @@ export function DocumentQATab() {
     useStoreOutline: true,
   });
 
-  const sections = sectionFlat;
-
   useEffect(() => {
     setSelectedSections([]);
     setRawInput((value) => value.replace(SECTION_REGEX, "").trim());
@@ -217,12 +233,58 @@ export function DocumentQATab() {
   const autosaveTimerRef = useRef<number | null>(null);
 
   const { documents, currentDocument } = useDocumentStore();
+  const sharedMediaSections = useDocumentOutlineStore((state) =>
+    targetDocId ? state.mediaSectionsByDocId.get(targetDocId) : undefined
+  );
+  const setSharedMediaSections = useDocumentOutlineStore((state) => state.setMediaSections);
+  const studyDecks = useStudyDeckStore((state) => state.decks);
   const getEnabledProviders = useLLMProvidersStore((state) => state.getEnabledProviders);
+  const toast = useToast();
   const contextWindowTokens = useSettingsStore((state) => state.settings.ai.maxTokens);
   const aiControls = useSettingsStore((state) => state.settings.ai.aiControls);
   const notebookFeatureEnabled = useSettingsStore((state) => state.settings.features.notebooklmEnabled);
   const analyticsEnabled = useSettingsStore((state) => state.settings.privacy.analyticsEnabled);
   const { t } = useI18n();
+
+  const targetDocument = useMemo(
+    () => documents.find((document) => document.id === targetDocId)
+      ?? (currentDocument?.id === targetDocId ? currentDocument : undefined),
+    [currentDocument, documents, targetDocId],
+  );
+  const isAudiobookTarget = targetDocument?.fileType === "audio"
+    || targetDocument?.tags?.some((tag) => tag.toLowerCase() === "audiobook")
+    || false;
+
+  useEffect(() => {
+    if (!targetDocument || !isAudiobookTarget) {
+      setMediaCatalogLoad({ documentId: targetDocId || undefined, status: "ready" });
+      return;
+    }
+    if (sharedMediaSections?.length) {
+      setMediaCatalogLoad({ documentId: targetDocument.id, status: "ready" });
+      return;
+    }
+
+    let cancelled = false;
+    setMediaCatalogLoad({ documentId: targetDocument.id, status: "loading" });
+    void loadAudiobookSectionCatalog(targetDocument)
+      .then((sections) => {
+        if (cancelled) return;
+        if (sections.length > 0) setSharedMediaSections(targetDocument.id, sections);
+        setMediaCatalogLoad({ documentId: targetDocument.id, status: "ready" });
+      })
+      .catch(() => {
+        if (!cancelled) setMediaCatalogLoad({ documentId: targetDocument.id, status: "ready" });
+      });
+    return () => { cancelled = true; };
+  }, [isAudiobookTarget, setSharedMediaSections, sharedMediaSections, targetDocId, targetDocument]);
+
+  const isMediaCatalogLoading = isAudiobookTarget
+    && !sharedMediaSections?.length
+    && (mediaCatalogLoad.documentId !== targetDocId || mediaCatalogLoad.status === "loading");
+  const pickerSectionTree = isMediaCatalogLoading ? [] : sectionTree;
+  const pickerSectionFlat = isMediaCatalogLoading ? [] : sectionFlat;
+  const sections = pickerSectionFlat;
 
   const brainstormingPrompts = useMemo(() => [
     "Summarize the key concepts from this document and explain them simply.",
@@ -448,7 +510,12 @@ export function DocumentQATab() {
     setMentions(newMentions);
 
     // If section token is deleted, clear selected section
+    // Keep boolean token detection stateless across keystrokes. SECTION_REGEX
+    // is global for match/replace elsewhere, and test() otherwise advances its
+    // lastIndex and reports a still-visible token as missing on the next edit.
+    SECTION_REGEX.lastIndex = 0;
     const hasSectionToken = SECTION_REGEX.test(value);
+    SECTION_REGEX.lastIndex = 0;
     let nextSections = selectedSections;
     if (!hasSectionToken) {
       setSelectedSections([]);
@@ -1008,50 +1075,117 @@ export function DocumentQATab() {
     return { cleanedContent, toolCalls };
   };
 
+  const documentTitleFromStore = (documentId?: string): string | undefined => {
+    if (!documentId) return undefined;
+    return documents.find((document) => document.id === documentId)?.title
+      ?? (currentDocument?.id === documentId ? currentDocument.title : undefined);
+  };
+
+  const resolveDocumentTitleForCards = async (documentId?: string): Promise<string | undefined> => {
+    const storedTitle = documentTitleFromStore(documentId)?.trim();
+    if (storedTitle) return storedTitle;
+    if (!documentId) return undefined;
+    try {
+      return (await getDocument(documentId))?.title?.trim() || undefined;
+    } catch (error) {
+      console.warn("[Document Q&A] Could not resolve document title for generated-card deck:", error);
+      return undefined;
+    }
+  };
+
+  const toolDocumentId = (
+    parameters: Record<string, unknown>,
+    sourceContext?: FocusedSectionContextResult["source"],
+  ): string | undefined => {
+    const focusedDocumentId = sourceContext?.documentId || targetDocId;
+    if (focusedDocumentId) return focusedDocumentId;
+    return typeof parameters.document_id === "string" && parameters.document_id.trim()
+      ? parameters.document_id
+      : undefined;
+  };
+
   const normalizeToolParameters = (
     toolName: string,
     parameters: Record<string, unknown>,
-    sourceContext?: FocusedSectionContextResult["source"]
+    sourceContext?: FocusedSectionContextResult["source"],
+    documentTitleOverride?: string,
+    documentIdOverride?: string,
   ) => {
     const normalized = { ...parameters };
-    const documentId = sourceContext?.documentId || targetDocId;
-    const docTitle = documents.find((d) => d.id === documentId)?.title;
-    
-    const attachableTools = new Set([
-      "create_cloze_card",
-      "create_qa_card",
-      "create_extract",
-      "batch_create_cards",
-    ]);
+    const documentId = documentIdOverride ?? toolDocumentId(normalized, sourceContext);
+    const deckName = getDocumentDeckName(documentTitleOverride ?? documentTitleFromStore(documentId));
 
-    if (documentId && attachableTools.has(toolName) && normalized.document_id == null) {
+    if (documentId && ATTACHABLE_TOOL_NAMES.has(toolName)) {
       normalized.document_id = documentId;
     }
 
     // Auto-tag with deck:<base title> for card/extract tools.
     // Strips parenthetical author info (e.g. "Book (Author)" → "deck:Book")
     // so tags match deck names more reliably.
-    if (docTitle && attachableTools.has(toolName)) {
-      const baseTitle = docTitle.replace(/\s*\([^)]*\)\s*$/, "").trim();
-      const deckTag = `deck:${baseTitle || docTitle}`;
+    if (deckName && ATTACHABLE_TOOL_NAMES.has(toolName)) {
+      const deckTag = `deck:${deckName}`;
       const existingTags: string[] = Array.isArray(normalized.tags)
-        ? normalized.tags.map((t: unknown) => String(t))
+        ? normalized.tags
+          .map((t: unknown) => String(t))
+          .filter((tag) => !tag.toLowerCase().startsWith("deck:"))
         : [];
-      if (!existingTags.some((t) => t.toLowerCase() === deckTag.toLowerCase())) {
-        normalized.tags = [...existingTags, deckTag];
-      }
+      normalized.tags = [...existingTags, deckTag];
     }
 
     return normalized;
   };
 
+  const deckNameFromParameters = (parameters: Record<string, unknown>): string | undefined => {
+    const tags = Array.isArray(parameters.tags) ? parameters.tags.map(String) : [];
+    const deckTag = tags.find((tag) => tag.toLowerCase().startsWith("deck:"));
+    return getDocumentDeckName(deckTag?.slice(5));
+  };
+
+  const upsertDocumentDeckForParameters = (
+    toolName: string,
+    parameters: Record<string, unknown>,
+    sourceContext?: FocusedSectionContextResult["source"],
+    documentIdOverride?: string,
+  ) => {
+    if (!CARD_CREATION_TOOL_NAMES.has(toolName)) return;
+    const deckName = deckNameFromParameters(parameters);
+    if (!deckName) return;
+    const documentId = documentIdOverride ?? toolDocumentId(parameters, sourceContext);
+    useStudyDeckStore.getState().addDeck(
+      deckName,
+      [deckName],
+      documentId,
+      documentId ? "all" : "tags",
+    );
+  };
+
   const executeToolCalls = async (messageId: string, calls: ToolCall[], sourceContext?: FocusedSectionContextResult["source"]) => {
     const results: Array<{ name: string; status: "success" | "error"; error?: string }> = [];
     const batchDeckNames: string[] = [];
+    const resolvedTitles = new Map<string, string | undefined>();
 
     for (let index = 0; index < calls.length; index += 1) {
       const call = calls[index];
-      let parameters = normalizeToolParameters(call.name, call.parameters, sourceContext);
+      const documentId = toolDocumentId(call.parameters, sourceContext);
+      let resolvedDocumentTitle: string | undefined;
+      if (documentId && ATTACHABLE_TOOL_NAMES.has(call.name)) {
+        if (!resolvedTitles.has(documentId)) {
+          resolvedTitles.set(documentId, await resolveDocumentTitleForCards(documentId));
+        }
+        resolvedDocumentTitle = resolvedTitles.get(documentId);
+      }
+      let parameters = normalizeToolParameters(call.name, call.parameters, sourceContext, resolvedDocumentTitle);
+
+      if (documentId && CARD_CREATION_TOOL_NAMES.has(call.name) && !getDocumentDeckName(resolvedDocumentTitle)) {
+        const errorMsg = "Could not save this card because the source document title could not be resolved. Reopen the document and retry.";
+        updateToolCall(messageId, index, {
+          parameters,
+          result: errorMsg,
+          status: "error",
+        });
+        results.push({ name: call.name, status: "error", error: errorMsg });
+        continue;
+      }
 
       // If this is a card/extract call and we created decks earlier in this batch,
       // ensure the card tags include the deck names so tag-based filtering works.
@@ -1114,23 +1248,11 @@ export function DocumentQATab() {
           } catch { /* non-critical */ }
         }
 
-        // Auto-create deck in frontend store from tags on card creation
-        if (!result.isError && parameters.tags && Array.isArray(parameters.tags)) {
-          for (const tag of parameters.tags as string[]) {
-            const deckName = tag.startsWith("deck:") ? tag.slice(5) : null;
-            if (deckName) {
-              const store = useStudyDeckStore.getState();
-              const baseName = deckName.replace(/\s*\([^)]*\)\s*$/, "").trim() || deckName;
-              const exists = store.decks.some((d) => {
-                const dBase = d.name.replace(/\s*\([^)]*\)\s*$/, "").trim().toLowerCase();
-                return dBase === baseName.toLowerCase() || d.name.toLowerCase() === deckName.toLowerCase();
-              });
-              if (!exists) {
-                const docId = parameters.document_id as string | undefined || targetDocId;
-                store.addDeck(baseName, [baseName], docId);
-              }
-            }
-          }
+        // Upsert the document-title deck after a successful card write. Calling
+        // addDeck for an existing name repairs older tag-only decks by binding
+        // them to the source document and including legacy untagged cards.
+        if (!result.isError && CARD_CREATION_TOOL_NAMES.has(call.name)) {
+          upsertDocumentDeckForParameters(call.name, parameters, sourceContext);
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -1143,6 +1265,37 @@ export function DocumentQATab() {
     }
   };
 
+  const messageDocumentId = (message: Message): string | undefined => {
+    const callDocumentId = message.toolCalls
+      ?.map((call) => call.parameters.document_id)
+      .find((value): value is string => typeof value === "string" && Boolean(value.trim()));
+    return message.sourceContext?.documentId
+      ?? message.sourceDocuments?.[0]
+      ?? callDocumentId
+      ?? undefined;
+  };
+
+  // Repair successful Document Q&A card sets created by older builds. Session
+  // messages retain document ownership even when their deck tag was omitted,
+  // so a document-bound title deck can recover those cards on reopen.
+  useEffect(() => {
+    const bindings = new Map<string, { name: string; documentId: string }>();
+    for (const message of messages) {
+      const documentId = messageDocumentId(message);
+      if (!documentId) continue;
+      for (const call of message.toolCalls ?? []) {
+        if (!CARD_CREATION_TOOL_NAMES.has(call.name) || call.status !== "success") continue;
+        const deckName = deckNameFromParameters(call.parameters)
+          ?? getDocumentDeckName(documentTitleFromStore(documentId));
+        if (deckName) bindings.set(`${documentId}:${deckName.toLowerCase()}`, { name: deckName, documentId });
+      }
+    }
+    const store = useStudyDeckStore.getState();
+    for (const binding of bindings.values()) {
+      store.addDeck(binding.name, [binding.name], binding.documentId, "all");
+    }
+  }, [currentDocument, documents, messages]);
+
   const openChatCard = (artifact: ChatFlashcardArtifact) => {
     if (!artifact.persistedCardId) return;
     sessionStorage.setItem("incrementum:pending-flashcard-id", artifact.persistedCardId);
@@ -1151,17 +1304,71 @@ export function DocumentQATab() {
     }));
   };
 
+  const findChatDeck = (name: string) => {
+    const normalized = name.trim().toLowerCase();
+    return useStudyDeckStore.getState().decks.find((deck) => deck.name.trim().toLowerCase() === normalized);
+  };
+
+  const createChatDeck = (name: string, documentId?: string) => {
+    useStudyDeckStore.getState().addDeck(name, [name], documentId, documentId ? "all" : "tags");
+    toast.success("Deck created", `“${name}” is ready in Review.`);
+  };
+
+  const openChatDeck = (name: string) => {
+    const deck = findChatDeck(name);
+    if (!deck) {
+      toast.error("Deck unavailable", `Create “${name}” first.`);
+      return;
+    }
+    useReviewStore.getState().setSelectedDeckId(deck.id);
+    useReviewStore.getState().setReviewTabMode("deck-manager");
+    useTabsStore.getState().addTab({
+      title: "Review",
+      icon: "🧠",
+      type: "review",
+      content: ReviewTab,
+      closable: true,
+    });
+  };
+
+  const copyChatCards = async (artifacts: ChatFlashcardArtifact[]) => {
+    const markdown = artifacts.map((artifact, index) => {
+      if (artifact.type === "qa") {
+        return `${index + 1}. **Q:** ${artifact.front}\n   **A:** ${artifact.back ?? ""}`;
+      }
+      return `${index + 1}. ${artifact.front}`;
+    }).join("\n\n");
+    const success = await copyToClipboard(markdown);
+    if (success) toast.success("Flashcards copied", `${artifacts.length} card${artifacts.length === 1 ? "" : "s"} copied to the clipboard.`);
+    else toast.error("Could not copy flashcards");
+    return success;
+  };
+
   const retryChatCard = async (messageId: string, artifact: ChatFlashcardArtifact) => {
     const message = messages.find((item) => item.id === messageId);
     const call = message?.toolCalls?.[artifact.callIndex];
     if (!call) return;
     updateToolCall(messageId, artifact.callIndex, { status: "pending", result: undefined });
     try {
-      const result = await callIncrementumMCPTool(call.name, call.parameters);
+      const documentId = messageDocumentId(message) ?? toolDocumentId(call.parameters, message.sourceContext);
+      const documentTitle = await resolveDocumentTitleForCards(documentId);
+      const parameters = normalizeToolParameters(
+        call.name,
+        call.parameters,
+        message.sourceContext,
+        documentTitle,
+        documentId,
+      );
+      if (documentId && CARD_CREATION_TOOL_NAMES.has(call.name) && !getDocumentDeckName(documentTitle)) {
+        throw new Error("Could not save this card because the source document title could not be resolved. Reopen the document and retry.");
+      }
+      const result = await callIncrementumMCPTool(call.name, parameters);
       updateToolCall(messageId, artifact.callIndex, {
+        parameters,
         status: result.isError ? "error" : "success",
         result: result.isError ? JSON.stringify(result.content) : result,
       });
+      if (!result.isError) upsertDocumentDeckForParameters(call.name, parameters, message.sourceContext, documentId);
     } catch (error) {
       updateToolCall(messageId, artifact.callIndex, {
         status: "error",
@@ -1257,20 +1464,27 @@ export function DocumentQATab() {
     setIsSavingArtifact(true);
     setSaveMessage(null);
     try {
+      const documentTitle = await resolveDocumentTitleForCards(documentId);
+      const deckName = getDocumentDeckName(documentTitle);
+      if (!deckName) {
+        throw new Error("Could not save this card because the source document title could not be resolved. Reopen the document and retry.");
+      }
       const tags = [
         "notebooklm",
         "document-qa",
         `research-session:${artifactDraft.provenance.sessionId}`,
+        `deck:${deckName}`,
       ];
 
+      let result: Awaited<ReturnType<typeof callIncrementumMCPTool>>;
       if (artifactDraft.type === "cloze" && artifactDraft.clozeText) {
-        await callIncrementumMCPTool("create_cloze_card", {
+        result = await callIncrementumMCPTool("create_cloze_card", {
           text: artifactDraft.clozeText,
           document_id: documentId,
           tags,
         });
       } else if (artifactDraft.type === "qa" && artifactDraft.question && artifactDraft.answer) {
-        await callIncrementumMCPTool("create_qa_card", {
+        result = await callIncrementumMCPTool("create_qa_card", {
           question: artifactDraft.question,
           answer: artifactDraft.answer,
           document_id: documentId,
@@ -1279,6 +1493,8 @@ export function DocumentQATab() {
       } else {
         throw new Error("Draft is incomplete. Fill all required fields first.");
       }
+      if (result.isError) throw new Error("The card tool could not save this draft.");
+      useStudyDeckStore.getState().addDeck(deckName, [deckName], documentId, "all");
 
       setSaveMessage("Card saved successfully.");
       setArtifactDraft(null);
@@ -1305,11 +1521,13 @@ export function DocumentQATab() {
     const chapterRef = detectChapterReference(rawInput.replace(MENTION_REGEX, "").replace(SECTION_REGEX, ""));
 
     // Detect section references in the query (support multiple)
-    const sectionMatches = rawInput.match(SECTION_REGEX);
-    const matchedSectionIds = sectionMatches ? sectionMatches.map((t) => t.slice(2, -1)) : [];
-    const selectedSectionSnapshot = matchedSectionIds
-      .map((id) => selectedSections.find((section) => section.id === id) || getSectionById(id) || sections.find((section) => section.id === id))
-      .filter(Boolean) as SectionNode[];
+    const submittedSectionMentions = resolvePromptSectionMentions(
+      rawInput,
+      selectedSections,
+      sections,
+    );
+    const hasSectionMentions = submittedSectionMentions.tokens.length > 0;
+    const selectedSectionSnapshot = submittedSectionMentions.nodes;
 
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -1354,7 +1572,21 @@ export function DocumentQATab() {
       const provider = enabledProviders[0];
 
       let focusedSectionContext: FocusedSectionContextResult | null = null;
-      if (matchedSectionIds.length > 0) {
+      if (hasSectionMentions) {
+        if (submittedSectionMentions.unresolved.length > 0 || submittedSectionMentions.ambiguous.length > 0) {
+          const detail = [
+            ...submittedSectionMentions.unresolved.map((token) => `${token} is unavailable`),
+            ...submittedSectionMentions.ambiguous.map((token) => `${token} matches multiple sections`),
+          ].join("; ");
+          addMessage({
+            id: `error-${Date.now()}`,
+            role: "system",
+            content: `Could not focus the visible section chip${detail ? `: ${detail}` : ""}. Choose it again from the current document. No LLM request was sent.`,
+            timestamp: Date.now(),
+          });
+          restoreComposer();
+          return;
+        }
         if (mentionedDocumentIds.length !== 1) {
           addMessage({
             id: `error-${Date.now()}`,
@@ -1367,8 +1599,14 @@ export function DocumentQATab() {
         }
 
         const documentId = mentionedDocumentIds[0];
-        const currentText = await loadDocumentText(documentId);
-        if (!currentText) {
+        const requestedSections = selectedSectionSnapshot;
+        const hasStructuralSections = requestedSections.some((section) =>
+          section.source !== "selection" && section.source !== "media-transcript"
+        );
+        const currentText = hasStructuralSections
+          ? await loadDocumentText(documentId)
+          : fullContent;
+        if (hasStructuralSections && !currentText) {
           addMessage({
             id: `error-${Date.now()}`,
             role: "system",
@@ -1384,23 +1622,8 @@ export function DocumentQATab() {
           ...sectionFlat.map((section) => ({ ...section, documentId })),
           ...parsedCurrentSections.filter((parsed) => !sectionFlat.some((section) => section.id === parsed.id)),
         ];
-        const requestedSections = matchedSectionIds.map((id) =>
-          selectedSectionSnapshot.find((section) => section.id === id)
-          ?? ({
-            id,
-            title: id,
-            level: 1,
-            breadcrumb: [],
-            preview: "",
-            content: "",
-            children: [],
-            parentId: null,
-            documentId,
-            hasAuthoritativeRange: false,
-          } satisfies SectionNode)
-        );
         const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 4000;
-        focusedSectionContext = resolveSectionFocusedContext(requestedSections, currentSections, currentText, {
+        focusedSectionContext = resolveMixedSectionFocusedContext(requestedSections, currentSections, currentText, {
           documentId,
           maxTokens,
           includeNeighbors: true,
@@ -1416,7 +1639,7 @@ export function DocumentQATab() {
           restoreComposer();
           return;
         }
-        setFullContent(currentText);
+        if (currentText) setFullContent(currentText);
       }
 
       const mcpTools = (await getIncrementumMCPTools()) || [];
@@ -2191,12 +2414,27 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                       timestamp: message.timestamp,
                     });
                     const genericTools = nonFlashcardToolCalls(message.toolCalls);
+                    const artifactDocumentId = (messageDocumentId(message) ?? targetDocId) || undefined;
+                    const deckName = getFlashcardArtifactDeckName(artifacts)
+                      ?? (artifacts.length > 0
+                        ? getDocumentDeckName(documentTitleFromStore(artifactDocumentId))
+                        : undefined);
+                    const existingDeck = deckName
+                      ? studyDecks.find((deck) => deck.name.trim().toLowerCase() === deckName.trim().toLowerCase())
+                      : undefined;
                     return (
                     <>
                       <ChatFlashcardCollection
                         artifacts={artifacts}
                         onOpen={openChatCard}
                         onRetry={(artifact) => void retryChatCard(message.id, artifact)}
+                        onCopy={copyChatCards}
+                        deckAction={deckName ? {
+                          name: deckName,
+                          exists: Boolean(existingDeck),
+                          onCreate: () => createChatDeck(deckName, artifactDocumentId),
+                          onOpen: () => openChatDeck(deckName),
+                        } : undefined}
                       />
                       {genericTools.length > 0 && <div className="mt-3 space-y-2">
                       {genericTools.map((tool, idx) => (
@@ -2336,12 +2574,14 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         {/* Section autocomplete popup - new tree-aware */}
         {showSectionPopup && (
           <SectionMentionPopup
-            tree={sectionTree}
-            flat={sectionFlat}
+            tree={pickerSectionTree}
+            flat={pickerSectionFlat}
             query={sectionQuery}
             selectedIndex={sectionCursorIndex}
             onSelect={handleSelectSection}
             open={showSectionPopup}
+            isLoading={isMediaCatalogLoading}
+            loadingLabel="Loading transcript chapters…"
           />
         )}
       </div>

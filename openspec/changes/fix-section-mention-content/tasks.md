@@ -61,3 +61,43 @@ was non-empty. This group makes existing flattened documents self-heal on access
 - [x] 8.3 Guard re-extraction behind a source-file-exists check (`Path::new(&doc.file_path).exists()`), so a book on an unmounted drive (e.g. `/Volumes/external` offline) is never wiped — flattened content is better than none when the source is unreachable.
 - [x] 8.4 Add a Rust test for `content_is_flattened`: detects old-extractor output (8,000-char lines), does not flag healthy multi-paragraph text, ignores short/None content.
 - [x] 8.5 Confirm `recover_document_content` runs from both `get_document` and `extract_document_text` (already wired in group 5), so opening the document or building the section tree both trigger the heal.
+
+## 9. Preserve audiobook section focus while typing (added during apply)
+
+- [x] 9.1 Reset the Assistant and Document Q&A global section-token regex before and after boolean `test()` calls, so consecutive prompt edits cannot silently clear a still-visible `#{...}` selection.
+- [x] 9.2 Add an Assistant regression test shaped like the reported audiobook: select timed transcript chapter `008`, type multiple edits after the token, generate cards, and assert the LLM context contains chapter 008 while excluding the foreword/full-transcript fallback.
+
+## 10. Make the submitted section chip authoritative (added during apply)
+
+- [x] 10.1 Add a pure send-time resolver that extracts `#{...}` tokens from the submitted prompt, rehydrates them from current authoritative sections, and uses pick-time state only to disambiguate duplicate titles.
+- [x] 10.2 Update the Assistant send path to build selection/section context from the rehydrated prompt nodes and abort before the provider call when a visible chip is unresolved or ambiguous.
+- [x] 10.3 Add pure and Assistant integration regressions for the exact production split-brain state: `#{008}` remains in the message while `selectedSectionNodes` is empty; assert only chapter 008 reaches the LLM and the foreword fallback is excluded.
+
+## 11. Add deck-aware generated-card actions (added during apply)
+
+- [x] 11.1 Preserve normalized card tags in `ChatFlashcardArtifact` and derive the intended deck from the real `deck:<name>` tag.
+- [x] 11.2 Add compact, accessible `Create deck` / `Open deck` and copy-batch controls to the generated-card header, retaining existing per-card open/retry and expand behavior.
+- [x] 11.3 Wire deck creation to a document-bound deck (falling back to tag filtering outside document context), and deck opening to Review's deck manager with that deck selected.
+- [x] 11.4 Add normalization and component tests for deck derivation, create/open state, and copy activation.
+
+## 12. Guarantee audiobook-title deck membership at save time (added during apply)
+
+- [x] 12.1 Include the current document title in `DocumentViewerWrapper`'s document Assistant context; this was present for video context but missing for audiobooks/documents.
+- [x] 12.2 Resolve a missing save-time title from the document store and then `get_document`, inject `document_id` plus `deck:<title>` into every card tool call, and fail closed rather than persisting an unassigned document card when all title sources fail.
+- [x] 12.3 Upsert the matching title deck as document-bound after successful card creation and when restoring a conversation with successful historical card calls, so the just-created legacy untagged 008 cards are included on reopen as well.
+- [x] 12.4 Update Rust `batch_create_cards` schema/execution to persist shared and per-card tags on every learning item, with a merge regression test.
+- [x] 12.5 Add an Assistant integration regression with `metadata.title` intentionally absent: resolve `A New Theory of Intelligence` from the document record, assert the MCP save carries its deck tag, and assert the document-bound deck is created. Add the fail-closed inverse case.
+
+## 13. Extend document-deck parity to Document Q&A (added during apply)
+
+- [x] 13.1 Wire the shared generated-card collection in Document Q&A with copy and state-aware `Create deck` / `Open deck` actions, binding created decks to the message's source document.
+- [x] 13.2 Resolve the document title from the document store or persisted record before initial saves and retries, inject `document_id` plus `deck:<title>`, fail closed when unavailable, and upsert a document-bound deck after success.
+- [x] 13.3 Apply the same title-deck invariant to NotebookLM research-draft card saves and repair successful historical Document Q&A cards from stored document ownership.
+- [x] 13.4 Add Document Q&A regressions proving its artifact header creates the title deck, changes to `Open deck`, exposes batch copy, and retries cards with document ownership plus the title tag.
+
+## 14. Share authoritative audiobook chapters with Document Q&A (added during apply)
+
+- [x] 14.1 Add a document-keyed media-section catalog, publish the audiobook viewer's transcript-backed chapters into it, and make `useDocumentSections` prefer that catalog across `#` mention surfaces.
+- [x] 14.2 Rebuild an audiobook catalog in Document Q&A from stored chapters/timed transcript when no viewer is resident, with metadata and persisted-transcription fallbacks plus an explicit loading state that prevents a misleading partial list.
+- [x] 14.3 Rehydrate Document Q&A's serialized title chips against the current catalog at send time and resolve mixed context correctly: timed chapters/selections use attached content, structural headings use canonical-text ranges.
+- [x] 14.4 Add regressions proving the shared hook prefers viewer chapters, the fallback loader returns the complete catalog, Document Q&A lists every published chapter, and selecting `008` sends its transcript while excluding the foreword.
