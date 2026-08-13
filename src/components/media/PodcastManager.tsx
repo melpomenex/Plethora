@@ -43,8 +43,6 @@ import {
   probeAudioDuration,
   searchPodcasts,
   renamePodcastFeed,
-  transcribePodcastEpisode,
-  transcribePodcastEpisodeWithGroq,
   getPodcastTranscript,
   cancelPodcastTranscription,
   setFeedAutoTranscribe,
@@ -82,6 +80,11 @@ import { AssistantPanel } from "../assistant/AssistantPanel";
 import { resolveGenericAssistantContext, type ResolvedAssistantContext } from "../../utils/assistantContext";
 import { usePaletteActionListener, usePaletteContextProvider } from "../../commandPalette/paletteActionEvents";
 import { useIsActiveTab } from "../common/Tabs";
+import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
+import { describeResolution, resolveTranscription } from "../../lib/transcriptionProvider";
+import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
+import { useTranscriptionResolution } from "../../hooks/useTranscriptionResolution";
+import { routePodcastTranscription } from "../../lib/transcriptionRouting";
 
 interface PodcastManagerProps {
   onPlayEpisode?: (feed: PodcastFeed, episode: PodcastEpisode) => void;
@@ -91,6 +94,8 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   const { t } = useI18n();
   const isMobile = useMobileShell();
   const toast = useToast();
+  const configuredTranscriptionResolution = useTranscriptionResolution();
+  const configuredEngine = describeResolution(configuredTranscriptionResolution);
 
   const transcriptSwipe = useSwipeGestures(
     {
@@ -944,9 +949,22 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   // Transcription handlers
   const handleTranscribe = async (episodeId: string) => {
     const settings = useSettingsStore.getState().settings;
-    const provider = settings.audioTranscription.provider;
-    const modelId = settings.audioTranscription.preferredModelId || "distil-small.en";
     const language = settings.audioTranscription.language || 'en';
+    const transcriptionStore = useTranscriptionStore.getState();
+    let profiles = transcriptionStore.profiles;
+    if (profiles.length === 0) {
+      await transcriptionStore.fetchProfiles();
+      profiles = useTranscriptionStore.getState().profiles;
+    }
+    const resolution = resolveTranscription(
+      settings.audioTranscription,
+      profiles,
+      isNativeMobile() ? "native-mobile" : "desktop",
+    );
+    if (resolution.ok === false) {
+      showTranscriptionResolutionFailure(resolution, toast, () => handleTranscribe(episodeId));
+      return;
+    }
 
     // On mobile (Android/iOS) the local Whisper/sherpa-onnx sidecar + FFmpeg
     // pipeline does not work, so transcription must go through Groq cloud (which
@@ -954,34 +972,21 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
     // word-level timestamps for karaoke highlighting. Also use Groq on desktop
     // when the user has selected the Groq provider. Falls back to the local
     // sidecar command otherwise.
-    const useGroq = provider === 'groq' || isNativeMobile();
-
     try {
       setTranscriptionProgress((prev) => new Map(prev).set(episodeId, { status: "starting", progress: 0 }));
       const autoSegment = settings.documents.autoProcessOnImport;
 
-      if (useGroq) {
-        const { isGroqConfigured } = await import("../../api/groqTranscription");
-        if (!isGroqConfigured()) {
-          throw new Error(
-            isNativeMobile()
-              ? "Local transcription isn't available on mobile. Add a free Groq API key in Settings → Audio Transcription to transcribe podcasts (with word-by-word highlighting)."
-              : "Groq API key not configured. Add it in Settings → Audio Transcription."
-          );
-        }
-        const episode = episodes.find((e) => e.id === episodeId);
-        const audioUrl = episode?.audioUrl;
-        if (!audioUrl) {
-          throw new Error("No audio URL available for this episode.");
-        }
-        // transcribePodcastEpisodeWithGroq persists segments + emits the same
-        // progress/complete/error events the local path uses, so the shared UI
-        // (progress bar, transcript panel refresh) works for both paths.
-        await transcribePodcastEpisodeWithGroq(episodeId, audioUrl, language);
+      const episode = episodes.find((e) => e.id === episodeId);
+      const route = await routePodcastTranscription(
+        episodeId,
+        episode?.audioUrl,
+        resolution,
+        language,
+        autoSegment,
+      );
+      if (route === "groq") {
         // Re-load episodes so the transcript button reflects the new status.
         if (selectedFeedId) loadEpisodes(selectedFeedId);
-      } else {
-        await transcribePodcastEpisode(episodeId, modelId, language, autoSegment);
       }
     } catch (error) {
       setTranscriptionProgress((prev) => {
@@ -1598,7 +1603,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                               <button
                                 onClick={() => handleTranscribe(episode.id)}
                                 className="flex-shrink-0 w-10 h-10 border border-border text-muted-foreground rounded-full hover:text-foreground hover:border-primary/50 transition-colors flex items-center justify-center"
-                                title="Transcribe with Whisper"
+                                title={configuredEngine}
                               >
                                 <FileAudio className="w-5 h-5" />
                               </button>
@@ -1898,7 +1903,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                   <button
                     onClick={() => handleTranscribe(ep.id)}
                     className="w-8 h-8 border border-border text-muted-foreground rounded-full hover:text-foreground hover:border-primary/50 transition-colors flex items-center justify-center flex-shrink-0"
-                    title="Transcribe with Whisper"
+                    title={configuredEngine}
                   >
                     <FileAudio className="w-4.5 h-4.5" />
                   </button>

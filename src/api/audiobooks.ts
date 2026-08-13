@@ -7,8 +7,10 @@
  * Supports both local Whisper and Groq cloud transcription.
  */
 
-import { isTauri } from "../lib/tauri";
+import { isNativeMobile, isTauri } from "../lib/tauri";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useTranscriptionStore } from "../stores/useTranscriptionStore";
+import { describeResolution, resolveTranscription } from "../lib/transcriptionProvider";
 import { 
   transcribeWithGroq, 
   convertGroqToInternalFormat,
@@ -345,6 +347,8 @@ export async function searchAudiobookMetadata(
  */
 async function generateTranscriptWithLocalWhisper(
   filePath: string,
+  modelId: string,
+  language: string,
   onProgress?: (progress: number) => void
 ): Promise<AudiobookTranscript> {
   const { invokeCommand, listen } = await import("../lib/tauri");
@@ -358,16 +362,14 @@ async function generateTranscriptWithLocalWhisper(
   }
 
   try {
-    const settings = useSettingsStore.getState().settings.audioTranscription;
-    
     // Use Tauri backend with Whisper
     const result = await invokeCommand<{
       segments: TranscriptSegment[];
       language?: string;
     }>("generate_audiobook_transcript", { 
       filePath,
-      model: settings.preferredModelId || "distil-small.en",
-      language: settings.language === 'auto' ? undefined : settings.language,
+      model: modelId,
+      language: language === 'auto' ? undefined : language,
     });
     
     const fullText = result.segments.map(s => s.text).join(" ");
@@ -468,9 +470,29 @@ export async function generateTranscript(
   filePath: string,
   onProgress?: (progress: number) => void
 ): Promise<AudiobookTranscript> {
-  const provider = useSettingsStore.getState().settings.audioTranscription.provider;
+  const audioSettings = useSettingsStore.getState().settings.audioTranscription;
+  const transcriptionStore = useTranscriptionStore.getState();
+  let profiles = transcriptionStore.profiles;
+  if (profiles.length === 0 && isTauri()) {
+    await transcriptionStore.fetchProfiles();
+    profiles = useTranscriptionStore.getState().profiles;
+  }
+  const resolution = resolveTranscription(
+    audioSettings,
+    profiles,
+    isNativeMobile() ? "native-mobile" : "desktop",
+  );
+  if (resolution.ok === false) {
+    if (resolution.reason === "model-not-installed") {
+      throw new Error(`Model '${resolution.modelId}' is not installed`);
+    }
+    if (resolution.reason === "missing-groq-key") {
+      throw new Error("Groq API key not configured. Please add your API key in Audio Transcription settings.");
+    }
+    throw new Error(describeResolution(resolution));
+  }
 
-  if (provider === 'groq') {
+  if (resolution.provider === 'groq') {
     if (!isTauri()) {
       const { getBrowserFile } = await import("../lib/browser-file-store");
       const file = getBrowserFile(filePath);
@@ -508,7 +530,12 @@ export async function generateTranscript(
       return generateTranscriptWithGroq(filePath, onProgress);
     }
   } else {
-    return generateTranscriptWithLocalWhisper(filePath, onProgress);
+    return generateTranscriptWithLocalWhisper(
+      filePath,
+      resolution.modelId,
+      audioSettings.language,
+      onProgress,
+    );
   }
 }
 

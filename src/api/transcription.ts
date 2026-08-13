@@ -47,7 +47,16 @@ export const downloadTranscriptionModel = async (id: string): Promise<void> => {
       throw new Error("Transcription models require the desktop app");
     }
     await invokeCommand("download_transcription_model", { id });
+    await useTranscriptionStore.getState().fetchProfiles();
+    const installed = useTranscriptionStore
+      .getState()
+      .profiles
+      .find((profile) => profile.id === id)?.installed;
+    if (!installed) {
+      throw new Error(`Model "${id}" downloaded but failed installation verification.`);
+    }
     useTranscriptionStore.getState().setStatus("idle");
+    useTranscriptionStore.getState().setDownloadProgress(id, 0);
   } catch (err) {
     useTranscriptionStore.getState().setStatus("idle");
     useTranscriptionStore.getState().setDownloadProgress(id, 0);
@@ -119,6 +128,7 @@ export type TranscriptionJobStatus = 'pending' | 'processing' | 'completed' | 'f
 export interface TranscriptionQueueEntry {
   id: string;
   documentId: string;
+  chapterId: string | null;
   audioPath: string;
   provider: string;
   modelId: string;
@@ -144,10 +154,11 @@ export const enqueueAutoTranscription = (
   modelId: string,
   language: string,
   priority?: number,
+  chapterId?: string,
 ): Promise<void> => {
   if (!isTauri()) return Promise.reject(new Error("Transcription requires desktop app"));
   return invokeCommand("enqueue_auto_transcription", {
-    documentId, audioPath, provider, modelId, language, priority,
+    documentId, audioPath, provider, modelId, language, priority, chapterId,
   });
 };
 

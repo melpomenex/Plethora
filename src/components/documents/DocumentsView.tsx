@@ -93,7 +93,6 @@ import { importAnkiPackage } from "../../utils/ankiImport";
 import { useI18n } from "../../lib/i18n";
 import { findCompanionDoc } from "../../utils/documentPairing";
 import { useTranscriptionQueueStore } from "../../stores/transcriptionQueueStore";
-import { enqueueAutoTranscription } from "../../api/transcription";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import { useToast } from "../common/Toast";
@@ -107,6 +106,9 @@ import {
 } from "./documentSelection";
 import { usePriorityPopup, resolveDisplaySlider, getPriorityInfo } from "./usePriorityPopup";
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
+import { resolveTranscription } from "../../lib/transcriptionProvider";
+import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
+import { routeDocumentTranscription } from "../../lib/transcriptionRouting";
 
 // The library's entry point into the same Item Statistics view the Queue
 // offers. Lazily imported so the modal and its charting stay out of the entry
@@ -871,52 +873,25 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
         }
       }
 
-      const installed = profiles.filter((p) => p.installed);
-
-      // 2. Define quality ranks for local models (highest quality first)
-      const MODEL_QUALITY_RANK = [
-        "parakeet-tdt-ctc-110m",  // Parakeet TDT-CTC 110M - ~126MB (SOTA English, very fast)
-        "sense-voice-small",      // SenseVoice Small - ~234MB (SOTA zh/en/ja/ko/yue)
-        "small",                  // Whisper Small (Multilingual Balanced) - ~488MB
-        "distil-small.en",        // Whisper Distil Small (English Fast) - ~336MB
-        "base",                   // Whisper Base (Multilingual Fast) - ~148MB
-      ];
-
-      // Determine model to use
-      let bestModelId = settings.preferredModelId;
-      const isPreferredInstalled = installed.some((p) => p.id === bestModelId);
-
-      if (!bestModelId || !isPreferredInstalled) {
-        if (installed.length > 0) {
-          // Sort installed by rank
-          const sortedInstalled = [...installed].sort((a, b) => {
-            let rankA = MODEL_QUALITY_RANK.indexOf(a.id);
-            let rankB = MODEL_QUALITY_RANK.indexOf(b.id);
-            if (rankA === -1) rankA = 999;
-            if (rankB === -1) rankB = 999;
-            return rankA - rankB;
-          });
-          bestModelId = sortedInstalled[0].id;
-        } else {
-          bestModelId = "distil-small.en"; // Fallback default
-        }
+      const resolution = resolveTranscription(
+        settings,
+        profiles,
+        isNativeMobile() ? "native-mobile" : "desktop",
+      );
+      if (resolution.ok === false) {
+        showTranscriptionResolutionFailure(resolution, toast, () => handleTranscribe(doc));
+        return;
       }
 
-      const isGroq = settings.provider === "groq";
-      const finalModelId = isGroq ? "groq-whisper" : bestModelId;
-
-      // 3. Route transcription based on model & provider
-      await enqueueAutoTranscription(
-        doc.id,
-        doc.filePath,
-        settings.provider,
-        finalModelId,
-        settings.language || "en",
-      );
-      toast.info(
-        "Transcription Queued",
-        `"${doc.title || "audio"}" has been enqueued for background transcription.`
-      );
+      const route = await routeDocumentTranscription(doc, resolution, settings.language);
+      if (route === "groq") {
+        toast.success("Transcription Complete", `"${doc.title || "audio"}" was transcribed with Groq.`);
+      } else {
+        toast.info(
+          "Local Transcription Queued",
+          `"${doc.title || "audio"}" will use ${resolution.modelLabel}.`,
+        );
+      }
     } catch (error: any) {
       console.error("Failed to transcribe:", error);
       confirmDialog.confirm({

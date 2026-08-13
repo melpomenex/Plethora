@@ -60,6 +60,17 @@ function runReviewSequence(): number {
 // fold is written here to keep it live (the engine cannot elide the loop).
 let sink = 0;
 
-bench("sm20/review-sequence", () => {
-  sink ^= runReviewSequence();
-});
+bench(
+  "sm20/review-sequence",
+  () => {
+    sink ^= runReviewSequence();
+  },
+  {
+    // One iteration is intentionally substantial (~15 ms). The default 500 ms
+    // window yields only ~30 samples, which lets GC timing dominate the result.
+    // Require a larger sample so the performance gate measures the steady state.
+    time: 2_000,
+    iterations: 100,
+    warmupTime: 500,
+  },
+);

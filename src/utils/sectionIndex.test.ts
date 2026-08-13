@@ -15,12 +15,50 @@ import {
   convertPdfOutlineToSectionNodes,
   convertEpubTocToSectionNodes,
   buildSectionsSnapshot,
+  buildMediaTranscriptSections,
   resolveSectionFocusedContext,
   type SectionContextDiagnostic,
   type SectionNode,
 } from "./sectionIndex";
 
 describe("sectionIndex", () => {
+  it("builds transcript-backed media chapters from overlapping timestamps", () => {
+    const sections = buildMediaTranscriptSections(
+      "book-1",
+      [
+        { id: 1, title: "Origins", startTime: 0, endTime: 60 },
+        { id: 2, title: "Consequences", startTime: 60, endTime: 120 },
+      ],
+      [
+        { start_ms: 5_000, end_ms: 20_000, text: "Origins-only evidence." },
+        { start_ms: 70_000, end_ms: 90_000, text: "Consequences-only evidence." },
+      ],
+    );
+
+    expect(sections.map((section) => section.title)).toEqual(["Origins", "Consequences"]);
+    expect(sections[0].content).toContain("Origins-only evidence");
+    expect(sections[0].content).not.toContain("Consequences-only evidence");
+    expect(sections[1].source).toBe("media-transcript");
+
+    const focused = buildSelectionFocusedContext([sections[0]], { maxTokens: 500 });
+    expect(focused.content).toContain("Origins-only evidence");
+    expect(focused.content).not.toContain("Consequences-only evidence");
+  });
+
+  it("omits media chapters that have not been transcribed yet", () => {
+    const sections = buildMediaTranscriptSections(
+      "book-1",
+      [
+        { id: 1, title: "Available", startTime: 0, endTime: 60 },
+        { id: 2, title: "Not transcribed", startTime: 60, endTime: 120 },
+      ],
+      [{ startTime: 10, endTime: 20, text: "Saved checkpoint text." }],
+    );
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0].title).toBe("Available");
+  });
+
   it("parses markdown headings with levels", () => {
     const content = "# Chapter 1\nIntro\n## 1.1 Background\nDetails\n### Details deep\nMore";
     const headings = parseMarkdownHeadings(content);

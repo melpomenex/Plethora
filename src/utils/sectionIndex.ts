@@ -12,7 +12,7 @@ export interface SectionNode {
   children: SectionNode[];
   parentId: string | null;
   /** Identifies where the section structure originated. */
-  source?: "text" | "pdf-outline" | "epub-toc" | "full-document" | "selection";
+  source?: "text" | "pdf-outline" | "epub-toc" | "full-document" | "selection" | "media-transcript";
   /** True only when startChar/endChar point at body text in the current content snapshot. */
   hasAuthoritativeRange?: boolean;
   /** End of this heading's direct content, before its first child heading. */
@@ -77,6 +77,70 @@ export function hashSectionContent(str: string): string {
 }
 
 const hashString = hashSectionContent;
+
+export interface TimedMediaChapter {
+  id: string | number;
+  title: string;
+  startTime: number;
+  endTime?: number;
+}
+
+export interface TimedTranscriptSegment {
+  text: string;
+  startTime?: number;
+  endTime?: number;
+  start?: number;
+  end?: number;
+  start_ms?: number;
+  end_ms?: number;
+}
+
+function transcriptSegmentRange(segment: TimedTranscriptSegment): { start: number; end: number } {
+  const start = segment.startTime ?? segment.start ?? ((segment.start_ms ?? 0) / 1000);
+  const end = segment.endTime ?? segment.end ?? ((segment.end_ms ?? segment.start_ms ?? 0) / 1000);
+  return { start, end: Math.max(start, end) };
+}
+
+/**
+ * Build authoritative Assistant sections by intersecting chapter time ranges
+ * with timestamped transcript segments. Empty/untranscribed chapters are
+ * deliberately omitted so the # picker never promises unavailable context.
+ */
+export function buildMediaTranscriptSections(
+  documentId: string,
+  chapters: TimedMediaChapter[],
+  segments: TimedTranscriptSegment[],
+): SectionNode[] {
+  if (!chapters.length || !segments.length) return [];
+
+  return chapters.flatMap((chapter, index) => {
+    const start = Math.max(0, chapter.startTime || 0);
+    const end = chapter.endTime ?? chapters[index + 1]?.startTime ?? Number.POSITIVE_INFINITY;
+    const overlapping = segments.filter((segment) => {
+      const range = transcriptSegmentRange(segment);
+      return range.end > start && range.start < end;
+    });
+    const content = overlapping
+      .map((segment) => segment.text.trim())
+      .filter(Boolean)
+      .join(" ");
+    if (!content) return [];
+
+    return [{
+      id: `media-section-${hashString(`${documentId}:${chapter.id}:${start}:${end}`)}`,
+      title: chapter.title || `Chapter ${index + 1}`,
+      level: 1,
+      breadcrumb: ["Transcript"],
+      preview: cleanPreview(content),
+      content,
+      children: [],
+      parentId: null,
+      source: "media-transcript" as const,
+      hasAuthoritativeRange: false,
+      documentId,
+    }];
+  });
+}
 
 export function normalizeContentValue(input: unknown): string {
   if (typeof input === "string") return input;

@@ -9,6 +9,9 @@ use uuid::Uuid;
 pub struct TranscriptionQueueEntry {
     pub id: String,
     pub document_id: String,
+    /// Transcript chapter targeted by this job. Legacy/document-wide entries
+    /// leave this unset and use `document_id` as the chapter key.
+    pub chapter_id: Option<String>,
     pub audio_path: String,
     pub provider: String,
     pub model_id: String,
@@ -44,6 +47,7 @@ impl TranscriptionQueueEntry {
         Self {
             id: Uuid::new_v4().to_string(),
             document_id,
+            chapter_id: None,
             audio_path,
             provider,
             model_id,
@@ -57,6 +61,10 @@ impl TranscriptionQueueEntry {
             retry_count: 0,
             progress: 0,
         }
+    }
+
+    pub fn transcript_chapter_id(&self) -> &str {
+        self.chapter_id.as_deref().unwrap_or(&self.document_id)
     }
 }
 

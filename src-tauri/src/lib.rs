@@ -1445,6 +1445,8 @@ pub fn run() {
             commands::prepare_audiobook_playback,
             commands::extract_audio_sample,
             commands::generate_audiobook_transcript,
+            commands::get_transcription_config,
+            commands::set_transcription_config,
             commands::extract_audio_cover_art,
             // YouTube playlist auto-import commands
             commands::subscribe_to_playlist,
@@ -1735,6 +1737,7 @@ pub fn run() {
             transcription::prioritize_transcription_job,
             transcription::get_transcription_status,
             transcription::enqueue_all_untranscribed,
+            transcription::get_untranscribed_media_documents,
             transcription::clear_transcription_queue,
             transcription::remove_transcription_entry,
             commands::embed_queue_items,

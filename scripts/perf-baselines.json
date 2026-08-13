@@ -5,7 +5,7 @@
     "name": "noise-anchor",
     "iterations": 200000
   },
-  "recordedFrom": "https://github.com/melpomenex/Incrementum/actions/runs/31182419989",
+  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13.",
   "benchmarks": {
     "file-manifest/add-1000-entries": {
       "cost": 7.84,
@@ -17,9 +17,9 @@
       "tolerance": 1.5
     },
     "sm20/review-sequence": {
-      "cost": 8.5,
-      "tolerance": 1.6,
-      "reason": "reviewM2/reviewM3 replaced structuredClone of the optimizer/matrices (recursive walk of ~57k elements + nested cubes) with hand-written shallow copies (.slice of each mutable array, per-row/per-cell for the number[][][] cubes). ~26x faster, byte-identical output; the commit:false clone is the per-review hot path."
+      "cost": 13.87,
+      "tolerance": 1.25,
+      "reason": "reviewM2/reviewM3 replaced structuredClone of the optimizer/matrices (recursive walk of ~57k elements + nested cubes) with hand-written shallow copies (.slice of each mutable array, per-row/per-cell for the number[][][] cubes). ~26x faster, byte-identical output; the commit:false clone is the per-review hot path. Re-recorded as the median of three calibrated runs (13.00, 13.87, 14.46) because this long allocation-heavy path scales differently from the gate's median mixed-workload runner calibration; the longer 2s/100-iteration sample supports tightening tolerance from 1.6x to the 1.25x default."
     },
     "queue/build-500-items": {
       "cost": 0.0964,
@@ -46,6 +46,38 @@
     "semanticGrading/routing-fallback": {
       "cost": 3.22,
       "tolerance": 1.4
+    },
+    "tabs/activate-in-20-tab-workspace": {
+      "cost": 0.01334,
+      "tolerance": 1.4
+    },
+    "tabs/serialize-20-tab-workspace": {
+      "cost": 0.01099,
+      "tolerance": 1.4
+    },
+    "tabs/normalize-pane-tree-depth-4": {
+      "cost": 0.0004704,
+      "tolerance": 2.0,
+      "reason": "Sub-microsecond tree normalization is timer- and GC-sensitive, so it uses the same wider tolerance as other microbenchmarks."
+    },
+    "tabs/find-reusable-tab-20-tabs": {
+      "cost": 0.02246,
+      "tolerance": 1.4
+    },
+    "tabs-dom/mount-12-tab-workspace": {
+      "cost": 4.866,
+      "tolerance": 1.5,
+      "reason": "jsdom mount cost includes React scheduling and garbage collection variance."
+    },
+    "tabs-dom/switch-active-tab-12-tabs": {
+      "cost": 0.5298,
+      "tolerance": 1.6,
+      "reason": "jsdom interaction cost includes React scheduling and garbage collection variance."
+    },
+    "tabs-dom/rerender-on-tab-collection-change": {
+      "cost": 0.1671,
+      "tolerance": 1.6,
+      "reason": "jsdom rerender cost includes React scheduling and garbage collection variance."
     }
   }
 }

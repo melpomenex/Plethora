@@ -218,22 +218,49 @@ pub async fn refresh_podcast_feed(
         let bg_tokens = tokens.inner().clone();
         let bg_app = app_handle.clone();
         let bg_feed_id = feed_id.clone();
-        let bg_language = updated_feed.transcribe_language.clone();
 
         tokio::spawn(async move {
+            let config =
+                match crate::commands::transcription_config::read_transcription_config(&bg_repo)
+                    .await
+                {
+                    Some(config) => config,
+                    None => {
+                        eprintln!(
+                            "[auto-transcribe] Skipped: transcription_config is missing or invalid"
+                        );
+                        return;
+                    }
+                };
+            if config.provider != "local" {
+                eprintln!(
+                    "[auto-transcribe] Skipped: configured provider '{}' is not supported for background transcription",
+                    config.provider
+                );
+                return;
+            }
+            let configured_model = match config.preferred_model_id {
+                Some(model) => model,
+                None => {
+                    eprintln!("[auto-transcribe] Skipped: no configured transcription model");
+                    return;
+                }
+            };
+            let configured_language = config.language;
             match bg_repo.get_untranscribed_episodes(&bg_feed_id).await {
                 Ok(episodes) => {
                     for ep in episodes.into_iter().take(3) {
                         let repo = bg_repo.clone();
                         let tokens = bg_tokens.clone();
                         let app = bg_app.clone();
-                        let lang = bg_language.clone();
+                        let lang = Some(configured_language.clone());
+                        let model = configured_model.clone();
                         let ep_id = ep.id.clone();
 
                         tokio::spawn(async move {
                             // Background best-effort — errors are logged, not propagated
                             if let Err(e) =
-                                run_transcription_job(ep_id, None, lang, None, app, repo, tokens)
+                                run_transcription_job(ep_id, Some(model), lang, None, app, repo, tokens)
                                     .await
                             {
                                 eprintln!("[auto-transcribe] Transcription failed: {}", e);
@@ -408,7 +435,9 @@ async fn run_transcription_job(
         .ok_or_else(|| IncrementumError::NotFound(format!("Podcast episode {}", episode_id)))?;
 
     let audio_url = episode.audio_url.clone();
-    let model_id = model.unwrap_or_else(|| "base".to_string());
+    let model_id = model.ok_or_else(|| {
+        IncrementumError::InvalidInput("No transcription model was requested.".to_string())
+    })?;
     let lang = language.unwrap_or_else(|| "auto".to_string());
 
     // 2. Set status to downloading
@@ -546,28 +575,14 @@ async fn run_transcription_job(
     let model_manager =
         ModelManager::new(&app_handle).map_err(|e| IncrementumError::Internal(e.to_string()))?;
 
-    let mut selected_model = model_id;
+    let selected_model = model_id;
     if !model_manager.is_model_installed(&selected_model) {
-        if let Some(fallback) = model_manager
-            .list_profiles()
-            .into_iter()
-            .find(|p| model_manager.is_model_installed(&p.id))
-        {
-            selected_model = fallback.id;
-        } else {
-            let _ = std::fs::remove_file(&temp_file);
-            repo.update_episode_transcript_status(
-                &episode_id,
-                "error",
-                Some("No Whisper model installed. Download one in Settings > Audio Transcription."),
-                None,
-            )
+        let _ = std::fs::remove_file(&temp_file);
+        let message = missing_requested_model_message(&selected_model);
+        repo.update_episode_transcript_status(&episode_id, "error", Some(&message), None)
             .await?;
-            cleanup(&tokens, &episode_id);
-            return Err(IncrementumError::InvalidInput(
-                "No Whisper model installed.".to_string(),
-            ));
-        }
+        cleanup(&tokens, &episode_id);
+        return Err(IncrementumError::InvalidInput(message));
     }
 
     let engine = TranscriptionEngine::new(app_handle.clone());
@@ -755,6 +770,26 @@ async fn run_transcription_job(
 
     cleanup(&tokens, &episode_id);
     Ok(())
+}
+
+fn missing_requested_model_message(model_id: &str) -> String {
+    format!(
+        "Model '{}' is not installed. Download it in Settings > Audio Transcription.",
+        model_id
+    )
+}
+
+#[cfg(test)]
+mod transcription_model_tests {
+    use super::missing_requested_model_message;
+
+    #[test]
+    fn missing_requested_model_error_names_the_request_without_substitution() {
+        let message = missing_requested_model_message("parakeet-tdt-ctc-110m");
+        assert!(message.contains("parakeet-tdt-ctc-110m"));
+        assert!(!message.contains("distil-small.en"));
+        assert!(!message.contains("base"));
+    }
 }
 
 // ── Transcript → Extract generation ────────────────────────────────────────
@@ -1501,9 +1536,9 @@ pub async fn transcribe_audio_file_groq(
         document_id
     );
 
-    // 3. Mark transcript row as processing (keyed book_id=chapter_id=document_id,
-    //    matching how auto-transcription stores it and how the viewer loads it).
-    sqlx::query("INSERT OR REPLACE INTO transcripts (book_id, chapter_id, model_used, language, status) VALUES (?, ?, ?, ?, 'processing')")
+    // 3. Mark the transcript as processing without replacing its row. Existing
+    // segments are checkpoints from an interrupted run and must survive.
+    sqlx::query("INSERT INTO transcripts (book_id, chapter_id, model_used, language, status) VALUES (?, ?, ?, ?, 'processing') ON CONFLICT(book_id, chapter_id) DO UPDATE SET model_used = excluded.model_used, language = excluded.language, status = 'processing', error_message = NULL, updated_at = CURRENT_TIMESTAMP")
         .bind(&document_id)
         .bind(&document_id)
         .bind(&model)
@@ -1521,15 +1556,23 @@ pub async fn transcribe_audio_file_groq(
             .map_err(|e| {
                 IncrementumError::Internal(format!("Failed to fetch transcript id: {}", e))
             })?;
-    sqlx::query("DELETE FROM transcript_segments WHERE transcript_id = ?")
+    let resume_start_ms: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(end_ms), 0) FROM transcript_segments WHERE transcript_id = ?",
+    )
         .bind(transcript_id)
-        .execute(repo.pool())
+        .fetch_one(repo.pool())
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to clear old segments: {}", e)))?;
+        .map_err(|e| IncrementumError::Internal(format!("Failed to read transcript checkpoint: {}", e)))?;
 
     // 4. Upload each chunk to Groq and persist segments as they arrive.
-    let mut combined: Vec<GroqChunkSegment> = Vec::new();
     for (i, chunk) in chunks.iter().enumerate() {
+        // A Groq response is persisted only after the whole chunk has returned,
+        // so any chunk beginning before the last saved segment belongs to a
+        // completed checkpoint. A chunk beginning exactly at the checkpoint is
+        // still pending and must run.
+        if resume_start_ms > 0 && chunk.start_ms < resume_start_ms {
+            continue;
+        }
         let progress = 15 + ((i as f64 / chunks.len() as f64) * 70.0) as i64;
         let _ = app_handle.emit(
             "audiobook://transcription-progress",
@@ -1585,17 +1628,12 @@ pub async fn transcribe_audio_file_groq(
             IncrementumError::Internal(format!("Groq chunk {} JSON parse failed: {}", i, e))
         })?;
 
-        let words = data_json
-            .get("words")
-            .and_then(|w| w.as_array())
-            .cloned()
-            .unwrap_or_default();
         let segments = data_json
             .get("segments")
             .and_then(|s| s.as_array())
             .cloned()
             .unwrap_or_default();
-        let mut wc = 0usize;
+        let mut persisted_chunk = Vec::with_capacity(segments.len());
         for seg in segments.iter() {
             let seg_start = seg.get("start").and_then(|v| v.as_f64()).unwrap_or(0.0);
             let seg_end = seg.get("end").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -1612,28 +1650,29 @@ pub async fn transcribe_audio_file_groq(
             let start_ms = chunk.start_ms + (seg_start * 1000.0).round() as i64;
             let end_ms = chunk.start_ms + (seg_end * 1000.0).round() as i64;
 
-            // Persist this segment immediately so the transcript panel can show
-            // progress as it streams in (best-effort; errors are logged, not fatal).
-            if let Err(e) = sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) VALUES (?, ?, ?, ?, ?)")
+            persisted_chunk.push((start_ms, end_ms, seg_text));
+        }
+
+        // Commit a Groq chunk atomically. Resume skips chunks before the last
+        // persisted timestamp, which is only safe when a crash cannot leave
+        // half of a chunk committed.
+        let mut tx = repo.pool().begin().await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to begin Groq chunk checkpoint: {}", e))
+        })?;
+        for (start_ms, end_ms, seg_text) in persisted_chunk {
+            sqlx::query("INSERT OR IGNORE INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) VALUES (?, ?, ?, ?, ?)")
                 .bind(transcript_id)
                 .bind(start_ms)
                 .bind(end_ms)
                 .bind(&seg_text)
                 .bind(1.0)
-                .execute(repo.pool())
+                .execute(&mut *tx)
                 .await
-            {
-                tracing::warn!("Failed to insert audiobook transcript segment: {}", e);
-            }
-
-            combined.push(GroqChunkSegment {
-                start_ms,
-                end_ms,
-                text: seg_text,
-                word_timings_json: None,
-            });
-            let _ = wc; // words array walked for parity with podcast path (unused here)
+                .map_err(|e| IncrementumError::Internal(format!("Failed to checkpoint Groq chunk: {}", e)))?;
         }
+        tx.commit().await.map_err(|e| {
+            IncrementumError::Internal(format!("Failed to commit Groq chunk checkpoint: {}", e))
+        })?;
 
         if i < chunks.len() - 1 {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -1645,9 +1684,16 @@ pub async fn transcribe_audio_file_groq(
 
     // 6. Write the combined full text to documents.content (AI assistant / book
     //    sync) and mark the transcript row completed.
-    let full_text = combined
+    let all_segments: Vec<(i64, i64, String)> = sqlx::query_as(
+        "SELECT start_ms, end_ms, text FROM transcript_segments WHERE transcript_id = ? ORDER BY start_ms, id",
+    )
+    .bind(transcript_id)
+    .fetch_all(repo.pool())
+    .await
+    .map_err(|e| IncrementumError::Internal(format!("Failed to assemble resumed transcript: {}", e)))?;
+    let full_text = all_segments
         .iter()
-        .map(|s| s.text.trim())
+        .map(|(_, _, text)| text.trim())
         .filter(|t| !t.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
@@ -1668,14 +1714,14 @@ pub async fn transcribe_audio_file_groq(
 
     let _ = app_handle.emit(
         "audiobook://transcription-complete",
-        serde_json::json!({ "documentId": &document_id, "segmentCount": combined.len() }),
+        serde_json::json!({ "documentId": &document_id, "segmentCount": all_segments.len() }),
     );
     eprintln!(
         "[audiobook-transcribe] groq: DONE, {} segments for document {}",
-        combined.len(),
+        all_segments.len(),
         document_id
     );
-    Ok(combined.len() as i64)
+    Ok(all_segments.len() as i64)
 }
 
 /// Persist per-segment (and optional per-word) timings produced by Groq cloud

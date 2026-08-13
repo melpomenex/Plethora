@@ -54,9 +54,9 @@ import {
   detectMultiPartAudiobook,
   MultiPartAudiobook,
 } from "../../api/audiobooks";
-import { downloadTranscriptionModel, getTranscriptionProfiles } from "../../api/transcription";
 import { isTauri, isNativeMobile } from "../../lib/tauri";
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
+import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import type { Document } from "../../types/document";
 
@@ -523,19 +523,10 @@ export function AudiobookImportDialog({
 
   const handleTranscriptionError = (message: string, retry?: () => void) => {
     if (message.includes('Groq API key not configured')) {
-      showError(
-        "Groq API Key Required",
-        "Please configure your Groq API key in Audio Transcription settings to use cloud transcription.",
-        {
-          action: {
-            label: "Open Settings",
-            onClick: () => {
-              window.dispatchEvent(new CustomEvent('navigate-to-settings', {
-                detail: { section: 'audio-transcription' },
-              }));
-            },
-          },
-        }
+      showTranscriptionResolutionFailure(
+        { ok: false, reason: "missing-groq-key" },
+        { error: showError, info: showInfo, success: showSuccess },
+        retry,
       );
     } else if (message.includes('Rate limit')) {
       showError(
@@ -571,36 +562,15 @@ export function AudiobookImportDialog({
       const match = message.match(/Model '([^']+)' is not installed/i);
       if (match) {
         const missingModelId = match[1];
-        showError(
-          "Model not installed",
-          `The "${missingModelId}" model is required for transcription.`,
-          retry ? {
-            action: {
-              label: "Download model",
-              onClick: async () => {
-                try {
-                  const profiles = await getTranscriptionProfiles();
-                  const target = profiles.find((p) => p.id === missingModelId) || profiles[0];
-                  if (!target) {
-                    showError("Download failed", "No transcription models are available.");
-                    return;
-                  }
-                  showInfo(
-                    "Downloading model",
-                    `${target.name} (${Math.round(target.size_bytes / 1024 / 1024)} MB)`
-                  );
-                  await downloadTranscriptionModel(target.id);
-                  showSuccess("Model downloaded", "Retrying transcription...");
-                  retry();
-                } catch (downloadErr) {
-                  showError(
-                    "Download failed",
-                    downloadErr instanceof Error ? downloadErr.message : "Unknown error"
-                  );
-                }
-              },
-            },
-          } : undefined
+        showTranscriptionResolutionFailure(
+          {
+            ok: false,
+            reason: "model-not-installed",
+            modelId: missingModelId,
+            modelLabel: missingModelId,
+          },
+          { error: showError, info: showInfo, success: showSuccess },
+          retry,
         );
       } else {
         showError("Transcription failed", message || "Unknown error");

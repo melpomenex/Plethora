@@ -28,9 +28,11 @@ function Assert-RequiredSidecars {
     [Parameter(Mandatory = $true)][string]$Label
   )
 
-  # Check for whisper sidecar
+  # Presence is insufficient: build.rs may seed zero-byte placeholders.
   $whisperSidecar = Get-ChildItem -Path $RootPath -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "whisper-*" -or $_.Name -eq "whisper.exe" } |
+    Where-Object {
+      ($_.Name -like "whisper-*" -or $_.Name -eq "whisper.exe") -and $_.Length -gt 0
+    } |
     Select-Object -First 1
 
   if (-not $whisperSidecar) {
@@ -38,6 +40,32 @@ function Assert-RequiredSidecars {
   }
 
   Write-Host "$Label found whisper sidecar: $($whisperSidecar.FullName)"
+
+  $sherpaSidecar = Get-ChildItem -Path $RootPath -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object {
+      ($_.Name -like "sherpa-onnx-*" -or $_.Name -eq "sherpa-onnx.exe") -and $_.Length -gt 0
+    } |
+    Select-Object -First 1
+
+  if (-not $sherpaSidecar) {
+    throw "$Label missing non-empty sherpa-onnx sidecar executable under $RootPath"
+  }
+
+  $onnxRuntime = Get-ChildItem -Path $RootPath -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like "*onnxruntime*.dll" -and $_.Length -gt 0 } |
+    Select-Object -First 1
+
+  if (-not $onnxRuntime) {
+    throw "$Label missing non-empty ONNX Runtime DLL under $RootPath"
+  }
+
+  Write-Host "$Label found sherpa sidecar: $($sherpaSidecar.FullName)"
+  Write-Host "$Label found ONNX Runtime: $($onnxRuntime.FullName)"
+
+  & node "scripts/verify-transcription-sidecars.mjs" --root $RootPath
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Label transcription runtime smoke test failed with exit code $LASTEXITCODE"
+  }
 
   # Check for NotebookLM runtime (venv-based on Windows)
   $notebooklmRuntime = Get-ChildItem -Path $RootPath -Recurse -Directory -ErrorAction SilentlyContinue |

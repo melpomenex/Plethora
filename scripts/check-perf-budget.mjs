@@ -17,10 +17,11 @@
  *
  *     cost = anchorHz / benchHz      // "this benchmark costs N anchor-ops"
  *
- * A runner that is 2x slower makes both hz values 2x smaller, so `cost` is
- * unchanged; a genuine regression slows only `benchHz`, so `cost` rises.
- * Baselines (scripts/perf-baselines.json) record `cost`, never milliseconds,
- * which is what lets a tight 1.25x default tolerance survive shared runners.
+ * The anchor removes clock-speed changes. Different CPU/Node runner classes can
+ * still execute the anchor's integer loop at a different relative speed from
+ * Maps, parsing, allocation, or DOM work. A second robust calibration therefore
+ * takes the median measured/baseline ratio across all baselined hot paths. A
+ * machine-wide shift is removed; an individual regression remains an outlier.
  *
  * OUTCOMES:
  *   - measured cost > baseline × tolerance  -> FAIL (exit 1)
@@ -44,6 +45,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 export const ANCHOR_NAME = "noise-anchor";
 /** Warn (not fail) when measured cost is more than 25% below baseline. */
 const STALE_BASELINE_FACTOR = 0.75;
+const MIN_CALIBRATION_BENCHMARKS = 3;
 
 /**
  * Format a cost ratio for display and for the paste-into-baselines line.
@@ -56,6 +58,15 @@ const STALE_BASELINE_FACTOR = 0.75;
  */
 const formatCost = formatSignificant;
 
+function median(values) {
+  if (values.length === 0) return 1;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+}
+
 /**
  * Compare measured benchmark results against recorded baselines. Pure function
  * so it is unit-testable without shelling out (see scripts/__tests__/).
@@ -67,7 +78,8 @@ const formatCost = formatSignificant;
  *             rows: Array<{name: string, baselineCost: number|null,
  *                          measuredCost: number|null, ratio: number|null,
  *                          verdict: string}>,
- *             failures: string[], warnings: string[] }}
+ *             failures: string[], warnings: string[],
+ *             environmentScale: number, calibrationSamples: number }}
  */
 export function comparePerfResults({ results, baselines }) {
   const byName = new Map(results.map((r) => [r.name, r]));
@@ -82,8 +94,25 @@ export function comparePerfResults({ results, baselines }) {
   // it (the CLI exits 2); the comparison loop below is only reachable when
   // the anchor exists.
   if (!anchor) {
-    return { anchor, rows, failures, warnings };
+    return { anchor, rows, failures, warnings, environmentScale: 1, calibrationSamples: 0 };
   }
+
+  // Anchor ratios are portable across clock speeds but not perfectly portable
+  // across CPU microarchitectures or Node versions: the integer-heavy anchor
+  // can shift relative to allocation, Map, parser, and DOM workloads. Use the
+  // median shift across independent baselined paths as a robust runner-class
+  // calibration. Fewer than three samples cannot distinguish environment from
+  // a real regression, so small/unit-test fixtures retain scale 1.
+  const calibrationRatios = [];
+  for (const bench of results) {
+    const baseline = baselines.benchmarks?.[bench.name];
+    if (bench.name === ANCHOR_NAME || !baseline || bench.hz <= 0 || baseline.cost <= 0) continue;
+    calibrationRatios.push((anchor.hz / bench.hz) / baseline.cost);
+  }
+  const calibrationSamples = calibrationRatios.length;
+  const environmentScale = calibrationSamples >= MIN_CALIBRATION_BENCHMARKS
+    ? median(calibrationRatios)
+    : 1;
 
   // Benchmark names in the baseline file but absent from this run: someone
   // deleted coverage or a suite failed to run. Fail loudly either way.
@@ -103,7 +132,8 @@ export function comparePerfResults({ results, baselines }) {
       rows.push({ name: bench.name, baselineCost: null, measuredCost: null, ratio: null, verdict: "FAIL" });
       continue;
     }
-    const measuredCost = anchor.hz / bench.hz;
+    const rawMeasuredCost = anchor.hz / bench.hz;
+    const measuredCost = rawMeasuredCost / environmentScale;
     const baseline = baselines.benchmarks?.[bench.name];
 
     if (!baseline) {
@@ -134,7 +164,7 @@ export function comparePerfResults({ results, baselines }) {
     }
   }
 
-  return { anchor, rows, failures, warnings };
+  return { anchor, rows, failures, warnings, environmentScale, calibrationSamples };
 }
 
 /**
@@ -174,7 +204,14 @@ export function main(argv = process.argv) {
     process.exit(2);
   }
 
-  const { anchor, rows, failures, warnings } = comparePerfResults({ results: benchmarks, baselines });
+  const {
+    anchor,
+    rows,
+    failures,
+    warnings,
+    environmentScale,
+    calibrationSamples,
+  } = comparePerfResults({ results: benchmarks, baselines });
 
   if (!anchor) {
     console.error(
@@ -185,6 +222,10 @@ export function main(argv = process.argv) {
   }
 
   console.log(`[perf-budget] anchor ${anchor.name}: ${anchor.hz.toFixed(1)} hz`);
+  console.log(
+    `[perf-budget] runner calibration: ${environmentScale.toFixed(3)}× ` +
+      `(${calibrationSamples} baselined benchmark${calibrationSamples === 1 ? "" : "s"})`
+  );
 
   // Aligned summary table: benchmark, baseline cost, measured cost, ratio, verdict.
   printAlignedTable(
