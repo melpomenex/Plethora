@@ -92,6 +92,7 @@ import { trimToTokenWindow } from "../utils/tokenizer";
 import { fetchYouTubeTranscript } from "../api/youtube";
 import { ReaderTTSControls } from "../components/common/ReaderTTSControls";
 import { usePaneId, useIsActiveTab } from "../components/common/Tabs/TabContent";
+import { useQueueTimeTracker, type QueueTimedTarget } from "../hooks/useQueueTimeTracker";
 import { DocumentViewer as DocumentViewerTab } from "../components/tabs/TabRegistry";
 import { ScrollQueueSettings } from "../components/queue/ScrollQueueSettings";
 import { ScrollOverlayControls } from "../components/queue/ScrollOverlayControls";
@@ -585,7 +586,6 @@ export function QueueScrollPage() {
 
   const lastScrollTime = useRef(0);
   const scrollCooldown = 500; // ms between scroll actions
-  const startTimeRef = useRef(Date.now());
   const containerRef = useRef<HTMLDivElement>(null);
   const rssContentRef = useRef<HTMLDivElement>(null);
   // Tracks whether the current flashcard's answer is revealed, so the global
@@ -819,7 +819,6 @@ export function QueueScrollPage() {
   useEffect(() => {
     const loadAllData = async () => {
       setIsLoadingData(true);
-      startTimeRef.current = Date.now();
 
       try {
         // This ensures the YouTube filter has all documents loaded before computing
@@ -1558,6 +1557,25 @@ export function QueueScrollPage() {
     return documentsMap.get(currentItem.documentId) ?? null;
   }, [currentItem, documentsMap]);
 
+  // Idle-aware replacement for the old wall-clock dwell measurement. Only
+  // documents and extracts have a cumulative time column, so only they can
+  // receive time for an item the user skipped past; flashcard time travels
+  // with the review itself.
+  const queueTimedTarget = useMemo<QueueTimedTarget | null>(() => {
+    if (!currentItem) return null;
+    if (currentItem.type === "document" && currentItem.documentId) {
+      return { itemType: "document", itemId: currentItem.documentId };
+    }
+    if (currentItem.type === "extract" && currentItem.extract) {
+      return { itemType: "extract", itemId: currentItem.extract.id };
+    }
+    return null;
+  }, [currentItem]);
+  const { consumeActiveSeconds, notifyEngagement } = useQueueTimeTracker(
+    currentItem?.id,
+    queueTimedTarget
+  );
+
   // Keep a small cross-device download horizon ahead of the reader. This is
   // fire-and-forget and bounded to the current item plus the next two
   // documents; queue rendering and navigation never wait for file sync.
@@ -2264,7 +2282,6 @@ export function QueueScrollPage() {
       setIsTransitioning(true);
       const nextIndex = currentIndex + 1;
       setCurrentIndex(nextIndex);
-      startTimeRef.current = Date.now();
       // Update renderedIndex after transition completes to avoid premature unmount
       setTimeout(() => {
         setRenderedIndex(nextIndex);
@@ -2279,7 +2296,6 @@ export function QueueScrollPage() {
       setIsTransitioning(true);
       const prevIndex = currentIndex - 1;
       setCurrentIndex(prevIndex);
-      startTimeRef.current = Date.now();
       // Update renderedIndex after transition completes to avoid premature unmount
       setTimeout(() => {
         setRenderedIndex(prevIndex);
@@ -2347,7 +2363,6 @@ export function QueueScrollPage() {
       const nextIndex = Math.min(currentIndex, updated.length - 1);
       setIsTransitioning(true);
       setCurrentIndex(nextIndex);
-      startTimeRef.current = Date.now();
       setTimeout(() => {
         setRenderedIndex(nextIndex);
         setIsTransitioning(false);
@@ -2967,7 +2982,11 @@ export function QueueScrollPage() {
     const ratedItemId = currentItem.id;
 
     try {
-      const timeTaken = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
+      // Active seconds, not wall-clock: an item left on screen while the user
+      // was elsewhere no longer inflates the recorded time. Consuming them
+      // here also stops them from being sent again as unrated time.
+      notifyEngagement();
+      const timeTaken = Math.max(1, consumeActiveSeconds());
 
       if (currentItem.type === "document") {
         if (!currentItem.documentId) {

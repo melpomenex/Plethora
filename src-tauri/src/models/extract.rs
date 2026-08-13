@@ -61,6 +61,12 @@ pub struct Extract {
     /// (SuperMemo-style Dismiss lifecycle action).
     #[serde(default)]
     pub is_dismissed: bool,
+    /// Cumulative *active* seconds invested in this extract, mirroring
+    /// `documents.total_time_spent`. `None` means no time was ever recorded —
+    /// the extract predates tracking — which is deliberately distinct from a
+    /// genuine `Some(0)`.
+    #[serde(default)]
+    pub total_time_spent: Option<i64>,
 }
 
 impl Extract {
@@ -92,6 +98,7 @@ impl Extract {
             source_hash: None,
             priority_score: 0.0,
             is_dismissed: false,
+            total_time_spent: None,
         }
     }
 

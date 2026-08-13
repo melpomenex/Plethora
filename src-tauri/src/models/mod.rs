@@ -5,6 +5,8 @@ pub mod collection;
 pub mod document;
 pub mod extract;
 pub mod image_asset;
+pub mod item_activity;
+pub mod item_stats;
 pub mod learning_item;
 pub mod playlist;
 pub mod position;
@@ -21,6 +23,11 @@ pub use document::{
 };
 pub use extract::Extract;
 pub use image_asset::{ImageAsset, ImageAssetWithUsage};
+pub use item_activity::{ActivityItemType, ActivitySurface, ItemActivityEvent};
+pub use item_stats::{
+    ItemContentStats, ItemHistoryStats, ItemScheduleStats, ItemStatsDetail, ItemStatsEvent,
+    ItemStatsSummary, ItemTimeStats, Metric, StatsItemType,
+};
 pub use learning_item::{ItemState, ItemType, LearningItem, MemoryState, ReviewRating};
 pub use playlist::{PlaylistSettings, PlaylistSubscription, PlaylistVideo};
 pub use position::{Bookmark, DailyReadingStats, DocumentPosition, ReadingSession};

@@ -1901,6 +1901,10 @@ impl Repository {
                     source_hash: row.try_get("source_hash").ok(),
                     priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
                     is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
+                    total_time_spent: row
+                        .try_get::<Option<i64>, _>("total_time_spent")
+                        .ok()
+                        .flatten(),
                 }))
             }
             None => Ok(None),
@@ -1958,6 +1962,10 @@ impl Repository {
                 source_hash: row.try_get("source_hash").ok(),
                 priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
                 is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
+                total_time_spent: row
+                    .try_get::<Option<i64>, _>("total_time_spent")
+                    .ok()
+                    .flatten(),
             });
         }
 
@@ -2014,6 +2022,10 @@ impl Repository {
                 source_hash: row.try_get("source_hash").ok(),
                 priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
                 is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
+                total_time_spent: row
+                    .try_get::<Option<i64>, _>("total_time_spent")
+                    .ok()
+                    .flatten(),
             });
         }
 
@@ -2284,6 +2296,10 @@ impl Repository {
                 source_hash: row.try_get("source_hash").ok(),
                 priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
                 is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
+                total_time_spent: row
+                    .try_get::<Option<i64>, _>("total_time_spent")
+                    .ok()
+                    .flatten(),
             });
         }
 
@@ -2341,6 +2357,10 @@ impl Repository {
                 source_hash: row.try_get("source_hash").ok(),
                 priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
                 is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
+                total_time_spent: row
+                    .try_get::<Option<i64>, _>("total_time_spent")
+                    .ok()
+                    .flatten(),
             });
         }
 

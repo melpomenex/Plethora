@@ -248,24 +248,35 @@ impl PositionService {
         })
     }
 
-    /// End a reading session
+    /// End a reading session.
+    ///
+    /// `duration_seconds` prefers the *active* seconds the heartbeats already
+    /// accumulated. Wall-clock is only a fallback for a session that never
+    /// received a heartbeat at all — it counts a document left open overnight
+    /// as nine hours of study, which is the inaccuracy the heartbeat exists to
+    /// fix.
     pub async fn end_reading_session(&self, session_id: &str, progress_end: f32) -> Result<()> {
         let ended_at = chrono::Utc::now().to_rfc3339();
 
-        // Calculate duration
-        let session_info =
-            sqlx::query_as::<_, (String,)>("SELECT started_at FROM reading_sessions WHERE id = ?1")
-                .bind(session_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| IncrementumError::Internal(format!("Failed to get session: {}", e)))?;
+        let session_info = sqlx::query_as::<_, (String, Option<String>, i64)>(
+            "SELECT started_at, last_heartbeat_at, duration_seconds FROM reading_sessions WHERE id = ?1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| IncrementumError::Internal(format!("Failed to get session: {}", e)))?;
 
-        if let Some((started_at,)) = session_info {
-            let start = chrono::DateTime::parse_from_rfc3339(&started_at)
-                .map_err(|e| IncrementumError::Internal(format!("Failed to parse date: {}", e)))?;
-            let end = chrono::Utc::now();
-            let duration = end.signed_duration_since(start.with_timezone(&chrono::Utc));
-            let duration_seconds = duration.num_seconds() as u32;
+        if let Some((started_at, last_heartbeat_at, accrued_seconds)) = session_info {
+            let duration_seconds = if last_heartbeat_at.is_some() {
+                accrued_seconds.max(0) as u32
+            } else {
+                let start = chrono::DateTime::parse_from_rfc3339(&started_at).map_err(|e| {
+                    IncrementumError::Internal(format!("Failed to parse date: {}", e))
+                })?;
+                let end = chrono::Utc::now();
+                let duration = end.signed_duration_since(start.with_timezone(&chrono::Utc));
+                duration.num_seconds().max(0) as u32
+            };
 
             sqlx::query(
                 r#"

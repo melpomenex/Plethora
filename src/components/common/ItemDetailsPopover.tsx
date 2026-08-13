@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
+  ChartBar,
   CircleNotch,
   Eye,
   EyeSlash,
@@ -21,6 +22,15 @@ import { useI18n } from "../../lib/i18n";
 import { useModal } from "./Modal";
 import { TagItemsModalContent } from "./TagItemsModal";
 import { ItemTagEditor } from "./ItemTagEditor";
+import { ItemStatsSummaryBlock } from "./ItemStatsSummary";
+import { useItemStats } from "../../hooks/useItemStats";
+
+// Lazily imported so neither the modal nor the charting it pulls in lands in
+// the entry chunk. The import starts when the user asks for full stats, not
+// when the popover mounts.
+const ItemStatsModal = lazy(() =>
+  import("../stats/ItemStatsModal").then((module) => ({ default: module.ItemStatsModal }))
+);
 
 export type ItemDetailsTarget =
   | {
@@ -202,7 +212,11 @@ export function ItemDetailsPopover({
   const [isDeleting, setIsDeleting] = useState(false);
   const [localModifier, setLocalModifier] = useState<string>("");
   const [isSavingModifier, setIsSavingModifier] = useState(false);
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // Focus returns here when the modal is dismissed, so keyboard users are not
+  // dropped back at the top of the document.
+  const fullStatsButtonRef = useRef<HTMLButtonElement>(null);
   const toast = useToast();
   const modal = useModal();
   const { settings } = useSettingsStore();
@@ -212,6 +226,20 @@ export function ItemDetailsPopover({
     if (target.type === "rss") return `rss:${target.title}`;
     return `${target.type}:${target.id}`;
   }, [target]);
+
+  // RSS articles have no persisted per-item record to look up, so the stats
+  // request is skipped for them entirely rather than issued and discarded.
+  const statsItemId = target.type === "rss" ? null : target.id;
+  const {
+    summary: statsSummary,
+    isSummaryLoading,
+    summaryError,
+  } = useItemStats({
+    itemType: target.type,
+    itemId: statsItemId,
+    isSummaryOpen: isOpen,
+    leechThreshold: settings.learning.leechThreshold,
+  });
 
   useEffect(() => {
     if (!isOpen) return;
@@ -455,6 +483,14 @@ export function ItemDetailsPopover({
               </div>
             )}
 
+            {statsItemId && (
+              <ItemStatsSummaryBlock
+                summary={statsSummary}
+                isLoading={isSummaryLoading}
+                error={summaryError}
+              />
+            )}
+
             <div className="border-t border-border pt-3 space-y-2">
               <div className="text-xs text-muted-foreground">
                 {t("itemDetails.scheduling")} / {
@@ -601,6 +637,18 @@ export function ItemDetailsPopover({
               <div className="border-t border-border pt-3 space-y-2">
                 <div className="text-xs text-muted-foreground">{t("itemDetails.commonActions")}</div>
                 <div className="flex flex-col gap-2">
+                  {statsItemId && (
+                    <button
+                      ref={fullStatsButtonRef}
+                      type="button"
+                      onClick={() => setIsStatsModalOpen(true)}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    >
+                      <ChartBar className="w-4 h-4" />
+                      {t("itemStats.fullStats")}
+                    </button>
+                  )}
+
                   {target.type === "document" && (
                     <button
                       onClick={handleDismissToggle}
@@ -668,6 +716,20 @@ export function ItemDetailsPopover({
             )}
           </div>
         </div>
+      )}
+
+      {isStatsModalOpen && statsItemId && (
+        <Suspense fallback={null}>
+          <ItemStatsModal
+            itemType={target.type}
+            itemId={statsItemId}
+            title={target.title}
+            onClose={() => {
+              setIsStatsModalOpen(false);
+              fullStatsButtonRef.current?.focus();
+            }}
+          />
+        </Suspense>
       )}
     </div>
   );

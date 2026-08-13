@@ -9,6 +9,7 @@ import { useDocumentStore, useSettingsStore } from "../../stores";
 import * as documentsApi from "../../api/documents";
 import { trimToTokenWindow } from "../../utils/tokenizer";
 import { useFormFactor } from "../../hooks/useFormFactor";
+import { useReadingSessionTracker } from "../../hooks/useReadingSessionTracker";
 import { isPWA } from "../../lib/pwa";
 import { useIsActiveTab } from "../common/Tabs";
 import {
@@ -48,6 +49,12 @@ export function DocumentViewer({
   hideRatingOrbs,
 }: DocumentViewerWithAssistantProps) {
   const isActiveTab = useIsActiveTab();
+
+  // Reading in the Reader now counts. Opening the document starts a session,
+  // active reading feeds it, and navigating away ends it — so a document read
+  // but never rated still shows the time it took.
+  useReadingSessionTracker({ documentId, isActive: isActiveTab });
+
   const [selection, setSelection] = useState("");
   const [scrollState, setScrollState] = useState<{ pageNumber?: number; scrollPercent?: number }>({});
   const [debouncedScrollPercent, setDebouncedScrollPercent] = useState<number | undefined>(undefined);

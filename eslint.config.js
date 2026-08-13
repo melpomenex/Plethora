@@ -33,6 +33,12 @@ export default [
       "whisper.cpp/**",
       "yjs-sync/**",
       "browser_extension/**",
+      // Agent-created git worktrees are full checkouts of this repo living
+      // inside it. Linting them reports every problem twice, and reports
+      // errors from directories already ignored above (`yjs-sync`,
+      // `browser_extension`) because those paths no longer match under the
+      // worktree prefix. The real source of truth is the main checkout.
+      ".claude/**",
       "api/youtube/transcript.ts.bak",
       ".eslintcache",
     ],
