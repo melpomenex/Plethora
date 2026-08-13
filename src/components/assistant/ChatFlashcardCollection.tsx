@@ -160,7 +160,7 @@ export function ChatFlashcardCollection({
                   <Eye className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/card:opacity-100 group-focus-within/card:opacity-100 motion-reduce:transition-none" />
                 </div>
               </button>
-              {artifact.status === "failed" && onRetry && (
+              {artifact.status === "failed" && artifact.retryable !== false && onRetry && (
                 <button
                   type="button"
                   className="absolute bottom-2.5 right-3 rounded-md border border-destructive/30 bg-background px-2 py-1 text-[10px] font-medium text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"

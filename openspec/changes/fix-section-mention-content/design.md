@@ -190,6 +190,59 @@ still load fresh canonical text and retain the existing one-time tree rebuild.
   as authoritative context makes the picker, validation, and provider payload
   agree.
 
+### D12. Reuse generated-card and resize contracts in Podcast Assistant
+
+Treat `batch_create_cards` as a first-class flashcard artifact source. Expand its
+`cards` array into the same `ChatFlashcardArtifact` rows used for single Q&A and
+cloze calls, map each persisted batch result back to its card, and merge shared
+top-level tags with per-card tags. This removes the batch call from the generic
+tool renderer, so Podcast Assistant shows the shared Flashcards collection with
+copy and state-aware deck actions instead of a large JSON parameter block.
+Partial batch failures remain visible per card, but do not offer a whole-batch
+retry that would duplicate already-saved sibling cards.
+
+Podcast View also sizes its outer chat sheet from the Assistant's existing
+persisted width and updates that host width through `onWidthChange`. The existing
+left-edge drag handle remains the single resize interaction, gains separator
+semantics and arrow-key support, and keeps the established 300–800 px bounds.
+On mobile the Assistant fills the swipe sheet and suppresses the desktop resize
+handle.
+
+- *Why:* the save path already understood batch cards, but the presentation
+  classifier recognized only single-card tools; the raw green JSON in Podcast
+  View was therefore a renderer mismatch rather than an LLM failure. Likewise,
+  adding a second Podcast-only resize grip would create two width states. Reusing
+  the shared artifact and resize contracts gives Podcast, beside-document, and
+  Document Q&A surfaces the same behavior.
+
+### D13. Make unbound decks tag-scoped and restore Anki source decks
+
+Derive a deck's default filter from its ownership data: a document-bound deck
+defaults to `all` within that document, an unbound deck with tag filters defaults
+to `tags`, and only an unbound deck with no filters is truly all-library. Keep
+explicit cram/difficulty/all/tag choices intact. Advance the persisted study-deck
+store to version 3 and rewrite only the invalid legacy shape—`filterType: all`,
+non-empty tag filters, and no document id—to `filterType: tags`. Anki and other
+named-deck upserts explicitly use `tags` when creating a deck or repairing a
+same-named legacy all-library deck, while preserving intentionally configured
+smart or document-bound decks on a name collision.
+
+Both native and browser Anki importers already append `anki-import`, the note
+model, and the source deck name to each card. Centralize recovery of that source
+deck name, prefer an explicit `deck:` tag when available, and otherwise use the
+established final-tag contract. Review Home and Deck Manager reconcile those
+names from the full card set so card-only imports made by older versions gain
+their missing deck without rewriting card rows. The Documents drag/drop surface
+uses the same persistence import as Review instead of merely parsing the APKG.
+
+- *Why:* `filterType: all` bypasses tag matching by definition. The old
+  `addDeck` default therefore turned any unbound named deck—including an AI
+  `create_deck` call or Anki deck—into a view of every card. Anki imports do not
+  create Documents, so the existing document-based seeder cannot repair them.
+  Deriving the default from actual ownership and reconciling from card tags
+  fixes both the immediate leak and historical imports with no database
+  migration.
+
 ## Risks / Trade-offs
 
 - **[Heading-level remap could shift existing trees]** → The `documentSectionCache` is keyed by content hash, so changing the parser invalidates caches and rebuilds trees for every open document on next load. Mitigation: this is correct (the old tree was wrong); the rebuild is bounded and already happens on any content change. Add a unit test asserting that a flat `# A / # B` Markdown doc still resolves to the same two sections (just with corrected relative levels).
@@ -202,6 +255,8 @@ still load fresh canonical text and retain the existing one-time tree rebuild.
 - **[Title lookup can fail]** → A document card is not persisted when all three title sources are unavailable. This is intentionally fail-closed: the artifact reports the actionable error and can be retried once document metadata is available, avoiding another saved-but-unassigned card.
 - **[Viewer catalog is ephemeral]** → The shared catalog is intentionally not persisted because it duplicates large transcript content. Document Q&A reconstructs it from existing audiobook metadata/transcript storage after restart; when neither source has timed data, it falls back to the normal document heading catalog after loading completes.
 - **[Catalog text may omit untimed audio]** → Flashcard Studio uses the joined catalog only when canonical document content is absent. Every available timed chapter remains represented, and section-focused sends use only the selected chapter's attached text.
+- **[A batch can partially fail]** → Successful sibling cards are still shown with their persisted IDs while failed rows report their own error. Unsafe whole-batch retry is suppressed to avoid duplicate saves.
+- **[Legacy all-library decks may have decorative tags]** → The version-3 repair changes only unbound `all` decks with non-empty filters, the shape produced by the broken default. Document-bound all-card decks and intentionally global decks without filters remain unchanged.
 
 ## Migration Plan
 

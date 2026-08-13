@@ -107,3 +107,17 @@ was non-empty. This group makes existing flattened documents self-heal on access
 - [x] 15.1 Treat viewer-published media chapter text as valid Flashcard Studio document context, and reconstruct the audiobook catalog from stored metadata/transcript before falling back to the separate video-transcript service when stored document content is empty.
 - [x] 15.2 Resolve Studio `media-transcript` selections through the mixed direct/structural resolver and skip canonical document loading for a direct-only timed chapter; preserve fresh-text loading and the one-time rebuild for structural headings.
 - [x] 15.3 Add regressions proving chapter `008` sends its attached transcript, excludes the foreword, does not call document extraction, and that the catalog provides a usable full-context fallback.
+
+## 16. Add Podcast Assistant card and resize parity (added during apply)
+
+- [x] 16.1 Expand `batch_create_cards` into shared flashcard artifacts with persisted ids, merged shared/per-card tags, and per-card failure state; exclude the batch from generic JSON tool rendering.
+- [x] 16.2 Reuse the shared collection's copy and state-aware deck action in Podcast Assistant, and report the actual number of cards in batch confirmation text.
+- [x] 16.3 Connect Podcast View's outer chat shell to the Assistant's persisted 300–800 px width, add accessible pointer/keyboard resize semantics, and keep the mobile sheet full-width without the desktop handle.
+- [x] 16.4 Add artifact, collection-safety, and shared resize regressions; run focused tests and TypeScript validation.
+
+## 17. Isolate named decks and restore Anki source decks (added during apply)
+
+- [x] 17.1 Derive unbound tagged decks as `filterType: tags`, keep document-bound decks scoped by document, and add a version-3 persisted-state repair for the invalid unbound tagged `all` shape.
+- [x] 17.2 Make named-deck reconciliation a tag-filtered upsert so existing broken decks retain their ids while being repaired instead of returning early.
+- [x] 17.3 Centralize Anki source-deck inference, self-heal missing decks from existing card-only imports in Review Home/Deck Manager, and make Documents drag/drop run the real card import rather than parse-only handling.
+- [x] 17.4 Add deck membership, migration, reconciliation, and Anki inference regressions; run focused tests and TypeScript validation.

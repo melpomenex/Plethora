@@ -19,12 +19,14 @@ export interface ChatFlashcardArtifact {
   persistedCardId?: string;
   /** Normalized tool-call tags, used to connect the artifact to its smart deck. */
   tags: string[];
+  /** False when retrying this row would duplicate successful siblings in a batch call. */
+  retryable?: boolean;
   error?: string;
   source?: SectionSourceReference;
   createdAt: number;
 }
 
-export const FLASHCARD_TOOL_NAMES = new Set(["create_qa_card", "create_cloze_card"]);
+export const FLASHCARD_TOOL_NAMES = new Set(["create_qa_card", "create_cloze_card", "batch_create_cards"]);
 
 export function isFlashcardToolCall(call: Pick<ChatToolCall, "name">): boolean {
   return FLASHCARD_TOOL_NAMES.has(call.name);
@@ -54,6 +56,12 @@ function stringList(value: unknown): string[] {
   return value
     .map((item) => stringValue(item))
     .filter((item, index, values) => Boolean(item) && values.indexOf(item) === index);
+}
+
+function mergeStringLists(...values: unknown[]): string[] {
+  return values
+    .flatMap((value) => stringList(value))
+    .filter((item, index, items) => items.indexOf(item) === index);
 }
 
 export function getFlashcardArtifactDeckName(artifacts: ChatFlashcardArtifact[]): string | undefined {
@@ -100,6 +108,34 @@ export function extractPersistedCardId(result: unknown): string | undefined {
   return undefined;
 }
 
+function structuredResult(result: unknown): Record<string, unknown> | undefined {
+  const candidates: unknown[] = [result];
+  const text = resultText(result);
+  if (text) {
+    try { candidates.push(JSON.parse(text)); } catch { /* non-JSON MCP result */ }
+  }
+  const records = candidates.filter((candidate): candidate is Record<string, unknown> =>
+    Boolean(candidate && typeof candidate === "object" && !Array.isArray(candidate)),
+  );
+  return records.find((candidate) => Array.isArray(candidate.results)) ?? records[0];
+}
+
+function batchResults(result: unknown): Record<string, unknown>[] {
+  const structured = structuredResult(result);
+  if (!structured || !Array.isArray(structured.results)) return [];
+  return structured.results.filter((item): item is Record<string, unknown> =>
+    Boolean(item && typeof item === "object" && !Array.isArray(item)),
+  );
+}
+
+function resultError(result: unknown): string {
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const error = stringValue((result as Record<string, unknown>).error);
+    if (error) return error;
+  }
+  return resultText(result);
+}
+
 export function toolCallsToFlashcardArtifacts(
   messageId: string,
   toolCalls: unknown,
@@ -111,6 +147,46 @@ export function toolCallsToFlashcardArtifacts(
   toolCalls.forEach((raw, callIndex) => {
     const call = normalizeParsedToolCall(raw);
     if (!call || !isFlashcardToolCall(call)) return;
+    if (call.name === "batch_create_cards") {
+      const cards = Array.isArray(call.parameters.cards) ? call.parameters.cards : [];
+      const persistedResults = batchResults(call.result);
+      cards.forEach((rawCard, cardIndex) => {
+        if (!rawCard || typeof rawCard !== "object" || Array.isArray(rawCard)) return;
+        const card = rawCard as Record<string, unknown>;
+        const cardType = stringValue(card.type).toLowerCase();
+        const front = stringValue(card.question ?? card.text);
+        const back = stringValue(card.answer);
+        const isCloze = cardType === "cloze";
+        if (!front || (!isCloze && !back)) return;
+
+        const persistedResult = persistedResults[cardIndex];
+        const itemFailed = persistedResult?.success === false;
+        const status: ChatFlashcardStatus = call.status === "error" || itemFailed
+          ? "failed"
+          : call.status === "success"
+            ? "saved"
+            : "pending";
+        artifacts.push({
+          id: `${messageId}:card:${callIndex}:${cardIndex}`,
+          callIndex,
+          type: isCloze ? "cloze" : "qa",
+          front,
+          back: isCloze ? undefined : back,
+          status,
+          persistedCardId: extractPersistedCardId(persistedResult),
+          tags: mergeStringLists(call.parameters.tags, card.tags),
+          // A partial batch failure cannot safely retry only this row with the
+          // parent call: doing so would save successful siblings twice.
+          retryable: call.status === "error",
+          error: status === "failed"
+            ? resultError(persistedResult ?? call.result) || "Card could not be saved."
+            : undefined,
+          source: options.source,
+          createdAt,
+        });
+      });
+      return;
+    }
     const isQa = call.name === "create_qa_card";
     const front = stringValue(isQa ? call.parameters.question : call.parameters.text);
     const back = isQa ? stringValue(call.parameters.answer) : undefined;

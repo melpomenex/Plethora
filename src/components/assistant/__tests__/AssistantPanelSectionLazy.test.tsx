@@ -316,6 +316,57 @@ describe("AssistantPanel # section index", () => {
     expect(mcpMocks.callTool).not.toHaveBeenCalled();
   });
 
+  it("renders Podcast-style batch cards as the shared collection with a deck action", async () => {
+    mcpMocks.getTools.mockResolvedValue([
+      { name: "batch_create_cards", description: "Create multiple flashcards", inputSchema: {} },
+    ]);
+    llmMocks.chatWithContext.mockResolvedValue({
+      content: `\`\`\`tool_calls\n${JSON.stringify({
+        tool_calls: [{
+          name: "batch_create_cards",
+          arguments: {
+            cards: [
+              { type: "qa", question: "Question one?", answer: "Answer one." },
+              { type: "qa", question: "Question two?", answer: "Answer two." },
+            ],
+          },
+        }],
+      })}\n\`\`\``,
+    });
+    mcpMocks.callTool.mockResolvedValue({
+      isError: false,
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          created: 2,
+          results: [
+            { success: true, id: "podcast-card-1" },
+            { success: true, id: "podcast-card-2" },
+          ],
+        }),
+      }],
+    });
+
+    render(
+      <AssistantPanel
+        context={{
+          type: "document",
+          content: "Podcast transcript content",
+          metadata: { title: "Podcast Episode" },
+        }}
+      />,
+    );
+    await waitFor(() => expect(mcpMocks.getTools).toHaveBeenCalled());
+    const textarea = screen.getByPlaceholderText(/Ask about your document/i);
+    fireEvent.change(textarea, { target: { value: "Create two flashcards" } });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(await screen.findByRole("region", { name: "2 created flashcards" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open deck Podcast Episode" })).toBeInTheDocument();
+    expect(screen.getByText(/Created 2 flashcards and saved to your library/i)).toBeInTheDocument();
+    expect(screen.queryByText("batch_create_cards")).not.toBeInTheDocument();
+  });
+
   it("repairs the document deck for previously saved untagged Assistant cards", async () => {
     localStorage.setItem("assistant-panel-conversations-v1", JSON.stringify({
       "document:doc-1": {
@@ -354,5 +405,28 @@ describe("AssistantPanel # section index", () => {
         filterType: "all",
       }));
     });
+  });
+
+  it("resizes through the shared accessible handle and reports the host width", async () => {
+    const onWidthChange = vi.fn();
+    localStorage.setItem("assistant-panel-width", "400");
+    render(<AssistantPanel onWidthChange={onWidthChange} />);
+    await waitFor(() => expect(mcpMocks.getTools).toHaveBeenCalled());
+
+    const separator = screen.getByRole("separator", { name: "Resize Assistant panel" });
+    expect(separator).toHaveAttribute("aria-valuenow", "400");
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+
+    expect(onWidthChange).toHaveBeenCalledWith(424);
+    expect(separator).toHaveAttribute("aria-valuenow", "424");
+    expect(localStorage.getItem("assistant-panel-width")).toBe("424");
+  });
+
+  it("fills a mobile host without exposing a desktop resize handle", async () => {
+    const { container } = render(<AssistantPanel fillContainer />);
+    await waitFor(() => expect(mcpMocks.getTools).toHaveBeenCalled());
+
+    expect(screen.queryByRole("separator", { name: "Resize Assistant panel" })).not.toBeInTheDocument();
+    expect(container.firstElementChild).toHaveStyle({ width: "100%" });
   });
 });
