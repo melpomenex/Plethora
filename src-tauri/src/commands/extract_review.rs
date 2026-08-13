@@ -1,7 +1,8 @@
 //! Extract review commands
 
-use crate::database::Repository;
+use crate::database::{ItemActivityRepository, Repository};
 use crate::error::Result;
+use crate::models::item_activity::{ActivityItemType, ActivitySurface, ItemActivityEvent};
 use crate::models::{Extract, ItemType, LearningItem, MemoryState};
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -15,11 +16,16 @@ pub struct ExtractReviewResult {
 
 /// Submit a review for an extract
 /// This schedules the next review using a simplified FSRS-like approach for extracts
+///
+/// `time_taken` is the *active* seconds the user spent on the extract, as
+/// measured by the frontend tracker. It is accumulated into the extract's
+/// cumulative total and recorded as one history row, giving extracts the same
+/// time story documents and flashcards already had.
 #[tauri::command]
 pub async fn submit_extract_review(
     extract_id: String,
     rating: i32, // 1=Again, 2=Hard, 3=Good, 4=Easy
-    _time_taken: i32,
+    time_taken: i32,
     repo: State<'_, Repository>,
 ) -> Result<Extract> {
     let mut extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
@@ -90,11 +96,42 @@ pub async fn submit_extract_review(
             .await?;
     }
 
+    // Persist the measured time. Previously this value was bound and dropped,
+    // which left extracts as the one reviewable type with no time story at all.
+    //
+    // The cumulative total propagates its errors — it is a number the user
+    // reads — while the history row is best-effort, because the schedule is
+    // already committed and failing here would report a successful review as
+    // failed.
+    let active_seconds = time_taken.max(0) as i64;
+    let activity = ItemActivityRepository::new(repo.pool().clone());
+    activity
+        .accumulate_item_time(ActivityItemType::Extract, &extract.id, active_seconds)
+        .await?;
+    if let Err(e) = activity
+        .record_event(&ItemActivityEvent::review(
+            ActivityItemType::Extract,
+            extract.id.clone(),
+            ActivitySurface::Queue,
+            active_seconds,
+            rating,
+            new_interval_days as f64,
+        ))
+        .await
+    {
+        tracing::warn!(
+            "Failed to record activity for extract review {}: {}",
+            extract.id,
+            e
+        );
+    }
+
     // Refresh object to return
     extract.next_review_date = Some(next_date);
     extract.review_count += 1;
     extract.reps += 1;
     extract.last_review_date = Some(now);
+    extract.total_time_spent = Some(extract.total_time_spent.unwrap_or(0) + active_seconds);
 
     Ok(extract)
 }

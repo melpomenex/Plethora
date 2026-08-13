@@ -6,9 +6,15 @@ const desktopOnly = () => Promise.reject(new Error("This feature requires the de
 
 /**
  * Submit a review for an extract
+ *
+ * The returned extract carries the updated `total_time_spent`: the backend
+ * accumulates `timeTaken` into it and records one history row, so an extract
+ * has the same time story as a document or a flashcard.
+ *
  * @param extractId The ID of the extract being reviewed
  * @param rating 1=Again, 2=Hard, 3=Good, 4=Easy
- * @param timeTaken Time taken in milliseconds
+ * @param timeTaken Active seconds spent on the extract (not milliseconds —
+ *   this matches every other rating call in the Queue)
  */
 export async function submitExtractReview(
     extractId: string,

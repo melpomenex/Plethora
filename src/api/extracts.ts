@@ -38,6 +38,12 @@ export interface Extract {
   priority_score?: number;
   /** Dismissed extracts leave the review queue but remain in the library. */
   is_dismissed?: boolean;
+  /**
+   * Cumulative *active* seconds invested in this extract, mirroring
+   * `Document.totalTimeSpent`. `null` means no time was ever recorded — the
+   * extract predates tracking — which is deliberately distinct from `0`.
+   */
+  total_time_spent?: number | null;
 }
 
 export interface CreateExtractInput {

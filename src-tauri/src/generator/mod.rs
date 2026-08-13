@@ -228,6 +228,7 @@ mod tests {
             source_hash: None,
             priority_score: 0.0,
             is_dismissed: false,
+            total_time_spent: None,
         }
     }
 

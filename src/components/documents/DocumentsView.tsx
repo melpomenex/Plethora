@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -22,6 +22,7 @@ import {
   Link,
   List,
   MagnifyingGlass,
+  ChartBar,
   Flag,
   Pause,
   Plus,
@@ -106,6 +107,13 @@ import {
 } from "./documentSelection";
 import { usePriorityPopup, resolveDisplaySlider, getPriorityInfo } from "./usePriorityPopup";
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
+
+// The library's entry point into the same Item Statistics view the Queue
+// offers. Lazily imported so the modal and its charting stay out of the entry
+// chunk — the library is on the critical path, the stats view is not.
+const ItemStatsModal = lazy(() =>
+  import("../stats/ItemStatsModal").then((module) => ({ default: module.ItemStatsModal }))
+);
 
 const MODE_STORAGE_KEY = "documentsViewMode";
 const SAVED_VIEWS_KEY = "documentsSavedViews";
@@ -257,6 +265,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const [selectionToggledIds, setSelectionToggledIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [listCtxDoc, setListCtxDoc] = useState<{ doc: Document; pos: { x: number; y: number } } | null>(null);
+  const [statsDoc, setStatsDoc] = useState<Document | null>(null);
   const listCtxRef = useRef<HTMLDivElement>(null);
   // The single page-level scroll container shared by every library layout
   // (grid dashboard, compact view, list mode). Virtualized rows (list mode,
@@ -1846,6 +1855,17 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                   <Pause className="h-3.5 w-3.5 text-muted-foreground" />
                   {t("documentsView.suspend")}
                 </button>
+                <button
+                  className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
+                  onClick={() => {
+                    const clicked = listCtxDoc.doc;
+                    setListCtxDoc(null);
+                    setStatsDoc(clicked);
+                  }}
+                >
+                  <ChartBar className="h-3.5 w-3.5 text-muted-foreground" />
+                  {t("itemStats.openStats")}
+                </button>
                 <div className="h-px bg-border my-1" />
                 <button
                   className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
@@ -1857,6 +1877,17 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
               </div>
             </Fragment>,
             document.body
+          )}
+
+          {statsDoc && (
+            <Suspense fallback={null}>
+              <ItemStatsModal
+                itemType="document"
+                itemId={statsDoc.id}
+                title={statsDoc.title}
+                onClose={() => setStatsDoc(null)}
+              />
+            </Suspense>
           )}
 
           {/* List mode pair picker */}
@@ -3582,6 +3613,7 @@ function LibraryCard({
   const progress = doc.progressPercent ?? 0;
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
   const [showPairPicker, setShowPairPicker] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [pairSearch, setPairSearch] = useState("");
   // Long-press (touch-hold) opens the same context menu as right-click.
   const cardLongPress = useLongPress((pos) => setCtxPos(pos));
@@ -3672,6 +3704,11 @@ function LibraryCard({
       icon: <Flag className="h-3.5 w-3.5 text-muted-foreground" />,
       action: () => onOpenPopup(),
     } as { label: string; icon: React.ReactNode; color?: string; divider?: boolean; action: () => void }] : []),
+    {
+      label: t("itemStats.openStats"),
+      icon: <ChartBar className="h-3.5 w-3.5 text-muted-foreground" />,
+      action: () => setShowStats(true),
+    },
     { label: "", icon: null, divider: true, action: () => {} },
     ...(doc.fileType === "audio" || doc.fileType === "video" ? [{
       label: "Transcribe",
@@ -3783,6 +3820,17 @@ function LibraryCard({
           </div>
         </Fragment>,
         document.body
+      )}
+
+      {showStats && (
+        <Suspense fallback={null}>
+          <ItemStatsModal
+            itemType="document"
+            itemId={doc.id}
+            title={doc.title}
+            onClose={() => setShowStats(false)}
+          />
+        </Suspense>
       )}
 
       {/* Pair Picker */}

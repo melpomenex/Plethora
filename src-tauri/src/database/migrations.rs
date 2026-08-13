@@ -2632,6 +2632,45 @@ pub const MIGRATIONS: &[Migration] = &[
             ON learning_items(priority_score);
         "#,
     ),
+    // Migration 083: per-item activity history and the columns that make
+    // active-time accrual truthful.
+    //
+    // Purely additive: `item_activity_log` is new, and the two `ALTER TABLE`s
+    // append nullable columns. Nothing rebuilds a table and nothing rewrites
+    // an existing row, so pre-change totals (notably `documents.total_time_spent`)
+    // survive untouched — an item with no rows here simply has no history,
+    // which is the "untracked" state the stats UI renders explicitly.
+    //
+    // Flashcards are deliberately absent: their history already lives in
+    // `review_results`, which is the synced revlog. Forking it would create a
+    // second source of truth for the same event.
+    Migration::new(
+        "083_add_item_activity_log",
+        r#"
+        CREATE TABLE IF NOT EXISTS item_activity_log (
+            id TEXT PRIMARY KEY,
+            item_type TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            surface TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            active_seconds INTEGER NOT NULL DEFAULT 0,
+            rating INTEGER,
+            resulting_interval_days REAL,
+            progress_start REAL,
+            progress_end REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_item_activity_log_item
+            ON item_activity_log(item_type, item_id);
+        CREATE INDEX IF NOT EXISTS idx_item_activity_log_started_at
+            ON item_activity_log(started_at);
+
+        ALTER TABLE extracts ADD COLUMN total_time_spent INTEGER;
+
+        ALTER TABLE reading_sessions ADD COLUMN last_heartbeat_at TEXT;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -2757,6 +2796,63 @@ fn split_sql_statements(sql: &str) -> Vec<String> {
     statements
 }
 
+/// Apply a single migration and record it, all inside one transaction.
+async fn apply_migration(pool: &Pool<Sqlite>, migration: &Migration) -> Result<()> {
+    eprintln!("Applying migration: {}", migration.name);
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| IncrementumError::Internal(format!("Failed to start transaction: {}", e)))?;
+
+    // Split statements while respecting BEGIN...END blocks (for triggers)
+    let statements = split_sql_statements(migration.sql);
+    eprintln!("  Executing {} statements", statements.len());
+    for (i, statement) in statements.iter().enumerate() {
+        eprintln!("  Statement {}: {} bytes", i + 1, statement.len());
+        eprintln!(
+            "  First 100 chars: {}",
+            &statement.chars().take(100).collect::<String>()
+        );
+        sqlx::query(statement)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                IncrementumError::Internal(format!(
+                    "Migration {} failed at statement {}: {}",
+                    migration.name,
+                    i + 1,
+                    e
+                ))
+            })?;
+    }
+
+    // Record migration
+    let applied_at = chrono::Utc::now().to_rfc3339();
+    sqlx::query("INSERT INTO _schema_migrations (name, applied_at) VALUES (?1, ?2)")
+        .bind(migration.name)
+        .bind(&applied_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            IncrementumError::Internal(format!(
+                "Failed to record migration {}: {}",
+                migration.name, e
+            ))
+        })?;
+
+    // Commit transaction
+    tx.commit().await.map_err(|e| {
+        IncrementumError::Internal(format!(
+            "Failed to commit migration {}: {}",
+            migration.name, e
+        ))
+    })?;
+
+    eprintln!("Migration {} applied successfully", migration.name);
+    Ok(())
+}
+
 /// Run all pending migrations
 pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<()> {
     // Ensure migration tracking table exists
@@ -2789,57 +2885,7 @@ pub async fn run_migrations(pool: &Pool<Sqlite>) -> Result<()> {
             continue;
         }
 
-        eprintln!("Applying migration: {}", migration.name);
-
-        let mut tx = pool.begin().await.map_err(|e| {
-            IncrementumError::Internal(format!("Failed to start transaction: {}", e))
-        })?;
-
-        // Split statements while respecting BEGIN...END blocks (for triggers)
-        let statements = split_sql_statements(migration.sql);
-        eprintln!("  Executing {} statements", statements.len());
-        for (i, statement) in statements.iter().enumerate() {
-            eprintln!("  Statement {}: {} bytes", i + 1, statement.len());
-            eprintln!(
-                "  First 100 chars: {}",
-                &statement.chars().take(100).collect::<String>()
-            );
-            sqlx::query(statement)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    IncrementumError::Internal(format!(
-                        "Migration {} failed at statement {}: {}",
-                        migration.name,
-                        i + 1,
-                        e
-                    ))
-                })?;
-        }
-
-        // Record migration
-        let applied_at = chrono::Utc::now().to_rfc3339();
-        sqlx::query("INSERT INTO _schema_migrations (name, applied_at) VALUES (?1, ?2)")
-            .bind(migration.name)
-            .bind(&applied_at)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                IncrementumError::Internal(format!(
-                    "Failed to record migration {}: {}",
-                    migration.name, e
-                ))
-            })?;
-
-        // Commit transaction
-        tx.commit().await.map_err(|e| {
-            IncrementumError::Internal(format!(
-                "Failed to commit migration {}: {}",
-                migration.name, e
-            ))
-        })?;
-
-        eprintln!("Migration {} applied successfully", migration.name);
+        apply_migration(pool, migration).await?;
     }
 
     eprintln!("All migrations applied successfully");
@@ -2874,6 +2920,165 @@ pub async fn needs_migration(pool: &Pool<Sqlite>) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Name of the migration that adds per-item activity history. The
+    /// upgrade test stops just short of it so it can seed a realistic
+    /// pre-change database first.
+    const ACTIVITY_LOG_MIGRATION: &str = "083_add_item_activity_log";
+
+    /// Build an in-memory database with every migration up to (but not
+    /// including) `stop_before` applied, so a test can seed rows that look
+    /// like they predate the migration under test.
+    async fn pool_migrated_up_to(stop_before: &str) -> Pool<Sqlite> {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            // One connection: `sqlite::memory:` gives every connection its own
+            // private database, so a larger pool would migrate one and query
+            // another.
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open in-memory database");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS _schema_migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create migrations table");
+
+        for migration in MIGRATIONS {
+            if migration.name == stop_before {
+                return pool;
+            }
+            apply_migration(&pool, migration)
+                .await
+                .unwrap_or_else(|e| panic!("migration {} failed: {}", migration.name, e));
+        }
+
+        panic!("migration {} not found", stop_before);
+    }
+
+    #[tokio::test]
+    async fn activity_log_migration_upgrades_a_seeded_database_without_touching_totals() {
+        let pool = pool_migrated_up_to(ACTIVITY_LOG_MIGRATION).await;
+
+        // Seed rows the way a pre-change installation would have them: a
+        // document that already accumulated time, an extract, and a
+        // learning item.
+        sqlx::query(
+            "INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified, total_time_spent)
+             VALUES ('doc-1', 'Seeded document', '/tmp/seeded.pdf', 'pdf', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 4242)",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed document");
+
+        sqlx::query(
+            "INSERT INTO extracts (id, document_id, content, date_created, date_modified)
+             VALUES ('ext-1', 'doc-1', 'Seeded extract', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed extract");
+
+        sqlx::query(
+            "INSERT INTO learning_items (id, item_type, question, date_created, date_modified, due_date)
+             VALUES ('item-1', 'flashcard', 'Seeded question?', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed learning item");
+
+        // Apply the rest of the migrations, including the one under test.
+        run_migrations(&pool).await.expect("migrations apply");
+
+        // The new table and its indexes exist.
+        let (activity_table,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'item_activity_log'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("check item_activity_log");
+        assert_eq!(activity_table, 1, "item_activity_log should be created");
+
+        for index in [
+            "idx_item_activity_log_item",
+            "idx_item_activity_log_started_at",
+        ] {
+            let (count,): (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            )
+            .bind(index)
+            .fetch_one(&pool)
+            .await
+            .expect("check index");
+            assert_eq!(count, 1, "{index} should be created");
+        }
+
+        // The additive columns exist and default to NULL on existing rows —
+        // NULL, not 0, is what lets the UI say "not recorded" instead of
+        // fabricating a zero.
+        let (extract_total,): (Option<i64>,) =
+            sqlx::query_as("SELECT total_time_spent FROM extracts WHERE id = 'ext-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("read extracts.total_time_spent");
+        assert_eq!(extract_total, None);
+
+        sqlx::query(
+            "INSERT INTO reading_sessions (id, document_id, started_at) VALUES ('sess-1', 'doc-1', '2026-01-02T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert reading session");
+        let (heartbeat,): (Option<String>,) =
+            sqlx::query_as("SELECT last_heartbeat_at FROM reading_sessions WHERE id = 'sess-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("read reading_sessions.last_heartbeat_at");
+        assert_eq!(heartbeat, None);
+
+        // Pre-existing totals are untouched — the migration never recomputes.
+        let (document_total,): (Option<i64>,) =
+            sqlx::query_as("SELECT total_time_spent FROM documents WHERE id = 'doc-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("read documents.total_time_spent");
+        assert_eq!(document_total, Some(4242));
+
+        // And the seeded rows all survive.
+        for (table, id) in [
+            ("documents", "doc-1"),
+            ("extracts", "ext-1"),
+            ("learning_items", "item-1"),
+        ] {
+            let (count,): (i64,) =
+                sqlx::query_as(&format!("SELECT COUNT(*) FROM {table} WHERE id = ?1"))
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .expect("count seeded row");
+            assert_eq!(count, 1, "{table} row {id} should survive the migration");
+        }
+    }
+
+    #[tokio::test]
+    async fn activity_log_migration_is_idempotent_across_repeated_runs() {
+        let pool = pool_migrated_up_to(ACTIVITY_LOG_MIGRATION).await;
+        run_migrations(&pool).await.expect("first run");
+        run_migrations(&pool).await.expect("second run");
+
+        let (applied,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM _schema_migrations WHERE name = ?1")
+                .bind(ACTIVITY_LOG_MIGRATION)
+                .fetch_one(&pool)
+                .await
+                .expect("count applied migration");
+        assert_eq!(applied, 1);
+    }
 
     #[test]
     fn test_migrations_defined() {

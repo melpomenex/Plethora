@@ -124,6 +124,7 @@ import { resolveLocalMediaSource, type ResolvedLocalMediaSource } from "./localM
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import type { EpubVimRuntime, PdfVimRuntime } from "../../utils/vim/readerRuntimes";
 import { InlineDocumentTitle } from "./InlineDocumentTitle";
+import { ItemStatsButton } from "../stats/ItemStatsButton";
 
 const READER_FOCUS_EVENT = "incrementum-reader-focus-mode-change";
 const READER_FOCUS_CLASS = "incrementum-reader-focus-mode";
@@ -6037,6 +6038,16 @@ export function DocumentViewer({
           <ReaderPriorityChip
             doc={currentDocument}
             onOpenPopup={() => void priorityPopup.open([currentDocument.id], [currentDocument])}
+          />
+
+          {/* The same Item Statistics view the Queue offers, including the
+              time accrued in this reading session up to its last heartbeat. */}
+          <ItemStatsButton
+            itemType="document"
+            itemId={currentDocument.id}
+            title={currentDocument.title}
+            iconOnly
+            className="hidden sm:inline-flex"
           />
 
           {/* Due date badge */}

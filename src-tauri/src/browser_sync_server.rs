@@ -1594,6 +1594,7 @@ async fn handle_extract_request(
         source_hash: None,
         priority_score: 0.0,
         is_dismissed: false,
+        total_time_spent: None,
     };
 
     let created = state.repo.create_extract(&extract).await?;

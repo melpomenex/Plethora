@@ -14,6 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { useToast } from "../common/Toast";
 import { CompactTagEditor } from "../common/CompactTagEditor";
+import { ItemStatsButton } from "../stats/ItemStatsButton";
 import { useI18n } from "../../lib/i18n";
 import {
   updateLearningItemContentWithVersion,
@@ -92,6 +93,16 @@ export function CardPreviewPanel({
             </button>
           );
         })}
+
+        {/* Same Item Statistics view the Queue offers, reached from Studio. */}
+        <div className="ml-auto pr-1">
+          <ItemStatsButton
+            itemType="learning-item"
+            itemId={card.id}
+            title={card.question}
+            iconOnly
+          />
+        </div>
       </div>
 
       {/* Tab content */}

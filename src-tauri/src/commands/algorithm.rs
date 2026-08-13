@@ -7,8 +7,9 @@ use crate::algorithms::{
     EngagingScheduler, IncrementalScheduler, SM2Params,
 };
 use crate::commands::review::RepositoryExt;
-use crate::database::Repository;
+use crate::database::{ItemActivityRepository, Repository};
 use crate::error::Result;
+use crate::models::item_activity::{ActivityItemType, ActivitySurface, ItemActivityEvent};
 use crate::models::{Document, FileType, ReviewRating};
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -192,6 +193,48 @@ pub async fn calculate_sm2_next(
     })
 }
 
+/// Record one document rating in the per-item activity log.
+///
+/// The progress delta is measured against the end of the previous recorded
+/// interaction, so it describes the ground covered by *this* review rather
+/// than the document's lifetime progress.
+///
+/// Best-effort on purpose: the rating and its schedule are already committed
+/// by the time this runs, so failing the command here would report a
+/// successful review as failed and invite the user to rate twice. Cumulative
+/// totals still propagate their errors — those are numbers the user reads.
+async fn record_document_rating_activity(
+    repo: &Repository,
+    document: &Document,
+    rating: i32,
+    active_seconds: i64,
+    interval_days: i64,
+) {
+    let activity = ItemActivityRepository::new(repo.pool().clone());
+    let progress_start = activity
+        .last_known_document_progress(&document.id)
+        .await
+        .unwrap_or(None);
+
+    let event = ItemActivityEvent::review(
+        ActivityItemType::Document,
+        document.id.clone(),
+        ActivitySurface::Queue,
+        active_seconds,
+        rating,
+        interval_days as f64,
+    )
+    .with_progress(progress_start, document.progress_percent);
+
+    if let Err(e) = activity.record_event(&event).await {
+        tracing::warn!(
+            "Failed to record activity for document rating {}: {}",
+            document.id,
+            e
+        );
+    }
+}
+
 /// Rate a document and schedule its next reading
 ///
 /// This uses the incremental reading scheduler for documents and videos,
@@ -283,6 +326,15 @@ pub async fn rate_document(
         .execute(repo.pool())
         .await;
     }
+
+    record_document_rating_activity(
+        &repo,
+        &document,
+        request.rating,
+        request.time_taken.unwrap_or(0).max(0) as i64,
+        result.interval_days,
+    )
+    .await;
 
     Ok(DocumentRatingResponse {
         next_review_date: result.next_review.to_rfc3339(),
@@ -395,6 +447,15 @@ pub async fn rate_document_engaging(
         .execute(repo.pool())
         .await;
     }
+
+    record_document_rating_activity(
+        &repo,
+        &document,
+        request.rating,
+        request.time_taken.unwrap_or(0).max(0) as i64,
+        result.interval_days,
+    )
+    .await;
 
     Ok(DocumentRatingResponse {
         next_review_date: result.next_review.to_rfc3339(),

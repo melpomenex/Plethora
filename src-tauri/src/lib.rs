@@ -966,6 +966,24 @@ pub fn run() {
 
                 log_startup(&app_handle, "startup: migrations complete");
 
+                // Close reading sessions the last run left open — a crash, a
+                // force-quit, or an OS shutdown. Each is ended at its last
+                // recorded heartbeat, so the unobserved gap since then adds
+                // nothing to the document's time. Idempotent: a second launch
+                // finds nothing left to close.
+                match database::ItemActivityRepository::new(pool.clone())
+                    .close_stale_reading_sessions()
+                    .await
+                {
+                    Ok(0) => {}
+                    Ok(recovered) => {
+                        tracing::info!("Recovered {} stale reading session(s)", recovered);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to recover stale reading sessions: {}", e);
+                    }
+                }
+
                 // Initialize cloud auth provider and AI key store (managed immediately so commands can access them)
                 let auth_store = cloud::auth_store::AuthStore::new(app_dir.clone());
                 let cloud_auth_provider = cloud::auth_store::CloudAuthProvider::new();
@@ -1212,6 +1230,9 @@ pub fn run() {
             commands::start_reading_session,
             commands::end_reading_session,
             commands::get_active_session,
+            commands::record_active_time,
+            commands::get_item_stats_summary,
+            commands::get_item_stats_detail,
             commands::get_documents_with_progress,
             commands::get_startup_snapshot,
             commands::get_daily_reading_stats,
