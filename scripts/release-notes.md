@@ -1,14 +1,15 @@
 ### Added
 
-- **Redesigned Schedule workspace** — the Schedule tab is now a unified three-level workspace: a header with date scope and Agenda/Data grid toggle, a workload band with an interactive 14-day forecast rail and insight strip, and a windowed content region built from a pure schedule view model.
-- **Image Occlusion Composer** — a dedicated full-screen composer is now the single authoring surface for occlusion cards: draw, select, move and resize (corner/edge handles), zoom and pan (100–800% with fit-to-view), keyboard nudge/resize, multi-select, undo/redo, touch-first input, and in-context AI suggestions you can accept or reject.
-- **Library-wide Extracts tab** — a new Extracts toolbar button opens a tab listing extracts across all documents, grouped by source document with jump-to-source navigation, and the toolbar rail expands on hover to reveal button labels.
-- **Q&A answers cite exact locations** — document Q&A answers now carry retrieval citations as structured data and render an interactive sources footer that jumps to the exact passage the answer came from.
+- **Editable tags across the app** — documents, extracts, and flashcards now share one accessible tag editor with optimistic persistence, rollback, and live synchronization across Documents, Queue, Schedule, Review, and detail surfaces; the Schedule data grid also keeps headers, rows, and expanded metrics aligned through scrolling and overflow.
+- **Per-item learning statistics** — documents, extracts, flashcards, and RSS items gain compact summaries plus a full statistics view for active time, sessions, scheduling, review history, content, and progress. Reader and Queue tracking now records idle-aware active time instead of inflating totals with unattended wall-clock time.
+- **Reader memory lifecycle and measurement foundation** — PDF and EPUB resources are disposed when readers close, desktop PDFs use bounded range loading instead of whole-file IPC copies, expensive reader residency is capped with state restoration, and a deterministic Linux memory harness plus non-blocking CI diagnostics make retention regressions measurable.
+- **Gemini in the Assistant provider list** — Gemini is available in the static Assistant provider catalog, with regression coverage ensuring provider choices persist across documents and sessions.
+- **Podcast Assistant flashcard workflow** — Podcast View now renders generated card batches with copy and state-aware Create deck/Open deck actions, and its Assistant panel can be resized on desktop while retaining its mobile sheet behavior.
 
 ### Fixed & Improved
 
-- **Accurate PDF text selection** — PDF selection now spans correctly and the committed-selection overlay persists, so highlights and selections stay put.
-- **Queue View decluttered** — the unused "Manual Browse" mode is removed: no more toolbar toggle, browse control bar, or conditional hint. The queue stays fully navigable by clicking items, and the inspector keeps showing details for the focused item.
-- **Desktop audiobook playback fixed** — audio plays back through a loopback media server instead of stalling.
-- **EPUB source jumps fixed** — jumping to a source span lands on the right page anchor, and document Q&A focus stays on the Whole Library scope.
-- **Rating orbs hidden in Documents view** — opening a document from the Documents view no longer flashes the queue's rating orbs.
+- **Optimal Sessions honor their composition sliders** — Documents, Extracts, and Flashcards percentages are now the authoritative mix, ordering follows the configured ratio, zero excludes a type, and shortages are reported instead of silently replacing the requested composition.
+- **Transcription provider routing is truthful and resumable** — audiobook, podcast, Documents, bulk, and background transcription paths consistently honor the selected provider, model, and language; progress labels name the engine actually running, unavailable choices fail with actionable guidance, and interrupted audiobook jobs resume from persisted checkpoints.
+- **Audiobook chapter context works across AI surfaces** — Assistant, Document Q&A, and Flashcard Studio share transcript-backed chapter catalogs, rehydrate visible `#` mentions at send time, and send only the selected chapter instead of front matter, a stale range, or the full transcript.
+- **Generated cards stay attached to the right source and deck** — Assistant, Document Q&A, Flashcard Studio, and Podcast card batches preserve card IDs, document ownership, and deck tags. Named decks are tag-scoped instead of absorbing unrelated cards, Anki imports create their source deck, and historical card-only imports restore missing decks without duplicating cards.
+- **Section recovery is more reliable** — deep EPUB outlines, repeated table-of-contents headings, flattened content, and title-page matches now resolve to the real section body with clearer diagnostics when a mention cannot be resolved.
