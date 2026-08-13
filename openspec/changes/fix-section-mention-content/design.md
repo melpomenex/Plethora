@@ -169,6 +169,27 @@ resolved through character offsets in canonical document text.
   catalog plus mixed direct/structural resolution makes parity a data contract,
   not duplicated presentation.
 
+### D11. Let Flashcard Studio use transcript-backed audiobook context directly
+
+When the selected audiobook has viewer-published media sections, Flashcard
+Studio joins their transcript text as a valid full-context fallback instead of
+reporting that document context failed to load. If no viewer catalog is resident
+and stored document content is empty, Studio reconstructs the catalog through
+the same stored audiobook metadata/transcript loader used by Document Q&A before
+falling back to the legacy video-transcript request.
+
+At send time, Studio resolves `media-transcript` and live-selection nodes with
+`resolveMixedSectionFocusedContext`. A request containing only direct-content
+nodes never calls `get_document` or `extract_document_text`; structural headings
+still load fresh canonical text and retain the existing one-time tree rebuild.
+
+- *Why:* the `#` menu and the red context banner read different sources. The
+  menu could correctly show all audiobook chapters from the shared catalog while
+  the banner and send path separately required `documents.content`, then tried
+  to resolve range-less timed chapters as character ranges. Treating the catalog
+  as authoritative context makes the picker, validation, and provider payload
+  agree.
+
 ## Risks / Trade-offs
 
 - **[Heading-level remap could shift existing trees]** → The `documentSectionCache` is keyed by content hash, so changing the parser invalidates caches and rebuilds trees for every open document on next load. Mitigation: this is correct (the old tree was wrong); the rebuild is bounded and already happens on any content change. Add a unit test asserting that a flat `# A / # B` Markdown doc still resolves to the same two sections (just with corrected relative levels).
@@ -180,6 +201,7 @@ resolved through character offsets in canonical document text.
 - **[Deck names can collide]** → Deck existence uses case-insensitive exact names derived from the persisted `deck:` tag. Existing unrelated decks are never renamed or overwritten; the store's normal deduplication rules remain in force.
 - **[Title lookup can fail]** → A document card is not persisted when all three title sources are unavailable. This is intentionally fail-closed: the artifact reports the actionable error and can be retried once document metadata is available, avoiding another saved-but-unassigned card.
 - **[Viewer catalog is ephemeral]** → The shared catalog is intentionally not persisted because it duplicates large transcript content. Document Q&A reconstructs it from existing audiobook metadata/transcript storage after restart; when neither source has timed data, it falls back to the normal document heading catalog after loading completes.
+- **[Catalog text may omit untimed audio]** → Flashcard Studio uses the joined catalog only when canonical document content is absent. Every available timed chapter remains represented, and section-focused sends use only the selected chapter's attached text.
 
 ## Migration Plan
 

@@ -36,6 +36,16 @@ The resolved context SHALL contain the actual body text of the selected section(
 - **WHEN** the user chooses chapter `008` from Document Q&A and submits a prompt containing the visible `#{008}` chip
 - **THEN** the token is rehydrated against the current chapter catalog and chapter 008's attached transcript content is sent directly, without requiring document character offsets and without including chapter 001 or foreword content
 
+#### Scenario: Flashcard Studio accepts an audiobook chapter catalog as context
+
+- **WHEN** the user selects an audiobook whose `documents.content` is empty or unavailable but whose viewer-published or reconstructed chapter catalog contains transcript text
+- **THEN** Flashcard Studio treats that catalog as loaded document context, keeps the `#` chapter menu available, and does not show an instruction to close and reopen the studio
+
+#### Scenario: Flashcard Studio sends a timed chapter without document extraction
+
+- **WHEN** the user focuses transcript-backed chapter `008` in Flashcard Studio and generates cards
+- **THEN** chapter 008's attached transcript is sent directly, the foreword and other chapters are excluded, and neither canonical document extraction nor character-range resolution is required
+
 #### Scenario: Section range resolved against current document text
 
 - **WHEN** the selected section's stored character range is stale relative to the freshly loaded document text

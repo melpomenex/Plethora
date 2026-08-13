@@ -101,3 +101,9 @@ was non-empty. This group makes existing flattened documents self-heal on access
 - [x] 14.2 Rebuild an audiobook catalog in Document Q&A from stored chapters/timed transcript when no viewer is resident, with metadata and persisted-transcription fallbacks plus an explicit loading state that prevents a misleading partial list.
 - [x] 14.3 Rehydrate Document Q&A's serialized title chips against the current catalog at send time and resolve mixed context correctly: timed chapters/selections use attached content, structural headings use canonical-text ranges.
 - [x] 14.4 Add regressions proving the shared hook prefers viewer chapters, the fallback loader returns the complete catalog, Document Q&A lists every published chapter, and selecting `008` sends its transcript while excluding the foreword.
+
+## 15. Fix Flashcard Studio audiobook context split (added during apply)
+
+- [x] 15.1 Treat viewer-published media chapter text as valid Flashcard Studio document context, and reconstruct the audiobook catalog from stored metadata/transcript before falling back to the separate video-transcript service when stored document content is empty.
+- [x] 15.2 Resolve Studio `media-transcript` selections through the mixed direct/structural resolver and skip canonical document loading for a direct-only timed chapter; preserve fresh-text loading and the one-time rebuild for structural headings.
+- [x] 15.3 Add regressions proving chapter `008` sends its attached transcript, excludes the foreword, does not call document extraction, and that the catalog provides a usable full-context fallback.

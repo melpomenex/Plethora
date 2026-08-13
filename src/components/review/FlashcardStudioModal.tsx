@@ -112,13 +112,13 @@ import { loadDocumentQaText, createDocumentQaRequestContent } from "../../featur
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
 import {
-  resolveSectionFocusedContext,
   buildSectionsSnapshot,
   describeSectionDiagnostic,
   type SectionNode,
   type SectionSourceReference,
 } from "../../utils/sectionIndex";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
+import { loadAudiobookSectionCatalog } from "../../features/documentQa/audiobookSectionCatalog";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { ContextControlPanel } from "./studio/ContextControlPanel";
 import { DocumentSelector } from "./studio/DocumentSelector";
@@ -126,6 +126,11 @@ import { DeckSelector } from "./studio/DeckSelector";
 import { StudioContextChipBar } from "./studio/StudioContextChipBar";
 import { StudioSheets } from "./studio/StudioSheets";
 import type { StudioSheet } from "./studio/studioChips";
+import {
+  mediaTranscriptContextText,
+  preferredStudioDocumentContextText,
+  resolveStudioSectionContext,
+} from "./studio/mediaSectionContext";
 import {
   CHARS_PER_TOKEN,
   DEFAULT_CONTEXT_SELECTION,
@@ -2581,12 +2586,25 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     if (!selectedDocumentId) return null;
     return documents.find((d) => d.id === selectedDocumentId) || null;
   }, [documents, selectedDocumentId]);
-  const selectedDocumentText = useMemo(() => {
-    if (typeof resolvedDocumentContent === "string" && resolvedDocumentContent.trim().length > 0) {
-      return resolvedDocumentContent;
-    }
-    return typeof selectedDocument?.content === "string" ? selectedDocument.content : undefined;
-  }, [resolvedDocumentContent, selectedDocument?.content]);
+  const selectedMediaSections = useDocumentOutlineStore((state) =>
+    selectedDocumentId ? state.mediaSectionsByDocId.get(selectedDocumentId) : undefined
+  );
+  const setSharedMediaSections = useDocumentOutlineStore((state) => state.setMediaSections);
+  const mediaTranscriptText = useMemo(
+    () => mediaTranscriptContextText(selectedMediaSections),
+    [selectedMediaSections],
+  );
+  const isSelectedAudiobook = selectedDocument?.fileType === "audio"
+    || selectedDocument?.tags?.some((tag) => tag.toLowerCase() === "audiobook")
+    || false;
+  const selectedDocumentText = useMemo(
+    () => preferredStudioDocumentContextText(
+      resolvedDocumentContent,
+      selectedDocument?.content,
+      selectedMediaSections,
+    ),
+    [resolvedDocumentContent, selectedDocument?.content, selectedMediaSections],
+  );
 
   // Section tree for the `#` mention menu and section-focused context. The hook
   // auto-resolves PDF/EPUB outlines from useDocumentOutlineStore, so passing the
@@ -2657,11 +2675,35 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       return;
     }
 
+    // Audiobook chapters published by the viewer already contain authoritative
+    // transcript text. They are valid context even when documents.content is
+    // empty and the separate video-transcript HTTP service is unavailable.
+    if (mediaTranscriptText) {
+      setResolvedDocumentContent(mediaTranscriptText);
+      setContextLoadState("ready");
+      setContextLoadError(null);
+      return;
+    }
+
     let cancelled = false;
+    setResolvedDocumentContent(undefined);
     setContextLoadState("loading");
     setContextLoadError(null);
     const resolveMediaTranscript = async () => {
       try {
+        if (isSelectedAudiobook) {
+          const sections = await loadAudiobookSectionCatalog(selectedDocument);
+          const transcript = mediaTranscriptContextText(sections);
+          if (transcript && !cancelled) {
+            setSharedMediaSections(selectedDocument.id, sections);
+            setResolvedDocumentContent(transcript);
+            setContextLoadState("ready");
+            setContextLoadError(null);
+            return;
+          }
+          if (cancelled) return;
+        }
+
         if (selectedDocument.fileType === "video" || selectedDocument.fileType === "audio") {
           // getVideoTranscript reaches a separate HTTP API (VITE_API_URL) that
           // usually isn't running in the browser/PWA. Surface a clear message
@@ -2723,7 +2765,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     return () => {
       cancelled = true;
     };
-  }, [isOpen, selectedDocument]);
+  }, [isOpen, isSelectedAudiobook, mediaTranscriptText, selectedDocument, setSharedMediaSections, t]);
 
   const previousDocumentIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -3156,8 +3198,9 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       
       llmMessages.push(...history, { role: "user", content: userMessage.content });
 
-      // Section-focused resolution (mirrors AssistantPanel 1166-1204). We resolve
-      // at send time against freshly fetched document text — the contextContent
+      // Section-focused resolution (mirrors AssistantPanel). At send time,
+      // structural headings use freshly fetched document text while timed media
+      // chapters use their authoritative attached transcript. The contextContent
       // memo deliberately returns undefined for `sections` mode. On success we
       // override the context sent to the LLM, rewrite the last user message to
       // wrap the focused body, and stamp sourceContext for provenance.
@@ -3168,38 +3211,32 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       if (shouldResolveSections && selectedSectionNodes.length > 0 && selectedDocument) {
         const documentId = selectedDocument.id;
 
-        const resolveOnce = async () => {
-          const freshText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
-          return resolveSectionFocusedContext(selectedSectionNodes, sectionFlat, freshText, {
-            documentId,
-            maxTokens,
-            includeNeighbors: true,
-          });
-        };
-
-        // Section resolution occasionally misses on the very first request
-        // right after a section is picked (the just-fetched canonical text can
-        // momentarily disagree with the offsets the section was picked against)
-        // and then succeeds immediately on an identical retry. One transparent
-        // retry absorbs that transient miss instead of surfacing it. The retry
-        // also rebuilds the section tree from the freshly fetched text — the
-        // hook's tree can still be built from partial content when a send
-        // races document loading, and that stale tree is what turned a
-        // recoverable miss into a hard "reselect and resend" failure.
-        let focused = await resolveOnce();
-        if (!focused.ok) {
-          const freshText = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
-          const freshFlat = buildSectionsSnapshot(
-            documentId,
-            freshText,
-            useDocumentOutlineStore.getState().getOutline(documentId),
-          ).flat;
-          focused = resolveSectionFocusedContext(selectedSectionNodes, freshFlat, freshText, {
-            documentId,
-            maxTokens,
-            includeNeighbors: true,
-          });
-        }
+        // Transcript-backed audiobook chapters carry authoritative attached
+        // content and must not be forced through character-range resolution.
+        // Structural headings retain the fresh-text load and one-time rebuild.
+        const focused = await resolveStudioSectionContext({
+          selectedSections: selectedSectionNodes,
+          availableSections: sectionFlat,
+          documentId,
+          maxTokens,
+          currentText: selectedDocumentText,
+          loadCanonicalText: () => loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
+          rebuildAvailableSections: (freshText) => {
+            const freshFlat = buildSectionsSnapshot(
+              documentId,
+              freshText,
+              useDocumentOutlineStore.getState().getOutline(documentId),
+            ).flat;
+            const directSections = sectionFlat.filter(
+              (section) => section.source === "selection" || section.source === "media-transcript",
+            );
+            const directIds = new Set(directSections.map((section) => section.id));
+            return [
+              ...directSections,
+              ...freshFlat.filter((section) => !directIds.has(section.id)),
+            ];
+          },
+        });
 
         if (!focused.ok) {
           const reasons = focused.unresolved.map(describeSectionDiagnostic).join("; ");
