@@ -5,7 +5,7 @@
     "name": "noise-anchor",
     "iterations": 200000
   },
-  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13.",
+  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373.",
   "benchmarks": {
     "file-manifest/add-1000-entries": {
       "cost": 7.84,
@@ -37,8 +37,8 @@
       "reason": "SuperMemo neural-queue spreading-activation pass (Phase 4): TS port of the Rust algorithm, propagating activation over a 300-node seeded tree via concept/inter-element/descendant/sibling links with the monotonicity InsertOrUpdate. Runs only on neural-queue depletion (< 20 remaining); the ~0.9us cost reflects the pure-combine hot path. Wider tolerance because Map operations are GC-sensitive at this timescale."
     },
     "ankiImport/convert-2000-notes": {
-      "cost": 1.09,
-      "reason": "convertAnkiCardsToLearningItems did deck.notes.find(n => n.id === card.noteId) inside the card loop, an O(n) linear scan of all notes per card (O(n^2) overall, ~4M comparisons for 2000 cards). Indexed notes by id in a first-wins Map once before the loop (preserving Array.find's first-match semantics), so each lookup is O(1). Byte-identical for all finite-integer ids (verified by differential testing); NaN ids would differ but are unreachable (Rust producer types ids as i64 from SQLite)."
+      "cost": 1.368,
+      "reason": "convertAnkiCardsToLearningItems did deck.notes.find(n => n.id === card.noteId) inside the card loop, an O(n) linear scan of all notes per card (O(n^2) overall, ~4M comparisons for 2000 cards). Indexed notes by id in a first-wins Map once before the loop (preserving Array.find's first-match semantics), so each lookup is O(1). Byte-identical for all finite-integer ids (verified by differential testing); NaN ids would differ but are unreachable (Rust producer types ids as i64 from SQLite). Re-recorded as the median of three unchanged-code Linux x86_64 / Node 24.18.0 CI samples (1.202, 1.408, 1.368) after GitHub Actions moved the LTS runner from Node 22 to Node 24; the 1.25x tolerance remains unchanged."
     },
     "markdown/render-document": {
       "cost": 1.064
