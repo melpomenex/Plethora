@@ -21,14 +21,23 @@ vi.mock("../../lib/tauri", () => ({
   nativePlatform: () => null,
 }));
 
-// Hoist the mock implementation so the factory can reference it.
-const { checkMock } = vi.hoisted(() => ({
+// Hoist the mock implementations so the factories can reference them.
+const { checkMock, invokeMock } = vi.hoisted(() => ({
   checkMock: vi.fn(),
+  invokeMock: vi.fn(),
 }));
 
 // Mock the Tauri updater plugin's `check`. Each test configures the return.
 vi.mock("@tauri-apps/plugin-updater", () => ({
   check: checkMock,
+}));
+
+// Mock the Tauri core `invoke` so tests can stub the `updater_bundle_type`
+// command (deb/rpm installs must get the manual download path). Defaults to
+// "appimage" (in-place-capable) in beforeEach.
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: invokeMock,
+  Channel: class {},
 }));
 
 import {
@@ -54,6 +63,8 @@ function fakeUpdate(version: string) {
 beforeEach(() => {
   window.localStorage.clear();
   checkMock.mockReset();
+  invokeMock.mockReset();
+  invokeMock.mockResolvedValue("appimage");
 });
 
 describe("updateChecker skip/seen persistence (storage contract)", () => {
@@ -162,5 +173,57 @@ describe("checkForUpdates — once-per-version across two boots", () => {
     checkMock.mockResolvedValue(fakeUpdate("v2.2.0"));
     const boot2 = await checkForUpdates(false);
     expect(boot2).toBeNull();
+  });
+});
+
+describe("checkForUpdates — Linux system-package installs (deb/rpm)", () => {
+  // The Tauri updater replaces the running executable; for deb/rpm installs
+  // that's a root-owned /usr/bin binary, so the in-place path can never
+  // succeed. These installs must get the manual-download offer instead.
+
+  test("deb install: no in-place handle, manualOnlyReason=deb, release-page link", async () => {
+    checkMock.mockResolvedValue(fakeUpdate("2.7.0"));
+    invokeMock.mockResolvedValue("deb");
+
+    const info = await checkForUpdates(false);
+    expect(info).not.toBeNull();
+    expect(info!.latestVersion).toBe("2.7.0");
+    expect(info!.updater).toBeNull();
+    expect(info!.manualOnlyReason).toBe("deb");
+    expect(info!.downloadUrl).toContain("releases/tag/v2.7.0");
+  });
+
+  test("rpm install gets the manual path too", async () => {
+    checkMock.mockResolvedValue(fakeUpdate("2.7.0"));
+    invokeMock.mockResolvedValue("rpm");
+
+    const info = await checkForUpdates(false);
+    expect(info!.updater).toBeNull();
+    expect(info!.manualOnlyReason).toBe("rpm");
+  });
+
+  test("AppImage install keeps the in-place handle with no manual reason", async () => {
+    checkMock.mockResolvedValue(fakeUpdate("2.7.0"));
+    invokeMock.mockResolvedValue("appimage");
+
+    const info = await checkForUpdates(false);
+    expect(info!.updater).not.toBeNull();
+    expect(info!.manualOnlyReason).toBeFalsy();
+  });
+
+  test("bundle-type probe failure defaults to the in-place path (dev/unknown bundles)", async () => {
+    checkMock.mockResolvedValue(fakeUpdate("2.7.0"));
+    invokeMock.mockRejectedValue(new Error("command unavailable"));
+
+    const info = await checkForUpdates(false);
+    expect(info!.updater).not.toBeNull();
+  });
+
+  test("skip-list still suppresses a seen version on deb installs", async () => {
+    checkMock.mockResolvedValue(fakeUpdate("2.7.0"));
+    invokeMock.mockResolvedValue("deb");
+    setSkippedVersion("2.7.0");
+
+    expect(await checkForUpdates(false)).toBeNull();
   });
 });

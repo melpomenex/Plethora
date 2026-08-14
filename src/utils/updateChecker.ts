@@ -35,6 +35,13 @@ export interface UpdateInfo {
    * signed in-place update. `null` in the browser/PWA path (manual download).
    */
   updater: UpdaterHandle | null;
+  /**
+   * Set when the running install cannot accept an in-place update ("deb" /
+   * "rpm" on Linux — the Tauri updater replaces the running executable,
+   * which for system packages is a root-owned /usr/bin binary). The dialog
+   * should offer the release download instead of a doomed install attempt.
+   */
+  manualOnlyReason?: "deb" | "rpm" | null;
 }
 
 /**
@@ -115,6 +122,28 @@ export async function relaunchApp(): Promise<void> {
 }
 
 /**
+ * The bundle type the running binary was packaged in ("appimage", "deb",
+ * "rpm", "app", "nsis", "msi") or "unknown" for unbundled dev runs, as
+ * patched in at build time by tauri-bundler.
+ */
+async function getUpdaterBundleType(): Promise<string> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<string>("updater_bundle_type");
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Release page for a version — the manual-download fallback target (the
+ * Tauri `Update` object does not expose the bundle URL to JS).
+ */
+function releaseTagUrl(latestVersion: string): string {
+  return `https://github.com/melpomenex/incrementum-tauri/releases/tag/v${latestVersion.replace(/^v/, "")}`;
+}
+
+/**
  * Desktop path: consult the Tauri updater plugin. Returns an `UpdateInfo`
  * whose `updater` field can perform a signed in-place install, or `null`
  * when up-to-date / unavailable.
@@ -138,12 +167,28 @@ async function checkViaTauriUpdater(
     return null;
   }
 
+  // Linux system-package installs (deb/rpm) cannot accept an in-place
+  // update: the updater replaces the running executable, which for these
+  // packages is a root-owned /usr/bin binary. Offer the release download
+  // instead of an install that would always fail with a permission error.
+  const bundleType = await getUpdaterBundleType();
+  if (bundleType === "deb" || bundleType === "rpm") {
+    return {
+      latestVersion,
+      releaseNotes: update.body ?? "",
+      downloadUrl: releaseTagUrl(latestVersion),
+      releaseDate: update.date ?? "",
+      updater: null,
+      manualOnlyReason: bundleType,
+    };
+  }
+
   return {
     latestVersion,
     releaseNotes: update.body ?? "",
     // Tauri's Update object does not expose the bundle URL to JS; the manifest
     // lives on the release page, which we link as the manual-download fallback.
-    downloadUrl: `https://github.com/melpomenex/incrementum-tauri/releases/tag/v${latestVersion.replace(/^v/, "")}`,
+    downloadUrl: releaseTagUrl(latestVersion),
     releaseDate: update.date ?? "",
     updater: {
       downloadAndInstall: async (onProgress?: (fraction: number) => void) => {
