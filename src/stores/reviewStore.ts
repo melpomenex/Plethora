@@ -160,6 +160,9 @@ interface ReviewState {
   loadPreviewIntervals: () => Promise<void>;
   nextCard: () => void;
   goToIndex: (index: number) => void;
+  /** Replace the in-flight card (and its queue entry) after an edit, without
+   * reloading the queue or touching any other session state. */
+  patchCurrentCard: (updated: ReviewSessionItem) => void;
   removeItemFromSession: (itemId: string) => void;
   resetSession: () => void;
   startReviewAtItem: (itemId: string) => Promise<void>;
@@ -746,6 +749,19 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     setTimeout(() => {
       get().loadPreviewIntervals();
     }, 100);
+  },
+
+  patchCurrentCard: (updated) => {
+    const { queue, currentIndex } = get();
+    if (queue[currentIndex]?.id === updated.id) {
+      const nextQueue = queue.slice();
+      nextQueue[currentIndex] = updated;
+      set({ queue: nextQueue, currentCard: updated });
+      return;
+    }
+    // Defensive fallback: the queue moved on (e.g. a rating landed between
+    // open and save) — still keep the visible card consistent with the edit.
+    set({ currentCard: updated });
   },
 
   removeItemFromSession: (itemId: string) => {

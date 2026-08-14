@@ -502,10 +502,11 @@ pub async fn update_learning_item_content_with_version(
     item_id: String,
     question: String,
     answer: Option<String>,
+    cloze_text: Option<String>,
     reason: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    let mut item = repo
+    let item = repo
         .get_learning_item(&item_id)
         .await?
         .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))?;
@@ -528,11 +529,18 @@ pub async fn update_learning_item_content_with_version(
         .execute(repo.pool())
         .await?;
 
-    item.question = question;
-    item.answer = answer;
-    item.date_modified = chrono::Utc::now();
-    repo.update_learning_item(&item).await?;
-    Ok(item)
+    // Direct content write: question always, answer/cloze_text only when
+    // supplied (omitted columns keep their stored values — callers like the
+    // Knowledge Sphere rename pass question only). Scheduling columns are
+    // never touched by this path.
+    repo.update_learning_item_content(
+        &item_id,
+        &question,
+        answer.as_deref(),
+        cloze_text.as_deref(),
+    )
+    .await?
+    .ok_or_else(|| IncrementumError::NotFound(format!("Learning item {}", item_id)))
 }
 
 #[tauri::command]

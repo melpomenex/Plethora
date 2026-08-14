@@ -8,6 +8,7 @@ import {
   Trash,
   Upload,
   WarningCircle,
+  X,
 } from "@phosphor-icons/react";
 import { useReviewStore } from "../../stores/reviewStore";
 import { ReviewCard } from "./ReviewCard";
@@ -47,6 +48,10 @@ import { formatArenaInterval } from "./arenaFormatters";
 import { AlgorithmArenaModeControl } from "./AlgorithmArenaModeControl";
 import { featureFlags } from "../../lib/featureFlags";
 import { ConfirmDialog } from "../common/ConfirmDialog";
+import { InlineCardEditor } from "./InlineCardEditor";
+import { FlashcardStudioModal } from "./FlashcardStudioModal";
+import type { LearningItem as EditableCard } from "../../api/learning-items";
+import type { ReviewSessionItem } from "../../stores/reviewStore";
 
 interface ReviewSessionProps {
   onExit: () => void;
@@ -77,6 +82,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     showAnswer,
     submitRating,
     goToIndex,
+    patchCurrentCard,
     removeItemFromSession,
     cancelArenaDecision,
   } = useReviewStore(
@@ -102,6 +108,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       showAnswer: state.showAnswer,
       submitRating: state.submitRating,
       goToIndex: state.goToIndex,
+      patchCurrentCard: state.patchCurrentCard,
       removeItemFromSession: state.removeItemFromSession,
       cancelArenaDecision: state.cancelArenaDecision,
     }))
@@ -109,6 +116,14 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
   const [isQueueListOpen, setIsQueueListOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [deletingCardId, setDeletingCardId] = useState<string | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isStudioOpen, setIsStudioOpen] = useState(false);
+  const [studioSeed, setStudioSeed] = useState<{
+    key: string;
+    documentId?: string | null;
+    excerpt?: string;
+    resetDraftCards?: boolean;
+  } | null>(null);
   const queueListRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [interactionResult, setInteractionResult] = useState<{
@@ -340,6 +355,47 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     });
   };
 
+  const canEditCurrentCard = Boolean(currentCard) && !isSubmitting && !pendingArenaReview;
+
+  // Anki-style edit-during-review: opens the inline editor over the session.
+  // Disabled while a rating submission or an arena decision is in flight so an
+  // edit can never race the scheduler.
+  const handleOpenEditor = () => {
+    if (!canEditCurrentCard) return;
+    setIsEditorOpen(true);
+  };
+
+  const handleEditorSave = (updated: EditableCard) => {
+    // The editor works in the learning-items card shape; the session store
+    // keeps the review shape (they only differ in item_type casing).
+    patchCurrentCard(updated as unknown as ReviewSessionItem);
+  };
+
+  // Complex interaction types keep the Studio hand-off: occlusion cards reopen
+  // the composer on the same asset, everything else seeds the Flashcard Studio
+  // with the card's text as the starting point.
+  const handleEditInStudio = (card: EditableCard) => {
+    const interactionMetadata =
+      (card as any).interaction_metadata ?? (card as any).interactionMetadata;
+    const occlusionAssetId = interactionMetadata?.imageOcclusionAssetId;
+    setIsEditorOpen(false);
+    if (occlusionAssetId) {
+      window.dispatchEvent(
+        new CustomEvent("incrementum:create-image-occlusion", {
+          detail: { assetId: occlusionAssetId, documentId: card.document_id ?? undefined },
+        })
+      );
+      return;
+    }
+    setStudioSeed({
+      key: `review-edit-${card.id}-${Date.now()}`,
+      documentId: card.document_id ?? null,
+      excerpt: card.question || card.cloze_text || "",
+      resetDraftCards: true,
+    });
+    setIsStudioOpen(true);
+  };
+
   const handleSuspendCurrent = async () => {
     if (!currentCard) {
       toast.info(t("queue.suspend"), t("reviewSession.suspendOnlyLearning"));
@@ -439,6 +495,16 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
 
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
+      // The inline card editor owns all keys while open (including Escape,
+      // which closes it before the session-level handler can see it).
+      if (isEditorOpen) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setIsEditorOpen(false);
+        }
+        return;
+      }
+
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
@@ -546,10 +612,20 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         return;
       }
 
-      // Review actions that are currently placeholders in the session UI.
-      if (mod && (lowerKey === "e" || lowerKey === "d" || lowerKey === "s" || lowerKey === "h")) {
+      // Ctrl/Cmd + E to edit the current card in place. While a submission or
+      // arena decision is in flight the editor stays closed (the on-card Edit
+      // control is disabled for the same window).
+      if (mod && lowerKey === "e") {
         e.preventDefault();
-        if (lowerKey === "e") toast.info(t("reviewSession.editUnavailable"));
+        if (currentCard && !isSubmitting && !pendingArenaReview) {
+          setIsEditorOpen(true);
+        }
+        return;
+      }
+
+      // Review actions that are currently placeholders in the session UI.
+      if (mod && (lowerKey === "d" || lowerKey === "s" || lowerKey === "h")) {
+        e.preventDefault();
         if (lowerKey === "d") requestDeleteCurrent();
         if (lowerKey === "s") void handleSuspendCurrent();
         if (lowerKey === "h") toast.info(t("reviewSession.historyUnavailable"));
@@ -580,6 +656,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     isAnswerShown,
     currentCard,
     isSubmitting,
+    isEditorOpen,
     showAnswer,
     submitRating,
     onExit,
@@ -923,6 +1000,8 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                         showAnswer={true}
                         onShowAnswer={() => {}}
                         onInteractionResultChange={setInteractionResult}
+                        onEdit={handleOpenEditor}
+                        editDisabled={!canEditCurrentCard}
                       />
                     </div>
                   </div>
@@ -948,13 +1027,17 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
             ) : (
               <>
                 {/* Card with answer hidden */}
-                <div className="flex-1 flex items-center">
-                  <ReviewCard
-                    card={currentCard}
-                    showAnswer={false}
-                    onShowAnswer={showAnswer}
-                    onInteractionResultChange={setInteractionResult}
-                  />
+                <div className="flex-1 md:overflow-y-auto md:min-h-0">
+                  <div className="w-full flex flex-col justify-start md:min-h-full md:justify-center">
+                    <ReviewCard
+                      card={currentCard}
+                      showAnswer={false}
+                      onShowAnswer={showAnswer}
+                      onInteractionResultChange={setInteractionResult}
+                      onEdit={handleOpenEditor}
+                      editDisabled={!canEditCurrentCard}
+                    />
+                  </div>
                 </div>
               </>
             )}
@@ -1011,12 +1094,65 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       />
 
       {/* FSRS Inspector Panel */}
-      <FSRSInspector 
+      <FSRSInspector
         card={currentCard as any}
         isOpen={isInspectorOpen}
         onClose={() => setIsInspectorOpen(false)}
       />
       {deleteConfirmDialog}
+
+      {/* Inline card editor overlay (edit-during-review, Cmd/Ctrl+E) */}
+      {isEditorOpen && currentCard && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("reviewSession.editCardTitle")}
+          className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 p-4"
+        >
+          <button
+            type="button"
+            aria-label={t("common.close")}
+            className="absolute inset-0 cursor-default"
+            onClick={() => setIsEditorOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <h2 className="text-sm font-semibold text-foreground">
+                {t("reviewSession.editCardTitle")}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsEditorOpen(false)}
+                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label={t("common.close")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[75dvh] overflow-y-auto">
+              <InlineCardEditor
+                card={currentCard as unknown as EditableCard}
+                surface="review"
+                onClose={() => setIsEditorOpen(false)}
+                onSave={handleEditorSave}
+                onSaved={() => setIsEditorOpen(false)}
+                onEditInStudio={handleEditInStudio}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Flashcard Studio, seeded from the current card via the editor's
+          "Edit in Studio" hand-off for complex interaction types. */}
+      <FlashcardStudioModal
+        isOpen={isStudioOpen}
+        onClose={() => {
+          setIsStudioOpen(false);
+          setStudioSeed(null);
+        }}
+        seed={studioSeed}
+      />
     </div>
   );
 }
