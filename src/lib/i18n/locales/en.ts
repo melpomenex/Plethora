@@ -5317,6 +5317,7 @@ export const en: Dict = {
   "documentsView.hideInspector": "Hide Inspector",
   "documentsView.showInspector": "Show Inspector",
   "documentsView.allTypes": "All Types",
+  "documentsView.allCategories": "All Categories",
   "documentsView.savedViews": "Saved Views",
   "documentsView.saveView": "Save View",
   "documentsView.processingFile": "Processing {name}",
