@@ -8,6 +8,7 @@ import { openKindleImportDialog } from "./kindleImportDialogStore";
 import { useSettingsStore } from "./settingsStore";
 import { useCollectionStore } from "./collectionStore";
 import { importFromUrl as importFromUrlUtil, importFromArxiv as importFromArxivUtil } from "../utils/documentImport";
+import { resolveImportCategory } from "../utils/importCategory";
 import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { emitFeedback } from "../lib/feedback";
@@ -24,6 +25,28 @@ function getFileSyncModule() {
 function getDocReplicationModule() {
   if (!docReplicationModPromise) docReplicationModPromise = import("../lib/documentReplication");
   return docReplicationModPromise;
+}
+
+/**
+ * Apply the user's default-category setting to a freshly imported document
+ * when it arrived without a category. Generic file imports (drag-and-drop,
+ * folder import) enter with no category; this gives them a home. Source-specific
+ * imports already carry a category and are left untouched. Mutates `doc` in
+ * place so callers continue to work with the same reference. Best-effort: a
+ * failure to persist the category does not fail the import.
+ */
+async function applyDefaultCategoryIfNeeded(doc: Document): Promise<void> {
+  const desired = resolveImportCategory(doc.category);
+  if (!desired || desired === doc.category) return;
+  try {
+    const updated = await documentsApi.updateDocument(doc.id, {
+      ...doc,
+      category: desired,
+    } as Document);
+    Object.assign(doc, updated);
+  } catch (e) {
+    console.warn("[documentStore] failed to apply default category on import", e);
+  }
 }
 
 function registerImportedFileSyncLazy(doc: Document): Promise<string | null> {
@@ -571,6 +594,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     try {
       const collectionId = useCollectionStore.getState().activeCollectionId;
       const doc = await documentsApi.importDocument(filePath, collectionId);
+      await applyDefaultCategoryIfNeeded(doc);
 
       // Register with sync manifest (best-effort, see importFromFiles).
       const fileId = await registerImportedFileSyncLazy(doc).catch((e) => {
@@ -677,6 +701,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
         try {
           const doc = await documentsApi.importDocument(filePath, collectionId);
+          await applyDefaultCategoryIfNeeded(doc);
 
           const fileId = await registerImportedFileSyncLazy(doc).catch((e) => {
             console.warn("[documentStore] file-sync registration failed", e);

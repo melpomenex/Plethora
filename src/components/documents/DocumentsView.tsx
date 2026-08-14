@@ -261,6 +261,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const [sortDirection, setSortDirection] = useState<DocumentSortDirection>("desc");
   const [showNextAction, setShowNextAction] = useState(true);
   const [selectedFileType, setSelectedFileType] = useState<string>("all");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [compactFilter, setCompactFilter] = useState<CompactDocumentFilter>("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
@@ -426,11 +427,22 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     return Array.from(types).sort();
   }, [documents]);
 
+  const availableCategories = useMemo(() => {
+    const cats = new Set<string>();
+    for (const doc of documents) {
+      if (doc.category && doc.category.trim().length > 0) cats.add(doc.category);
+    }
+    return Array.from(cats).sort();
+  }, [documents]);
+
   const filteredDocuments = useMemo(() => {
     let base = documents.filter((doc) => matchesDocumentSearch(doc, searchTokens));
     // Collection filtering is now handled by the backend (collection_id on documents)
     if (selectedFileType !== "all") {
       base = base.filter((doc) => doc.fileType === selectedFileType);
+    }
+    if (selectedCategory !== "all") {
+      base = base.filter((doc) => (doc.category ?? "") === selectedCategory);
     }
     if (compactDocumentsView && compactFilter !== "all") {
       base = base.filter((doc) => {
@@ -453,7 +465,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       });
     }
     return base;
-  }, [compactDocumentsView, compactFilter, documents, searchTokens, selectedFileType]);
+  }, [compactDocumentsView, compactFilter, documents, searchTokens, selectedCategory, selectedFileType]);
 
   const sortedDocuments = useMemo(() => {
     return sortDocuments(filteredDocuments, sortKey, sortDirection);
@@ -1301,6 +1313,27 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                 </div>
               </div>
 
+              {/* Category Funnel */}
+              {availableCategories.length > 0 && (
+                <div className="relative">
+                  <select
+                    value={selectedCategory}
+                    onChange={(event) => setSelectedCategory(event.target.value)}
+                    className="pl-3 pr-8 py-2 bg-background border border-border rounded-lg text-sm text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  >
+                    <option value="all">{t("documentsView.allCategories")}</option>
+                    {availableCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Funnel className="w-3.5 h-3.5 text-muted-foreground" />
+                  </div>
+                </div>
+              )}
+
               {/* Saved Views */}
               <MobileSavedViewsMenu
                 savedViews={savedViews}
@@ -1360,6 +1393,40 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                   </svg>
                 </div>
               </div>
+
+              {/* Category Funnel */}
+              {availableCategories.length > 0 && (
+                <div className="relative">
+                  <Funnel className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                  <select
+                    value={selectedCategory}
+                    onChange={(event) => setSelectedCategory(event.target.value)}
+                    className="pl-8 pr-7 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  >
+                    <option value="all">{t("documentsView.allCategories")}</option>
+                    {availableCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <svg
+                      className="w-4 h-4 text-muted-foreground"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
+                  </div>
+                </div>
+              )}
 
               {/* Saved Views */}
               <div className="flex items-center gap-2">
