@@ -30,6 +30,8 @@ Technology in ancient times.
       endChar: 63, // Range inside TOC pointing to Chapter 3 TOC entry immediately following it (0 prose body)
       content: "Chapter 2 Making a date",
       source: "epub-toc",
+      preview: "Chapter 2 Making a date",
+      parentId: null,
       breadcrumb: [],
       children: [],
     };

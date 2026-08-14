@@ -58,6 +58,8 @@ export interface GeneratedFlashcard {
   answer: string;
   card_type: string;
   tags: string[];
+  /** Cloze-deletion text for cloze cards; absent for plain Q&A cards. */
+  cloze_text?: string;
 }
 
 /**

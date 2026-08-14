@@ -89,7 +89,7 @@ export function ExtractInbox({ onSelectExtract }: ExtractInboxProps) {
                 [id]: {
                     summary: res.summary || undefined,
                     keyPoints: res.keyPoints.length > 0 ? res.keyPoints : undefined,
-                    questions: res.studyQuestions.length > 0 ? res.studyQuestions : undefined,
+                    questions: res.questions && res.questions.length > 0 ? res.questions : undefined,
                     loading: false,
                 },
             }));

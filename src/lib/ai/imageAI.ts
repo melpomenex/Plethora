@@ -66,7 +66,7 @@ export async function describeImage(
   const res = await generateNativePrompt({
     requestId,
     text: promptText,
-    images: [image],
+    image: { mimeType: image.mimeType, data: image.dataBase64 },
     maxOutputTokens: 256,
   });
 
@@ -120,7 +120,7 @@ export async function generateImageCards(
   const res = await generateNativePrompt({
     requestId,
     text: promptText,
-    images: [image],
+    image: { mimeType: image.mimeType, data: image.dataBase64 },
     maxOutputTokens: 512,
   });
 
@@ -147,7 +147,7 @@ export async function suggestOcclusions(
   const res = await generateNativePrompt({
     requestId,
     text: promptText,
-    images: [image],
+    image: { mimeType: image.mimeType, data: image.dataBase64 },
     maxOutputTokens: 256,
   });
 
