@@ -1,17 +1,22 @@
 import {
   ArrowsVertical,
   CalendarBlank,
+  Camera,
   Check,
   ClipboardText,
   FrameCorners,
   Images,
+  Lightning,
   Link,
   MagnifyingGlass,
   PencilSimple,
+  Sparkle,
   Trash,
   X,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type ReactNode } from "react";
+import { describeImage, generateImageCards } from "../../lib/ai/imageAI";
+import { createLearningItem } from "../../api/learning-items";
 
 import {
   deleteImageAsset,
@@ -368,6 +373,46 @@ export function ImageRegistryLibrary({
     [assets, selectedIds]
   );
 
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const handleGenerateCardsAndAddToDeck = async () => {
+    if (!previewAsset || isBusy) return;
+    setIsBusy(true);
+    try {
+      const parts = previewAsset.data_url.split(",");
+      const mimeMatch = /data:(image\/\w+);base64/.exec(parts[0]);
+      const mimeType = (mimeMatch?.[1] as "image/jpeg" | "image/png" | "image/webp") || "image/png";
+      const dataBase64 = parts[1] || "";
+      const generated = await generateImageCards({ mimeType, dataBase64 });
+      if (!generated || generated.length === 0) {
+        toast.info("No Cards Generated", "The model did not return any valid flashcards for this image.");
+        return;
+      }
+
+      // Create flashcards attached to this image asset
+      let createdCount = 0;
+      for (const card of generated) {
+        await createLearningItem({
+          item_type: card.card_type === "cloze" ? "Cloze" : "Flashcard",
+          question: card.question,
+          answer: card.answer,
+          cloze_text: card.cloze_text,
+          tags: ["image-study"],
+          image_asset_ids: [previewAsset.id],
+        });
+        createdCount++;
+      }
+      toast.success(
+        "Cards Added to Deck",
+        `Created ${createdCount} flashcards from snapped image attached to deck!`
+      );
+    } catch (error) {
+      toast.error("Card Generation Failed", error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   return (
     <div
       className={cn("flex h-full min-h-0 flex-col rounded-[28px] border border-border/70 bg-background/95 shadow-xl", className)}
@@ -403,6 +448,23 @@ export function ImageRegistryLibrary({
               className="hidden"
               onChange={handleFileInputChange}
             />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleFileInputChange}
+            />
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              disabled={isBusy}
+              className="inline-flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-60"
+            >
+              <Camera className="h-4 w-4" />
+              Snap Photo
+            </button>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -420,6 +482,16 @@ export function ImageRegistryLibrary({
             >
               <ClipboardText className="h-4 w-4" />
               {t("imageRegistry.paste")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleGenerateCardsAndAddToDeck()}
+              disabled={isBusy || !previewAsset}
+              title="Generate flashcards from snapped image and add to deck"
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-60"
+            >
+              <Lightning className="h-4 w-4" />
+              Generate Cards to Deck
             </button>
             <button
               type="button"
@@ -442,6 +514,31 @@ export function ImageRegistryLibrary({
             >
               <FrameCorners className="h-4 w-4" />
               {t("imageRegistry.createOcclusionCard")}
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!previewAsset || isBusy) return;
+                setIsBusy(true);
+                try {
+                  const parts = previewAsset.data_url.split(",");
+                  const mimeMatch = /data:(image\/\w+);base64/.exec(parts[0]);
+                  const mimeType = (mimeMatch?.[1] as "image/jpeg" | "image/png" | "image/webp") || "image/png";
+                  const dataBase64 = parts[1] || "";
+                  const res = await describeImage({ mimeType, dataBase64 });
+                  toast.info(res.suggestedTitle || "Image Analysis", res.description);
+                } catch (error) {
+                  toast.error("AI Analysis Failed", error instanceof Error ? error.message : String(error));
+                } finally {
+                  setIsBusy(false);
+                }
+              }}
+              disabled={isBusy || !previewAsset}
+              title="Describe Image with AI"
+              className="inline-flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:bg-primary/20 disabled:opacity-60"
+            >
+              <Sparkle className="h-4 w-4" />
+              AI Describe Image
             </button>
             {showCloseButton && onClose && (
               <button

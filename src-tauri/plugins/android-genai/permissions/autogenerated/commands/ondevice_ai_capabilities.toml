@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-ondevice-ai-capabilities"
+description = "Enables the ondevice_ai_capabilities command without any pre-configured scope."
+commands.allow = ["ondevice_ai_capabilities"]
+
+[[permission]]
+identifier = "deny-ondevice-ai-capabilities"
+description = "Denies the ondevice_ai_capabilities command without any pre-configured scope."
+commands.deny = ["ondevice_ai_capabilities"]

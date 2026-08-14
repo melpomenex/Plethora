@@ -41,6 +41,7 @@
     "notification:allow-notify",
     "incrementum-folder-import:default",
     "incrementum-android-tts:default",
+    "incrementum-android-genai:default",
     "updater:default",
     "process:default",
     "process:allow-restart",

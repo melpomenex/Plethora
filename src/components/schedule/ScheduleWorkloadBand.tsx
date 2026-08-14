@@ -132,14 +132,17 @@ export function ScheduleWorkloadBand({
     { label: t("schedule.dueToday"), value: String(insights.dueToday), danger: false },
     { label: t("schedule.overdue"), value: String(insights.overdue), danger: insights.overdue > 0 },
     {
-      label: t("schedule.dailyAvg"),
-      value: insights.nextSevenAverage > 0 ? `~${insights.nextSevenAverage}/day` : "0",
+      label: t("schedule.dailyAvg", { count: insights.nextSevenAverage }),
+      value: insights.nextSevenAverage > 0 ? `~${insights.nextSevenAverage}` : "0",
     },
     {
-      label: t("schedule.peakDay"),
-      value: insights.peakDay
-        ? `${relativeDateLabel(insights.peakDay.dateKey, todayKey, t)} · ${insights.peakDay.dueTotal}`
+      label: insights.peakDay
+        ? t("schedule.peakDay", {
+            date: relativeDateLabel(insights.peakDay.dateKey, todayKey, t),
+            count: insights.peakDay.dueTotal,
+          })
         : "—",
+      value: insights.peakDay ? String(insights.peakDay.dueTotal) : "0",
     },
   ];
 

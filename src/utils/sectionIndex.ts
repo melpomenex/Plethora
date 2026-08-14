@@ -714,7 +714,7 @@ function recoverOutlineRangeFromText(
   if (section.source !== "pdf-outline" && section.source !== "epub-toc") return undefined;
   const cleanTitle = escapeRegExp(section.title.trim());
   const titlePattern = new RegExp(
-    `(?:^\\s*(?:#{1,6}\\s*)?${cleanTitle}\\s*$|<h[1-6][^>]*>\\s*(?:<[^>]*>)*\\s*${cleanTitle}\\s*(?:<[^>]*>)*\\s*<\\/h[1-6]\\s*>)`,
+    `(?:^\\s*(?:#{1,6}\\s*)?${cleanTitle}\\s*$|<h[1-6][^>]*>\\s*(?:<[^>]*>)*\\s*${cleanTitle}\\s*(?:<[^>]*>)*\\s*<\\/h[1-6]\\s*>|^\\s*(?:<p[^>]*>|<div[^>]*>|<li[^>]*>)*(?:<[^>]*>)*\\s*${cleanTitle}\\s*(?:<[^>]*>)*(?:<\\/p>|<\\/div>|<\\/li>)?\\s*$)`,
     "gim"
   );
   const occurrences = [...fullContent.matchAll(titlePattern)];

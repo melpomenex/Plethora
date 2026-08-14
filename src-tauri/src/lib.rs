@@ -657,7 +657,13 @@ pub fn run() {
         // model downloads, and System-TTS fallback — all owned by the Kotlin
         // plugin. No PCM crosses the Tauri IPC. Desktop commands return an
         // Android-only error; Pocket TTS is the desktop local option, untouched.
-        .plugin(incrementum_android_tts::init());
+        .plugin(incrementum_android_tts::init())
+        // On-device generative AI for Android: ML Kit GenAI (Gemini Nano via
+        // AICore) for capability detection, summarization, and free-form
+        // prompting. Off Android the status command reports
+        // `platform_unsupported` and inference returns a typed error, so the
+        // frontend falls back to the configured cloud provider unchanged.
+        .plugin(incrementum_android_genai::init());
 
     // Updater + process (relaunch after install) are desktop-only.
     // The plugin reads its config from the `plugins.updater` block in

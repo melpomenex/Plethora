@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-ondevice-ai-warm-up"
+description = "Enables the ondevice_ai_warm_up command without any pre-configured scope."
+commands.allow = ["ondevice_ai_warm_up"]
+
+[[permission]]
+identifier = "deny-ondevice-ai-warm-up"
+description = "Denies the ondevice_ai_warm_up command without any pre-configured scope."
+commands.deny = ["ondevice_ai_warm_up"]

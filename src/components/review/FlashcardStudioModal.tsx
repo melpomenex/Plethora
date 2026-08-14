@@ -89,6 +89,9 @@ import { isTauri, isMac } from "../../lib/tauri";
 import { cn } from "../../utils";
 import { buildChapterQAContext, getChapterTitles } from "../../utils/chapterUtils";
 import { resolveFlashcardTarget, type FlashcardTargetOverride } from "../../utils/flashcardTarget";
+import { isOnDeviceAiAvailable, generateFlashcards as generateFlashcardsOnDevice } from "../../lib/ai/onDeviceAI";
+import { withOnDeviceRun } from "../../lib/ai/onDeviceRunStore";
+import { ON_DEVICE_TAG } from "../../utils/aiExtractUtils";
 import { NumericInput } from "../common";
 import type { ImageOcclusionRegion, MultipleChoiceOption } from "../../types/learningItemInteractions";
 import { OcclusionLightbox } from "../occlusion/OcclusionLightbox";
@@ -239,6 +242,12 @@ interface GenerationHistoryItem {
 
 const HISTORY_KEY = "flashcard-studio-history";
 const NOTEBOOKLM_PROVIDER_ID = "__notebooklm__";
+/**
+ * Sentinel provider id for on-device Gemini Nano. Like NotebookLM it is not a
+ * row in the LLM provider registry, so it gets its own id and its own branch in
+ * handleSend rather than going through chatWithContext.
+ */
+const ON_DEVICE_PROVIDER_ID = "__ondevice__";
 
 // Cost per 1K tokens (approximate for GPT-4)
 const COST_PER_1K_INPUT = 0.01;
@@ -1563,6 +1572,30 @@ function CardPreview({
   );
 }
 
+/**
+ * Backdrop dismiss that survives the Android soft keyboard.
+ *
+ * A bare `onClick={onClose}` on a backdrop fires whenever the click *resolves*
+ * over the backdrop. Tapping a textarea on Android opens the keyboard, which
+ * reflows the layout and can slide the backdrop under the finger before the
+ * click completes — so the modal closes the instant you try to type in it.
+ * Requiring the press to have *started* on the backdrop fixes that, and also
+ * stops a drag-select inside the panel from dismissing it on release.
+ */
+export function useBackdropDismiss(onClose: () => void) {
+  const pressedBackdrop = useRef(false);
+  return {
+    onPointerDown: (event: React.PointerEvent) => {
+      pressedBackdrop.current = event.target === event.currentTarget;
+    },
+    onClick: (event: React.MouseEvent) => {
+      const dismiss = event.target === event.currentTarget && pressedBackdrop.current;
+      pressedBackdrop.current = false;
+      if (dismiss) onClose();
+    },
+  };
+}
+
 function CardEditLightbox({
   isOpen,
   card,
@@ -1733,13 +1766,15 @@ function CardEditLightbox({
 
   if (!isOpen) return null;
 
+  const backdropDismiss = useBackdropDismiss(onClose);
+
   const inputCls = "w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50";
   const labelCls = "text-xs font-medium text-muted-foreground mb-1.5 block";
 
   return (
     <div
       className="fixed inset-0 z-[9993] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-      onClick={onClose}
+      {...backdropDismiss}
     >
       <div
         className="flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
@@ -2071,6 +2106,21 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   // Rust). Hide it in the browser/PWA rather than letting it silently no-op.
   const notebookLmAvailable = notebookLmEnabled && isTauri();
 
+  // On-device Gemini Nano. Android-only; `isOnDeviceAiAvailable()` reports
+  // `platform_unsupported` everywhere else, so this stays false and the option
+  // never appears.
+  const [onDeviceReady, setOnDeviceReady] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void isOnDeviceAiAvailable().then((status) => {
+      if (!cancelled) setOnDeviceReady(status.status === "available");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
   // Mobile shell decides whether configuration lives in the chip bar + sheets
   // (phone/narrow tablet) or inline across the top (desktop).
   const isMobileShell = useMobileShell();
@@ -2154,8 +2204,14 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     }
     if (notebookLmAvailable) {
       setSelectedProviderId(NOTEBOOKLM_PROVIDER_ID);
+      return;
     }
-  }, [isOpen, enabledProviders, selectedProviderId, preferredProviderType, notebookLmAvailable]);
+    // Last resort: on a phone with Nano ready and no cloud keys, on-device is
+    // the only way the studio can generate anything.
+    if (onDeviceReady) {
+      setSelectedProviderId(ON_DEVICE_PROVIDER_ID);
+    }
+  }, [isOpen, enabledProviders, selectedProviderId, preferredProviderType, notebookLmAvailable, onDeviceReady]);
 
   useEffect(() => {
     if (!isOpen || !notebookLmAvailable) return;
@@ -2182,6 +2238,12 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       setSelectedProviderId(enabledProviders[0]?.id ?? null);
     }
   }, [notebookLmAvailable, selectedProviderId, enabledProviders]);
+
+  useEffect(() => {
+    if (!onDeviceReady && selectedProviderId === ON_DEVICE_PROVIDER_ID) {
+      setSelectedProviderId(enabledProviders[0]?.id ?? null);
+    }
+  }, [onDeviceReady, selectedProviderId, enabledProviders]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2558,6 +2620,8 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     return enabledProviders.find((p) => p.id === selectedProviderId) || null;
   }, [enabledProviders, selectedProviderId]);
   const isNotebookProviderSelected = selectedProviderId === NOTEBOOKLM_PROVIDER_ID;
+  const isOnDeviceProviderSelected = selectedProviderId === ON_DEVICE_PROVIDER_ID;
+  const backdropDismiss = useBackdropDismiss(onClose);
   // OpenRouter (and other aggregator/custom-model setups) can point at any current or
   // future vision-capable model; the name-based heuristic below is necessarily incomplete,
   // so it only downgrades to a soft warning instead of hard-disabling the button.
@@ -3041,7 +3105,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const handleSend = async (customPrompt?: string) => {
     const promptText = customPrompt || input;
     if (!promptText.trim() || isSending) return;
-    if (!isNotebookProviderSelected && !currentProvider) {
+    if (!isNotebookProviderSelected && !isOnDeviceProviderSelected && !currentProvider) {
       toast.error(t("flashcardStudio.noLlmProvider"), t("flashcardStudio.noLlmProviderDesc"));
       return;
     }
@@ -3067,6 +3131,78 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     setViewMode("chat");
 
     try {
+      if (isOnDeviceProviderSelected) {
+        // Gemini Nano's context window is ~3k tokens, far below what the studio
+        // normally sends, so this does NOT go through chatWithContext. It hands
+        // the source text to the on-device SDK, which chunks it, runs one
+        // inference per chunk, and parses the line-oriented output. Nano emits
+        // malformed JSON too often for parseCardsFromResponse's JSON path to be
+        // reliable (see design.md decision 4).
+        const sourceText =
+          contextContent?.trim() || selectedDocumentText?.trim() || promptText.trim();
+        const explicit = extractExplicitCardCount(promptText);
+        const target = explicit ?? resolveFlashcardTarget(aiControls, sourceText).count;
+
+        const generated = await withOnDeviceRun("Flashcard generation", ({ signal, onProgress }) =>
+          generateFlashcardsOnDevice(sourceText, {
+            count: target,
+            tags: [ON_DEVICE_TAG],
+            signal,
+            onProgress,
+          }),
+        );
+
+        const assistantId = `assistant-${Date.now()}`;
+        const cards: DraftCard[] = generated.map((card, index) => ({
+          id: `ondevice-${assistantId}-${index}`,
+          type: card.card_type === "cloze" ? ("cloze" as const) : ("qa" as const),
+          question: card.question,
+          answer: card.answer,
+          // A cloze draft carries its sentence in `text`; `question` holds it too
+          // so the card reads correctly in either renderer.
+          text: card.card_type === "cloze" ? card.question : undefined,
+          selected: true,
+          sourceMessageId: assistantId,
+          createdAt: Date.now(),
+          tags: card.tags,
+        }));
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: assistantId,
+            role: "assistant",
+            content:
+              cards.length > 0
+                ? t("flashcardStudio.onDeviceGenerated", { count: cards.length })
+                : t("flashcardStudio.onDeviceNoCards"),
+            timestamp: Date.now(),
+            cardsGenerated: cards.length,
+          },
+        ]);
+
+        if (cards.length > 0) {
+          setDraftCards((prev) => [...cards, ...prev]);
+          toast.success(
+            t("flashcardStudio.cardsGenerated", { count: cards.length }),
+            t("flashcardStudio.cardsGeneratedDesc"),
+          );
+          const historyItem: GenerationHistoryItem = {
+            id: assistantId,
+            prompt: promptText.trim(),
+            timestamp: Date.now(),
+            cardCount: cards.length,
+            documentName: selectedDocument?.title,
+          };
+          setGenerationHistory((prev) => [historyItem, ...prev.slice(0, 19)]);
+          localStorage.setItem(
+            HISTORY_KEY,
+            JSON.stringify([historyItem, ...generationHistory.slice(0, 19)]),
+          );
+        }
+        return;
+      }
+
       if (isNotebookProviderSelected) {
         const notebookTitle = notebooks.find((n) => n.id === selectedNotebookId)?.title || "NotebookLM";
         const contextBlocks: string[] = [promptText.trim()];
@@ -3774,7 +3910,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   return (
     <div
       className="fixed inset-0 z-[9990] flex items-stretch justify-center bg-black/60 backdrop-blur-sm p-0 sm:items-center sm:p-4 animate-in fade-in duration-200"
-      onClick={onClose}
+      {...backdropDismiss}
       onPasteCapture={(event) => {
         if (isImageRegistryOpen) return;
         const imageFiles = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
@@ -3967,6 +4103,9 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
               >
                 {enabledProviders.length === 0 && <option value="">{t("flashcardStudio.noProvider")}</option>}
                 {notebookLmAvailable && <option value={NOTEBOOKLM_PROVIDER_ID}>NotebookLM</option>}
+                {onDeviceReady && (
+                  <option value={ON_DEVICE_PROVIDER_ID}>{t("flashcardStudio.onDeviceProvider")}</option>
+                )}
                 {enabledProviders.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -4403,7 +4542,12 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                           ? input
                           : input + (contextContent || (isSectionMode ? sectionsContextText : ""))
                       }
-                      isVisible={true}
+                      // Hidden for on-device inference: it is free, so the dollar
+                      // figure is meaningless, and the token count measures the
+                      // cloud payload rather than what the chunker actually sends
+                      // per invocation. Both halves would be wrong. Chunk count
+                      // is surfaced by the progress strip instead.
+                      isVisible={!isOnDeviceProviderSelected}
                       pricing={currentModelPricing}
                       compact={isMobileShell}
                     />

@@ -16,16 +16,19 @@ import {
   BookOpen,
   Brain,
   ChartBar,
+  ChatCircleDots,
   Download,
   Gear,
   Headphones,
   House,
+  Image,
   List,
   MagnifyingGlass,
   Microphone,
   Newspaper,
   Planet,
   Rss,
+  Scissors,
   TextT,
   X,
 } from "@phosphor-icons/react";
@@ -48,6 +51,9 @@ import {
   PodcastTab,
   AudiobooksTab,
   KnowledgeSphereTab,
+  ImageRegistryTab,
+  ExtractsTab,
+  DocumentQATab,
 } from "../tabs/TabRegistry";
 
 interface NavItem {
@@ -132,6 +138,36 @@ const primaryNavItems: NavItem[] = [
 
 const allNavItems: NavItem[] = [
   ...primaryNavItems,
+  {
+    id: "extracts",
+    label: "extractsTab.title",
+    icon: Scissors,
+    tabType: "extracts",
+    tabTitle: "extractsTab.title",
+    tabIcon: "✂️",
+    tabContent: ExtractsTab,
+    closable: true,
+  },
+  {
+    id: "image-registry",
+    label: "imageRegistry.pageTitle",
+    icon: Image,
+    tabType: "image-registry",
+    tabTitle: "imageRegistry.pageTitle",
+    tabIcon: "🖼️",
+    tabContent: ImageRegistryTab,
+    closable: true,
+  },
+  {
+    id: "doc-qa",
+    label: "documentQA.title",
+    icon: ChatCircleDots,
+    tabType: "doc-qa",
+    tabTitle: "documentQA.title",
+    tabIcon: "💬",
+    tabContent: DocumentQATab,
+    closable: true,
+  },
   {
     id: "rss",
     label: "rssReader.title",

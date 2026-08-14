@@ -117,6 +117,7 @@ import { startTranscriptionConfigMirror } from "./lib/transcriptionConfigMirror"
 import { MainLayout } from "./components/layout/MainLayout";
 import { DevPerformanceMonitor } from "./components/common/PerformanceMonitor";
 import { Toast } from "./components/common/Toast";
+import { OnDeviceRunIndicator } from "./components/common/OnDeviceRunIndicator";
 import { Modal } from "./components/common/Modal";
 import { KindleImportDialogHost } from "./components/import/KindleImportDialogHost";
 import { Analytics } from "@vercel/analytics/react";
@@ -404,6 +405,8 @@ reactRoot.render(
             </Suspense>
             <DevPerformanceMonitor />
             <Toast />
+            {/* Chunk progress + cancel for long on-device AI runs (Android). */}
+            <OnDeviceRunIndicator />
             <Modal />
             {/* Global Kindle clippings dialog — opened from any import entry
                 point (drag & drop, file picker, folder import, paste) via

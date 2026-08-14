@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      This plugin declares no permissions of its own. The ML Kit GenAI AARs
+      contribute `com.google.android.apps.aicore.service.BIND_SERVICE` and a
+      `<queries>` entry for `com.google.android.aicore` through manifest merging;
+      inference is entirely on-device, so neither INTERNET nor storage access is
+      needed here, and model downloads are performed by AICore itself.
+    -->
+
+    <!--
+      The three ML Kit GenAI AARs declare minSdkVersion 26; the app is minSdk 24.
+      Rather than raise the app's floor (which would drop Android 7.x users for a
+      feature they could never use — AICore does not exist before Android 8),
+      the libraries are merged in with an explicit override.
+
+      This is safe because nothing here touches an ML Kit class eagerly. The
+      clients are constructed lazily inside `checkStatus`, whose `catch
+      (e: Throwable)` covers the `NoClassDefFoundError` / `VerifyError` an API
+      24-25 device would raise, and reports `device_unsupported` — the same
+      answer such a device would get anyway.
+    -->
+    <uses-sdk
+        tools:overrideLibrary="com.google.mlkit.genai.summarization,com.google.mlkit.genai.prompt,com.google.mlkit.genai.common" />
+
+    <application />
+</manifest>

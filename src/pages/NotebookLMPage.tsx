@@ -110,6 +110,11 @@ export function NotebookLMPage() {
             }
           } else if (all.length > 0) {
             setSelectedNotebook(all[0]);
+          } else {
+            setSelectedNotebook(null);
+            if (provider === "cli") {
+              setConnectionMessage(t("notebooklm.signInFirst"));
+            }
           }
         } catch (listError: any) {
           setConnectionState("error");

@@ -5,6 +5,7 @@
 
 import { SettingsSection, SettingsRow } from "./SettingsPage";
 import { LLMProviderSettings } from "./LLMProviderSettings";
+import { OnDeviceAiPanel } from "./OnDeviceAiPanel";
 import { MCPServersSettings } from "./MCPServersSettings";
 import {
   syncPrimaryProviderToNativeAI,
@@ -227,6 +228,9 @@ export function AISettings({ onChange }: { onChange: () => void }) {
         onRemoveProvider={handleRemoveProvider}
         onTestConnection={handleTestConnection}
       />
+
+      {/* On-device AI (Android only). Renders nothing where no bridge exists. */}
+      <OnDeviceAiPanel onChange={onChange} />
 
       {/* Brave Search API Key — powers web search in Document Q&A.
           The backend reads this via the keychain (`brave_web_search`); the key
