@@ -1230,9 +1230,25 @@ export function EPUBViewer({
               }
             }, true);
             
-            // Auto-focus the iframe window to enable immediate keyboard navigation
+            // Auto-focus the iframe window to enable immediate keyboard navigation.
+            //
+            // Never steal focus from a field the user is typing in: showing the
+            // on-screen keyboard resizes the viewport, which makes epub.js
+            // re-render and re-run this — so without the guard, tapping any
+            // input layered over the reader (the selection sheet's question box,
+            // search, a dialog) focused it, opened the keyboard, and then had
+            // focus yanked back 150ms later, closing the keyboard again.
             try {
               setTimeout(() => {
+                const active = document.activeElement as HTMLElement | null;
+                if (
+                  active &&
+                  (active.tagName === "INPUT" ||
+                    active.tagName === "TEXTAREA" ||
+                    active.isContentEditable)
+                ) {
+                  return;
+                }
                 contents.window.focus();
               }, 150);
             } catch { /* ignore */ }

@@ -5,20 +5,65 @@ vi.mock("../onDeviceAI", async () => {
   return {
     ...actual,
     generateStreamingPrompt: vi.fn(),
-    generateNativePrompt: vi.fn(),
+    summarize: vi.fn(),
   };
 });
 
-vi.mock("../provider", () => ({
-  resolveAiPath: vi.fn(async () => "ondevice"),
-  runAiAction: vi.fn(async (action: { onDevice: () => Promise<unknown> }) => action.onDevice()),
+vi.mock("../../../api/ai", () => ({
+  answerQuestion: vi.fn(async () => "cloud answer"),
+  summarizeContent: vi.fn(async () => "cloud summary"),
+  simplifyContent: vi.fn(async () => "cloud simplification"),
+  extractKeyPoints: vi.fn(async () => ["point one", "point two"]),
 }));
 
-import { generateNativePrompt, generateStreamingPrompt } from "../onDeviceAI";
-import { answerPassage, explainPassage } from "../passageAI";
+// The real resolver is exercised by provider tests; here we drive the path.
+const path = { current: "ondevice" as "ondevice" | "cloud" | "none" };
+
+vi.mock("../provider", () => ({
+  resolveAiPath: vi.fn(async () => path.current),
+  runAiAction: vi.fn(
+    async (action: { onDevice: () => Promise<unknown>; cloud: () => Promise<unknown> }) => {
+      if (path.current === "none") return null;
+      return path.current === "cloud" ? action.cloud() : action.onDevice();
+    }
+  ),
+}));
+
+import { OnDeviceAiError, generateStreamingPrompt, summarize } from "../onDeviceAI";
+import {
+  answerQuestion,
+  extractKeyPoints,
+  simplifyContent,
+  summarizeContent,
+} from "../../../api/ai";
+import {
+  answerPassage,
+  explainPassage,
+  keyTermsPassage,
+  simplifyPassage,
+  summarizePassage,
+} from "../passageAI";
+
+function streamed(text: string) {
+  vi.mocked(generateStreamingPrompt).mockResolvedValue({
+    requestId: "req-1",
+    text,
+    inputTokens: 20,
+    tokenLimit: 4096,
+    baseModelName: "gemini-nano",
+    candidates: [],
+  });
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
+  path.current = "ondevice";
+  vi.mocked(summarize).mockResolvedValue("on-device summary");
+  vi.mocked(answerQuestion).mockResolvedValue("cloud answer");
+  vi.mocked(summarizeContent).mockResolvedValue("cloud summary");
+  vi.mocked(simplifyContent).mockResolvedValue("cloud simplification");
+  vi.mocked(extractKeyPoints).mockResolvedValue(["point one", "point two"]);
+  streamed("on-device output");
 });
 
 describe("answerPassage", () => {
@@ -52,7 +97,7 @@ describe("answerPassage", () => {
       { onChunk: (c) => chunks.push(c) }
     );
 
-    expect(result.answer).toBe("The heart pumps blood.");
+    expect(result.text).toBe("The heart pumps blood.");
     expect(result.grounded).toBe(true);
     expect(result.confidenceScore).toBeGreaterThan(0.5);
     expect(result.baseModelName).toBe("gemini-nano");
@@ -60,13 +105,7 @@ describe("answerPassage", () => {
   });
 
   it("flags unsupported assertions when answer terms are not in passage", async () => {
-    vi.mocked(generateStreamingPrompt).mockResolvedValue({
-      requestId: "req-1",
-      text: "Quantum mechanics causes black holes.",
-      inputTokens: 20,
-      tokenLimit: 4096,
-      candidates: [],
-    });
+    streamed("Quantum mechanics causes black holes.");
 
     const result = await answerPassage(
       "What causes black holes?",
@@ -76,21 +115,36 @@ describe("answerPassage", () => {
     expect(result.grounded).toBe(false);
     expect(result.reasons).toContain("unsupported_assertion");
   });
+
+  it("uses the cloud command and still checks grounding", async () => {
+    path.current = "cloud";
+    vi.mocked(answerQuestion).mockResolvedValue("Gravity causes stellar collapse.");
+
+    const result = await answerPassage("Why?", "Gravity causes stellar collapse.");
+
+    expect(answerQuestion).toHaveBeenCalledWith("Why?", "Gravity causes stellar collapse.");
+    expect(generateStreamingPrompt).not.toHaveBeenCalled();
+    expect(result.text).toBe("Gravity causes stellar collapse.");
+    expect(result.grounded).toBe(true);
+  });
+
+  it("does not fall back when the on-device request is cancelled", async () => {
+    vi.mocked(generateStreamingPrompt).mockRejectedValue(
+      new OnDeviceAiError("cancelled", "aborted")
+    );
+
+    await expect(answerPassage("Why?", "Some passage.")).rejects.toMatchObject({
+      code: "cancelled",
+    });
+    expect(answerQuestion).not.toHaveBeenCalled();
+  });
 });
 
 describe("explainPassage", () => {
-  it("generates simple explanation by default", async () => {
-    vi.mocked(generateStreamingPrompt).mockResolvedValue({
-      requestId: "exp-1",
-      text: "This passage describes how blood flows.",
-      inputTokens: 15,
-      tokenLimit: 4096,
-      candidates: [],
-    });
-
+  it("generates a simple explanation by default", async () => {
     const result = await explainPassage("Blood flows through veins.");
-    expect(result.preset).toBe("simple");
-    expect(result.explanation).toBe("This passage describes how blood flows.");
+    expect(result.text).toBe("on-device output");
+    expect(result.truncated).toBe(false);
     expect(generateStreamingPrompt).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining("Explain this passage in simple"),
@@ -100,21 +154,82 @@ describe("explainPassage", () => {
   });
 
   it("supports detailed and study-note presets", async () => {
-    vi.mocked(generateStreamingPrompt).mockResolvedValue({
-      requestId: "exp-2",
-      text: "• Term 1: definition",
-      inputTokens: 15,
-      tokenLimit: 4096,
-      candidates: [],
-    });
-
-    const result = await explainPassage("Sample text", { preset: "study-note" });
-    expect(result.preset).toBe("study-note");
+    await explainPassage("Sample text", { preset: "study-note" });
     expect(generateStreamingPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: expect.stringContaining("study note"),
-      }),
+      expect.objectContaining({ text: expect.stringContaining("study note") }),
       expect.anything()
     );
+  });
+
+  it("takes the cloud path when the resolver says cloud", async () => {
+    path.current = "cloud";
+    const result = await explainPassage("Blood flows through veins.");
+    expect(result.text).toBe("cloud answer");
+    expect(generateStreamingPrompt).not.toHaveBeenCalled();
+  });
+
+  it("marks the result truncated when the passage exceeds the budget", async () => {
+    // Two paragraphs, each far over the 1000-token floor (~4000 chars).
+    const paragraph = "word ".repeat(1200);
+    const result = await explainPassage(`${paragraph}\n\n${paragraph}`);
+    expect(result.truncated).toBe(true);
+  });
+});
+
+describe("summarizePassage", () => {
+  it("uses the native summarizer on-device", async () => {
+    const result = await summarizePassage("Some long passage.");
+    expect(summarize).toHaveBeenCalled();
+    expect(result.text).toBe("on-device summary");
+  });
+
+  it("uses summarizeContent on the cloud path", async () => {
+    path.current = "cloud";
+    const result = await summarizePassage("Some long passage.", { maxWords: 50 });
+    expect(summarizeContent).toHaveBeenCalledWith("Some long passage.", 50);
+    expect(result.text).toBe("cloud summary");
+  });
+});
+
+describe("simplifyPassage", () => {
+  it("prompts on-device", async () => {
+    await simplifyPassage("Dense text.");
+    expect(generateStreamingPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining("plain language") }),
+      expect.anything()
+    );
+  });
+
+  it("uses simplifyContent on the cloud path", async () => {
+    path.current = "cloud";
+    const result = await simplifyPassage("Dense text.", { level: "elementary" });
+    expect(simplifyContent).toHaveBeenCalledWith("Dense text.", "elementary");
+    expect(result.text).toBe("cloud simplification");
+  });
+});
+
+describe("keyTermsPassage", () => {
+  it("prompts on-device", async () => {
+    await keyTermsPassage("Dense text.");
+    expect(generateStreamingPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining("most important terms") }),
+      expect.anything()
+    );
+  });
+
+  it("renders cloud key points as a bulleted list", async () => {
+    path.current = "cloud";
+    const result = await keyTermsPassage("Dense text.", { count: 2 });
+    expect(extractKeyPoints).toHaveBeenCalledWith("Dense text.", 2);
+    expect(result.text).toBe("- point one\n- point two");
+  });
+});
+
+describe("no available path", () => {
+  it("throws model_unavailable instead of returning nothing", async () => {
+    path.current = "none";
+    await expect(explainPassage("Some text.")).rejects.toMatchObject({
+      code: "model_unavailable",
+    });
   });
 });

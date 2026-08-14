@@ -7,6 +7,11 @@ import {
   Scroll,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
+import { useMobileShell } from "../../hooks/useMobileShell";
+import {
+  SelectionActionsSheet,
+  passageAroundSelection,
+} from "../viewer/SelectionActionsSheet";
 
 const PROGRAMMATIC_SCROLL_LOCK_MS = 500;
 
@@ -51,6 +56,41 @@ export function TranscriptPanel({
   useEffect(() => {
     loadTranscript(bookId, chapterId);
   }, [bookId, chapterId, loadTranscript]);
+
+  // Mobile: a transcript selection opens the same actions sheet the reader
+  // surfaces use. There is no transcript extract path, so the sheet shows copy
+  // plus the AI actions.
+  const isMobile = useMobileShell();
+  const [mobileSelection, setMobileSelection] = useState({ text: "", passage: "", open: false });
+  const sheetOpenRef = useRef(false);
+  useEffect(() => {
+    sheetOpenRef.current = mobileSelection.open;
+  }, [mobileSelection.open]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+
+    const handleSelectionChange = () => {
+      if (sheetOpenRef.current) return;
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() ?? "";
+      const node = selection?.anchorNode;
+      const element = node instanceof Element ? node : node?.parentElement;
+      if (!text || !element || !scrollRef.current?.contains(element)) {
+        setMobileSelection(prev => (prev.open ? { ...prev, open: false } : prev));
+        return;
+      }
+      setMobileSelection({ text, passage: passageAroundSelection(selection, text), open: true });
+    };
+
+    const handleTouchEnd = () => setTimeout(handleSelectionChange, 100);
+    document.addEventListener("selectionchange", handleSelectionChange);
+    document.addEventListener("touchend", handleTouchEnd);
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [isMobile]);
 
   // Comfort-offset + debounced + user-scroll-aware auto-scroll. Mirrors the
   // algorithm in TranscriptSync.tsx so both viewers behave the same way.
@@ -278,6 +318,16 @@ export function TranscriptPanel({
           );
         })}
       </div>
+
+      <SelectionActionsSheet
+        open={isMobile && mobileSelection.open}
+        text={mobileSelection.text}
+        passage={mobileSelection.passage}
+        onClose={() => {
+          setMobileSelection(prev => ({ ...prev, open: false }));
+          window.getSelection()?.removeAllRanges();
+        }}
+      />
     </div>
   );
 }
