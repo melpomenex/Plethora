@@ -26,6 +26,7 @@ import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts
 import { tolerantPhraseRegex, collectSectionCfiMatches } from "../../utils/epubQuoteSearch";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
+import { attachIframePointerActivityForwarder } from "../../utils/iframePointerActivity";
 import type { EpubVimRuntime } from "../../utils/vim/readerRuntimes";
 
 // Define outside component to keep a stable reference across renders
@@ -1218,6 +1219,20 @@ export function EPUBViewer({
               });
               viewerRef.current?.dispatchEvent(parentEvent);
             });
+
+            // Forward pointer movement from the EPUB iframe to the parent
+            // window. Scroll Mode's overlay controls are driven by
+            // parent-window mousemove; without this bridge they hid after the
+            // idle timeout while the cursor was over the book and could only
+            // be recovered from the non-iframe chrome (top bar, side rails,
+            // edges) — moving the pointer to the bottom of the content did
+            // nothing. In the standalone reader the parent is the same window
+            // and nobody listens, so this is a harmless no-op there.
+            try {
+              attachIframePointerActivityForwarder(contents.document, contents.window.parent);
+            } catch {
+              /* parent unreachable — ignore */
+            }
 
             // Key events inside the EPUB iframe don't reliably reach the parent window.
             // Bind Cmd/Ctrl+K here so the command palette always opens while reading.

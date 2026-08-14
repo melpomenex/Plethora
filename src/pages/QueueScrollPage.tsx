@@ -57,11 +57,20 @@ import { QueueExtractsView } from "../components/queue/QueueExtractsView";
 import { FlashcardStudioModal } from "../components/review/FlashcardStudioModal";
 import { LearningCardsList } from "../components/learning/LearningCardsList";
 import { submitReview } from "../api/review";
-import { composeSession } from "./queueScrollBudget";
+import {
+  clampCompositionToAvailability,
+  composeSession,
+  type ComposedSession,
+  type CompositionTargets,
+} from "./queueScrollBudget";
 import { DEFAULT_COMBINED_SORT_CONFIG, orderScrollItemsByCombinedCriterion, selectByQuotaInOrder } from "../utils/queueScrollOrder";
 import { gateScrollItemsByComposition, gateScrollItemsByType, resolveMissingExtractContent } from "./queueScrollItemTypes";
 import { FLASHCARD_REVEAL_EVENT, resolveScrollRatingKey } from "./queueScrollKeyboard";
-import { shouldBuildScrollSession } from "./queueScrollSessionLifecycle";
+import {
+  reanchorSessionPosition,
+  resolveFlashcardRevealGate,
+  shouldBuildScrollSession,
+} from "./queueScrollSessionLifecycle";
 import {
   getUnreadItemsAuto,
   getSubscribedFeedsAuto,
@@ -123,6 +132,7 @@ import {
   handleVolumeRockerNavigation,
   isVolumeRockerNavigationKey,
 } from "../utils/volumeRockerNavigation";
+import { IFRAME_POINTER_ACTIVITY_EVENT } from "../utils/iframePointerActivity";
 import {
   SelectionActionsSheet,
   passageAroundSelection,
@@ -442,6 +452,21 @@ export function QueueScrollPage() {
     setIsImageExpanded(settings.rssQueue.showCoverImage ?? false);
   }, [currentIndex, settings.rssQueue.showCoverImage]);
   const [scrollItems, setScrollItems] = useState<ScrollItem[]>([]);
+  // Session-lifetime composition snapshot for the optimal branch (see the
+  // build effect): the composed per-type counts are established when the
+  // session is built and re-applied (clamped to availability) on every
+  // rebuild, so a mid-session rating cannot shrink the session and drop
+  // cards it promised. Keyed by mode + tab so reopening a tab recomposes
+  // while an open tab keeps its counts; re-snapshotted when the user
+  // explicitly changes the composition settings, or when a pool GROWS past
+  // what the snapshot was established against (late-arriving data — the
+  // first builds of a mount race the due-item and queue loads).
+  const compositionSnapshotRef = useRef<{
+    key: string;
+    targets: CompositionTargets;
+    counts: CompositionTargets;
+    available: CompositionTargets;
+  } | null>(null);
   // Composition report of the last-built OPTIMAL session (the path where the
   // shares are authoritative): what each type supplied and how far it fell
   // short of its share. Shown as a note in the Queue Settings panel. The
@@ -1059,12 +1084,84 @@ export function QueueScrollPage() {
   // `advanceAfterRemoval`; rebuilding when that lock is released would restart
   // the mix at the current numeric index and replace the queued successor.
   const wasRatingOnLastBuildEffectRunRef = useRef(false);
+
+  // Mirrors of scrollItems/currentIndex for the async build path. The build
+  // effect's dependency array deliberately excludes them, so by the time an
+  // async build completes its closure would hold pre-rating state; the refs
+  // are synced after every commit (and at each `applySessionItems` write), so
+  // a rebuild always reconciles against the session the user is looking at.
+  const scrollItemsRef = useRef<ScrollItem[]>([]);
+  const currentIndexRef = useRef(0);
+  useEffect(() => {
+    scrollItemsRef.current = scrollItems;
+    currentIndexRef.current = currentIndex;
+  }, [scrollItems, currentIndex]);
+
+  // Whether a dropped current item can still be meaningfully presented. A
+  // rebuild that no longer contains the item in view re-inserts it — unless
+  // its backing entity was deleted, suspended, or rated elsewhere, in which
+  // case the session advances off it exactly once (the spec's
+  // external-removal path; identical to today's wholesale replacement).
+  const canPresentItem = useCallback((item: ScrollItem): boolean => {
+    switch (item.type) {
+      case "document": {
+        if (!item.documentId || ratedDocumentIds.has(item.documentId)) return false;
+        const doc = documentsMap.get(item.documentId);
+        return !!doc && !doc.isArchived && !doc.isDismissed;
+      }
+      case "flashcard":
+        return !!item.learningItem && !ratedFlashcardIds.has(item.learningItem.id);
+      case "extract":
+        return !!item.extract && !ratedExtractIds.has(item.extract.id);
+      case "rss":
+        return !item.rssItem || !readRssItemIds.has(item.rssItem.id);
+      default:
+        return true;
+    }
+  }, [documentsMap, ratedDocumentIds, ratedFlashcardIds, ratedExtractIds, readRssItemIds]);
+
+  // The single write point for session rebuilds: re-anchor the item in view
+  // by id before replacing the list, so a rebuild — whatever triggered it —
+  // can never displace or drop it. currentIndex and renderedIndex move
+  // together with no transition: the item on screen does not change, so
+  // there is nothing to animate. Intentional advances (`advanceAfterRemoval`,
+  // `goToNext`/`goToPrevious`, neural mode's own writes) bypass this helper —
+  // they own the index.
+  const applySessionItems = useCallback((nextItems: ScrollItem[]) => {
+    const prevItems = scrollItemsRef.current;
+    const prevIndex = currentIndexRef.current;
+    const current = prevItems[prevIndex];
+    const currentId = current?.id ?? null;
+
+    let items = nextItems;
+    let nextIndex: number;
+    if (
+      currentId === null ||
+      nextItems.some((it) => it.id === currentId) ||
+      canPresentItem(current)
+    ) {
+      const reconciled = reanchorSessionPosition(prevItems, currentId, nextItems);
+      items = reconciled.items;
+      nextIndex = reconciled.currentIndex;
+    } else {
+      nextIndex = Math.min(prevIndex, Math.max(0, nextItems.length - 1));
+    }
+    scrollItemsRef.current = items;
+    currentIndexRef.current = nextIndex;
+    setScrollItems(items);
+    setCurrentIndex(nextIndex);
+    setRenderedIndex(nextIndex);
+  }, [canPresentItem]);
+
   useEffect(() => {
     const wasRating = wasRatingOnLastBuildEffectRunRef.current;
     wasRatingOnLastBuildEffectRunRef.current = isRating;
     if (!shouldBuildScrollSession({ isRating, wasRating })) return;
     // Neural mode owns scrollItems — the normal queue-build must not overwrite
-    // the spreading-activation session. It re-runs when neural mode is exited
+    // the spreading-activation session, and `applySessionItems` below must
+    // never re-anchor against it (its positions are consumed element-by-
+    // element, not composed). This early return is what keeps the re-anchor
+    // on this side of the boundary; it re-runs when neural mode is exited
     // (isNeuralMode flips to false, restoring the snapshot separately).
     if (isNeuralMode) return;
     let cancelled = false;
@@ -1279,7 +1376,7 @@ export function QueueScrollPage() {
           ];
           if (!cancelled) {
             setCompositionReport(null);
-            setScrollItems([...selected, ...extras]);
+            applySessionItems([...selected, ...extras]);
           }
           return;
         }
@@ -1301,7 +1398,7 @@ export function QueueScrollPage() {
 
         if (!cancelled) {
           setCompositionReport(null);
-          setScrollItems(mixedItems);
+          applySessionItems(mixedItems);
         }
         return;
       }
@@ -1505,14 +1602,52 @@ export function QueueScrollPage() {
       // passed unmodified — the composition is authoritative for this path.
       const targets = settings.scrollQueue.composition;
       const nonReviewItems = [...docItems, ...rssItems, ...podcastItems];
-      const composed = composeSession({
-        targets,
-        available: {
-          documents: nonReviewItems.length,
-          extracts: extractItems.length,
-          flashcards: flashcardItems.length,
-        },
-      });
+      const available = {
+        documents: nonReviewItems.length,
+        extracts: extractItems.length,
+        flashcards: flashcardItems.length,
+      };
+      // Session-lifetime composition snapshot: the composed counts are
+      // established when this session (mode + tab) is built and re-applied on
+      // every rebuild, clamped to current availability. Without this, rating
+      // one document reduces the pool `composeSession` anchors on, shrinking
+      // the recomposed session and slicing unreviewed cards off the tail.
+      // Re-snapshot only when the session identity changes, the user
+      // explicitly changes the composition settings, or a pool GREW past the
+      // availability the snapshot was established against — growth is
+      // late-arriving data (the mount builds race the due-item/queue loads),
+      // never a rating, so the anti-shrink guarantee is untouched.
+      const snapshotKey = `${activeTabQueueData.queueScrollMode ?? "optimal"}:${activeTabId ?? "none"}`;
+      const snapshot = compositionSnapshotRef.current;
+      const snapshotStale =
+        snapshot === null ||
+        snapshot.key !== snapshotKey ||
+        snapshot.targets.documents !== targets.documents ||
+        snapshot.targets.extracts !== targets.extracts ||
+        snapshot.targets.flashcards !== targets.flashcards ||
+        available.documents > snapshot.available.documents ||
+        available.extracts > snapshot.available.extracts ||
+        available.flashcards > snapshot.available.flashcards;
+      let composed: ComposedSession;
+      if (snapshotStale) {
+        composed = composeSession({ targets, available });
+        compositionSnapshotRef.current = {
+          key: snapshotKey,
+          targets: { ...targets },
+          counts: {
+            documents: composed.documents,
+            extracts: composed.extracts,
+            flashcards: composed.flashcards,
+          },
+          available: {
+            documents: available.documents,
+            extracts: available.extracts,
+            flashcards: available.flashcards,
+          },
+        };
+      } else {
+        composed = clampCompositionToAvailability(snapshot.counts, available);
+      }
       const limitedDocuments = nonReviewItems.slice(0, composed.documents);
       const limitedFlashcards = flashcardItems.slice(0, composed.flashcards);
       const limitedExtracts = extractItems.slice(0, composed.extracts);
@@ -1551,7 +1686,7 @@ export function QueueScrollPage() {
           },
           shortfall: composed.shortfall,
         });
-        setScrollItems(mixedItems);
+        applySessionItems(mixedItems);
       }
     };
 
@@ -1563,6 +1698,22 @@ export function QueueScrollPage() {
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];
+
+  // Keep the flashcard-reveal gate glued to the card actually in view: reset
+  // it as soon as a DIFFERENT flashcard becomes current, instead of waiting
+  // for the card component's mount report one effect-pass later. That window
+  // let a keyboard 1-4 double-tap rate a fresh card under the previous
+  // card's revealed state. A rebuild that preserves the current card does
+  // not touch the gate — its reveal state survives the rebuild.
+  const lastFlashcardIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const gate = resolveFlashcardRevealGate(currentItem, lastFlashcardIdRef.current);
+    lastFlashcardIdRef.current = gate.flashcardId;
+    if (gate.revealed !== null) {
+      handleFlashcardReveal(gate.revealed);
+    }
+  }, [currentItem, handleFlashcardReveal]);
+
   const currentDocument = useMemo(() => {
     if (!currentItem || currentItem.type !== "document" || !currentItem.documentId) return null;
     return documentsMap.get(currentItem.documentId) ?? null;
@@ -2957,16 +3108,34 @@ export function QueueScrollPage() {
       handleInteraction();
     };
 
+    // Pointer activity forwarded from the content iframes (EPUB, HTML) —
+    // see utils/iframePointerActivity.ts. Without this, the controls hid
+    // after the idle timeout fired while the cursor was over the reading
+    // content and could only be recovered from the non-iframe chrome (top
+    // bar, side rails, edges); moving the pointer to the bottom of the
+    // content did nothing. Touch keeps its own semantics: it resets the
+    // idle timer but must not reveal the controls (mobile is tap-to-toggle).
+    const handleIframePointerActivity = (e: Event) => {
+      const kind = (e as CustomEvent<{ kind?: string }>).detail?.kind;
+      if (kind === "touch") {
+        handleTouchActivity();
+      } else {
+        handleInteraction();
+      }
+    };
+
     resetTimer();
 
     window.addEventListener("mousemove", handleInteraction);
     window.addEventListener("touchstart", handleTouchActivity, { passive: true });
     window.addEventListener("keydown", handleKeyInteraction);
+    window.addEventListener(IFRAME_POINTER_ACTIVITY_EVENT, handleIframePointerActivity);
 
     return () => {
       window.removeEventListener("mousemove", handleInteraction);
       window.removeEventListener("touchstart", handleTouchActivity);
       window.removeEventListener("keydown", handleKeyInteraction);
+      window.removeEventListener(IFRAME_POINTER_ACTIVITY_EVENT, handleIframePointerActivity);
       clearTimeout(hideTimeout);
     };
   }, [settings.interface.volumeRockerScroll]);
