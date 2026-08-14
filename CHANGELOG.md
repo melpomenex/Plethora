@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.6.1] - 2026-08-14
+
+### Fixed & Improved
+
+- **Scroll Mode no longer skips the flashcard you're looking at** — Rating a document (e.g. an EPUB) revealed the next item — frequently a flashcard — which flashed on screen and was then silently skipped in favor of the following document. Any store refresh that landed after the rating (the sync engine's debounced document reload being the usual one) rebuilt the scroll session around a numeric index, displacing whatever you were viewing. Rebuilds now re-anchor to the item itself: it stays current no matter what triggered the rebuild, its reveal state survives, and an item the recomposition dropped is re-inserted so you can still finish it (only externally deleted/suspended items advance off). The session's composed mix is also frozen for the session's lifetime, so rating a document no longer shrinks the session and quietly drops cards it had promised from the tail. Queue-list sessions get the same guarantee.
+- **Pinned so it can't regress** — The stability invariant is locked down by three layers of tests: pure-function tests for the re-anchor helper plus pinning tests that document the displacement hazard itself (rating each document and rebuilding changed the item at the rater's index in 11 of 11 positions with the real composition and ordering code), an effect-sequence simulation of the exact build → rate → unlock → rebuild race, and a full component-level regression test that renders Scroll Mode, rates a document, fires a document reload, and asserts the flashcard is still on screen and unrated — verified to fail on the pre-fix code, so any future trigger of this class trips it immediately.
+- **Overlay controls recover anywhere over the content** — The scroll-mode controls (rating orbs, bottom actions, progress bar) are revealed by mouse movement on the window and hide after a few idle seconds — but the EPUB/HTML reading surface renders in an iframe that swallows pointer events, so once they hid you had to reach the top bar, a side rail, or a screen edge to summon them back. Pointer movement inside the content is now bridged to the app window: moving the cursor to the bottom of the screen (or anywhere over the page you're reading) brings the controls right back.
+
 ## [2.6.0] - 2026-08-14
 
 ### Added
