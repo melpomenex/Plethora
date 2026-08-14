@@ -83,9 +83,15 @@ const CONTEXT_CHARS = 1500;
 export function passageAroundSelection(selection: Selection | null, text: string): string {
   const node = selection?.anchorNode;
   const element = node instanceof Element ? node : node?.parentElement;
-  const container = element?.closest<HTMLElement>(
-    "[data-document-content='true'], [data-transcript-scroll='true'], .prose, article, .textLayer"
-  );
+  const container =
+    element?.closest<HTMLElement>(
+      "[data-document-content='true'], [data-transcript-scroll='true'], .prose, article, .textLayer"
+    ) ??
+    // Inside a reader iframe (EPUB spine section, HTML document) the document
+    // *is* the content and none of the app's container markers exist. Falling
+    // back to the body is only safe there — in the top-level document it would
+    // sweep in the app chrome around the reader.
+    (element && element.ownerDocument !== document ? element.ownerDocument.body : null);
   const full = container?.textContent?.replace(/\s+/g, " ").trim();
   if (!full) return text;
 

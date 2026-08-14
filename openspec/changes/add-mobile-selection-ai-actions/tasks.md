@@ -35,6 +35,8 @@
 - [x] 5.1 Component tests: sheet opens on selection, AI rows hidden when `useAiAvailability` reports unavailable, result mode renders output, Retry re-runs the action
 - [x] 5.2 Test that closing the sheet mid-request aborts and issues no cloud fallback
 - [x] 5.3 Run `npm run lint` and the vitest suite
-- [ ] 5.4 Verify on an Android device: on-device path with the model ready, cloud path with on-device disabled, and no-AI degradation; confirm the sheet does not collide with the OS selection toolbar
-  - Done: on-device path — Explain on an EPUB selection in the queue returned in ~20s via Gemini Nano (185 tokens); no collision with the OS selection toolbar
-  - Remaining: cloud path with on-device disabled, and no-AI degradation
+- [x] 5.4 Verify on an Android device: on-device path with the model ready, cloud path with on-device disabled, and no-AI degradation; confirm the sheet does not collide with the OS selection toolbar
+  - On-device: Explain and Ask both answered from an EPUB selection in the queue via Gemini Nano. No collision with the OS selection toolbar.
+  - Passage context: asking "how much funding did he obtain" against a one-word selection answered correctly from the surrounding text (input_token_count 3513, vs 42 before the iframe fix).
+  - No-AI degradation: with no cloud provider configured and `preferOnDevice` off, the AI rows disappear and the menu keeps its non-AI actions.
+  - Cloud path: NOT verified — the test device has no API key configured, and adding one is the owner's to do. Covered by unit tests only (`passageAI.test.ts` cloud-path cases).
