@@ -38,9 +38,9 @@ jobs:
       # Incrementum_<v>_aarch64.app.tar.gz (and its .sig) alongside the dmg;
       # the updater only consumes the .app.tar.gz, not the .dmg.
       matrix:
-        ${{ (github.event_name == 'workflow_dispatch' && inputs.windows_only
-            && fromJSON('[{"id":"windows-x86_64","platform":"windows-latest","os":"windows","arch":"x86_64","tauri_args":"--bundles nsis","required":false}]'))
-            || fromJSON('[{"id":"macos-aarch64","platform":"macos-latest","os":"macos","arch":"aarch64","tauri_args":"--bundles app,dmg","required":true},{"id":"windows-x86_64","platform":"windows-latest","os":"windows","arch":"x86_64","tauri_args":"--bundles nsis","required":false},{"id":"linux-x86_64","platform":"ubuntu-latest","os":"linux","arch":"x86_64","tauri_args":"--bundles deb","required":true},{"id":"linux-aarch64","platform":"ubuntu-24.04-arm","os":"linux","arch":"aarch64","tauri_args":"--bundles deb","required":false}]') }}
+        ${{ (github.event_name == 'workflow_dispatch' && inputs.windows_only == true
+            && fromJSON('{"include":[{"id":"windows-x86_64","platform":"windows-latest","os":"windows","arch":"x86_64","tauri_args":"--bundles nsis","required":false}]}'))
+            || fromJSON('{"include":[{"id":"macos-aarch64","platform":"macos-latest","os":"macos","arch":"aarch64","tauri_args":"--bundles app,dmg","required":true},{"id":"windows-x86_64","platform":"windows-latest","os":"windows","arch":"x86_64","tauri_args":"--bundles nsis","required":false},{"id":"linux-x86_64","platform":"ubuntu-latest","os":"linux","arch":"x86_64","tauri_args":"--bundles deb","required":true},{"id":"linux-aarch64","platform":"ubuntu-24.04-arm","os":"linux","arch":"aarch64","tauri_args":"--bundles deb","required":false}]}') }}
 
     runs-on: ${{ matrix.platform }}
     # Job-level env so EVERY step sees these — critically the `prebuild`
