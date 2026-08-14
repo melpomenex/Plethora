@@ -2897,6 +2897,82 @@ impl Repository {
         Ok(item.clone())
     }
 
+    /// Persist a learning item's content columns (question, answer, cloze_text)
+    /// through an explicit UPDATE. Unlike `update_learning_item`, this touches
+    /// no scheduling/tag/metadata columns, so content edits can never clobber
+    /// grading state — and content no longer depends on the yjs sync receive
+    /// path upserting the full row.
+    ///
+    /// `question` is always written. `answer` and `cloze_text` are written only
+    /// when supplied (Some); callers that omit them keep the stored columns
+    /// unchanged — the same partial-update semantics the browser backend's
+    /// IndexedDB path has always had. Returns the refreshed row, or None when
+    /// the id does not exist.
+    pub async fn update_learning_item_content(
+        &self,
+        id: &str,
+        question: &str,
+        answer: Option<&str>,
+        cloze_text: Option<&str>,
+    ) -> Result<Option<LearningItem>> {
+        let now = Utc::now();
+        // One of four statements depending on which optional columns were
+        // supplied, so omitted ones never appear in the UPDATE at all.
+        let rows_affected = match (answer, cloze_text) {
+            (Some(answer), Some(cloze_text)) => {
+                sqlx::query(
+                    "UPDATE learning_items SET question = ?1, answer = ?2, cloze_text = ?3, date_modified = ?4 WHERE id = ?5",
+                )
+                .bind(question)
+                .bind(answer)
+                .bind(cloze_text)
+                .bind(now)
+                .bind(id)
+                .execute(&self.pool)
+                .await?
+                .rows_affected()
+            }
+            (Some(answer), None) => {
+                sqlx::query(
+                    "UPDATE learning_items SET question = ?1, answer = ?2, date_modified = ?3 WHERE id = ?4",
+                )
+                .bind(question)
+                .bind(answer)
+                .bind(now)
+                .bind(id)
+                .execute(&self.pool)
+                .await?
+                .rows_affected()
+            }
+            (None, Some(cloze_text)) => {
+                sqlx::query(
+                    "UPDATE learning_items SET question = ?1, cloze_text = ?2, date_modified = ?3 WHERE id = ?4",
+                )
+                .bind(question)
+                .bind(cloze_text)
+                .bind(now)
+                .bind(id)
+                .execute(&self.pool)
+                .await?
+                .rows_affected()
+            }
+            (None, None) => {
+                sqlx::query("UPDATE learning_items SET question = ?1, date_modified = ?2 WHERE id = ?3")
+                    .bind(question)
+                    .bind(now)
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await?
+                    .rows_affected()
+            }
+        };
+
+        if rows_affected == 0 {
+            return Ok(None);
+        }
+        self.get_learning_item_by_id(id).await
+    }
+
     /// Update a learning item's user-set priority (supermemo-faithful-queue
     /// Phase 3). Mirrors `update_document_priority`: sets the slider, derives
     /// the priority_score, flips `priority_explicitly_set`, and returns the
@@ -9469,5 +9545,96 @@ mod tests {
         // Use `now` to avoid an unused-variable warning if the compiler
         // complains (the RFC3339 timestamps above are inlined).
         let _ = now;
+    }
+
+    #[tokio::test]
+    async fn update_learning_item_content_persists_columns_and_leaves_scheduling_untouched() {
+        let repo = setup_repo().await;
+        let mut item = LearningItem::new(ItemType::Basic, "Old question".to_string());
+        item.answer = Some("Old answer".to_string());
+        // Simulate a card that has been graded: the content edit must not
+        // disturb any of this scheduling state.
+        item.due_date = Utc::now() + chrono::Duration::days(12);
+        item.interval = 9.0;
+        item.ease_factor = 2.15;
+        item.review_count = 7;
+        item.lapses = 2;
+        item.state = crate::models::ItemState::Review;
+        item.tags = vec!["deck-a".to_string()];
+        repo.create_learning_item(&item).await.expect("seed item");
+
+        // Direct write with no sync/receive path involved: the row must carry
+        // the new content after a plain re-read.
+        let updated = repo
+            .update_learning_item_content(&item.id, "New question", Some("New answer"), None)
+            .await
+            .expect("update content")
+            .expect("row exists");
+        assert_eq!(updated.question, "New question");
+        assert_eq!(updated.answer.as_deref(), Some("New answer"));
+
+        let reread = repo
+            .get_learning_item_by_id(&item.id)
+            .await
+            .expect("re-read")
+            .expect("row exists");
+        assert_eq!(reread.question, "New question");
+        assert_eq!(reread.answer.as_deref(), Some("New answer"));
+        // Scheduling state survives the content edit untouched.
+        assert_eq!(reread.due_date, item.due_date);
+        assert_eq!(reread.interval, 9.0);
+        assert_eq!(reread.ease_factor, 2.15);
+        assert_eq!(reread.review_count, 7);
+        assert_eq!(reread.lapses, 2);
+        assert!(matches!(reread.state, crate::models::ItemState::Review));
+        assert_eq!(reread.tags, vec!["deck-a".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn update_learning_item_content_writes_optional_columns_only_when_supplied() {
+        let repo = setup_repo().await;
+        let mut item = LearningItem::new(ItemType::Cloze, "Cloze question".to_string());
+        item.answer = Some("Cloze answer".to_string());
+        item.cloze_text = Some("The {{c1::sun}} rises in the east.".to_string());
+        repo.create_learning_item(&item).await.expect("seed item");
+
+        // Omitting answer/cloze_text leaves both stored columns unchanged —
+        // partial-update callers (e.g. the Knowledge Sphere rename) must not
+        // have their answer silently nulled by a question-only edit.
+        let question_only = repo
+            .update_learning_item_content(&item.id, "Edited question", None, None)
+            .await
+            .expect("question-only update")
+            .expect("row exists");
+        assert_eq!(question_only.question, "Edited question");
+        assert_eq!(question_only.answer.as_deref(), Some("Cloze answer"));
+        assert_eq!(
+            question_only.cloze_text.as_deref(),
+            Some("The {{c1::sun}} rises in the east.")
+        );
+
+        // Supplying them replaces them.
+        let with_both = repo
+            .update_learning_item_content(
+                &item.id,
+                "Edited question",
+                Some(""),
+                Some("The {{c1::moon}} rises at night."),
+            )
+            .await
+            .expect("full update")
+            .expect("row exists");
+        assert_eq!(with_both.answer.as_deref(), Some(""));
+        assert_eq!(
+            with_both.cloze_text.as_deref(),
+            Some("The {{c1::moon}} rises at night.")
+        );
+
+        // Unknown ids report no row instead of failing silently.
+        let missing = repo
+            .update_learning_item_content("does-not-exist", "q", None, None)
+            .await
+            .expect("no-error on missing id");
+        assert!(missing.is_none());
     }
 }

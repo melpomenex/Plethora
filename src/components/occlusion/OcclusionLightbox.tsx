@@ -109,12 +109,13 @@ export function OcclusionLightbox({
               regions.map((region, index) => (
                 <div
                   key={region.id || `${region.x}-${region.y}-${index}`}
-                  className="absolute rounded border border-white/50 bg-slate-950/75"
+                  className="absolute rounded border border-white/50 bg-slate-950"
                   style={{
                     left: `${lbImgBounds.offsetX + (region.x / 100) * lbImgBounds.width}px`,
                     top: `${lbImgBounds.offsetY + (region.y / 100) * lbImgBounds.height}px`,
                     width: `${(region.width / 100) * lbImgBounds.width}px`,
                     height: `${(region.height / 100) * lbImgBounds.height}px`,
+                    backgroundColor: region.color || "#0f172a",
                   }}
                 />
               ))}

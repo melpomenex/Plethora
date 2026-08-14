@@ -126,12 +126,13 @@ export function OcclusionCardPreview({
             <div
               key={region.id || i}
               data-testid="occlusion-preview-mask"
-              className="absolute bg-slate-950/85"
+              className="absolute bg-slate-950"
               style={{
                 left: `${region.x}%`,
                 top: `${region.y}%`,
                 width: `${region.width}%`,
                 height: `${region.height}%`,
+                backgroundColor: region.color || "#0f172a",
               }}
             />
           ))}

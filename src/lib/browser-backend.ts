@@ -1663,7 +1663,23 @@ const commandHandlers: Record<string, CommandHandler> = {
 
         const updated = await db.updateLearningItem(itemId, {
             question: args.question as string,
-            answer: args.answer as string | undefined,
+            // Omitted values keep their stored columns (same semantics as the
+            // Rust direct-write path).
+            ...(args.answer !== undefined ? { answer: args.answer as string } : {}),
+            ...(args.clozeText !== undefined ? { cloze_text: args.clozeText as string } : {}),
+            date_modified: new Date().toISOString(),
+        });
+        return toCamelCase(updated);
+    },
+
+    update_learning_item_tags: async (args) => {
+        const itemId = args.itemId as string;
+        const existing = await db.getLearningItem(itemId);
+        if (!existing) {
+            throw new Error(`Learning item ${itemId} not found`);
+        }
+        const updated = await db.updateLearningItem(itemId, {
+            tags: (args.tags || []) as string[],
             date_modified: new Date().toISOString(),
         });
         return toCamelCase(updated);
@@ -4156,10 +4172,12 @@ const commandHandlers: Record<string, CommandHandler> = {
         if (!assetId) return null;
         const asset = await db.getImageAsset(assetId);
         if (!asset) return null;
-        return toCamelCase({
-            ...asset,
-            dataUrl: `data:${asset.mime_type};base64,${asset.base64_data}`,
-        });
+        // Frontend consumers (review card, studio, occlusion composer) read
+        // `data_url`, matching the desktop backend's snake_case serialization.
+        // Insert the key after camel-casing so it survives verbatim and image
+        // rendering does not depend on which backend answered.
+        const camel = toCamelCase(asset) as Record<string, unknown>;
+        return { ...camel, data_url: `data:${asset.mime_type};base64,${asset.base64_data}` };
     },
 
     delete_image_asset: async (args) => {

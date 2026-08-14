@@ -4,6 +4,7 @@ import {
   Brain,
   Lightbulb,
   Pause,
+  Pencil,
   Play,
   Sparkle,
   SpeakerHigh,
@@ -34,6 +35,10 @@ interface ReviewCardProps {
     selectedOptionId?: string;
     selectedOptionText?: string;
   } | null) => void;
+  /** Opens the inline card editor for this card (edit-during-review). */
+  onEdit?: () => void;
+  /** Disables the edit affordance (e.g. while a rating submission is in flight). */
+  editDisabled?: boolean;
 }
 
 export const ReviewCard = React.memo(function ReviewCard({
@@ -41,6 +46,8 @@ export const ReviewCard = React.memo(function ReviewCard({
   showAnswer,
   onShowAnswer,
   onInteractionResultChange,
+  onEdit,
+  editDisabled,
 }: ReviewCardProps) {
   const { speak, stop, isSpeaking, isPaused, pause, resume, isSupported } = useTTS();
   const { t } = useI18n();
@@ -53,7 +60,9 @@ export const ReviewCard = React.memo(function ReviewCard({
 
   useEffect(() => {
     let isCancelled = false;
-    const imageAssetIds = Array.isArray((card as any).image_asset_ids) ? (card as any).image_asset_ids as string[] : [];
+    // The desktop backend serializes snake_case; the browser backend
+    // camel-cases the same row. Accept either (same as item_type handling).
+    const imageAssetIds: string[] = (card as any).image_asset_ids ?? (card as any).imageAssetIds ?? [];
 
     if (imageAssetIds.length === 0) {
       setImageUrls([]);
@@ -66,7 +75,7 @@ export const ReviewCard = React.memo(function ReviewCard({
       setImageUrls(
         assets
           .filter((asset): asset is NonNullable<typeof asset> => Boolean(asset))
-          .map((asset) => asset.data_url)
+          .map((asset) => asset.data_url ?? (asset as any).dataUrl)
       );
     };
 
@@ -74,7 +83,7 @@ export const ReviewCard = React.memo(function ReviewCard({
     return () => {
       isCancelled = true;
     };
-  }, [card.id, (card as any).image_asset_ids]);
+  }, [card.id, (card as any).image_asset_ids, (card as any).imageAssetIds]);
 
   useEffect(() => {
     setSelectedChoiceId(null);
@@ -140,7 +149,9 @@ export const ReviewCard = React.memo(function ReviewCard({
   const answerText = card.answer ? getPlainText(card.answer) : "";
   const questionHtml = useMemo(() => renderAnkiHtmlWithLatex(card.question || ""), [card.question]);
   const answerHtml = useMemo(() => renderAnkiHtmlWithLatex(card.answer || ""), [card.answer]);
-  const interactionMetadata = ((card as any)?.interaction_metadata ?? {}) as LearningItemInteractionMetadata;
+  const interactionMetadata = (
+    (card as any)?.interaction_metadata ?? (card as any)?.interactionMetadata ?? {}
+  ) as LearningItemInteractionMetadata;
   const audioQuestionUrl = interactionMetadata?.audioQuestionUrl || interactionMetadata?.audio_question_url;
   const audioAnswerUrl = interactionMetadata?.audioAnswerUrl || interactionMetadata?.audio_answer_url;
 
@@ -394,7 +405,8 @@ export const ReviewCard = React.memo(function ReviewCard({
       0,
       imageUrls.findIndex((_, index) => {
         const expectedAssetId = interactionMetadata.imageOcclusionAssetId;
-        const cardAssetIds = Array.isArray((card as any).image_asset_ids) ? (card as any).image_asset_ids as string[] : [];
+        const cardAssetIds: string[] =
+          (card as any).image_asset_ids ?? (card as any).imageAssetIds ?? [];
         return expectedAssetId ? cardAssetIds[index] === expectedAssetId : index === 0;
       })
     );
@@ -406,26 +418,36 @@ export const ReviewCard = React.memo(function ReviewCard({
             {interactionMetadata.imageOcclusionPrompt}
           </div>
         )}
-        <div className="relative overflow-hidden rounded-2xl border border-border bg-muted/20">
-          <img
-            src={imageUrls[imageIndex]}
-            alt={t("review.imageOcclusionAlt")}
-            className="w-full object-contain"
-          />
-          {!showAnswer &&
-            imageOcclusionRegions.map((region) => (
-              <div
-                key={region.id || `${region.x}-${region.y}-${region.width}-${region.height}`}
-                className="absolute rounded-md border border-white/30 bg-slate-950/85 shadow-sm"
-                style={{
-                  left: `${normalizeMetric(region.x)}%`,
-                  top: `${normalizeMetric(region.y)}%`,
-                  width: `${normalizeMetric(region.width)}%`,
-                  height: `${normalizeMetric(region.height)}%`,
-                  backgroundColor: region.color || "rgba(15, 23, 42, 0.88)",
-                }}
-              />
-            ))}
+        {/* Shrink-wrapped around the image so the element box equals the
+            scaled bitmap: the percentage-positioned region overlays stay in
+            the image's coordinate space at any cap/scale, instead of drifting
+            off a letterboxed full-width box. */}
+        <div className="flex justify-center">
+          <div
+            data-testid="occlusion-image-frame"
+            className="relative w-fit overflow-hidden rounded-2xl border border-border bg-muted/20"
+          >
+            <img
+              src={imageUrls[imageIndex]}
+              alt={t("review.imageOcclusionAlt")}
+              className="block h-auto w-auto max-h-[40dvh] max-w-full md:max-h-[calc(100dvh-32rem)]"
+            />
+            {!showAnswer &&
+              imageOcclusionRegions.map((region) => (
+                <div
+                  key={region.id || `${region.x}-${region.y}-${region.width}-${region.height}`}
+                  data-testid="occlusion-region-overlay"
+                  className="absolute rounded-md border border-white/30 bg-slate-950 shadow-sm"
+                  style={{
+                    left: `${normalizeMetric(region.x)}%`,
+                    top: `${normalizeMetric(region.y)}%`,
+                    width: `${normalizeMetric(region.width)}%`,
+                    height: `${normalizeMetric(region.height)}%`,
+                    backgroundColor: region.color || "#0f172a",
+                  }}
+                />
+              ))}
+          </div>
         </div>
       </div>
     );
@@ -544,41 +566,55 @@ export const ReviewCard = React.memo(function ReviewCard({
             previewLimit={2}
           />
         )}
-        {/* TTS Controls for Question */}
-        {isSupported && (
-          <div className="ml-auto flex items-center gap-1">
-            {isSpeaking && (
-              <button
-                onClick={handleStop}
-                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                title="Stop reading"
-                aria-label="Stop reading"
-              >
-                <SpeakerSlash className="w-4 h-4" />
-              </button>
-            )}
+        <div className="ml-auto flex items-center gap-1">
+          {onEdit && (
             <button
-              onClick={() => handleSpeak(questionText)}
-              className={`p-1.5 rounded-lg transition-colors ${
-                isSpeaking && !isPaused
-                  ? "bg-primary/20 text-primary"
-                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
-              }`}
-              title={isSpeaking ? (isPaused ? "Resume" : "Pause") : "Read question aloud"}
-              aria-label={isSpeaking ? (isPaused ? "Resume reading" : "Pause reading") : "Read question aloud"}
+              onClick={onEdit}
+              disabled={editDisabled}
+              data-testid="review-card-edit"
+              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title={t("reviewSession.editCardLabel")}
+              aria-label={t("reviewSession.editCardLabel")}
             >
-              {isSpeaking ? (
-                isPaused ? (
-                  <Play className="w-4 h-4" />
-                ) : (
-                  <Pause className="w-4 h-4" />
-                )
-              ) : (
-                <SpeakerHigh className="w-4 h-4" />
-              )}
+              <Pencil className="w-4 h-4" />
             </button>
-          </div>
-        )}
+          )}
+          {/* TTS Controls for Question */}
+          {isSupported && (
+            <>
+              {isSpeaking && (
+                <button
+                  onClick={handleStop}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  title="Stop reading"
+                  aria-label="Stop reading"
+                >
+                  <SpeakerSlash className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                onClick={() => handleSpeak(questionText)}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  isSpeaking && !isPaused
+                    ? "bg-primary/20 text-primary"
+                    : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+                title={isSpeaking ? (isPaused ? "Pause" : "Pause") : "Read question aloud"}
+                aria-label={isSpeaking ? (isPaused ? "Resume reading" : "Pause reading") : "Read question aloud"}
+              >
+                {isSpeaking ? (
+                  isPaused ? (
+                    <Play className="w-4 h-4" />
+                  ) : (
+                    <Pause className="w-4 h-4" />
+                  )
+                ) : (
+                  <SpeakerHigh className="w-4 h-4" />
+                )}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Card Content with Animation */}

@@ -11,38 +11,56 @@ import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import {
   updateLearningItemContentWithVersion,
+  updateLearningItemTags,
   type LearningItem,
 } from "../../api/learning-items";
 import { bulkSuspendItems, bulkUnsuspendItems } from "../../api/queue";
 import { sanitizeHtml } from "../common/RichContentRenderer";
+import { hasRawClozeSyntax } from "../../utils/cloze";
 
 interface InlineCardEditorProps {
   card: LearningItem;
   onClose: () => void;
   onSave: (updated: LearningItem) => void;
+  /** Called after a successful persist (e.g. the review session closes the overlay). */
+  onSaved?: () => void;
   onEditInStudio?: (card: LearningItem) => void;
+  /** Which surface opened the editor; recorded in the version-history reason. */
+  surface?: "deck-manager" | "review";
+}
+
+/** Both marker syntaxes the cloze renderer accepts: {{c1::...}} and [[c1::...]]. */
+function containsClozeMarker(text: string): boolean {
+  return hasRawClozeSyntax(text) || /\[\[c\d+::/.test(text);
 }
 
 export function InlineCardEditor({
   card,
   onClose,
   onSave,
+  onSaved,
   onEditInStudio,
+  surface = "deck-manager",
 }: InlineCardEditorProps) {
   const { t } = useI18n();
   const toast = useToast();
 
   const [question, setQuestion] = useState(card.question);
   const [answer, setAnswer] = useState(card.answer ?? "");
+  const [clozeText, setClozeText] = useState(card.cloze_text ?? card.question ?? "");
   const [tags, setTags] = useState(card.tags.join(", "));
   const [saving, setSaving] = useState(false);
   const [isSuspended, setIsSuspended] = useState(card.is_suspended);
 
-  const isComplexType =
-    card.interaction_metadata?.interactionType &&
-    card.interaction_metadata.interactionType !== undefined;
+  // Desktop serializes interaction_metadata; the browser backend camel-cases
+  // it. Either spelling marks a complex interaction type.
+  const interactionMetadata = (card as any).interaction_metadata ?? (card as any).interactionMetadata;
+  const isComplexType = Boolean(interactionMetadata?.interactionType);
 
-  const isCloze = card.item_type === "Cloze";
+  // Item type casing varies by source (Rust serializes lowercase snake_case,
+  // the browser backend camel-cases); match either, like ReviewCard does.
+  const itemType = (card.item_type ?? (card as any).itemType) ?? "";
+  const isCloze = itemType.toLowerCase() === "cloze";
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -53,11 +71,16 @@ export function InlineCardEditor({
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const updated = {
+    // Cloze saves edit the raw cloze markup and mirror it into `question`,
+    // matching the `question || cloze_text` fallback consumers rely on.
+    const effectiveQuestion = isCloze ? clozeText : question;
+    const effectiveAnswer = isCloze ? card.answer : answer;
+    const updated: LearningItem = {
       ...card,
-      question,
-      answer,
+      question: effectiveQuestion,
+      answer: effectiveAnswer,
       tags: newTags,
+      ...(isCloze ? { cloze_text: clozeText } : {}),
     };
 
     onSave(updated);
@@ -65,23 +88,33 @@ export function InlineCardEditor({
     try {
       await updateLearningItemContentWithVersion(
         card.id,
-        question,
-        answer || undefined,
-        "Edited via Deck Manager"
+        effectiveQuestion,
+        // Send the raw string ("" clears the answer); the backend leaves
+        // omitted values untouched, and undefined would mean "don't touch".
+        effectiveAnswer,
+        surface === "review" ? "Edited during review" : "Edited via Deck Manager",
+        isCloze ? clozeText : undefined,
       );
 
       if (newTags.join(",") !== card.tags.join(",")) {
-        await bulkSuspendItems([]).catch(() => {});
+        await updateLearningItemTags(card.id, newTags);
       }
 
-      toast.success(t("review.deckManager.saved"));
+      if (isCloze && !containsClozeMarker(clozeText)) {
+        // Mirrors Anki's tolerance: the save goes through, but the author
+        // should know the renderer found nothing to hide.
+        toast.warning(t("reviewSession.clozeNoMarkerWarning"));
+      } else {
+        toast.success(t("review.deckManager.saved"));
+      }
+      onSaved?.();
     } catch {
       onSave(prevCard);
       toast.error(t("review.deckManager.saveError"));
     } finally {
       setSaving(false);
     }
-  }, [card, question, answer, tags, onSave, toast, t]);
+  }, [card, question, answer, clozeText, tags, onSave, onSaved, isCloze, surface, toast, t]);
 
   const handleSuspendToggle = useCallback(async () => {
     const newState = !isSuspended;
@@ -142,12 +175,26 @@ export function InlineCardEditor({
         <>
           {isCloze ? (
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Cloze Text
+              <label
+                htmlFor="inline-card-editor-cloze"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wider"
+              >
+                {t("reviewSession.clozeTextLabel")}
               </label>
+              <textarea
+                id="inline-card-editor-cloze"
+                value={clozeText}
+                onChange={(e) => setClozeText(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[100px] resize-y font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-primary"
+                rows={4}
+              />
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                {t("review.preview")}
+              </div>
               <div
+                data-testid="inline-card-editor-cloze-preview"
                 className="text-sm p-2 rounded bg-background border border-border"
-                dangerouslySetInnerHTML={{ __html: sanitizeHtml(card.cloze_text || card.question) }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(clozeText) }}
               />
             </div>
           ) : (
@@ -231,6 +278,7 @@ export function InlineCardEditor({
             <button
               onClick={handleSave}
               disabled={saving}
+              data-testid="inline-card-editor-save"
               className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
               {saving ? (

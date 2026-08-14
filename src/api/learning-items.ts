@@ -249,13 +249,15 @@ export async function updateLearningItemContentWithVersion(
   itemId: string,
   question: string,
   answer?: string,
-  reason?: string
+  reason?: string,
+  clozeText?: string
 ): Promise<LearningItem> {
   const item = await invokeCommand<LearningItem>("update_learning_item_content_with_version", {
     itemId,
     question,
     answer,
     reason,
+    clozeText,
   });
   void (async () => {
     try {
