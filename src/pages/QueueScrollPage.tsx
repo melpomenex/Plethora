@@ -123,6 +123,10 @@ import {
   handleVolumeRockerNavigation,
   isVolumeRockerNavigationKey,
 } from "../utils/volumeRockerNavigation";
+import {
+  SelectionActionsSheet,
+  passageAroundSelection,
+} from "../components/viewer/SelectionActionsSheet";
 
 /**
  * Default item types for a Scroll Mode tab whose `data` carries no
@@ -601,10 +605,17 @@ export function QueueScrollPage() {
   // Mobile PWA text selection state for RSS items
   const [mobileRssSelection, setMobileRssSelection] = useState<{
     text: string;
+    /** Selection plus surrounding article text, used as the AI passage. */
+    passage: string;
     position: { x: number; y: number };
     showButton: boolean;
-  }>({ text: "", position: { x: 0, y: 0 }, showButton: false });
-  const mobileRssSelectionTimeoutRef = useRef<number | null>(null);
+  }>({ text: "", passage: "", position: { x: 0, y: 0 }, showButton: false });
+  // The actions sheet owns dismissal once open, so a selection cleared by
+  // focusing the sheet's own input must not close it.
+  const mobileRssSheetOpenRef = useRef(false);
+  useEffect(() => {
+    mobileRssSheetOpenRef.current = mobileRssSelection.showButton;
+  }, [mobileRssSelection.showButton]);
 
   // Dictionary lookup state for RSS selections
   const [dictionaryResult, setDictionaryResult] = useState<DictionaryResult | null>(null);
@@ -1696,7 +1707,7 @@ export function QueueScrollPage() {
 
   useEffect(() => {
     setRssSelectedText("");
-    setMobileRssSelection({ text: "", position: { x: 0, y: 0 }, showButton: false });
+    setMobileRssSelection({ text: "", passage: "", position: { x: 0, y: 0 }, showButton: false });
   }, [renderedItem?.id]);
 
   // Mobile PWA: Handle text selection for RSS content
@@ -1713,6 +1724,8 @@ export function QueueScrollPage() {
       }
 
       rafId = requestAnimationFrame(() => {
+        if (mobileRssSheetOpenRef.current) return;
+
         const selection = window.getSelection();
         if (!selection) {
           setMobileRssSelection(prev => ({ ...prev, showButton: false }));
@@ -1748,20 +1761,14 @@ export function QueueScrollPage() {
 
           setMobileRssSelection({
             text,
+            passage: passageAroundSelection(selection, text),
             position: { x, y },
             showButton: true,
           });
 
           // Also update the regular RSS selection state
           setRssSelectedText(text);
-
-          // Auto-hide after 5 seconds if not interacted with
-          if (mobileRssSelectionTimeoutRef.current) {
-            clearTimeout(mobileRssSelectionTimeoutRef.current);
-          }
-          mobileRssSelectionTimeoutRef.current = window.setTimeout(() => {
-            setMobileRssSelection(prev => ({ ...prev, showButton: false }));
-          }, 5000);
+          // No auto-hide: the actions sheet is modal and dismissed explicitly.
         } catch {
           // Range might be invalid, ignore
         }
@@ -1780,9 +1787,6 @@ export function QueueScrollPage() {
     return () => {
       document.removeEventListener("selectionchange", handleSelectionChange);
       document.removeEventListener("touchend", handleTouchEnd);
-      if (mobileRssSelectionTimeoutRef.current) {
-        clearTimeout(mobileRssSelectionTimeoutRef.current);
-      }
       if (rafId) {
         cancelAnimationFrame(rafId);
       }
@@ -3427,10 +3431,12 @@ export function QueueScrollPage() {
     };
   }, [currentItem, documents, goToNext, goToPrevious, handleRating, handleRssToggleFavorite, isMobile]);
 
-  const handleCreateRssExtract = useCallback(async () => {
+  // `overrideText` lets an AI result be extracted with the same source wiring
+  // as the selection it came from.
+  const handleCreateRssExtract = useCallback(async (overrideText?: string) => {
     if (!renderedItem || renderedItem.type !== "rss" || !renderedItem.rssItem) return;
 
-    const selectionText = activeRssSelection.trim();
+    const selectionText = (overrideText ?? activeRssSelection).trim();
     if (!selectionText) return;
 
     const rssItem = renderedItem.rssItem;
@@ -3510,9 +3516,6 @@ export function QueueScrollPage() {
 
     // Hide the mobile button
     setMobileRssSelection(prev => ({ ...prev, showButton: false }));
-    if (mobileRssSelectionTimeoutRef.current) {
-      clearTimeout(mobileRssSelectionTimeoutRef.current);
-    }
 
     // Call the regular handler
     await handleCreateRssExtract();
@@ -4225,7 +4228,7 @@ export function QueueScrollPage() {
         >
           <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/92 p-2 shadow-2xl backdrop-blur-md">
             <button
-              onClick={handleCreateRssExtract}
+              onClick={() => void handleCreateRssExtract()}
               className="group flex items-center gap-3 rounded-xl bg-primary px-4 py-3 text-primary-foreground shadow-lg ring-1 ring-primary/20 transition-all min-h-[52px] text-sm font-semibold hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 active:translate-y-0"
               title={t("viewer.createExtractFromSelection")}
               aria-label={`Create extract from selected text (${activeRssSelection.length} characters)`}
@@ -4284,29 +4287,18 @@ export function QueueScrollPage() {
         </div>
       )}
 
-      {/* Mobile PWA: Lightbulb button for RSS text selection */}
-      {isMobile && renderedItem?.type === "rss" && mobileRssSelection.showButton && (
-        <div
-          className="fixed z-[80] pointer-events-auto animate-in fade-in zoom-in-95 duration-200"
-          style={{
-            left: `${mobileRssSelection.position.x}px`,
-            top: `${Math.max(60, mobileRssSelection.position.y)}px`,
-            transform: "translateX(-50%)",
-          }}
-          data-extract-button="true"
-        >
-          <button
-            onClick={handleMobileRssExtract}
-            className="flex items-center justify-center w-12 h-12 bg-primary text-primary-foreground rounded-full shadow-xl hover:opacity-90 hover:scale-110 active:scale-95 transition-all"
-            title={t("queueScroll.createExtractFromSelection")}
-            aria-label={`Create extract from selected text (${mobileRssSelection.text.length} characters)`}
-          >
-            <Lightbulb className="w-6 h-6" aria-hidden="true" />
-          </button>
-          {/* Small arrow pointing down to the selection */}
-          <div className="absolute left-1/2 -translate-x-1/2 -bottom-2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-primary" />
-        </div>
-      )}
+      {/* Mobile: bottom sheet of actions for the current article selection. */}
+      <SelectionActionsSheet
+        open={Boolean(isMobile && renderedItem?.type === "rss" && mobileRssSelection.showButton)}
+        text={mobileRssSelection.text}
+        passage={mobileRssSelection.passage}
+        onClose={() => {
+          setMobileRssSelection(prev => ({ ...prev, showButton: false }));
+          clearRssTextSelection();
+        }}
+        onCreateExtract={() => void handleMobileRssExtract()}
+        onCreateExtractFromResult={(resultText) => void handleCreateRssExtract(resultText)}
+      />
 
       {/* Scroll Queue Settings Panel */}
       <ScrollQueueSettings

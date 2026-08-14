@@ -16,6 +16,10 @@ import {
   Highlighter,
   Lightbulb,
   List,
+  ListBullets,
+  Question,
+  TextAa,
+  TextAlignLeft,
   MagnifyingGlass,
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
@@ -107,6 +111,12 @@ import { useVimModeStore } from "../../stores/vimModeStore";
 import { usePaletteActionListener } from "../../commandPalette/paletteActionEvents";
 import { buildSelectionContext } from "../../utils/vim/selectionContext";
 import { extractYouTubeVideoId } from "../../utils/youtubeEmbed";
+import {
+  SelectionActionsSheet,
+  passageAroundSelection,
+  type SelectionAiAction,
+} from "./SelectionActionsSheet";
+import { useAiAvailability } from "../../lib/ai/useAiAvailability";
 import {
   buildPdfSelectionExtractPayload,
   getPdfExtractBlockReason,
@@ -976,10 +986,21 @@ export function DocumentViewer({
   // Mobile PWA text selection state
   const [mobileSelection, setMobileSelection] = useState<{
     text: string;
+    /** Selection plus surrounding block text, used as the AI passage. */
+    passage: string;
     position: { x: number; y: number };
     showButton: boolean;
-  }>({ text: "", position: { x: 0, y: 0 }, showButton: false });
-  const mobileSelectionTimeoutRef = useRef<number | null>(null);
+  }>({ text: "", passage: "", position: { x: 0, y: 0 }, showButton: false });
+  // The actions sheet owns dismissal once it is open (scrim/Escape), so a
+  // selection cleared by focusing the sheet's own input must not close it.
+  const mobileSheetOpenRef = useRef(false);
+  // Set when an AI action is picked from the selection context menu; drives the
+  // result sheet. Null means no AI request is on screen.
+  const [aiSheetRequest, setAiSheetRequest] = useState<{
+    action: SelectionAiAction;
+    text: string;
+  } | null>(null);
+  const aiAvailability = useAiAvailability("prompt");
   // Touch selection UI shows on any mobile shell (native phone/tablet or narrow
   // browser/PWA) — not just PWA. The old `isPWA()` gate made it unreachable in
   // the native Android/iOS build.
@@ -993,6 +1014,22 @@ export function DocumentViewer({
   const activeExtractSelection = isEpubOrTextDoc
     ? (selectedText || lastSelectionRef.current)
     : selectedText;
+
+  // Non-PDF viewers already answer a long-press with the selection context
+  // menu (itself a bottom sheet), so there the AI actions are rows in *that*
+  // menu and this sheet only renders the result. PDF has no context menu — it
+  // had the floating lightbulb — so there the sheet is the whole menu.
+  //
+  // It opens off `activeExtractSelection` rather than the DOM selection because
+  // EPUB and HTML render inside an iframe, where the top-level
+  // `window.getSelection()` feeding `mobileSelection` is always empty.
+  const mobileSheetText = mobileSelection.text || activeExtractSelection;
+  const mobileMenuSheetOpen =
+    isMobileTouch && viewMode === "document" && docType === "pdf" && Boolean(mobileSheetText);
+  const mobileSheetOpen = mobileMenuSheetOpen || Boolean(aiSheetRequest);
+  useEffect(() => {
+    mobileSheetOpenRef.current = mobileSheetOpen;
+  }, [mobileSheetOpen]);
 
   const handleDictionaryLookup = useCallback(async () => {
     const word = activeExtractSelection.trim().split(/\s+/)[0] || "";
@@ -2008,8 +2045,28 @@ export function DocumentViewer({
       },
     });
 
+    // AI actions on the selection. Hidden entirely when no path can serve them.
+    if (aiAvailability.available) {
+      items.push({ id: "sep-ai", label: "", type: ContextMenuItemType.Separator });
+      const aiItems: Array<{ action: SelectionAiAction; label: string; icon: React.ReactNode }> = [
+        { action: "explain", label: t("selectionSheet.explain"), icon: <Lightbulb className="w-4 h-4" /> },
+        { action: "summarize", label: t("selectionSheet.summarize"), icon: <TextAlignLeft className="w-4 h-4" /> },
+        { action: "simplify", label: t("selectionSheet.simplify"), icon: <TextAa className="w-4 h-4" /> },
+        { action: "keyTerms", label: t("selectionSheet.keyTerms"), icon: <ListBullets className="w-4 h-4" /> },
+        { action: "ask", label: t("selectionSheet.ask"), icon: <Question className="w-4 h-4" /> },
+      ];
+      for (const item of aiItems) {
+        items.push({
+          id: `ai-${item.action}`,
+          label: item.label,
+          icon: item.icon,
+          onClick: () => setAiSheetRequest({ action: item.action, text: selectedText }),
+        });
+      }
+    }
+
     return items;
-  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t]);
+  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available]);
 
   const loadDocumentDataInner = useCallback(async (doc: typeof currentDocument) => {
     if (!doc) return;
@@ -3386,6 +3443,8 @@ export function DocumentViewer({
       }
 
       rafId = requestAnimationFrame(() => {
+        if (mobileSheetOpenRef.current) return;
+
         const selection = window.getSelection();
         if (!selection) {
           setMobileSelection(prev => ({ ...prev, showButton: false }));
@@ -3424,6 +3483,7 @@ export function DocumentViewer({
 
           setMobileSelection({
             text,
+            passage: passageAroundSelection(selection, text),
             position: { x, y },
             showButton: true,
           });
@@ -3433,14 +3493,7 @@ export function DocumentViewer({
             setSelectedText(text);
             lastSelectionRef.current = text;
           }
-
-          // Auto-hide after 5 seconds if not interacted with
-          if (mobileSelectionTimeoutRef.current) {
-            clearTimeout(mobileSelectionTimeoutRef.current);
-          }
-          mobileSelectionTimeoutRef.current = window.setTimeout(() => {
-            setMobileSelection(prev => ({ ...prev, showButton: false }));
-          }, 5000);
+          // No auto-hide: the actions sheet is modal and dismissed explicitly.
         } catch {
           // Range might be invalid, ignore
         }
@@ -3459,9 +3512,6 @@ export function DocumentViewer({
     return () => {
       document.removeEventListener("selectionchange", handleSelectionChange);
       document.removeEventListener("touchend", handleTouchEnd);
-      if (mobileSelectionTimeoutRef.current) {
-        clearTimeout(mobileSelectionTimeoutRef.current);
-      }
       if (rafId) {
         cancelAnimationFrame(rafId);
       }
@@ -3993,15 +4043,13 @@ export function DocumentViewer({
     dismissSelectionAfterExtract();
   }, [documentId, createInstantExtract, dismissSelectionAfterExtract, toast, t]);
 
-  // Mobile PWA: Create extract from mobile selection (instant, no dialog)
-  const handleMobileExtract = () => {
-    const text = mobileSelection.text || activeExtractSelection;
+  // Mobile: create an extract (instant, no dialog) from the selection, or from
+  // an AI result produced for it — both land on the same document/page/context.
+  const handleMobileExtract = (overrideText?: string) => {
+    const text = overrideText || mobileSelection.text || activeExtractSelection;
     if (!text) return;
 
     setMobileSelection(prev => ({ ...prev, showButton: false }));
-    if (mobileSelectionTimeoutRef.current) {
-      clearTimeout(mobileSelectionTimeoutRef.current);
-    }
 
     createInstantExtract({
       documentId,
@@ -7284,8 +7332,9 @@ export function DocumentViewer({
         )}
       </div>
 
-      {/* Floating Action Button for Extract Creation */}
-      {activeExtractSelection && viewMode === "document" && (
+      {/* Floating Action Button for Extract Creation. On mobile the actions
+          sheet covers this, so it would only duplicate the "Create extract" row. */}
+      {activeExtractSelection && viewMode === "document" && !mobileSheetOpen && (
         <div
           className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-[70] pointer-events-auto animate-in slide-in-from-bottom-4 duration-200"
           data-extract-button="true"
@@ -7382,29 +7431,20 @@ export function DocumentViewer({
         </div>
       )}
 
-      {/* Mobile PWA: Lightbulb button that appears near text selection */}
-      {isMobileTouch && mobileSelection.showButton && viewMode === "document" && (
-        <div
-          className="fixed z-[80] pointer-events-auto animate-in fade-in zoom-in-95 duration-200"
-          style={{
-            left: `${mobileSelection.position.x}px`,
-            top: `${Math.max(60, mobileSelection.position.y)}px`,
-            transform: "translateX(-50%)",
-          }}
-          data-extract-button="true"
-        >
-          <button
-            onClick={handleMobileExtract}
-            className="flex items-center justify-center w-12 h-12 bg-primary text-primary-foreground rounded-full shadow-xl hover:opacity-90 hover:scale-110 active:scale-95 transition-all"
-            title={t("viewer.createExtractFromSelection")}
-            aria-label={t("viewer.createExtractFromSelectionChars", { count: mobileSelection.text.length })}
-          >
-            <Lightbulb className="w-6 h-6" aria-hidden="true" />
-          </button>
-          {/* Small arrow pointing down to the selection */}
-          <div className="absolute left-1/2 -translate-x-1/2 -bottom-2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-primary" />
-        </div>
-      )}
+      {/* Mobile: bottom sheet of actions for the current text selection. */}
+      <SelectionActionsSheet
+        open={mobileSheetOpen}
+        text={aiSheetRequest?.text || mobileSheetText}
+        passage={mobileSelection.passage}
+        initialAction={aiSheetRequest?.action}
+        onClose={() => {
+          setAiSheetRequest(null);
+          setMobileSelection(prev => ({ ...prev, showButton: false }));
+          clearTextSelection();
+        }}
+        onCreateExtract={() => handleMobileExtract()}
+        onCreateExtractFromResult={(resultText) => handleMobileExtract(resultText)}
+      />
 
       {/* Create Extract Dialog */}
       <CreateExtractDialog
