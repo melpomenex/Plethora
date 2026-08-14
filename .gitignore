@@ -38,7 +38,7 @@ xcom.py
 Vagrantfile
 
 # Rust build output
-src-tauri/target
+**/target/
 
 report.md
 
