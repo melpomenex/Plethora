@@ -1410,14 +1410,18 @@ impl NotebookLMProvider for CliNotebookLMProvider {
 
         match verification {
             Ok(result) if stdout_reports_authenticated(&result.stdout) => {
+                // Report the live verification result, not the persisted
+                // `auth.connected` flag. Echoing the persisted flag let a stale
+                // or expired session display a green "Connected" badge while
+                // notebook listing silently failed.
                 Ok(NotebookLMHealth {
-                    connected: auth.connected,
+                    connected: true,
                     provider: settings.provider.clone(),
                     active_notebook_id: settings.active_notebook_id.clone(),
                     message: "NotebookLM CLI authenticated".to_string(),
                 })
             }
-            Ok(_) => Err(AppError::IntegrationError(
+            Ok(_) => Err(AppError::IntegrationAuthError(
                 "NotebookLM CLI is installed but not authenticated".to_string(),
             )),
             Err(error) => Err(AppError::IntegrationError(format!(
@@ -1438,17 +1442,19 @@ impl NotebookLMProvider for CliNotebookLMProvider {
             Ok(r) => r,
             Err(e) => {
                 let err = e.to_string();
-                if is_auth_error(&err) {
-                    tracing::info!("NotebookLM list requires login; returning empty notebook list");
-                    return Ok(vec![]);
-                }
-                tracing::warn!("NotebookLM list failed; returning empty list: {}", err);
-                return Ok(vec![]);
+                // Surface the failure instead of swallowing it into an empty
+                // list. A swallowed empty list is indistinguishable from a
+                // genuine empty account, which is what left users staring at a
+                // green "Connected" badge over zero notebooks with no recovery.
+                return Err(classify_list_failure(&err));
             }
         };
         if let Some(json) = result.json() {
             return Ok(parse_notebook_list(&json));
         }
+        // The command exited successfully but produced no JSON: treat this as a
+        // genuine empty list (some CLI builds print nothing when there are no
+        // notebooks) rather than guessing it is an error.
         Ok(vec![])
     }
 
@@ -3069,6 +3075,25 @@ fn is_auth_error(err: &str) -> bool {
         || lower.contains("not logged in")
         || lower.contains("login")
         || lower.contains("unauthorized")
+}
+
+/// Classify a notebook-listing failure into a typed error. Auth-shaped
+/// failures become `IntegrationAuthError` so the frontend can offer a
+/// re-authenticate action; everything else becomes a generic listing error.
+/// Either way the failure is surfaced rather than collapsed into an empty
+/// list. Extracted as a pure helper so the classification is unit-testable
+/// without shelling out to the CLI.
+fn classify_list_failure(err: &str) -> AppError {
+    if is_auth_error(err) {
+        tracing::info!("NotebookLM list requires login; surfacing not-authenticated error");
+        AppError::IntegrationAuthError(
+            "NotebookLM session is not authenticated. Re-authenticate the CLI to list notebooks."
+                .to_string(),
+        )
+    } else {
+        tracing::warn!("NotebookLM list failed; surfacing listing error: {}", err);
+        AppError::IntegrationError(format!("NotebookLM could not list notebooks: {err}"))
+    }
 }
 
 fn should_retry_generation(err: &str, attempts_left: u8) -> bool {
@@ -4815,6 +4840,30 @@ pub async fn notebooklm_cli_status(app: tauri::AppHandle) -> Result<serde_json::
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classifies_auth_list_failure_as_not_authenticated() {
+        // Auth-shaped failure MUST surface as IntegrationAuthError, not be
+        // swallowed into an empty list (the original bug).
+        let err = classify_list_failure("HTTP 401 Unauthorized: session expired");
+        assert!(
+            matches!(err, AppError::IntegrationAuthError(_)),
+            "auth failure must be IntegrationAuthError, got {:?}",
+            err
+        );
+    }
+
+    #[test]
+    fn classifies_non_auth_list_failure_as_listing_error() {
+        // Non-auth failure MUST surface as a generic IntegrationError, not an
+        // empty list.
+        let err = classify_list_failure("Failed to spawn process: program not found");
+        assert!(
+            matches!(err, AppError::IntegrationError(_)),
+            "non-auth failure must be IntegrationError, got {:?}",
+            err
+        );
+    }
 
     #[test]
     fn filters_missed_only_quiz_mode() {

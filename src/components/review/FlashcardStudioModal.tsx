@@ -2218,7 +2218,13 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     const loadNotebookState = async () => {
       setIsNotebookLoading(true);
       try {
-        const [settings, listed] = await Promise.all([notebooklmGetSettings(), notebooklmListNotebooks()]);
+        const [settings, listed] = await Promise.all([
+          notebooklmGetSettings(),
+          // Listing can now reject (e.g. expired session surfacing as an auth
+          // error). Treat that as "no notebooks available" so settings still
+          // load and the modal does not crash.
+          notebooklmListNotebooks().catch(() => [] as Awaited<ReturnType<typeof notebooklmListNotebooks>>),
+        ]);
         setNotebooks(listed);
         const activeId = settings.activeNotebookId || listed[0]?.id || "";
         if (activeId) {

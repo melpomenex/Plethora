@@ -45,6 +45,13 @@ pub enum IncrementumError {
     #[error("Integration error: {0}")]
     IntegrationError(String),
 
+    /// An integration failed because the user is not authenticated (expired
+    /// session, missing credentials, etc.). Serialized as a distinct
+    /// `integration_auth_error` type so the frontend can offer a re-authenticate
+    /// path rather than a generic error.
+    #[error("Integration auth error: {0}")]
+    IntegrationAuthError(String),
+
     #[error("Sync error: {0}")]
     SyncError(String),
 
@@ -102,6 +109,7 @@ impl serde::Serialize for IncrementumError {
             Self::ArenaAlreadyCommitted(msg) => ("arena_already_committed", msg.clone()),
             Self::Internal(msg) => ("internal", msg.clone()),
             Self::IntegrationError(msg) => ("integration_error", msg.clone()),
+            Self::IntegrationAuthError(msg) => ("integration_auth_error", msg.clone()),
             Self::SyncError(msg) => ("sync_error", msg.clone()),
             Self::ShellError(msg) => ("shell_error", msg.clone()),
         };
