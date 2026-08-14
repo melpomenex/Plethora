@@ -19,6 +19,18 @@ let tauriConvertFileSrc: ((path: string, protocol?: string) => string) | null = 
 function coerceError(err: unknown, context?: string): Error {
   if (err instanceof Error) return err;
   if (typeof err === "string") return new Error(context ? `${context}: ${err}` : err);
+  // Structured Tauri rejection, e.g. { type: "integration_auth_error", message: "..." }
+  // produced by IncrementumError's Serialize impl. Preserve the typed `type` on
+  // the Error so callers can branch on it (e.g. offer a re-authenticate path),
+  // and prefer the inner message over an opaque JSON blob.
+  if (err && typeof err === "object" && typeof (err as { type?: unknown }).type === "string") {
+    const obj = err as { type: string; message?: unknown };
+    const inner =
+      typeof obj.message === "string" && obj.message.length > 0 ? obj.message : JSON.stringify(err);
+    const e = new Error(context ? `${context}: ${inner}` : inner);
+    (e as Error & { type: string }).type = obj.type;
+    return e;
+  }
   try {
     const json = JSON.stringify(err);
     return new Error(context ? `${context}: ${json}` : json);

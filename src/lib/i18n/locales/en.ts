@@ -2212,6 +2212,8 @@ export const en: Dict = {
   "notebooklm.enterNotebookTitle": "Enter notebook title:",
   "notebooklm.newNotebook": "New Notebook",
   "notebooklm.signInFirst": "If you are not logged in, sign in to NotebookLM first.",
+  "notebooklm.reauthRequired": "Your NotebookLM session has expired or is not authenticated. Re-authenticate to load your notebooks.",
+  "notebooklm.reauthenticate": "Re-authenticate CLI",
   "notebooklm.failedLoadNotebooks": "Connected, but failed to load notebooks",
   "notebooklm.providerLabel": "Provider:",
   "notebooklm.notebooksCount": "{count} notebook(s)",

@@ -41,7 +41,7 @@ import { useToast } from "../components/common/Toast";
 import { useCollectionStore } from "../stores/collectionStore";
 import { isTauri } from "../lib/tauri";
 
-type ConnectionState = "checking" | "connected" | "disconnected" | "error";
+type ConnectionState = "checking" | "connected" | "disconnected" | "error" | "needs-reauth";
 
 export function NotebookLMPage() {
   const { t } = useI18n();
@@ -86,51 +86,65 @@ export function NotebookLMPage() {
     });
   };
 
+  const isAuthError = (e: any) => e?.type === "integration_auth_error";
+
   const checkConnection = async () => {
     setConnectionState("checking");
     try {
       const health = await withTimeout(notebooklmHealth(), 12000, "NotebookLM health check");
-      if (health.connected) {
-        setConnectionState("connected");
-        setConnectionMessage(health.message);
-
-        try {
-          const all = await withTimeout(
-            notebooklmListNotebooks(),
-            12000,
-            "NotebookLM notebook list"
-          );
-          setNotebooks(all);
-
-          // Select active notebook if available
-          if (health.activeNotebookId) {
-            const active = all.find((n) => n.id === health.activeNotebookId);
-            if (active) {
-              setSelectedNotebook(active);
-            }
-          } else if (all.length > 0) {
-            setSelectedNotebook(all[0]);
-          } else {
-            setSelectedNotebook(null);
-            if (provider === "cli") {
-              setConnectionMessage(t("notebooklm.signInFirst"));
-            }
-          }
-        } catch (listError: any) {
-          setConnectionState("error");
-          setConnectionMessage(
-            listError?.message || t("notebooklm.failedLoadNotebooks")
-          );
-          setNotebooks([]);
-          setSelectedNotebook(null);
-        }
-      } else {
+      if (!health.connected) {
         setConnectionState("disconnected");
         setConnectionMessage(t("notebooklm.notConnected"));
+        return;
+      }
+      setConnectionMessage(health.message);
+
+      try {
+        const all = await withTimeout(
+          notebooklmListNotebooks(),
+          12000,
+          "NotebookLM notebook list"
+        );
+        setNotebooks(all);
+
+        // Select active notebook if available
+        if (health.activeNotebookId) {
+          const active = all.find((n) => n.id === health.activeNotebookId);
+          if (active) {
+            setSelectedNotebook(active);
+          }
+        } else if (all.length > 0) {
+          setSelectedNotebook(all[0]);
+        } else {
+          // Verified session with zero notebooks: a healthy empty account, not
+          // an error. The workspace empty state offers create + sign-in.
+          setSelectedNotebook(null);
+        }
+        // Only declare "connected" once the session has been proven usable by a
+        // successful notebook listing. Declaring it earlier produced a green
+        // "Connected" badge even when listing silently failed.
+        setConnectionState("connected");
+      } catch (listError: any) {
+        setNotebooks([]);
+        setSelectedNotebook(null);
+        if (isAuthError(listError)) {
+          setConnectionState("needs-reauth");
+          setConnectionMessage(t("notebooklm.reauthRequired"));
+        } else {
+          setConnectionState("error");
+          setConnectionMessage(listError?.message || t("notebooklm.failedLoadNotebooks"));
+        }
       }
     } catch (error: any) {
-      setConnectionState("error");
-      setConnectionMessage(error.message || t("notebooklm.failedToCheckConnection"));
+      setNotebooks([]);
+      setSelectedNotebook(null);
+      if (isAuthError(error)) {
+        setConnectionState("needs-reauth");
+        setConnectionMessage(t("notebooklm.reauthRequired"));
+      } else {
+        setConnectionState("error");
+        setConnectionMessage(error.message || t("notebooklm.failedToCheckConnection"));
+      }
     }
   };
 
@@ -410,7 +424,11 @@ export function NotebookLMPage() {
     );
   }
 
-  if (connectionState === "disconnected" || connectionState === "error") {
+  if (
+    connectionState === "disconnected" ||
+    connectionState === "error" ||
+    connectionState === "needs-reauth"
+  ) {
     return (
       <div className="h-full flex flex-col bg-background">
         {/* Header */}
@@ -444,10 +462,26 @@ export function NotebookLMPage() {
               </p>
             </div>
 
-            {connectionState === "error" && (
-              <div className="mb-6 p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-3">
-                <WarningCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-red-700 dark:text-red-300">{connectionMessage}</p>
+            {(connectionState === "error" || connectionState === "needs-reauth") && (
+              <div className="mb-6 p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <WarningCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-red-700 dark:text-red-300">{connectionMessage}</p>
+                </div>
+                {provider === "cli" && (
+                  <button
+                    onClick={handleCLILogin}
+                    disabled={isLoggingIn}
+                    className="mt-3 w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 disabled:opacity-60 transition-opacity text-sm"
+                  >
+                    {isLoggingIn ? (
+                      <CircleNotch className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ArrowSquareOut className="w-4 h-4" />
+                    )}
+                    {isLoggingIn ? t("notebooklm.startingLogin") : t("notebooklm.reauthenticate")}
+                  </button>
+                )}
               </div>
             )}
 
