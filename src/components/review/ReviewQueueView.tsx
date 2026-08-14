@@ -450,6 +450,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           if (queueMode === "review") {
             return item.itemType === "learning-item";
           }
+          if (queueFilterMode === "due-all") {
+            return true;
+          }
           // Types the toggles do not cover (RSS articles) always pass, matching
           // applyFilters' own itemTypes branch — a `return false` here would
           // strip them from Due All, which never filtered them before.
@@ -459,6 +462,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           return true;
         });
     
+    if (queueFilterMode === "new-only") {
+      queueItems = queueItems.filter((item) => getQueueStatus(item) === "new");
+    }
+
     // Apply file type filter
     if (selectedFileType !== "all") {
       queueItems = queueItems.filter((item) => item.documentFileType === selectedFileType);

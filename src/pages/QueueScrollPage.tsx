@@ -3664,20 +3664,48 @@ export function QueueScrollPage() {
 
   if (!currentItem) {
     return (
-      <div className="h-full w-full flex items-center justify-center bg-background">
-        <div className="text-center">
+      <div className="h-full w-full flex items-center justify-center bg-background p-4">
+        <div className="text-center max-w-md">
           <div className="text-6xl mb-4">📚</div>
           <h2 className="text-2xl font-semibold text-foreground mb-2">{t("queueScroll.nothingToRead")}</h2>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground mb-6">
             {t("queueScroll.nothingToReadDesc")}
           </p>
-          <button
-            onClick={handleExit}
-            className="mt-6 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
-          >
-            {t("queueScroll.backToQueue")}
-          </button>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="px-4 py-2 bg-secondary text-secondary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm font-medium"
+            >
+              {t("common.settings")}
+            </button>
+            <button
+              onClick={() => {
+                updateSettingsCategory("scrollQueue", {
+                  composition: { documents: 50, flashcards: 35, extracts: 15 },
+                });
+              }}
+              className="px-4 py-2 bg-muted text-foreground border border-border rounded-lg hover:bg-accent transition-colors text-sm font-medium"
+            >
+              Reset Filters
+            </button>
+            <button
+              onClick={handleExit}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm font-medium"
+            >
+              {t("queueScroll.backToQueue")}
+            </button>
+          </div>
         </div>
+        <ScrollQueueSettings
+          isOpen={showSettings}
+          onClose={() => setShowSettings(false)}
+          composition={settings.scrollQueue.composition}
+          autoProceed={settings.scrollQueue.autoProceed}
+          ratingOrbsPosition={settings.scrollQueue.ratingOrbsPosition}
+          onUpdateSetting={(key, value) => updateSettingsCategory("scrollQueue", { [key]: value })}
+          onUpdateComposition={(composition) => updateSettingsCategory("scrollQueue", { composition })}
+          compositionReport={compositionReport}
+        />
       </div>
     );
   }

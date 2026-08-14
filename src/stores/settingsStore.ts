@@ -330,6 +330,12 @@ interface AISettings {
   pwaAssistantButtonSide: "left" | "right";
   aiControls: AIControlsSettings;
   memoryEnabled: boolean;
+  /**
+   * Prefer on-device inference (Gemini Nano) over a cloud provider when it is
+   * available. Android-only in effect: everywhere else the on-device bridge
+   * reports `platform_unsupported` and this setting changes nothing.
+   */
+  preferOnDevice: boolean;
 }
 
 /**
@@ -747,6 +753,7 @@ export const defaultSettings: Settings = {
     maxTokens: 4096,
     pwaAssistantButtonEnabled: false,
     pwaAssistantButtonSide: "right",
+    preferOnDevice: true,
     aiControls: {
       autoGenerate: false,
       cardsPerExtract: 5,

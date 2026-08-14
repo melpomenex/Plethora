@@ -1,0 +1,23 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Allows the android-genai plugin's on-device generative AI commands to be invoked
+from the frontend. On Android these drive ML Kit GenAI (Gemini Nano via AICore)
+for capability detection, summarization, and free-form prompting; everywhere
+else the status command reports `platform_unsupported` and the two inference
+commands return a typed error so callers fall back to a cloud provider.
+"""
+permissions = [
+  "allow-ondevice-ai-status",
+  "allow-ondevice-ai-capabilities",
+  "allow-ondevice-ai-generate",
+  "allow-ondevice-ai-count-tokens",
+  "allow-ondevice-ai-warm-up",
+  "allow-ondevice-ai-summarize",
+  "allow-ondevice-ai-prompt",
+  "allow-ondevice-ai-download",
+  "allow-ondevice-ai-start-prompt-stream",
+  "allow-ondevice-ai-cancel-prompt-request",
+  "allow-ondevice-ai-cancel"
+]

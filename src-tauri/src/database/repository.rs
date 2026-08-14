@@ -2778,11 +2778,19 @@ impl Repository {
         collection_id: Option<&str>,
     ) -> Result<Vec<LearningItem>> {
         let rows = if let Some(cid) = collection_id {
-            sqlx::query("SELECT * FROM learning_items WHERE due_date <= ? AND is_suspended = false AND collection_id = ? ORDER BY due_date")
-                .bind(before)
-                .bind(cid)
-                .fetch_all(&self.pool)
-                .await?
+            if cid == "default" || cid.is_empty() {
+                sqlx::query("SELECT * FROM learning_items WHERE due_date <= ? AND is_suspended = false AND (collection_id = ? OR collection_id IS NULL OR collection_id = '') ORDER BY due_date")
+                    .bind(before)
+                    .bind(cid)
+                    .fetch_all(&self.pool)
+                    .await?
+            } else {
+                sqlx::query("SELECT * FROM learning_items WHERE due_date <= ? AND is_suspended = false AND collection_id = ? ORDER BY due_date")
+                    .bind(before)
+                    .bind(cid)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
         } else {
             sqlx::query("SELECT * FROM learning_items WHERE due_date <= ? AND is_suspended = false ORDER BY due_date")
                 .bind(before)

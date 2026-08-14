@@ -324,27 +324,30 @@ In hands-free audio review, Incrementum automatically confirms Arena Pick so pla
 
 ### Document Reading Schedule (Incremental Reading)
 
-The algorithms above (FSRS-6, SM-18, SM-20) are **flashcard** schedulers — they train on Q&A, cloze, and basic cards, where the goal is long-term recall. **Documents** (the articles, papers, and passages you read via Incremental Reading) are scheduled by a **separate** scheduler with a different goal: keeping content in regular rotation rather than maximizing long-term retention of a single fact.
+The algorithms above (FSRS-6, SM-18, SM-20) are **flashcard** schedulers — they train on Q&A, cloze, and basic cards, where the goal is long-term recall. **Documents** (the articles, papers, and passages you read via Incremental Reading) are scheduled by a **modified FSRS-6** — the *Engaging* scheduler — tuned for a different goal: keeping content in regular rotation rather than maximizing long-term retention of a single fact. It runs in its own FSRS instance, separate from your flashcard schedulers, so the **stability** and **difficulty** values you see for a document in the Schedule view are real FSRS-6 memory parameters.
 
-**Two schedulers, not one.** This is the single biggest source of confusion:
+**Two scheduling tracks, not one.** This is the single biggest source of confusion:
 
 - **Flashcards** → FSRS-6 / SM-18 / SM-20 (your choice in Learning settings) → writes to the review history that trains those algorithms.
-- **Documents** → the **Incremental Reading Scheduler** (or its **Engaging** variant) → tracked separately, and **does not feed the flashcard algorithms at all.**
+- **Documents** → a **modified FSRS-6** (the *Engaging* scheduler, used everywhere you rate a document in the app; a fixed-interval *Incremental* scheduler is used only as a fallback for API/MCP) → tracked separately, and **does not feed the flashcard algorithms at all.**
 
-Rating a document with Again / Hard / Good / Easy looks identical to rating a flashcard — the same four buttons appear — but the grade goes to a different place and produces short, predictable intervals:
+Rating a document uses the **same four buttons** as a flashcard — Again / Hard / Good / Easy — but the grade goes to a **separate** FSRS instance that does not train your flashcard algorithms. The interval it produces depends on which scheduler handles the rating:
 
-| Rating | Document interval | Flashcard interval (varies by algorithm) |
-|--------|-------------------|------------------------------------------|
+- **Engaging FSRS-6 (the one the app uses).** When you rate a document from the queue or document viewer, Incrementum runs FSRS-6 at a 0.9 target-retention target and then applies a bounded *engagement* multiplier (0.25×–2.0×) for novelty, variety, and serendipity. Intervals are FSRS-computed and therefore **variable** — they grow with the document's stability just like a card's, not the fixed values below. On long-form content that you only partly read, a duration-aware cap pulls a Good/Easy interval back to 1–4 days based on how much of the document you actually covered.
+- **Incremental Reading Scheduler (the fallback).** The plain API/MCP rating path uses a separate, non-FSRS scheduler with short, **fixed** intervals and a hard 30-day cap:
+
+| Rating | Incremental (fallback) interval | Flashcard interval (varies by algorithm) |
+|--------|---------------------------------|------------------------------------------|
 | **Again** | ~4 hours | minutes |
 | **Hard** | ~1 day | 1–2 days |
 | **Good** | ~3 days | days–weeks |
 | **Easy** | ~7 days | weeks |
 
-Document intervals are capped at roughly **30 days** so material stays in rotation, and consecutive Good/Easy ratings add a small bonus while consecutive Again/Hard ratings add a small penalty.
+In the fallback scheduler, consecutive Good/Easy ratings add a small bonus and consecutive Again/Hard ratings add a small penalty, and intervals are capped at roughly **30 days** so material stays in rotation. (The Engaging FSRS-6 path you hit from the queue has no flat 30-day ceiling — its only cap is the duration-aware one above.)
 
-**The Engaging Scheduler.** When you read documents from the Queue, Incrementum uses the *Engaging* variant, which layers novelty injection, variety balancing, and serendipity on top of the base intervals so your reading sessions stay varied and interesting. These engagement features affect *which* document comes up next, not the underlying interval math.
+**Engagement affects both order and spacing.** The engagement layer does two things: it shapes *which* document comes up next (novelty injection, variety balancing, serendipity), and it scales the FSRS-6 interval within its 0.25×–2.0× band. It layers on top of the FSRS-6 math; it does not replace it.
 
-**Practical takeaway.** Doing lots of Incremental Reading will **not** count toward "training" SM-20 or FSRS — those algorithms only see flashcard reviews. If you want them to personalize, you need flashcards reviewed at day-scale spacing. (This is why the SM-20 panel in Learning settings can read "0 scored" even if you've been reading documents all week.) See [Understanding SM-20](#understanding-sm-20) for what does and doesn't count.
+**Practical takeaway.** Document reviews run through their **own** FSRS-6 instance and are tracked separately — they do **not** train the flashcard schedulers (the FSRS optimizer, SM-18, SM-20), which only learn from flashcard reviews. If you want those to personalize, you need flashcards reviewed at day-scale spacing. (This is why the SM-20 panel in Learning settings can read "0 scored" even if you've been reading documents all week.) See [Understanding SM-20](#understanding-sm-20) for what does and doesn't count.
 
 ### Rating System
 
@@ -518,7 +521,7 @@ Select multiple cards using the checkboxes, then use the bulk action toolbar:
 **Mixed Review Sessions (Cards + Documents):**
 - Review sessions can include **learning items** and **documents** that are due for reading.
 - When a document appears, you can open it directly from the session card.
-- Rating a document schedules its next reading date via the **Incremental Reading Scheduler** (short, capped intervals) — separate from the flashcard algorithms. See [Document Reading Schedule](#document-reading-schedule-incremental-reading).
+- Rating a document schedules its next reading date via the **Engaging FSRS-6** scheduler (a modified FSRS-6, with short, rotation-friendly intervals) — tracked separately from the flashcard algorithms. See [Document Reading Schedule](#document-reading-schedule-incremental-reading).
 
 **Rating Interface:**
 After revealing answer, four rating buttons appear:
@@ -665,6 +668,8 @@ Set priority 0-100 on any item:
 - **20-40**: Lower part — read it eventually
 - **0-10**: Bottom of the queue — reference, archive, someday
 
+**The 1–5 importance rating.** Some views also show a compact **1–5** importance rating next to an item. That number is just your 0–100% slider bucketed into five bands — **5 is the highest** (the 81–100% range), 1 is the lowest. So a document set to 100% that displays "priority 5" is showing the *top* of the scale, not fifth place. The 1–5 rating carries no information beyond the slider; the slider itself (and the live *Position X of N* readout) is always the source of truth.
+
 **Your percentages move on their own, and that is correct.**
 
 Because a percentage means "this far up the collection *right now*", it shifts as the collection around it changes. Import 500 new articles and rate half of them highly, and an untouched old document will show a lower percentage than it did last week — not because you demoted it, but because more material now sits above it. Its actual place in your reading order is unchanged relative to everything that was already there.
@@ -689,7 +694,7 @@ Higher priority items are shown more frequently in mixed reviews. Priority gover
 Understanding how the queue orders items and why positions change helps you optimize your study flow:
 
 1. **FSRS Scheduling & Dynamic Priority Scoring**:
-   - Each item's position is computed using its FSRS memory parameters (due date, interval, stability, retrievability decay) combined with your selected Smart Queue strategy preset (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time*, or *Exploratory*).
+   - Each item's position is computed using its FSRS memory parameters (due date, interval, stability, retrievability decay) combined with your selected Smart Queue strategy preset (*Maximize Retention*, *Aggressive Catch-up*, *Minimize Time*, or *Exploratory*). For documents these parameters come from the *Engaging* FSRS-6 scheduler described under [Document Reading Schedule](#document-reading-schedule-incremental-reading) — so yes, FSRS memory values apply to documents as well as to cards. The only difference is that a document's FSRS reviews are tracked separately and do not train the flashcard schedulers.
    - As you complete reviews, postpone items, or take notes, memory parameters update and items naturally re-rank upon returning to the queue.
 
 2. **Weighted Selection Randomization**:

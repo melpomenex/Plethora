@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { LearningItem } from "../../api/review";
 import {
   Brain,
+  Lightbulb,
   Pause,
   Play,
+  Sparkle,
   SpeakerHigh,
   SpeakerSlash,
   TextT,
 } from "@phosphor-icons/react";
+import { generateReviewHint, explainCard } from "../../lib/ai/flashcardStudioAI";
 import { useTTS } from "../../hooks/useTTS";
 import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils/ankiLatex";
 import { getImageAssetById } from "../../api/image-registry";
@@ -478,6 +481,55 @@ export const ReviewCard = React.memo(function ReviewCard({
     );
   };
 
+  const [hint, setHint] = useState<string | null>(null);
+  const [isHintLoading, setIsHintLoading] = useState(false);
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [isExplainLoading, setIsExplainLoading] = useState(false);
+
+  useEffect(() => {
+    setHint(null);
+    setExplanation(null);
+    setIsHintLoading(false);
+    setIsExplainLoading(false);
+  }, [card.id]);
+
+  const handleRequestHint = async () => {
+    if (isHintLoading || hint) return;
+    setIsHintLoading(true);
+    try {
+      const res = await generateReviewHint({
+        question: questionText || card.cloze_text || card.question,
+        answer: answerText,
+        cloze_text: card.cloze_text,
+        card_type: itemType,
+      });
+      setHint(res.hint);
+    } catch {
+      setHint("Think carefully about the key terms in the question.");
+    } finally {
+      setIsHintLoading(false);
+    }
+  };
+
+  const handleExplainCard = async () => {
+    if (isExplainLoading || explanation) return;
+    setIsExplainLoading(true);
+    try {
+      const res = await explainCard({
+        question: questionText || card.cloze_text || card.question,
+        answer: answerText,
+        cloze_text: card.cloze_text,
+        card_type: itemType,
+      });
+      setExplanation(res.explanation || "This answer directly aligns with the core concept of the question.");
+    } catch (err) {
+      console.error("[ReviewCard] Explain card error:", err);
+      setExplanation("Could not generate card explanation at this moment.");
+    } finally {
+      setIsExplainLoading(false);
+    }
+  };
+
   return (
     <article className="w-full max-w-2xl mx-auto px-2 md:px-0" aria-label={`${getItemTypeLabel(itemType)} card`}>
       {/* Card Type Badge */}
@@ -546,6 +598,32 @@ export const ReviewCard = React.memo(function ReviewCard({
               <audio controls preload="none" src={audioQuestionUrl} className="w-full" />
             </div>
           )}
+
+          {/* AI Hint UI */}
+          {!showAnswer && (
+            <div className="mt-4 pt-3 border-t border-border/60">
+              {hint ? (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-foreground animate-in fade-in duration-200">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1">
+                    <Lightbulb className="w-4 h-4" />
+                    On-Device AI Hint
+                  </div>
+                  <p>{hint}</p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleRequestHint()}
+                  disabled={isHintLoading}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400 hover:underline disabled:opacity-50"
+                >
+                  <Lightbulb className="w-4 h-4" />
+                  {isHintLoading ? "Generating Hint..." : "Request AI Hint"}
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Source context (collapsible provenance) */}
           <CardSourceContext itemId={card.id} />
         </div>
@@ -554,6 +632,29 @@ export const ReviewCard = React.memo(function ReviewCard({
         {showAnswer && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
             {renderAnswer()}
+
+            {/* AI Explanation UI */}
+            <div className="mt-4 pt-3 border-t border-border/60">
+              {explanation ? (
+                <div className="rounded-xl border border-blue-500/40 bg-blue-500/10 p-3 text-sm text-foreground animate-in fade-in duration-200">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
+                    <Sparkle className="w-4 h-4 text-blue-500" />
+                    AI Card Explanation
+                  </div>
+                  <p>{explanation}</p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleExplainCard()}
+                  disabled={isExplainLoading}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                >
+                  <Sparkle className="w-4 h-4" />
+                  {isExplainLoading ? "Generating Explanation..." : "Explain Card with AI"}
+                </button>
+              )}
+            </div>
 
             {/* Card Stats */}
             <div className="mt-6 pt-4 border-t border-border">

@@ -642,7 +642,10 @@ export class UniverseEngine {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.updateCameraRange();
-    if (wasAtHome) this.orbit.dist = this.homeDist;
+    if (wasAtHome) {
+      this.orbit.target.copy(this.homeTarget);
+      this.orbit.dist = this.homeDist;
+    }
     this.updateProjection();
     this.invalidate();
   }
@@ -651,8 +654,8 @@ export class UniverseEngine {
     if (this.focus.level !== "universe") return false;
     const distanceTolerance = Math.max(0.01, this.homeDist * 0.0001);
     return (
-      this.orbit.target.distanceToSquared(this.homeTarget) <= 0.0001 &&
-      Math.abs(this.orbit.dist - this.homeDist) <= distanceTolerance
+      this.orbit.target.distanceToSquared(this.homeTarget) <= 1.0 &&
+      Math.abs(this.orbit.dist - this.homeDist) <= Math.max(1.0, distanceTolerance)
     );
   }
 

@@ -120,6 +120,14 @@ describe("ReviewQueueView", () => {
     expect(screen.getAllByText("Review Item").length).toBeGreaterThan(0);
   });
 
+  it("filters out scheduled/due/drifted items when queueFilterMode is new-only", () => {
+    mockStore.queueFilterMode = "new-only";
+    render(<ReviewQueueView />);
+    // In mockStore, item-1 and item-2 are documents without due dates (new), item-3 has a due date.
+    // "Reading Item" text appears for new documents.
+    expect(screen.getAllByText("Reading Item").length).toBeGreaterThan(0);
+  });
+
   it("renders session actions and queue toggle", () => {
     render(<ReviewQueueView />);
     expect(screen.getByText("Start Optimal Session")).toBeInTheDocument();

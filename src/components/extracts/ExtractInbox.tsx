@@ -20,6 +20,11 @@ import {
 } from "@phosphor-icons/react";
 import { getExtracts, deleteExtract, type Extract } from "../../api/extracts";
 import { summarizeContent, extractKeyPoints, generateQuestions } from "../../api/ai";
+import { useAiAvailability } from "../../lib/ai/useAiAvailability";
+import { runAiAction } from "../../lib/ai/provider";
+import { withOnDeviceRun } from "../../lib/ai/onDeviceRunStore";
+import { summarize as summarizeOnDevice } from "../../lib/ai/onDeviceAI";
+import { analyzeExtract } from "../../lib/ai/extractAI";
 import { cn } from "../../utils";
 import { RichContentRenderer } from "../common/RichContentRenderer";
 import { CompactTagEditor } from "../common/CompactTagEditor";
@@ -48,6 +53,7 @@ export function ExtractInbox({ onSelectExtract }: ExtractInboxProps) {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [aiAnalysis, setAiAnalysis] = useState<Record<string, AIAnalysis>>({});
     const { t } = useI18n();
+    const { available: aiAvailable } = useAiAvailability();
 
     useEffect(() => {
         loadExtracts();
@@ -56,13 +62,11 @@ export function ExtractInbox({ onSelectExtract }: ExtractInboxProps) {
     const loadExtracts = async () => {
         setLoading(true);
         try {
-            // Get recent extracts (those without document_id are from browser extension)
             const allExtracts = await getExtracts("");
-            // Sort by most recent first
             const sorted = allExtracts.sort(
                 (a, b) => new Date(b.date_created).getTime() - new Date(a.date_created).getTime()
             );
-            setExtracts(sorted.slice(0, 50)); // Show last 50
+            setExtracts(sorted.slice(0, 50));
         } catch (error) {
             console.error("Failed to load extracts:", error);
         } finally {
@@ -78,18 +82,14 @@ export function ExtractInbox({ onSelectExtract }: ExtractInboxProps) {
         }));
 
         try {
-            const [summary, keyPoints, questions] = await Promise.all([
-                summarizeContent(extract.content, 150).catch(() => null),
-                extractKeyPoints(extract.content, 5).catch(() => null),
-                generateQuestions(extract.content, 3).catch(() => null),
-            ]);
+            const res = await analyzeExtract(extract.content);
 
             setAiAnalysis((prev) => ({
                 ...prev,
                 [id]: {
-                    summary: summary || undefined,
-                    keyPoints: keyPoints || undefined,
-                    questions: questions || undefined,
+                    summary: res.summary || undefined,
+                    keyPoints: res.keyPoints.length > 0 ? res.keyPoints : undefined,
+                    questions: res.studyQuestions.length > 0 ? res.studyQuestions : undefined,
                     loading: false,
                 },
             }));
@@ -269,7 +269,12 @@ export function ExtractInbox({ onSelectExtract }: ExtractInboxProps) {
 
                                     {/* AI Analysis Section */}
                                     <div className="p-5 border-t border-border/30 bg-gradient-to-b from-primary/5 to-transparent">
-                                        {!analysis ? (
+                                        {!aiAvailable ? (
+                                            /* No on-device model and no cloud
+                                               provider: offering the action
+                                               would only produce an error. */
+                                            null
+                                        ) : !analysis ? (
                                             <button
                                                 onClick={() => handleAnalyze(extract)}
                                                 className="w-full py-3 px-4 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground rounded-xl font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-opacity shadow-lg shadow-primary/20"
