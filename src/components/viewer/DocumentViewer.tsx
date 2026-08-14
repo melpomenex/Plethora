@@ -999,6 +999,7 @@ export function DocumentViewer({
   const [aiSheetRequest, setAiSheetRequest] = useState<{
     action: SelectionAiAction;
     text: string;
+    passage: string;
   } | null>(null);
   const aiAvailability = useAiAvailability("prompt");
   // Touch selection UI shows on any mobile shell (native phone/tablet or narrow
@@ -1934,6 +1935,33 @@ export function DocumentViewer({
     isModalOpen: isExtractDialogOpen || !!flashcardStudioSeed,
   });
 
+  /**
+   * The passage handed to an AI action: the selection plus the text around it.
+   *
+   * The live selection can be in the top-level document (markdown, PDF text
+   * layer) or inside a reader iframe (EPUB spine section, HTML document), and
+   * only the iframe knows its own text — so ask each surface in turn and take
+   * the first that yields more than the selection itself.
+   */
+  const buildSelectionPassage = useCallback((selectedText: string): string => {
+    const sources: Array<Window | null | undefined> = [
+      epubIframeWindow,
+      iframeRef.current?.contentWindow,
+      window,
+    ];
+    for (const source of sources) {
+      try {
+        const selection = source?.getSelection?.();
+        if (!selection || !selection.toString().trim()) continue;
+        const passage = passageAroundSelection(selection, selectedText);
+        if (passage !== selectedText) return passage;
+      } catch {
+        // Cross-origin iframe: nothing readable here, try the next source.
+      }
+    }
+    return selectedText;
+  }, [epubIframeWindow]);
+
   // Build context menu items for text selection in non-PDF viewers
   const buildContextMenuItems = useCallback((selectedText: string, contextOverride?: SelectionContext | null): ContextMenuItem[] => {
     const effectiveContext = selectionContext ?? contextOverride;
@@ -2060,13 +2088,19 @@ export function DocumentViewer({
           id: `ai-${item.action}`,
           label: item.label,
           icon: item.icon,
-          onClick: () => setAiSheetRequest({ action: item.action, text: selectedText }),
+          onClick: () =>
+            setAiSheetRequest({
+              action: item.action,
+              text: selectedText,
+              // Captured now, while the selection is still live.
+              passage: buildSelectionPassage(selectedText),
+            }),
         });
       }
     }
 
     return items;
-  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available]);
+  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available, buildSelectionPassage]);
 
   const loadDocumentDataInner = useCallback(async (doc: typeof currentDocument) => {
     if (!doc) return;
@@ -7435,7 +7469,7 @@ export function DocumentViewer({
       <SelectionActionsSheet
         open={mobileSheetOpen}
         text={aiSheetRequest?.text || mobileSheetText}
-        passage={mobileSelection.passage}
+        passage={aiSheetRequest?.passage || mobileSelection.passage}
         initialAction={aiSheetRequest?.action}
         onClose={() => {
           setAiSheetRequest(null);

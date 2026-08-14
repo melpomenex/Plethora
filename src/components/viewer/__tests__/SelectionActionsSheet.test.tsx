@@ -28,7 +28,36 @@ vi.mock("../SelectionPopup", () => ({
   copySelectionTextToClipboard: vi.fn(async () => true),
 }));
 
-import { SelectionActionsSheet } from "../SelectionActionsSheet";
+import { SelectionActionsSheet, passageAroundSelection } from "../SelectionActionsSheet";
+
+describe("passageAroundSelection", () => {
+  function selectionIn(html: string, selector: string): Selection {
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    document.body.appendChild(host);
+    const target = host.querySelector(selector)!;
+    return { anchorNode: target.firstChild } as unknown as Selection;
+  }
+
+  it("returns the surrounding text of a known content container", () => {
+    const selection = selectionIn(
+      `<div class="prose"><p>Before it. <em data-sel="a">the selection</em> After it.</p></div>`,
+      "[data-sel='a']"
+    );
+    const passage = passageAroundSelection(selection, "the selection");
+    expect(passage).toContain("Before it.");
+    expect(passage).toContain("After it.");
+  });
+
+  it("does not sweep in app chrome when the selection is outside any content container", () => {
+    const selection = selectionIn(
+      `<nav>Dashboard Queue Review</nav><span data-sel="b">the selection</span>`,
+      "[data-sel='b']"
+    );
+    // No content container in the top-level document → selection only.
+    expect(passageAroundSelection(selection, "the selection")).toBe("the selection");
+  });
+});
 
 function renderSheet(props: Partial<Parameters<typeof SelectionActionsSheet>[0]> = {}) {
   return render(
