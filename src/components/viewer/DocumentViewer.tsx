@@ -43,6 +43,7 @@ import { clearInvalidSyncedFilePath } from "../../lib/fileSyncRegistration";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
+import { attachIframePointerActivityForwarder } from "../../utils/iframePointerActivity";
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { PDFViewer } from "./PDFViewer";
 import { MarkdownViewer } from "./MarkdownViewer";
@@ -5559,6 +5560,21 @@ export function DocumentViewer({
     } catch { /* cross-origin guard */ }
   }, []);
 
+  // Forward pointer movement from the HTML iframe to the top window, so
+  // surfaces gating overlays on parent-window mousemove (Scroll Mode's
+  // controls) stay reachable while the cursor is over the document content —
+  // including the bottom of the screen. Mirrors the EPUBViewer bridge; see
+  // utils/iframePointerActivity.ts.
+  const attachHtmlIframePointerActivityForwarder = useCallback(() => {
+    try {
+      const iframe = iframeRef.current;
+      const win = iframe?.contentWindow;
+      const doc = iframe?.contentDocument;
+      if (!win || !doc) return;
+      attachIframePointerActivityForwarder(doc, win.parent);
+    } catch { /* cross-origin guard */ }
+  }, []);
+
   // Apply initial jump navigation (page/scroll/time) on document load.
   useEffect(() => {
     if (!currentDocument) return;
@@ -6662,6 +6678,7 @@ export function DocumentViewer({
                   onLoad={() => {
                     injectHtmlViewerStyles();
                     attachHtmlIframeContextMenuListener();
+                    attachHtmlIframePointerActivityForwarder();
                   }}
                 />
               </div>
@@ -7084,6 +7101,7 @@ export function DocumentViewer({
                 const loadedFrame = iframeRef.current;
                 injectHtmlViewerStyles();
                 attachHtmlIframeContextMenuListener();
+                attachHtmlIframePointerActivityForwarder();
                 scrollHtmlFrameToInitialHit();
                 // Restore saved scroll position (skip if initialJump already scrolled)
                 const pending = htmlRestorationPendingRef.current;

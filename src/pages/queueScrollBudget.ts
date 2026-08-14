@@ -155,3 +155,37 @@ export function composeSession({ targets, available }: CompositionInput): Compos
     },
   };
 }
+
+/**
+ * Clamp a session-lifetime composition snapshot to what is currently
+ * available, reporting the difference as shortfall.
+ *
+ * An optimal session's composed counts are computed once when the session is
+ * established; rebuilds re-apply those counts so rating items the session
+ * already presented cannot shrink it (a mid-session rating reduces the
+ * document pool, and without the snapshot the recomposition would silently
+ * slice unreviewed cards off the tail). Clamping keeps the promise honest:
+ * a pool genuinely emptied or reduced by external changes (suspension,
+ * deletion) still shrinks the session and reports shortfall exactly as
+ * `composeSession` would.
+ */
+export function clampCompositionToAvailability(
+  snapshot: CompositionTargets,
+  available: CompositionTargets,
+): ComposedSession {
+  const avail = {
+    documents: Math.max(0, available.documents),
+    extracts: Math.max(0, available.extracts),
+    flashcards: Math.max(0, available.flashcards),
+  };
+  return {
+    documents: Math.min(snapshot.documents, avail.documents),
+    extracts: Math.min(snapshot.extracts, avail.extracts),
+    flashcards: Math.min(snapshot.flashcards, avail.flashcards),
+    shortfall: {
+      documents: Math.max(0, snapshot.documents - avail.documents),
+      extracts: Math.max(0, snapshot.extracts - avail.extracts),
+      flashcards: Math.max(0, snapshot.flashcards - avail.flashcards),
+    },
+  };
+}
