@@ -71,6 +71,8 @@ export const ON_DEVICE_AI_ERROR_CODES = [
   "inference_failed",
   "empty_output",
   "invalid_argument",
+  "invalid_image",
+  "image_too_large",
   "feature_not_compiled",
   "feature_unavailable",
   "context_too_large",
