@@ -10,12 +10,26 @@ on:
         description: 'Release tag to build, e.g. v1.21.12'
         required: true
         type: string
+      build_ref:
+        description: 'Commit/branch to build (defaults to version_tag). Use to backfill a release asset with a fix that landed after the tag — the built tree must still carry the version matching version_tag.'
+        required: false
+        type: string
+        default: ''
+      windows_only:
+        description: 'Run only the windows-x86_64 job; skip all other platform/manifest jobs. Used to add the Windows installer to an existing release without touching its other assets.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   release:
+    # windows_only dispatch: backfill mode — run just the Windows leg so an
+    # existing release gains its installer without rebuilding/re-uploading
+    # (and re-signing) every other platform's assets.
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.windows_only && matrix.id != 'windows-x86_64') }}
     continue-on-error: ${{ !matrix.required }}
     strategy:
       fail-fast: false
@@ -65,7 +79,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref }}
+          # Dispatch builds default to the tag itself; build_ref lets a fix
+          # that landed after the tag be built into the same release.
+          ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_ref || inputs.version_tag) || github.ref }}
           submodules: recursive
 
       - name: Install dependencies (Ubuntu only)
@@ -312,6 +328,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   release-appimage:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
     runs-on: ubuntu-latest
     # See the `release` job: bundle-runtime flags must be visible to the
     # `prebuild` hook and sidecar step too, not just the Tauri build step.
@@ -322,7 +339,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref }}
+          # Dispatch builds default to the tag itself; build_ref lets a fix
+          # that landed after the tag be built into the same release.
+          ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_ref || inputs.version_tag) || github.ref }}
           submodules: recursive
 
       - name: Free disk space
@@ -462,6 +481,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-arch:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
     runs-on: ubuntu-latest
     container:
       image: archlinux:base-devel
@@ -622,7 +642,7 @@ jobs:
 
   release-readiness:
     needs: [release, release-appimage, release-arch]
-    if: ${{ always() }}
+    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
     runs-on: ubuntu-latest
     steps:
       - name: Summarize required and optional release outcomes
@@ -653,14 +673,18 @@ jobs:
     # every platform. Instead we run whenever the workflow isn't cancelled and
     # let the manifest script itself enforce that the artifacts it references
     # are present and signed (see the required-signature guard below).
+    # windows_only backfills skip it: latest.json on the existing release
+    # stays byte-identical so already-shipped updaters are untouched.
     needs: [release, release-appimage]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref }}
+          # Dispatch builds default to the tag itself; build_ref lets a fix
+          # that landed after the tag be built into the same release.
+          ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_ref || inputs.version_tag) || github.ref }}
           submodules: recursive
 
       - name: Create update manifest
@@ -771,6 +795,7 @@ jobs:
 
   sync-release-notes:
     needs: [create-update-manifest]
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

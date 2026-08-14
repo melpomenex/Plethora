@@ -139,6 +139,29 @@ function sherpaAssetForTarget(targetTriple) {
   return null;
 }
 
+// Copy ONLY the ONNX Runtime DLLs the sherpa-onnx sidecar needs on Windows.
+// The win-x64 tarball also ships cargs.dll / sherpa-onnx-c-api.dll /
+// sherpa-onnx-cxx-api.dll — development/API libraries the sidecar executable
+// does not import (its PE import table references onnxruntime.dll + the MSVC
+// CRT only). Copying the full DLL set changed the bin/*.dll resource set and
+// the NSIS bundle stopped shipping onnxruntime.dll itself, so the sidecar
+// loaded whatever unrelated ONNX Runtime it found first and crashed at model
+// load ("The requested API version [23] is not available, only API versions
+// [1, 17] ... Current ORT Version is: 1.17.1"). v2.3.0 shipped exactly
+// {onnxruntime.dll, onnxruntime_providers_shared.dll} and its installer
+// archive verifiably contained both — keep that set.
+function copyOnnxRuntimeLibs(dir, destDir) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      copyOnnxRuntimeLibs(fullPath, destDir);
+    } else if (/^onnxruntime.*\.dll$/i.test(entry.name)) {
+      console.log(`Copying shared library: ${entry.name}`);
+      fs.copyFileSync(fullPath, path.join(destDir, entry.name));
+    }
+  }
+}
+
 /// Download + provision the sherpa-onnx sidecar for the given target triple.
 /// The upstream tarball ships a `bin/sherpa-onnx-offline` executable plus a
 /// `lib/libonnxruntime.<ver>.{dylib,so,dll}`. We:
@@ -148,12 +171,25 @@ function sherpaAssetForTarget(targetTriple) {
 ///   3. Copy the onnxruntime shared lib into <BIN_DIR> alongside it, so the
 ///      @executable_path / @executable_path/../Resources/bin rpaths resolve it
 ///      the same way whisper's libwhisper/libggml dylibs are resolved.
-///   4. On macOS, add the dev + prod rpaths and re-sign (build.rs redoes this on
+///   4. On macOS, add the dev & prod rpaths and re-sign (build.rs redoes this on
 ///      every build too, but doing it here makes the binary runnable immediately).
+///
+/// Provisioning is keyed on a version marker, not just on the sidecar exe
+/// existing: a stale exe with fresh runtime libs (or the reverse) is exactly
+/// the exe/ORT ABI-mismatch crash class this guard prevents. When
+/// SHERPA_ONNX_VERSION bumps, the DLLs are refreshed even if the exe is still
+/// usable.
 function ensureSherpaSidecar(targetTriple) {
   const sherpaName = sidecarExecutableName('sherpa-onnx', targetTriple);
   const sherpaPath = path.join(BIN_DIR, sherpaName);
-  if (isUsableSidecar(sherpaPath)) {
+  const versionMarker = path.join(BIN_DIR, '.sherpa-onnx-provisioned');
+  let provisionedVersion = null;
+  try {
+    provisionedVersion = fs.readFileSync(versionMarker, 'utf8').trim();
+  } catch {
+    // No marker: never provisioned with the version guard in place.
+  }
+  if (isUsableSidecar(sherpaPath) && provisionedVersion === SHERPA_ONNX_VERSION) {
     return;
   }
 
@@ -192,8 +228,14 @@ function ensureSherpaSidecar(targetTriple) {
     // 2. Copy runtime libraries into BIN_DIR. Upstream layouts differ: Unix
     // archives put them under lib/, while Windows packages may use bin/.
     // Search recursively so PATH/rpath resolution works on every platform.
+    // Windows copies ONLY the onnxruntime DLLs — see copyOnnxRuntimeLibs.
     if (assetInfo.os === 'windows') {
-      findAndCopyLibs(extracted, BIN_DIR, '.dll');
+      copyOnnxRuntimeLibs(extracted, BIN_DIR);
+      // Drop API/dev DLLs left by older provisioning runs — the sidecar does
+      // not import them and they must not ride along into the installer.
+      for (const stale of ['cargs.dll', 'sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll']) {
+        fs.rmSync(path.join(BIN_DIR, stale), { force: true });
+      }
     } else if (assetInfo.os === 'macos') {
       findAndCopyLibs(extracted, BIN_DIR, '.dylib');
     } else {
@@ -229,6 +271,7 @@ function ensureSherpaSidecar(targetTriple) {
     }
 
     fs.chmodSync(sherpaPath, 0o755);
+    fs.writeFileSync(versionMarker, SHERPA_ONNX_VERSION);
     console.log(`sherpa-onnx sidecar provisioned at ${sherpaPath}`);
   } catch (err) {
     console.warn(`⚠️  sherpa-onnx provisioning failed for ${targetTriple}: ${err.message}`);
