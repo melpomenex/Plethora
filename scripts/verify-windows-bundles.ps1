@@ -51,12 +51,18 @@ function Assert-RequiredSidecars {
     throw "$Label missing non-empty sherpa-onnx sidecar executable under $RootPath"
   }
 
+  # The sherpa-onnx sidecar's PE import table references ONNXRUNTIME.DLL by
+  # exact name (not any *onnxruntime*.dll). onnxruntime_providers_shared.dll
+  # alone is a 10 KB re-export shim and does NOT satisfy the import — requiring
+  # the real DLL here is what catches the v2.4.0+ regression where the NSIS
+  # bundle shipped only the shim and the sidecar crashed at model load with
+  # "The requested API version [23] is not available ... ORT Version is: 1.17.1".
   $onnxRuntime = Get-ChildItem -Path $RootPath -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "*onnxruntime*.dll" -and $_.Length -gt 0 } |
+    Where-Object { $_.Name -eq "onnxruntime.dll" -and $_.Length -gt 0 } |
     Select-Object -First 1
 
   if (-not $onnxRuntime) {
-    throw "$Label missing non-empty ONNX Runtime DLL under $RootPath"
+    throw "$Label missing non-empty onnxruntime.dll (the exact DLL sherpa-onnx.exe imports) under $RootPath"
   }
 
   Write-Host "$Label found sherpa sidecar: $($sherpaSidecar.FullName)"
@@ -115,6 +121,28 @@ if ($msiFiles) {
 }
 
 if ($exeFiles) {
+  # 7-Zip can list NSIS installer archives (preinstalled at
+  # C:\Program Files\7-Zip on windows-latest runners). Checking the ARCHIVE
+  # before extraction distinguishes "the bundle never packed
+  # bin/onnxruntime.dll" (resource-packing regression) from "it was packed but
+  # didn't survive extraction" (e.g. AV interference on the runner).
+  $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+  if (-not (Test-Path $sevenZip)) { $sevenZip = "7z" }
+
+  foreach ($exe in $exeFiles) {
+    $listing = & $sevenZip l $exe.FullName 2>$null
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "7z could not list $($exe.FullName); skipping archive pre-check."
+      continue
+    }
+    $packedDll = $listing | Select-String -SimpleMatch "bin/onnxruntime.dll" |
+      Select-Object -First 1
+    if (-not $packedDll) {
+      throw "$($exe.Name) archive does not contain bin/onnxruntime.dll — the NSIS resource packing dropped the ONNX Runtime DLL. Check the bin/*.dll resource set in src-tauri/bin."
+    }
+    Write-Host "$($exe.Name) archive contains bin/onnxruntime.dll (7z pre-check)."
+  }
+
   foreach ($exe in $exeFiles) {
     $outDir = Join-Path $tmpRoot ("nsis_" + [IO.Path]::GetFileNameWithoutExtension($exe.Name))
     New-Item -ItemType Directory -Path $outDir | Out-Null

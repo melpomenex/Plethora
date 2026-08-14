@@ -111,9 +111,13 @@ src-tauri/bin/whisper-macos
 src-tauri/bin/whisper-universal-*
 src-tauri/bin/whisper-x86_64-*
 src-tauri/bin/sherpa-onnx-*
+src-tauri/bin/.sherpa-onnx-provisioned
 src-tauri/bin/libggml*
 src-tauri/bin/libwhisper*
 src-tauri/bin/libonnxruntime*
+# Windows sidecar runtime DLLs (onnxruntime.dll, cargs.dll, sherpa c-api) —
+# provisioned at build time, same as the binaries above.
+src-tauri/bin/*.dll
 src-tauri/bin/*.placeholder.dll
 src-tauri/bin/libplaceholder.so
 src-tauri/bin/libplaceholder.dylib
