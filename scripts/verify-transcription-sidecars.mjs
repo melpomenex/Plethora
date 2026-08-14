@@ -55,6 +55,24 @@ function run(command, args, env, label, timeout = 120_000) {
   }
 }
 
+// Windows runners ship bsdtar at %SystemRoot%\System32\tar.exe, but Node's
+// spawnSync does not resolve a bare `tar` through PATH on windows-latest
+// (`spawnSync tar ENOENT`), which killed this smoke test and — because the
+// Windows release job died at the verify step before uploading — silently
+// dropped the Windows updater artifacts from every release after v2.3.0.
+// Resolve an absolute path explicitly; the bare-name fallback keeps custom
+// runner images working.
+function resolveTarCommand() {
+  if (process.platform !== "win32") return "tar";
+  const systemTar = join(
+    process.env.SystemRoot || process.env.windir || "C:\\Windows",
+    "System32",
+    "tar.exe",
+  );
+  if (existsSync(systemTar)) return systemTar;
+  return "tar.exe";
+}
+
 async function download(url, destination) {
   const response = await fetch(url, { redirect: "follow" });
   if (!response.ok || !response.body) {
@@ -106,7 +124,7 @@ const workDir = mkdtempSync(join(tmpdir(), "incrementum-transcription-smoke-"));
 try {
   const archive = join(workDir, "sherpa-onnx-tdnn-yesno.tar.bz2");
   await download(MODEL_URL, archive);
-  run("tar", ["-xjf", archive, "-C", workDir], env, "model fixture extraction");
+  run(resolveTarCommand(), ["-xjf", archive, "-C", workDir], env, "model fixture extraction");
 
   const fixtureFiles = walk(workDir);
   const model = findRequired(fixtureFiles, "smoke-test ONNX model", (file) => basename(file) === "model-epoch-14-avg-2.onnx");

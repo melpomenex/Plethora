@@ -381,6 +381,20 @@ async fn download_update_apk(
     Ok(apk_path.to_string_lossy().to_string())
 }
 
+/// The bundle type the current binary was packaged in — "appimage", "deb",
+/// "rpm", "app" (macOS), "msi"/"nsis" (Windows) — or "unknown" for unbundled
+/// dev runs. The update flow uses this to decide whether an in-place updater
+/// install can work: tauri-plugin-updater replaces the running executable,
+/// which on Linux is only user-writable for AppImage installs. deb/rpm
+/// installs live at /usr/bin and must download a new package instead of
+/// attempting (and always failing) the in-place path.
+#[tauri::command]
+fn updater_bundle_type() -> String {
+    tauri::utils::platform::bundle_type()
+        .map(|t| format!("{t:?}").to_lowercase())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 /// Consume and return any pending one-shot startup notice (e.g. "your database
 /// was reset due to corruption"). Returns `null` when nothing is pending. The
 /// frontend should call this once on boot; the notice is cleared on read so it
@@ -1161,6 +1175,7 @@ pub fn run() {
             wait_for_backend_ready,
             commands::memory_scenario::get_memory_scenario_config,
             download_update_apk,
+            updater_bundle_type,
             consume_startup_notice,
             restore_local_db_backup,
             apply_theme_vibrancy,

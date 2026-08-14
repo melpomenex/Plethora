@@ -446,6 +446,21 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      # v2.6.1 shipped an AppImage whose uploaded bytes did not match the
+      # signature produced by the step above (v2.6.0 verified with identical
+      # pipeline code — an undetected release flake that broke in-place
+      # updates for every Linux AppImage user). Re-verify the signature
+      # against the on-disk artifact with the updater's public key BEFORE
+      # anything is uploaded, so a bad sign fails the job here.
+      - name: Verify AppImage updater signature
+        run: |
+          VERSION_NO_V="${{ steps.get_version.outputs.VERSION }}"
+          VERSION_NO_V="${VERSION_NO_V#v}"
+          node scripts/verify-update-artifact.mjs \
+            --pubkey-config src-tauri/tauri.conf.json \
+            --artifact "src-tauri/target/release/bundle/appimage/Incrementum_${VERSION_NO_V}_amd64.AppImage" \
+            --sig "src-tauri/target/release/bundle/appimage/Incrementum_${VERSION_NO_V}_amd64.AppImage.sig"
+
       - name: Upload AppImage to release
         uses: softprops/action-gh-release@v2
         with:
@@ -620,7 +635,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-readiness:
-    needs: [release, release-appimage, release-arch]
+    needs: [release, release-appimage, release-arch, verify-release]
     if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
     runs-on: ubuntu-latest
     steps:
@@ -631,9 +646,10 @@ jobs:
             echo "- release matrix: \`${{ needs.release.result }}\`"
             echo "- release-appimage: \`${{ needs.release-appimage.result }}\`"
             echo "- release-arch: \`${{ needs.release-arch.result }}\`"
+            echo "- verify-release (published update chain): \`${{ needs.verify-release.result }}\`"
             echo ""
-            echo "Required: \`macos-aarch64\`, \`release-appimage\`, \`release-arch\`"
-            echo "Optional: \`windows-x86_64\`"
+            echo "Required: \`macos-aarch64\`, \`release-appimage\`, \`release-arch\`, \`verify-release\`"
+            echo "Optional: \`windows-x86_64\` (its updater artifacts are enforced by create-update-manifest + verify-release)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enforce required architecture gate
@@ -641,6 +657,7 @@ jobs:
           test "${{ needs.release.result }}" = "success"
           test "${{ needs.release-appimage.result }}" = "success"
           test "${{ needs.release-arch.result }}" = "success"
+          test "${{ needs.verify-release.result }}" = "success"
 
   create-update-manifest:
     # Intentionally decoupled from release-readiness. The manifest only
@@ -696,13 +713,21 @@ jobs:
             //  - The AppImage is re-signed after its repack (see release-appimage
             //    job), so its .sig matches the final uploaded bytes.
             //
-            // `required` marks platforms we refuse to ship the manifest without.
-            // Optional platforms (windows) are dropped from the manifest if
-            // their artifacts are missing, rather than blocking the whole thing.
+            // `required` marks platforms we refuse to ship the manifest
+            // without. In-place updates are a product requirement on all
+            // three desktop platforms: windows was previously optional and
+            // silently omitted, which let the Windows build rot unnoticed
+            // from v2.4.0 to v2.6.1 (no -setup.exe assets, no manifest
+            // entry, no self-update). A missing Windows artifact now fails
+            // this job loudly; the release matrix leg stays
+            // continue-on-error so the macOS/Linux assets still upload for
+            // existing users, and the failure surfaces here + in
+            // release-readiness. Use the `windows_only` dispatch to backfill
+            // a release whose Windows leg failed.
             const platforms = {
               'darwin-aarch64':  { asset: `Incrementum.app.tar.gz`,            required: true },
               'linux-x86_64':    { asset: `Incrementum_${version}_amd64.AppImage`, required: true },
-              'windows-x86_64':  { asset: `Incrementum_${version}_x64-setup.exe`,  required: false },
+              'windows-x86_64':  { asset: `Incrementum_${version}_x64-setup.exe`,  required: true },
             };
 
             // Locate the release and its assets so we can pull the .sig file
@@ -747,10 +772,10 @@ jobs:
               core.setFailed(`Missing required updater artifacts, refusing to publish latest.json:\n${missing.join('\n')}`);
               return;
             }
-            // Optional platforms (windows) that didn't build are simply omitted;
-            // the updater falls back to its current platform entry.
+            // All platforms are required now; `dropped` stays as a guard in
+            // case a platform is ever made optional again.
             if (dropped.length) {
-              core.warning(`Omitting optional platforms from manifest:\n${dropped.join('\n')}`);
+              core.warning(`Omitting non-required platforms from manifest:\n${dropped.join('\n')}`);
             }
 
             const manifest = {
@@ -769,6 +794,35 @@ jobs:
           files: latest.json
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref_name }}
           fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-release:
+    # Post-publication gate: verify what clients actually download — the
+    # released latest.json, every platform entry it declares, each artifact's
+    # signature against the updater public key, and the asset digests against
+    # GitHub's API records. This catches what the pre-upload checks cannot
+    # see: signer flakes (the v2.6.1 AppImage was signed over bytes that did
+    # not match what got uploaded, breaking in-place updates for every Linux
+    # AppImage user), upload corruption, and manifest/asset mismatches.
+    # Runs even when create-update-manifest failed, so a broken release is
+    # diagnosed here too. windows_only backfills skip manifest regeneration,
+    # so there is no new chain to verify.
+    needs: [create-update-manifest]
+    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Scripts only — no build, so the whisper.cpp submodule isn't needed.
+          ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_ref || inputs.version_tag) || github.ref }}
+
+      - name: Verify published update chain
+        run: |
+          node scripts/verify-release-updates.mjs \
+            --repo "${{ github.repository }}" \
+            --tag "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref_name }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

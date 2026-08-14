@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowSquareOut,
   Clock,
+  Info,
   Prohibit,
   Spinner,
   Warning,
@@ -142,6 +143,26 @@ type InstallState =
   | { phase: "installing" }
   | { phase: "error"; message: string };
 
+/**
+ * Tauri command rejections arrive as plain strings (not Error instances),
+ * which is why every failure used to render as the generic fallback and hid
+ * the actual cause (e.g. a signature-verification error). Normalize whatever
+ * the updater rejected with into text the user can act on or report.
+ */
+function normalizeUpdaterError(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string" && err.trim().length > 0) return err;
+  try {
+    const serialized = JSON.stringify(err);
+    if (serialized && serialized !== "{}" && serialized !== '""') {
+      return serialized;
+    }
+  } catch {
+    // Not serializable — fall through to the generic message.
+  }
+  return "The in-place update failed. You can still download the installer manually.";
+}
+
 export function UpdateAvailableDialog({
   update,
   onClose,
@@ -192,10 +213,7 @@ export function UpdateAvailableDialog({
         console.error("[UpdateAvailableDialog] in-place update failed:", err);
         setInstall({
           phase: "error",
-          message:
-            err instanceof Error
-              ? err.message
-              : "The in-place update failed. You can still download the installer manually.",
+          message: normalizeUpdaterError(err),
         });
       }
       return;
@@ -252,6 +270,17 @@ export function UpdateAvailableDialog({
 
         {/* Release notes */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          {update.manualOnlyReason && (
+            <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted rounded-lg px-3 py-2 mb-3">
+              <Info className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                This install is managed by your system package manager
+                ({update.manualOnlyReason === "deb" ? ".deb" : ".rpm"}), which
+                does not support in-place updates. Download the new release
+                and install it to update.
+              </span>
+            </div>
+          )}
           {update.releaseNotes ? (
             <div className="space-y-1">
               {renderReleaseNotes(update.releaseNotes)}
@@ -340,7 +369,9 @@ export function UpdateAvailableDialog({
             Remind Me Later
           </button>
           <button
-            onClick={handleUpdateNow}
+            onClick={
+              update.manualOnlyReason ? handleDownloadManually : handleUpdateNow
+            }
             disabled={isBusy}
             className={cn(
               "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium",
@@ -353,11 +384,13 @@ export function UpdateAvailableDialog({
             ) : (
               <ArrowSquareOut className="w-3.5 h-3.5" />
             )}
-            {install.phase === "downloading"
-              ? "Downloading…"
-              : install.phase === "installing"
-                ? "Installing…"
-                : "Update Now"}
+            {update.manualOnlyReason
+              ? "Download Update"
+              : install.phase === "downloading"
+                ? "Downloading…"
+                : install.phase === "installing"
+                  ? "Installing…"
+                  : "Update Now"}
           </button>
         </div>
       </div>
