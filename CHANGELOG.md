@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.5.1] - 2026-08-14
+
+### Fixed & Improved
+- **Windows Release Build** — Fixed environment PATH resolution during sidecar verification so Windows bundles pass CI validation.
+- **Arch Linux Build Workflow** — Added `cmake` dependency to `build-arch` CI pipeline.
+
 ## [2.5.0] - 2026-08-14
 
 ### Added
