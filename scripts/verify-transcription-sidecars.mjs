@@ -85,7 +85,14 @@ const onnxRuntime = findRequired(files, "ONNX Runtime library", (file) => {
 const runtimeDirs = [...new Set([dirname(whisper), dirname(sherpa), dirname(onnxRuntime)])];
 const env = { ...process.env };
 if (process.platform === "win32") {
-  env.PATH = `${runtimeDirs.join(";")};${env.PATH || ""}`;
+  const pathKey = Object.keys(env).find((k) => k.toLowerCase() === "path") || "Path";
+  const existingPath = env[pathKey] || "";
+  for (const k of Object.keys(env)) {
+    if (k.toLowerCase() === "path") {
+      delete env[k];
+    }
+  }
+  env[pathKey] = `${runtimeDirs.join(";")};${existingPath}`;
 } else if (process.platform === "darwin") {
   env.DYLD_LIBRARY_PATH = `${runtimeDirs.join(":")}:${env.DYLD_LIBRARY_PATH || ""}`;
 } else {

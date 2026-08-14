@@ -491,7 +491,7 @@ jobs:
       - name: Install Arch dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed base-devel git webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg patchelf npm nodejs rust ttf-dejavu clang lld sqlite pipewire
+          pacman -S --noconfirm --needed base-devel cmake git webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg patchelf npm nodejs rust ttf-dejavu clang lld sqlite pipewire
 
       - name: Install frontend dependencies
         run: npm ci
