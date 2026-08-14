@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.6.2] - 2026-08-14
+
+### Fixed & Improved
+
+- **In-place updates repaired on Windows and Linux** — "The in-place update failed. You can still download the installer manually." had three separate root causes, all fixed. **Windows** had shipped no updater artifacts at all since v2.3.0: the release build succeeded, but the post-build verification step crashed on a `tar` invocation it couldn't resolve on Windows runners, and the failure was silently ignored — so the installer and its signature never uploaded and the update manifest carried no Windows entry. The verification script now resolves `tar` explicitly, and a missing Windows artifact fails the release loudly instead of being dropped. **Linux (AppImage)**: the v2.6.1 update package's signature did not match the bytes actually uploaded (v2.6.0 was fine — a release-pipeline flake nothing detected), so every in-place update to 2.6.1 failed signature verification mid-download; releases now re-verify each platform's signature against the published update manifest after shipping, so this class of breakage can't reach users silently again. **Linux (deb/rpm)**: in-place updates are architecturally impossible for system packages (the updater must replace the running `/usr/bin` binary), so the update dialog now offers the matching package download instead of an install that could never succeed.
+- **Windows installer ships the real ONNX Runtime again** — the NSIS bundle had degraded to carrying only a 10 KB re-export shim instead of the full `onnxruntime.dll`, which crashed local transcription at model load with an API-version mismatch. The build now copies exactly the ONNX Runtime DLLs the sherpa-onnx sidecar imports, provisioning is keyed on the runtime version so exe/DLL mismatches can't ride a stale cache, and the bundle verifier requires the real DLL inside the installer archive before upload.
+- **Update errors are now readable** — when an in-place update does fail, the dialog shows the updater's actual error (previously a technicality in how errors are delivered meant every failure displayed the same generic message, hiding the real cause from users and logs).
+
 ## [2.6.1] - 2026-08-14
 
 ### Fixed & Improved
