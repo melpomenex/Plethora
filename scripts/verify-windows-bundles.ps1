@@ -57,12 +57,14 @@ function Assert-RequiredSidecars {
   # the real DLL here is what catches the v2.4.0+ regression where the NSIS
   # bundle shipped only the shim and the sidecar crashed at model load with
   # "The requested API version [23] is not available ... ORT Version is: 1.17.1".
+  # Size floor: the real DLL is ~14 MB; the shim is ~10 KB and build.rs seeds
+  # a 0-byte placeholder, so anything under 1 MiB is not the real runtime.
   $onnxRuntime = Get-ChildItem -Path $RootPath -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -eq "onnxruntime.dll" -and $_.Length -gt 0 } |
+    Where-Object { $_.Name -eq "onnxruntime.dll" -and $_.Length -gt 1MB } |
     Select-Object -First 1
 
   if (-not $onnxRuntime) {
-    throw "$Label missing non-empty onnxruntime.dll (the exact DLL sherpa-onnx.exe imports) under $RootPath"
+    throw "$Label missing onnxruntime.dll larger than 1 MiB (the exact DLL sherpa-onnx.exe imports) under $RootPath"
   }
 
   Write-Host "$Label found sherpa sidecar: $($sherpaSidecar.FullName)"
@@ -122,10 +124,14 @@ if ($msiFiles) {
 
 if ($exeFiles) {
   # 7-Zip can list NSIS installer archives (preinstalled at
-  # C:\Program Files\7-Zip on windows-latest runners). Checking the ARCHIVE
-  # before extraction distinguishes "the bundle never packed
-  # bin/onnxruntime.dll" (resource-packing regression) from "it was packed but
-  # didn't survive extraction" (e.g. AV interference on the runner).
+  # C:\Program Files\7-Zip on windows-latest runners). This pre-check is
+  # DIAGNOSTIC: 7-Zip builds differ in the path separator they print for
+  # NSIS entries (forward slash on some, backslash on others), so a literal
+  # forward-slash match can false-negative. The authoritative check is the
+  # silent-install extraction below plus Assert-RequiredSidecars, which
+  # requires the exact onnxruntime.dll by name and then actually loads a
+  # model through sherpa-onnx. If the archive listing looks wrong we dump
+  # what IS packed and let extraction decide.
   $sevenZip = "C:\Program Files\7-Zip\7z.exe"
   if (-not (Test-Path $sevenZip)) { $sevenZip = "7z" }
 
@@ -135,12 +141,23 @@ if ($exeFiles) {
       Write-Host "7z could not list $($exe.FullName); skipping archive pre-check."
       continue
     }
-    $packedDll = $listing | Select-String -SimpleMatch "bin/onnxruntime.dll" |
+    $normalized = @($listing | ForEach-Object { $_ -replace '\\', '/' })
+    $packedDll = $normalized | Select-String -SimpleMatch "bin/onnxruntime.dll" |
       Select-Object -First 1
-    if (-not $packedDll) {
-      throw "$($exe.Name) archive does not contain bin/onnxruntime.dll — the NSIS resource packing dropped the ONNX Runtime DLL. Check the bin/*.dll resource set in src-tauri/bin."
+    if ($packedDll) {
+      Write-Host "$($exe.Name) archive contains bin/onnxruntime.dll (7z pre-check)."
+    } else {
+      Write-Host "WARNING: 7z listing shows no bin/onnxruntime.dll entry for $($exe.Name)."
+      Write-Host "--- archive entries mentioning onnxruntime ---"
+      $onnxEntries = @($normalized | Select-String -SimpleMatch "onnxruntime")
+      if ($onnxEntries.Count -eq 0) {
+        Write-Host "  (none)"
+      } else {
+        $onnxEntries | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.Line)" }
+      }
+      $binEntryCount = @($normalized | Select-String -SimpleMatch " bin/" | Select-String -NotMatch -SimpleMatch "notebooklm-runtime").Count
+      Write-Host "--- non-notebooklm 'bin/' archive entries: $binEntryCount (see listing above); extraction check below is authoritative ---"
     }
-    Write-Host "$($exe.Name) archive contains bin/onnxruntime.dll (7z pre-check)."
   }
 
   foreach ($exe in $exeFiles) {
