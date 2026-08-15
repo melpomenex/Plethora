@@ -33,6 +33,7 @@ import {
   isOnDeviceAiSupportedPlatform,
   requestModelDownload,
   toOnDeviceAiError,
+  warmUpOnDevicePrompt,
 } from "../../lib/ai/onDeviceAI";
 import { hasCloudProvider } from "../../lib/ai/provider";
 import {
@@ -71,13 +72,20 @@ export interface SelectionActionsSheetProps {
 
 const PREVIEW_CHARS = 180;
 
-/** Characters of surrounding text kept on each side of the selection. */
-const CONTEXT_CHARS = 1500;
+/**
+ * Minimum selection length (in chars) to consider the selection self-contained,
+ * needing no surrounding context padding.
+ */
+export const SELF_CONTAINED_SELECTION_THRESHOLD = 150;
+
+/** Characters of surrounding text kept on each side of a short selection (<150 chars). */
+export const SHORT_SELECTION_CONTEXT_CHARS = 300;
 
 /**
  * The passage to send to the model: the selection plus the surrounding text of
- * whatever block it sits in, so "explain this" on a one-line selection has
- * something to work with. Falls back to the selection alone when no container
+ * whatever block it sits in when the selection is short (<150 chars).
+ * Self-contained selections (>=150 chars) use the selected text directly to
+ * avoid prefill latency. Falls back to the selection alone when no container
  * text is reachable.
  */
 export function passageAroundSelection(selection: Selection | null, text: string): string {
@@ -99,7 +107,16 @@ export function passageAroundSelection(selection: Selection | null, text: string
   const at = full.indexOf(needle);
   if (at < 0) return text;
 
-  return full.slice(Math.max(0, at - CONTEXT_CHARS), at + needle.length + CONTEXT_CHARS);
+  // Self-contained selection (paragraph / multiple sentences): send directly without padding
+  if (needle.length >= SELF_CONTAINED_SELECTION_THRESHOLD) {
+    return needle;
+  }
+
+  // Short selection: attach bounded local context
+  return full.slice(
+    Math.max(0, at - SHORT_SELECTION_CONTEXT_CHARS),
+    at + needle.length + SHORT_SELECTION_CONTEXT_CHARS
+  );
 }
 
 function runAction(
@@ -170,6 +187,15 @@ export function SelectionActionsSheet({
   }, [open, reset]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Speculatively warm up on-device Prompt model while user views the sheet
+  useEffect(() => {
+    if (open && ai.available && isOnDeviceAiSupportedPlatform()) {
+      void warmUpOnDevicePrompt().catch(() => {
+        // Non-blocking background warmup; silently ignore failure
+      });
+    }
+  }, [open, ai.available]);
 
   // When nothing can run, say whether the on-device model is merely missing.
   useEffect(() => {

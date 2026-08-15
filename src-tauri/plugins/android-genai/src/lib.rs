@@ -579,11 +579,15 @@ mod commands {
     pub async fn ondevice_ai_start_prompt_stream(
         state: State<'_, AndroidGenAi>,
         request: NativePromptRequest,
+        on_event: tauri::ipc::Channel<serde_json::Value>,
     ) -> Result<PromptStartReceipt, Error> {
         #[cfg(target_os = "android")]
         {
-            let payload = serde_json::to_value(request)
+            let mut payload = serde_json::to_value(&request)
                 .map_err(|e| Error::new(INFERENCE_FAILED, e.to_string()))?;
+            if let serde_json::Value::Object(ref mut map) = payload {
+                map.insert("onEvent".to_string(), serde_json::to_value(&on_event).unwrap_or(serde_json::Value::Null));
+            }
             state
                 .handle
                 .run_mobile_plugin::<PromptStartReceipt>("startPromptStream", payload)
@@ -591,7 +595,7 @@ mod commands {
         }
         #[cfg(not(target_os = "android"))]
         {
-            let _ = (state, request);
+            let _ = (state, request, on_event);
             Err(not_android())
         }
     }

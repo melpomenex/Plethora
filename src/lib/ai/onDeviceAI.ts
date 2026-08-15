@@ -405,7 +405,7 @@ export async function generateStreamingPrompt(
       } catch (err) {
         reject(toOnDeviceAiError(err));
       }
-    }, 12000);
+    }, 45000);
 
     const cleanup = () => {
       settled = true;
@@ -433,6 +433,34 @@ export async function generateStreamingPrompt(
 
     if (options.signal) {
       options.signal.addEventListener("abort", handleAbort, { once: true });
+    }
+
+    let channel: unknown;
+    try {
+      if (isTauri() && typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+        const { Channel } = await import("@tauri-apps/api/core");
+        channel = new Channel<any>((payload: any) => {
+          if (settled) return;
+          if (payload.event === "text" && typeof payload.text === "string") {
+            options.onChunk?.(payload.text);
+          } else if (payload.event === "complete" && payload.data) {
+            cleanup();
+            resolve(payload.data);
+          } else if (payload.event === "error") {
+            cleanup();
+            reject(
+              new OnDeviceAiError(
+                (payload.code as OnDeviceAiErrorCode) || "inference_failed",
+                payload.message || "Streaming inference failed"
+              )
+            );
+          } else if (payload.event === "retry") {
+            options.onRetry?.(payload.attempt, payload.delayMs);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("[generateStreamingPrompt] Failed to initialize channel, falling back to event listeners", e);
     }
 
     try {
@@ -485,7 +513,10 @@ export async function generateStreamingPrompt(
 
       await invokeCommand<NativePromptStartReceipt>(
         `${PLUGIN}|ondevice_ai_start_prompt_stream`,
-        { request: { ...request, outputMode: request.outputMode ?? "text", stream: true } }
+        {
+          request: { ...request, outputMode: request.outputMode ?? "text", stream: true },
+          onEvent: channel,
+        }
       );
     } catch (error) {
       cleanup();

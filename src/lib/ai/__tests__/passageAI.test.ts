@@ -147,7 +147,8 @@ describe("explainPassage", () => {
     expect(result.truncated).toBe(false);
     expect(generateStreamingPrompt).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringContaining("Explain this passage in simple"),
+        text: expect.stringContaining("Explain the core concepts"),
+        maxOutputTokens: 192,
       }),
       expect.anything()
     );
@@ -156,7 +157,19 @@ describe("explainPassage", () => {
   it("supports detailed and study-note presets", async () => {
     await explainPassage("Sample text", { preset: "study-note" });
     expect(generateStreamingPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringContaining("study note") }),
+      expect.objectContaining({
+        text: expect.stringContaining("study card"),
+        maxOutputTokens: 192,
+      }),
+      expect.anything()
+    );
+
+    await explainPassage("Sample text", { preset: "detailed" });
+    expect(generateStreamingPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("step-by-step detailed breakdown"),
+        maxOutputTokens: 256,
+      }),
       expect.anything()
     );
   });
@@ -177,10 +190,16 @@ describe("explainPassage", () => {
 });
 
 describe("summarizePassage", () => {
-  it("uses the native summarizer on-device", async () => {
+  it("uses the streaming prompt on-device for progressive streaming", async () => {
     const result = await summarizePassage("Some long passage.");
-    expect(summarize).toHaveBeenCalled();
-    expect(result.text).toBe("on-device summary");
+    expect(generateStreamingPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Summarize the key points"),
+        maxOutputTokens: 192,
+      }),
+      expect.anything()
+    );
+    expect(result.text).toBe("on-device output");
   });
 
   it("uses summarizeContent on the cloud path", async () => {

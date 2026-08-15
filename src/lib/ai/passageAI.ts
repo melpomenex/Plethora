@@ -10,7 +10,6 @@
 
 import {
   generateStreamingPrompt,
-  summarize,
   OnDeviceAiError,
   type OnDeviceRequirement,
 } from "./onDeviceAI";
@@ -34,7 +33,8 @@ export type ExplanationPreset = "simple" | "detailed" | "study-note";
 /** Headroom left for the prompt instructions wrapped around the passage. */
 const PROMPT_RESERVE_TOKENS = 200;
 
-const MAX_OUTPUT_TOKENS = 512;
+/** Default maximum output tokens for passage operations to keep on-device decode time under 3-5 seconds. */
+export const DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS = 192;
 
 export interface PassageActionOptions {
   signal?: AbortSignal;
@@ -42,6 +42,8 @@ export interface PassageActionOptions {
   onRetry?: (attempt: number, delayMs: number) => void;
   /** Token budget for the passage itself. Defaults to the chunker's default. */
   maxTokens?: number;
+  /** Maximum generated output tokens. Defaults to DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS. */
+  maxOutputTokens?: number;
 }
 
 export interface PassageExplainOptions extends PassageActionOptions {
@@ -99,11 +101,18 @@ function requestId(prefix: string): string {
 async function onDevicePrompt(
   prefix: string,
   promptText: string,
-  options: PassageActionOptions
+  options: PassageActionOptions,
+  systemInstruction?: string,
+  defaultMaxTokens = DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS
 ): Promise<Draft> {
   let text = "";
   const res = await generateStreamingPrompt(
-    { requestId: requestId(prefix), text: promptText, maxOutputTokens: MAX_OUTPUT_TOKENS },
+    {
+      requestId: requestId(prefix),
+      text: promptText,
+      systemInstruction,
+      maxOutputTokens: options.maxOutputTokens ?? defaultMaxTokens,
+    },
     {
       signal: options.signal,
       onChunk: (chunk) => {
@@ -136,7 +145,7 @@ async function runPassageAction(
 }
 
 /**
- * Answer a question grounded in a specific passage.
+ * Answer a question grounded in a specific passage in 1-2 direct sentences.
  */
 export async function answerPassage(
   question: string,
@@ -150,7 +159,7 @@ export async function answerPassage(
   const { passage: text, truncated } = fitPassage(passage, options.maxTokens);
 
   const promptText = [
-    "Answer the following question based ONLY on the provided passage.",
+    "Answer the following question based ONLY on the provided passage in 1-2 direct sentences.",
     "Be direct and concise. If the passage does not contain enough information to answer, state that clearly.",
     "",
     `Passage:\n${text}`,
@@ -181,9 +190,9 @@ function presetInstruction(preset: ExplanationPreset): string {
     return "Provide a structured, step-by-step detailed breakdown of key concepts in this passage.";
   }
   if (preset === "study-note") {
-    return "Summarize this passage as a bulleted study note highlighting core terms and facts.";
+    return "Summarize this passage as 3 concise bullet points for a study card highlighting core terms and facts.";
   }
-  return "Explain this passage in simple, clear terms in 2-3 short paragraphs for mobile reading.";
+  return "Explain the core concepts of this passage in 1-2 clear, direct sentences for a mobile study note.";
 }
 
 /**
@@ -198,10 +207,11 @@ export async function explainPassage(
   const promptText = [instruction, "No preamble or meta commentary.", "", `Passage:\n${text}`].join(
     "\n"
   );
+  const defaultMaxTokens = options.preset === "detailed" ? 256 : DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS;
 
   return runPassageAction(
     {
-      onDevice: () => onDevicePrompt("exp", promptText, options),
+      onDevice: () => onDevicePrompt("exp", promptText, options, undefined, defaultMaxTokens),
       cloud: async () => emitWhole(await answerQuestion(instruction, text), options),
     },
     "Explanation",
@@ -210,24 +220,29 @@ export async function explainPassage(
 }
 
 /**
- * Summarize a passage. Uses the native summarizer on-device.
+ * Summarize a passage using streaming Prompt API for fast incremental feedback.
  */
 export async function summarizePassage(
   passage: string,
   options: PassageSummarizeOptions = {}
 ): Promise<PassageResult> {
   const { passage: text, truncated } = fitPassage(passage, options.maxTokens);
-  const maxWords = options.maxWords ?? 120;
+  const maxWords = options.maxWords ?? 100;
+  const promptText = [
+    `Summarize the key points of this passage in concise bullet points or 1-2 clear sentences (under ${maxWords} words).`,
+    "No preamble, no conversational filler.",
+    "",
+    `Passage:\n${text}`,
+  ].join("\n");
 
   return runPassageAction(
     {
-      onDevice: async () =>
-        emitWhole(await summarize(text, { signal: options.signal, maxTokens: options.maxTokens }), options),
+      onDevice: () => onDevicePrompt("sum", promptText, options),
       cloud: async () => emitWhole(await summarizeContent(text, maxWords), options),
     },
     "Summary",
     truncated,
-    "summarization"
+    "prompt"
   );
 }
 
@@ -240,7 +255,7 @@ export async function simplifyPassage(
 ): Promise<PassageResult> {
   const { passage: text, truncated } = fitPassage(passage, options.maxTokens);
   const level = options.level ?? "highschool";
-  const instruction = `Rewrite this passage in plain language a ${level} reader can follow, keeping every fact intact.`;
+  const instruction = `Rewrite this passage in plain language a ${level} reader can follow in 1-2 simple sentences, keeping every fact intact.`;
   const promptText = [instruction, "No preamble or meta commentary.", "", `Passage:\n${text}`].join(
     "\n"
   );
@@ -265,7 +280,7 @@ export async function keyTermsPassage(
   const { passage: text, truncated } = fitPassage(passage, options.maxTokens);
   const count = Math.max(1, options.count ?? 5);
   const promptText = [
-    `List the ${count} most important terms or points in this passage, one per line, each as "term — short definition".`,
+    `List the ${count} most important terms or points in this passage, one per line, each as "term — concise definition".`,
     "No preamble or meta commentary.",
     "",
     `Passage:\n${text}`,
