@@ -32,7 +32,7 @@ import {
   captureAppWindowRegion,
   saveScreenshotToRegistry,
 } from "../../utils/screenshotCapture";
-import { isTauri } from "../../lib/tauri";
+import { isNativeMobile, isTauri } from "../../lib/tauri";
 import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
 
 interface CreateExtractDialogProps {
@@ -221,7 +221,7 @@ export function CreateExtractDialog({
     // Some sites allow an <img> to render but reject a second native download;
     // this gives those images a durable local fallback.
     let renderedFallback: string | null = null;
-    if (isTauri() && element) {
+    if (isTauri() && !isNativeMobile() && element) {
       const rect = element.getBoundingClientRect();
       try {
         renderedFallback = await captureAppWindowRegion({

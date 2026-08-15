@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { Check, CircleNotch, FrameCorners, Images } from "@phosphor-icons/react";
-import { ingestImageBlob, ingestRemoteImage } from "../../api/image-registry";
+import { ingestImageBlob, ingestImageFromPath, ingestRemoteImage } from "../../api/image-registry";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils";
@@ -98,10 +98,11 @@ export function ImageSaveOverlay() {
         },
         ingestBlob: ingestImageBlob,
         ingestRemote: ingestRemoteImage,
-        readLocalFile: async (path) => {
-          const fs = await import("@tauri-apps/plugin-fs");
-          return fs.readFile(path);
-        },
+        // Rust-side read+ingest. The old path (plugin-fs readFile → Blob →
+        // base64 back over IPC) was doubly broken on Android: the fs
+        // capability grants no read permission, and images inside documents
+        // are served from the loopback media server the webview cannot fetch.
+        ingestFromPath: ingestImageFromPath,
         captureRect: async (rect) => {
           // The overlay's own buttons sit on top of the image being captured.
           if (overlayRef.current) overlayRef.current.style.visibility = "hidden";

@@ -1607,9 +1607,16 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
           OpenAI: "openai", Anthropic: "anthropic", OpenRouter: "openrouter", Ollama: "ollama",
         };
         providerType = providerMap[aiConfig.default_provider] ?? "openrouter";
-        apiKey = providerType === "ollama"
+        // get_ai_config REDACTS keys to "*...last4" — a masked value is an
+        // unusable placeholder, not a real key. Treat it as absent so the
+        // llmProvidersStore fallback below supplies the actual key
+        // (otherwise OpenRouter gets "Bearer ****..." → 401).
+        const rawKey = providerType === "ollama"
           ? undefined
-          : (aiConfig.api_keys as Record<string, string | undefined>)[providerType] ?? undefined;
+          : (aiConfig.api_keys as Record<string, string | undefined>)[providerType];
+        apiKey = rawKey && !rawKey.includes("*") && !rawKey.includes("•")
+          ? rawKey
+          : undefined;
         model = String(aiConfig.models?.[`${providerType}_model` as keyof typeof aiConfig.models] ?? "");
         baseUrl = providerType === "ollama"
           ? (aiConfig.local_settings?.ollama_base_url || undefined) : undefined;

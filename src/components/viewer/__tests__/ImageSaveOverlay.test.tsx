@@ -6,6 +6,7 @@ import { ImageSaveOverlay } from "../ImageSaveOverlay";
 const mockApi = vi.hoisted(() => ({
   ingestImageBlob: vi.fn(),
   ingestRemoteImage: vi.fn(),
+  ingestImageFromPath: vi.fn(),
 }));
 const isTauriMock = vi.hoisted(() => vi.fn(() => false));
 const captureAppWindowRegionMock = vi.hoisted(() => vi.fn());
@@ -23,6 +24,8 @@ vi.mock("../../../lib/i18n", () => ({
 }));
 vi.mock("../../../lib/tauri", () => ({
   isTauri: isTauriMock,
+  // Desktop-style environment so pixel-capture remains a planned strategy.
+  isNativeMobile: () => false,
 }));
 vi.mock("../../../utils/screenshotCapture", () => ({
   captureAppWindowRegion: captureAppWindowRegionMock,
@@ -46,6 +49,7 @@ describe("ImageSaveOverlay", () => {
   beforeEach(() => {
     mockApi.ingestImageBlob.mockReset();
     mockApi.ingestRemoteImage.mockReset();
+    mockApi.ingestImageFromPath.mockReset();
     isTauriMock.mockReturnValue(false);
     captureAppWindowRegionMock.mockReset();
     mockToast.success.mockReset();

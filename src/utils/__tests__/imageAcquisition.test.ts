@@ -18,7 +18,7 @@ function makeDeps(overrides: Partial<ImageAcquisitionDeps> = {}): ImageAcquisiti
     fetchBlob: vi.fn(async () => new Blob(["x"], { type: "image/png" })),
     ingestBlob: vi.fn(async () => asset),
     ingestRemote: vi.fn(async () => asset),
-    readLocalFile: vi.fn(async () => new Uint8Array([1, 2, 3])),
+    ingestFromPath: vi.fn(async () => asset),
     captureRect: vi.fn(async () => new Blob(["y"], { type: "image/png" })),
     ...overrides,
   };
@@ -67,7 +67,7 @@ describe("acquiring an image", () => {
   it("recovers a document-local image via native ingestion when the webview fetch fails", async () => {
     // The reported occlusion bug: an image inside an imported article, served
     // over loopback. Rust can reach it even though the webview cannot.
-    const deps = makeDeps({ fetchBlob: loadFailed, readLocalFile: () => Promise.reject(new Error("ENOENT")) });
+    const deps = makeDeps({ fetchBlob: loadFailed, ingestFromPath: () => Promise.reject(new Error("ENOENT")) });
 
     const result = await acquireImageAsset({ src: "http://localhost:1420/article/img.png", rect }, deps);
 
@@ -78,7 +78,7 @@ describe("acquiring an image", () => {
   it("falls back to pixel capture for a document-local image nothing can download", async () => {
     const deps = makeDeps({
       fetchBlob: loadFailed,
-      readLocalFile: () => Promise.reject(new Error("ENOENT")),
+      ingestFromPath: () => Promise.reject(new Error("ENOENT")),
       ingestRemote: () => Promise.reject(new Error("HTTP 404 Not Found")),
     });
 
@@ -103,8 +103,39 @@ describe("acquiring an image", () => {
     const result = await acquireImageAsset({ src: "asset://localhost/tmp/pic.png", rect }, deps);
 
     expect(result).toBe(asset);
-    expect(deps.readLocalFile).toHaveBeenCalledWith("/tmp/pic.png");
+    expect(deps.ingestFromPath).toHaveBeenCalledWith("/tmp/pic.png", "pic.png", "image/png");
     expect(deps.captureRect).not.toHaveBeenCalled();
+  });
+
+  it("ingests a loopback media-server image from its URL-named file when the webview fetch is CORS-blocked", async () => {
+    // The Android report: "denied because of cross origin" while saving an
+    // image from a document (or creating an occlusion card from it). The
+    // image is served by the app's own 127.0.0.1 media server, which sends
+    // no CORS headers; the URL carries the backing path.
+    const deps = makeDeps({
+      fetchBlob: loadFailed,
+      ingestRemote: () => Promise.reject(new Error("Image URL is not allowed: private address")),
+    });
+    const src = `http://127.0.0.1:39591/stream?path=${encodeURIComponent("/data/user/0/com.incrementum.app/files/documents/img 1.png")}`;
+
+    const result = await acquireImageAsset({ src, rect }, deps);
+
+    expect(result).toBe(asset);
+    expect(deps.ingestFromPath).toHaveBeenCalledWith(
+      "/data/user/0/com.incrementum.app/files/documents/img 1.png",
+      "img 1.png",
+      "image/png",
+    );
+  });
+
+  it("ingests a loopback epub-server image URL from its backing file", async () => {
+    const deps = makeDeps({ fetchBlob: loadFailed });
+    const src = `http://127.0.0.1:39591/epub/book.epub?path=${encodeURIComponent("/tmp/book.epub")}`;
+
+    const result = await acquireImageAsset({ src, rect }, deps);
+
+    expect(result).toBe(asset);
+    expect(deps.ingestFromPath).toHaveBeenCalledWith("/tmp/book.epub", "book.epub", "application/epub+zip");
   });
 
   it("uses native ingestion for a remote URL without touching fetch", async () => {
@@ -139,7 +170,7 @@ describe("acquiring an image", () => {
     const deps = makeDeps({
       fetchBlob: loadFailed,
       ingestRemote: loadFailed,
-      readLocalFile: () => Promise.reject(new Error("ENOENT")),
+      ingestFromPath: () => Promise.reject(new Error("ENOENT")),
       captureRect: () => Promise.reject(new Error("capture unavailable")),
     });
 
@@ -181,6 +212,18 @@ describe("source classification", () => {
     expect(getFilePathFromUrl("asset://localhost/tmp/a.png")).toBe("/tmp/a.png");
     expect(getFilePathFromUrl("file:///tmp/a.png")).toBe("/tmp/a.png");
     expect(getFilePathFromUrl("https://asset.localhost/tmp/a.png")).toBe("/tmp/a.png");
+    expect(
+      getFilePathFromUrl(`http://127.0.0.1:39591/stream?path=${encodeURIComponent("/data/user/0/app/files/a.png")}`),
+    ).toBe("/data/user/0/app/files/a.png");
+    expect(
+      getFilePathFromUrl(`http://localhost:39591/epub?path=${encodeURIComponent("/tmp/b.epub")}`),
+    ).toBe("/tmp/b.epub");
+    expect(
+      getFilePathFromUrl(`http://127.0.0.1:39591/epub/book.epub?path=${encodeURIComponent("/tmp/b.epub")}`),
+    ).toBe("/tmp/b.epub");
+    // Loopback URLs without our stream routes or path params are not files.
+    expect(getFilePathFromUrl("http://127.0.0.1:39591/other")).toBeNull();
+    expect(getFilePathFromUrl("http://127.0.0.1:39591/stream")).toBeNull();
     expect(getFilePathFromUrl("https://example.com/a.png")).toBeNull();
   });
 });
