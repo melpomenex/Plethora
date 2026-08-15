@@ -136,7 +136,7 @@ tower-http = { version = "0.5", features = ["cors", "limit"] }
 
 # File processing
 lopdf = { version = "0.34", features = ["tokio"] }
-pdf-extract = "0.7"
+pdf-extract = "0.10"
 epub = "2"
 # Pure-Rust audio metadata: reads embedded cover art (MP4 covr / ID3 APIC /
 # FLAC METADATA_BLOCK_PICTURE / Vorbis Comments) without shelling out to ffmpeg,

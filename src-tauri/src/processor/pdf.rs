@@ -1018,6 +1018,61 @@ mod tests {
         assert!(true);
     }
 
+    fn fixture(name: &str) -> String {
+        format!(
+            "{}/tests/fixtures/pdf-baseline/{}",
+            env!("CARGO_MANIFEST_DIR"),
+            name
+        )
+    }
+
+    // Real-path regression for openspec change fix-pdf-extract-log-spam:
+    // extraction through extract_pdf_content must keep populating text and
+    // metadata (spec: word count and metadata still populate on open).
+    #[tokio::test]
+    async fn test_extract_pdf_content_populates_text_and_metadata() {
+        let content = extract_pdf_content(&fixture("simple-text.pdf"))
+            .await
+            .expect("fixture extraction succeeds");
+
+        assert!(
+            content.text.trim().len() > 50,
+            "expected real text, got: {:?}",
+            content.text
+        );
+        assert_eq!(content.page_count, Some(3));
+        let word_count = content
+            .metadata
+            .get("word_count")
+            .and_then(|v| v.as_u64())
+            .expect("word_count present");
+        assert!(word_count > 20, "word_count too small: {}", word_count);
+        assert!(
+            content
+                .metadata
+                .get("reading_time_minutes")
+                .and_then(|v| v.as_u64())
+                .expect("reading_time_minutes present")
+                >= 1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_extract_pdf_content_decodes_ligature_words() {
+        let content = extract_pdf_content(&fixture("ligature-heavy.pdf"))
+            .await
+            .expect("fixture extraction succeeds");
+
+        for word in ["office", "fluff", "affluent", "officials"] {
+            assert!(
+                content.text.to_lowercase().contains(word),
+                "ligature word {:?} missing from: {:?}",
+                word,
+                content.text
+            );
+        }
+    }
+
     #[test]
     fn test_html_escape() {
         assert_eq!(html_escape("<script>"), "&lt;script&gt;");
