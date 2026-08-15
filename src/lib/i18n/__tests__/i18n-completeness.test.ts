@@ -46,6 +46,7 @@ describe("i18n locale completeness", () => {
       "settings.help",
       "bulkAction.deleteSelected",
       "toolbar.audiobooks",
+      "aiTutor.title",
     ];
     for (const loc of Object.keys(locales)) {
       for (const key of samples) {

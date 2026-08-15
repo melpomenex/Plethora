@@ -1355,6 +1355,22 @@ pub fn run() {
             commands::consume_neural_queue_element,
             commands::refill_neural_queue_if_depleted,
             commands::get_neural_queue_remaining,
+            // Knowledge relationships (Phase 5): concepts + typed links
+            // (D21) and the passage extract-worthiness cache (D23). Kept
+            // with the knowledge-infrastructure registrations.
+            commands::upsert_concept,
+            commands::get_concept,
+            commands::find_concepts_by_names,
+            commands::propose_concept_link,
+            commands::accept_concept_link,
+            commands::dismiss_concept_link,
+            commands::delete_concept_link,
+            commands::list_concept_links_for,
+            commands::list_concept_links_targeting,
+            commands::get_concept_backlinks,
+            commands::concept_link_fingerprint_dismissed,
+            commands::get_passage_score,
+            commands::put_passage_score,
             commands::get_items_by_tag,
             commands::get_learning_item_versions,
             commands::revert_learning_item_version,

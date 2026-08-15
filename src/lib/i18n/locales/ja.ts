@@ -5779,6 +5779,26 @@ export const ja: Dict = {
   "aiLearning.ct.example": "応用",
   "aiLearning.ct.occlusion-ref": "画像オクルージョン",
 
+  // ソクラテス式チュータリング（AI 学習システム フェーズ 6）
+  "aiTutor.title": "ソクラテス式チューター",
+  "aiTutor.opening": "チュータリングを開始しています",
+  "aiTutor.thinking": "考えています",
+  "aiTutor.answerPlaceholder": "答えを入力…",
+  "aiTutor.send": "送信",
+  "aiTutor.justExplain": "直接解説して",
+  "aiTutor.justExplainMessage": "直接解説してください。",
+  "aiTutor.move.question": "質問",
+  "aiTutor.move.hint": "ヒント",
+  "aiTutor.move.explain": "解説",
+  "aiTutor.move.wrap-up": "まとめ",
+  "aiTutor.hintLevel": "ヒントレベル {level}/3",
+  "aiTutor.stuck": "詰まっているようです——ヘルプを強化中",
+  "aiTutor.turns": "{count}/{max} ターン",
+  "aiTutor.sessionEnded": "セッション終了",
+  "aiTutor.createCard": "この概念からカードを作成",
+  "aiTutor.error": "うまくいきませんでした：{message}",
+  "aiTutor.close": "閉じる",
+
   "occlusionComposer.resizePanel": "パネルのサイズ変更",
 
   "occlusionComposer.noRegionsYet": "領域はまだありません。画像にボックスを描くか、AI 提案を使用してください。",

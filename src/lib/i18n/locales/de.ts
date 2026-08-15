@@ -5864,6 +5864,26 @@ export const de: Dict = {
   "aiLearning.ct.example": "Anwenden",
   "aiLearning.ct.occlusion-ref": "Bild-Ausblendung",
 
+  // Sokratisches Tutoring (KI-Lernsystem, Phase 6)
+  "aiTutor.title": "Sokratischer Tutor",
+  "aiTutor.opening": "Tutoring-Sitzung wird gestartet",
+  "aiTutor.thinking": "Denkt nach",
+  "aiTutor.answerPlaceholder": "Antwort eingeben…",
+  "aiTutor.send": "Senden",
+  "aiTutor.justExplain": "Erkläre es einfach",
+  "aiTutor.justExplainMessage": "Bitte erkläre es mir einfach direkt.",
+  "aiTutor.move.question": "Frage",
+  "aiTutor.move.hint": "Hinweis",
+  "aiTutor.move.explain": "Erklärung",
+  "aiTutor.move.wrap-up": "Zusammenfassung",
+  "aiTutor.hintLevel": "Hinweisstufe {level} von 3",
+  "aiTutor.stuck": "Wirklich festgefahren – Hilfe wird erhöht",
+  "aiTutor.turns": "{count}/{max} Züge",
+  "aiTutor.sessionEnded": "Sitzung abgeschlossen",
+  "aiTutor.createCard": "Karte aus diesem Begriff erstellen",
+  "aiTutor.error": "Das hat nicht geklappt: {message}",
+  "aiTutor.close": "Schließen",
+
   "occlusionComposer.resizePanel": "Panelgröße ändern",
 
   "occlusionComposer.noRegionsYet": "Noch keine Regionen – zeichne Felder auf das Bild oder nutze KI-Vorschläge.",

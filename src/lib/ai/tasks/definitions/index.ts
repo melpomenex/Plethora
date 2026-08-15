@@ -9,3 +9,4 @@ export * from "./occlusionSources";
 export * from "./libraryTask";
 export * from "./recallTask";
 export * from "./assessmentTask";
+export * from "./tutorTask";

@@ -5875,6 +5875,26 @@ export const fr: Dict = {
   "aiLearning.ct.example": "Appliquer",
   "aiLearning.ct.occlusion-ref": "Occlusion d'image",
 
+  // Tutorat socratique (système d'apprentissage IA, phase 6)
+  "aiTutor.title": "Tuteur socratique",
+  "aiTutor.opening": "Démarrage de votre session de tutorat",
+  "aiTutor.thinking": "Réflexion",
+  "aiTutor.answerPlaceholder": "Saisissez votre réponse…",
+  "aiTutor.send": "Envoyer",
+  "aiTutor.justExplain": "Explique-moi directement",
+  "aiTutor.justExplainMessage": "Explique-moi ça directement, s'il te plaît.",
+  "aiTutor.move.question": "Question",
+  "aiTutor.move.hint": "Indice",
+  "aiTutor.move.explain": "Explication",
+  "aiTutor.move.wrap-up": "Bilan",
+  "aiTutor.hintLevel": "Niveau d'indice {level} sur 3",
+  "aiTutor.stuck": "Visiblement bloqué — aide renforcée",
+  "aiTutor.turns": "{count}/{max} tours",
+  "aiTutor.sessionEnded": "Session terminée",
+  "aiTutor.createCard": "Créer une carte à partir de cette notion",
+  "aiTutor.error": "Cela n'a pas fonctionné : {message}",
+  "aiTutor.close": "Fermer",
+
   "occlusionComposer.resizePanel": "Redimensionner le panneau",
 
   "occlusionComposer.noRegionsYet": "Aucune région pour l'instant — dessinez des zones sur l'image ou utilisez les suggestions IA.",

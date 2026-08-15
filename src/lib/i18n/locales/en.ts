@@ -6114,6 +6114,26 @@ export const en: Dict = {
   "aiLearning.ct.example": "Apply",
   "aiLearning.ct.occlusion-ref": "Image occlusion",
 
+  // Socratic tutoring (AI Learning System Phase 6)
+  "aiTutor.title": "Socratic tutor",
+  "aiTutor.opening": "Starting your tutoring session",
+  "aiTutor.thinking": "Thinking",
+  "aiTutor.answerPlaceholder": "Type your answer…",
+  "aiTutor.send": "Send",
+  "aiTutor.justExplain": "Just explain it",
+  "aiTutor.justExplainMessage": "Please just explain it to me directly.",
+  "aiTutor.move.question": "Question",
+  "aiTutor.move.hint": "Hint",
+  "aiTutor.move.explain": "Explanation",
+  "aiTutor.move.wrap-up": "Wrap-up",
+  "aiTutor.hintLevel": "Hint level {level} of 3",
+  "aiTutor.stuck": "Looks stuck — escalating help",
+  "aiTutor.turns": "{count}/{max} turns",
+  "aiTutor.sessionEnded": "Session complete",
+  "aiTutor.createCard": "Create card from this concept",
+  "aiTutor.error": "That did not work: {message}",
+  "aiTutor.close": "Close",
+
   // Mobile selection actions sheet
   "selectionSheet.createExtract": "Create extract",
   "selectionSheet.copy": "Copy",

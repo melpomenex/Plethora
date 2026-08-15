@@ -17,6 +17,7 @@ import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
 import { NumericInput } from "../common";
 import { AlgorithmArenaModeControl } from "../review/AlgorithmArenaModeControl";
 import { tourAnchor } from "../onboarding/tour/anchors";
+import { Sparkle } from "@phosphor-icons/react";
 
 export function LearningSettings() {
   const { t } = useI18n();
@@ -48,6 +49,19 @@ export function LearningSettings() {
 
   return (
     <div className="space-y-6">
+      {/* On-Device AI Learning System Banner */}
+      <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 flex items-start gap-3">
+        <Sparkle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+        <div className="text-xs space-y-1">
+          <p className="font-semibold text-foreground">
+            On-Device AI Learning System Active
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            Card extraction ("Learn this"), Socratic tutoring, Ask Library RAG, active recall reading prompts, and automated occlusion assist are configured under the <strong>AI & Learning</strong> tab.
+          </p>
+        </div>
+      </div>
+
       {/* Algorithm Selection */}
       <div>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.algorithm")}</h3>

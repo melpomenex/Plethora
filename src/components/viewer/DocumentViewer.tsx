@@ -1064,7 +1064,7 @@ export function DocumentViewer({
   // `window.getSelection()` feeding `mobileSelection` is always empty.
   const mobileSheetText = mobileSelection.text || activeExtractSelection;
   const mobileMenuSheetOpen =
-    isMobileTouch && viewMode === "document" && docType === "pdf" && Boolean(mobileSheetText);
+    isMobileTouch && viewMode === "document" && Boolean(mobileSheetText);
   const mobileSheetOpen = mobileMenuSheetOpen || Boolean(aiSheetRequest);
   useEffect(() => {
     mobileSheetOpenRef.current = mobileSheetOpen;

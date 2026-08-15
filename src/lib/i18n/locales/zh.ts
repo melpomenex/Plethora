@@ -5650,6 +5650,26 @@ export const zh: Dict = {
   "aiLearning.ct.example": "应用",
   "aiLearning.ct.occlusion-ref": "图像遮挡",
 
+  // 苏格拉底式辅导（AI 学习系统 第 6 阶段）
+  "aiTutor.title": "苏格拉底式辅导",
+  "aiTutor.opening": "正在开始辅导",
+  "aiTutor.thinking": "思考中",
+  "aiTutor.answerPlaceholder": "输入你的回答…",
+  "aiTutor.send": "发送",
+  "aiTutor.justExplain": "直接讲解",
+  "aiTutor.justExplainMessage": "请直接给我讲解吧。",
+  "aiTutor.move.question": "提问",
+  "aiTutor.move.hint": "提示",
+  "aiTutor.move.explain": "讲解",
+  "aiTutor.move.wrap-up": "总结",
+  "aiTutor.hintLevel": "提示强度 {level}/3",
+  "aiTutor.stuck": "似乎卡住了——正在加强帮助",
+  "aiTutor.turns": "{count}/{max} 轮",
+  "aiTutor.sessionEnded": "辅导结束",
+  "aiTutor.createCard": "把这个概念做成卡片",
+  "aiTutor.error": "出错了：{message}",
+  "aiTutor.close": "关闭",
+
   "occlusionComposer.resizePanel": "调整面板大小",
 
   "occlusionComposer.noRegionsYet": "暂无区域——在图片上绘制选框或使用 AI 建议。",
