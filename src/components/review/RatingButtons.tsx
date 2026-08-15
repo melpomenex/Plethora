@@ -15,9 +15,19 @@ interface RatingButtonsProps {
   disabled?: boolean;
   previewIntervals?: PreviewIntervals | null;
   /** Render the algorithm's native 0-5 grade scale (SM-20) instead of the
-   * 4-button Anki-style scale. */
+   *  4-button Anki-style scale. */
   gradeScale?: boolean;
+  /**
+   * EXPERIMENTAL (`aiAutoGradeSuggest`, default off): advisory highlight of
+   * the assessment-suggested rating. Visual emphasis ONLY — the suggestion
+   * is never clicked or submitted on the user's behalf (spec:
+   * "Auto-grade suggestion is advisory").
+   */
+  suggestedRating?: ReviewRating;
 }
+
+/** Equivalent native grade for an advisory 4-button rating suggestion. */
+const SUGGESTED_GRADE_BY_RATING: Record<number, number> = { 1: 1, 2: 3, 3: 4, 4: 5 };
 
 /** SM-20 native grades: 0-2 are fail variants, 3-5 are pass variants. Each
  * carries the equivalent 4-button rating used for stats/history. */
@@ -94,8 +104,11 @@ export function RatingButtons({
   disabled = false,
   previewIntervals,
   gradeScale = false,
+  suggestedRating,
 }: RatingButtonsProps) {
   const { t } = useI18n();
+  const suggestedGrade =
+    suggestedRating != null ? SUGGESTED_GRADE_BY_RATING[suggestedRating] : undefined;
 
   if (gradeScale) {
     return (
@@ -108,16 +121,24 @@ export function RatingButtons({
             const interval = previewIntervals?.grade_intervals?.[entry.grade] != null
               ? formatInterval(previewIntervals.grade_intervals[entry.grade])
               : null;
+            const isSuggested = suggestedGrade === entry.grade;
 
             return (
               <button
                 key={entry.grade}
                 data-review-rating={entry.grade}
+                data-suggested={isSuggested ? "true" : undefined}
                 onClick={() => onSelectRating(entry.rating, entry.grade)}
                 disabled={disabled}
                 aria-keyshortcuts={String(entry.grade)}
-                className={`${entry.color} ${BUTTON_CLASS}`}
-                title={t("ratingButtons.rateAsTitle", { label: `${entry.grade} — ${label}`, description })}
+                title={
+                  isSuggested
+                    ? `${t("ratingButtons.rateAsTitle", { label: `${entry.grade} — ${label}`, description })} — ${t("aiRecall.suggestedGrade")}`
+                    : t("ratingButtons.rateAsTitle", { label: `${entry.grade} — ${label}`, description })
+                }
+                className={`${entry.color} ${BUTTON_CLASS} ${
+                  isSuggested ? "ring-4 ring-white/70" : ""
+                }`}
                 aria-label={
                   interval
                     ? t("ratingButtons.rateAsWithInterval", {
@@ -222,11 +243,18 @@ export function RatingButtons({
             <button
               key={rating.value}
               data-review-rating={rating.value}
+              data-suggested={suggestedRating === rating.value ? "true" : undefined}
               onClick={() => onSelectRating(rating.value)}
               disabled={disabled}
               aria-keyshortcuts={String(rating.value)}
-              className={`${rating.color} ${BUTTON_CLASS} md:px-4`}
-              title={t("ratingButtons.rateAsTitle", { label: rating.label, description: rating.description })}
+              className={`${rating.color} ${BUTTON_CLASS} md:px-4 ${
+                suggestedRating === rating.value ? "ring-4 ring-white/70" : ""
+              }`}
+              title={
+                suggestedRating === rating.value
+                  ? `${t("ratingButtons.rateAsTitle", { label: rating.label, description: rating.description })} — ${t("aiRecall.suggestedGrade")}`
+                  : t("ratingButtons.rateAsTitle", { label: rating.label, description: rating.description })
+              }
               aria-label={
                 interval
                   ? t("ratingButtons.rateAsWithInterval", {

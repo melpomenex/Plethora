@@ -1,5 +1,6 @@
 /**
- * Shared helper to resolve an `EmbeddingConfig` for whole-library RAG chat.
+ * Shared helper to resolve an `EmbeddingConfig` for library AI surfaces
+ * (semantic indexing / retrieval / neural queue).
  *
  * Reads the user's persisted embedding settings (provider/model/chunk-size)
  * and resolves the API key from the **LLM providers store** — the same store
@@ -11,7 +12,7 @@
  * Local Ollama needs no key — only a base URL.
  */
 
-import { buildEmbeddingConfig, type EmbeddingConfig } from "../../api/rag";
+import { buildEmbeddingConfig, type EmbeddingConfig } from "../../api/ai-learning";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
 

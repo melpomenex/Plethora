@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-ondevice-ai-embed-download"
+description = "Enables the ondevice_ai_embed_download command without any pre-configured scope."
+commands.allow = ["ondevice_ai_embed_download"]
+
+[[permission]]
+identifier = "deny-ondevice-ai-embed-download"
+description = "Denies the ondevice_ai_embed_download command without any pre-configured scope."
+commands.deny = ["ondevice_ai_embed_download"]

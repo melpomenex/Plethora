@@ -4,12 +4,20 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
+use crate::ai::stream_registry::{StreamRequestRegistry, DEFAULT_MAX_STREAM_REQUESTS};
+
 const DEFAULT_MAX_TOKENS: usize = 2000;
 
 // Event names for streaming
 const LLM_STREAM_CHUNK: &str = "llm:stream:chunk";
 const LLM_STREAM_DONE: &str = "llm:stream:done";
 const LLM_STREAM_ERROR: &str = "llm:stream:error";
+
+/// Registry of in-flight `llm_stream_chat` requests so `llm_cancel_stream`
+/// can abort them (design D7 cancellation). Entries are removed on every
+/// terminal path; bounded to guard against leaks from panicked stream tasks.
+static STREAM_REQUESTS: StreamRequestRegistry =
+    StreamRequestRegistry::new(DEFAULT_MAX_STREAM_REQUESTS);
 
 #[inline]
 fn emit_stream_event(app: &AppHandle, event: &str, payload: impl Serialize + Clone) {
@@ -448,6 +456,7 @@ pub async fn llm_stream_chat(
     max_tokens: usize,
     api_key: Option<String>,
     base_url: Option<String>,
+    request_id: Option<String>,
 ) -> Result<(), String> {
     let client = Client::new();
     let model = normalize_model(model, &provider);
@@ -484,71 +493,124 @@ pub async fn llm_stream_chat(
         return Err("API key is required".to_string());
     }
 
-    match provider.as_str() {
-        "openai" | "gemini" | "deepseek" => {
-            stream_openai(
-                &app,
-                &client,
-                &model,
-                messages,
-                temperature,
-                max_tokens,
-                api_key.as_deref(),
-                &base_url,
-            )
-            .await?
-        }
-        "anthropic" => {
-            stream_anthropic(
-                &app,
-                &client,
-                &model,
-                messages,
-                temperature,
-                max_tokens,
-                &api_key.expect("anthropic API key required"),
-                &base_url,
-            )
-            .await?
-        }
-        "ollama" => {
-            stream_ollama(
-                &app,
-                &client,
-                &model,
-                messages,
-                temperature,
-                max_tokens,
-                &base_url,
-            )
-            .await?
-        }
-        "openrouter" => {
-            stream_openai(
-                &app,
-                &client,
-                &model,
-                messages,
-                temperature,
-                max_tokens,
-                Some(api_key.as_deref().expect("openrouter API key required")),
-                &base_url,
-            )
-            .await?
-        }
-        _ => {
-            emit_stream_event(
-                &app,
-                LLM_STREAM_ERROR,
-                serde_json::json!({
-                    "error": format!("Unknown provider: {}", provider)
-                }),
-            );
-            return Err(format!("Unknown provider: {}", provider));
+    // Cancellation support (design D7): register the stream so
+    // `llm_cancel_stream` can abort it. Blank ids stream without
+    // cancellation, matching callers that never pass a request id.
+    let request_id = request_id.filter(|id| !id.trim().is_empty());
+    let cancel_token = request_id.as_deref().and_then(|id| STREAM_REQUESTS.register(id));
+
+    let stream_fut = async {
+        match provider.as_str() {
+            "openai" | "gemini" | "deepseek" => {
+                stream_openai(
+                    &app,
+                    &client,
+                    &model,
+                    messages,
+                    temperature,
+                    max_tokens,
+                    api_key.as_deref(),
+                    &base_url,
+                )
+                .await
+            }
+            "anthropic" => {
+                stream_anthropic(
+                    &app,
+                    &client,
+                    &model,
+                    messages,
+                    temperature,
+                    max_tokens,
+                    &api_key.expect("anthropic API key required"),
+                    &base_url,
+                )
+                .await
+            }
+            "ollama" => {
+                stream_ollama(
+                    &app,
+                    &client,
+                    &model,
+                    messages,
+                    temperature,
+                    max_tokens,
+                    &base_url,
+                )
+                .await
+            }
+            "openrouter" => {
+                stream_openai(
+                    &app,
+                    &client,
+                    &model,
+                    messages,
+                    temperature,
+                    max_tokens,
+                    Some(api_key.as_deref().expect("openrouter API key required")),
+                    &base_url,
+                )
+                .await
+            }
+            _ => {
+                emit_stream_event(
+                    &app,
+                    LLM_STREAM_ERROR,
+                    serde_json::json!({
+                        "error": format!("Unknown provider: {}", provider)
+                    }),
+                );
+                Err(format!("Unknown provider: {}", provider))
+            }
         }
     };
 
-    Ok(())
+    // Cancellation owns a terminal event: if the cancel signal wins, the
+    // stream future is dropped here (aborting the in-flight reqwest call, so
+    // no further chunks are emitted) and we emit the single terminal
+    // `llm:stream:error` with code "cancelled". `biased` with the stream
+    // polled first keeps the guarantee one-sided: a stream that already
+    // finished keeps its terminal event and a racing cancel becomes a no-op,
+    // so at most one terminal event is ever emitted per request.
+    let result = match (cancel_token, request_id.as_deref()) {
+        (Some(mut token), Some(id)) => tokio::select! {
+            biased;
+            result = stream_fut => result,
+            () = token.cancelled() => {
+                emit_stream_event(
+                    &app,
+                    LLM_STREAM_ERROR,
+                    serde_json::json!({
+                        "error": "Stream cancelled",
+                        "code": "cancelled",
+                        "requestId": id,
+                    }),
+                );
+                Ok(())
+            }
+        },
+        (_, _) => stream_fut.await,
+    };
+
+    // Terminal cleanup: no-op when cancel already removed the entry, which
+    // prevents a second terminal claim for this request id.
+    if let Some(id) = request_id.as_deref() {
+        STREAM_REQUESTS.complete(id);
+    }
+
+    result
+}
+
+/// Cancel an in-flight [`llm_stream_chat`] request (design D7).
+///
+/// When a live request is cancelled, its reqwest stream is aborted and the
+/// stream task emits a single terminal `llm:stream:error` event with
+/// `code: "cancelled"` (mirroring the on-device cancel semantics). Returns
+/// `true` when a live request was cancelled; `false` means the id is unknown
+/// or the stream already finished — a no-op with no event emitted.
+#[tauri::command]
+pub async fn llm_cancel_stream(request_id: String) -> Result<bool, String> {
+    Ok(STREAM_REQUESTS.cancel(&request_id))
 }
 
 #[allow(clippy::too_many_arguments)]

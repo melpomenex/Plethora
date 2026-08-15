@@ -9,12 +9,17 @@ const passage = vi.hoisted(() => ({
   keyTermsPassage: vi.fn(),
   answerPassage: vi.fn(),
 }));
+const featureFlags = vi.hoisted(() => ({ aiLearnThis: false, aiLibraryRag: false }));
 
 const warmUpOnDevicePrompt = vi.fn(async () => {});
 const isOnDeviceAiSupportedPlatform = vi.fn(() => false);
 
 vi.mock("../../../lib/i18n", () => ({
   useI18n: () => ({ t: (key: string) => key }),
+}));
+vi.mock("../../../stores/settingsStore", () => ({
+  useSettingsStore: (selector: (state: { settings: { features: typeof featureFlags } }) => unknown) =>
+    selector({ settings: { features: featureFlags } }),
 }));
 vi.mock("../../../lib/ai/useAiAvailability", () => ({
   useAiAvailability: () => availability,
@@ -28,8 +33,30 @@ vi.mock("../../../lib/ai/onDeviceAI", () => ({
   toOnDeviceAiError: (e: unknown) => e as Error,
   warmUpOnDevicePrompt: () => warmUpOnDevicePrompt(),
 }));
+const askLibrary = vi.hoisted(() => ({
+  ask: vi.fn(async () => {}),
+  reset: vi.fn(),
+  running: false,
+  error: null as string | null,
+  result: null as unknown,
+}));
+vi.mock("../../../lib/ai/useAskLibrary", () => ({
+  useAskLibrary: () => askLibrary,
+}));
+vi.mock("../../../utils/openLibrarySource", () => ({
+  openLibrarySource: vi.fn(async () => {}),
+}));
 vi.mock("../SelectionPopup", () => ({
   copySelectionTextToClipboard: vi.fn(async () => true),
+}));
+vi.mock("../../learn/LearnThisProposalSheet", () => ({
+  LearnThisProposalSheet: (props: { passage: string; documentId?: string }) => (
+    <div
+      data-testid="learn-this-stub"
+      data-passage={props.passage}
+      data-document-id={props.documentId ?? ""}
+    />
+  ),
 }));
 
 import { SelectionActionsSheet, passageAroundSelection } from "../SelectionActionsSheet";
@@ -92,6 +119,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   availability.available = true;
   availability.path = "cloud";
+  featureFlags.aiLearnThis = false;
+  featureFlags.aiLibraryRag = false;
+  askLibrary.result = null;
+  askLibrary.error = null;
+  askLibrary.running = false;
   passage.explainPassage.mockResolvedValue({ text: "An explanation.", truncated: false });
 });
 
@@ -188,5 +220,96 @@ describe("SelectionActionsSheet", () => {
     isOnDeviceAiSupportedPlatform.mockReturnValue(true);
     renderSheet();
     expect(warmUpOnDevicePrompt).toHaveBeenCalled();
+  });
+
+  it("hides 'Learn this' when the feature flag is off", () => {
+    featureFlags.aiLearnThis = false;
+  featureFlags.aiLibraryRag = false;
+  askLibrary.result = null;
+  askLibrary.error = null;
+  askLibrary.running = false;
+    renderSheet();
+    expect(screen.queryByText("aiLearning.learnThis")).toBeNull();
+  });
+
+  it("hides 'Learn this' without the generative capability even when flagged on", () => {
+    featureFlags.aiLearnThis = true;
+    availability.available = false;
+    availability.path = "none";
+    renderSheet();
+    expect(screen.queryByText("aiLearning.learnThis")).toBeNull();
+  });
+
+  it("opens the proposal sheet from the 'Learn this' row with document context", () => {
+    featureFlags.aiLearnThis = true;
+    renderSheet({
+      passage: "The heart pumps blood through the body.",
+      learnThis: { documentId: "doc-1", documentTitle: "Biology" },
+    });
+    fireEvent.click(screen.getByText("aiLearning.learnThis"));
+    const stub = screen.getByTestId("learn-this-stub") as HTMLElement;
+    expect(stub.dataset.passage).toBe("The heart pumps blood through the body.");
+    expect(stub.dataset.documentId).toBe("doc-1");
+  });
+
+  it("hides 'Ask library' when the feature flag is off", () => {
+    featureFlags.aiLibraryRag = false;
+    renderSheet();
+    expect(screen.queryByText("aiLibrary.askLibrary")).toBeNull();
+  });
+
+  it("hides 'Ask library' without the generative capability even when flagged on", () => {
+    featureFlags.aiLibraryRag = true;
+    availability.available = false;
+    availability.path = "none";
+    renderSheet();
+    expect(screen.queryByText("aiLibrary.askLibrary")).toBeNull();
+  });
+
+  it("asks the library with the selection as untrusted context", async () => {
+    featureFlags.aiLibraryRag = true;
+    renderSheet({ passage: "The heart pumps blood through the body." });
+    fireEvent.click(screen.getByText("aiLibrary.askLibrary"));
+    fireEvent.change(screen.getByPlaceholderText("aiLibrary.selectionPlaceholder"), {
+      target: { value: "Where else is the heart discussed?" },
+    });
+    fireEvent.click(screen.getByText("aiLibrary.ask"));
+    await waitFor(() =>
+      expect(askLibrary.ask).toHaveBeenCalledWith("Where else is the heart discussed?", {
+        contextPassage: "The heart pumps blood through the body.",
+      })
+    );
+  });
+
+  it("renders the library answer with an evidence badge and source chips", async () => {
+    featureFlags.aiLibraryRag = true;
+    askLibrary.result = {
+      answer: {
+        answer: "In your biology notes [1].",
+        sourceRefs: [{ refId: "c1", quote: "pumps blood" }],
+        evidenceLevel: "supported",
+      },
+      sources: [
+        {
+          chunkId: "c1",
+          documentId: "doc-1",
+          documentTitle: "Biology",
+          sourceType: "document",
+          text: "The heart pumps blood.",
+          headingPath: [],
+          location: { sourceType: "text", documentId: "doc-1", ordinal: 0, startOffset: 0, endOffset: 20 },
+          score: 0.9,
+        },
+      ],
+      droppedChunks: 0,
+      mode: "semantic",
+      candidatesScanned: 5,
+      run: {},
+    };
+    renderSheet();
+    fireEvent.click(screen.getByText("aiLibrary.askLibrary"));
+    expect(screen.getByText("aiLibrary.evidence_supported")).toBeTruthy();
+    expect(screen.getByText("Biology")).toBeTruthy();
+    expect(screen.getByText("aiLibrary.cloud")).toBeTruthy();
   });
 });

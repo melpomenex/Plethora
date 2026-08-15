@@ -14,6 +14,7 @@ pub mod prompts;
 pub mod provider_wrapper;
 pub mod providers;
 pub mod qa;
+pub mod stream_registry;
 pub mod summarizer;
 
 // Re-exports - use the new enum-based provider

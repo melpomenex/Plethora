@@ -112,6 +112,47 @@ export interface OCRResponse {
   format?: string;
   success: boolean;
   error?: string;
+  /**
+   * Detected text lines with percent boxes when the provider exposes them
+   * (design D18). Absent for providers without box support.
+   */
+  lines?: OcrResponseLine[];
+}
+
+/**
+ * One OCR text line; `bbox_percent` is `[x, y, width, height]` in percent
+ * 0–100 of the source image.
+ */
+export interface OcrResponseLine {
+  text: string;
+  confidence: number;
+  bbox_percent?: [number, number, number, number];
+}
+
+/**
+ * A unified OCR label for the AI image-occlusion flow: the same shape comes
+ * from the Android ML Kit plugin and from the desktop Rust providers.
+ */
+export interface OcclusionOcrLabel {
+  id: string;
+  text: string;
+  confidence?: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Result of the unified OCR-labels call. */
+export interface OcclusionOcrLabelsResult {
+  labels: OcclusionOcrLabel[];
+  /** Source dimensions in pixels when known (always known on Android). */
+  sourceWidth?: number;
+  sourceHeight?: number;
+  truncated?: boolean;
+  /** Which backend produced the labels. */
+  backend: "android-mlkit" | "rust-ocr";
+  provider?: string;
 }
 
 /**
@@ -190,6 +231,83 @@ export async function ocrImageFile(request: OCRImageRequest): Promise<OCRRespons
  */
 export async function ocrImageBytes(request: OCRBytesRequest): Promise<OCRResponse> {
   return invokeCommand("ocr_image_bytes", { request });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Unified OCR labels for the AI image-occlusion flow (design D18 / task 3.2)
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Deterministic label id for a desktop OCR line (ordinal + text hash). */
+function stableOcrLineId(ordinal: number, text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `ocr-${ordinal}-${hash.toString(16)}`;
+}
+
+/**
+ * OCR one base64 image into percent-boxed labels for occlusion assistance.
+ *
+ * Android: the bundled ML Kit Text Recognition plugin command (offline,
+ * per-line boxes, source dims).
+ * Everywhere else: the configured Rust OCR providers via `ocr_image_bytes`
+ * (whose response carries `lines[].bbox_percent` when the provider supplies
+ * boxes). Throws when neither backend yields labels — the caller surfaces an
+ * OCRFailed state and manual authoring stays fully usable.
+ */
+export async function ocrImageLabelsForOcclusion(
+  base64Image: string,
+  options?: { maxResults?: number; provider?: string }
+): Promise<OcclusionOcrLabelsResult> {
+  // Prefer the on-device plugin; fall back on any typed "not here" failure.
+  try {
+    const { getOnDeviceOcrLabels } = await import("../lib/ai/onDeviceAI");
+    const result = await getOnDeviceOcrLabels(base64Image, options?.maxResults);
+    return {
+      labels: result.labels.map((label) => ({
+        id: label.id,
+        text: label.text,
+        confidence: label.confidence,
+        x: label.x,
+        y: label.y,
+        width: label.width,
+        height: label.height,
+      })),
+      sourceWidth: result.sourceWidth,
+      sourceHeight: result.sourceHeight,
+      truncated: result.truncated,
+      backend: "android-mlkit",
+    };
+  } catch {
+    // platform_unsupported / not this device — fall through to Rust OCR.
+  }
+
+  const response = await ocrImageBytes({
+    image_data: base64Image,
+    provider: options?.provider,
+  });
+  if (!response.success) {
+    throw new Error(response.error || "OCR failed");
+  }
+  const usable = (response.lines ?? []).filter((line) => line.bbox_percent);
+  return {
+    labels: usable.map((line, index) => {
+      const [x, y, width, height] = line.bbox_percent!;
+      return {
+        id: stableOcrLineId(index, line.text),
+        text: line.text,
+        confidence: line.confidence > 0 ? line.confidence / 100 : undefined,
+        x,
+        y,
+        width,
+        height,
+      };
+    }),
+    backend: "rust-ocr",
+    provider: response.provider,
+  };
 }
 
 /**

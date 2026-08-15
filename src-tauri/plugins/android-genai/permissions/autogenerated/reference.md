@@ -2,9 +2,11 @@
 
 Allows the android-genai plugin's on-device generative AI commands to be invoked
 from the frontend. On Android these drive ML Kit GenAI (Gemini Nano via AICore)
-for capability detection, summarization, and free-form prompting; everywhere
-else the status command reports `platform_unsupported` and the two inference
-commands return a typed error so callers fall back to a cloud provider.
+for capability detection, summarization, free-form prompting, and ML Kit OCR,
+plus the EmbeddingGemma embedding backend (status/download/embed commands,
+design D10); everywhere else the status commands report `platform_unsupported`
+and the inference commands return a typed error so callers fall back to a
+cloud provider or lexical-only mode.
 
 #### This default permission set includes the following:
 
@@ -19,6 +21,10 @@ commands return a typed error so callers fall back to a cloud provider.
 - `allow-ondevice-ai-start-prompt-stream`
 - `allow-ondevice-ai-cancel-prompt-request`
 - `allow-ondevice-ai-cancel`
+- `allow-ondevice-ai-ocr-labels`
+- `allow-ondevice-ai-embed-status`
+- `allow-ondevice-ai-embed-download`
+- `allow-ondevice-ai-embed-texts`
 
 ## Permission Table
 
@@ -162,6 +168,84 @@ Denies the ondevice_ai_download command without any pre-configured scope.
 <tr>
 <td>
 
+`incrementum-android-genai:allow-ondevice-ai-embed-download`
+
+</td>
+<td>
+
+Enables the ondevice_ai_embed_download command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-android-genai:deny-ondevice-ai-embed-download`
+
+</td>
+<td>
+
+Denies the ondevice_ai_embed_download command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-android-genai:allow-ondevice-ai-embed-status`
+
+</td>
+<td>
+
+Enables the ondevice_ai_embed_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-android-genai:deny-ondevice-ai-embed-status`
+
+</td>
+<td>
+
+Denies the ondevice_ai_embed_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-android-genai:allow-ondevice-ai-embed-texts`
+
+</td>
+<td>
+
+Enables the ondevice_ai_embed_texts command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-android-genai:deny-ondevice-ai-embed-texts`
+
+</td>
+<td>
+
+Denies the ondevice_ai_embed_texts command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `incrementum-android-genai:allow-ondevice-ai-generate`
 
 </td>
@@ -181,6 +265,32 @@ Enables the ondevice_ai_generate command without any pre-configured scope.
 <td>
 
 Denies the ondevice_ai_generate command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-android-genai:allow-ondevice-ai-ocr-labels`
+
+</td>
+<td>
+
+Enables the ondevice_ai_ocr_labels command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-android-genai:deny-ondevice-ai-ocr-labels`
+
+</td>
+<td>
+
+Denies the ondevice_ai_ocr_labels command without any pre-configured scope.
 
 </td>
 </tr>

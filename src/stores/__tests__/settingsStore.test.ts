@@ -142,6 +142,86 @@ describe("settingsStore Arena review mode", () => {
   });
 });
 
+describe("settingsStore AI learning feature flags", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: cloneDefaults() });
+  });
+
+  it("defaults every AI learning phase flag to false", () => {
+    expect(defaultSettings.features).toMatchObject({
+      aiLearnThis: false,
+      aiOcclusionAssist: false,
+      aiOcclusionFreeform: false,
+      aiSemanticIndex: false,
+      aiLibraryRag: false,
+      aiActiveRecall: false,
+      aiAnswerAssessment: false,
+      aiAutoGradeSuggest: false,
+      aiPrerequisites: false,
+      aiConceptLinks: false,
+      aiExtractWorthiness: false,
+      aiSocraticTutor: false,
+      aiAgent: false,
+    });
+    // Existing flags keep their defaults.
+    expect(defaultSettings.features.notebooklmEnabled).toBe(false);
+    expect(defaultSettings.features.fsrsScopedParametersEnabled).toBe(true);
+    expect(defaultSettings.features.reviewUndoEnabled).toBe(true);
+    expect(defaultSettings.features.cramModeEnabled).toBe(true);
+  });
+
+  it("round-trips a toggled AI feature flag", () => {
+    useSettingsStore.getState().updateSettingsCategory("features", {
+      aiLearnThis: true,
+      aiSocraticTutor: true,
+    });
+
+    const stored = JSON.parse(localStorage.getItem("incrementum-settings") || "{}");
+    expect(stored.state.settings.features.aiLearnThis).toBe(true);
+    expect(stored.state.settings.features.aiSocraticTutor).toBe(true);
+    // Untouched flags keep the default.
+    expect(stored.state.settings.features.aiAgent).toBe(false);
+  });
+
+  it("merges the new flags as false for existing users on rehydration", async () => {
+    // A pre-AI persist only knows the original four flags; the deep merge in
+    // onRehydrateStorage must fill the new ones with defaults while preserving
+    // any explicit persisted value.
+    localStorage.setItem("incrementum-settings", JSON.stringify({
+      state: {
+        settings: {
+          features: {
+            notebooklmEnabled: true,
+            cramModeEnabled: false,
+            aiLibraryRag: true,
+          },
+        },
+      },
+      version: 6,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const features = useSettingsStore.getState().settings.features;
+    expect(features.notebooklmEnabled).toBe(true);
+    expect(features.cramModeEnabled).toBe(false);
+    expect(features.aiLibraryRag).toBe(true);
+    expect(features.aiLearnThis).toBe(false);
+    expect(features.aiOcclusionAssist).toBe(false);
+    expect(features.aiOcclusionFreeform).toBe(false);
+    expect(features.aiSemanticIndex).toBe(false);
+    expect(features.aiActiveRecall).toBe(false);
+    expect(features.aiAnswerAssessment).toBe(false);
+    expect(features.aiAutoGradeSuggest).toBe(false);
+    expect(features.aiPrerequisites).toBe(false);
+    expect(features.aiConceptLinks).toBe(false);
+    expect(features.aiExtractWorthiness).toBe(false);
+    expect(features.aiSocraticTutor).toBe(false);
+    expect(features.aiAgent).toBe(false);
+  });
+});
+
 describe("settingsStore sessionItemTypes default", () => {
   beforeEach(() => {
     localStorage.clear();

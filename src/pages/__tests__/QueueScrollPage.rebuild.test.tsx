@@ -110,8 +110,8 @@ vi.mock("../../stores/llmProvidersStore", () => ({
   ),
 }));
 
-vi.mock("../../stores/ragStore", () => ({
-  resolveEmbeddingConfig: vi.fn(async () => null),
+vi.mock("../../components/assistant/ragConfig", () => ({
+  resolveEmbeddingConfigForRag: vi.fn(async () => null),
 }));
 
 // ── API boundary ─────────────────────────────────────────────────────────────

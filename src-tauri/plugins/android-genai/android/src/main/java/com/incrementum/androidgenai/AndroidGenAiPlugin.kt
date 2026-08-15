@@ -10,6 +10,15 @@
 //   - generatePrompt -> ML Kit Prompt API, free-form completion
 //   - downloadModel  -> user-initiated AICore model download
 //
+// Structured output (design D5): requests with outputMode "structured" and a
+// responseSchema key (see GenAiSchemas.kt) run through the schema-constrained
+// GenerateTypedContentRequest built by the KSP genai-schema-compiler. The
+// parsed envelope is serialized into NativePromptResponse.structured. On any
+// build or runtime without the feature, the request degrades to today's text
+// path with structured left null — the TypeScript strict-JSON fallback owns
+// parsing there; malformed/incomplete typed output fails closed with
+// empty_output / incomplete_output, never a malformed object.
+//
 // Nothing here chunks text. The TypeScript side (src/lib/ai/chunkTextByTokens)
 // owns the context budget and never sends more than one chunk per call; this
 // plugin passes input straight through so native-side truncation never silently
@@ -33,6 +42,7 @@ import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.genai.common.DownloadCallback
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
@@ -40,7 +50,10 @@ import com.google.mlkit.genai.common.StreamingCallback
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.Candidate
 import com.google.mlkit.genai.prompt.GenerateContentRequest
+import com.google.mlkit.genai.prompt.GenerateTypedContentRequest
+import com.google.mlkit.genai.prompt.GenerateTypedContentResponse
 import com.google.mlkit.genai.prompt.GenerativeModel
+import com.google.mlkit.genai.prompt.ImagePart
 import com.google.mlkit.genai.prompt.PromptPrefix
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
@@ -49,6 +62,9 @@ import com.google.mlkit.genai.summarization.Summarization
 import com.google.mlkit.genai.summarization.SummarizationRequest
 import com.google.mlkit.genai.summarization.Summarizer
 import com.google.mlkit.genai.summarization.SummarizerOptions
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
@@ -91,7 +107,15 @@ class NativePromptArgs {
     var seed: Int? = null
     var maxOutputTokens: Int? = null
     var candidateCount: Int? = null
+
+    /** "text" | "flashcards" | "tags" | "occlusions" | "structured". */
     var outputMode: String? = null
+
+    /**
+     * Structured-output envelope key (see [StructuredSchemaKey]); required
+     * with outputMode "structured". Validated before any inference starts.
+     */
+    var responseSchema: String? = null
     var systemInstruction: String? = null
     var stream: Boolean? = null
     var onEvent: Channel? = null
@@ -258,6 +282,14 @@ internal data class CapabilitySnapshotDto(
     val summarization: FeatureStateDto,
     val imagePrompt: FeatureStateDto,
     val features: PromptFeatureFlagsDto,
+    /** ML Kit Text Recognition compiled into this build (design D18). */
+    val ocr: Boolean = false,
+    /**
+     * EmbeddingGemma embeddings usable right now (design D10 / task 4.5):
+     * the LiteRT feature is compiled in AND the downloaded, size-verified
+     * artifacts are on disk. Absent on older builds (defaults false).
+     */
+    val embeddings: Boolean = false,
     val baseModelName: String? = null,
     val tokenLimit: Int? = null,
     val checkedAt: Long = System.currentTimeMillis()
@@ -273,6 +305,8 @@ internal data class CapabilitySnapshotDto(
         put("imageInput", features.imageInput)
         put("multiImage", features.multiImage)
         put("streaming", features.streaming)
+        put("ocr", ocr)
+        put("embeddings", embeddings)
         baseModelName?.let { put("baseModelName", it) }
         tokenLimit?.let { put("tokenLimit", it) }
         put("checkedAt", checkedAt)
@@ -322,8 +356,44 @@ internal fun finishReasonName(reason: Int?): String? = when (reason) {
 }
 
 internal fun isStructuredOutputMode(mode: String?): Boolean = when (mode ?: OUTPUT_MODE_TEXT) {
-    "flashcards", "tags", "occlusions" -> true
+    "flashcards", "tags", "occlusions", OUTPUT_MODE_STRUCTURED -> true
     else -> false
+}
+
+/**
+ * Fail-closed detail message for a structured request whose output stopped
+ * before a complete payload, or null when the finish reason is safe.
+ */
+internal fun structuredFinishReasonError(mode: String?, finishReason: String?): String? {
+    if (!isStructuredOutputMode(mode)) return null
+    if (finishReason == "stop") return null
+    return "structured output ended with ${finishReason ?: "no finish reason"}"
+}
+
+/** How a request's structured-output half is served. */
+internal enum class StructuredOutputPath {
+    /** Schema-constrained typed generation via the genai-schema-compiler. */
+    TYPED,
+
+    /** Plain text generation; `structured` stays null (today's behavior). */
+    TEXT_FALLBACK
+}
+
+/**
+ * Pure negotiation for the structured path so JVM tests can pin the fallback
+ * matrix. Any failure — not compiled, runtime says no, or a non-structured
+ * mode — degrades to exactly today's text behavior instead of erroring: the
+ * TypeScript layer owns the strict-JSON fallback for such devices (D5).
+ */
+internal fun resolveStructuredOutputPath(
+    outputMode: String?,
+    structuredOutputCompiled: Boolean,
+    structuredOutputRuntimeAvailable: Boolean
+): StructuredOutputPath = when {
+    (outputMode ?: OUTPUT_MODE_TEXT) != OUTPUT_MODE_STRUCTURED -> StructuredOutputPath.TEXT_FALLBACK
+    !structuredOutputCompiled -> StructuredOutputPath.TEXT_FALLBACK
+    !structuredOutputRuntimeAvailable -> StructuredOutputPath.TEXT_FALLBACK
+    else -> StructuredOutputPath.TYPED
 }
 
 internal fun promptArgsValidationError(args: NativePromptArgs): String? {
@@ -338,11 +408,93 @@ internal fun promptArgsValidationError(args: NativePromptArgs): String? {
     args.maxOutputTokens?.let {
         if (it !in 1..4096) return "maxOutputTokens must be between 1 and 4096"
     }
-    if ((args.outputMode ?: OUTPUT_MODE_TEXT) !in OUTPUT_MODES) {
+    val mode = args.outputMode ?: OUTPUT_MODE_TEXT
+    if (mode !in OUTPUT_MODES) {
         return "unsupported outputMode"
+    }
+    val responseSchema = args.responseSchema?.takeIf { it.isNotBlank() }
+    if (mode == OUTPUT_MODE_STRUCTURED) {
+        if (responseSchema == null) {
+            return "responseSchema is required when outputMode is structured"
+        }
+        if (responseSchema !in STRUCTURED_SCHEMA_CLASSES) {
+            return "unsupported responseSchema: $responseSchema"
+        }
+    } else if (responseSchema != null) {
+        return "responseSchema requires outputMode structured"
     }
     return null
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Image input (design D17): MIME-checked base64 payloads decoded into an
+// ImagePart alongside the TextPart. Pure validation/decision helpers live
+// here so JVM unit tests can pin the contract without android.graphics.
+// ──────────────────────────────────────────────────────────────────────────
+
+/** MIME types the Prompt API's ImagePart accepts (Prompt beta4). */
+internal val IMAGE_MIME_ALLOWLIST = setOf("image/jpeg", "image/png", "image/webp")
+
+/** Hard byte ceiling for one Prompt image payload (design D17: ≤ 5 MB). */
+internal const val MAX_PROMPT_IMAGE_BYTES: Int = 5 * 1024 * 1024
+
+/** Typed validation failure for an image payload (`invalid_image` class). */
+internal data class ImagePayloadError(
+    val errorCode: String,
+    val message: String
+)
+
+/**
+ * Validate an image envelope before any decoding: MIME allowlist, non-empty
+ * base64, decodable base64, and the ≤ 5 MB decoded-size guard. Returns null
+ * when the payload is acceptable.
+ */
+internal fun imagePayloadError(image: PromptImageArgs?): ImagePayloadError? {
+    if (image == null) return null
+    val mime = image.mimeType?.trim()?.lowercase()
+    if (mime == null || mime !in IMAGE_MIME_ALLOWLIST) {
+        return ImagePayloadError(
+            ErrorCode.INVALID_IMAGE,
+            "image mimeType must be one of jpeg, png, webp"
+        )
+    }
+    val data = image.data?.trim().orEmpty()
+    if (data.isEmpty()) {
+        return ImagePayloadError(ErrorCode.INVALID_IMAGE, "image data is required")
+    }
+    val bytes = try {
+        decodePromptImageBytes(image)
+    } catch (e: IllegalArgumentException) {
+        return ImagePayloadError(ErrorCode.INVALID_IMAGE, "image data is not valid base64")
+    }
+    if (bytes.size > MAX_PROMPT_IMAGE_BYTES) {
+        return ImagePayloadError(
+            ErrorCode.INVALID_IMAGE,
+            "image payload exceeds the 5 MB limit (${bytes.size} bytes)"
+        )
+    }
+    return null
+}
+
+/** Decode the base64 envelope into raw image bytes (pure JVM). */
+internal fun decodePromptImageBytes(image: PromptImageArgs): ByteArray {
+    val data = requireNotNull(image.data).trim()
+    return java.util.Base64.getDecoder().decode(data)
+}
+
+/**
+ * Which `GenerateContentRequest.Builder` constructor variant a request uses.
+ * Prompt beta4 only accepts images through the dedicated (SystemInstruction,)
+ * ImagePart + TextPart constructors — there is no addPart API.
+ */
+internal enum class PromptRequestPlan { TEXT_ONLY, IMAGE_PLUS_TEXT, SYSTEM_IMAGE_PLUS_TEXT }
+
+internal fun promptRequestPlan(hasImage: Boolean, hasSystemInstruction: Boolean): PromptRequestPlan =
+    when {
+        hasImage && hasSystemInstruction -> PromptRequestPlan.SYSTEM_IMAGE_PLUS_TEXT
+        hasImage -> PromptRequestPlan.IMAGE_PLUS_TEXT
+        else -> PromptRequestPlan.TEXT_ONLY
+    }
 
 internal fun exceedsTokenBudget(
     inputTokens: Int,
@@ -351,7 +503,14 @@ internal fun exceedsTokenBudget(
 ): Boolean = inputTokens.toLong() + requestedOutputTokens.toLong() > tokenLimit.toLong()
 
 private const val OUTPUT_MODE_TEXT = "text"
-private val OUTPUT_MODES = setOf(OUTPUT_MODE_TEXT, "flashcards", "tags", "occlusions")
+internal const val OUTPUT_MODE_STRUCTURED = "structured"
+private val OUTPUT_MODES = setOf(
+    OUTPUT_MODE_TEXT,
+    "flashcards",
+    "tags",
+    "occlusions",
+    OUTPUT_MODE_STRUCTURED
+)
 
 private class PromptContractException(
     val errorCode: String,
@@ -520,6 +679,8 @@ private const val STREAM_EVENT_TEXT = "ondevice-genai://text"
 private const val STREAM_EVENT_COMPLETE = "ondevice-genai://complete"
 private const val STREAM_EVENT_ERROR = "ondevice-genai://error"
 private const val STREAM_EVENT_RETRY = "ondevice-genai://retry"
+/** Listener event carrying embedding-model download progress (channel-less fallback). */
+private const val EMBED_EVENT_DOWNLOAD_PROGRESS = "ondevice-genai://embed-download-progress"
 private const val FAST_PATH_CHAR_LIMIT = 500
 
 @TauriPlugin
@@ -541,6 +702,43 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
     private val statusExecutor: ExecutorService = Executors.newSingleThreadExecutor { r ->
         Thread(r, "incrementum-genai-status").apply { isDaemon = true }
     }
+
+    /**
+     * EmbeddingGemma inference (task 4.5). Single-threaded like the GenAI
+     * executor: one interpreter instance, one caller at a time — the indexer
+     * batches and the query path is one text, so there is no benefit to
+     * concurrency and real risk of overlapping native runs.
+     */
+    private val embeddingExecutor: ExecutorService = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "incrementum-genai-embedding").apply { isDaemon = true }
+    }
+
+    /**
+     * Model downloads are network-bound; keeping them off the inference
+     * executor means a several-minute download never blocks indexing.
+     */
+    private val embeddingDownloadExecutor: ExecutorService =
+        Executors.newSingleThreadExecutor { r ->
+            Thread(r, "incrementum-genai-embedding-download").apply { isDaemon = true }
+        }
+
+    /** App-private directory holding the downloaded embedding artifacts. */
+    private val embeddingFiles: EmbeddingModelFiles by lazy {
+        EmbeddingModelFiles(ctx.getDir("ai_models", android.content.Context.MODE_PRIVATE))
+    }
+
+    /** Lazily loaded interpreter + tokenizer; guarded release mirrors the GenAI clients. */
+    private val embeddingLock = Any()
+    private var embeddingRuntime: LoadedEmbedding? = null
+
+    /** Session + tokenizer pair loaded together after the artifacts exist. */
+    private class LoadedEmbedding(
+        val session: EmbeddingSession,
+        val tokenizer: SentencePieceBpeTokenizer
+    )
+
+    @Volatile
+    private var embeddingDownloadInFlight: Boolean = false
 
     // Clients are created lazily on first use and reused; construction touches
     // Play Services, so doing it eagerly in the constructor would cost startup
@@ -683,7 +881,15 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
         inferenceExecutor.execute {
             try {
                 val request = buildPromptRequest(args)
-                val inputTokens = prompt().countTokens(request).get().totalTokens
+                // When the structured path is active, the schema text is part
+                // of the effective prompt (includeSchemaInPrompt defaults on),
+                // so the typed request is what must be counted.
+                val typed = structuredTypedRequestOrNull(args, request)
+                val inputTokens = if (typed != null) {
+                    runBlocking { prompt().getGenerativeModel().countTokens(typed).totalTokens }
+                } else {
+                    prompt().countTokens(request).get().totalTokens
+                }
                 val tokenLimit = getCachedTokenLimit()
                 invoke.resolveObject(
                     PromptTokenCountDto(
@@ -867,12 +1073,301 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /**
+     * OCR one base64 image into text labels with percent-normalized boxes
+     * (task 3.2 / design D18). Deterministic ML Kit Text Recognition v2
+     * (Latin, bundled) — no model generation involved. Errors reuse the
+     * existing contract codes only: invalid_argument (bad payload),
+     * feature_not_compiled (build without the dependency), inference_failed
+     * (recognizer failure).
+     */
+    @Command
+    fun ocrImageLabels(invoke: Invoke) {
+        val args = invoke.parseArgs(OcrImageArgs::class.java)
+        val base64 = args.base64Image?.takeIf { it.isNotBlank() }
+        if (base64 == null) {
+            invoke.reject("base64Image is required", ErrorCode.INVALID_ARGUMENT)
+            return
+        }
+        if (!BuildConfig.TEXT_RECOGNITION_COMPILED) {
+            invoke.reject(
+                "text recognition is not included in this build",
+                ErrorCode.FEATURE_NOT_COMPILED
+            )
+            return
+        }
+        val bytes = try {
+            java.util.Base64.getDecoder().decode(base64.trim())
+        } catch (e: IllegalArgumentException) {
+            invoke.reject("base64Image is not valid base64", ErrorCode.INVALID_ARGUMENT)
+            return
+        }
+        if (bytes.size > MAX_PROMPT_IMAGE_BYTES) {
+            invoke.reject(
+                "image payload exceeds the 5 MB limit (${bytes.size} bytes)",
+                ErrorCode.INVALID_ARGUMENT
+            )
+            return
+        }
+        val maxResults = clampMaxOcrResults(args.maxResults)
+
+        inferenceExecutor.execute {
+            var recognizer: com.google.mlkit.vision.text.TextRecognizer? = null
+            try {
+                val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: throw PromptContractException(
+                        ErrorCode.INVALID_ARGUMENT,
+                        "image payload could not be decoded into a bitmap"
+                    )
+                val inputImage = InputImage.fromBitmap(bitmap, 0)
+                recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                val recognized = Tasks.await(recognizer.process(inputImage))
+
+                // Flatten block → line, keep only lines with a usable box, and
+                // number ordinals over the KEPT lines so ids stay stable for
+                // the same visual content regardless of boxless noise.
+                val kept = recognized.textBlocks.asSequence()
+                    .flatMap { block -> block.lines.asSequence() }
+                    .filter { line -> line.boundingBox != null && line.text.isNotBlank() }
+                    .toList()
+                val labels = kept
+                    .take(maxResults)
+                    .mapIndexed { index, line ->
+                        val box = requireNotNull(line.boundingBox)
+                        val percent = normalizeBoxToPercent(
+                            left = box.left,
+                            top = box.top,
+                            right = box.right,
+                            bottom = box.bottom,
+                            imageWidth = bitmap.width,
+                            imageHeight = bitmap.height
+                        )
+                        OcrLabelDto(
+                            id = stableOcrLabelId(index, line.text),
+                            text = line.text,
+                            // v2 reports a primitive float; 0 means "unset".
+                            confidence = if (line.confidence > 0f) line.confidence.toDouble() else null,
+                            x = percent.x,
+                            y = percent.y,
+                            width = percent.width,
+                            height = percent.height,
+                            pixelBox = intArrayOf(box.left, box.top, box.right, box.bottom)
+                        )
+                    }
+                invoke.resolveObject(
+                    OcrLabelsResultDto(
+                        labels = labels,
+                        sourceWidth = bitmap.width,
+                        sourceHeight = bitmap.height,
+                        truncated = kept.size > labels.size
+                    ).toJsObject()
+                )
+            } catch (e: PromptContractException) {
+                invoke.reject(e.message, e.errorCode, e.metadata)
+            } catch (e: Throwable) {
+                rejectInference(invoke, "ocrImageLabels", e)
+            } finally {
+                runCatching { recognizer?.close() }
+                    .onFailure { Logger.error("genai", "recognizer close failed", it) }
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // On-device embeddings (EmbeddingGemma via LiteRT, design D10 / task 4.5)
+    // ──────────────────────────────────────────────────────────────────────
+
+    /**
+     * Report the embedding model state: `available` when both verified
+     * artifacts are on disk, `downloadable` before the explicit user download,
+     * `downloading` while a `.part` file exists, `unavailable` (reason
+     * `feature_not_compiled`) on builds without the LiteRT feature. Never
+     * throws — status is a state, not a failure.
+     */
+    @Command
+    fun embedTextsStatus(invoke: Invoke) {
+        statusExecutor.execute {
+            val compiled = BuildConfig.EMBEDDING_COMPILED
+            invoke.resolve(
+                embeddingStatusOf(
+                    compiled = compiled,
+                    modelPresent = compiled && embeddingFiles.modelPresent(),
+                    tokenizerPresent = compiled && embeddingFiles.tokenizerPresent(),
+                    partFileBytes = if (compiled) embeddingFiles.partFileBytes() else null
+                ).toJsObject()
+            )
+        }
+    }
+
+    /**
+     * Download + sha256-verify the embedding artifacts. Only ever started
+     * from an explicit user action (a ~184 MB download is not something a
+     * status check gets to trigger). Progress flows through the optional
+     * `onEvent` channel and a `ondevice-genai://embed-download-progress`
+     * listener event as the channel-less fallback.
+     */
+    @Command
+    fun embedTextsDownload(invoke: Invoke) {
+        if (!BuildConfig.EMBEDDING_COMPILED) {
+            invoke.reject(
+                "embeddings are not included in this build",
+                ErrorCode.FEATURE_NOT_COMPILED
+            )
+            return
+        }
+        val args = invoke.parseArgs(EmbedDownloadArgs::class.java)
+        if (embeddingFiles.allPresent()) {
+            // Idempotent: already downloaded and size-verified.
+            invoke.resolve(embeddingStatusOf(true, true, true, null).toJsObject())
+            return
+        }
+        if (embeddingDownloadInFlight) {
+            invoke.reject("embedding model download already in progress", ErrorCode.MODEL_DOWNLOADING)
+            return
+        }
+        embeddingDownloadInFlight = true
+        embeddingDownloadExecutor.execute {
+            try {
+                val emitProgress: (EmbeddingProgressDto) -> Unit = { progress ->
+                    runCatching { args.onEvent?.send(progress.toJsObject()) }
+                        .onFailure { Logger.error("genai", "embed progress channel failed", it) }
+                    trigger(EMBED_EVENT_DOWNLOAD_PROGRESS, progress.toJsObject())
+                }
+                downloadVerifiedArtifact(
+                    opener = httpGetOpener,
+                    urls = embeddingTokenizerUrls(),
+                    dest = embeddingFiles.tokenizerFile,
+                    fileName = EMBEDDING_TOKENIZER_FILE,
+                    expectedBytes = EMBEDDING_TOKENIZER_BYTES,
+                    expectedSha256 = EMBEDDING_TOKENIZER_SHA256,
+                    onProgress = emitProgress
+                )
+                downloadVerifiedArtifact(
+                    opener = httpGetOpener,
+                    urls = embeddingModelUrls(),
+                    dest = embeddingFiles.modelFile,
+                    fileName = EMBEDDING_MODEL_FILE,
+                    expectedBytes = EMBEDDING_MODEL_BYTES,
+                    expectedSha256 = EMBEDDING_MODEL_SHA256,
+                    onProgress = emitProgress
+                )
+                // The lazy session must not reuse a session bound to the
+                // pre-download (absent) artifacts.
+                closeEmbeddingSessionLocked()
+                invoke.resolve(embeddingStatusOf(true, true, true, null).toJsObject())
+            } catch (e: EmbeddingDownloadException) {
+                Logger.error("genai", "embedding model download failed", e)
+                invoke.reject(e.message, e.errorCode)
+            } catch (e: Throwable) {
+                Logger.error("genai", "embedding model download failed", e)
+                invoke.reject(
+                    e.message ?: "embedding model download failed",
+                    ErrorCode.MODEL_UNAVAILABLE
+                )
+            } finally {
+                embeddingDownloadInFlight = false
+            }
+        }
+    }
+
+    /**
+     * Embed a batch of texts with EmbeddingGemma. Texts are raw; the Gemma
+     * document/query prompt template, tokenization, batching, and L2
+     * normalization happen natively. Rejects with `model_downloadable` /
+     * `model_downloading` when the artifacts are not on disk, so the Rust
+     * indexer degrades to lexical-only mode instead of failing.
+     */
+    @Command
+    fun embedTexts(invoke: Invoke) {
+        val args = invoke.parseArgs(EmbedTextsArgs::class.java)
+        val texts = args.texts
+        embedTextsArgsError(texts)?.let {
+            invoke.reject(it, ErrorCode.INVALID_ARGUMENT)
+            return
+        }
+        if (!BuildConfig.EMBEDDING_COMPILED) {
+            invoke.reject(
+                "embeddings are not included in this build",
+                ErrorCode.FEATURE_NOT_COMPILED
+            )
+            return
+        }
+        if (!embeddingFiles.allPresent()) {
+            val code = if (embeddingFiles.partFileBytes() != null) {
+                ErrorCode.MODEL_DOWNLOADING
+            } else {
+                ErrorCode.MODEL_DOWNLOADABLE
+            }
+            invoke.reject("embedding model is not downloaded", code)
+            return
+        }
+        val normalize = args.normalize ?: true
+
+        embeddingExecutor.execute {
+            try {
+                val runtime = embeddingRuntimeLocked()
+                val vectors = embedTextsWithSession(
+                    session = runtime.session,
+                    tokenizer = runtime.tokenizer,
+                    texts = texts!!,
+                    kind = args.kind,
+                    normalize = normalize
+                )
+                invoke.resolveObject(
+                    EmbedTextsResultDto(
+                        vectors = vectors,
+                        dimension = EMBEDDING_DIMENSION,
+                        model = EMBEDDING_MODEL_NAME
+                    ).toJsObject()
+                )
+            } catch (e: PromptContractException) {
+                invoke.reject(e.message, e.errorCode, e.metadata)
+            } catch (e: Throwable) {
+                Logger.error("genai", "embedTexts failed", e)
+                invoke.reject(
+                    e.message ?: "on-device embedding failed",
+                    ErrorCode.INFERENCE_FAILED
+                )
+            }
+        }
+    }
+
+    /** Load (or reuse) the interpreter + tokenizer; must run on the embedding executor. */
+    private fun embeddingRuntimeLocked(): LoadedEmbedding =
+        synchronized(embeddingLock) {
+            check(!closed) { "plugin torn down" }
+            embeddingRuntime ?: run {
+                val tokenizer = SentencePieceBpeTokenizer(
+                    embeddingFiles.tokenizerFile.readBytes()
+                )
+                val session = LiteRtEmbeddingSession(
+                    modelPath = embeddingFiles.modelFile.absolutePath,
+                    tokenizer = tokenizer
+                )
+                LoadedEmbedding(session, tokenizer).also { embeddingRuntime = it }
+            }
+        }
+
+    /** Tear down the interpreter so the next call reloads fresh artifacts. */
+    private fun closeEmbeddingSessionLocked() {
+        synchronized(embeddingLock) {
+            val runtime = embeddingRuntime
+            embeddingRuntime = null
+            runtime
+        }?.let { runtime ->
+            runCatching { runtime.session.close() }
+                .onFailure { Logger.error("genai", "embedding session close failed", it) }
+        }
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // Internals
     // ──────────────────────────────────────────────────────────────────────
 
     private data class PreparedPrompt(
         val request: GenerateContentRequest,
+        /** Non-null only when the schema-constrained typed path is active. */
+        val typed: GenerateTypedContentRequest<*>?,
         val inputTokens: Int,
         val tokenLimit: Int
     )
@@ -897,33 +1392,42 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
             var emittedText = false
             try {
                 val prepared = preparePrompt(args)
-                val callback = object : StreamingCallback {
-                    override fun onNewText(text: String) {
-                        if (text.isEmpty() || !streamRegistry.isActive(requestId)) return
-                        emittedText = true
-                        args.onEvent?.send(
-                            JSObject().apply {
-                                put("event", "text")
-                                put("requestId", requestId)
-                                put("text", text)
-                            }
-                        )
-                        trigger(
-                            STREAM_EVENT_TEXT,
-                            JSObject().apply {
-                                put("requestId", requestId)
-                                put("text", text)
-                            }
-                        )
+                val result = if (prepared.typed != null) {
+                    // Typed generation has no incremental callback — the sole
+                    // terminal event carries the structured payload. Cancellation
+                    // cannot interrupt the in-flight call (the suspend API is
+                    // not attached to a cancellable future here); a cancel that
+                    // lands mid-flight drops the terminal event instead.
+                    executeTypedPrompt(args, prepared)
+                } else {
+                    val callback = object : StreamingCallback {
+                        override fun onNewText(text: String) {
+                            if (text.isEmpty() || !streamRegistry.isActive(requestId)) return
+                            emittedText = true
+                            args.onEvent?.send(
+                                JSObject().apply {
+                                    put("event", "text")
+                                    put("requestId", requestId)
+                                    put("text", text)
+                                }
+                            )
+                            trigger(
+                                STREAM_EVENT_TEXT,
+                                JSObject().apply {
+                                    put("requestId", requestId)
+                                    put("text", text)
+                                }
+                            )
+                        }
                     }
+                    val future = prompt().generateContent(prepared.request, callback)
+                    if (!streamRegistry.attachFuture(requestId, future)) {
+                        future.cancel(true)
+                        return
+                    }
+                    val response = future.get()
+                    promptResponse(args, prepared, response)
                 }
-                val future = prompt().generateContent(prepared.request, callback)
-                if (!streamRegistry.attachFuture(requestId, future)) {
-                    future.cancel(true)
-                    return
-                }
-                val response = future.get()
-                val result = promptResponse(args, prepared, response)
                 if (streamRegistry.claimTerminal(requestId)) {
                     args.onEvent?.send(
                         JSObject().apply {
@@ -1029,11 +1533,21 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
 
     /** Build one ML Kit request from the cross-language envelope. */
     private fun buildPromptRequest(args: NativePromptArgs): GenerateContentRequest {
-        if (args.image != null) {
-            throw PromptContractException(
-                ErrorCode.FEATURE_UNAVAILABLE,
-                "image Prompt payload preparation is not available yet"
-            )
+        val imagePart = if (args.image != null) {
+            // Gate on the compile-time flag first: a build without the image
+            // feature reports feature_not_compiled, never a decode error.
+            if (!BuildConfig.IMAGE_PROMPT_COMPILED) {
+                throw PromptContractException(
+                    ErrorCode.FEATURE_NOT_COMPILED,
+                    "image Prompt input is not included in this build"
+                )
+            }
+            imagePayloadError(args.image)?.let {
+                throw PromptContractException(it.errorCode, it.message)
+            }
+            decodePromptImagePart(args.image!!)
+        } else {
+            null
         }
 
         val text = requireNotNull(args.text)
@@ -1050,13 +1564,25 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
             )
         }
 
-        val builder = if (systemInstruction == null) {
-            GenerateContentRequest.Builder(TextPart(text))
-        } else {
-            GenerateContentRequest.Builder(
-                SystemInstruction(systemInstruction),
+        val builder = when (promptRequestPlan(imagePart != null, systemInstruction != null)) {
+            PromptRequestPlan.SYSTEM_IMAGE_PLUS_TEXT -> GenerateContentRequest.Builder(
+                SystemInstruction(requireNotNull(systemInstruction)),
+                requireNotNull(imagePart),
                 TextPart(text)
             )
+            PromptRequestPlan.IMAGE_PLUS_TEXT -> GenerateContentRequest.Builder(
+                requireNotNull(imagePart),
+                TextPart(text)
+            )
+            PromptRequestPlan.TEXT_ONLY ->
+                if (systemInstruction == null) {
+                    GenerateContentRequest.Builder(TextPart(text))
+                } else {
+                    GenerateContentRequest.Builder(
+                        SystemInstruction(systemInstruction),
+                        TextPart(text)
+                    )
+                }
         }
 
         args.promptPrefix?.takeIf { it.isNotBlank() }?.let { prefix ->
@@ -1078,19 +1604,39 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
         return builder.build()
     }
 
+    /**
+     * Decode a validated image envelope into the Prompt API's ImagePart.
+     * A payload that decodes to bytes but not to a bitmap (corrupt image,
+     * unsupported variant) fails closed as `invalid_image`.
+     */
+    private fun decodePromptImagePart(image: PromptImageArgs): ImagePart {
+        val bytes = decodePromptImageBytes(image)
+        val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: throw PromptContractException(
+                ErrorCode.INVALID_IMAGE,
+                "image payload could not be decoded into a bitmap"
+            )
+        return ImagePart(bitmap)
+    }
+
     /** Build, count, and enforce the real context budget before inference. */
     private fun preparePrompt(args: NativePromptArgs): PreparedPrompt {
         val request = buildPromptRequest(args)
+        val typed = structuredTypedRequestOrNull(args, request)
         val tokenLimit = getCachedTokenLimit()
         val requestedOutputTokens = request.maxOutputTokens
 
         // Fast-path: for short text inputs (< 500 characters and no image),
         // estimate tokens locally (~3 chars/token conservative ceiling) to bypass synchronous IPC countTokens() call.
+        // Never taken on the typed path: includeSchemaInPrompt adds schema
+        // text the character estimate cannot see, which would undercount.
         val textLength = (args.text?.length ?: 0) + (args.systemInstruction?.length ?: 0) + (args.promptPrefix?.length ?: 0)
-        val inputTokens = if (args.image == null && textLength < FAST_PATH_CHAR_LIMIT) {
-            Math.ceil(textLength / 3.0).toInt().coerceAtLeast(1)
-        } else {
-            prompt().countTokens(request).get().totalTokens
+        val inputTokens = when {
+            args.image == null && typed == null && textLength < FAST_PATH_CHAR_LIMIT ->
+                Math.ceil(textLength / 3.0).toInt().coerceAtLeast(1)
+            typed != null ->
+                runBlocking { prompt().getGenerativeModel().countTokens(typed).totalTokens }
+            else -> prompt().countTokens(request).get().totalTokens
         }
 
         if (exceedsTokenBudget(inputTokens, requestedOutputTokens, tokenLimit)) {
@@ -1107,7 +1653,30 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
             )
         }
 
-        return PreparedPrompt(request, inputTokens, tokenLimit)
+        return PreparedPrompt(request, typed, inputTokens, tokenLimit)
+    }
+
+    /**
+     * Build the schema-constrained typed request for outputMode "structured",
+     * or null when the request is not structured or the feature is not usable
+     * on this build/runtime — the caller then runs exactly the text path used
+     * today, with `structured` left null (strict-JSON fallback owns parsing
+     * on the TypeScript side, design D5).
+     */
+    private fun structuredTypedRequestOrNull(
+        args: NativePromptArgs,
+        request: GenerateContentRequest
+    ): GenerateTypedContentRequest<*>? {
+        val decision = resolveStructuredOutputPath(
+            outputMode = args.outputMode,
+            structuredOutputCompiled = BuildConfig.STRUCTURED_OUTPUT_COMPILED,
+            structuredOutputRuntimeAvailable = optionalMetadata("structured output") {
+                runBlocking { prompt().getGenerativeModel().isStructuredOutputFeatureAvailable() }
+            } ?: false
+        )
+        if (decision != StructuredOutputPath.TYPED) return null
+        val klass = args.responseSchema?.let { STRUCTURED_SCHEMA_CLASSES[it] } ?: return null
+        return GenerateTypedContentRequest.Builder(request, klass).build()
     }
 
     /** Convert ML Kit's final candidates into the stable cross-language DTO. */
@@ -1125,11 +1694,8 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                 "the model returned no candidates"
             )
 
-        if (isStructuredOutputMode(args.outputMode) && first.finishReason != "stop") {
-            throw PromptContractException(
-                ErrorCode.INCOMPLETE_OUTPUT,
-                "structured output ended with ${first.finishReason ?: "no finish reason"}"
-            )
+        structuredFinishReasonError(args.outputMode, first.finishReason)?.let {
+            throw PromptContractException(ErrorCode.INCOMPLETE_OUTPUT, it)
         }
 
         return NativePromptResponseDto(
@@ -1145,10 +1711,75 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
         )
     }
 
+    /**
+     * Convert ML Kit's typed candidates into the stable cross-language DTO.
+     * The first candidate's parsed envelope becomes `structured`; its JSON
+     * serialization is also exposed as `text` so callers that only look at
+     * text still receive the complete result.
+     */
+    private fun typedPromptResponse(
+        args: NativePromptArgs,
+        prepared: PreparedPrompt,
+        response: GenerateTypedContentResponse<*>
+    ): NativePromptResponseDto {
+        val first = response.candidates.firstOrNull()
+            ?: throw PromptContractException(
+                ErrorCode.EMPTY_OUTPUT,
+                "the model returned no structured candidates"
+            )
+        val firstFinishReason = finishReasonName(first.finishReason)
+        structuredFinishReasonError(args.outputMode, firstFinishReason)?.let {
+            throw PromptContractException(ErrorCode.INCOMPLETE_OUTPUT, it)
+        }
+        val structuredJson = first.response?.let { structuredEnvelopeToJson(it) }
+            ?: throw PromptContractException(
+                ErrorCode.EMPTY_OUTPUT,
+                "the model returned an empty structured payload"
+            )
+        val candidates = response.candidates.map { candidate ->
+            PromptCandidateDto(
+                text = candidate.response?.let { structuredEnvelopeToJson(it).toString() } ?: "",
+                finishReason = finishReasonName(candidate.finishReason)
+            )
+        }
+        return NativePromptResponseDto(
+            requestId = requireNotNull(args.requestId),
+            text = structuredJson.toString(),
+            finishReason = firstFinishReason,
+            inputTokens = prepared.inputTokens,
+            tokenLimit = prepared.tokenLimit,
+            baseModelName = optionalMetadata("base model name") {
+                prompt().getBaseModelName().get()
+            },
+            candidates = candidates,
+            structured = structuredJson
+        )
+    }
+
+    /**
+     * Run one schema-constrained typed generation. The typed API exists only
+     * on the Kotlin (suspend) model surface, so this blocks the inference
+     * thread through runBlocking like the futures calls do.
+     */
+    private fun executeTypedPrompt(
+        args: NativePromptArgs,
+        prepared: PreparedPrompt
+    ): NativePromptResponseDto {
+        val typed = requireNotNull(prepared.typed)
+        val response = runBlocking {
+            prompt().getGenerativeModel().generateContent(typed)
+        }
+        return typedPromptResponse(args, prepared, response)
+    }
+
     private fun executePrompt(args: NativePromptArgs): NativePromptResponseDto {
         val prepared = preparePrompt(args)
-        val response = prompt().generateContent(prepared.request).get()
-        return promptResponse(args, prepared, response)
+        return if (prepared.typed != null) {
+            executeTypedPrompt(args, prepared)
+        } else {
+            val response = prompt().generateContent(prepared.request).get()
+            promptResponse(args, prepared, response)
+        }
     }
 
     /**
@@ -1207,6 +1838,14 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                 multiImageCompiled = BuildConfig.MULTI_IMAGE_COMPILED,
                 streamingCompiled = BuildConfig.STREAMING_COMPILED
             ),
+            // Text Recognition is a bundled, dependency-reflected capability:
+            // the compile flag alone is authoritative (no runtime negotiation
+            // API exists for the bundled recognizer).
+            ocr = BuildConfig.TEXT_RECOGNITION_COMPILED,
+            // Embeddings need the compiled LiteRT feature AND the downloaded,
+            // size-verified artifacts (the sha256 was checked at download
+            // time; existence + size is the cheap runtime re-check).
+            embeddings = BuildConfig.EMBEDDING_COMPILED && embeddingFiles.allPresent(),
             baseModelName = futures?.let {
                 optionalMetadata("base model name") { it.getBaseModelName().get() }
             },
@@ -1333,8 +1972,11 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
             .onFailure { Logger.error("genai", "summarizer close failed", it) }
         runCatching { modelToClose?.close() }
             .onFailure { Logger.error("genai", "prompt model close failed", it) }
+        closeEmbeddingSessionLocked()
         inferenceExecutor.shutdown()
         statusExecutor.shutdown()
+        embeddingExecutor.shutdown()
+        embeddingDownloadExecutor.shutdown()
     }
 
     /**

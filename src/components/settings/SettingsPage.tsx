@@ -92,6 +92,9 @@ const CloudStorageSettings = lazySection("CloudStorageSettings", () =>
 const ThemePicker = lazySection("ThemePicker", () =>
   import("./ThemePicker").then((m) => ({ default: m.ThemePicker }))
 );
+const EinkSettingsPanel = lazySection("EinkSettingsPanel", () =>
+  import("./EinkSettingsPanel").then((m) => ({ default: m.EinkSettingsPanel }))
+);
 const IntegrationSettings = lazySection("IntegrationSettings", () =>
   import("./IntegrationSettings").then((m) => ({ default: m.IntegrationSettings }))
 );
@@ -112,6 +115,9 @@ const TTSSettings = lazySection("TTSSettings", () =>
 );
 const EmbeddingSettings = lazySection("EmbeddingSettings", () =>
   import("./EmbeddingSettings").then((m) => ({ default: m.EmbeddingSettings }))
+);
+const AiIndexPanel = lazySection("AiIndexPanel", () =>
+  import("./AiIndexPanel").then((m) => ({ default: m.AiIndexPanel }))
 );
 
 /**
@@ -662,7 +668,12 @@ export function SettingsPage() {
           {activeTab === SettingsTab.AI && <AISettings onChange={() => setHasChanges(true)} />}
           {activeTab === SettingsTab.AudioTranscription && <AudioTranscriptionSettings />}
           {activeTab === SettingsTab.TTS && <TTSSettings />}
-          {activeTab === SettingsTab.Embeddings && <EmbeddingSettings />}
+          {activeTab === SettingsTab.Embeddings && (
+            <div className="space-y-8">
+              <EmbeddingSettings />
+              <AiIndexPanel />
+            </div>
+          )}
           {activeTab === SettingsTab.Sync && <SyncSettings onChange={() => setHasChanges(true)} />}
           {activeTab === SettingsTab.Integrations && <IntegrationSettings />}
           {activeTab === SettingsTab.CloudStorage && (
@@ -1088,6 +1099,10 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
     <>
       <SettingsSection title="Theme" description="Customize the look and feel">
         <ThemePicker />
+      </SettingsSection>
+
+      <SettingsSection title="Display Mode & E-Ink" description="Monochrome profiles and reader hardware optimizations">
+        <EinkSettingsPanel />
       </SettingsSection>
 
       <SettingsSection

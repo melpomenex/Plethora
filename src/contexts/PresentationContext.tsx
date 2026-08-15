@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -19,6 +20,12 @@ import {
   isTauri,
   nativePlatform,
 } from "../lib/tauri";
+import {
+  loadSavedDisplayMode,
+  resolveEffectiveEinkMode,
+  saveDisplayMode,
+} from "../lib/displayMode";
+import type { DisplayMode } from "../types/display";
 
 export interface PresentationState {
   mode: PresentationMode;
@@ -28,6 +35,9 @@ export interface PresentationState {
   isMobileShell: boolean;
   viewportWidth: number;
   viewportHeight: number;
+  displayMode: DisplayMode;
+  isEinkMode: boolean;
+  setDisplayMode: (mode: DisplayMode) => void;
 }
 
 const PresentationContext = createContext<PresentationState | null>(null);
@@ -39,7 +49,7 @@ function normalizePlatform(): string {
   return getPlatform();
 }
 
-export function readPresentationState(): PresentationState {
+export function readPresentationState(customDisplayMode?: DisplayMode): Omit<PresentationState, "setDisplayMode"> {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const mode = classifyPresentation({
@@ -52,9 +62,11 @@ export function readPresentationState(): PresentationState {
   const pointer: PointerType = window.matchMedia?.("(pointer: coarse)").matches
     ? "coarse"
     : "fine";
-  const reducedMotion = Boolean(
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
-  );
+  const displayMode = customDisplayMode ?? loadSavedDisplayMode();
+  const isEinkMode = resolveEffectiveEinkMode(displayMode);
+  const reducedMotion =
+    isEinkMode ||
+    Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
 
   return {
     mode,
@@ -64,24 +76,41 @@ export function readPresentationState(): PresentationState {
     isMobileShell: presentationUsesMobileShell(mode),
     viewportWidth,
     viewportHeight,
+    displayMode,
+    isEinkMode,
   };
 }
 
-function samePresentation(a: PresentationState, b: PresentationState): boolean {
+function samePresentation(
+  a: Omit<PresentationState, "setDisplayMode">,
+  b: Omit<PresentationState, "setDisplayMode">
+): boolean {
   return (
     a.mode === b.mode &&
     a.platform === b.platform &&
     a.pointer === b.pointer &&
     a.reducedMotion === b.reducedMotion &&
     a.viewportWidth === b.viewportWidth &&
-    a.viewportHeight === b.viewportHeight
+    a.viewportHeight === b.viewportHeight &&
+    a.displayMode === b.displayMode &&
+    a.isEinkMode === b.isEinkMode
   );
 }
 
 export function PresentationProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<PresentationState>(() =>
-    readPresentationState(),
+  const [displayMode, setDisplayModeState] = useState<DisplayMode>(() =>
+    loadSavedDisplayMode()
   );
+  const [state, setState] = useState<Omit<PresentationState, "setDisplayMode">>(() =>
+    readPresentationState(displayMode)
+  );
+
+  const setDisplayMode = useCallback((mode: DisplayMode) => {
+    saveDisplayMode(mode);
+    setDisplayModeState(mode);
+    const next = readPresentationState(mode);
+    setState((current) => (samePresentation(current, next) ? current : next));
+  }, []);
 
   useEffect(() => {
     let rafId: number | null = null;
@@ -92,7 +121,7 @@ export function PresentationProvider({ children }: { children: ReactNode }) {
 
     const recompute = () => {
       rafId = null;
-      const next = readPresentationState();
+      const next = readPresentationState(displayMode);
       setState((current) => (samePresentation(current, next) ? current : next));
     };
 
@@ -113,7 +142,7 @@ export function PresentationProvider({ children }: { children: ReactNode }) {
       coarseQuery?.removeEventListener?.("change", schedule);
       motionQuery?.removeEventListener?.("change", schedule);
     };
-  }, []);
+  }, [displayMode]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -121,15 +150,28 @@ export function PresentationProvider({ children }: { children: ReactNode }) {
     root.dataset.platform = state.platform;
     root.dataset.pointer = state.pointer;
     root.dataset.reducedMotion = String(state.reducedMotion);
+    if (state.isEinkMode) {
+      root.dataset.displayMode = "eink";
+    } else {
+      delete root.dataset.displayMode;
+    }
     return () => {
       delete root.dataset.presentation;
       delete root.dataset.platform;
       delete root.dataset.pointer;
       delete root.dataset.reducedMotion;
+      delete root.dataset.displayMode;
     };
-  }, [state.mode, state.platform, state.pointer, state.reducedMotion]);
+  }, [state.mode, state.platform, state.pointer, state.reducedMotion, state.isEinkMode]);
 
-  const value = useMemo(() => state, [state]);
+  const value: PresentationState = useMemo(
+    () => ({
+      ...state,
+      setDisplayMode,
+    }),
+    [state, setDisplayMode]
+  );
+
   return (
     <PresentationContext.Provider value={value}>
       {children}
@@ -139,10 +181,24 @@ export function PresentationProvider({ children }: { children: ReactNode }) {
 
 export function usePresentation(): PresentationState {
   const context = useContext(PresentationContext);
-  return context ?? readPresentationState();
+  if (!context) {
+    const current = readPresentationState();
+    return {
+      ...current,
+      setDisplayMode: (mode: DisplayMode) => {
+        saveDisplayMode(mode);
+      },
+    };
+  }
+  return context;
 }
 
 export function usePresentationMode(): PresentationMode {
   return usePresentation().mode;
 }
+
+export function useIsEink(): boolean {
+  return usePresentation().isEinkMode;
+}
+
 

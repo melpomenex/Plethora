@@ -73,6 +73,7 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
   companion object {
     private var webView: android.webkit.WebView? = null
     private var pendingUrl: String? = null
+    private val pendingBatches = mutableListOf<JSObject>()
     private var isFrontendReady: Boolean = false
 
     fun handleSharedUrl(url: String) {
@@ -84,6 +85,200 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
         }
       } else {
         pendingUrl = url
+      }
+    }
+
+    fun handleIncomingIntent(context: android.content.Context, intent: Intent?) {
+      if (intent == null) return
+      val action = intent.action ?: return
+      if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE && action != Intent.ACTION_VIEW) {
+        return
+      }
+
+      val items = mutableListOf<JSObject>()
+      val importRoot = File(context.filesDir, "imports")
+      val title = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+        ?: intent.getStringExtra(Intent.EXTRA_TITLE)
+
+      if (action == Intent.ACTION_SEND) {
+        val streamUri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+          @Suppress("DEPRECATION")
+          intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        } ?: intent.data
+
+        val rawText = intent.getStringExtra(Intent.EXTRA_TEXT)
+
+        if (streamUri != null) {
+          val mimeType = intent.type ?: context.contentResolver.getType(streamUri) ?: "application/octet-stream"
+          val fileName = queryDisplayName(context, streamUri) ?: "shared_${System.currentTimeMillis()}"
+          val staged = stageFileByUri(context, streamUri, fileName, fileName, importRoot)
+          if (staged != null) {
+            val item = JSObject()
+            item.put("type", "file")
+            item.put("filePath", staged.path)
+            item.put("fileName", staged.fileName)
+            item.put("mimeType", mimeType)
+            if (title != null) item.put("title", title)
+            if (rawText != null && rawText.isNotBlank()) item.put("text", rawText)
+            val fileObj = File(staged.path)
+            if (fileObj.exists()) item.put("fileSize", fileObj.length())
+            items.add(item)
+          }
+        } else if (rawText != null) {
+          val urlRegex = Regex("""https?://[^\s]+""")
+          val match = urlRegex.find(rawText)
+          if (match != null) {
+            val url = match.value
+            val item = JSObject()
+            item.put("type", "url")
+            item.put("url", url)
+            if (title != null) item.put("title", title)
+            val note = rawText.replace(url, "").trim()
+            if (note.isNotEmpty()) item.put("text", note)
+            items.add(item)
+            handleSharedUrl(url)
+          } else {
+            val item = JSObject()
+            item.put("type", "text")
+            item.put("text", rawText)
+            if (title != null) item.put("title", title)
+            items.add(item)
+          }
+        }
+      } else if (action == Intent.ACTION_SEND_MULTIPLE) {
+        val streamUris: ArrayList<Uri>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+          intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+          @Suppress("DEPRECATION")
+          intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+        }
+        val rawText = intent.getStringExtra(Intent.EXTRA_TEXT)
+
+        if (streamUris != null) {
+          for (uri in streamUris) {
+            val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+            val fileName = queryDisplayName(context, uri) ?: "shared_${System.currentTimeMillis()}"
+            val staged = stageFileByUri(context, uri, fileName, fileName, importRoot)
+            if (staged != null) {
+              val item = JSObject()
+              item.put("type", "file")
+              item.put("filePath", staged.path)
+              item.put("fileName", staged.fileName)
+              item.put("mimeType", mimeType)
+              if (title != null) item.put("title", title)
+              if (rawText != null && rawText.isNotBlank()) item.put("text", rawText)
+              val fileObj = File(staged.path)
+              if (fileObj.exists()) item.put("fileSize", fileObj.length())
+              items.add(item)
+            }
+          }
+        }
+      } else if (action == Intent.ACTION_VIEW) {
+        val viewUri = intent.data
+        if (viewUri != null) {
+          if (viewUri.scheme == "http" || viewUri.scheme == "https") {
+            val url = viewUri.toString()
+            val item = JSObject()
+            item.put("type", "url")
+            item.put("url", url)
+            items.add(item)
+            handleSharedUrl(url)
+          } else {
+            val mimeType = intent.type ?: context.contentResolver.getType(viewUri) ?: "application/octet-stream"
+            val fileName = queryDisplayName(context, viewUri) ?: "view_${System.currentTimeMillis()}"
+            val staged = stageFileByUri(context, viewUri, fileName, fileName, importRoot)
+            if (staged != null) {
+              val item = JSObject()
+              item.put("type", "file")
+              item.put("filePath", staged.path)
+              item.put("fileName", staged.fileName)
+              item.put("mimeType", mimeType)
+              val fileObj = File(staged.path)
+              if (fileObj.exists()) item.put("fileSize", fileObj.length())
+              items.add(item)
+            }
+          }
+        }
+      }
+
+      if (items.isNotEmpty()) {
+        val batch = JSObject()
+        batch.put("timestamp", System.currentTimeMillis())
+        val arr = JSArray()
+        for (it in items) {
+          arr.put(it)
+        }
+        batch.put("items", arr)
+
+        val view = webView
+        if (view != null && isFrontendReady) {
+          view.post {
+            val jsonStr = batch.toString().replace("'", "\\'")
+            view.evaluateJavascript("window.dispatchEvent(new CustomEvent('incrementum-native-share', { detail: JSON.parse('$jsonStr') }));", null)
+          }
+        } else {
+          synchronized(pendingBatches) {
+            pendingBatches.add(batch)
+          }
+        }
+      }
+    }
+
+    /** Resolve a content URI's human-readable display name. */
+    fun queryDisplayName(context: android.content.Context, uri: Uri): String? {
+      return try {
+        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+          if (c.moveToFirst()) c.getString(0) else null
+        }
+      } catch (ex: Exception) {
+        null
+      }
+    }
+
+    /**
+     * Copy a single content:// URI's bytes into `<filesDir>/imports/<relativePath>`,
+     * returning the staged [StagedFile] or null on copy failure. Native-side copy
+     * (like [stageFile] for folders) — no IPC byte transfer.
+     */
+    fun stageFileByUri(
+      context: android.content.Context,
+      uri: Uri,
+      fileName: String,
+      relativePath: String,
+      importRoot: File,
+    ): StagedFile? {
+      val dest = uniqueDest(importRoot, relativePath)
+      return try {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+          FileOutputStream(dest).use { output ->
+            input.copyTo(output)
+          }
+        } ?: return null
+        StagedFile(
+          path = dest.absolutePath,
+          relativePath = relativePath,
+          fileName = fileName,
+        )
+      } catch (ex: Exception) {
+        Logger.error("Failed to stage $relativePath: ${ex.message}")
+        null
+      }
+    }
+
+    fun uniqueDest(importRoot: File, relativePath: String): File {
+      val base = File(importRoot, relativePath)
+      base.parentFile?.mkdirs()
+      if (!base.exists()) return base
+      val dot = relativePath.lastIndexOf('.')
+      val stem = if (dot > 0) relativePath.substring(0, dot) else relativePath
+      val ext = if (dot > 0) relativePath.substring(dot) else ""
+      var i = 1
+      while (true) {
+        val candidate = File(importRoot, "$stem ($i)$ext")
+        if (!candidate.exists()) return candidate
+        i++
       }
     }
 
@@ -111,6 +306,30 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
     } else {
       response.put("url", null)
     }
+
+    val batchesArr = JSArray()
+    synchronized(pendingBatches) {
+      for (b in pendingBatches) {
+        batchesArr.put(b)
+      }
+      pendingBatches.clear()
+    }
+    response.put("batches", batchesArr)
+
+    invoke.resolve(response)
+  }
+
+  @Command
+  fun getPendingShares(invoke: Invoke) {
+    val response = JSObject()
+    val batchesArr = JSArray()
+    synchronized(pendingBatches) {
+      for (b in pendingBatches) {
+        batchesArr.put(b)
+      }
+      pendingBatches.clear()
+    }
+    response.put("batches", batchesArr)
     invoke.resolve(response)
   }
 
@@ -237,60 +456,21 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
     }
   }
 
-  /** Resolve a content URI's human-readable display name. */
   private fun queryDisplayName(uri: Uri): String? {
-    return try {
-      activity.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-        if (c.moveToFirst()) c.getString(0) else null
-      }
-    } catch (ex: Exception) {
-      null
-    }
+    return Companion.queryDisplayName(activity, uri)
   }
 
-  /**
-   * Copy a single content:// URI's bytes into `<filesDir>/imports/<relativePath>`,
-   * returning the staged [StagedFile] or null on copy failure. Native-side copy
-   * (like [stageFile] for folders) — no IPC byte transfer.
-   */
   private fun stageFileByUri(
     uri: Uri,
     fileName: String,
     relativePath: String,
     importRoot: File,
   ): StagedFile? {
-    // Avoid collisions: if the name exists, suffix a counter.
-    val dest = uniqueDest(importRoot, relativePath)
-    return try {
-      activity.contentResolver.openInputStream(uri)?.use { input ->
-        FileOutputStream(dest).use { output ->
-          input.copyTo(output)
-        }
-      } ?: return null
-      StagedFile(
-        path = dest.absolutePath,
-        relativePath = relativePath,
-        fileName = fileName,
-      )
-    } catch (ex: Exception) {
-      Logger.error("Failed to stage $relativePath: ${ex.message}")
-      null
-    }
+    return Companion.stageFileByUri(activity, uri, fileName, relativePath, importRoot)
   }
 
   private fun uniqueDest(importRoot: File, relativePath: String): File {
-    val base = File(importRoot, relativePath)
-    base.parentFile?.mkdirs()
-    if (!base.exists()) return base
-    val dot = relativePath.lastIndexOf('.')
-    val stem = if (dot > 0) relativePath.substring(0, dot) else relativePath
-    val ext = if (dot > 0) relativePath.substring(dot) else ""
-    var i = 1
-    while (true) {
-      val candidate = File(importRoot, "$stem ($i)$ext")
-      if (!candidate.exists()) return candidate
-      i++
-    }
+    return Companion.uniqueDest(importRoot, relativePath)
   }
 
   @Command

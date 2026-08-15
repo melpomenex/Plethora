@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createLearningItemsBatch, type CreateLearningItemInput } from "../../api/learning-items";
+import { recordAiProvenance } from "../../api/ai-provenance";
 import { useStudyDeckStore } from "../../stores";
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
@@ -17,6 +18,9 @@ import { ImageOcclusionComposer, type ComposerSaveResult } from "./ImageOcclusio
  *
  * Saving a session writes every card through one transactional batch command —
  * all cards are persisted or none are — and reports the whole-session result.
+ * AI-assist cards carry their own question per card (task 3.6) and get an
+ * `ai_provenance` row per created item (task 3.9); a provenance failure is
+ * logged, never fatal.
  */
 interface OcclusionComposerRequest {
   assetId: string;
@@ -52,20 +56,28 @@ export function OcclusionComposerHost() {
           : [deck.name]
         : [];
 
-      const inputs: CreateLearningItemInput[] = result.cards.map((card) => ({
-        item_type: "qa",
-        question: result.question,
-        answer: card.answer,
-        document_id: result.documentId,
-        tags: deckTags,
-        image_asset_ids: [result.assetId],
-        interaction_metadata: {
-          interactionType: "image-occlusion",
-          imageOcclusionAssetId: result.assetId,
-          imageOcclusionRegions: card.hiddenRegions,
-          imageOcclusionPrompt: result.question,
-        },
-      }));
+      // The composer prepends accepted assist card drafts to `result.cards`,
+      // so the first `assistCount` entries are the AI-assist cards.
+      const assistCount = result.assist?.cards.length ?? 0;
+
+      const inputs: CreateLearningItemInput[] = result.cards.map((card, index) => {
+        const assistCard = index < assistCount ? result.assist?.cards[index] : undefined;
+        const cardQuestion = assistCard?.question ?? result.question;
+        return {
+          item_type: "qa",
+          question: cardQuestion,
+          answer: card.answer,
+          document_id: result.documentId,
+          tags: deckTags,
+          image_asset_ids: [result.assetId],
+          interaction_metadata: {
+            interactionType: "image-occlusion",
+            imageOcclusionAssetId: result.assetId,
+            imageOcclusionRegions: card.hiddenRegions,
+            imageOcclusionPrompt: cardQuestion,
+          },
+        };
+      });
 
       try {
         const created = await createLearningItemsBatch(inputs);
@@ -73,6 +85,41 @@ export function OcclusionComposerHost() {
         toast.success(
           t("occlusionComposer.savedCards", { count: created.length }),
         );
+
+        // Provenance for AI-assist cards (task 3.9): one row per created
+        // item, after the batch succeeded. Attribution is by card index (the
+        // composer prepends assist drafts) or, for freeform runs, by the
+        // region-id prefix. Never fatal on failure.
+        const provenance = result.assist?.provenance;
+        if (provenance) {
+          await Promise.all(
+            created.map((item, index) => {
+              const isAssistCard =
+                index < assistCount ||
+                (provenance.usedFreeform &&
+                  (item.interaction_metadata?.imageOcclusionRegions ?? []).some(
+                    (region) => (region.id ?? "").startsWith("freeform-")
+                  ));
+              if (!isAssistCard) return Promise.resolve(null);
+              return recordAiProvenance({
+                targetKind: "learning_item",
+                targetId: item.id,
+                taskId: provenance.taskId,
+                provider: provenance.providerId,
+                model: provenance.baseModelName,
+                modelClass: provenance.servedModelClass,
+                inputFingerprint: provenance.fingerprint,
+                metadata: {
+                  imageAssetId: result.assetId,
+                  usedFreeform: provenance.usedFreeform,
+                },
+              }).catch((error) => {
+                console.warn("[occlusion] provenance recording failed (non-fatal)", error);
+                return null;
+              });
+            })
+          );
+        }
       } catch (error) {
         // Whole-session failure: nothing was persisted; stay in the composer
         // so the authoring work is not lost.

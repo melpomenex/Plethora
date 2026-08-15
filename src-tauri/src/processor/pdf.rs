@@ -180,6 +180,85 @@ pub async fn get_pdf_page_count(file_path: &str) -> Result<usize> {
     Ok(doc.get_pages().len())
 }
 
+/// Extract per-page plain text for the semantic indexer (OpenSpec change
+/// `add-ondevice-ai-learning-system`, task 4.2).
+///
+/// Decision (documented per task): `pdf-extract` has no true random-access
+/// per-page API, but `extract_text_from_mem_by_pages` splits its streamed
+/// extraction at page boundaries and is already used by
+/// `convert_pdf_to_html`. That is the primary path here. Fallback chain when
+/// it yields nothing (image-only pages / extractor failure): whole-document
+/// text split on form-feed boundaries, then a proportional paragraph split
+/// via the same helper the HTML converter uses. The caller (chunker) treats
+/// each returned entry as one page and records its 1-based number as the
+/// chunk location.
+pub async fn extract_pdf_pages_text(file_path: &str) -> Result<Vec<String>> {
+    let path = Path::new(file_path);
+
+    let buffer = tokio::fs::read(path).await.map_err(|e| {
+        crate::error::IncrementumError::NotFound(format!("Failed to read PDF: {}", e))
+    })?;
+
+    let doc = lopdf::Document::load_mem(&buffer).map_err(|e| {
+        crate::error::IncrementumError::NotFound(format!("Failed to load PDF: {}", e))
+    })?;
+    let page_count = doc.get_pages().len();
+    drop(doc);
+
+    // Primary: page-splitting extractor, on the blocking pool with a timeout
+    // (pdf-extract is CPU-bound for seconds on large documents).
+    let buffer = std::sync::Arc::new(buffer);
+    let buffer_for_pages = std::sync::Arc::clone(&buffer);
+    let pages = match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        tokio::task::spawn_blocking(move || {
+            pdf_extract::extract_text_from_mem_by_pages(&buffer_for_pages)
+        }),
+    )
+    .await
+    {
+        Ok(Ok(Ok(pages))) => pages,
+        Ok(Ok(Err(e))) => {
+            eprintln!("PDF per-page extraction failed: {}", e);
+            Vec::new()
+        }
+        Ok(Err(e)) => {
+            eprintln!("PDF per-page extraction panicked: {}", e);
+            Vec::new()
+        }
+        Err(_) => {
+            eprintln!("PDF per-page extraction timed out after 10 seconds");
+            Vec::new()
+        }
+    };
+
+    let usable: Vec<String> = pages
+        .into_iter()
+        .map(|text| normalize_extracted_text(&text))
+        .filter(|text| !text.trim().is_empty())
+        .collect();
+    if !usable.is_empty() {
+        return Ok(usable);
+    }
+
+    // Fallback: whole-document text, then split on form feeds / paragraphs.
+    let buffer_for_fallback = std::sync::Arc::clone(&buffer);
+    let fallback = match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        tokio::task::spawn_blocking(move || pdf_extract::extract_text_from_mem(&buffer_for_fallback)),
+    )
+    .await
+    {
+        Ok(Ok(Ok(text))) => text,
+        _ => String::new(),
+    };
+
+    if fallback.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(split_text_across_pages(&fallback, page_count))
+}
+
 /// Extract an embedded cover image from the first page of a PDF as a data URL.
 pub async fn extract_pdf_cover_data_url(file_path: &str) -> Result<Option<String>> {
     let path = Path::new(file_path);

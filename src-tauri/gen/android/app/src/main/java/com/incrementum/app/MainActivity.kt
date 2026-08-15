@@ -197,19 +197,8 @@ class MainActivity : TauriActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent != null && intent.action == Intent.ACTION_SEND) {
-            val text = intent.getStringExtra(Intent.EXTRA_TEXT)
-            if (text != null) {
-                val url = extractUrl(text)
-                if (url != null) {
-                    com.incrementum.folderimport.FolderImportPlugin.handleSharedUrl(url)
-                }
-            }
+        if (intent != null) {
+            com.incrementum.folderimport.FolderImportPlugin.handleIncomingIntent(this, intent)
         }
-    }
-
-    private fun extractUrl(text: String): String? {
-        val urlRegex = Regex("""https?://[^\s]+""")
-        return urlRegex.find(text)?.value
     }
 }

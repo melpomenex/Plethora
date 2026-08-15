@@ -352,9 +352,10 @@ export function AssistantPanel({
 
   // Model selection UI states and store subscription
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
-  // Whole-library RAG scope: when true, messages route through rag_chat
-  // (retrieve top-k chunks across the collection + grounded answer + citations)
-  // instead of the single-document chatWithContext path.
+  // Whole-library RAG scope: when true, messages route through the Ask
+  // library task (retrieve top-k chunks across the semantic index + grounded
+  // validated answer + citations) instead of the single-document
+  // chatWithContext path.
   const [useWholeLibraryScope, setUseWholeLibraryScope] = useState(false);
   const configuredProvidersList = useLLMProvidersStore((state) => state.providers);
 
@@ -974,49 +975,29 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       // and answer with citations, instead of the single-document path.
       if (useWholeLibraryScope) {
         try {
-          const { ragChat, buildRagOptions } = await import("../../api/rag");
+          const { askLibrary } = await import("../../lib/ai/tasks/definitions/libraryTask");
           const { resolveEmbeddingConfigForRag } = await import("./ragConfig");
-          const ragStore = await import("../../stores/ragStore");
 
           const config = await resolveEmbeddingConfigForRag();
-          const options = buildRagOptions(useSettingsStore.getState().settings.embedding);
-          const providerState = useLLMProvidersStore.getState().providers.find(
-            (p) => p.provider === effectiveProvider
-          );
 
-          const history = messages
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .slice(-10)
-            .map((m) => ({ role: m.role as "system" | "user" | "assistant", content: m.content }));
-
-          ragStore.useRagStore.getState().setChatting(true);
-          const result = await ragChat(
-            userInput,
+          const result = await askLibrary({
+            query: userInput,
             config,
-            history,
-            {
-              provider: effectiveProvider,
-              model: providerState?.model,
-              apiKey: providerState?.apiKey,
-              baseUrl: providerState?.baseUrl && providerState.baseUrl.trim() ? providerState.baseUrl : undefined,
-            },
-            options
-          );
-          ragStore.useRagStore.getState().setLastChat(result);
+          });
 
           // Render answer + a compact citations footer.
           const citationsBlock =
-            result.citations.length > 0
+            result.sources.length > 0
               ? "\n\n---\n**Sources:**\n" +
-                result.citations
-                  .map((c, i) => `[${i + 1}] ${c.documentTitle} (score ${c.score.toFixed(2)})`)
+                result.sources
+                  .map((c, i) => `[${i + 1}] ${c.documentTitle ?? c.documentId} (score ${c.score.toFixed(2)})`)
                   .join("\n")
               : "";
 
           const ragMessage: Message = {
             id: `assistant-${Date.now()}`,
             role: "assistant",
-            content: result.answer + citationsBlock,
+            content: result.answer.answer + citationsBlock,
             timestamp: Date.now(),
           };
           setMessages((prev) => [...prev, ragMessage]);
@@ -1025,12 +1006,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           const errorMsg: Message = {
             id: `assistant-${Date.now()}`,
             role: "assistant",
-            content: `⚠️ Whole-library chat failed: ${errorMessage}\n\nMake sure your library is indexed (Settings → Embeddings & RAG → Index Collection) and an embedding provider is configured.`,
+            content: `⚠️ Whole-library chat failed: ${errorMessage}\n\nMake sure your library is indexed (Settings → Embeddings → Library indexing) and an embedding provider is configured.`,
             timestamp: Date.now(),
           };
           setMessages((prev) => [...prev, errorMsg]);
         } finally {
-          (await import("../../stores/ragStore")).useRagStore.getState().setChatting(false);
           setIsLoading(false);
         }
         return;

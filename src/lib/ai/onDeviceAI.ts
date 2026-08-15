@@ -56,9 +56,38 @@ export interface OnDeviceCapabilitySnapshot {
   imageInput: boolean;
   multiImage: boolean;
   streaming: boolean;
+  /** ML Kit Text Recognition (bundled) compiled in (design D18). Optional:
+   * older plugin builds never send it. */
+  ocr?: boolean;
+  /** EmbeddingGemma embeddings usable right now (design D10 / task 4.5):
+   * LiteRT feature compiled in AND the downloaded, verified artifacts on
+   * disk. Optional: older plugin builds never send it. */
+  embeddings?: boolean;
   baseModelName?: string;
   tokenLimit?: number;
   checkedAt: number;
+}
+
+/** One OCR text label with a percent-normalized box (design D18). */
+export interface OnDeviceOcrLabel {
+  id: string;
+  text: string;
+  confidence?: number;
+  /** Percent 0–100 of the source image. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Raw pixel box [left, top, right, bottom] for diagnostics. */
+  pixelBox?: number[];
+}
+
+/** Result of the on-device OCR labels command. */
+export interface OnDeviceOcrLabelsResult {
+  labels: OnDeviceOcrLabel[];
+  sourceWidth: number;
+  sourceHeight: number;
+  truncated?: boolean;
 }
 
 /** Error codes the bridge and this module can produce. */
@@ -223,6 +252,43 @@ export async function requestModelDownload(
   return isOnDeviceAiAvailable();
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// On-device OCR (ML Kit Text Recognition, design D18 / task 3.2)
+// ──────────────────────────────────────────────────────────────────────────
+
+/** Whether the compiled-in bundled recognizer is available on this device. */
+export async function isOnDeviceOcrAvailable(): Promise<boolean> {
+  if (!isOnDeviceAiSupportedPlatform()) return false;
+  const snapshot = await getOnDeviceAiCapabilities();
+  return snapshot.ocr === true;
+}
+
+/**
+ * Run deterministic on-device OCR over one base64 image and return labels
+ * with percent-normalized boxes. Android-only; every other platform throws
+ * `platform_unsupported` so callers fall back to the Rust OCR provider chain
+ * (`ocr_image_bytes` with its `lines` field).
+ */
+export async function getOnDeviceOcrLabels(
+  base64Image: string,
+  maxResults?: number
+): Promise<OnDeviceOcrLabelsResult> {
+  if (!isOnDeviceAiSupportedPlatform()) {
+    throw new OnDeviceAiError(
+      "platform_unsupported",
+      "On-device OCR is only available in the Android build."
+    );
+  }
+  try {
+    return await invokeCommand<OnDeviceOcrLabelsResult>(
+      `${PLUGIN}|ondevice_ai_ocr_labels`,
+      { request: { base64Image, maxResults } }
+    );
+  } catch (error) {
+    throw toOnDeviceAiError(error);
+  }
+}
+
 function unsupportedCapabilitySnapshot(): OnDeviceCapabilitySnapshot {
   return unavailableCapabilitySnapshot("platform_unsupported");
 }
@@ -240,8 +306,122 @@ function unavailableCapabilitySnapshot(reason: string): OnDeviceCapabilitySnapsh
     imageInput: false,
     multiImage: false,
     streaming: false,
+    ocr: false,
+    embeddings: false,
     checkedAt: Date.now(),
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// On-device embeddings (EmbeddingGemma via LiteRT, design D10 / task 4.5)
+// ──────────────────────────────────────────────────────────────────────────
+
+/** State of the on-device embedding model artifacts. */
+export type OnDeviceEmbeddingStatusName =
+  | "available"
+  | "downloadable"
+  | "downloading"
+  | "unavailable";
+
+export interface OnDeviceEmbeddingStatus {
+  status: OnDeviceEmbeddingStatusName;
+  /** Machine-readable reason, present whenever status is not `available`. */
+  reason?: string;
+  model: string;
+  dimension?: number;
+  bytesDownloaded?: number;
+  totalBytes?: number;
+  checkedAt: number;
+}
+
+/** One progress event while downloading an embedding artifact. */
+export interface OnDeviceEmbeddingProgress {
+  file: string;
+  bytesDownloaded: number;
+  /** -1 when the server did not advertise a length. */
+  totalBytes: number;
+  percent: number;
+}
+
+const EMBED_MODEL_ID = "embeddinggemma-300m";
+
+function unsupportedEmbeddingStatus(): OnDeviceEmbeddingStatus {
+  return {
+    status: "unavailable",
+    reason: "platform_unsupported",
+    model: EMBED_MODEL_ID,
+    checkedAt: Date.now(),
+  };
+}
+
+/**
+ * Report the embedding model state. Never throws: platforms without the
+ * bridge report `platform_unsupported`, and a failed bridge call is an
+ * `unavailable` status with a reason.
+ */
+export async function getOnDeviceEmbeddingStatus(): Promise<OnDeviceEmbeddingStatus> {
+  if (!isOnDeviceAiSupportedPlatform()) return unsupportedEmbeddingStatus();
+  try {
+    return await invokeCommand<OnDeviceEmbeddingStatus>(
+      `${PLUGIN}|ondevice_ai_embed_status`
+    );
+  } catch (error) {
+    console.warn("[onDeviceAI] embedding status check failed:", error);
+    return { ...unsupportedEmbeddingStatus(), reason: "inference_failed" };
+  }
+}
+
+/**
+ * Download and sha256-verify the embedding artifacts (~184 MB). Only ever
+ * called from an explicit user action. Progress is streamed through a
+ * command channel when available and the `ondevice-genai://embed-download-progress`
+ * event otherwise. Resolves with the final status once both artifacts are
+ * verified; rejects with a typed error on failure.
+ */
+export async function downloadOnDeviceEmbeddingModel(
+  onProgress?: (progress: OnDeviceEmbeddingProgress) => void
+): Promise<OnDeviceEmbeddingStatus> {
+  if (!isOnDeviceAiSupportedPlatform()) {
+    throw new OnDeviceAiError(
+      "platform_unsupported",
+      "On-device embeddings are only available in the Android build."
+    );
+  }
+
+  let channel: unknown;
+  if (onProgress && isTauri() && typeof window !== "undefined" && (window as any).__TAURI_INTERNALS__) {
+    try {
+      const { Channel } = await import("@tauri-apps/api/core");
+      channel = new Channel<any>((payload: any) => {
+        if (payload?.event === "progress") onProgress(payload as OnDeviceEmbeddingProgress);
+      });
+    } catch (e) {
+      console.warn("[onDeviceAI] embed download channel unavailable, using events", e);
+    }
+  }
+
+  // The listener event mirrors every channel progress notification, so it is
+  // the fallback when the Channel class could not be loaded.
+  const unlisten = channel
+    ? undefined
+    : await listen<OnDeviceEmbeddingProgress>(
+        "ondevice-genai://embed-download-progress",
+        (event) => onProgress?.(event.payload)
+      );
+
+  try {
+    // `onEvent` is required by the command signature; when the Channel class
+    // is unavailable the invoke fails with a typed error (same contract as
+    // the streaming prompt path).
+    return await invokeCommand<OnDeviceEmbeddingStatus>(
+      `${PLUGIN}|ondevice_ai_embed_download`,
+      { onEvent: channel }
+    );
+  } catch (error) {
+    throw toOnDeviceAiError(error);
+  } finally {
+    unlisten?.();
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -250,7 +430,27 @@ function unavailableCapabilitySnapshot(reason: string): OnDeviceCapabilitySnapsh
 
 export type SummaryFormat = "paragraph" | "bullets";
 
-export type NativePromptOutputMode = "text" | "flashcards" | "tags" | "occlusions";
+/**
+ * Output routing for the native prompt bridge. `"structured"` requests
+ * schema-compiled structured output (Kotlin `@Schema` envelopes); the
+ * response then carries the parsed envelope in `structured` and its JSON
+ * serialization in `text`. Streaming + structured emits no incremental text
+ * events — a single terminal `complete` carries the result.
+ */
+export type NativePromptOutputMode = "text" | "flashcards" | "tags" | "occlusions" | "structured";
+
+/** Schema-compiled structured-output envelope names (Kotlin contract). */
+export const NATIVE_RESPONSE_SCHEMA_NAMES = [
+  "learningMaterialProposal",
+  "answerAssessment",
+  "recallQuestionProposal",
+  "occlusionLabelSelection",
+  "prerequisiteAnalysis",
+  "passageClassification",
+  "tutorTurn",
+] as const;
+
+export type NativeResponseSchemaName = (typeof NATIVE_RESPONSE_SCHEMA_NAMES)[number];
 
 export interface NativePromptImagePayload {
   mimeType: string;
@@ -267,6 +467,8 @@ export interface NativePromptRequest {
   maxOutputTokens?: number;
   candidateCount?: number;
   outputMode?: NativePromptOutputMode;
+  /** Schema envelope name when `outputMode` is `structured`. */
+  responseSchema?: NativeResponseSchemaName;
   systemInstruction?: string;
   stream?: boolean;
 }
@@ -278,12 +480,21 @@ export interface NativePromptCandidate {
 
 export interface NativePromptResponse {
   requestId: string;
+  /**
+   * Generated text. For `outputMode: "structured"` requests this is the JSON
+   * serialization of the envelope also returned parsed in `structured`.
+   */
   text: string;
   finishReason?: "stop" | "max_tokens" | "other";
   inputTokens: number;
   tokenLimit: number;
   baseModelName?: string;
   candidates: NativePromptCandidate[];
+  /**
+   * Parsed structured envelope when schema-compiled structured output ran.
+   * `null` whenever the build/device lacks the feature — callers then use
+   * their strict-JSON fallback (the bridge never errors for this).
+   */
   structured?: unknown;
 }
 

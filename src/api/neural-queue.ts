@@ -9,7 +9,7 @@
  */
 
 import { invokeCommand } from "../lib/tauri";
-import type { EmbeddingConfig } from "./rag";
+import type { EmbeddingConfig } from "./ai-learning";
 
 export type NeuralElementKind = "document" | "extract" | "learning_item";
 

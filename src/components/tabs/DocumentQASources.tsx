@@ -25,7 +25,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RagHit } from "../../api/rag";
+import type { RagHit } from "../../stores/documentQAStore";
 import type { Document } from "../../types/document";
 import type { ExactSearchHitLocation } from "../../types/searchHit";
 import { getDocument } from "../../api/documents";

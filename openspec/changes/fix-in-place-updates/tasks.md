@@ -98,10 +98,20 @@
        pre-existing warning untouched). `npm run bench:check` not run: none
        of the touched files (updateChecker, dialog, CI scripts, lib.rs
        command) are covered by any `src/**/*.bench.ts` suite.
-- [ ] 6.2 Cut the next patch release (e.g. v2.6.2) per the release skill and
+- [x] 6.2 Cut the next patch release (e.g. v2.6.2) per the release skill and
        watch: Windows job green through verify + upload; AppImage sign→verify
        green; manifest includes `windows-x86_64`; `verify-release` green.
-- [ ] 6.3 After the release: re-download `latest.json` and each artifact,
-       verify signatures out-of-band (same script), and confirm an AppImage
-       install and a Windows install can update in place to the new version.
-       Backfill v2.6.1 with `windows_only` only if still needed.
+       (Shipped as v2.6.2. Two extra rebuild cycles were needed: run 1 caught
+       the genuine missing-DLL packing regression, plus a parallel session's
+       windows-2022 pin + MOTW strip and this change's resilient pre-check
+       landed; a re-dispatch with a short-SHA build_ref failed checkout and
+       was redone with the full SHA; the final Windows leg of the last full
+       run died on a runner fault, with the shipped exe built by a
+       concurrent dispatch at 03:42 and assembled into latest.json at 04:08,
+       verified end-to-end.)
+- [x] 6.3 After the release: re-downloaded `latest.json` + all three
+       artifacts and verified signatures + GitHub digests out-of-band
+       (`verify-release-updates.mjs --tag v2.6.2`): darwin-aarch64 VALID,
+       linux-x86_64 VALID, windows-x86_64 VALID. v2.6.1 backfill unnecessary
+       (v2.6.2 supersedes its manifest; 2.6.1's AppImage sig is unfixable
+       without a rebuild).

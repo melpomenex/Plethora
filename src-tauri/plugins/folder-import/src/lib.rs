@@ -260,28 +260,80 @@ mod commands {
         }
     }
 
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SharedPayloadItem {
+        pub r#type: String, // "url" | "text" | "file"
+        #[serde(default)]
+        pub url: Option<String>,
+        #[serde(default)]
+        pub text: Option<String>,
+        #[serde(default)]
+        pub title: Option<String>,
+        #[serde(default)]
+        pub file_path: Option<String>,
+        #[serde(default)]
+        pub file_name: Option<String>,
+        #[serde(default)]
+        pub mime_type: Option<String>,
+        #[serde(default)]
+        pub file_size: Option<u64>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct SharedBatch {
+        pub timestamp: u64,
+        pub items: Vec<SharedPayloadItem>,
+    }
+
     #[allow(dead_code)]
-    #[derive(Debug, Deserialize)]
-    struct ShareListenerResponse {
-        url: Option<String>,
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ShareListenerResult {
+        pub url: Option<String>,
+        #[serde(default)]
+        pub batches: Vec<SharedBatch>,
     }
 
     #[tauri::command]
     pub async fn register_share_listener(
         state: State<'_, FolderImport>,
-    ) -> Result<Option<String>, Error> {
+    ) -> Result<ShareListenerResult, Error> {
         #[cfg(target_os = "android")]
         {
-            let res: ShareListenerResponse = state
+            let res: ShareListenerResult = state
                 .handle
                 .run_mobile_plugin("registerShareListener", serde_json::json!({}))
                 .map_err(|e| Error::Message(e.to_string()))?;
-            Ok(res.url)
+            Ok(res)
         }
         #[cfg(not(target_os = "android"))]
         {
             let _ = state;
-            Ok(None)
+            Ok(ShareListenerResult {
+                url: None,
+                batches: Vec::new(),
+            })
+        }
+    }
+
+    #[tauri::command]
+    pub async fn get_pending_shares(
+        state: State<'_, FolderImport>,
+    ) -> Result<Vec<SharedBatch>, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let res: ShareListenerResult = state
+                .handle
+                .run_mobile_plugin("getPendingShares", serde_json::json!({}))
+                .map_err(|e| Error::Message(e.to_string()))?;
+            Ok(res.batches)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = state;
+            Ok(Vec::new())
         }
     }
 }
@@ -449,6 +501,7 @@ struct MobilePickResponse {
 // ──────────────────────────────────────────────────────────────────────────
 
 pub use commands::backup_db_to_downloads;
+pub use commands::get_pending_shares;
 pub use commands::install_apk;
 /// Pick one or more files and return them staged into app-private storage.
 /// See `commands::pick_files` for the implementation.
@@ -471,7 +524,8 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::pick_files,
             commands::install_apk,
             commands::backup_db_to_downloads,
-            commands::register_share_listener
+            commands::register_share_listener,
+            commands::get_pending_shares
         ])
         .setup(|app, api| {
             let folder_import = init_mobile(app.app_handle(), api)?;

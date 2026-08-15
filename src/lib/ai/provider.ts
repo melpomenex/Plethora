@@ -13,12 +13,11 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { providerAllowsKeylessAccess } from "../../utils/llmProviderUtils";
 import { ToastType, useToastStore } from "../../components/common/Toast";
 import {
-  OnDeviceAiError,
   getOnDeviceRequirementStatus,
   isOnDeviceAiSupportedPlatform,
-  toOnDeviceAiError,
   type OnDeviceRequirement,
 } from "./onDeviceAI";
+import { isCancelledError, toAIError } from "./errors";
 
 export type AiPath = "ondevice" | "cloud" | "none";
 
@@ -90,9 +89,13 @@ export async function runAiAction<T>(
   try {
     return await action.onDevice();
   } catch (error) {
-    const typed = error instanceof OnDeviceAiError ? error : toOnDeviceAiError(error);
-    // A cancellation is the user's decision, not a failure to route around.
-    if (typed.code === "cancelled") throw typed;
+    // A cancellation is the user's decision, not a failure to route around —
+    // this holds for both `OnDeviceAiError(cancelled)` and unified
+    // `AIError(Cancelled)` from the task layer.
+    if (isCancelledError(error)) throw error;
+
+    const typed = toAIError(error);
+    if (typed.category === "Cancelled") throw typed;
 
     if (!hasCloudProvider()) throw typed;
 

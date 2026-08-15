@@ -43,7 +43,7 @@ import {
   type ResolvedNeuralQueueEntry,
   type NeuralElementKind,
 } from "../api/neural-queue";
-import { resolveEmbeddingConfig } from "../stores/ragStore";
+import { resolveEmbeddingConfigForRag } from "../components/assistant/ragConfig";
 import {
   buildNeuralScrollItems as neuralBuildNeuralScrollItems,
   neuralSeedFromItem,
@@ -493,7 +493,7 @@ export function QueueScrollPage() {
   const neuralSeedRef = useRef<{ kind: NeuralElementKind; refId: string } | null>(null);
   // The embedding config used at neural-build time, kept so the refill-after-
   // consume path passes the same config (semantic neighbors stay in play).
-  const neuralEmbeddingConfigRef = useRef<import("../api/rag").EmbeddingConfig | null>(null);
+  const neuralEmbeddingConfigRef = useRef<import("../api/ai-learning").EmbeddingConfig | null>(null);
   const [dueFlashcards, setDueFlashcards] = useState<LearningItem[]>([]);
   const [dueExtracts, setDueExtracts] = useState<Extract[]>([]);
   // Maps podcast episodeId → real Document.id, so extracts created from a
@@ -3757,9 +3757,9 @@ export function QueueScrollPage() {
       // Resolve the user's embedding config so semantic-similarity edges fire
       // when the collection is indexed. A failure here is non-fatal — neural
       // review still works on the tree-topology relationships alone.
-      let embeddingConfig: import("../api/rag").EmbeddingConfig | null = null;
+      let embeddingConfig: import("../api/ai-learning").EmbeddingConfig | null = null;
       try {
-        embeddingConfig = await resolveEmbeddingConfig();
+        embeddingConfig = await resolveEmbeddingConfigForRag();
       } catch {
         // No embedding provider configured — semantic neighbors will be a no-op.
       }

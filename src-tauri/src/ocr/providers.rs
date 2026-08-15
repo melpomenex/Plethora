@@ -130,17 +130,34 @@ pub struct OCRResult {
     pub provider: OCRProviderType,
     /// Additional metadata
     pub metadata: serde_json::Value,
+    /// Detected text lines with PIXEL-coordinate bounding boxes, when the
+    /// provider exposes them (design D18). Empty for providers without box
+    /// support; the command layer normalizes to percent against the real
+    /// image dimensions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<TextLine>,
 }
 
-/// Bounding box for detected text regions
+/// Axis-aligned pixel rectangle for a detected text region.
+///
+/// (left, top, right, bottom) in image pixel coordinates. The previous
+/// six-field shape was an unused typo; nothing serialized it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BoundingBox {
-    pub x0: f64,
-    pub y0: f64,
-    pub x1: f64,
-    pub x2: f64,
-    pub y1: f64,
-    pub y2: f64,
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
+}
+
+impl BoundingBox {
+    pub fn width(&self) -> f64 {
+        (self.right - self.left).max(0.0)
+    }
+
+    pub fn height(&self) -> f64 {
+        (self.bottom - self.top).max(0.0)
+    }
 }
 
 /// Detected text line
@@ -149,6 +166,161 @@ pub struct TextLine {
     pub text: String,
     pub confidence: f64,
     pub bbox: BoundingBox,
+}
+
+/// Normalize a pixel box to `[x, y, width, height]` percent 0–100 of the
+/// source image (design D18): clamped to bounds, never negative, never > 100.
+/// Degenerate dimensions guard against division by zero.
+pub fn pixel_box_to_percent(
+    bbox: &BoundingBox,
+    image_width: u32,
+    image_height: u32,
+) -> [f64; 4] {
+    let width = image_width.max(1) as f64;
+    let height = image_height.max(1) as f64;
+
+    fn percent(value: f64, total: f64) -> f64 {
+        (value / total * 100.0).clamp(0.0, 100.0)
+    }
+
+    let x = percent(bbox.left, width);
+    let y = percent(bbox.top, height);
+    let right = percent(bbox.right, width);
+    let bottom = percent(bbox.bottom, height);
+    [x, y, (right - x).max(0.0), (bottom - y).max(0.0)]
+}
+
+/// One word row of Tesseract's TSV output, grouped later into lines.
+struct TsvWord {
+    block: u32,
+    paragraph: u32,
+    line: u32,
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+    confidence: f64,
+    text: String,
+}
+
+/**
+ * Parse Tesseract `tsv` output into (page width, page height, text lines).
+ *
+ * TSV levels: 1 page, 2 block, 3 paragraph, 4 line, 5 word. Only level-1
+ * (page dimensions) and level-5 (word boxes + text + confidence) rows are
+ * used; words are grouped into lines by (block, paragraph, line) and each
+ * line's box is the union of its word boxes. Returns None when the page row
+ * or any usable word is missing — callers then surface no lines rather than
+ * fabricated geometry.
+ */
+pub fn parse_tesseract_tsv(tsv: &str) -> Option<(u32, u32, Vec<TextLine>)> {
+    let mut page_width: Option<u32> = None;
+    let mut page_height: Option<u32> = None;
+    let mut words: Vec<TsvWord> = Vec::new();
+
+    for row in tsv.lines() {
+        let columns: Vec<&str> = row.split('\t').collect();
+        if columns.len() < 12 {
+            continue;
+        }
+        let level = columns[0].parse::<u32>().ok();
+        let numbers = |offset: usize| -> Option<Vec<f64>> {
+            columns
+                .iter()
+                .skip(offset)
+                .take(4)
+                .map(|v| v.trim().parse::<f64>().ok())
+                .collect()
+        };
+        match level {
+            Some(1) => {
+                // Page row: left, top, width, height of the full page.
+                if let Some(rect) = numbers(6) {
+                    page_width = Some(rect[2].max(0.0) as u32);
+                    page_height = Some(rect[3].max(0.0) as u32);
+                }
+            }
+            Some(5) => {
+                let (Ok(block), Ok(paragraph), Ok(line)) = (
+                    columns[2].parse::<u32>(),
+                    columns[3].parse::<u32>(),
+                    columns[4].parse::<u32>(),
+                ) else {
+                    continue;
+                };
+                let Some(rect) = numbers(6) else { continue };
+                let text = columns[11].trim();
+                if text.is_empty() {
+                    continue;
+                }
+                let confidence = columns[10].trim().parse::<f64>().unwrap_or(0.0);
+                words.push(TsvWord {
+                    block,
+                    paragraph,
+                    line,
+                    left: rect[0],
+                    top: rect[1],
+                    right: rect[0] + rect[2],
+                    bottom: rect[1] + rect[3],
+                    confidence,
+                    text: text.to_string(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    let width = page_width?;
+    let height = page_height?;
+    if words.is_empty() {
+        return Some((width, height, Vec::new()));
+    }
+
+    // Group words into lines preserving first-seen order.
+    let mut order: Vec<(u32, u32, u32)> = Vec::new();
+    for word in &words {
+        let key = (word.block, word.paragraph, word.line);
+        if !order.contains(&key) {
+            order.push(key);
+        }
+    }
+
+    let lines = order
+        .into_iter()
+        .map(|key| {
+            let group: Vec<&TsvWord> = words
+                .iter()
+                .filter(|w| (w.block, w.paragraph, w.line) == key)
+                .collect();
+            let bbox = group.iter().fold(
+                BoundingBox {
+                    left: f64::MAX,
+                    top: f64::MAX,
+                    right: f64::MIN,
+                    bottom: f64::MIN,
+                },
+                |acc, w| BoundingBox {
+                    left: acc.left.min(w.left),
+                    top: acc.top.min(w.top),
+                    right: acc.right.max(w.right),
+                    bottom: acc.bottom.max(w.bottom),
+                },
+            );
+            let text = group
+                .iter()
+                .map(|w| w.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let confidence =
+                group.iter().map(|w| w.confidence).sum::<f64>() / group.len() as f64;
+            TextLine {
+                text,
+                confidence,
+                bbox,
+            }
+        })
+        .collect();
+    Some((width, height, lines))
 }
 
 /// OCR error types
@@ -314,6 +486,7 @@ impl OCRProvider for TesseractProvider {
                 "engine": "Tesseract",
                 "version": "4.x"
             }),
+            lines: Vec::new(),
         })
     }
 
@@ -327,9 +500,32 @@ impl OCRProvider for TesseractProvider {
 
         let result = self.process_image(&temp_file).await;
 
+        // The bytes path feeds the AI image-occlusion flow (design D18), which
+        // needs per-line pixel boxes. One extra `tsv` run attaches them; any
+        // failure (older binary, empty page) degrades to zero lines — the
+        // text result above stays untouched. File-path consumers keep the
+        // single-run cost.
+        let mut result = result?;
+
+        let tsv_output = std::process::Command::new(self.resolve_cmd())
+            .arg(&temp_file)
+            .arg("stdout")
+            .arg("-l")
+            .arg("eng")
+            .arg("tsv")
+            .output();
+        if let Ok(output) = tsv_output {
+            if output.status.success() {
+                let tsv = String::from_utf8_lossy(&output.stdout);
+                if let Some((_page_w, _page_h, lines)) = parse_tesseract_tsv(&tsv) {
+                    result.lines = lines;
+                }
+            }
+        }
+
         let _ = tokio::fs::remove_file(&temp_file).await;
 
-        result
+        Ok(result)
     }
 
     fn is_available(&self) -> bool {
@@ -609,6 +805,7 @@ impl OCRProvider for MarkerProvider {
                 "engine": "Marker",
                 "format": "markdown"
             }),
+            lines: Vec::new(),
         })
     }
 
@@ -911,6 +1108,7 @@ impl OCRProvider for NougatProvider {
                 "engine": "Nougat",
                 "math_support": true
             }),
+            lines: Vec::new(),
         })
     }
 
@@ -1139,6 +1337,7 @@ impl GLMOCRProvider {
                 "format": "markdown",
                 "model": self.model.clone()
             }),
+            lines: Vec::new(),
         })
     }
 }
@@ -1238,6 +1437,7 @@ impl OCRProvider for GLMOCRProvider {
                     "model": self.model.clone(),
                     "pages": page_count
                 }),
+            lines: Vec::new(),
             });
         }
 
@@ -1511,6 +1711,7 @@ impl MistralProvider {
                 "format": "html",
                 "model": self.model.clone()
             }),
+            lines: Vec::new(),
         })
     }
 }
@@ -1611,6 +1812,7 @@ mod tests {
             processing_time_ms: 100,
             provider: OCRProviderType::Tesseract,
             metadata: serde_json::json!({}),
+            lines: Vec::new(),
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -1687,4 +1889,90 @@ mod tests {
 
         assert_eq!(pdf.get_pages().len(), 1);
     }
+    // ── OCR line boxes (design D18 / task 3.3) ──────────────────────────────
+
+    use super::{parse_tesseract_tsv, pixel_box_to_percent, BoundingBox, OCRResult, TextLine};
+
+    fn result_with_lines(lines: Vec<TextLine>) -> OCRResult {
+        OCRResult {
+            text: "t".into(),
+            confidence: 1.0,
+            line_count: 1,
+            word_count: 1,
+            processing_time_ms: 0,
+            provider: super::OCRProviderType::Tesseract,
+            metadata: serde_json::json!({}),
+            lines,
+        }
+    }
+
+    #[test]
+    fn ocr_result_omits_empty_lines_and_keeps_them_when_present() {
+        let json = serde_json::to_string(&result_with_lines(vec![])).unwrap();
+        assert!(!json.contains("lines"), "unexpected lines: {json}");
+
+        let line = TextLine {
+            text: "A".into(),
+            confidence: 90.0,
+            bbox: BoundingBox { left: 0.0, top: 0.0, right: 10.0, bottom: 10.0 },
+        };
+        let json = serde_json::to_string(&result_with_lines(vec![line])).unwrap();
+        assert!(json.contains("lines"), "lines missing: {json}");
+        assert!(json.contains("\"left\":0.0"), "pixel box missing: {json}");
+    }
+
+    #[test]
+    fn tsv_parser_extracts_page_dims_and_groups_words_into_lines() {
+        let tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n\
+1\t1\t0\t0\t0\t0\t0\t0\t1000\t500\t-1\t\n\
+5\t1\t1\t1\t1\t1\t100\t50\t80\t20\t91.5\tCell\n\
+5\t1\t1\t1\t1\t2\t200\t55\t90\t18\t88.0\tmembrane\n\
+5\t1\t1\t1\t2\t1\t400\t300\t60\t20\t95.0\tNucleus\n";
+        let (width, height, lines) = parse_tesseract_tsv(tsv).unwrap();
+        assert_eq!((width, height), (1000, 500));
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "Cell membrane");
+        // Union box: left=100 top=50 right=290 bottom=73.
+        assert_eq!(lines[0].bbox.left, 100.0);
+        assert_eq!(lines[0].bbox.top, 50.0);
+        assert_eq!(lines[0].bbox.right, 290.0);
+        assert_eq!(lines[0].bbox.bottom, 73.0);
+        // Mean confidence of the two words.
+        assert!((lines[0].confidence - 89.75).abs() < 1e-9);
+        assert_eq!(lines[1].text, "Nucleus");
+    }
+
+    #[test]
+    fn tsv_parser_returns_none_without_page_row() {
+        let tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n\
+5\t1\t1\t1\t1\t1\t10\t10\t50\t20\t90\tword\n";
+        assert!(parse_tesseract_tsv(tsv).is_none());
+    }
+
+    #[test]
+    fn tsv_parser_skips_rows_without_text() {
+        let tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n\
+1\t1\t0\t0\t0\t0\t0\t0\t100\t100\t-1\t\n\
+5\t1\t1\t1\t1\t1\t10\t10\t50\t20\t90\t\n";
+        let (width, height, lines) = parse_tesseract_tsv(tsv).unwrap();
+        assert_eq!((width, height), (100, 100));
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn pixel_box_to_percent_is_clamped_and_scale_free() {
+        // The same RELATIVE box (a quarter in from each edge) yields the same
+        // percents regardless of image size.
+        let quarter_small = BoundingBox { left: 250.0, top: 125.0, right: 750.0, bottom: 375.0 };
+        let quarter_large = BoundingBox { left: 500.0, top: 250.0, right: 1500.0, bottom: 750.0 };
+        assert_eq!(
+            pixel_box_to_percent(&quarter_small, 1000, 500),
+            pixel_box_to_percent(&quarter_large, 2000, 1000)
+        );
+        assert_eq!(pixel_box_to_percent(&quarter_small, 1000, 500), [25.0, 25.0, 50.0, 50.0]);
+
+        let outside = BoundingBox { left: -10.0, top: -10.0, right: 5000.0, bottom: 5000.0 };
+        assert_eq!(pixel_box_to_percent(&outside, 1000, 1000), [0.0, 0.0, 100.0, 100.0]);
+    }
+
 }

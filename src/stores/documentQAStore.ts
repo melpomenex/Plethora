@@ -1,7 +1,20 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { SectionSourceReference } from "../utils/sectionIndex";
-import type { RagHit } from "../api/rag";
+
+/**
+ * One retrieval citation attached to an assistant answer. Legacy shape kept
+ * from the retired `rag_chat` command; semantic-index retrieval results
+ * (`src/api/ai-learning.ts`) are mapped into it by the Q&A surfaces so the
+ * persisted session history and the interactive sources footer keep working.
+ */
+export interface RagHit {
+  documentId: string;
+  documentTitle: string;
+  chunkIndex: number;
+  chunkText: string;
+  score: number;
+}
 
 export interface ToolCall {
   name: string;

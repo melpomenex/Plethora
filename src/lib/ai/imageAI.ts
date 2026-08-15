@@ -1,11 +1,21 @@
 /**
  * Task adapters and vision processing for Image Study, Image Registry, and Occlusions.
+ *
+ * Each adapter executes its `AITaskDefinition` through `runTask` (design
+ * D4/D30) with the on-device provider pinned; delimited-format parsing, card
+ * validation/dedup, and occlusion clamping stay here as post-processing.
  */
 
-import { generateNativePrompt, OnDeviceAiError } from "./onDeviceAI";
+import { OnDeviceAiError } from "./onDeviceAI";
 import { parseDelimitedFlashcardsWithEvidence, deduplicateOnDeviceCards, toGeneratedFlashcards, type InternalOnDeviceFlashcard } from "./cardValidator";
 import type { GeneratedFlashcard } from "../../api/ai";
-import { resolveAiPath } from "./provider";
+import { fnv1aHash } from "./providers/types";
+import { runTask } from "./tasks/runTask";
+import {
+  describeImageTask,
+  imageCardsTask,
+  imageOcclusionsTask,
+} from "./tasks/definitions/imageTasks";
 
 export interface ImageInputPayload {
   mimeType: "image/jpeg" | "image/png" | "image/webp";
@@ -46,6 +56,10 @@ export function validateImagePayload(payload: ImageInputPayload): void {
   }
 }
 
+function imageTargetId(taskId: string, image: ImageInputPayload): string {
+  return fnv1aHash(`${taskId}\u0000${image.mimeType}\u0000${image.dataBase64.length}\u0000${image.dataBase64.slice(0, 64)}`);
+}
+
 /**
  * Describe an image and suggest searchable metadata without overwriting existing registry fields.
  */
@@ -54,21 +68,11 @@ export async function describeImage(
 ): Promise<ImageDescriptionResult> {
   validateImagePayload(image);
 
-  const promptText = [
-    "Analyze the image and provide a concise description, a short title, and 3-5 tags.",
-    "Format exactly as:",
-    "TITLE: <short title>",
-    "DESCRIPTION: <2-3 sentence summary>",
-    "TAGS: tag1, tag2, tag3",
-  ].join("\n");
-
-  const requestId = `imgdesc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const res = await generateNativePrompt({
-    requestId,
-    text: promptText,
-    image: { mimeType: image.mimeType, data: image.dataBase64 },
-    maxOutputTokens: 256,
-  });
+  const res = await runTask(
+    describeImageTask,
+    { mimeType: image.mimeType, dataBase64: image.dataBase64 },
+    { kind: "ondevice", targetId: imageTargetId("image-describe", image) }
+  );
 
   let description = "";
   let suggestedTitle: string | undefined;
@@ -108,21 +112,11 @@ export async function generateImageCards(
 ): Promise<GeneratedFlashcard[]> {
   validateImagePayload(image);
 
-  const promptText = [
-    `Write up to ${count} clear flashcards based on the visible content, text, or diagram in the image.`,
-    "Format each card as:",
-    "Q: <question>",
-    "A: <answer>",
-    "EVIDENCE: <description of visible region>",
-  ].join("\n");
-
-  const requestId = `imgcard-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const res = await generateNativePrompt({
-    requestId,
-    text: promptText,
-    image: { mimeType: image.mimeType, data: image.dataBase64 },
-    maxOutputTokens: 512,
-  });
+  const res = await runTask(
+    imageCardsTask,
+    { mimeType: image.mimeType, dataBase64: image.dataBase64, count },
+    { kind: "ondevice", targetId: imageTargetId("image-cards", image) }
+  );
 
   const parsed = parseDelimitedFlashcardsWithEvidence(res.text, "image asset", ["image-study"]);
   const unique = deduplicateOnDeviceCards(parsed);
@@ -137,19 +131,11 @@ export async function suggestOcclusions(
 ): Promise<OcclusionProposal[]> {
   validateImagePayload(image);
 
-  const promptText = [
-    "Identify up to 4 key text labels or diagram parts in the image that should be occluded for study.",
-    "Output each occlusion on a line as normalized coordinates (0.0 to 1.0):",
-    "RECT: x, y, width, height | label",
-  ].join("\n");
-
-  const requestId = `imgocc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const res = await generateNativePrompt({
-    requestId,
-    text: promptText,
-    image: { mimeType: image.mimeType, data: image.dataBase64 },
-    maxOutputTokens: 256,
-  });
+  const res = await runTask(
+    imageOcclusionsTask,
+    { mimeType: image.mimeType, dataBase64: image.dataBase64 },
+    { kind: "ondevice", targetId: imageTargetId("image-occlusions", image) }
+  );
 
   const proposals: OcclusionProposal[] = [];
 

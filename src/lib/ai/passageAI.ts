@@ -2,17 +2,16 @@
  * Task adapters for passage-level AI actions (explain, summarize, simplify,
  * key terms, Q&A).
  *
- * Every adapter routes through `runAiAction`, so the on-device/cloud decision,
- * the fallback toast and the cancellation semantics live in one place. The
- * passage is truncated to the on-device token budget before sending and the
- * result carries a `truncated` flag so the UI can say the input was shortened.
+ * Every adapter routes through `runAiAction`, so the on-device/cloud
+ * decision, the fallback toast and the cancellation semantics live in one
+ * place; each branch executes the corresponding `AITaskDefinition` through
+ * `runTask` (design D4/D30) with static system instructions and untrusted
+ * passage blocks. The passage is truncated to the on-device token budget
+ * before sending and the result carries a `truncated` flag so the UI can say
+ * the input was shortened.
  */
 
-import {
-  generateStreamingPrompt,
-  OnDeviceAiError,
-  type OnDeviceRequirement,
-} from "./onDeviceAI";
+import { OnDeviceAiError } from "./onDeviceAI";
 import {
   chunkTextByTokens,
   resolveTokenBudget,
@@ -20,21 +19,29 @@ import {
 } from "./chunkTextByTokens";
 import { checkAnswerGrounding } from "./cardValidator";
 import { runAiAction } from "./provider";
+import { fnv1aHash } from "./providers/types";
+import { runTask } from "./tasks/runTask";
+import type { AITaskDefinition } from "./tasks/types";
 import {
-  answerQuestion,
-  summarizeContent,
-  simplifyContent,
-  extractKeyPoints,
-  type SimplificationLevel,
-} from "../../api/ai";
+  DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS,
+  DETAILED_PASSAGE_MAX_OUTPUT_TOKENS,
+  explainPassageTask,
+  passageKeyTermsTask,
+  passageQATask,
+  passageSimplifyTask,
+  passageSummarizeTask,
+  type ExplanationPreset,
+} from "./tasks/definitions/passageTasks";
+import type { SimplificationLevel } from "../../api/ai";
 
-export type ExplanationPreset = "simple" | "detailed" | "study-note";
+export {
+  DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS,
+  DETAILED_PASSAGE_MAX_OUTPUT_TOKENS,
+};
+export type { ExplanationPreset };
 
 /** Headroom left for the prompt instructions wrapped around the passage. */
 const PROMPT_RESERVE_TOKENS = 200;
-
-/** Default maximum output tokens for passage operations to keep on-device decode time under 3-5 seconds. */
-export const DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS = 192;
 
 export interface PassageActionOptions {
   signal?: AbortSignal;
@@ -83,7 +90,7 @@ interface Draft {
  * Trim a passage to the input budget. Returns the (possibly shortened) passage
  * and whether anything was dropped.
  */
-function fitPassage(passage: string, maxTokens?: number): { passage: string; truncated: boolean } {
+export function fitPassage(passage: string, maxTokens?: number): { passage: string; truncated: boolean } {
   const trimmed = passage.trim();
   if (!trimmed) {
     throw new OnDeviceAiError("invalid_argument", "Passage text cannot be empty.");
@@ -93,51 +100,42 @@ function fitPassage(passage: string, maxTokens?: number): { passage: string; tru
   return { passage: chunks[0], truncated: chunks.length > 1 };
 }
 
-function requestId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+function toDraft(result: { text: string; baseModelName?: string }): Draft {
+  return { text: result.text, baseModelName: result.baseModelName };
 }
 
-/** Run a prompt on-device, streaming chunks to the caller as they arrive. */
-async function onDevicePrompt(
-  prefix: string,
-  promptText: string,
+/** Run a passage task on both branches of `runAiAction`, mapping to a Draft. */
+async function runPassageTask<I>(
+  task: AITaskDefinition<I, string>,
+  input: I,
   options: PassageActionOptions,
-  systemInstruction?: string,
-  defaultMaxTokens = DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS
-): Promise<Draft> {
-  let text = "";
-  const res = await generateStreamingPrompt(
-    {
-      requestId: requestId(prefix),
-      text: promptText,
-      systemInstruction,
-      maxOutputTokens: options.maxOutputTokens ?? defaultMaxTokens,
-    },
-    {
-      signal: options.signal,
-      onChunk: (chunk) => {
-        text += chunk;
-        options.onChunk?.(chunk);
-      },
-      onRetry: options.onRetry,
-    }
-  );
-  return { text: res.text || text, baseModelName: res.baseModelName };
-}
-
-/** Cloud results arrive whole; emit them as one chunk so the UI path is uniform. */
-function emitWhole(text: string, options: PassageActionOptions): Draft {
-  options.onChunk?.(text);
-  return { text };
-}
-
-async function runPassageAction(
-  action: { onDevice: () => Promise<Draft>; cloud: () => Promise<Draft> },
+  targetId: string,
   label: string,
-  truncated: boolean,
-  requirement: OnDeviceRequirement = "prompt"
+  truncated: boolean
 ): Promise<PassageResult> {
-  const res = await runAiAction(action, label, requirement);
+  const res = await runAiAction(
+    {
+      onDevice: () =>
+        runTask(task, input, {
+          targetId,
+          kind: "ondevice",
+          signal: options.signal,
+          onChunk: options.onChunk,
+          onRetry: options.onRetry,
+          maxOutputTokens: options.maxOutputTokens,
+        }).then(toDraft),
+      cloud: () =>
+        runTask(task, input, {
+          targetId,
+          kind: "cloud",
+          signal: options.signal,
+          onChunk: options.onChunk,
+          onRetry: options.onRetry,
+          maxOutputTokens: options.maxOutputTokens,
+        }).then(toDraft),
+    },
+    label
+  );
   if (!res) {
     throw new OnDeviceAiError("model_unavailable", "No AI path is available.");
   }
@@ -157,21 +155,13 @@ export async function answerPassage(
     throw new OnDeviceAiError("invalid_argument", "Question and passage text cannot be empty.");
   }
   const { passage: text, truncated } = fitPassage(passage, options.maxTokens);
+  const targetId = fnv1aHash(`passage-qa\u0000${trimmedQ}\u0000${text}`);
 
-  const promptText = [
-    "Answer the following question based ONLY on the provided passage in 1-2 direct sentences.",
-    "Be direct and concise. If the passage does not contain enough information to answer, state that clearly.",
-    "",
-    `Passage:\n${text}`,
-    "",
-    `Question: ${trimmedQ}`,
-  ].join("\n");
-
-  const result = await runPassageAction(
-    {
-      onDevice: () => onDevicePrompt("qa", promptText, options),
-      cloud: async () => emitWhole(await answerQuestion(trimmedQ, text), options),
-    },
+  const result = await runPassageTask(
+    passageQATask,
+    { question: trimmedQ, passage: text },
+    options,
+    targetId,
     "Passage Q&A",
     truncated
   );
@@ -185,16 +175,6 @@ export async function answerPassage(
   };
 }
 
-function presetInstruction(preset: ExplanationPreset): string {
-  if (preset === "detailed") {
-    return "Provide a structured, step-by-step detailed breakdown of key concepts in this passage.";
-  }
-  if (preset === "study-note") {
-    return "Summarize this passage as 3 concise bullet points for a study card highlighting core terms and facts.";
-  }
-  return "Explain the core concepts of this passage in 1-2 clear, direct sentences for a mobile study note.";
-}
-
 /**
  * Explain a passage according to a preset.
  */
@@ -203,20 +183,11 @@ export async function explainPassage(
   options: PassageExplainOptions = {}
 ): Promise<PassageResult> {
   const { passage: text, truncated } = fitPassage(passage, options.maxTokens);
-  const instruction = presetInstruction(options.preset ?? "simple");
-  const promptText = [instruction, "No preamble or meta commentary.", "", `Passage:\n${text}`].join(
-    "\n"
-  );
-  const defaultMaxTokens = options.preset === "detailed" ? 256 : DEFAULT_PASSAGE_MAX_OUTPUT_TOKENS;
+  const preset = options.preset ?? "simple";
+  const task = explainPassageTask(preset);
+  const targetId = fnv1aHash(`${task.id}\u0000${text}`);
 
-  return runPassageAction(
-    {
-      onDevice: () => onDevicePrompt("exp", promptText, options, undefined, defaultMaxTokens),
-      cloud: async () => emitWhole(await answerQuestion(instruction, text), options),
-    },
-    "Explanation",
-    truncated
-  );
+  return runPassageTask(task, { passage: text }, options, targetId, "Explanation", truncated);
 }
 
 /**
@@ -228,21 +199,15 @@ export async function summarizePassage(
 ): Promise<PassageResult> {
   const { passage: text, truncated } = fitPassage(passage, options.maxTokens);
   const maxWords = options.maxWords ?? 100;
-  const promptText = [
-    `Summarize the key points of this passage in concise bullet points or 1-2 clear sentences (under ${maxWords} words).`,
-    "No preamble, no conversational filler.",
-    "",
-    `Passage:\n${text}`,
-  ].join("\n");
+  const targetId = fnv1aHash(`passage-summarize\u0000${maxWords}\u0000${text}`);
 
-  return runPassageAction(
-    {
-      onDevice: () => onDevicePrompt("sum", promptText, options),
-      cloud: async () => emitWhole(await summarizeContent(text, maxWords), options),
-    },
+  return runPassageTask(
+    passageSummarizeTask,
+    { passage: text, maxWords },
+    options,
+    targetId,
     "Summary",
-    truncated,
-    "prompt"
+    truncated
   );
 }
 
@@ -255,16 +220,13 @@ export async function simplifyPassage(
 ): Promise<PassageResult> {
   const { passage: text, truncated } = fitPassage(passage, options.maxTokens);
   const level = options.level ?? "highschool";
-  const instruction = `Rewrite this passage in plain language a ${level} reader can follow in 1-2 simple sentences, keeping every fact intact.`;
-  const promptText = [instruction, "No preamble or meta commentary.", "", `Passage:\n${text}`].join(
-    "\n"
-  );
+  const targetId = fnv1aHash(`passage-simplify\u0000${level}\u0000${text}`);
 
-  return runPassageAction(
-    {
-      onDevice: () => onDevicePrompt("simp", promptText, options),
-      cloud: async () => emitWhole(await simplifyContent(text, level), options),
-    },
+  return runPassageTask(
+    passageSimplifyTask,
+    { passage: text, level },
+    options,
+    targetId,
     "Simplification",
     truncated
   );
@@ -279,22 +241,13 @@ export async function keyTermsPassage(
 ): Promise<PassageResult> {
   const { passage: text, truncated } = fitPassage(passage, options.maxTokens);
   const count = Math.max(1, options.count ?? 5);
-  const promptText = [
-    `List the ${count} most important terms or points in this passage, one per line, each as "term — concise definition".`,
-    "No preamble or meta commentary.",
-    "",
-    `Passage:\n${text}`,
-  ].join("\n");
+  const targetId = fnv1aHash(`passage-key-terms\u0000${count}\u0000${text}`);
 
-  return runPassageAction(
-    {
-      onDevice: () => onDevicePrompt("terms", promptText, options),
-      cloud: async () =>
-        emitWhole(
-          (await extractKeyPoints(text, count)).map((point) => `- ${point}`).join("\n"),
-          options
-        ),
-    },
+  return runPassageTask(
+    passageKeyTermsTask,
+    { passage: text, count },
+    options,
+    targetId,
     "Key terms",
     truncated
   );

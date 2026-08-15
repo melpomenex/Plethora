@@ -10,9 +10,13 @@ import {
   type OcclusionMode,
 } from "../../utils/occlusion";
 import { useI18n } from "../../lib/i18n";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { useAiAvailability } from "../../lib/ai/useAiAvailability";
 import { cn } from "../../utils";
 import { useOcclusionSession } from "./useOcclusionSession";
 import { useOcclusionSuggestions } from "./useOcclusionSuggestions";
+import { useOcclusionAssist } from "./useOcclusionAssist";
+import { OcclusionAssistPanel } from "./OcclusionAssistPanel";
 import { OcclusionCanvas } from "./OcclusionCanvas";
 import { OcclusionRegionList } from "./OcclusionRegionList";
 import {
@@ -32,6 +36,25 @@ import {
  * plus the usable regions, so a draft-edit caller can write regions back
  * without creating cards.
  */
+/** One AI-assist card draft: its own question plus the label regions it hides. */
+export interface OcclusionAssistCardDraft {
+  question: string;
+  answer: string;
+  hiddenRegions: ImageOcclusionRegion[];
+  visibleRegions: ImageOcclusionRegion[];
+}
+
+/** Provenance payload for AI-assist cards (task 3.9; recorded by the host). */
+export interface ComposerAssistProvenance {
+  taskId: string;
+  providerId: string;
+  providerKind: "ondevice" | "cloud";
+  servedModelClass: string;
+  baseModelName?: string;
+  fingerprint: string;
+  usedFreeform: boolean;
+}
+
 export interface ComposerSaveResult {
   assetId: string;
   /** Usable regions (zero-area dropped) as they will be persisted. */
@@ -43,6 +66,17 @@ export interface ComposerSaveResult {
   answers: OcclusionPreviewAnswers;
   documentId?: string;
   deckId?: string;
+  /**
+   * Accepted AI-assist cards (task 3.6). Each carries its own question and
+   * the OCR-box regions it hides; the host creates one learning item per
+   * draft and records provenance per created item. Freeform runs have no
+   * card drafts here — their regions are `cards` entries whose region ids
+   * start with "freeform-".
+   */
+  assist?: {
+    cards: OcclusionAssistCardDraft[];
+    provenance: ComposerAssistProvenance;
+  };
 }
 
 export interface ImageOcclusionComposerProps {
@@ -76,6 +110,16 @@ export function ImageOcclusionComposer({
   const [question, setQuestion] = useState(t("occlusionComposer.defaultQuestion"));
   const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null);
   const ai = useOcclusionSuggestions(asset, session);
+
+  // OCR-backed AI assist (tasks 3.6–3.8): flag- and capability-gated; every
+  // failure lands inside the panel, manual authoring is never affected.
+  const assistFlagEnabled = useSettingsStore((s) => s.settings.features.aiOcclusionAssist);
+  const freeformFlagEnabled = useSettingsStore((s) => s.settings.features.aiOcclusionFreeform);
+  const assistAvailability = useAiAvailability("image-prompt");
+  const assistEnabled = assistFlagEnabled && assistAvailability.available;
+  const assist = useOcclusionAssist(asset, session, {
+    freeformEnabled: freeformFlagEnabled,
+  });
 
   // Resizable sidebar: the divider between the canvas and the right panel can
   // be dragged to widen/narrow the panel. Session-local; not part of history.
@@ -159,6 +203,79 @@ export function ImageOcclusionComposer({
     [regions, mode, answers],
   );
 
+  const acceptedAssistCount = assist.acceptedCards.length;
+
+  const handleSave = () => {
+    if (usableRegions.length === 0 && acceptedAssistCount === 0) return;
+    void (async () => {
+      // Source-image staleness (task 3.7): proposals made against a
+      // different image hash are dropped, not silently applied.
+      const stale = assist.runInfo ? await assist.checkStale() : false;
+      const acceptedCards = !stale ? assist.applyAcceptedCardsToSession() : [];
+      const assistLabelIds = new Set(acceptedCards.flatMap((card) => card.labelIds));
+
+      const regionsById = new Map(
+        (stale ? [] : session.regions).map((region) => [region.id ?? "", region])
+      );
+      const assistCards: OcclusionAssistCardDraft[] = acceptedCards.flatMap((card) => {
+        const hiddenRegions = card.labelIds
+          .map(
+            (labelId) =>
+              regionsById.get(labelId) ??
+              assist.labelBoxAsRegion(labelId) ??
+              null
+          )
+          .filter((region): region is ImageOcclusionRegion => region !== null);
+        if (hiddenRegions.length === 0) return [];
+        return [
+          {
+            question: card.question.trim() || question.trim(),
+            answer: card.answer,
+            hiddenRegions,
+            visibleRegions: [],
+          },
+        ];
+      });
+
+      // Manual cards cover every region NOT claimed by an assist card.
+      const manualRegions = usableRegions.filter(
+        (region) => !assistLabelIds.has(region.id ?? "")
+      );
+      const manualCards = expandRegionsToCards(manualRegions, mode, {
+        answersByRegionId: answers.byRegionId,
+        answer: answers.hideAll,
+      });
+      const allCards = [...assistCards, ...manualCards];
+      if (allCards.length === 0) return;
+
+      onSave({
+        assetId,
+        regions: usableRegions,
+        cards: allCards,
+        mode,
+        question: question.trim() || t("occlusionComposer.defaultQuestion"),
+        answers,
+        documentId,
+        deckId,
+        assist:
+          assist.runInfo && (assistCards.length > 0 || assist.proposals?.usedFreeform)
+            ? {
+                cards: assistCards,
+                provenance: {
+                  taskId: assist.runInfo.taskId,
+                  providerId: assist.runInfo.providerId,
+                  providerKind: assist.runInfo.providerKind,
+                  servedModelClass: assist.runInfo.servedModelClass,
+                  baseModelName: assist.runInfo.baseModelName,
+                  fingerprint: assist.runInfo.fingerprint,
+                  usedFreeform: assist.proposals?.usedFreeform ?? false,
+                },
+              }
+            : undefined,
+      });
+    })();
+  };
+
   const requestClose = useCallback(() => {
     if (hasChanges && !confirmDiscard) {
       setConfirmDiscard(true);
@@ -176,20 +293,6 @@ export function ImageOcclusionComposer({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [requestClose]);
-
-  const handleSave = () => {
-    if (usableRegions.length === 0) return;
-    onSave({
-      assetId,
-      regions: usableRegions,
-      cards,
-      mode,
-      question: question.trim() || t("occlusionComposer.defaultQuestion"),
-      answers,
-      documentId,
-      deckId,
-    });
-  };
 
   const handleDuplicate = () => {
     if (selection.length === 0) return;
@@ -393,6 +496,22 @@ export function ImageOcclusionComposer({
             </div>
           </div>
 
+          {/* OCR-backed AI assist (tasks 3.6–3.8), flag + capability gated */}
+          {assistEnabled && (
+            <OcclusionAssistPanel
+              status={assist.status}
+              proposals={assist.proposals}
+              ocrMeta={assist.ocrMeta}
+              isStale={assist.isStale}
+              busy={assist.busy}
+              freeformEnabled={freeformFlagEnabled}
+              onRun={() => void assist.run()}
+              onToggleCard={assist.toggleCard}
+              onAcceptAll={assist.setAcceptAll}
+              onEditCard={assist.editCard}
+            />
+          )}
+
           {/* AI suggestions */}
           <div className="flex flex-col gap-1.5" data-testid="ai-suggest-panel">
             <span className="text-xs font-medium text-muted-foreground">
@@ -503,11 +622,11 @@ export function ImageOcclusionComposer({
         <button
           type="button"
           data-testid="occlusion-save"
-          disabled={usableRegions.length === 0}
+          disabled={usableRegions.length === 0 && acceptedAssistCount === 0}
           onClick={handleSave}
           className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {t("occlusionComposer.saveCards", { count: cards.length })}
+          {t("occlusionComposer.saveCards", { count: cards.length + acceptedAssistCount })}
         </button>
       </footer>
 

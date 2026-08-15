@@ -1,9 +1,21 @@
 /**
  * Task adapters for Extract, Article, and Tag workflows.
+ *
+ * Internally each adapter executes its `AITaskDefinition` through `runTask`
+ * (design D4/D30) with the on-device provider pinned, preserving the
+ * pre-task-layer behavior of these always-on-device flows; line parsing and
+ * tag normalization stay here as post-processing.
  */
 
-import { generateNativePrompt, summarize, OnDeviceAiError } from "./onDeviceAI";
-import { resolveAiPath } from "./provider";
+import { summarize, OnDeviceAiError } from "./onDeviceAI";
+import { fnv1aHash } from "./providers/types";
+import { runTask } from "./tasks/runTask";
+import {
+  articleSummaryTask,
+  extractKeyPointsTask,
+  studyQuestionsTask,
+  suggestTagsTask,
+} from "./tasks/definitions/extractTasks";
 
 export interface ExtractAnalysisResult {
   summary?: string;
@@ -11,6 +23,10 @@ export interface ExtractAnalysisResult {
   questions?: string[];
   suggestedTags?: string[];
   provenance?: string;
+}
+
+function targetId(text: string): string {
+  return fnv1aHash(text.slice(0, 4096));
 }
 
 /**
@@ -23,16 +39,11 @@ export async function extractKeyPoints(
   const trimmed = text.trim();
   if (!trimmed) throw new OnDeviceAiError("invalid_argument", "Text cannot be empty.");
 
-  const promptText = [
-    `Extract up to ${count} core key points from the text below.`,
-    "Format each key point on a line starting with a bullet marker '• '.",
-    "No preamble, no commentary.",
-    "",
-    trimmed,
-  ].join("\n");
-
-  const requestId = `kp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const res = await generateNativePrompt({ requestId, text: promptText, maxOutputTokens: 512 });
+  const res = await runTask(
+    extractKeyPointsTask,
+    { text: trimmed, count },
+    { kind: "ondevice", targetId: targetId(trimmed) }
+  );
 
   const points: string[] = [];
   for (const line of res.text.split(/\r?\n/)) {
@@ -53,16 +64,11 @@ export async function generateStudyQuestions(
   const trimmed = text.trim();
   if (!trimmed) throw new OnDeviceAiError("invalid_argument", "Text cannot be empty.");
 
-  const promptText = [
-    `Generate up to ${count} clear study questions to test understanding of the text below.`,
-    "One question per line starting with 'Q: '.",
-    "No preamble, no answers.",
-    "",
-    trimmed,
-  ].join("\n");
-
-  const requestId = `sq-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const res = await generateNativePrompt({ requestId, text: promptText, maxOutputTokens: 512 });
+  const res = await runTask(
+    studyQuestionsTask,
+    { text: trimmed, count },
+    { kind: "ondevice", targetId: targetId(trimmed) }
+  );
 
   const questions: string[] = [];
   for (const line of res.text.split(/\r?\n/)) {
@@ -85,17 +91,12 @@ export async function suggestTags(
   const trimmed = text.trim();
   if (!trimmed) return [];
 
-  const promptText = [
-    "Suggest 3 to 5 concise topic tags for the text below.",
-    "Output tags as a single comma-separated list on one line.",
-    "No preamble, no hashtag prefix.",
-    "",
-    trimmed,
-  ].join("\n");
-
-  const requestId = `tg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   try {
-    const res = await generateNativePrompt({ requestId, text: promptText, maxOutputTokens: 128 });
+    const res = await runTask(
+      suggestTagsTask,
+      { text: trimmed, existingTags },
+      { kind: "ondevice", targetId: targetId(trimmed) }
+    );
     const rawTags = res.text
       .split(",")
       .map((t) => t.replace(/^[#\s]+/, "").trim().toLowerCase())
@@ -111,6 +112,10 @@ export async function suggestTags(
 
 /**
  * Summarize an article with a specific focus.
+ *
+ * `key-points` uses the ML Kit Summarization API (hierarchical chunk
+ * reduction) rather than a prompt task; the focused variants run the article
+ * summary task on-device.
  */
 export async function summarizeArticle(
   text: string,
@@ -123,20 +128,11 @@ export async function summarizeArticle(
     return summarize(trimmed, { format: "paragraph" });
   }
 
-  let focusInstruction = "Focus on actionable takeaways and practical steps.";
-  if (focus === "background") {
-    focusInstruction = "Focus on context, historical background, and fundamental concepts.";
-  }
-
-  const promptText = [
-    `Summarize the article below. ${focusInstruction}`,
-    "Write 2 concise paragraphs.",
-    "",
-    trimmed,
-  ].join("\n");
-
-  const requestId = `art-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const res = await generateNativePrompt({ requestId, text: promptText, maxOutputTokens: 512 });
+  const res = await runTask(
+    articleSummaryTask,
+    { text: trimmed, focus },
+    { kind: "ondevice", targetId: targetId(trimmed) }
+  );
   return res.text;
 }
 

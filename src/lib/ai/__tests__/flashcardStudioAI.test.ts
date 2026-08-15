@@ -11,6 +11,8 @@ vi.mock("../onDeviceAI", async () => {
 
 vi.mock("../provider", () => ({
   resolveAiPath: vi.fn(async () => "ondevice"),
+  prefersOnDevice: vi.fn(() => true),
+  hasCloudProvider: vi.fn(() => false),
 }));
 
 import { generateNativePrompt, generateStreamingPrompt } from "../onDeviceAI";
