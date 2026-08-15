@@ -5639,6 +5639,7 @@ export const zh: Dict = {
   "aiLearning.kt.causeEffect": "因果",
   "aiLearning.kt.dateEvent": "日期 / 事件",
   "aiLearning.kt.example": "示例",
+  "aiLearning.kt.general": "综合",
   "aiLearning.ct.qa": "问答",
   "aiLearning.ct.cloze": "填空",
   "aiLearning.ct.definition": "定义",

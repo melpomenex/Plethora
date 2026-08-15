@@ -5848,6 +5848,7 @@ export const es: Dict = {
   "aiLearning.kt.causeEffect": "Causa y efecto",
   "aiLearning.kt.dateEvent": "Fecha / evento",
   "aiLearning.kt.example": "Ejemplo",
+  "aiLearning.kt.general": "General",
   "aiLearning.ct.qa": "Pregunta / respuesta",
   "aiLearning.ct.cloze": "Hueco (cloze)",
   "aiLearning.ct.definition": "Definición",

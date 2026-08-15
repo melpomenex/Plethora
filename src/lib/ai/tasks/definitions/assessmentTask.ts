@@ -30,8 +30,8 @@ export const ASSESS_ANSWER_TASK_ID = "assess-answer";
 /** Full-class twin executed by the router when no reasoning provider exists. */
 export const ASSESS_ANSWER_FALLBACK_TASK_ID = "assess-answer-full";
 
-export const ASSESS_ANSWER_TIMEOUT_MS = 20_000;
-export const ASSESS_ANSWER_MAX_OUTPUT_TOKENS = 350;
+export const ASSESS_ANSWER_TIMEOUT_MS = 45_000;
+export const ASSESS_ANSWER_MAX_OUTPUT_TOKENS = 900;
 
 export interface AssessAnswerInput {
   question: string;

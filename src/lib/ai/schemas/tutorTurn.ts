@@ -50,29 +50,44 @@ export function validateTutorTurn(output: unknown): ValidationOutcome<TutorTurn>
     return { ok: false, errors: ["root: expected object"] };
   }
 
-  const move = checkStringEnum(output.move, TUTOR_MOVES, "move", errors);
-  const content = checkString(output.content, "content", errors, { maxLength: 4000 });
-  const hintLevel = checkNumber(output.hintLevel, "hintLevel", errors, {
+  // Near-miss normalization (device report: "promoteToCard: expected object"
+  // — the model emitted the concept as a plain string). The promotion is
+  // optional value-add: an unusable shape is dropped, never fatal.
+  const source: Record<string, unknown> = { ...output };
+  if (source.promoteToCard !== undefined) {
+    const candidate = source.promoteToCard;
+    const usable =
+      isRecord(candidate) &&
+      typeof candidate.question === "string" &&
+      candidate.question.trim() !== "" &&
+      typeof candidate.answer === "string" &&
+      candidate.answer.trim() !== "";
+    if (!usable) delete source.promoteToCard;
+  }
+  if (typeof source.hintLevel === "string" && /^-?\d+$/.test(source.hintLevel.trim())) {
+    source.hintLevel = Number(source.hintLevel.trim());
+  }
+
+  const move = checkStringEnum(source.move, TUTOR_MOVES, "move", errors);
+  const content = checkString(source.content, "content", errors, { maxLength: 4000 });
+  const hintLevel = checkNumber(source.hintLevel, "hintLevel", errors, {
     min: 0,
     max: MAX_HINT_LEVEL,
     integer: true,
   });
-  const stuckDetected = checkBoolean(output.stuckDetected, "stuckDetected", errors);
+  const stuckDetected = checkBoolean(source.stuckDetected, "stuckDetected", errors);
 
   let promoteToCard: TutorCardPromotion | undefined;
-  if (output.promoteToCard !== undefined) {
-    if (!isRecord(output.promoteToCard)) {
-      errors.push("promoteToCard: expected object");
-    } else {
-      const question = checkString(output.promoteToCard.question, "promoteToCard.question", errors, {
-        maxLength: 2000,
-      });
-      const answer = checkString(output.promoteToCard.answer, "promoteToCard.answer", errors, {
-        maxLength: 2000,
-      });
-      if (question !== undefined && answer !== undefined) {
-        promoteToCard = { question, answer };
-      }
+  if (source.promoteToCard !== undefined) {
+    const candidate = source.promoteToCard as Record<string, unknown>;
+    const question = checkString(candidate.question, "promoteToCard.question", errors, {
+      maxLength: 2000,
+    });
+    const answer = checkString(candidate.answer, "promoteToCard.answer", errors, {
+      maxLength: 2000,
+    });
+    if (question !== undefined && answer !== undefined) {
+      promoteToCard = { question, answer };
     }
   }
 

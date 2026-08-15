@@ -52,17 +52,26 @@ export function validatePrerequisiteAnalysis(
     errors.push(`prerequisites: more than ${MAX_PREREQUISITES} entries`);
   } else {
     (output.prerequisites as unknown[]).forEach((raw, index) => {
-      if (!isRecord(raw)) {
+      // Near-miss normalization: small models emit plain concept strings
+      // instead of {concept, why} objects.
+      const entry: unknown =
+        typeof raw === "string" && raw.trim() !== ""
+          ? { concept: raw, why: "Needed to understand the selected material." }
+          : raw;
+      if (!isRecord(entry)) {
         errors.push(`prerequisites[${index}]: expected object`);
         return;
       }
-      const concept = checkString(raw.concept, `prerequisites[${index}].concept`, errors, {
+      const concept = checkString(entry.concept, `prerequisites[${index}].concept`, errors, {
         maxLength: 120,
       });
-      const why = checkString(raw.why, `prerequisites[${index}].why`, errors, {
-        maxLength: 1000,
-      });
-      if (concept === undefined || why === undefined) return;
+      const why =
+        typeof entry.why === "string" && entry.why.trim() !== ""
+          ? checkString(entry.why, `prerequisites[${index}].why`, errors, {
+              maxLength: 1000,
+            })
+          : "Needed to understand the selected material.";
+      if (concept === undefined) return;
       prerequisites.push({ concept, why });
     });
   }

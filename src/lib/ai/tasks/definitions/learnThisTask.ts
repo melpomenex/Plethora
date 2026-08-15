@@ -33,9 +33,15 @@ import type { AITaskDefinition } from "../types";
 
 export const LEARN_THIS_TASK_ID = "learn-this";
 
-/** Card-generation latency budget (design D28: ≤ 20 s). */
-export const LEARN_THIS_TIMEOUT_MS = 20_000;
-export const LEARN_THIS_MAX_OUTPUT_TOKENS = 600;
+/**
+ * Card-generation timeout. Design D28 targeted ≤ 20 s, but on-device
+ * structured generation of full proposals (cards + rationale) regularly
+ * exceeds that on Nano hardware; tuned to 60 s after device testing. When a
+ * cloud provider is configured and cloud fallback is allowed, the automatic
+ * retry covers the gap.
+ */
+export const LEARN_THIS_TIMEOUT_MS = 60_000;
+export const LEARN_THIS_MAX_OUTPUT_TOKENS = 1500;
 
 export interface LearnThisInput {
   /** The selected passage (untrusted document content). */

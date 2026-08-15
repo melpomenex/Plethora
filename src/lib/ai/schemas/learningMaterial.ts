@@ -41,7 +41,9 @@ export const LEARNING_CARD_TYPES = [
 ] as const;
 export type LearningCardType = (typeof LEARNING_CARD_TYPES)[number];
 
-/** Canonical knowledge types (Kotlin contract spelling, incl. `dateEvent`). */
+/** Canonical knowledge types (Kotlin contract spelling, incl. `dateEvent`).
+ * `general` is a TS-only fallback bucket for model outputs outside the
+ * canonical set — never sent to the model, only produced by normalization. */
 export const KNOWLEDGE_TYPES = [
   "definition",
   "enumeration",
@@ -51,6 +53,7 @@ export const KNOWLEDGE_TYPES = [
   "causeEffect",
   "dateEvent",
   "example",
+  "general",
 ] as const;
 export type KnowledgeType = (typeof KNOWLEDGE_TYPES)[number];
 
@@ -89,7 +92,7 @@ export const LEARNING_MATERIAL_SCHEMA = {
   name: "LearningMaterialProposal",
   nativeName: "learningMaterialProposal",
   json: JSON.stringify({
-    importance: "0.0-1.0",
+    importance: "number between 0.0 and 1.0 as a JSON number (e.g. 0.8) — never a string",
     knowledgeType: KNOWLEDGE_TYPES.join("|"),
     concepts: ["string"],
     suggestedCards: [
@@ -117,41 +120,219 @@ export interface LearningMaterialValidationContext {
   sourceText?: string;
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Normalization — salvage near-miss model output before strict validation.
+// Small models routinely answer importance as "high"/"80%"/"0.8"-as-string
+// and knowledgeType/cardType with off-enum spellings ("date-event",
+// "Concept", "Q&A"). These scalar/enum fields are metadata, not card
+// content: coerce them instead of failing the whole envelope.
+// ──────────────────────────────────────────────────────────────────────────
+
+const canonicalKey = (value: unknown): string =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\-_/.&]+/g, "");
+
+const KNOWLEDGE_TYPE_ALIASES: Record<string, KnowledgeType> = {
+  definition: "definition",
+  def: "definition",
+  term: "definition",
+  terminology: "definition",
+  concept: "general",
+  idea: "general",
+  fact: "general",
+  summary: "general",
+  overview: "general",
+  enumeration: "enumeration",
+  list: "enumeration",
+  inventory: "enumeration",
+  process: "process",
+  procedure: "process",
+  steps: "process",
+  sequence: "process",
+  howto: "process",
+  comparison: "comparison",
+  compare: "comparison",
+  versus: "comparison",
+  contrast: "comparison",
+  formula: "formula",
+  math: "formula",
+  equation: "formula",
+  causeeffect: "causeEffect",
+  causal: "causeEffect",
+  causality: "causeEffect",
+  cause: "causeEffect",
+  why: "causeEffect",
+  whyhow: "causeEffect",
+  dateevent: "dateEvent",
+  date: "dateEvent",
+  event: "dateEvent",
+  temporal: "dateEvent",
+  timeline: "dateEvent",
+  example: "example",
+  application: "example",
+  apply: "example",
+  usecase: "example",
+};
+
+const IMPORTANCE_LABELS: Record<string, number> = {
+  verylow: 0.05,
+  low: 0.3,
+  medium: 0.5,
+  moderate: 0.5,
+  normal: 0.5,
+  high: 0.75,
+  important: 0.8,
+  key: 0.85,
+  veryhigh: 0.9,
+  critical: 0.95,
+  essential: 0.95,
+};
+
+const CARD_TYPE_ALIASES: Record<string, LearningCardType> = {
+  qa: "qa",
+  q: "qa",
+  question: "qa",
+  questionanswer: "qa",
+  basic: "qa",
+  basiccard: "qa",
+  ask: "qa",
+  recall: "qa",
+  temporal: "qa",
+  cloze: "cloze",
+  clozedeletion: "cloze",
+  deletion: "cloze",
+  fillintheblank: "cloze",
+  fillin: "cloze",
+  definition: "definition",
+  definitional: "definition",
+  enumeration: "enumeration",
+  list: "enumeration",
+  listcard: "enumeration",
+  comparison: "comparison",
+  compare: "comparison",
+  versus: "comparison",
+  process: "process",
+  orderedsteps: "process",
+  steps: "process",
+  sequence: "process",
+  causeeffect: "causeEffect",
+  whyhow: "causeEffect",
+  formula: "formula",
+  conceptualformula: "formula",
+  equation: "formula",
+  example: "example",
+  application: "example",
+  applicationcard: "example",
+  identifyapply: "example",
+  occlusion: "occlusion-ref",
+  occlusionref: "occlusion-ref",
+  imageocclusion: "occlusion-ref",
+  image: "occlusion-ref",
+};
+
+const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
+
+/** Coerce a model-supplied importance into a finite 0–1 number. */
+export function coerceImportance(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    // Tolerate a 0–10 scale ("8" meaning 8/10).
+    return clamp01(value > 1 && value <= 10 ? value / 10 : value);
+  }
+  if (typeof value === "string") {
+    const raw = value.trim().toLowerCase();
+    const key = canonicalKey(value);
+    if (IMPORTANCE_LABELS[key] !== undefined) return IMPORTANCE_LABELS[key];
+    const percent = raw.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (percent) return clamp01(Number(percent[1]) / 100);
+    const numeric = raw.match(/(\d+(?:\.\d+)?)(?:\s*\/\s*10)?/);
+    if (numeric) {
+      const n = Number(numeric[1]);
+      if (Number.isFinite(n)) return clamp01(n > 1 && n <= 10 ? n / 10 : n);
+    }
+  }
+  return 0.5;
+}
+
+/** Map any model spelling onto a canonical knowledge type (or `general`). */
+export function normalizeKnowledgeType(value: unknown): KnowledgeType {
+  return KNOWLEDGE_TYPE_ALIASES[canonicalKey(value)] ?? "general";
+}
+
+/** Map any model spelling onto a canonical card type (generic `qa` fallback). */
+export function normalizeCardType(value: unknown): LearningCardType {
+  return CARD_TYPE_ALIASES[canonicalKey(value)] ?? "qa";
+}
+
+/**
+ * Shallow-normalize a raw proposal: coerced importance, canonical enums.
+ * Card content (question/answer/cloze) is untouched — grounding and verbatim
+ * checks still apply strictly.
+ */
+export function normalizeLearningMaterialProposal(raw: unknown): unknown {
+  if (!isRecord(raw)) return raw;
+  const out: Record<string, unknown> = { ...raw };
+  out.importance = coerceImportance(raw.importance);
+  if (raw.knowledgeType !== undefined || !("knowledgeType" in raw)) {
+    out.knowledgeType = normalizeKnowledgeType(raw.knowledgeType);
+  }
+  // Small models omit "empty" metadata entirely instead of emitting [] —
+  // default the lists and rationale so the envelope survives (device report:
+  // "prerequisites: expected array, tags: expected array, rationale:
+  // expected string").
+  if (!Array.isArray(raw.concepts)) out.concepts = [];
+  if (!Array.isArray(raw.prerequisites)) out.prerequisites = [];
+  if (!Array.isArray(raw.tags)) out.tags = [];
+  if (typeof raw.rationale !== "string" || raw.rationale.trim() === "") {
+    out.rationale = "Card candidates generated from the selected passage.";
+  }
+  if (Array.isArray(raw.suggestedCards)) {
+    out.suggestedCards = (raw.suggestedCards as unknown[]).map((card) =>
+      isRecord(card) && card.cardType !== undefined
+        ? { ...card, cardType: normalizeCardType(card.cardType) }
+        : card
+    );
+  }
+  return out;
+}
+
 export function validateLearningMaterialProposal(
   output: unknown,
   context: LearningMaterialValidationContext = {}
 ): ValidationOutcome<LearningMaterialProposal> {
+  const normalized = normalizeLearningMaterialProposal(output);
   const errors: string[] = [];
-  if (!isRecord(output)) {
+  if (!isRecord(normalized)) {
     return { ok: false, errors: ["root: expected object"] };
   }
 
-  const importance = checkNumber(output.importance, "importance", errors, { min: 0, max: 1 });
+  const importance = checkNumber(normalized.importance, "importance", errors, { min: 0, max: 1 });
   const knowledgeType = checkStringEnum(
-    output.knowledgeType,
+    normalized.knowledgeType,
     KNOWLEDGE_TYPES,
     "knowledgeType",
     errors
   );
-  const concepts = checkStringArray(output.concepts, "concepts", errors, {
+  const concepts = checkStringArray(normalized.concepts, "concepts", errors, {
     max: 12,
     maxLength: 120,
   });
-  const prerequisites = checkStringArray(output.prerequisites, "prerequisites", errors, {
+  const prerequisites = checkStringArray(normalized.prerequisites, "prerequisites", errors, {
     max: 10,
     maxLength: 120,
   });
-  const tags = checkStringArray(output.tags, "tags", errors, { max: 10, maxLength: 40 });
-  const rationale = checkString(output.rationale, "rationale", errors, { maxLength: 1200 });
+  const tags = checkStringArray(normalized.tags, "tags", errors, { max: 10, maxLength: 40 });
+  const rationale = checkString(normalized.rationale, "rationale", errors, { maxLength: 1200 });
 
   const cards: LearningCardCandidate[] = [];
-  if (!Array.isArray(output.suggestedCards)) {
+  if (!Array.isArray(normalized.suggestedCards)) {
     errors.push("suggestedCards: expected array");
-  } else if (output.suggestedCards.length > MAX_LEARNING_CARDS) {
+  } else if (normalized.suggestedCards.length > MAX_LEARNING_CARDS) {
     errors.push(`suggestedCards: more than ${MAX_LEARNING_CARDS} cards`);
   } else {
     const perConcept = new Map<string, number>();
-    (output.suggestedCards as unknown[]).forEach((raw, index) => {
+    (normalized.suggestedCards as unknown[]).forEach((raw, index) => {
       const card = validateCardCandidate(raw, `suggestedCards[${index}]`, errors, context);
       if (!card) return;
       const conceptKey = (card.concept ?? "").trim().toLowerCase();
@@ -191,6 +372,11 @@ export function validateLearningMaterialProposal(
   });
 }
 
+/** Empty strings are treated as absent (models — and truncation salvage —
+ * emit `""` for optional fields; the validator requires ≥1 char). */
+const nonEmpty = (value: unknown): unknown =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
+
 function validateCardCandidate(
   raw: unknown,
   path: string,
@@ -203,44 +389,52 @@ function validateCardCandidate(
   }
   const cardErrors: string[] = [];
   const cardType = checkStringEnum(
-    raw.cardType ?? raw.card_type,
+    normalizeCardType(raw.cardType ?? raw.card_type),
     LEARNING_CARD_TYPES,
     `${path}.cardType`,
     cardErrors
   );
   const concept =
-    raw.concept === undefined
+    nonEmpty(raw.concept) === undefined
       ? undefined
-      : checkString(raw.concept, `${path}.concept`, cardErrors, { maxLength: 120 });
-  const conceptKeys = checkStringArray(raw.conceptKeys, `${path}.conceptKeys`, cardErrors, {
-    max: 8,
-    maxLength: 120,
-  });
+      : checkString(nonEmpty(raw.concept), `${path}.concept`, cardErrors, { maxLength: 120 });
+  const conceptKeys = checkStringArray(
+    Array.isArray(raw.conceptKeys) ? raw.conceptKeys : [],
+    `${path}.conceptKeys`,
+    cardErrors,
+    { max: 8, maxLength: 120 }
+  );
   const question = checkString(raw.question ?? raw.front, `${path}.question`, cardErrors, {
     maxLength: 2000,
   });
   const answer = checkString(raw.answer ?? raw.back, `${path}.answer`, cardErrors, {
     maxLength: 2000,
   });
-  const clozeText =
-    raw.clozeText === undefined
+  let clozeText =
+    nonEmpty(raw.clozeText ?? raw.cloze_text) === undefined
       ? undefined
-      : checkString(raw.clozeText ?? raw.cloze_text, `${path}.clozeText`, cardErrors, {
+      : checkString(nonEmpty(raw.clozeText ?? raw.cloze_text), `${path}.clozeText`, cardErrors, {
           maxLength: 2000,
         });
   const clozeRanges = checkClozeRanges(raw.clozeRanges, `${path}.clozeRanges`, cardErrors);
   const evidenceQuote =
-    raw.evidenceQuote === undefined
+    nonEmpty(raw.evidenceQuote ?? raw.evidence) === undefined
       ? undefined
-      : checkString(raw.evidenceQuote ?? raw.evidence, `${path}.evidenceQuote`, cardErrors, {
-          maxLength: 2000,
-        });
+      : checkString(
+          nonEmpty(raw.evidenceQuote ?? raw.evidence),
+          `${path}.evidenceQuote`,
+          cardErrors,
+          { maxLength: 2000 }
+        );
   const imageRefId =
-    raw.imageRefId === undefined
+    nonEmpty(raw.imageRefId ?? raw.image_ref_id) === undefined
       ? undefined
-      : checkString(raw.imageRefId ?? raw.image_ref_id, `${path}.imageRefId`, cardErrors, {
-          maxLength: 200,
-        });
+      : checkString(
+          nonEmpty(raw.imageRefId ?? raw.image_ref_id),
+          `${path}.imageRefId`,
+          cardErrors,
+          { maxLength: 200 }
+        );
   const tags =
     raw.tags === undefined
       ? undefined
@@ -252,7 +446,10 @@ function validateCardCandidate(
   }
 
   if (cardType === "cloze") {
-    const deletion = extractClozeDeletion(clozeText ?? question);
+    // Cloze cards carry the sentence in `question` when the model omits
+    // clozeText (or emitted an empty one).
+    if (clozeText === undefined) clozeText = question;
+    const deletion = extractClozeDeletion(clozeText);
     if (!deletion) {
       errors.push(`${path}.clozeText: missing {{c1::...}} deletion`);
       return null;
@@ -263,7 +460,7 @@ function validateCardCandidate(
     }
     if (clozeRanges) {
       for (const [start, end] of clozeRanges) {
-        if (start >= (clozeText ?? question).length || end > (clozeText ?? question).length) {
+        if (start >= clozeText.length || end > clozeText.length) {
           errors.push(`${path}.clozeRanges: range [${start},${end}] outside clozeText`);
           return null;
         }

@@ -25,9 +25,9 @@ import type { AITaskDefinition, AITaskRunOptions } from "../types";
 export const PASSAGE_CLASSIFICATION_TASK_ID = "passage-classification";
 
 /** Fast-class latency budget; scoring happens during idle reading time. */
-export const PASSAGE_CLASSIFICATION_TIMEOUT_MS = 20_000;
+export const PASSAGE_CLASSIFICATION_TIMEOUT_MS = 45_000;
 /** One small envelope: type + score + one-sentence reason + action. */
-export const PASSAGE_CLASSIFICATION_MAX_OUTPUT_TOKENS = 200;
+export const PASSAGE_CLASSIFICATION_MAX_OUTPUT_TOKENS = 400;
 
 export interface PassageClassificationInput {
   /** The already-read passage to classify — untrusted document content. */
