@@ -1657,6 +1657,13 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         rehydrateTab: (s: SerializedTabData) => Tab;
       };
 
+      // The dynamic import above is an async gap during boot. If the user
+      // already opened a tab in that window (bottom nav is interactive
+      // immediately), the unconditional set() below would clobber it with the
+      // stale saved session — the "first view switch doesn't load, second
+      // one does" bug. Restoring into a non-empty workspace is a no-op.
+      if (get().tabs.length > 0) return false;
+
       const validTabIds = new Set<string>();
 
       // Rehydrate tabs, filtering out invalid ones

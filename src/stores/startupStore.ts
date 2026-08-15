@@ -21,6 +21,16 @@ interface StartupState {
 
 const inflight = new Map<string, Promise<StartupSnapshot | null>>();
 
+// On a cold Android WebView the first IPC round-trip can stall ~30s inside
+// the bridge even though the backend is up (see the retrying readiness gate
+// in lib/tauri.ts). A hung snapshot request would also pin this module's
+// inflight entry — every later ensureStartup with the same key would share
+// the dead promise forever. Race the request against this timeout and
+// resolve null: the finally below frees the inflight slot, so the next call
+// issues a fresh request instead of waiting for the user to navigate away
+// and back.
+const SNAPSHOT_REQUEST_TIMEOUT_MS = 8_000;
+
 function requestKey(collectionId: string, surface: StartupSurface, queueMode?: string): string {
   return `${collectionId}:${surface === "queue" ? `queue:${queueMode ?? "due-all"}` : "base"}`;
 }
@@ -73,8 +83,26 @@ export const useStartupStore = create<StartupState>((set, get) => ({
     const endCollectionPhase = markSyncPhaseStart("collections-ready");
     const endDocumentPhase = markSyncPhaseStart("first-document-data");
     const endQueuePhase = surface === "queue" ? markSyncPhaseStart("first-queue-data") : null;
-    const promise = getStartupSnapshot({ surface, queueMode: options?.queueMode })
+    let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
+    const snapshotTimeout = new Promise<null>((resolve) => {
+      snapshotTimer = setTimeout(() => resolve(null), SNAPSHOT_REQUEST_TIMEOUT_MS);
+    });
+    const promise = Promise.race([
+      getStartupSnapshot({ surface, queueMode: options?.queueMode }),
+      snapshotTimeout,
+    ])
       .then((snapshot) => {
+        if (snapshot === null) {
+          // Transport stall, not a data error: free the telemetry phases and
+          // reset the status machine so a retry starts cleanly. The legacy
+          // fallback deliberately does NOT run — its invokes would queue
+          // behind the same stalled bridge.
+          endCollectionPhase({ request: "get_startup_snapshot", surface });
+          endDocumentPhase({ request: "get_startup_snapshot", surface });
+          endQueuePhase?.({ request: "get_startup_snapshot", surface });
+          set({ status: "idle" });
+          return null;
+        }
         // A collection switch during the request makes the response stale.
         // Before the first snapshot, the collection store starts with the
         // default id while the persisted active collection is still unknown;
@@ -145,6 +173,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
         return null;
       })
       .finally(() => {
+        if (snapshotTimer !== undefined) clearTimeout(snapshotTimer);
         if (inflight.get(key) === promise) inflight.delete(key);
       });
     inflight.set(key, promise);

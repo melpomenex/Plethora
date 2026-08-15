@@ -1,16 +1,18 @@
 import { lazy, type ComponentType } from "react";
 import type { TabType } from "../../stores/tabsStore";
+import { importWithRetry } from "../../utils/importWithRetry";
 
 // Central registry of all lazy-loaded tab components
 // Components use named exports, so we need to convert them to default exports
 
-/** Wrap a lazy import with error logging to identify which module fails to load */
+/** Wrap a lazy import with timeout + retry (WebView chunk stalls) and error
+ * logging to identify which module fails to load */
 function debugLazy<T extends ComponentType<unknown>>(
   name: string,
   loader: () => Promise<{ default: T }>
 ) {
   return lazy(() =>
-    loader().catch((err) => {
+    importWithRetry(name, loader).catch((err) => {
       console.error(`[TabRegistry] Failed to lazy-load "${name}":`, err);
       // Re-throw so React.lazy triggers the error boundary
       throw err;
