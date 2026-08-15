@@ -648,6 +648,11 @@ pub fn run() {
                 .level_for("hyper", log::LevelFilter::Warn)
                 .level_for("rustls", log::LevelFilter::Warn)
                 .level_for("sqlx", log::LevelFilter::Warn)
+                // pdf-extract logs per-glyph benign "Unicode mismatch"/missing
+                // char notices at warn — one per glyph is a stdout flood that
+                // lags the whole machine on Windows (issue #45). Real
+                // extraction failures are error-level and stay visible.
+                .level_for("pdf_extract", log::LevelFilter::Error)
                 .build()
         })
         .plugin(tauri_plugin_shell::init())
