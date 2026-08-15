@@ -69,6 +69,24 @@ export async function ingestRemoteImage(
   });
 }
 
+/**
+ * Ingest an image already on disk — e.g. one the viewer displays through the
+ * loopback media/epub server. The read happens in Rust, so the webview's
+ * cross-origin restrictions (and the SSRF guard that blocks reqwest from
+ * fetching our own loopback URLs) never apply.
+ */
+export async function ingestImageFromPath(
+  filePath: string,
+  fileName?: string,
+  mimeType?: string,
+): Promise<ImageAsset> {
+  return invokeCommand<ImageAsset>("ingest_image_asset_from_path", {
+    filePath,
+    fileName,
+    mimeType,
+  });
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

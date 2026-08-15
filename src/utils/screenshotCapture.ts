@@ -2,7 +2,7 @@
  * Screenshot capture utilities
  */
 
-import { invokeCommand } from "../lib/tauri";
+import { invokeCommand, isNativeMobile } from "../lib/tauri";
 
 export interface ScreenInfo {
   index: number;
@@ -72,6 +72,14 @@ export async function captureAppWindowRegion(rect: {
   width: number;
   height: number;
 }): Promise<string> {
+  // The capture commands are desktop-only (xcap is compiled out of the
+  // Android/iOS builds) — fail with an actionable message instead of the
+  // opaque "command capture_app_window_region not found".
+  if (isNativeMobile()) {
+    throw new Error(
+      "Screen capture is not available on this device — try saving the image from its original source instead."
+    );
+  }
   return invokeCommand<string>("capture_app_window_region", rect);
 }
 

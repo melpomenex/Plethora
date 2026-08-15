@@ -1,4 +1,5 @@
 import type { ImageAsset } from "../api/image-registry";
+import { isNativeMobile } from "../lib/tauri";
 
 /**
  * Acquiring an image for the Image Registry or an occlusion card.
@@ -13,7 +14,11 @@ import type { ImageAsset } from "../api/image-registry";
  *
  * Acquisition now runs a chain of strategies for every source. The source's
  * scheme decides the *order* (start with whatever is most likely to work), never
- * which strategies exist.
+ * which strategies exist. Images served by the app's own loopback media/epub
+ * server are the notable mobile case: the webview cannot fetch them (no CORS
+ * headers on the loopback server) and Rust will not fetch them (the SSRF guard
+ * rejects loopback hosts), so their URL-named backing file is ingested
+ * natively via `ingestFromPath`.
  */
 
 export interface ImageAcquisitionSource {
@@ -33,7 +38,12 @@ export interface ImageAcquisitionDeps {
     fileName?: string,
     referrerUrl?: string,
   ) => Promise<ImageAsset>;
-  readLocalFile: (path: string) => Promise<Uint8Array>;
+  /** Rust-side `ingest_image_asset_from_path`: reads and ingests in one hop. */
+  ingestFromPath: (
+    path: string,
+    fileName?: string,
+    mimeType?: string,
+  ) => Promise<ImageAsset>;
   captureRect: (rect: NonNullable<ImageAcquisitionSource["rect"]>) => Promise<Blob>;
 }
 
@@ -87,6 +97,8 @@ export function getFilePathFromUrl(src: string): string | null {
 
   try {
     const url = new URL(src);
+    const streamPath = filePathFromLoopbackStreamUrl(url);
+    if (streamPath) return streamPath;
     if (url.protocol === "asset:" || url.host === "asset.localhost" || url.protocol === "file:") {
       return normalizeWindowsPath(decodeURIComponent(url.pathname));
     }
@@ -113,6 +125,40 @@ export function getFilePathFromUrl(src: string): string | null {
   return null;
 }
 
+/**
+ * Hosts the app's own loopback media/epub server binds. Every stream URL it
+ * mints carries the backing file path as a `?path=` query parameter (see
+ * media_server::get_media_stream_url and epub_server::get_epub_stream_url),
+ * regardless of the exact route.
+ */
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+
+function filePathFromLoopbackStreamUrl(url: URL): string | null {
+  if (!LOOPBACK_HOSTS.has(url.hostname)) return null;
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  // searchParams.get already percent-decodes the server-encoded path.
+  const path = url.searchParams.get("path");
+  if (!path || !/^\//.test(path)) return null;
+  // Server-side canonical paths may be Windows-style (C:/...); strip the
+  // leading slash there, matching the asset/file URL handling above.
+  return /^\/[a-zA-Z]:/.test(path) ? path.substring(1) : path;
+}
+
+/**
+ * Recognize one of the app's own media/epub stream URLs. The webview cannot
+ * `fetch()` these (the loopback server sends no CORS headers — cross-origin
+ * from the tauri.localhost page) and Rust will not reqwest them (the SSRF
+ * guard rejects loopback hosts), but the URL names its backing file, which
+ * `ingestFromPath` reads natively.
+ */
+export function isLoopbackStreamUrl(src: string): boolean {
+  try {
+    return filePathFromLoopbackStreamUrl(new URL(src)) !== null;
+  } catch {
+    return false;
+  }
+}
+
 function mimeTypeForPath(path: string): string {
   switch (path.split(".").pop()?.toLowerCase()) {
     case "jpg":
@@ -124,6 +170,8 @@ function mimeTypeForPath(path: string): string {
       return "image/webp";
     case "svg":
       return "image/svg+xml";
+    case "epub":
+      return "application/epub+zip";
     default:
       return "image/png";
   }
@@ -148,6 +196,13 @@ export function planStrategies(
   if (src.startsWith("data:") || src.startsWith("blob:")) {
     // Same-origin by construction; a direct read always wins.
     plan.push("direct");
+  } else if (native && isLoopbackStreamUrl(src)) {
+    // One of the app's own media/epub stream URLs. The webview fetch is
+    // cross-origin (the loopback server sends no CORS headers) and the
+    // native remote fetch is rejected by the SSRF guard, but the URL names
+    // its backing file — from-path ingestion is the one strategy whose
+    // transport cannot fail. Lead with it.
+    plan.push("local-file", "direct", "native");
   } else if (native && isPublicRemoteImageUrl(src)) {
     // A webview fetch would be CORS-blocked, so lead with native ingestion.
     plan.push("native", "direct");
@@ -157,8 +212,11 @@ export function planStrategies(
   }
 
   // Capturing what is already painted works regardless of scheme or origin,
-  // so it is the universal last resort rather than a remote-only special case.
-  if (native && source.rect) plan.push("pixel-capture");
+  // so it is the universal last resort rather than a remote-only special
+  // case. The capture command is desktop-only (xcap; compiled out of the
+  // Android/iOS build) — planning it there just produces "command not
+  // found" failures.
+  if (native && !isNativeMobile() && source.rect) plan.push("pixel-capture");
 
   return plan.filter((strategy, index) => plan.indexOf(strategy) === index);
 }
@@ -186,9 +244,11 @@ export async function acquireImageAsset(
         case "local-file": {
           const path = getFilePathFromUrl(source.src);
           if (!path) throw new Error("not a local file URL");
-          const bytes = await deps.readLocalFile(path);
-          const blob = new Blob([bytes as BlobPart], { type: mimeTypeForPath(path) });
-          return await deps.ingestBlob(blob, path.split("/").pop() || undefined);
+          return await deps.ingestFromPath(
+            path,
+            path.split("/").pop() || undefined,
+            mimeTypeForPath(path),
+          );
         }
         case "pixel-capture": {
           const blob = await deps.captureRect(source.rect!);

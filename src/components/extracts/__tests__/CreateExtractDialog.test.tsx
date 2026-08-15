@@ -26,6 +26,8 @@ vi.mock("../../../utils/screenshotCapture", () => ({
 }));
 vi.mock("../../../lib/tauri", () => ({
   isTauri: () => true,
+  // Desktop-style environment so the rendered-pixel capture path is planned.
+  isNativeMobile: () => false,
 }));
 vi.mock("../../../stores/documentStore", () => ({
   useDocumentStore: () => ({ documents: mocks.documents }),
