@@ -95,6 +95,7 @@ struct OpenAIImageUrl {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIResponse {
+    #[serde(default)]
     choices: Vec<OpenAIChoice>,
     usage: Option<OpenAIUsage>,
 }
@@ -104,16 +105,51 @@ struct OpenAIChoice {
     message: OpenAIResponseMessageContent,
 }
 
+/// Tolerant assistant-message content. OpenAI-compatible providers (notably
+/// OpenRouter, which fronts many upstream models) may return `content: null`
+/// for tool-call-only / refusal / reasoning turns, or a multimodal parts
+/// array instead of a plain string. Either way we keep the text.
 #[derive(Debug, Deserialize)]
 struct OpenAIResponseMessageContent {
-    content: String,
+    #[serde(default)]
+    content: Option<OpenAIResponseContentValue>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum OpenAIResponseContentValue {
+    Text(String),
+    Parts(Vec<OpenAIResponseContentPart>),
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIResponseContentPart {
+    #[serde(default)]
+    text: Option<String>,
+}
+
+impl OpenAIResponseMessageContent {
+    fn text(&self) -> String {
+        match &self.content {
+            Some(OpenAIResponseContentValue::Text(s)) => s.clone(),
+            Some(OpenAIResponseContentValue::Parts(parts)) => parts
+                .iter()
+                .filter_map(|p| p.text.clone())
+                .collect::<Vec<_>>()
+                .join(""),
+            None => String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAIUsage {
-    prompt_tokens: usize,
-    completion_tokens: usize,
-    total_tokens: usize,
+    #[serde(default)]
+    prompt_tokens: Option<usize>,
+    #[serde(default)]
+    completion_tokens: Option<usize>,
+    #[serde(default)]
+    total_tokens: Option<usize>,
     // DeepSeek-specific: present only on DeepSeek responses. Reports how many
     // of `prompt_tokens` were served from DeepSeek's automatic disk-based
     // prompt cache (billed at a steep discount) vs. freshly processed.
@@ -121,6 +157,28 @@ struct OpenAIUsage {
     prompt_cache_hit_tokens: Option<usize>,
     #[serde(default)]
     prompt_cache_miss_tokens: Option<usize>,
+}
+
+impl OpenAIUsage {
+    fn prompt_tokens(&self) -> usize {
+        self.prompt_tokens.unwrap_or(0)
+    }
+    fn completion_tokens(&self) -> usize {
+        self.completion_tokens.unwrap_or(0)
+    }
+    fn total_tokens(&self) -> usize {
+        self.total_tokens.unwrap_or(0)
+    }
+}
+
+/// Shorten a response body for inclusion in an error message (char-safe).
+fn ellipsize_body(body: &str, max_chars: usize) -> String {
+    if body.chars().count() <= max_chars {
+        body.to_string()
+    } else {
+        let prefix: String = body.chars().take(max_chars).collect();
+        format!("{}…", prefix)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1502,15 +1560,15 @@ async fn call_openai_with_key(
     let content = openai_response
         .choices
         .first()
-        .map(|c| c.message.content.clone())
+        .map(|c| c.message.text())
         .unwrap_or_default();
 
     Ok(LLMResponse {
         content,
         usage: openai_response.usage.map(|u| LLMUsage {
-            prompt_tokens: u.prompt_tokens,
-            completion_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens,
+            prompt_tokens: u.prompt_tokens(),
+            completion_tokens: u.completion_tokens(),
+            total_tokens: u.total_tokens(),
             prompt_cache_hit_tokens: u.prompt_cache_hit_tokens,
             prompt_cache_miss_tokens: u.prompt_cache_miss_tokens,
         }),
@@ -1627,11 +1685,11 @@ async fn call_ollama_with_url(
         .ok_or_else(|| "Ollama response contained no choices".to_string())?;
 
     Ok(LLMResponse {
-        content: choice.message.content,
+        content: choice.message.text(),
         usage: openai_response.usage.map(|u| LLMUsage {
-            prompt_tokens: u.prompt_tokens,
-            completion_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens,
+            prompt_tokens: u.prompt_tokens(),
+            completion_tokens: u.completion_tokens(),
+            total_tokens: u.total_tokens(),
             prompt_cache_hit_tokens: None,
             prompt_cache_miss_tokens: None,
         }),
@@ -1670,30 +1728,48 @@ async fn call_openrouter_with_key(
 
     if !response.status().is_success() {
         let status = response.status();
-        let _error_text = response.text().await.unwrap_or_default();
+        let error_text = response.text().await.unwrap_or_default();
         return Err(format!(
             "OpenRouter API error ({}): {}",
-            status, "request failed"
+            status,
+            ellipsize_body(error_text.trim(), 300)
         ));
     }
 
-    let openrouter_response: OpenAIResponse = response
-        .json()
+    let body = response
+        .text()
         .await
-        .map_err(|e| format!("Failed to parse OpenRouter response: {}", e))?;
+        .map_err(|e| format!("Failed to read OpenRouter response: {}", e))?;
+    let openrouter_response: OpenAIResponse = serde_json::from_str(&body).map_err(|e| {
+        // OpenRouter sometimes reports upstream failures as HTTP 200 with an
+        // {"error": {...}} body; surface that instead of a decode error.
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(message) = value
+                .get("error")
+                .and_then(|err| err.get("message"))
+                .and_then(|m| m.as_str())
+            {
+                return format!("OpenRouter error: {}", message);
+            }
+        }
+        format!(
+            "Failed to parse OpenRouter response: {} — body: {}",
+            e,
+            ellipsize_body(body.trim(), 300)
+        )
+    })?;
 
-    let content = openrouter_response
+    let choice = openrouter_response
         .choices
         .first()
-        .map(|c| c.message.content.clone())
-        .unwrap_or_default();
+        .ok_or_else(|| "OpenRouter response contained no choices".to_string())?;
 
     Ok(LLMResponse {
-        content,
+        content: choice.message.text(),
         usage: openrouter_response.usage.map(|u| LLMUsage {
-            prompt_tokens: u.prompt_tokens,
-            completion_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens,
+            prompt_tokens: u.prompt_tokens(),
+            completion_tokens: u.completion_tokens(),
+            total_tokens: u.total_tokens(),
             prompt_cache_hit_tokens: None,
             prompt_cache_miss_tokens: None,
         }),
