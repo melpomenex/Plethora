@@ -1,10 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "resources": [
-      "scripts/anna_download.py",
-      "bin/*.dll",
-      "bin/notebooklm-runtime"
-    ]
+    "resources": {
+      "scripts/anna_download.py": "scripts/anna_download.py",
+      "bin/onnxruntime.dll": "onnxruntime.dll",
+      "bin/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll",
+      "bin/onnxruntime.placeholder.dll": "bin/onnxruntime.placeholder.dll",
+      "bin/notebooklm-runtime": "bin/notebooklm-runtime"
+    }
   }
 }
