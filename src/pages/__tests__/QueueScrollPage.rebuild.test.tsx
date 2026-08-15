@@ -15,7 +15,7 @@
  * the leaf viewer components (pattern: ReviewQueueView.test.tsx).
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => {
   const queueState: Record<string, any> = {
@@ -337,6 +337,17 @@ const card1 = makeCard("card-1", CARD_QUESTION);
 const flashcardInView = () => screen.queryAllByText(CARD_QUESTION).length > 0;
 const documentInView = () => screen.queryByTestId("document-viewer");
 
+/** The rating → advance chain runs on real 300/500ms timers; under a loaded
+ * parallel test run those timers fire late, so a fixed settle() can return
+ * before the next item rendered. Poll for the post-advance state instead of
+ * asserting immediately after a sleep. */
+const awaitFlashcardCurrent = () =>
+  waitFor(() => expect(flashcardInView()).toBe(true));
+const awaitDocumentCurrent = (id: string) =>
+  waitFor(() =>
+    expect(documentInView()).toHaveAttribute("data-document-id", id),
+  );
+
 /** Fire a documents store reload — same content, new array identity, exactly
  *  what the sync engine's debounced `loadDocuments()` does. */
 const reloadDocuments = async (docs: any[]) => {
@@ -431,7 +442,7 @@ describe("QueueScrollPage session rebuild stability (optimal path)", () => {
     expect(api.rateDocumentEngaging).toHaveBeenCalledWith("doc-1", 3, expect.any(Number));
 
     // advanceAfterRemoval revealed the flashcard; it is current and unrated.
-    expect(flashcardInView()).toBe(true);
+    await awaitFlashcardCurrent();
     expect(documentInView()).not.toBeInTheDocument();
     expect(api.submitReview).not.toHaveBeenCalled();
 
@@ -451,7 +462,7 @@ describe("QueueScrollPage session rebuild stability (optimal path)", () => {
 
     // The next epub becomes current — the rebuild neither double-advanced
     // nor resurrected the rated epub.
-    expect(documentInView()).toHaveAttribute("data-document-id", "doc-2");
+    await awaitDocumentCurrent("doc-2");
     expect(flashcardInView()).toBe(false);
   }, 20000);
 
@@ -469,9 +480,9 @@ describe("QueueScrollPage session rebuild stability (optimal path)", () => {
 
     // Walk to doc-2: rate doc-1 → card; rate the card → doc-2 current.
     await rateCurrentViaKeyboard("3");
-    expect(flashcardInView()).toBe(true);
+    await awaitFlashcardCurrent();
     await revealAndRateFlashcard();
-    expect(documentInView()).toHaveAttribute("data-document-id", "doc-2");
+    await awaitDocumentCurrent("doc-2");
 
     // doc-2 is deleted elsewhere; the store reload no longer contains it.
     await reloadDocuments([doc1, doc3]);
@@ -514,7 +525,7 @@ describe("QueueScrollPage session rebuild stability (queue-list path)", () => {
 
     // Rate the epub → the flashcard is current and unrated.
     await rateCurrentViaKeyboard("3");
-    expect(flashcardInView()).toBe(true);
+    await awaitFlashcardCurrent();
     expect(api.submitReview).not.toHaveBeenCalled();
 
     // A documents reload rebuilds the replayed list (static customQueueItems
@@ -526,7 +537,7 @@ describe("QueueScrollPage session rebuild stability (queue-list path)", () => {
 
     // Rating the card advances to the next epub, exactly once.
     await revealAndRateFlashcard();
-    expect(documentInView()).toHaveAttribute("data-document-id", "doc-2");
+    await awaitDocumentCurrent("doc-2");
   }, 20000);
 });
 
