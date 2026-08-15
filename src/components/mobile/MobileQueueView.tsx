@@ -222,27 +222,54 @@ export function MobileQueueView({
   // path over an already-loaded queue. See design decision D3.
   useEffect(() => {
     if (!isActiveTab) return;
-    // Skip when the quick filter is unchanged (returning to the same tab).
     const mobileKey = `mobile:${quickFilter}`;
-    const storeState = useQueueStore.getState();
-    if (storeState.loadedQueryKey === mobileKey) return;
-    storeState.setLoadedQueryKey(mobileKey);
-    if (quickFilter === "today") {
-      void ensureStartup("queue", { queueMode: "due-today" }).then(() => {
+    if (quickFilter !== "today") {
+      if (useQueueStore.getState().loadedQueryKey === mobileKey) return;
+      useQueueStore.getState().setLoadedQueryKey(mobileKey);
+      switch (quickFilter) {
+        case "all":
+          setQueueFilterMode("all-items");
+          break;
+        case "new":
+          setQueueFilterMode("new-only");
+          break;
+      }
+      return;
+    }
+    // "today" loads through the startup snapshot. Mark loaded ONLY after the
+    // snapshot actually arrived: on a fresh install the first pass races
+    // backend setup and the cold-WebView IPC stall (~30s first-invoke window
+    // — see the retrying readiness gate in lib/tauri.ts and the snapshot
+    // watchdog in startupStore), so `ensureStartup` can resolve null. A
+    // pre-set key made every later activation skip the reload — the "Queue
+    // opens empty until you visit another view and come back" bug. A failed
+    // pass now leaves the key unset AND schedules its own retry, so the
+    // queue self-populates once the bridge recovers without waiting for the
+    // user to tap away and back.
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryDelay = 3_000;
+    let cancelled = false;
+    const attempt = () => {
+      if (cancelled) return;
+      if (useQueueStore.getState().loadedQueryKey === mobileKey) return;
+      void ensureStartup("queue", { queueMode: "due-today" }).then((snapshot) => {
+        if (cancelled) return;
+        if (snapshot == null) {
+          retryTimer = setTimeout(attempt, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 15_000);
+          return;
+        }
+        useQueueStore.getState().setLoadedQueryKey(mobileKey);
         if (useQueueStore.getState().items.length <= 50) {
           void loadDueQueueItems();
         }
       });
-      return;
-    }
-    switch (quickFilter) {
-      case "all":
-        setQueueFilterMode("all-items");
-        break;
-      case "new":
-        setQueueFilterMode("new-only");
-        break;
-    }
+    };
+    attempt();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+    };
   }, [quickFilter, ensureStartup, isActiveTab, setQueueFilterMode, loadDueQueueItems]);
 
   // Filter items

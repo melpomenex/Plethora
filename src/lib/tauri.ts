@@ -12,6 +12,65 @@ import { measureSyncPhase } from './sync/syncTelemetry';
 let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
 let tauriApiLoadPromise: Promise<void> | null = null;
 let backendReadyPromise: Promise<void> | null = null;
+
+// Cold-start Android: the first IPC round-trip can stall ~30s inside the
+// WebView bridge (the JavaBridge thread that services window.ipc messages
+// blocks; observed via logcat across runs — backend-ready durationMs
+// 30068/30074/30067 — while the Rust backend itself finished setup in
+// ~1.5s). At least one stalled response is then dropped outright
+// ("Couldn't find callback id …"), leaving its JS promise pending forever.
+// A single-shot readiness gate would deadlock every command behind such a
+// dropped invoke. Race the probe against a timeout and retry so the gate
+// recovers as soon as the bridge unblocks.
+const BACKEND_READY_TIMEOUT_MS = 5_000;
+const BACKEND_READY_RETRY_MAX_MS = 10_000;
+// Generous enough to ride out the observed 30s bridge stall (retries queue
+// behind it and succeed on the flush), bounded so a genuinely broken
+// backend still surfaces an error to callers instead of retrying forever.
+const BACKEND_READY_MAX_ATTEMPTS = 5;
+
+function probeBackendReady(): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`wait_for_backend_ready timed out after ${BACKEND_READY_TIMEOUT_MS}ms`));
+    }, BACKEND_READY_TIMEOUT_MS);
+    // await (not .then) so partially-mocked environments whose invoke
+    // returns a plain value pass straight through, as they did before the
+    // gate gained retry behavior.
+    void (async () => {
+      try {
+        await tauriInvoke!("wait_for_backend_ready");
+        clearTimeout(timer);
+        resolve();
+      } catch (error) {
+        clearTimeout(timer);
+        reject(coerceError(error, "wait_for_backend_ready failed"));
+      }
+    })();
+  });
+}
+
+async function awaitBackendReadyWithRetry(): Promise<void> {
+  let retryDelay = 1_000;
+  let lastError: unknown = new Error("wait_for_backend_ready failed");
+  for (let attempt = 1; attempt <= BACKEND_READY_MAX_ATTEMPTS; attempt++) {
+    try {
+      await probeBackendReady();
+      return;
+    } catch (error) {
+      lastError = error;
+      console.warn(
+        `[startup] backend readiness probe stalled (attempt ${attempt}/${BACKEND_READY_MAX_ATTEMPTS}); retrying:`,
+        error instanceof Error ? error.message : error,
+      );
+      if (attempt < BACKEND_READY_MAX_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        retryDelay = Math.min(retryDelay * 2, BACKEND_READY_RETRY_MAX_MS);
+      }
+    }
+  }
+  throw lastError;
+}
 let tauriDialogOpen: ((options: unknown) => Promise<string | string[] | null>) | null = null;
 let tauriEventListen: (<T>(event: string, handler: (event: T) => void) => Promise<() => void>) | null = null;
 let tauriConvertFileSrc: ((path: string, protocol?: string) => string) | null = null;
@@ -268,9 +327,7 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
     }
     try {
       if (command !== "wait_for_backend_ready") {
-        backendReadyPromise ??= measureSyncPhase("backend-ready", async () => {
-          await tauriInvoke!("wait_for_backend_ready");
-        });
+        backendReadyPromise ??= measureSyncPhase("backend-ready", awaitBackendReadyWithRetry);
         await backendReadyPromise;
       }
       return await tauriInvoke(command, args) as T;

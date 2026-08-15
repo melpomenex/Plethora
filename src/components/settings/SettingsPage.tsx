@@ -36,6 +36,7 @@ import { useToast } from "../common/Toast";
 import { useModal } from "../common/Modal";
 import { NumericInput } from "../common";
 import { cn } from "../../utils";
+import { importWithRetry } from "../../utils/importWithRetry";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { isTauri } from "../../lib/tauri";
 import { checkForUpdates, setSkippedVersion, type UpdateInfo } from "../../utils/updateChecker";
@@ -58,7 +59,7 @@ function lazySection<T extends React.ComponentType<never>>(
   loader: () => Promise<{ default: T }>
 ) {
   return lazy(() =>
-    loader().catch((err) => {
+    importWithRetry(name, loader).catch((err) => {
       console.error(`[SettingsPage] Failed to lazy-load section "${name}":`, err);
       throw err;
     })
