@@ -1,6 +1,7 @@
 //! Database layer for Incrementum
 
 pub mod ai_provenance_repository;
+pub mod concept_repository;
 pub mod connection;
 pub mod element_tree_repository;
 pub mod item_activity_repository;
@@ -11,6 +12,10 @@ pub mod priority_rank;
 pub mod repository;
 
 pub use ai_provenance_repository::{AiProvenance, AiProvenanceRepository};
+pub use concept_repository::{
+    normalize_concept_name, Concept, ConceptBacklink, ConceptLink, ConceptRepository,
+    LinkProposalOutcome, CONCEPT_RELATION_TYPES, MAX_AI_LINKS_PER_DAY,
+};
 pub use connection::Database;
 pub use element_tree_repository::{
     find_node_id_in_tx, find_node_id_pool, register_node_in_tx, unlink_node_in_tx, ElementKind,

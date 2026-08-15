@@ -308,7 +308,8 @@ export function useRecallPrompts(
     };
     const timer = window.setInterval(evaluate, tickMs);
     return () => window.clearInterval(timer);
-    // `state.phase` deliberately read via a ref-like closure refresh below.
+    // `state.phase` in the deps re-registers the interval when a prompt
+    // appears/disappears so `evaluate` always sees the live phase.
   }, [options.enabled, options.mode, options.aiAvailable, tickMs, eligibilitySignals, tryGeneratePrompt, state.phase]);
 
   // Reset the session when the document changes.

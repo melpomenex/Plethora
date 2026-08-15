@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   ArrowLeft,
   ArrowsClockwise,
+  ChalkboardTeacher,
   Copy,
   DownloadSimple,
   GraduationCap,
@@ -25,6 +26,7 @@ import {
   Sparkle,
   TextAa,
   TextAlignLeft,
+  TreeStructure,
 } from "@phosphor-icons/react";
 import { MobileContextMenuSheet, mobileSheetItemClass } from "../common/MobileContextMenuSheet";
 import { copySelectionTextToClipboard } from "./SelectionPopup";
@@ -32,6 +34,8 @@ import { useI18n } from "../../lib/i18n";
 import { useAiAvailability } from "../../lib/ai/useAiAvailability";
 import { useAskLibrary } from "../../lib/ai/useAskLibrary";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { runPrerequisiteAnalysis } from "../../lib/ai/tasks/definitions/prerequisiteTask";
+import type { PrerequisiteAnalysis } from "../../lib/ai/schemas/prerequisite";
 import {
   getOnDeviceRequirementStatus,
   isOnDeviceAiSupportedPlatform,
@@ -50,6 +54,7 @@ import {
   type PassageResult,
 } from "../../lib/ai/passageAI";
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
+import { TutorSheet } from "../tutor/TutorSheet";
 import { openLibrarySource } from "../../utils/openLibrarySource";
 
 export type SelectionAiAction = "explain" | "summarize" | "simplify" | "keyTerms" | "ask";
@@ -176,10 +181,15 @@ export function SelectionActionsSheet({
   // "Ask library" ships behind its phase flag (default off) AND availability —
   // task 4.10 gating, same pattern as "Learn this".
   const aiLibraryRagEnabled = useSettingsStore((s) => s.settings.features.aiLibraryRag);
+  // "Socratic tutor" ships behind its phase flag (default off) AND the
+  // generative requirement — task 7.3 gating, same pattern as above.
+  const aiSocraticTutorEnabled = useSettingsStore((s) => s.settings.features.aiSocraticTutor);
+  // "Prerequisites" analysis flag
+  const aiPrerequisitesEnabled = useSettingsStore((s) => s.settings.features.aiPrerequisites);
   const library = useAskLibrary();
   const { reset: resetLibrary } = library;
 
-  const [mode, setMode] = useState<"menu" | "asking" | "result" | "library">("menu");
+  const [mode, setMode] = useState<"menu" | "asking" | "result" | "library" | "prerequisites">("menu");
   const [action, setAction] = useState<SelectionAiAction>("explain");
   const [question, setQuestion] = useState("");
   const [output, setOutput] = useState("");
@@ -187,6 +197,10 @@ export function SelectionActionsSheet({
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [showLearnThis, setShowLearnThis] = useState(false);
+  const [showTutor, setShowTutor] = useState(false);
+  const [prereqRunning, setPrereqRunning] = useState(false);
+  const [prereqError, setPrereqError] = useState<string | null>(null);
+  const [prereqResult, setPrereqResult] = useState<PrerequisiteAnalysis | null>(null);
   const [downloadState, setDownloadState] = useState<"idle" | "downloadable" | "downloading">(
     "idle"
   );
@@ -207,6 +221,10 @@ export function SelectionActionsSheet({
     setError(null);
     setRunning(false);
     setShowLearnThis(false);
+    setShowTutor(false);
+    setPrereqRunning(false);
+    setPrereqError(null);
+    setPrereqResult(null);
     resetLibrary();
   }, [resetLibrary]);
 
@@ -281,6 +299,26 @@ export function SelectionActionsSheet({
     [question, sourcePassage]
   );
 
+  const startPrerequisites = useCallback(() => {
+    setMode("prerequisites");
+    setPrereqRunning(true);
+    setPrereqError(null);
+    setPrereqResult(null);
+
+    void runPrerequisiteAnalysis({
+      passage: sourcePassage,
+      documentTitle: learnThis?.documentTitle,
+    })
+      .then((run) => {
+        setPrereqResult(run.analysis);
+        setPrereqRunning(false);
+      })
+      .catch((err) => {
+        setPrereqError(toOnDeviceAiError(err).message || String(err));
+        setPrereqRunning(false);
+      });
+  }, [sourcePassage, learnThis?.documentTitle]);
+
   // Back/Cancel returns to the action list, unless there is no list to return
   // to because the caller drove us straight into one action.
   const cancel = useCallback(() => {
@@ -329,6 +367,24 @@ export function SelectionActionsSheet({
         selectionContext={learnThis?.selectionContext}
         onClose={() => {
           setShowLearnThis(false);
+          if (initialAction) onClose();
+        }}
+      />
+    );
+  }
+
+  // Socratic tutoring takes over the sheet surface (task 7.3 entry).
+  if (showTutor) {
+    return (
+      <TutorSheet
+        open
+        material={sourcePassage}
+        documentTitle={learnThis?.documentTitle}
+        documentId={learnThis?.documentId}
+        extractId={learnThis?.extractId}
+        selectionContext={learnThis?.selectionContext}
+        onClose={() => {
+          setShowTutor(false);
           if (initialAction) onClose();
         }}
       />
@@ -409,6 +465,18 @@ export function SelectionActionsSheet({
                   <button className={mobileSheetItemClass} onClick={() => setMode("library")}>
                     <Sparkle className="w-5 h-5" aria-hidden="true" />
                     {t("aiLibrary.askLibrary")}
+                  </button>
+                )}
+                {aiSocraticTutorEnabled && (
+                  <button className={mobileSheetItemClass} onClick={() => setShowTutor(true)}>
+                    <ChalkboardTeacher className="w-5 h-5" aria-hidden="true" />
+                    {t("aiTutor.title")}
+                  </button>
+                )}
+                {aiPrerequisitesEnabled && (
+                  <button className={mobileSheetItemClass} onClick={startPrerequisites}>
+                    <TreeStructure className="w-5 h-5" aria-hidden="true" />
+                    {t("aiLearning.prerequisites") || "Find prerequisites"}
                   </button>
                 )}
               </>
@@ -570,6 +638,66 @@ export function SelectionActionsSheet({
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {mode === "prerequisites" && (
+          <div className="px-4 pb-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <button
+                className="p-1 -ml-1 text-muted-foreground hover:text-foreground"
+                aria-label={t("selectionSheet.back")}
+                onClick={cancel}
+              >
+                <ArrowLeft className="w-5 h-5" aria-hidden="true" />
+              </button>
+              <span className="text-sm font-medium text-foreground">
+                {t("aiLearning.prerequisites") || "Prerequisites Analysis"}
+              </span>
+            </div>
+
+            <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">{preview}</p>
+
+            {prereqRunning && (
+              <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+                <ArrowsClockwise className="w-4 h-4 animate-spin text-primary" />
+                <span>Analyzing prerequisite concepts…</span>
+              </div>
+            )}
+
+            {prereqError && (
+              <p className="text-[13px] text-destructive">
+                {prereqError}
+              </p>
+            )}
+
+            {prereqResult && !prereqRunning && (
+              <div className="space-y-2.5 pt-1">
+                {prereqResult.prerequisites.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">
+                    This passage appears self-contained and does not require missing foundational concepts.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {prereqResult.prerequisites.map((p, idx) => (
+                      <div key={idx} className="p-2.5 bg-muted/30 border border-border rounded-lg text-xs space-y-1">
+                        <div className="font-semibold text-foreground">
+                          {p.concept}
+                        </div>
+                        <p className="text-muted-foreground leading-relaxed">{p.why}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              className="w-full rounded-lg border border-border px-3 py-2 text-[14px] text-foreground hover:bg-muted"
+              onClick={cancel}
+            >
+              {t("selectionSheet.back")}
+            </button>
           </div>
         )}
 

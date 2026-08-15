@@ -185,123 +185,123 @@
 
 ## 5. Phase 4 — Active learning: recall and answer assessment
 
-- [ ] 5.1 Implement `RecallQuestionTask` (fast class, structured): generate a question from
+- [x] 5.1 Implement `RecallQuestionTask` (fast class, structured): generate a question from
   designated already-read chunk(s) with `RecallQuestionProposal` (question, expected answer,
   concept keys, chunk refs); validation requires chunk refs to exist.
-- [ ] 5.2 Rust: add migration creating `recall_prompt_history` (fingerprint, question,
+- [x] 5.2 Rust: add migration creating `recall_prompt_history` (fingerprint, question,
   document/chunk refs, asked_at, outcome; 90-day prune job); commands to record outcomes;
   tests.
-- [ ] 5.3 Implement the fingerprint/dedup module (normalized question text + concept keys,
+- [x] 5.3 Implement the fingerprint/dedup module (normalized question text + concept keys,
   similarity threshold, 30-day window) as a pure TS function with unit tests incl.
   near-duplicate cases.
-- [ ] 5.4 Implement the interruption policy module (pure TS): modes off/low/adaptive/
+- [x] 5.4 Implement the interruption policy module (pure TS): modes off/low/adaptive/
   intensive, minimum intervals (low 10 min, adaptive 4–10 by signals, intensive 2 min), max
   3/session, suppression during selection/reflow/playback, "not today" and kill switch;
   signals input contract (progress delta, density, review-grade trend, coverage, time since
   last); exhaustive unit tests for budget boundaries.
-- [ ] 5.5 Integrate prompt surfacing into the reading experience (viewer-level overlay, not
+- [x] 5.5 Integrate prompt surfacing into the reading experience (viewer-level overlay, not
   modal spam): dismissible prompt card, answer input, immediate feedback via
   `AssessAnswerTask`, then continue reading at the same position; wiring in
   `DocumentViewer`/scroll surfaces behind `aiActiveRecall`.
-- [ ] 5.6 Implement `AssessAnswerTask` (reasoning class with full fallback) producing
+- [x] 5.6 Implement `AssessAnswerTask` (reasoning class with full fallback) producing
   validated `AnswerAssessment`; misconception/partial/adversarial handling per spec;
   evaluation fixtures for all grading classes with the fake provider.
-- [ ] 5.7 Rust: add migration creating `answer_assessments` (linked to review results,
+- [x] 5.7 Rust: add migration creating `answer_assessments` (linked to review results,
   provenance, scores, missing concepts); command `record_answer_assessment` + TS wrapper;
   tests.
-- [ ] 5.8 Review-session integration behind `aiAnswerAssessment`: optional free-response
+- [x] 5.8 Review-session integration behind `aiAnswerAssessment`: optional free-response
   input before reveal (skippable), assessment display beside the revealed answer, grade
   routing untouched (verify `submit_review` path unchanged); implement `aiAutoGradeSuggest`
   highlight-only behavior (default off); update `flashcard-review-session` spec tests.
-- [ ] 5.9 Add "keep this question" promotion from recall prompts into the Learn-this preview
+- [x] 5.9 Add "keep this question" promotion from recall prompts into the Learn-this preview
   flow; settings for active-recall mode; i18n keys; run full gates; verify scheduler
   authority via tests asserting review outcomes are identical with assessments on/off.
 
 ## 6. Phase 5 — Knowledge relationships
 
-- [ ] 6.1 Rust: add migration creating `concepts` and `concept_links` (typed relations,
+- [x] 6.1 Rust: add migration creating `concepts` and `concept_links` (typed relations,
   confidence, provenance JSON, created_by, is_dismissed, unique proposal fingerprint);
   commands for CRUD + `dismiss_concept_link` + link queries (backlinks, concept page);
   alignment with `element_tree.concept_link_id`; tests.
-- [ ] 6.2 Implement `PrerequisiteAnalysisTask` (full class, structured) per spec; coverage
+- [x] 6.2 Implement `PrerequisiteAnalysisTask` (full class, structured) per spec; coverage
   estimation runner that queries the index + cards + review history per concept and produces
   evidence levels with refs; hedged-language UI strings.
-- [ ] 6.3 Build the prerequisites UI: selection action "Find prerequisites", coverage summary
+- [x] 6.3 Build the prerequisites UI: selection action "Find prerequisites", coverage summary
   ("cards covering 3 of 4"), missing-gap callout, evidence links that navigate.
-- [ ] 6.4 Implement concept-link proposal during explicit actions (Learn this, Find related,
+- [x] 6.4 Implement concept-link proposal during explicit actions (Learn this, Find related,
   Ask library) with per-analysis caps (≤ 5) and confidence thresholds; proposal inspection UI
   (type, confidence, provenance, accept/dismiss with remembered fingerprints).
-- [ ] 6.5 Build "Find related" action and concept page/backlinks view over concept links +
+- [x] 6.5 Build "Find related" action and concept page/backlinks view over concept links +
   semantic retrieval (single retrieval system); navigation to sources.
-- [ ] 6.6 Implement `PassageClassificationTask` (fast class) with `passage_scores` cache
+- [x] 6.6 Implement `PassageClassificationTask` (fast class) with `passage_scores` cache
   (chunk-hash keyed) and Rust commands; on-demand scoring for read viewport content only.
-- [ ] 6.7 Build the extract-worthiness margin indicator (threshold ≥ 0.75, one-tap conversion
+- [x] 6.7 Build the extract-worthiness margin indicator (threshold ≥ 0.75, one-tap conversion
   into extract/card candidate via existing flows) with global disable and per-document
   suppression; evaluation fixtures for passage types (definition-heavy, narrative, examples,
   bibliography, transitions, formulas).
-- [ ] 6.8 i18n keys; run full gates; verify no background scoring occurs when the feature is
+- [x] 6.8 i18n keys; run full gates; verify no background scoring occurs when the feature is
   off and no indicators appear on bibliography/transition fixtures.
 
 ## 7. Phase 6 — Socratic tutoring
 
-- [ ] 7.1 Implement `TutorTurn` task (reasoning class with full fallback, structured):
+- [x] 7.1 Implement `TutorTurn` task (reasoning class with full fallback, structured):
   moves (question/hint/explain/wrap-up), hint level 0–3, stuck detection, optional
   promote-to-card payload; bounded session context builder (last 6 turns + distilled
   summary) with token budget enforcement; tests for context bounding.
-- [ ] 7.2 Implement the tutor session state machine (TS): turn loop, stuck counter, max 2
+- [x] 7.2 Implement the tutor session state machine (TS): turn loop, stuck counter, max 2
   hints per thread then explain, escape hatch always available, wrap-up with optional card
   promotion into the Learn-this preview flow; grounding via current selection + retrieved
   prerequisites.
-- [ ] 7.3 Build the tutoring UI (distinct from Q&A surfaces): entry from selection actions
+- [x] 7.3 Build the tutoring UI (distinct from Q&A surfaces): entry from selection actions
   and concept pages, conversation view with move-appropriate styling, hint escalation
   affordances, "just explain it" button, session summary.
-- [ ] 7.4 Verify reasoning routing and fallback behavior in tests (fake reasoning provider
+- [x] 7.4 Verify reasoning routing and fallback behavior in tests (fake reasoning provider
   vs none); i18n keys; evaluation fixtures (stuck-learner progression, escape hatch,
   grounding); run full gates.
 
 ## 8. Phase 7 — Constrained learning agent
 
-- [ ] 8.1 Implement the tool registry (`src/lib/ai/agent/`): typed tool schemas for all
+- [x] 8.1 Implement the tool registry (`src/lib/ai/agent/`): typed tool schemas for all
   read-only tools backed by existing APIs (`search_library` via retrieval+FTS,
   `get_current_document/selection`, `get_recent_reading_context`, `get_related_material`,
   `get_existing_cards`, `get_review_history`, `get_due_cards`); argument validation +
   result shaping (ids verified against real records via Rust where authority matters).
-- [ ] 8.2 Implement the agent loop over `runTask`: tool-call parsing (structured output),
+- [x] 8.2 Implement the agent loop over `runTask`: tool-call parsing (structured output),
   bounded execution (≤ 8 tool calls, ≤ 20 proposals, ≤ 60 s, ≤ 2 retrieval hops, loop
   detection), untrusted-block wrapping of all tool results, graceful budget-exhaustion
   endings; unit tests for every bound and the recursion guard.
-- [ ] 8.3 Implement proposal tools (`propose_extract`, `propose_flashcard`, `propose_cloze`,
+- [x] 8.3 Implement proposal tools (`propose_extract`, `propose_flashcard`, `propose_cloze`,
   `propose_occlusion`, `propose_tag`, `propose_link`) that emit validated candidates into the
   standard preview/approval UIs — no direct writes; mass-creation caps enforced in
   validation regardless of model output.
-- [ ] 8.4 Injection-resistance tests: source-embedded directives (ignore-instructions,
+- [x] 8.4 Injection-resistance tests: source-embedded directives (ignore-instructions,
   destructive tool demands, mass-creation demands) never produce out-of-contract calls;
   hallucinated/unowned IDs rejected; system contract defined independent of source content.
-- [ ] 8.5 Implement execution tracing in diagnostics (tool, arg digest, duration, outcome
+- [x] 8.5 Implement execution tracing in diagnostics (tool, arg digest, duration, outcome
   category; no content by default) + developer debug inspection view.
-- [ ] 8.6 Build the agent UX: command-palette/assistant entry with example intents
+- [x] 8.6 Build the agent UX: command-palette/assistant entry with example intents
   ("make cards from the three most important things I just read", "find the chapter where…",
   "quiz me on this section", "turn this diagram's labels into occlusion cards"), proposal
   review hand-off, run progress/cancel.
-- [ ] 8.7 i18n keys; end-to-end tests with the fake provider for the canonical intents;
+- [x] 8.7 i18n keys; end-to-end tests with the fake provider for the canonical intents;
   verify all bounds; run full gates; Android dogfood.
 
 ## 9. Final verification and rollout gates
 
-- [ ] 9.1 Full regression: `npm run test:run`, `npm run bench:check`,
+- [x] 9.1 Full regression: `npm run test:run`, `npm run bench:check`,
   `npm run test:scripts`, `cargo test --lib`, `cargo check`, Android plugin unit tests, and
   `npm run build` bundle-budget check — all green.
-- [ ] 9.2 Capability-degradation matrix verified manually/automatically: no vision → manual
+- [x] 9.2 Capability-degradation matrix verified manually/automatically: no vision → manual
   occlusion intact; no index → lexical/current-document flows intact; no reasoning → tutor/
   assessment use full class; no Nano on unsupported device → features absent or cloud-explicit
   only; existing summarize/explain/Q&A unchanged.
-- [ ] 9.3 Privacy audit: on-device/offline/cloud indicators present on all AI surfaces;
+- [x] 9.3 Privacy audit: on-device/offline/cloud indicators present on all AI surfaces;
   on-device-only mode blocks every cloud path; no sensitive content in diagnostics/logs by
   default; document text never outside untrusted blocks in prompts (spot-check task
   definitions).
-- [ ] 9.4 Migration/backcompat check: existing DB upgrades cleanly through the new
+- [x] 9.4 Migration/backcompat check: existing DB upgrades cleanly through the new
   migrations (test from a pre-change DB snapshot); reading never blocked by indexing; all new
   flags default-off except behavior-preserving Phase 0; rollback by flags verified.
-- [ ] 9.5 Update `docs/` (FEATURES_IMPLEMENTED / relevant guides) and the OnDeviceAiPanel /
+- [x] 9.5 Update `docs/` (FEATURES_IMPLEMENTED / relevant guides) and the OnDeviceAiPanel /
   settings copy for the new AI surfaces; record benchmark baselines added during the change
   in `scripts/perf-baselines.json` with rationale.

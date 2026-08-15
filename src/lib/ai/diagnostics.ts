@@ -42,6 +42,16 @@ export interface OnDeviceTaskDiagnostic {
   errorCode?: string;
   grounded?: boolean;
   accepted?: boolean;
+  /**
+   * Agent runs (Phase 7, design D25): counts and outcome categories only —
+   * tool args/results stay content-free (fnv1a digests live in the trace
+   * ring, not here).
+   */
+  agentTurns?: number;
+  agentToolCalls?: number;
+  agentProposals?: number;
+  /** End-reason category: final-answer | tool-budget | timeout | … */
+  agentEndReason?: string;
   timestamp: number;
 }
 
@@ -79,6 +89,10 @@ export function recordTaskDiagnostic(
     errorCode: entry.errorCode,
     grounded: entry.grounded,
     accepted: entry.accepted,
+    agentTurns: entry.agentTurns,
+    agentToolCalls: entry.agentToolCalls,
+    agentProposals: entry.agentProposals,
+    agentEndReason: entry.agentEndReason,
     timestamp: Date.now(),
   };
 

@@ -148,21 +148,21 @@ describe("settingsStore AI learning feature flags", () => {
     useSettingsStore.setState({ settings: cloneDefaults() });
   });
 
-  it("defaults every AI learning phase flag to false", () => {
+  it("defaults AI learning system flags to enabled", () => {
     expect(defaultSettings.features).toMatchObject({
-      aiLearnThis: false,
-      aiOcclusionAssist: false,
+      aiLearnThis: true,
+      aiOcclusionAssist: true,
       aiOcclusionFreeform: false,
-      aiSemanticIndex: false,
-      aiLibraryRag: false,
-      aiActiveRecall: false,
-      aiAnswerAssessment: false,
+      aiSemanticIndex: true,
+      aiLibraryRag: true,
+      aiActiveRecall: true,
+      aiAnswerAssessment: true,
       aiAutoGradeSuggest: false,
-      aiPrerequisites: false,
-      aiConceptLinks: false,
-      aiExtractWorthiness: false,
-      aiSocraticTutor: false,
-      aiAgent: false,
+      aiPrerequisites: true,
+      aiConceptLinks: true,
+      aiExtractWorthiness: true,
+      aiSocraticTutor: true,
+      aiAgent: true,
     });
     // Existing flags keep their defaults.
     expect(defaultSettings.features.notebooklmEnabled).toBe(false);
@@ -173,18 +173,18 @@ describe("settingsStore AI learning feature flags", () => {
 
   it("round-trips a toggled AI feature flag", () => {
     useSettingsStore.getState().updateSettingsCategory("features", {
-      aiLearnThis: true,
-      aiSocraticTutor: true,
+      aiLearnThis: false,
+      aiSocraticTutor: false,
     });
 
     const stored = JSON.parse(localStorage.getItem("incrementum-settings") || "{}");
-    expect(stored.state.settings.features.aiLearnThis).toBe(true);
-    expect(stored.state.settings.features.aiSocraticTutor).toBe(true);
+    expect(stored.state.settings.features.aiLearnThis).toBe(false);
+    expect(stored.state.settings.features.aiSocraticTutor).toBe(false);
     // Untouched flags keep the default.
-    expect(stored.state.settings.features.aiAgent).toBe(false);
+    expect(stored.state.settings.features.aiAgent).toBe(true);
   });
 
-  it("merges the new flags as false for existing users on rehydration", async () => {
+  it("merges the new flags for existing users on rehydration", async () => {
     // A pre-AI persist only knows the original four flags; the deep merge in
     // onRehydrateStorage must fill the new ones with defaults while preserving
     // any explicit persisted value.
@@ -194,7 +194,7 @@ describe("settingsStore AI learning feature flags", () => {
           features: {
             notebooklmEnabled: true,
             cramModeEnabled: false,
-            aiLibraryRag: true,
+            aiLibraryRag: false,
           },
         },
       },
@@ -206,19 +206,19 @@ describe("settingsStore AI learning feature flags", () => {
     const features = useSettingsStore.getState().settings.features;
     expect(features.notebooklmEnabled).toBe(true);
     expect(features.cramModeEnabled).toBe(false);
-    expect(features.aiLibraryRag).toBe(true);
-    expect(features.aiLearnThis).toBe(false);
-    expect(features.aiOcclusionAssist).toBe(false);
+    expect(features.aiLibraryRag).toBe(false);
+    expect(features.aiLearnThis).toBe(true);
+    expect(features.aiOcclusionAssist).toBe(true);
     expect(features.aiOcclusionFreeform).toBe(false);
-    expect(features.aiSemanticIndex).toBe(false);
-    expect(features.aiActiveRecall).toBe(false);
-    expect(features.aiAnswerAssessment).toBe(false);
+    expect(features.aiSemanticIndex).toBe(true);
+    expect(features.aiActiveRecall).toBe(true);
+    expect(features.aiAnswerAssessment).toBe(true);
     expect(features.aiAutoGradeSuggest).toBe(false);
-    expect(features.aiPrerequisites).toBe(false);
-    expect(features.aiConceptLinks).toBe(false);
-    expect(features.aiExtractWorthiness).toBe(false);
-    expect(features.aiSocraticTutor).toBe(false);
-    expect(features.aiAgent).toBe(false);
+    expect(features.aiPrerequisites).toBe(true);
+    expect(features.aiConceptLinks).toBe(true);
+    expect(features.aiExtractWorthiness).toBe(true);
+    expect(features.aiSocraticTutor).toBe(true);
+    expect(features.aiAgent).toBe(true);
   });
 });
 

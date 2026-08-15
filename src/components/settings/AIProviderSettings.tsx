@@ -15,6 +15,7 @@ import { useMCPServersStore } from "../../stores/mcpServersStore";
 import { useSettingsStore, type ActiveRecallMode } from "../../stores/settingsStore";
 import { invokeCommand as invoke } from "../../lib/tauri";
 import { NumericInput } from "../common";
+import { AIDiagnosticsModal } from "./AIDiagnosticsModal";
 import { useState, useEffect } from "react";
 import { useI18n } from "../../lib/i18n";
 import { getAIConfig, setApiKey, isMaskedKey } from "../../api/ai";
@@ -24,6 +25,7 @@ import { getAIConfig, setApiKey, isMaskedKey } from "../../api/ai";
  */
 export function AISettings({ onChange }: { onChange: () => void }) {
   const { t } = useI18n();
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const providers = useLLMProvidersStore((state) => state.providers);
   const addProvider = useLLMProvidersStore((state) => state.addProvider);
   const updateProvider = useLLMProvidersStore((state) => state.updateProvider);
@@ -231,6 +233,239 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
       {/* On-device AI (Android only). Renders nothing where no bridge exists. */}
       <OnDeviceAiPanel onChange={onChange} />
+
+      {/* AI Learning System Features (OpenSpec add-ondevice-ai-learning-system) */}
+      <SettingsSection
+        title="AI Learning System Features"
+        description="On-device learning tools: card generation, Socratic tutoring, Ask Library RAG, active recall, occlusion assist, and learning agent."
+      >
+        <SettingsRow
+          label="Enable All AI Learning Features"
+          description="Quickly enable all on-device learning capabilities for this device"
+        >
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                updateSettings({
+                  features: {
+                    ...settings.features,
+                    aiLearnThis: true,
+                    aiLibraryRag: true,
+                    aiSocraticTutor: true,
+                    aiOcclusionAssist: true,
+                    aiSemanticIndex: true,
+                    aiActiveRecall: true,
+                    aiAnswerAssessment: true,
+                    aiPrerequisites: true,
+                    aiConceptLinks: true,
+                    aiExtractWorthiness: true,
+                    aiAgent: true,
+                  },
+                });
+                onChange();
+              }}
+              className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 transition-opacity"
+            >
+              Enable All
+            </button>
+            <button
+              onClick={() => setShowDiagnostics(true)}
+              className="px-3 py-1.5 bg-muted text-foreground border border-border rounded-lg text-xs font-medium hover:bg-muted/80 transition-colors"
+            >
+              AI Diagnostics
+            </button>
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
+          label="Learn this (Card Extraction)"
+          description="Propose structured flashcards, cloze deletions, and definitions from selected reading text"
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.features.aiLearnThis}
+              onChange={(e) => {
+                updateSettings({
+                  features: { ...settings.features, aiLearnThis: e.target.checked },
+                });
+                onChange();
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </SettingsRow>
+
+        <SettingsRow
+          label="Ask Library (Semantic Memory RAG)"
+          description="Search conceptually across your entire library and receive grounded answers with citations"
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.features.aiLibraryRag}
+              onChange={(e) => {
+                updateSettings({
+                  features: { ...settings.features, aiLibraryRag: e.target.checked },
+                });
+                onChange();
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </SettingsRow>
+
+        <SettingsRow
+          label="Socratic Tutoring"
+          description="Interactive, turn-based guiding dialogues with hint escalation and escape hatches"
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.features.aiSocraticTutor}
+              onChange={(e) => {
+                updateSettings({
+                  features: { ...settings.features, aiSocraticTutor: e.target.checked },
+                });
+                onChange();
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </SettingsRow>
+
+        <SettingsRow
+          label="AI Image Occlusion Assist"
+          description="Auto-detect text labels on diagrams using on-device OCR and generate occlusion cards"
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.features.aiOcclusionAssist}
+              onChange={(e) => {
+                updateSettings({
+                  features: { ...settings.features, aiOcclusionAssist: e.target.checked },
+                });
+                onChange();
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </SettingsRow>
+
+        <SettingsRow
+          label="On-Device Semantic Indexing"
+          description="Index documents with local LiteRT EmbeddingGemma embeddings for fast vector retrieval"
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.features.aiSemanticIndex}
+              onChange={(e) => {
+                updateSettings({
+                  features: { ...settings.features, aiSemanticIndex: e.target.checked },
+                });
+                onChange();
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </SettingsRow>
+
+        <SettingsRow
+          label="AI Answer Assessment (Review Free-Response)"
+          description="Evaluate typed answers against ground truth and highlight missed nuances without overriding rating authority"
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.features.aiAnswerAssessment}
+              onChange={(e) => {
+                updateSettings({
+                  features: { ...settings.features, aiAnswerAssessment: e.target.checked },
+                });
+                onChange();
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </SettingsRow>
+
+        <SettingsRow
+          label="Knowledge Relationships & Prerequisites"
+          description="Identify concept dependencies, coverage levels, and cross-document concept links"
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.features.aiPrerequisites}
+              onChange={(e) => {
+                updateSettings({
+                  features: {
+                    ...settings.features,
+                    aiPrerequisites: e.target.checked,
+                    aiConceptLinks: e.target.checked,
+                  },
+                });
+                onChange();
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </SettingsRow>
+
+        <SettingsRow
+          label="Passage Extract-Worthiness Scoring"
+          description="Subtle margin indicators on high-value paragraphs in reading view"
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.features.aiExtractWorthiness}
+              onChange={(e) => {
+                updateSettings({
+                  features: { ...settings.features, aiExtractWorthiness: e.target.checked },
+                });
+                onChange();
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </SettingsRow>
+
+        <SettingsRow
+          label="Constrained Learning Agent"
+          description="Autonomous assistant capable of searching library context and staging proposed cards for review"
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={settings.features.aiAgent}
+              onChange={(e) => {
+                updateSettings({
+                  features: { ...settings.features, aiAgent: e.target.checked },
+                });
+                onChange();
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </SettingsRow>
+      </SettingsSection>
+
+      <AIDiagnosticsModal
+        isOpen={showDiagnostics}
+        onClose={() => setShowDiagnostics(false)}
+      />
 
       {/* Brave Search API Key — powers web search in Document Q&A.
           The backend reads this via the keychain (`brave_web_search`); the key

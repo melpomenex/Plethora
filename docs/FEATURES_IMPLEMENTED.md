@@ -64,6 +64,21 @@ Complete list of Incrementum features and their implementation status.
 
 ---
 
+## On-Device AI Learning System
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| Unified AI Provider & Task Architecture | ✅ Implemented | Fast/full/reasoning task routing across on-device (Gemini Nano / LiteRT) and cloud providers with structured outputs |
+| "Learn This" Learning Material Generation | ✅ Implemented | Structured card extraction (definition, process, comparison, cloze) with grounding and self-dedup |
+| OCR-Backed AI Image Occlusion | ✅ Implemented | ML Kit OCR bounding-box detection + vision-driven label occlusion generation |
+| Semantic Memory Indexing & Library RAG | ✅ Implemented | On-device EmbeddingGemma LiteRT embeddings, hybrid lexical/cosine retrieval, and grounded citation answers |
+| Active Recall & Answer Assessment | ✅ Implemented | Adaptive in-reading recall interruptions and reasoning-based grading with misconception feedback |
+| Knowledge Relationships & Prerequisites | ✅ Implemented | Typed concept relations, prerequisite analysis with coverage summaries, and extract-worthiness scoring |
+| Socratic Tutoring | ✅ Implemented | Turn-bounded Socratic tutor session with hint escalation, escape hatches, and card promotion |
+| Constrained Learning Agent | ✅ Implemented | Safe, bounded agent loop with read-only inspection tools and proposal-only mutation staging |
+
+---
+
 ## Review System
 
 | Feature | Status | Description |

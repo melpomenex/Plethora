@@ -1,6 +1,6 @@
 {
-  "_comment": "Post-optimization actuals + headroom (optimize-performance-hotspots). Entry actual 1308 KB, total actual ~24.5 MB. Budget refreshed for redesign-schedule-workspace: the entry chunk already measured ~1439 KB at the pre-change HEAD (d8ac7989) against a stale 1400 KB budget; the Schedule redesign adds ~1.4 KB net (superseded ScheduleItemRow/ScheduleTable removed, shared view-model/presentation modules added). Update deliberately, in the same PR as intentional growth.",
-  "entryChunkBytes": 1500000,
+  "_comment": "Post-optimization actuals + headroom. Updated for add-ondevice-ai-learning-system (Phases 0-7: task router, providers, schemas, diagnostics, learn-this, occlusion assist, semantic memory / RAG, active recall, answer assessment, knowledge graph / prerequisites, Socratic tutor, autonomous learning agent). Entry actual ~2674 KB.",
+  "entryChunkBytes": 3000000,
   "pdfWorkerAssetCount": 1,
-  "totalDistBytes": 27000000
+  "totalDistBytes": 30000000
 }

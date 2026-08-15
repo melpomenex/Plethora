@@ -5859,6 +5859,26 @@ export const es: Dict = {
   "aiLearning.ct.example": "Aplicar",
   "aiLearning.ct.occlusion-ref": "Oclusión de imagen",
 
+  // Tutoría socrática (Sistema de aprendizaje con IA, fase 6)
+  "aiTutor.title": "Tutor socrático",
+  "aiTutor.opening": "Iniciando tu sesión de tutoría",
+  "aiTutor.thinking": "Pensando",
+  "aiTutor.answerPlaceholder": "Escribe tu respuesta…",
+  "aiTutor.send": "Enviar",
+  "aiTutor.justExplain": "Explícamelo directamente",
+  "aiTutor.justExplainMessage": "Por favor, explícamelo directamente.",
+  "aiTutor.move.question": "Pregunta",
+  "aiTutor.move.hint": "Pista",
+  "aiTutor.move.explain": "Explicación",
+  "aiTutor.move.wrap-up": "Cierre",
+  "aiTutor.hintLevel": "Nivel de pista {level} de 3",
+  "aiTutor.stuck": "Pareces atascado: aumentando la ayuda",
+  "aiTutor.turns": "{count}/{max} turnos",
+  "aiTutor.sessionEnded": "Sesión completada",
+  "aiTutor.createCard": "Crear tarjeta de este concepto",
+  "aiTutor.error": "No funcionó: {message}",
+  "aiTutor.close": "Cerrar",
+
   "occlusionComposer.resizePanel": "Cambiar tamaño del panel",
 
   "occlusionComposer.noRegionsYet": "Aún no hay regiones: dibuja cajas sobre la imagen o usa las sugerencias de IA.",
