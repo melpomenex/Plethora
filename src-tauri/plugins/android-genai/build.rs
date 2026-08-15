@@ -19,6 +19,10 @@ const COMMANDS: &[&str] = &[
     "ondevice_ai_start_prompt_stream",
     "ondevice_ai_cancel_prompt_request",
     "ondevice_ai_cancel",
+    "ondevice_ai_ocr_labels",
+    "ondevice_ai_embed_status",
+    "ondevice_ai_embed_download",
+    "ondevice_ai_embed_texts",
 ];
 
 fn main() {

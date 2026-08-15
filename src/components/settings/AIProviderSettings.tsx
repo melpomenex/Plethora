@@ -12,7 +12,7 @@ import {
   useLLMProvidersStore,
 } from "../../stores/llmProvidersStore";
 import { useMCPServersStore } from "../../stores/mcpServersStore";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { useSettingsStore, type ActiveRecallMode } from "../../stores/settingsStore";
 import { invokeCommand as invoke } from "../../lib/tauri";
 import { NumericInput } from "../common";
 import { useState, useEffect } from "react";
@@ -631,6 +631,34 @@ export function AISettings({ onChange }: { onChange: () => void }) {
             }}
             className="w-28 px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
           />
+        </SettingsRow>
+      </SettingsSection>
+
+      {/* Active Recall (AI Learning System Phase 4, design D19) */}
+      <SettingsSection
+        title="Active Recall"
+        description="While reading, occasionally ask you to recall recently read material from memory. Off by default."
+      >
+        <SettingsRow
+          label="Active recall mode"
+          description="Off disables it entirely; Low / Adaptive / Intensive set how often prompts may interrupt reading"
+        >
+          <select
+            data-testid="active-recall-mode"
+            className="w-40 px-3 py-2 bg-background border border-border rounded-lg text-foreground text-sm"
+            value={settings.ai.activeRecallMode}
+            onChange={(e) => {
+              updateSettings({
+                ai: { ...settings.ai, activeRecallMode: e.target.value as ActiveRecallMode },
+              });
+              onChange();
+            }}
+          >
+            <option value="off">Off</option>
+            <option value="low">Low</option>
+            <option value="adaptive">Adaptive</option>
+            <option value="intensive">Intensive</option>
+          </select>
         </SettingsRow>
       </SettingsSection>
 

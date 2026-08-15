@@ -32,6 +32,7 @@ import { syncActivePaneTabId } from "./activePaneSync";
 import { TOUR_ANCHORS, tourAnchor } from "../onboarding/tour/anchors";
 import { TourHost, type TourControl, type TourNavigationAdapter } from "../onboarding/tour/TourHost";
 import { useOnboardingAutoOpen } from "../onboarding/tour/useOnboardingAutoOpen";
+import { useShareTarget } from "../../hooks/useShareTarget";
 
 const TAB_TYPE_ALIASES: Record<string, TabType> = {
   dash: "dashboard", dashboard: "dashboard", home: "dashboard",
@@ -445,101 +446,8 @@ export function MainLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Handle shared URLs (PWA web share target and Android share intents)
-  useEffect(() => {
-    const handleImportSharedUrl = async (sharedUrl: string) => {
-      if (!sharedUrl) return;
-      
-      const toastId = toast.info(
-        t("mainLayout.importingSharedLink"),
-        sharedUrl,
-        { duration: 0 }
-      );
-
-      try {
-        const { importFromUrl, loadDocuments } = useDocumentStore.getState();
-        const doc = await importFromUrl(sharedUrl);
-
-        toast.dismiss(toastId);
-        toast.success(
-          t("mainLayout.importedSuccessfully"),
-          doc.title || t("mainLayout.sharedLinkAdded"),
-          {
-            duration: 10000,
-            action: {
-              label: t("mainLayout.open"),
-              onClick: () => {
-                addTab({
-                  title: doc.title,
-                  icon: doc.fileType === "pdf" ? <TextT className="w-4 h-4 text-red-500" />
-                    : doc.fileType === "epub" ? <BookOpen className="w-4 h-4 text-blue-500" />
-                    : doc.fileType === "youtube" ? <YoutubeLogo className="w-4 h-4 text-red-600" />
-                    : doc.fileType === "image" ? <ImageSquare className="w-4 h-4 text-rose-500" />
-                    : <TextT className="w-4 h-4 text-muted-foreground" />,
-                  type: "document-viewer",
-                  content: DocumentViewer,
-                  closable: true,
-                  data: { documentId: doc.id },
-                });
-              }
-            }
-          }
-        );
-        
-        void loadDocuments();
-
-      } catch (err) {
-        toast.dismiss(toastId);
-        console.error("[Share Target] Failed to import shared URL:", err);
-        toast.error(
-          t("mainLayout.importFailed"),
-          err instanceof Error ? err.message : String(err)
-        );
-      }
-    };
-
-    // 1) Handle PWA share target redirect (query parameter in hash route: #/?shared_url=...)
-    const hash = window.location.hash;
-    if (hash.includes("?shared_url=")) {
-      try {
-        const hashParams = new URLSearchParams(hash.split("?")[1]);
-        const sharedUrl = hashParams.get("shared_url");
-        if (sharedUrl) {
-          // Clear shared_url parameter from hash to avoid re-triggering
-          const cleanHash = hash.split("?")[0];
-          window.location.hash = cleanHash;
-          void handleImportSharedUrl(sharedUrl);
-        }
-      } catch (e) {
-        console.error("[Share Target] Failed to parse hash shared_url:", e);
-      }
-    }
-
-    // 2) Handle Android native share intents (Tauri android build)
-    if (isTauri()) {
-      invokeCommand<{ url: string | null }>("plugin:incrementum-folder-import|register_share_listener")
-        .then((res) => {
-          if (res?.url) {
-            void handleImportSharedUrl(res.url);
-          }
-        })
-        .catch((err) => {
-          console.warn("[Share Target] failed to register share listener:", err);
-        });
-
-      const handleAndroidShareEvent = (event: any) => {
-        const sharedUrl = event.detail;
-        if (sharedUrl) {
-          void handleImportSharedUrl(sharedUrl);
-        }
-      };
-
-      window.addEventListener("android-shared-url", handleAndroidShareEvent);
-      return () => {
-        window.removeEventListener("android-shared-url", handleAndroidShareEvent);
-      };
-    }
-  }, [addTab, toast]);
+  // Handle native Android/iOS and PWA share targets
+  useShareTarget();
 
   // Auto-save session on background/close
   useEffect(() => {

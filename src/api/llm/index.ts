@@ -32,6 +32,14 @@ export interface LLMRequest {
   maxTokens?: number;
   apiKey?: string;
   baseUrl?: string;
+  /**
+   * Optional id used to identify this stream for cancellation via
+   * {@link llmCancelStream}. When provided, `llm_stream_chat` registers the
+   * request so it can be aborted mid-stream; the cancelled stream terminates
+   * with a single `llm:stream:error` event whose payload carries
+   * `code: "cancelled"`.
+   */
+  requestId?: string;
 }
 
 export interface LLMResponse {
@@ -230,6 +238,7 @@ export async function streamChatWithLLM(
       maxTokens: request.maxTokens ?? 2000,
       apiKey: request.apiKey,
       baseUrl: request.baseUrl,
+      requestId: request.requestId,
     });
   } finally {
     // Final synchronous flush of any buffered text, then clean up listeners
@@ -245,6 +254,20 @@ export async function streamChatWithLLM(
       });
     }, 1000);
   }
+}
+
+/**
+ * Cancel an in-flight `llm_stream_chat` request by the `requestId` it was
+ * started with.
+ *
+ * The backend aborts the stream (no further chunk events are emitted) and the
+ * stream terminates with a single `llm:stream:error` event carrying
+ * `code: "cancelled"`, matching the on-device cancellation semantics. Returns
+ * `true` when a live stream was cancelled, `false` when the id is unknown or
+ * the stream already finished (no-op).
+ */
+export async function llmCancelStream(requestId: string): Promise<boolean> {
+  return await invokeCommand<boolean>("llm_cancel_stream", { requestId });
 }
 
 /**

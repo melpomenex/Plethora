@@ -13,6 +13,7 @@ import {
   FileCode,
   Flag,
   Gear,
+  GraduationCap,
   Highlighter,
   Lightbulb,
   List,
@@ -117,6 +118,9 @@ import {
   passageAroundSelection,
   type SelectionAiAction,
 } from "./SelectionActionsSheet";
+import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
+import { RecallPromptOverlay } from "./RecallPromptOverlay";
+import { useRecallPrompts } from "./useRecallPrompts";
 import { useAiAvailability } from "../../lib/ai/useAiAvailability";
 import {
   buildPdfSelectionExtractPayload,
@@ -1002,7 +1006,40 @@ export function DocumentViewer({
     text: string;
     passage: string;
   } | null>(null);
+  // "Learn this" proposal request from the desktop context menu (task 2.3).
+  const [learnThisRequest, setLearnThisRequest] = useState<{
+    text: string;
+    passage: string;
+  } | null>(null);
   const aiAvailability = useAiAvailability("prompt");
+  // Phase-1 flag (default off): "Learn this" structured proposals.
+  const aiLearnThisEnabled = useSettingsStore((s) => s.settings.features.aiLearnThis);
+  // Phase-4 active recall (default off + mode kill switch, design D19).
+  const aiActiveRecallEnabled = useSettingsStore((s) => s.settings.features.aiActiveRecall);
+  const activeRecallMode = useSettingsStore((s) => s.settings.ai.activeRecallMode);
+  // "Keep this question" promotion target: opens the Learn-this preview
+  // sheet with a static, pre-accepted candidate (only acceptance creates a card).
+  const [recallPromotion, setRecallPromotion] = useState<{
+    question: string;
+    expectedAnswer: string;
+    conceptKeys: string[];
+    passage: string;
+  } | null>(null);
+  const recallPrompts = useRecallPrompts({
+    enabled: aiActiveRecallEnabled,
+    mode: activeRecallMode,
+    aiAvailable: aiAvailability.available,
+    documentId: currentDocument?.id ?? null,
+    documentTitle: currentDocument?.title ?? null,
+    isSelecting: selectedText.trim().length > 0,
+    // PDF-reflow state is encapsulated inside PDFViewer; there is no viewer-
+    // level signal today, so this input stays false until one is exposed.
+    isReflowActive: false,
+    // Media documents are playback surfaces — recall prompts stay suppressed.
+    isPlaybackActive:
+      docType === "video" || docType === "audio" || docType === "youtube",
+    getScrollPercent: () => lastScrollStateRef.current?.scrollPercent ?? null,
+  });
   // Touch selection UI shows on any mobile shell (native phone/tablet or narrow
   // browser/PWA) — not just PWA. The old `isPWA()` gate made it unreachable in
   // the native Android/iOS build.
@@ -2098,10 +2135,23 @@ export function DocumentViewer({
             }),
         });
       }
+      // "Learn this" structured proposal (Phase 1, behind its feature flag).
+      if (aiLearnThisEnabled) {
+        items.push({
+          id: "ai-learn-this",
+          label: t("aiLearning.learnThis"),
+          icon: <GraduationCap className="w-4 h-4" />,
+          onClick: () =>
+            setLearnThisRequest({
+              text: selectedText,
+              passage: buildSelectionPassage(selectedText),
+            }),
+        });
+      }
     }
 
     return items;
-  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available, buildSelectionPassage]);
+  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available, aiLearnThisEnabled, buildSelectionPassage]);
 
   const loadDocumentDataInner = useCallback(async (doc: typeof currentDocument) => {
     if (!doc) return;
@@ -7496,6 +7546,68 @@ export function DocumentViewer({
         }}
         onCreateExtract={() => handleMobileExtract()}
         onCreateExtractFromResult={(resultText) => handleMobileExtract(resultText)}
+        learnThis={{
+          documentId: currentDocument?.id,
+          documentTitle: currentDocument?.title,
+          selectionContext: selectionContext ?? undefined,
+        }}
+      />
+
+      {/* "Learn this" proposal preview (desktop context menu entry, task 2.3) */}
+      <LearnThisProposalSheet
+        open={!!learnThisRequest}
+        text={learnThisRequest?.text ?? ""}
+        passage={learnThisRequest?.passage ?? ""}
+        documentId={currentDocument?.id}
+        documentTitle={currentDocument?.title}
+        selectionContext={selectionContext ?? undefined}
+        onClose={() => setLearnThisRequest(null)}
+      />
+
+      {/* "Keep this question" promotion: the same preview flow, seeded with
+          the promoted recall question as a static pre-accepted candidate. */}
+      {recallPromotion && (
+        <LearnThisProposalSheet
+          open
+          text={recallPromotion.question}
+          passage={recallPromotion.passage}
+          documentId={currentDocument?.id}
+          documentTitle={currentDocument?.title}
+          staticCandidates={[
+            {
+              question: recallPromotion.question,
+              answer: recallPromotion.expectedAnswer,
+              cardType: "qa" as const,
+              conceptKeys: recallPromotion.conceptKeys,
+            },
+          ]}
+          staticProvenance={{ provider: "recall-question", modelClass: "fast" }}
+          onClose={() => setRecallPromotion(null)}
+        />
+      )}
+
+      {/* Active-recall prompt card (Phase 4, task 5.5): a sibling overlay —
+          never a modal — so the reader's position is untouched. */}
+      <RecallPromptOverlay
+        open={recallPrompts.phase !== "idle"}
+        prompt={recallPrompts.prompt}
+        phase={recallPrompts.phase}
+        assessment={recallPrompts.assessment}
+        assessmentError={recallPrompts.assessmentError}
+        onSubmitAnswer={(answer) => void recallPrompts.submitAnswer(answer)}
+        onDismiss={() => recallPrompts.dismiss()}
+        onNotToday={recallPrompts.notToday}
+        onKeep={() => {
+          const promoted = recallPrompts.keepQuestion();
+          if (promoted) {
+            setRecallPromotion({
+              question: promoted.question,
+              expectedAnswer: promoted.expectedAnswer,
+              conceptKeys: promoted.conceptKeys,
+              passage: promoted.passage,
+            });
+          }
+        }}
       />
 
       {/* Create Extract Dialog */}

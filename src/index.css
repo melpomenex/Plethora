@@ -2262,3 +2262,156 @@
   animation: none !important;
 }
 
+/* ==========================================================================
+   E-Ink Display Mode (True E-Ink Profile)
+   ========================================================================== */
+
+:root[data-display-mode="eink"] {
+  color-scheme: light !important;
+
+  /* Force pure monochrome high-contrast color tokens */
+  --color-background: #ffffff !important;
+  --color-foreground: #000000 !important;
+  --color-card: #ffffff !important;
+  --color-card-foreground: #000000 !important;
+  --color-popover: #ffffff !important;
+  --color-popover-foreground: #000000 !important;
+  --color-muted: #f4f4f4 !important;
+  --color-muted-foreground: #222222 !important;
+  --color-border: #000000 !important;
+  --color-input: #ffffff !important;
+  --color-primary: #000000 !important;
+  --color-primary-foreground: #ffffff !important;
+  --color-secondary: #e5e5e5 !important;
+  --color-secondary-foreground: #000000 !important;
+  --color-destructive: #000000 !important;
+  --color-destructive-foreground: #ffffff !important;
+
+  /* Glass tokens flattened to solid opaque borders */
+  --color-glass-50: #ffffff !important;
+  --color-glass-100: #ffffff !important;
+  --color-glass-200: #ffffff !important;
+  --color-glass-300: #ffffff !important;
+  --color-glass-400: #ffffff !important;
+  --color-glass-500: #ffffff !important;
+  --color-glass-border: #000000 !important;
+  --color-glass-border-light: #000000 !important;
+  --color-glass-border-dark: #000000 !important;
+  --shadow-glass: none !important;
+  --shadow-glass-lg: none !important;
+  --shadow-glass-sm: none !important;
+  --blur-glass: 0px !important;
+  --blur-glass-heavy: 0px !important;
+  --blur-glass-light: 0px !important;
+
+  /* Force instant scroll behavior */
+  scroll-behavior: auto !important;
+}
+
+:root[data-display-mode="eink"] body,
+:root[data-display-mode="eink"] #root {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+/* Eliminate all animations, transitions, blurs, and shadows globally in E-Ink mode */
+:root[data-display-mode="eink"] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0ms !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0ms !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  scroll-behavior: auto !important;
+}
+
+/* Glass panels convert to crisp solid bordered containers */
+:root[data-display-mode="eink"] .glass-panel,
+:root[data-display-mode="eink"] .glass-panel-light,
+:root[data-display-mode="eink"] .glass-panel-heavy,
+:root[data-display-mode="eink"] .glass-button,
+:root[data-display-mode="eink"] .glass-button-icon {
+  background: #ffffff !important;
+  border: 1px solid #000000 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  color: #000000 !important;
+}
+
+/* Hide background canvas / particles / theme decorative layers */
+:root[data-display-mode="eink"] .theme-backdrop,
+:root[data-display-mode="eink"] .theme-backdrop-canvas {
+  display: none !important;
+}
+
+/* Flashcard rating buttons: distinct geometric and border styling without relying on color */
+:root[data-display-mode="eink"] button[data-review-rating="0"],
+:root[data-display-mode="eink"] button[data-review-rating="1"] {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 2px solid #000000 !important;
+  font-weight: 700 !important;
+}
+
+:root[data-display-mode="eink"] button[data-review-rating="2"],
+:root[data-display-mode="eink"] button[data-review-rating="3"] {
+  background: #f0f0f0 !important;
+  color: #000000 !important;
+  border: 2px dashed #000000 !important;
+  font-weight: 700 !important;
+}
+
+:root[data-display-mode="eink"] button[data-review-rating="4"] {
+  background: #444444 !important;
+  color: #ffffff !important;
+  border: 2px solid #000000 !important;
+  font-weight: 700 !important;
+}
+
+:root[data-display-mode="eink"] button[data-review-rating="5"] {
+  background: #000000 !important;
+  color: #ffffff !important;
+  border: 2px solid #000000 !important;
+  font-weight: 700 !important;
+}
+
+:root[data-display-mode="eink"] button[data-review-rating]:focus-visible {
+  outline: 3px solid #000000 !important;
+  outline-offset: 2px !important;
+}
+
+/* Reader highlights and selection styling in E-Ink mode */
+:root[data-display-mode="eink"] mark,
+:root[data-display-mode="eink"] .highlight-span,
+:root[data-display-mode="eink"] [data-highlight-id] {
+  background-color: #e0e0e0 !important;
+  color: #000000 !important;
+  border-bottom: 2px solid #000000 !important;
+}
+
+/* Document content media preservation / optional grayscale override */
+:root[data-display-mode="eink"][data-eink-grayscale-content="true"] img,
+:root[data-display-mode="eink"][data-eink-grayscale-content="true"] svg,
+:root[data-display-mode="eink"][data-eink-grayscale-content="true"] canvas,
+:root[data-display-mode="eink"][data-eink-grayscale-content="true"] video {
+  filter: grayscale(100%) contrast(115%) !important;
+}
+
+/* Inputs and interactive elements in E-Ink mode */
+:root[data-display-mode="eink"] input,
+:root[data-display-mode="eink"] select,
+:root[data-display-mode="eink"] textarea {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid #000000 !important;
+}
+
+:root[data-display-mode="eink"] button {
+  border-color: #000000 !important;
+}
+
+

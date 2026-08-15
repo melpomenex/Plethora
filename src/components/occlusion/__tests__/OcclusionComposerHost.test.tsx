@@ -20,6 +20,41 @@ vi.mock("../../../stores", () => ({
 vi.mock("../../common/Toast", () => ({
   useToast: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }),
 }));
+const mockRecordProvenance = vi.hoisted(() => vi.fn());
+const mockOcr = vi.hoisted(() => vi.fn());
+const mockRunTask = vi.hoisted(() => vi.fn());
+vi.mock("../../../api/ai-provenance", () => ({
+  recordAiProvenance: mockRecordProvenance,
+}));
+vi.mock("../../../api/ocrCommands", () => ({
+  ocrImageLabelsForOcclusion: mockOcr,
+}));
+vi.mock("../../../lib/ai/tasks", () => ({
+  runTask: mockRunTask,
+}));
+vi.mock("../../../lib/ai/useAiAvailability", () => ({
+  useAiAvailability: () => ({ path: "ondevice", available: true, loading: false }),
+}));
+
+/** Minimal settings-store surface for the composer's feature flags. */
+const settingsStore = vi.hoisted(() => {
+  let current = {
+    settings: {
+      general: { language: "en" },
+      features: { aiOcclusionAssist: true, aiOcclusionFreeform: false },
+    },
+  };
+  return Object.assign((selector: (s: typeof current) => unknown) => selector(current), {
+    getState: () => current,
+    setState: (next: typeof current) => {
+      current = next;
+    },
+    subscribe: () => () => {},
+  });
+});
+vi.mock("../../../stores/settingsStore", () => ({
+  useSettingsStore: settingsStore,
+}));
 
 const mockAsset: ImageAsset = {
   id: "asset-1",
@@ -44,8 +79,8 @@ describe("OcclusionComposerHost", () => {
     mockGetAsset.mockResolvedValue(mockAsset);
     mockCreateBatch.mockReset();
     mockCreateBatch.mockResolvedValue([
-      { id: "c1" },
-      { id: "c2" },
+      { id: "c1", question: "", interaction_metadata: {} },
+      { id: "c2", question: "", interaction_metadata: {} },
     ]);
   });
 
@@ -105,5 +140,59 @@ describe("OcclusionComposerHost", () => {
     expect(inputs[0].answer).toBe("hippocampus");
     // The composer closes after a successful whole-session save.
     await waitFor(() => expect(screen.queryByTestId("occlusion-composer")).not.toBeInTheDocument());
+  });
+
+  it("records ai_provenance per accepted assist card after the batch succeeds (task 3.9)", async () => {
+    mockOcr.mockResolvedValue({
+      labels: [{ id: "ocr-0-a", text: "Membrane", x: 5, y: 5, width: 6, height: 3 }],
+      backend: "android-mlkit",
+    });
+    mockRunTask.mockResolvedValue({
+      taskId: "occlusion-label-selection",
+      output: {
+        appropriate: true,
+        selections: [
+          { labelIds: ["ocr-0-a"], question: "What covers the cell?", answer: "Membrane" },
+        ],
+        rejected: [],
+      },
+      providerId: "ondevice-gemini-nano",
+      providerKind: "ondevice",
+      servedModelClass: "full",
+      fallbackPath: "none",
+      validationOutcome: "strict-json",
+    });
+    mockRecordProvenance.mockReset().mockResolvedValue({});
+
+    render(<OcclusionComposerHost />);
+    act(() => dispatchOcclusionRequest("asset-1", "doc-1"));
+    await waitFor(() => expect(screen.getByTestId("assist-run")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("assist-run"));
+    await waitFor(() => expect(screen.getByTestId("assist-card-0")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("assist-card-accept-0"));
+    await waitFor(() => expect(screen.getByText(/Save 1 card/)).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("occlusion-save"));
+    });
+
+    await waitFor(() => expect(mockCreateBatch).toHaveBeenCalledTimes(1));
+    const inputs = mockCreateBatch.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(inputs[0].question).toBe("What covers the cell?");
+    expect(
+      ((inputs[0].interaction_metadata as Record<string, unknown>).imageOcclusionRegions as Array<{ id?: string }>)[0].id
+    ).toBe("ocr-0-a");
+
+    // One provenance row per created assist card, recorded AFTER creation.
+    await waitFor(() => expect(mockRecordProvenance).toHaveBeenCalledTimes(1));
+    expect(mockRecordProvenance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetKind: "learning_item",
+        targetId: "c1",
+        taskId: "occlusion-label-selection",
+        provider: "ondevice-gemini-nano",
+        modelClass: "full",
+      })
+    );
   });
 });

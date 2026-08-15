@@ -1732,37 +1732,24 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
       // citations instead of the placeholder "search all documents" prompt.
       if (mentionedDocumentIds.length === 0 && !webSearchEnabled) {
         try {
-          const { ragChat, buildRagOptions } = await import("../../api/rag");
+          const { askLibrary } = await import("../../lib/ai/tasks/definitions/libraryTask");
           const { resolveEmbeddingConfigForRag } = await import("../assistant/ragConfig");
 
           const ragConfig = await resolveEmbeddingConfigForRag();
-          const ragOptions = buildRagOptions(useSettingsStore.getState().settings.embedding);
 
-          const conversationHistory: LLMMessage[] = messages
-            .filter(m => m.role === "user" || m.role === "assistant")
-            .slice(-6)
-            .map(m => ({ role: m.role, content: m.content }));
+          const ragResult = await askLibrary({
+            query: userQuestion,
+            config: ragConfig,
+          });
 
-          const ragResult = await ragChat(
-            userQuestion,
-            ragConfig,
-            conversationHistory,
-            {
-              provider: provider.provider,
-              model: provider.model,
-              apiKey: provider.apiKey,
-              baseUrl: provider.baseUrl && provider.baseUrl.trim() ? provider.baseUrl : undefined,
-            },
-            ragOptions
-          );
-
-          // The library was never searched — say so instead of letting the
-          // answer read as "I looked and your notes have nothing on this".
-          if (ragResult.retrievalState === "empty-index") {
+          // The library was never searched (nothing indexed) — say so instead
+          // of letting the answer read as "I looked and my notes have nothing
+          // on this".
+          if (ragResult.sources.length === 0 && ragResult.answer.evidenceLevel === "none") {
             addMessage({
               id: `assistant-${Date.now()}`,
               role: "assistant" as const,
-              content: `⚠️ ${ragResult.answer}`,
+              content: `⚠️ ${ragResult.answer.answer}`,
               timestamp: Date.now(),
             });
             setIsProcessing(false);
@@ -1771,15 +1758,22 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
 
           // `content` is the answer alone; the retrieval citations ride along as
           // structured data so the sources footer can render them interactively.
+          const citations = ragResult.sources.map(source => ({
+            documentId: source.documentId,
+            documentTitle: source.documentTitle ?? source.documentId,
+            chunkIndex: source.location.ordinal,
+            chunkText: source.text,
+            score: source.score,
+          }));
           const ragMessage = {
             id: `assistant-${Date.now()}`,
             role: "assistant" as const,
-            content: ragResult.answer,
+            content: ragResult.answer.answer,
             timestamp: Date.now(),
-            sourceDocuments: ragResult.citations.length > 0
-              ? ragResult.citations.map(c => c.documentId)
+            sourceDocuments: citations.length > 0
+              ? citations.map(c => c.documentId)
               : undefined,
-            citations: ragResult.citations.length > 0 ? ragResult.citations : undefined,
+            citations: citations.length > 0 ? citations : undefined,
           };
           addMessage(ragMessage);
           setIsProcessing(false);
@@ -1788,7 +1782,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
           // Do NOT fall through silently: answering from general knowledge
           // after retrieval failed is indistinguishable from having searched
           // the library and found nothing. Show the cause instead.
-          console.warn("RAG chat failed:", ragError);
+          console.warn("Library question failed:", ragError);
           const detail = ragError instanceof Error ? ragError.message : String(ragError);
           addMessage({
             id: `assistant-${Date.now()}`,
@@ -1796,8 +1790,8 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
             content:
               `⚠️ I could not search your library, so this question was not answered from it.\n\n` +
               `**Cause:** ${detail}\n\n` +
-              `Check the embedding provider in Settings → Embedding (Ollama must be running for local models), ` +
-              `then re-index the library. Mention a document with @ to ask about it directly.`,
+              `Check the embedding provider in Settings → Embeddings (Ollama must be running for local models), ` +
+              `then start library indexing. Mention a document with @ to ask about it directly.`,
             timestamp: Date.now(),
           });
           setIsProcessing(false);

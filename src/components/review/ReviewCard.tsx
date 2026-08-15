@@ -17,6 +17,8 @@ import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils
 import { getImageAssetById } from "../../api/image-registry";
 import { normalizeClozeSyntax } from "../../utils/cloze";
 import { CardSourceContext } from "./CardSourceContext";
+import { AssessmentPanel, FreeResponseInput } from "./AssessmentPanel";
+import type { AnswerAssessment } from "../../lib/ai/schemas/answerAssessment";
 import { useI18n } from "../../lib/i18n";
 import { CompactTagEditor } from "../common/CompactTagEditor";
 import type {
@@ -39,6 +41,18 @@ interface ReviewCardProps {
   onEdit?: () => void;
   /** Disables the edit affordance (e.g. while a rating submission is in flight). */
   editDisabled?: boolean;
+  /**
+   * Free-response assessment (Phase 4, `aiAnswerAssessment`): state is owned
+   * by the session (`useCardAnswerAssessment`) because the question/answer
+   * branches remount this component on reveal. Both props stay undefined
+   * when the feature is off — zero extra DOM.
+   */
+  freeResponse?: { value: string; onChange: (value: string) => void };
+  assessmentPanel?: {
+    assessment: AnswerAssessment | null;
+    error: string | null;
+    pending: boolean;
+  };
 }
 
 export const ReviewCard = React.memo(function ReviewCard({
@@ -48,6 +62,8 @@ export const ReviewCard = React.memo(function ReviewCard({
   onInteractionResultChange,
   onEdit,
   editDisabled,
+  freeResponse,
+  assessmentPanel,
 }: ReviewCardProps) {
   const { speak, stop, isSpeaking, isPaused, pause, resume, isSupported } = useTTS();
   const { t } = useI18n();
@@ -662,12 +678,31 @@ export const ReviewCard = React.memo(function ReviewCard({
 
           {/* Source context (collapsible provenance) */}
           <CardSourceContext itemId={card.id} />
+
+          {/* Optional free-response capture before reveal (Phase 4; the
+              session only passes `freeResponse` when the flag is on, a
+              provider exists, and the card is not an interaction type). */}
+          {freeResponse && !showAnswer && (
+            <FreeResponseInput value={freeResponse.value} onChange={freeResponse.onChange} />
+          )}
         </div>
 
         {/* Answer (shown when revealed) with fade-in animation */}
         {showAnswer && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
             {renderAnswer()}
+
+            {/* Structured assessment beside the revealed answer (Phase 4) */}
+            {assessmentPanel &&
+              (assessmentPanel.assessment ||
+                assessmentPanel.pending ||
+                assessmentPanel.error) && (
+                <AssessmentPanel
+                  assessment={assessmentPanel.assessment}
+                  error={assessmentPanel.error}
+                  pending={assessmentPanel.pending}
+                />
+              )}
 
             {/* AI Explanation UI */}
             <div className="mt-4 pt-3 border-t border-border/60">

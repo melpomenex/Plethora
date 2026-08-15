@@ -10,6 +10,7 @@ from the frontend.
 - `allow-install-apk`
 - `allow-backup-db-to-downloads`
 - `allow-register-share-listener`
+- `allow-get-pending-shares`
 
 ## Permission Table
 
@@ -42,6 +43,32 @@ Enables the backup_db_to_downloads command without any pre-configured scope.
 <td>
 
 Denies the backup_db_to_downloads command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-folder-import:allow-get-pending-shares`
+
+</td>
+<td>
+
+Enables the get_pending_shares command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-folder-import:deny-get-pending-shares`
+
+</td>
+<td>
+
+Denies the get_pending_shares command without any pre-configured scope.
 
 </td>
 </tr>

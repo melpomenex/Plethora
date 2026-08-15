@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
-import { Brain, Database, Lightning, Sparkle, Warning } from "@phosphor-icons/react";
+import { Brain, Database, Lightning } from "@phosphor-icons/react";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useRagStore } from "../../stores/ragStore";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../lib/i18n";
 import { NumericInput } from "../common";
 
 /**
- * Embeddings & RAG settings: choose a cloud or local embedding provider,
- * configure chunk size / top-k, and trigger whole-library indexing for
- * retrieval-augmented chat.
+ * Embedding provider settings: choose a cloud or local embedding provider and
+ * configure chunk size / top-k. The provider configured here feeds the
+ * semantic index (`ai_learning_*` commands); the index status, per-document
+ * states, and pause/resume/reset controls live in `AiIndexPanel`, mounted
+ * directly below this section on the same settings tab.
  */
 export function EmbeddingSettings() {
   const { t } = useI18n();
@@ -19,24 +19,6 @@ export function EmbeddingSettings() {
       updateSettingsCategory: s.updateSettingsCategory,
     }))
   );
-  const { status, isIndexing, indexProgress, isLoadingStatus, lastError, refreshStatus, indexCollection } =
-    useRagStore(
-      useShallow((s) => ({
-        status: s.status,
-        isIndexing: s.isIndexing,
-        indexProgress: s.indexProgress,
-        isLoadingStatus: s.isLoadingStatus,
-        lastError: s.lastError,
-        refreshStatus: s.refreshStatus,
-        indexCollection: s.indexCollection,
-      }))
-    );
-
-  const [hasIndexed, setHasIndexed] = useState(false);
-
-  useEffect(() => {
-    void refreshStatus();
-  }, [refreshStatus, settings.provider, settings.openaiModel, settings.ollamaModel]);
 
   const update = (patch: Partial<typeof settings>) => updateSettingsCategory("embedding", patch);
 
@@ -47,17 +29,6 @@ export function EmbeddingSettings() {
     { value: "ollama", label: t("embeddings.providerOllama"), modelKey: "ollamaModel" as const, models: ["nomic-embed-text", "mxbai-embed-large", "all-minilm"] },
   ];
   const activeProvider = providerOptions.find((p) => p.value === settings.provider)!;
-
-  const handleIndex = async () => {
-    setHasIndexed(true);
-    await indexCollection();
-  };
-
-  const indexButtonLabel = isIndexing
-    ? t("embeddings.indexing")
-    : status && status.indexedDocuments > 0
-      ? t("embeddings.reindex")
-      : t("embeddings.indexCollection");
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -173,80 +144,6 @@ export function EmbeddingSettings() {
           </label>
         </div>
       </div>
-
-      {/* Index status + action */}
-      <div className="bg-card border border-border rounded-lg p-5 space-y-3">
-        <h3 className="text-sm font-semibold flex items-center gap-2">
-          <Sparkle className="w-4 h-4" /> {t("embeddings.libraryIndex")}
-        </h3>
-        {isLoadingStatus ? (
-          <p className="text-sm text-muted-foreground">{t("embeddings.loadingStatus")}</p>
-        ) : status ? (
-          <>
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <Stat label={t("embeddings.docsIndexed")} value={status.indexedDocuments} sub={`/ ${status.totalDocuments}`} />
-              <Stat label={t("embeddings.totalChunks")} value={status.totalChunks} />
-              <Stat label={t("embeddings.providerLabel")} value={status.provider} sub={status.model} small />
-            </div>
-            {status.documentsWithoutContent > 0 && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
-                <Warning className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                {t("embeddings.docsWithoutContent", { count: status.documentsWithoutContent })}
-              </p>
-            )}
-            {status.indexedDocuments < status.totalDocuments - status.documentsWithoutContent && (
-              <p className="text-xs text-muted-foreground">
-                {t("embeddings.docsNotIndexed", {
-                  count: status.totalDocuments - status.documentsWithoutContent - status.indexedDocuments,
-                })}
-              </p>
-            )}
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">{t("embeddings.notIndexed")}</p>
-        )}
-
-        {isIndexing && indexProgress && (
-          <div className="text-xs text-muted-foreground">
-            {t("embeddings.indexingProgress", {
-              current: indexProgress.current,
-              total: indexProgress.total,
-              title: indexProgress.documentTitle,
-            })}
-          </div>
-        )}
-
-        <button
-          onClick={handleIndex}
-          disabled={isIndexing}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          {indexButtonLabel}
-        </button>
-
-        {hasIndexed && status && status.indexedDocuments === 0 && (
-          <p className="text-xs text-muted-foreground">{t("embeddings.indexedZero")}</p>
-        )}
-
-        {lastError && (
-          <p className="text-xs text-destructive flex items-start gap-1.5">
-            <Warning className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-            {lastError}
-          </p>
-        )}
-      </div>
-
-      <p className="text-xs text-muted-foreground">{t("embeddings.libraryScopeTip")}</p>
-    </div>
-  );
-}
-
-function Stat({ label, value, sub, small }: { label: string; value: number | string; sub?: string; small?: boolean }) {
-  return (
-    <div className="bg-background/50 rounded p-2">
-      <div className={`font-bold ${small ? "text-sm" : "text-xl"}`}>{value}</div>
-      {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
-      <div className="text-xs text-muted-foreground mt-1">{label}</div>
     </div>
   );
 }

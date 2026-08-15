@@ -2691,6 +2691,207 @@ pub const MIGRATIONS: &[Migration] = &[
             ON transcript_segments(transcript_id, start_ms, end_ms, text);
         "#,
     ),
+    // Migration 085: AI learning system — semantic index, provenance, concepts,
+    // recall history, answer assessments, passage scores, index state.
+    // All of these are caches / adjunct data: user content remains canonical in
+    // the existing tables and every table here can be wiped and rebuilt.
+    // Also folds the legacy 051 RAG chunk embeddings into the unified chunk
+    // tables, and defensively creates queue_item_embeddings whose DDL only
+    // ever existed in a legacy (never-applied) .sql file.
+    Migration::new(
+        "085_ai_learning_system",
+        r#"
+        CREATE TABLE IF NOT EXISTS semantic_chunks (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT,
+            ordinal INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            heading_path TEXT NOT NULL DEFAULT '[]',
+            location_json TEXT NOT NULL DEFAULT '{}',
+            content_hash TEXT NOT NULL,
+            token_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_semantic_chunks_document
+            ON semantic_chunks(document_id, ordinal);
+        CREATE INDEX IF NOT EXISTS idx_semantic_chunks_hash
+            ON semantic_chunks(content_hash);
+
+        CREATE TABLE IF NOT EXISTS semantic_chunk_embeddings (
+            chunk_id TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL,
+            model TEXT NOT NULL,
+            dimension INTEGER NOT NULL,
+            embedding_version INTEGER NOT NULL DEFAULT 1,
+            content_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (chunk_id) REFERENCES semantic_chunks(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_semantic_chunk_embeddings_version
+            ON semantic_chunk_embeddings(embedding_version, model);
+
+        -- One-time fold of legacy whole-library RAG embeddings (051) into the
+        -- unified semantic index, then retire the old table.
+        INSERT INTO semantic_chunks (id, document_id, source_type, ordinal, text, content_hash, token_count, created_at, updated_at)
+        SELECT id, document_id, 'document', chunk_index, chunk_text, content_hash, 0,
+               datetime(created_at / 1000, 'unixepoch'), datetime(created_at / 1000, 'unixepoch')
+        FROM document_chunk_embeddings;
+        INSERT INTO semantic_chunk_embeddings (chunk_id, embedding, model, dimension, embedding_version, content_hash, created_at)
+        SELECT id, embedding, model, dimension, 1, content_hash, datetime(created_at / 1000, 'unixepoch')
+        FROM document_chunk_embeddings;
+        DROP TABLE IF EXISTS document_chunk_embeddings;
+
+        CREATE TABLE IF NOT EXISTS ai_provenance (
+            id TEXT PRIMARY KEY,
+            target_kind TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT,
+            model_class TEXT,
+            input_fingerprint TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            metadata_json TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_provenance_target
+            ON ai_provenance(target_kind, target_id);
+
+        CREATE TABLE IF NOT EXISTS concepts (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            normalized_name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS concept_links (
+            id TEXT PRIMARY KEY,
+            source_kind TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            target_kind TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            relation_type TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            provenance_json TEXT,
+            created_by TEXT NOT NULL DEFAULT 'ai',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            is_dismissed INTEGER NOT NULL DEFAULT 0,
+            proposal_fingerprint TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_concept_links_source
+            ON concept_links(source_kind, source_id);
+        CREATE INDEX IF NOT EXISTS idx_concept_links_target
+            ON concept_links(target_kind, target_id);
+        CREATE INDEX IF NOT EXISTS idx_concept_links_fingerprint
+            ON concept_links(proposal_fingerprint);
+
+        CREATE TABLE IF NOT EXISTS recall_prompt_history (
+            id TEXT PRIMARY KEY,
+            document_id TEXT,
+            chunk_ids TEXT NOT NULL DEFAULT '[]',
+            fingerprint TEXT NOT NULL,
+            question TEXT NOT NULL,
+            asked_at TEXT NOT NULL DEFAULT (datetime('now')),
+            outcome TEXT NOT NULL DEFAULT 'asked'
+        );
+        CREATE INDEX IF NOT EXISTS idx_recall_prompt_history_fingerprint
+            ON recall_prompt_history(fingerprint, asked_at);
+        CREATE INDEX IF NOT EXISTS idx_recall_prompt_history_document
+            ON recall_prompt_history(document_id, asked_at);
+
+        CREATE TABLE IF NOT EXISTS answer_assessments (
+            id TEXT PRIMARY KEY,
+            review_result_id INTEGER,
+            item_id TEXT,
+            classification TEXT NOT NULL,
+            score REAL,
+            completeness REAL,
+            confidence REAL,
+            missing_concepts TEXT,
+            misconception TEXT,
+            feedback TEXT,
+            suggested_correction TEXT,
+            provider TEXT,
+            model TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_answer_assessments_review_result
+            ON answer_assessments(review_result_id);
+        CREATE INDEX IF NOT EXISTS idx_answer_assessments_item
+            ON answer_assessments(item_id, created_at);
+
+        CREATE TABLE IF NOT EXISTS passage_scores (
+            chunk_hash TEXT PRIMARY KEY,
+            passage_type TEXT NOT NULL,
+            extract_worthiness REAL NOT NULL,
+            suggested_action TEXT,
+            model TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS ai_index_state (
+            document_id TEXT PRIMARY KEY,
+            state TEXT NOT NULL DEFAULT 'unindexed',
+            embedding_version INTEGER,
+            chunks_indexed INTEGER NOT NULL DEFAULT 0,
+            total_chunks INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            error TEXT,
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+        );
+
+        -- Defensive creation: this table's DDL previously existed only in a
+        -- legacy .sql file that the runtime registry never applied.
+        CREATE TABLE IF NOT EXISTS queue_item_embeddings (
+            item_id TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL,
+            content_hash TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            dimension INTEGER NOT NULL,
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+        );
+        CREATE INDEX IF NOT EXISTS idx_queue_item_embeddings_content_hash
+            ON queue_item_embeddings(content_hash);
+        "#,
+    ),
+    // Migration 086: recreate the document_search sync triggers.
+    // The documents table was rebuilt via documents_new + RENAME in an earlier
+    // migration, and SQLite silently drops triggers on the renamed-away table.
+    // Fresh installs therefore end up with no document_search_* triggers and an
+    // empty FTS document index until a manual fts_reindex runs. Resync the
+    // index and recreate the triggers (idempotent: full delete + reinsert).
+    Migration::new(
+        "086_fix_document_search_triggers",
+        r#"
+        DELETE FROM document_search WHERE document_id IN (SELECT id FROM documents);
+
+        INSERT INTO document_search(document_id, title, content, content_type)
+        SELECT id, title, COALESCE(content, ''), file_type FROM documents;
+
+        CREATE TRIGGER IF NOT EXISTS document_search_insert AFTER INSERT ON documents BEGIN
+            INSERT INTO document_search(document_id, title, content, content_type)
+            VALUES (NEW.id, NEW.title, COALESCE(NEW.content, ''), NEW.file_type);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS document_search_update AFTER UPDATE OF title, content, file_type ON documents BEGIN
+            UPDATE document_search SET
+                title = NEW.title,
+                content = COALESCE(NEW.content, ''),
+                content_type = NEW.file_type
+            WHERE document_id = NEW.id;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS document_search_delete AFTER DELETE ON documents BEGIN
+            DELETE FROM document_search WHERE document_id = OLD.id;
+        END;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

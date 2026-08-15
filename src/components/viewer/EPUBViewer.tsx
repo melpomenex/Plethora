@@ -26,6 +26,9 @@ import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts
 import { tolerantPhraseRegex, collectSectionCfiMatches } from "../../utils/epubQuoteSearch";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
+import { useReaderVolumeNavigation } from "../../hooks/useReaderVolumeNavigation";
+import { ReaderTapZones } from "./ReaderTapZones";
+import { loadSavedDisplayMode, loadSavedEinkSettings, resolveEffectiveEinkMode } from "../../lib/displayMode";
 import { attachIframePointerActivityForwarder } from "../../utils/iframePointerActivity";
 import type { EpubVimRuntime } from "../../utils/vim/readerRuntimes";
 
@@ -929,13 +932,17 @@ export function EPUBViewer({
             }
           }
 
+          const isEinkActive = resolveEffectiveEinkMode(loadSavedDisplayMode());
+          const einkSettings = loadSavedEinkSettings();
+          const preferPaginated = isEinkActive && einkSettings.preferPaginated;
+
           const rendition = epubBook.renderTo(viewerRef.current, {
             width: "100%",
             height: "100%",
             spread: "none",
-            flow: "scrolled",
+            flow: preferPaginated ? "paginated" : "scrolled",
             allowScriptedContent: true,
-            manager: "continuous",
+            manager: preferPaginated ? "default" : "continuous",
           });
 
           renditionInstance = rendition;
@@ -2938,7 +2945,13 @@ export function EPUBViewer({
         )}
 
         {/* EPUB viewer container - epubjs renders directly into this */}
-        <div className="flex-1 overflow-hidden relative">
+        <ReaderTapZones
+          onPrevPage={handlePrevPage}
+          onNextPage={handleNextPage}
+          onToggleChrome={() => setChromeVisible((v) => !v)}
+          className="flex-1 overflow-hidden relative"
+        >
+        <div className="w-full h-full overflow-hidden relative">
           {!isMobile && toc.length > 0 && !showDesktopToc && (
             <button
               type="button"
@@ -2958,6 +2971,7 @@ export function EPUBViewer({
             style={{ opacity: isLoading ? 0 : 1 }}
           />
         </div>
+        </ReaderTapZones>
       </div>
 
       {/* Help tooltip */}

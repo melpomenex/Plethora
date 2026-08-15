@@ -1,10 +1,22 @@
 /**
  * Task adapters for Flashcard Studio customization and Review Assistance.
+ *
+ * Hint generation and card explanation execute their `AITaskDefinition`s
+ * through `runTask` (design D4/D30). `explainCard` keeps its resilient
+ * execution chain: streaming attempt → non-streaming attempt → canned
+ * fallback; card text and source context enter prompts only inside untrusted
+ * blocks (design D9).
  */
 
-import { generateNativePrompt, generateStreamingPrompt, OnDeviceAiError } from "./onDeviceAI";
+import { OnDeviceAiError } from "./onDeviceAI";
 import { extractClozeDeletion, normalizeText } from "./cardValidator";
 import { resolveAiPath } from "./provider";
+import { fnv1aHash } from "./providers/types";
+import { runTask } from "./tasks/runTask";
+import {
+  explainCardTask,
+  reviewHintTask,
+} from "./tasks/definitions/studioTasks";
 
 export interface ReviewHintResult {
   hint: string;
@@ -60,16 +72,15 @@ export async function generateReviewHint(
 ): Promise<ReviewHintResult> {
   const { q, a } = resolveCardText(card);
 
-  const promptText = [
-    "Provide a subtle 1-sentence hint for answering the flashcard question below.",
-    "CRITICAL CONSTRAINT: Do NOT state the answer or reveal the direct key answer terms.",
-    "",
-    `Question: ${q}`,
-    `Answer: ${a}`,
-  ].join("\n");
-
-  const requestId = `hint-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const res = await generateNativePrompt({ requestId, text: promptText, maxOutputTokens: 128 });
+  const res = await runTask(
+    reviewHintTask,
+    { question: q, answer: a },
+    {
+      kind: "ondevice",
+      signal: options.signal,
+      targetId: fnv1aHash(`studio-review-hint\u0000${q}\u0000${a}`),
+    }
+  );
   let hintText = res.text.trim();
 
   // Leakage check: ensure direct answer text is not contained in hint
@@ -94,31 +105,20 @@ export async function explainCard(
   options: { signal?: AbortSignal; onChunk?: (chunk: string) => void } = {}
 ): Promise<CardExplanationResult> {
   const { q, a } = resolveCardText(card);
+  const input = { question: q, answer: a, sourceContext: sourceContext?.trim() || undefined };
+  const targetId = fnv1aHash(`studio-explain-card\u0000${q}\u0000${a}`);
 
-  const promptText = [
-    "Explain why the following flashcard answer is correct in 2 concise sentences.",
-    sourceContext ? `Source Context:\n${sourceContext.trim()}\n` : "",
-    `Question: ${q}`,
-    `Answer: ${a}`,
-  ].filter(Boolean).join("\n");
-
-  const requestId = `expcard-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const path = await resolveAiPath("prompt");
 
   if (path === "ondevice" || options.onChunk) {
     try {
-      let text = "";
-      const res = await generateStreamingPrompt(
-        { requestId, text: promptText, maxOutputTokens: 256 },
-        {
-          signal: options.signal,
-          onChunk: (chunk) => {
-            text += chunk;
-            options.onChunk?.(chunk);
-          },
-        }
-      );
-      const explanation = (res.text || text).trim();
+      const res = await runTask(explainCardTask, input, {
+        kind: "ondevice",
+        signal: options.signal,
+        onChunk: options.onChunk,
+        targetId,
+      });
+      const explanation = res.text.trim();
       if (explanation) {
         return {
           explanation,
@@ -131,7 +131,12 @@ export async function explainCard(
   }
 
   try {
-    const res = await generateNativePrompt({ requestId, text: promptText, maxOutputTokens: 256 });
+    const res = await runTask(explainCardTask, input, {
+      kind: "ondevice",
+      signal: options.signal,
+      targetId: `${targetId}-bulk`,
+      streaming: false,
+    });
     const text = res.text.trim();
     if (text) {
       options.onChunk?.(text);

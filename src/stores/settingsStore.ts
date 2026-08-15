@@ -7,6 +7,18 @@ import {
 } from "../utils/ttsSettings";
 import { normalizeFsrsParameters } from "../utils/fsrsParameters";
 import { isNativeMobile } from "../lib/tauri";
+import type { ActiveRecallMode } from "../lib/ai/recall/interruptionPolicy";
+
+export type { ActiveRecallMode };
+
+/** Valid `ai.activeRecallMode` values (unknown persisted values reset to off). */
+const ACTIVE_RECALL_MODES: readonly ActiveRecallMode[] = ["off", "low", "adaptive", "intensive"];
+
+function normalizeActiveRecallMode(value: unknown): ActiveRecallMode {
+  return typeof value === "string" && (ACTIVE_RECALL_MODES as readonly string[]).includes(value)
+    ? (value as ActiveRecallMode)
+    : "off";
+}
 
 /**
  * FSRS Algorithm Parameters
@@ -336,6 +348,13 @@ interface AISettings {
    * reports `platform_unsupported` and this setting changes nothing.
    */
   preferOnDevice: boolean;
+  /**
+   * Active-recall reading mode (design D19 / ai-active-recall): `off` (the
+   * default and the kill switch), or the interruption budget `low` /
+   * `adaptive` / `intensive`. Only takes effect together with the
+   * `features.aiActiveRecall` flag.
+   */
+  activeRecallMode: ActiveRecallMode;
 }
 
 /**
@@ -566,6 +585,35 @@ interface FeatureFlags {
   fsrsScopedParametersEnabled: boolean;
   reviewUndoEnabled: boolean;
   cramModeEnabled: boolean;
+  // AI Learning System (OpenSpec `add-ondevice-ai-learning-system`) — one
+  // flag per phase, ALL default false so every phase ships dark and can be
+  // enabled per device for dogfooding (design D30 rollback guarantee).
+  /** Phase 1: "Learn this" structured learning material proposals */
+  aiLearnThis: boolean;
+  /** Phase 2: OCR-backed occlusion selection on images */
+  aiOcclusionAssist: boolean;
+  /** Phase 2: experimental free-form (non-OCR) vision-proposed occlusion regions */
+  aiOcclusionFreeform: boolean;
+  /** Phase 3: on-device semantic indexing of the library */
+  aiSemanticIndex: boolean;
+  /** Phase 3: grounded Ask-Library RAG answers with citations */
+  aiLibraryRag: boolean;
+  /** Phase 4: active-recall prompts while reading */
+  aiActiveRecall: boolean;
+  /** Phase 4: free-response answer assessment feedback */
+  aiAnswerAssessment: boolean;
+  /** Phase 4: experimental highlighted grade suggestion (never auto-submits) */
+  aiAutoGradeSuggest: boolean;
+  /** Phase 5: prerequisite analysis and coverage estimation */
+  aiPrerequisites: boolean;
+  /** Phase 5: AI-proposed concept links and backlinks */
+  aiConceptLinks: boolean;
+  /** Phase 5: background extract-worthiness passage scoring */
+  aiExtractWorthiness: boolean;
+  /** Phase 6: Socratic tutoring sessions */
+  aiSocraticTutor: boolean;
+  /** Phase 7: constrained library agent (read-only + proposals) */
+  aiAgent: boolean;
 }
 
 /**
@@ -754,6 +802,8 @@ export const defaultSettings: Settings = {
     pwaAssistantButtonEnabled: false,
     pwaAssistantButtonSide: "right",
     preferOnDevice: true,
+    // Active recall ships dark (design D19: off is the default + kill switch).
+    activeRecallMode: "off",
     aiControls: {
       autoGenerate: false,
       cardsPerExtract: 5,
@@ -878,6 +928,20 @@ export const defaultSettings: Settings = {
     fsrsScopedParametersEnabled: true,
     reviewUndoEnabled: true,
     cramModeEnabled: true,
+    // AI Learning System phase flags — all default false (tasks 1.14, D30).
+    aiLearnThis: false,
+    aiOcclusionAssist: false,
+    aiOcclusionFreeform: false,
+    aiSemanticIndex: false,
+    aiLibraryRag: false,
+    aiActiveRecall: false,
+    aiAnswerAssessment: false,
+    aiAutoGradeSuggest: false,
+    aiPrerequisites: false,
+    aiConceptLinks: false,
+    aiExtractWorthiness: false,
+    aiSocraticTutor: false,
+    aiAgent: false,
   },
   audioReviewMode: {
     enabled: false,
@@ -1057,7 +1121,14 @@ export const useSettingsStore = create<SettingsState>()(
               ...persisted.documents?.ocr,
             },
           },
-          ai: { ...defaultSettings.ai, ...persisted.ai, aiControls: { ...defaultSettings.ai.aiControls, ...persisted.ai?.aiControls } },
+          ai: {
+            ...defaultSettings.ai,
+            ...persisted.ai,
+            aiControls: { ...defaultSettings.ai.aiControls, ...persisted.ai?.aiControls },
+            // Defensive: an unknown persisted mode (older/newer schema) resets
+            // to the safe default instead of enabling prompts accidentally.
+            activeRecallMode: normalizeActiveRecallMode(persisted.ai?.activeRecallMode),
+          },
           sync: { ...defaultSettings.sync, ...persisted.sync },
           importExport: { ...defaultSettings.importExport, ...persisted.importExport },
           notifications: { ...defaultSettings.notifications, ...persisted.notifications },

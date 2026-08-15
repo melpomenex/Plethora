@@ -2,6 +2,7 @@
 #![allow(dead_code, private_interfaces, unused)]
 
 mod ai;
+mod ai_learning;
 mod algorithms;
 mod anki;
 mod backup;
@@ -1023,6 +1024,45 @@ pub fn run() {
                         repo.clone(),
                     ),
                 });
+                // AI learning semantic index: background chunking/embedding
+                // worker + retrieval state (no AppHandle dependency — it is
+                // fully testable against an in-memory database).
+                app.manage(commands::ai_learning::AiLearningState::new(
+                    repo.clone(),
+                ));
+                // On-device embedding bridge (task 4.5, design D10): hand the
+                // indexer a direct Rust→Kotlin path into the android-genai
+                // plugin's EmbeddingGemma command. Android only; everywhere
+                // else the OnDevice backend stays the lexical-only stub.
+                #[cfg(target_os = "android")]
+                {
+                    let bridge_app = app.handle().clone();
+                    ai_learning::embeddings_backend::install_on_device_embedder(std::sync::Arc::new(
+                        move |texts: &[String], normalize: bool, kind: &str| {
+                            let plugin_kind = match kind {
+                                "query" => incrementum_android_genai::EmbeddingKind::Query,
+                                _ => incrementum_android_genai::EmbeddingKind::Document,
+                            };
+                            incrementum_android_genai::embed_texts_via_app(
+                                &bridge_app,
+                                texts.to_vec(),
+                                normalize,
+                                plugin_kind,
+                            )
+                            .map(|result| {
+                                ai_learning::embeddings_backend::OnDeviceEmbedOutput {
+                                    vectors: result.vectors,
+                                }
+                            })
+                            .map_err(|e| {
+                                ai_learning::embeddings_backend::OnDeviceEmbedFailure {
+                                    code: e.code,
+                                    message: e.message,
+                                }
+                            })
+                        },
+                    ));
+                }
 
                 let active_episode_ids = app
                     .state::<commands::podcast::PodcastTranscriptionTokens>()
@@ -1301,6 +1341,8 @@ pub fn run() {
             commands::get_due_items,
             commands::create_learning_item,
             commands::create_learning_items_batch,
+            commands::record_ai_provenance,
+            commands::get_ai_provenance,
             commands::update_learning_item_content_with_version,
             commands::update_learning_item_tags,
             commands::update_learning_item_priority,
@@ -1373,6 +1415,12 @@ pub fn run() {
             commands::optimize_sm20_fsrs,
             commands::optimize_sm20_m4,
             commands::get_review_streak,
+            commands::record_recall_prompt,
+            commands::set_recall_prompt_outcome,
+            commands::get_recent_recall_prompts,
+            commands::record_answer_assessment,
+            commands::get_answer_assessments_for_item,
+            commands::get_answer_assessment_counts,
             commands::get_review_sessions_by_collection,
             commands::get_all_review_results,
             commands::get_review_results_by_sessions,
@@ -1656,6 +1704,7 @@ pub fn run() {
             commands::llm::llm_chat,
             commands::llm::llm_chat_with_context,
             commands::llm::llm_stream_chat,
+            commands::llm::llm_cancel_stream,
             commands::llm::llm_get_models,
             commands::llm::llm_test_connection,
             commands::oauth_start,
@@ -1765,11 +1814,15 @@ pub fn run() {
             commands::embed_active_rss_articles,
             commands::compute_semantic_graph,
             commands::get_embedding_config,
-            commands::rag_index_document,
-            commands::rag_index_collection,
-            commands::rag_index_status,
-            commands::rag_search,
-            commands::rag_chat,
+            commands::ai_learning_enqueue_document,
+            commands::ai_learning_enqueue_all,
+            commands::ai_learning_index_status,
+            commands::ai_learning_index_pause,
+            commands::ai_learning_index_resume,
+            commands::ai_learning_index_cancel,
+            commands::ai_learning_reset_index,
+            commands::ai_learning_retrieve,
+            commands::ai_learning_remove_source_chunks,
             commands::get_focus_timer_state,
             commands::start_focus_timer,
             commands::pause_focus_timer,

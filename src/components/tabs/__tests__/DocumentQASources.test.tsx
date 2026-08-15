@@ -4,7 +4,7 @@ import { DocumentQASources, sourcesCopyText } from "../DocumentQASources";
 import { useDocumentStore } from "../../../stores/documentStore";
 import { getDocument } from "../../../api/documents";
 import { openDocumentAtLocation } from "../../../utils/openDocumentAtLocation";
-import type { RagHit } from "../../../api/rag";
+import type { RagHit } from "../../../stores/documentQAStore";
 import type { Document } from "../../../types/document";
 
 vi.mock("../../../api/documents", () => ({

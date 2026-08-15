@@ -50,6 +50,12 @@ import { featureFlags } from "../../lib/featureFlags";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { InlineCardEditor } from "./InlineCardEditor";
 import { FlashcardStudioModal } from "./FlashcardStudioModal";
+import {
+  computeSuggestedRating,
+  recordCardAssessment,
+  shouldSuggestGrade,
+} from "./answerAssessmentIntegration";
+import { useCardAnswerAssessment } from "./useCardAnswerAssessment";
 import type { LearningItem as EditableCard } from "../../api/learning-items";
 import type { ReviewSessionItem } from "../../stores/reviewStore";
 
@@ -132,6 +138,16 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     selectedOptionId?: string;
     selectedOptionText?: string;
   } | null>(null);
+  // Free-response assessment of the current card (Phase 4, task 5.8):
+  // captured on reveal, persisted AFTER grading via a separate invoke —
+  // the submitReview path is identical whether or not this is set.
+  const cardAssessment = useCardAnswerAssessment({
+    card: currentCard,
+    showAnswer: isAnswerShown,
+  });
+  const aiAutoGradeSuggest = useSettingsStore(
+    (state) => state.settings.features.aiAutoGradeSuggest
+  );
   const { t, locale } = useI18n();
   const modal = useModal();
   const requestExit = async () => {
@@ -294,10 +310,21 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     const currentStreak = streak;
     const willComplete = currentIndex >= queue.length - 1;
 
+    // Snapshot BEFORE submitRating: the store advances the queue as soon as
+    // the grade commits. The submitReview arguments are untouched — the
+    // assessment is recorded by a separate, fire-and-forget invoke below.
+    const pendingAssessment = cardAssessment.payload;
+
     await submitRating(rating, grade);
     if (!beforeId) return;
     const committedState = useReviewStore.getState();
     if (committedState.pendingArenaReview || committedState.error) return;
+
+    // Phase 4 (task 5.8): persist the assessment AFTER grading. Advisory
+    // only — never part of the scheduling path, and failures are silent.
+    if (pendingAssessment && pendingAssessment.cardId === beforeId) {
+      void recordCardAssessment(pendingAssessment);
+    }
 
     // Show feedback for milestones
     if (willComplete) {
@@ -1002,6 +1029,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                         onInteractionResultChange={setInteractionResult}
                         onEdit={handleOpenEditor}
                         editDisabled={!canEditCurrentCard}
+                        assessmentPanel={{
+                          assessment: cardAssessment.assessment,
+                          error: cardAssessment.assessmentError,
+                          pending: cardAssessment.assessmentPending,
+                        }}
                       />
                     </div>
                   </div>
@@ -1014,6 +1046,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                     disabled={isSubmitting}
                     previewIntervals={previewIntervals}
                     gradeScale={useNativeGrades}
+                    suggestedRating={
+                      shouldSuggestGrade(cardAssessment.assessment, aiAutoGradeSuggest)
+                        ? computeSuggestedRating(cardAssessment.assessment)
+                        : undefined
+                    }
                   />
                   {canChooseArenaMode && <AlgorithmArenaModeControl compact />}
                   {/* Hint for mobile */}
@@ -1036,6 +1073,14 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
                       onInteractionResultChange={setInteractionResult}
                       onEdit={handleOpenEditor}
                       editDisabled={!canEditCurrentCard}
+                      freeResponse={
+                        cardAssessment.inputEnabled
+                          ? {
+                              value: cardAssessment.freeResponse,
+                              onChange: cardAssessment.setFreeResponse,
+                            }
+                          : undefined
+                      }
                     />
                   </div>
                 </div>

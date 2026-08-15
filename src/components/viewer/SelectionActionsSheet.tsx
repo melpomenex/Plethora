@@ -18,9 +18,11 @@ import {
   ArrowsClockwise,
   Copy,
   DownloadSimple,
+  GraduationCap,
   Lightbulb,
   ListBullets,
   Question,
+  Sparkle,
   TextAa,
   TextAlignLeft,
 } from "@phosphor-icons/react";
@@ -28,6 +30,8 @@ import { MobileContextMenuSheet, mobileSheetItemClass } from "../common/MobileCo
 import { copySelectionTextToClipboard } from "./SelectionPopup";
 import { useI18n } from "../../lib/i18n";
 import { useAiAvailability } from "../../lib/ai/useAiAvailability";
+import { useAskLibrary } from "../../lib/ai/useAskLibrary";
+import { useSettingsStore } from "../../stores/settingsStore";
 import {
   getOnDeviceRequirementStatus,
   isOnDeviceAiSupportedPlatform,
@@ -45,8 +49,20 @@ import {
   type PassageActionOptions,
   type PassageResult,
 } from "../../lib/ai/passageAI";
+import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
+import { openLibrarySource } from "../../utils/openLibrarySource";
 
 export type SelectionAiAction = "explain" | "summarize" | "simplify" | "keyTerms" | "ask";
+
+/** Document context for the "Learn this" proposal (task 2.3). */
+export interface LearnThisContext {
+  documentId?: string;
+  documentTitle?: string;
+  /** Existing extract the selection belongs to, when there is one. */
+  extractId?: string;
+  /** Selection context payload recorded with provenance. */
+  selectionContext?: unknown;
+}
 
 export interface SelectionActionsSheetProps {
   open: boolean;
@@ -68,6 +84,8 @@ export interface SelectionActionsSheetProps {
   onCreateExtract?: (text: string) => void;
   /** Omitted when the surface cannot attach an extract to an AI result. */
   onCreateExtractFromResult?: (text: string) => void;
+  /** Document context for the "Learn this" action (task 2.3). */
+  learnThis?: LearnThisContext;
 }
 
 const PREVIEW_CHARS = 180;
@@ -148,17 +166,27 @@ export function SelectionActionsSheet({
   onClose,
   onCreateExtract,
   onCreateExtractFromResult,
+  learnThis,
 }: SelectionActionsSheetProps) {
   const { t } = useI18n();
   const ai = useAiAvailability("prompt");
+  // "Learn this" ships behind its phase flag (default off) AND the generative
+  // requirement (`ai.available`) — task 2.3 gating.
+  const aiLearnThisEnabled = useSettingsStore((s) => s.settings.features.aiLearnThis);
+  // "Ask library" ships behind its phase flag (default off) AND availability —
+  // task 4.10 gating, same pattern as "Learn this".
+  const aiLibraryRagEnabled = useSettingsStore((s) => s.settings.features.aiLibraryRag);
+  const library = useAskLibrary();
+  const { reset: resetLibrary } = library;
 
-  const [mode, setMode] = useState<"menu" | "asking" | "result">("menu");
+  const [mode, setMode] = useState<"menu" | "asking" | "result" | "library">("menu");
   const [action, setAction] = useState<SelectionAiAction>("explain");
   const [question, setQuestion] = useState("");
   const [output, setOutput] = useState("");
   const [result, setResult] = useState<PassageResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [showLearnThis, setShowLearnThis] = useState(false);
   const [downloadState, setDownloadState] = useState<"idle" | "downloadable" | "downloading">(
     "idle"
   );
@@ -178,7 +206,9 @@ export function SelectionActionsSheet({
     setResult(null);
     setError(null);
     setRunning(false);
-  }, []);
+    setShowLearnThis(false);
+    resetLibrary();
+  }, [resetLibrary]);
 
   // Closing the sheet aborts whatever is in flight; a cancelled request must
   // never fall back to the cloud.
@@ -286,6 +316,25 @@ export function SelectionActionsSheet({
 
   if (!open) return null;
 
+  // "Learn this" preview takes over the sheet surface (its own overlay).
+  if (showLearnThis) {
+    return (
+      <LearnThisProposalSheet
+        open
+        text={text}
+        passage={sourcePassage}
+        documentId={learnThis?.documentId}
+        documentTitle={learnThis?.documentTitle}
+        extractId={learnThis?.extractId}
+        selectionContext={learnThis?.selectionContext}
+        onClose={() => {
+          setShowLearnThis(false);
+          if (initialAction) onClose();
+        }}
+      />
+    );
+  }
+
   const preview =
     text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS).trimEnd()}…` : text;
 
@@ -350,6 +399,18 @@ export function SelectionActionsSheet({
                   <Question className="w-5 h-5" aria-hidden="true" />
                   {t("selectionSheet.ask")}
                 </button>
+                {aiLearnThisEnabled && (
+                  <button className={mobileSheetItemClass} onClick={() => setShowLearnThis(true)}>
+                    <GraduationCap className="w-5 h-5" aria-hidden="true" />
+                    {t("aiLearning.learnThis")}
+                  </button>
+                )}
+                {aiLibraryRagEnabled && (
+                  <button className={mobileSheetItemClass} onClick={() => setMode("library")}>
+                    <Sparkle className="w-5 h-5" aria-hidden="true" />
+                    {t("aiLibrary.askLibrary")}
+                  </button>
+                )}
               </>
             )}
 
@@ -397,6 +458,118 @@ export function SelectionActionsSheet({
                 {t("selectionSheet.askSubmit")}
               </button>
             </div>
+          </div>
+        )}
+
+        {mode === "library" && (
+          <div className="px-4 pb-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <button
+                className="p-1 -ml-1 text-muted-foreground"
+                aria-label={t("selectionSheet.back")}
+                onClick={cancel}
+              >
+                <ArrowLeft className="w-5 h-5" aria-hidden="true" />
+              </button>
+              <span className="text-sm font-medium text-foreground">
+                {t("aiLibrary.askLibrary")}
+              </span>
+              <span
+                className={`ml-auto text-[11px] px-2 py-0.5 rounded ${
+                  ai.path === "ondevice"
+                    ? "bg-success/15 text-success"
+                    : ai.path === "cloud"
+                      ? "bg-primary/10 text-primary"
+                      : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {ai.path === "ondevice"
+                  ? t("aiLibrary.onDevice")
+                  : ai.path === "cloud"
+                    ? t("aiLibrary.cloud")
+                    : t("aiLibrary.noProvider")}
+              </span>
+            </div>
+
+            <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">{preview}</p>
+
+            <input
+              autoFocus
+              type="text"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && question.trim()) {
+                  void library.ask(question.trim(), { contextPassage: sourcePassage });
+                }
+              }}
+              placeholder={t("aiLibrary.selectionPlaceholder")}
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[15px] text-foreground"
+            />
+            <div className="flex gap-2">
+              <button
+                className="flex-1 rounded-lg border border-border px-3 py-2 text-[15px] text-foreground"
+                onClick={cancel}
+              >
+                {t("selectionSheet.back")}
+              </button>
+              <button
+                className="flex-1 rounded-lg bg-primary px-3 py-2 text-[15px] text-primary-foreground disabled:opacity-50"
+                disabled={!question.trim() || library.running}
+                onClick={() => void library.ask(question.trim(), { contextPassage: sourcePassage })}
+              >
+                {library.running ? t("aiLibrary.thinking") : t("aiLibrary.ask")}
+              </button>
+            </div>
+
+            {library.error && (
+              <p className="text-[13px] text-destructive">
+                {t("aiLibrary.askError", { message: library.error })}
+              </p>
+            )}
+
+            {library.result && !library.running && (
+              <div className="space-y-2 pt-1">
+                <span
+                  className={`inline-block text-[11px] px-2 py-0.5 rounded font-medium ${
+                    library.result.answer.evidenceLevel === "supported"
+                      ? "bg-success/15 text-success"
+                      : library.result.answer.evidenceLevel === "weak"
+                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                        : library.result.answer.evidenceLevel === "conflicting"
+                          ? "bg-accent/15 text-accent-foreground"
+                          : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {t(`aiLibrary.evidence_${library.result.answer.evidenceLevel}`)}
+                </span>
+                <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-foreground">
+                  {library.result.answer.answer}
+                </p>
+                {library.result.sources.length > 0 && (
+                  <div className="pt-1.5 border-t border-border/70 space-y-1">
+                    {library.result.sources.map((source, index) => (
+                      <button
+                        key={`${source.chunkId}-${index}`}
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          void openLibrarySource(source.documentId, source.text, source.location);
+                        }}
+                        className="w-full text-left flex items-start gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-muted/70"
+                      >
+                        <span className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
+                          {index + 1}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                          {source.documentTitle ?? source.documentId}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

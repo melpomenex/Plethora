@@ -76,6 +76,8 @@ import { PdfReflowOcrController, type PdfPageOcrUpdate } from "./pdfReflowOcr";
 import { anchorFromReflowBlock, resolveReflowBlock } from "./pdfAnchorResolver";
 import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import type { PdfVimRuntime } from "../../utils/vim/readerRuntimes";
+import { useReaderVolumeNavigation } from "../../hooks/useReaderVolumeNavigation";
+import { ReaderTapZones } from "./ReaderTapZones";
 // Import PDF.js text layer styles
 import "pdfjs-dist/web/pdf_viewer.css";
 import "./PDFViewer.css";
@@ -2926,6 +2928,11 @@ export function PDFViewer({
     }
   };
 
+  useReaderVolumeNavigation({
+    onNextPage: handleNextPage,
+    onPrevPage: handlePrevPage,
+  });
+
   // Programmatic jump to an arbitrary page. Mirrors handlePrevPage/NextPage's
   // token + pendingNav dance so the navigation-stability guards treat this as
   // an authoritative programmatic nav (no snap-back). Silently clamps to the
@@ -3738,6 +3745,12 @@ export function PDFViewer({
           </div>
 
           {/* Canvas Container */}
+          <ReaderTapZones
+            onPrevPage={handlePrevPage}
+            onNextPage={handleNextPage}
+            onToggleChrome={() => setMobileChromeVisible((v) => !v)}
+            className="flex-1 min-h-0 flex flex-col"
+          >
           <div
             ref={scrollContainerRef}
             onScroll={mobilePdfMode === "reflow" ? handleReflowScroll : handleScroll}
@@ -3906,6 +3919,7 @@ export function PDFViewer({
               </div>
             )}
           </div>
+          </ReaderTapZones>
 
           {showMobileSettings && isPhone && (
             <div className="fixed inset-0 z-[80] flex items-end bg-black/45" onClick={() => setShowMobileSettings(false)}>

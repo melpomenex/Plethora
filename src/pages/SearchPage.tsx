@@ -7,12 +7,17 @@ import {
   Clock,
   Folder,
   MagnifyingGlass as SearchIcon,
+  Sparkle,
   Stack,
   TextT,
   X,
 } from "@phosphor-icons/react";
 import { useI18n } from "../lib/i18n";
 import { useCollectionStore } from "../stores/collectionStore";
+import { useSettingsStore } from "../stores/settingsStore";
+import { useAskLibrary } from "../lib/ai/useAskLibrary";
+import { useAiAvailability } from "../lib/ai/useAiAvailability";
+import { openLibrarySource } from "../utils/openLibrarySource";
 
 type SearchResultType = "document" | "extract" | "flashcard";
 
@@ -31,6 +36,8 @@ interface SearchResult {
 
 export function SearchPage() {
   const { t } = useI18n();
+  const aiLibraryRagEnabled = useSettingsStore((s) => s.settings.features.aiLibraryRag);
+  const [mode, setMode] = useState<"search" | "ask">("search");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -200,11 +207,33 @@ export function SearchPage() {
     });
   };
 
+  // ── Ask library mode (aiLibraryRag flag, task 4.10) ──────────────────────
+  if (aiLibraryRagEnabled && mode === "ask") {
+    return (
+      <div className="h-full flex flex-col bg-cream">
+        <div className="p-6 border-b border-border bg-card">
+          <div className="max-w-3xl mx-auto">
+            <ModeToggle mode={mode} onModeChange={setMode} askEnabled={aiLibraryRagEnabled} />
+          </div>
+        </div>
+        <div className="flex-1 overflow-auto p-6">
+          <div className="max-w-3xl mx-auto">
+            <AskLibrarySection />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col bg-cream">
       {/* Search Header */}
       <div className="p-6 border-b border-border bg-card">
         <div className="max-w-3xl mx-auto">
+          {aiLibraryRagEnabled && (
+            <ModeToggle mode={mode} onModeChange={setMode} askEnabled={aiLibraryRagEnabled} />
+          )}
+
           {/* Search Input */}
           <div className="relative mb-4">
             <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-foreground-secondary" />
@@ -335,6 +364,203 @@ export function SearchPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Search ⇄ Ask-library mode switch (ask row only when the flag is on). */
+function ModeToggle({
+  mode,
+  onModeChange,
+  askEnabled,
+}: {
+  mode: "search" | "ask";
+  onModeChange: (mode: "search" | "ask") => void;
+  askEnabled: boolean;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="flex items-center gap-2 mb-4">
+      <button
+        onClick={() => onModeChange("search")}
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${
+          mode === "search"
+            ? "bg-primary-100 text-primary-700 border border-primary-300"
+            : "bg-background border border-border hover:bg-muted"
+        }`}
+      >
+        <SearchIcon className="w-4 h-4" />
+        {t("aiLibrary.tabSearch")}
+      </button>
+      {askEnabled && (
+        <button
+          onClick={() => onModeChange("ask")}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${
+            mode === "ask"
+              ? "bg-primary-100 text-primary-700 border border-primary-300"
+              : "bg-background border border-border hover:bg-muted"
+          }`}
+        >
+          <Sparkle className="w-4 h-4" />
+          {t("aiLibrary.tabAsk")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const EVIDENCE_BADGE_CLASS: Record<string, string> = {
+  supported: "bg-success/15 text-success",
+  weak: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+  none: "bg-muted text-muted-foreground",
+  conflicting: "bg-accent/15 text-accent-foreground",
+};
+
+/**
+ * "Ask library" surface (task 4.10): query box, grounded streaming answer
+ * with evidence badge, on-device/cloud indicator, and source-reference chips
+ * that navigate to the cited chunk's origin.
+ */
+function AskLibrarySection() {
+  const { t } = useI18n();
+  const ai = useAiAvailability("prompt");
+  const { running, error, result, ask, reset } = useAskLibrary();
+  const [askQuery, setAskQuery] = useState("");
+
+  const submit = () => {
+    const q = askQuery.trim();
+    if (!q || running) return;
+    void ask(q);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Privacy/offline indicator (spec: on-device vs cloud is always visible) */}
+      <div className="flex items-center justify-between gap-2">
+        <span
+          className={`text-xs px-2 py-1 rounded ${
+            ai.path === "ondevice"
+              ? "bg-success/15 text-success"
+              : ai.path === "cloud"
+                ? "bg-primary/10 text-primary"
+                : "bg-muted text-muted-foreground"
+          }`}
+        >
+          {ai.path === "ondevice"
+            ? t("aiLibrary.onDevice")
+            : ai.path === "cloud"
+              ? t("aiLibrary.cloud")
+              : t("aiLibrary.noProvider")}
+        </span>
+        {result && (
+          <span className="text-xs text-foreground-secondary">
+            {result.mode === "semantic"
+              ? t("aiLibrary.semanticMode")
+              : t("aiLibrary.lexicalMode")}
+          </span>
+        )}
+      </div>
+
+      {/* Query box */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={askQuery}
+          onChange={(e) => setAskQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          placeholder={t("aiLibrary.placeholder")}
+          className="flex-1 px-4 py-3 bg-background border border-border rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-primary-300"
+          autoFocus
+        />
+        <button
+          onClick={submit}
+          disabled={!askQuery.trim() || running || !ai.available}
+          className="px-4 py-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50"
+        >
+          {running ? t("aiLibrary.thinking") : t("aiLibrary.ask")}
+        </button>
+      </div>
+
+      {/* Answer */}
+      {running && (
+        <div className="p-4 bg-card border border-border rounded-lg text-sm text-foreground-secondary">
+          {t("aiLibrary.thinking")}
+        </div>
+      )}
+      {error && (
+        <div className="p-4 bg-card border border-destructive/40 rounded-lg text-sm text-destructive">
+          {t("aiLibrary.askError", { message: error })}
+        </div>
+      )}
+      {result && !running && (
+        <div className="p-4 bg-card border border-border rounded-lg space-y-3">
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs px-2 py-1 rounded font-medium ${
+                EVIDENCE_BADGE_CLASS[result.answer.evidenceLevel]
+              }`}
+            >
+              {t(`aiLibrary.evidence_${result.answer.evidenceLevel}`)}
+            </span>
+          </div>
+          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground">
+            {result.answer.answer}
+          </p>
+
+          {/* Source-reference chips → open the cited chunk's origin */}
+          {result.sources.length > 0 && (
+            <div className="pt-2 border-t border-border/70">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+                {t("aiLibrary.sources")}
+              </div>
+              <div className="flex flex-col gap-1">
+                {result.sources.map((source, index) => (
+                  <button
+                    key={`${source.chunkId}-${index}`}
+                    type="button"
+                    onClick={() =>
+                      void openLibrarySource(source.documentId, source.text, source.location)
+                    }
+                    className="text-left flex items-start gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-muted/70"
+                  >
+                    <span className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
+                      {index + 1}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-foreground">
+                        {source.documentTitle ?? source.documentId}
+                      </span>
+                      <span className="block text-muted-foreground line-clamp-2">
+                        {source.headingPath.length > 0
+                          ? source.headingPath.join(" › ")
+                          : source.text.slice(0, 160)}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => void ask(askQuery.trim())}
+              disabled={running || !askQuery.trim()}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-50"
+            >
+              {t("aiLibrary.retry")}
+            </button>
+            <button
+              onClick={reset}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground hover:bg-muted"
+            >
+              {t("aiLibrary.clear")}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -10,5 +10,6 @@ permissions = [
   "allow-pick-files",
   "allow-install-apk",
   "allow-backup-db-to-downloads",
-  "allow-register-share-listener"
+  "allow-register-share-listener",
+  "allow-get-pending-shares"
 ]

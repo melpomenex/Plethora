@@ -21,6 +21,8 @@ const path = { current: "ondevice" as "ondevice" | "cloud" | "none" };
 
 vi.mock("../provider", () => ({
   resolveAiPath: vi.fn(async () => path.current),
+  prefersOnDevice: vi.fn(() => true),
+  hasCloudProvider: vi.fn(() => false),
   runAiAction: vi.fn(
     async (action: { onDevice: () => Promise<unknown>; cloud: () => Promise<unknown> }) => {
       if (path.current === "none") return null;

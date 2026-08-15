@@ -41,6 +41,19 @@ pub struct OCRBytesRequest {
     pub language: Option<String>,
 }
 
+/// One detected text line with its box normalized to percent 0–100 of the
+/// source image (design D18): `[x, y, width, height]`. `bbox_percent` is None
+/// when neither the provider nor the decoded image could supply geometry —
+/// the text is still reported, callers just cannot use it for occlusion.
+#[derive(Debug, Clone, Serialize)]
+pub struct OcrTextLine {
+    pub text: String,
+    /// Confidence 0–100 (provider-reported; 0 when unknown).
+    pub confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bbox_percent: Option<[f64; 4]>,
+}
+
 /// OCR response
 #[derive(Debug, Serialize)]
 pub struct OCRResponse {
@@ -62,6 +75,47 @@ pub struct OCRResponse {
     pub success: bool,
     /// Error message if failed
     pub error: Option<String>,
+    /// Detected text lines with percent boxes when available (design D18).
+    /// Absent (not `[]`) for providers without box support and for every
+    /// failure response, so existing consumers see no shape change.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub lines: Vec<OcrTextLine>,
+}
+
+impl OCRResponse {
+    /// Convert provider pixel lines into percent-normalized response lines
+    /// using the real decoded image dimensions. Dims of None (undecodable
+    /// bytes) leave `bbox_percent` unset rather than fabricating geometry.
+    fn with_percent_lines(
+        mut self,
+        provider_lines: &[crate::ocr::providers::TextLine],
+        image_dims: Option<(u32, u32)>,
+    ) -> Self {
+        if provider_lines.is_empty() {
+            return self;
+        }
+        self.lines = provider_lines
+            .iter()
+            .map(|line| OcrTextLine {
+                text: line.text.clone(),
+                confidence: line.confidence.clamp(0.0, 100.0),
+                bbox_percent: image_dims.map(|(w, h)| {
+                    crate::ocr::providers::pixel_box_to_percent(&line.bbox, w, h)
+                }),
+            })
+            .collect();
+        self
+    }
+}
+
+/// Decode image dimensions from raw bytes without a full decode where the
+/// format allows it. Used only to normalize OCR pixel boxes to percent.
+fn image_dimensions_of(bytes: &[u8]) -> Option<(u32, u32)> {
+    image::io::Reader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()
 }
 
 /// OCR request for PDF file
@@ -158,6 +212,7 @@ pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
             format: "text".to_string(),
             success: false,
             error: Some("No image path provided".to_string()),
+            lines: Vec::new(),
         });
     }
 
@@ -193,6 +248,7 @@ pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
                     format: "text".to_string(),
                     success: false,
                     error: Some(e.to_string()),
+            lines: Vec::new(),
                 });
             }
         }
@@ -216,6 +272,7 @@ pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
         format: format.to_string(),
         success: true,
         error: None,
+        lines: Vec::new(),
     })
 }
 
@@ -248,17 +305,25 @@ pub async fn ocr_image_bytes(request: OCRBytesRequest) -> Result<OCRResponse> {
     let processing_time_ms = start.elapsed().as_millis() as u64;
 
     match result {
-        Ok(ocr_result) => Ok(OCRResponse {
-            text: ocr_result.text,
-            confidence: ocr_result.confidence,
-            line_count: ocr_result.line_count,
-            word_count: ocr_result.word_count,
-            processing_time_ms,
-            provider: format!("{:?}", ocr_result.provider),
-            format: format.to_string(),
-            success: true,
-            error: None,
-        }),
+        Ok(ocr_result) => {
+            // Pixel boxes from the provider (when it supplies any) are
+            // normalized to percent against the decoded image dimensions so
+            // the AI occlusion flow gets deterministic geometry (D18).
+            let dims = image_dimensions_of(&image_data);
+            let response = OCRResponse {
+                text: ocr_result.text,
+                confidence: ocr_result.confidence,
+                line_count: ocr_result.line_count,
+                word_count: ocr_result.word_count,
+                processing_time_ms,
+                provider: format!("{:?}", ocr_result.provider),
+                format: format.to_string(),
+                success: true,
+                error: None,
+                lines: Vec::new(),
+            };
+            Ok(response.with_percent_lines(&ocr_result.lines, dims))
+        }
         Err(e) => Ok(OCRResponse {
             text: String::new(),
             confidence: 0.0,
@@ -269,6 +334,7 @@ pub async fn ocr_image_bytes(request: OCRBytesRequest) -> Result<OCRResponse> {
             format: "text".to_string(),
             success: false,
             error: Some(e.to_string()),
+            lines: Vec::new(),
         }),
     }
 }
@@ -928,5 +994,119 @@ mod tests {
             assert!(phrase.score >= 0.0);
             assert!(phrase.score <= 1.0);
         }
+    }
+
+    // ── OCRResponse.lines (design D18 / task 3.3) ───────────────────────────
+
+    fn base_response() -> OCRResponse {
+        OCRResponse {
+            text: "hello".to_string(),
+            confidence: 80.0,
+            line_count: 1,
+            word_count: 1,
+            processing_time_ms: 5,
+            provider: "Tesseract".to_string(),
+            format: "text".to_string(),
+            success: true,
+            error: None,
+            lines: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn response_omits_lines_when_empty() {
+        let json = serde_json::to_string(&base_response()).unwrap();
+        assert!(!json.contains("lines"), "unexpected lines in: {json}");
+    }
+
+    #[test]
+    fn response_serializes_percent_lines() {
+        let response = base_response().with_percent_lines(
+            &[crate::ocr::providers::TextLine {
+                text: "Mitochondria".to_string(),
+                confidence: 91.5,
+                bbox: crate::ocr::providers::BoundingBox {
+                    left: 100.0,
+                    top: 200.0,
+                    right: 300.0,
+                    bottom: 250.0,
+                },
+            }],
+            Some((1000, 500)),
+        );
+        assert_eq!(response.lines.len(), 1);
+        let line = &response.lines[0];
+        assert_eq!(line.text, "Mitochondria");
+        // x=100/1000=10%, y=200/500=40%, w=200/1000=20%, h=50/500=10%.
+        let bbox = line.bbox_percent.unwrap();
+        assert!((bbox[0] - 10.0).abs() < 1e-9);
+        assert!((bbox[1] - 40.0).abs() < 1e-9);
+        assert!((bbox[2] - 20.0).abs() < 1e-9);
+        assert!((bbox[3] - 10.0).abs() < 1e-9);
+
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(json.contains("\"lines\""), "lines missing: {json}");
+        assert!(json.contains("\"bbox_percent\""), "bbox missing: {json}");
+    }
+
+    #[test]
+    fn undecodable_dimensions_leave_bbox_unset() {
+        let response = base_response().with_percent_lines(
+            &[crate::ocr::providers::TextLine {
+                text: "word".to_string(),
+                confidence: 90.0,
+                bbox: crate::ocr::providers::BoundingBox {
+                    left: 0.0,
+                    top: 0.0,
+                    right: 10.0,
+                    bottom: 10.0,
+                },
+            }],
+            None,
+        );
+        assert_eq!(response.lines.len(), 1);
+        assert!(response.lines[0].bbox_percent.is_none());
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(!json.contains("bbox_percent"), "unexpected bbox: {json}");
+    }
+
+    #[test]
+    fn empty_provider_lines_produce_no_lines_field() {
+        let response = base_response().with_percent_lines(&[], Some((100, 100)));
+        assert!(response.lines.is_empty());
+        let json = serde_json::to_string(&response).unwrap();
+        assert!(!json.contains("lines"), "unexpected lines in: {json}");
+    }
+
+    #[test]
+    fn percent_conversion_clamps_and_scales() {
+        use crate::ocr::providers::{pixel_box_to_percent, BoundingBox};
+        // Full-image box → 0,0,100,100.
+        let full = BoundingBox { left: 0.0, top: 0.0, right: 1000.0, bottom: 500.0 };
+        assert_eq!(pixel_box_to_percent(&full, 1000, 500), [0.0, 0.0, 100.0, 100.0]);
+        // Boxes outside the frame clamp.
+        let outside = BoundingBox { left: -500.0, top: -100.0, right: 100.0, bottom: 100.0 };
+        let [x, y, w, h] = pixel_box_to_percent(&outside, 1000, 1000);
+        assert_eq!((x, y, w, h), (0.0, 0.0, 10.0, 10.0));
+        // Degenerate image dims never divide by zero.
+        let zero = BoundingBox { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 };
+        assert_eq!(pixel_box_to_percent(&zero, 0, 0), [0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn image_dimensions_decode_png_header() {
+        // Encode a real 2x3 PNG with the image crate, then read its dims back
+        // from raw bytes (header-only path).
+        let mut buffer = Vec::new();
+        {
+            let mut encoder = image::codecs::png::PngEncoder::new(&mut buffer);
+            let pixels: Vec<u8> = vec![0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
+                0, 0, 0, 255, 0, 0, 0, 255];
+            encoder
+                .encode(&pixels, 2, 3, image::ColorType::Rgba8)
+                .unwrap();
+        }
+        assert_eq!(image_dimensions_of(&buffer), Some((2, 3)));
+        assert_eq!(image_dimensions_of(b"not an image"), None);
     }
 }
