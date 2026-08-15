@@ -285,20 +285,30 @@ function ensureSherpaSidecar(targetTriple) {
 }
 
 // Whisper is built statically (BUILD_SHARED_LIBS=OFF), so on Windows the only
-// DLL that ever lands in bin/ is the onnxruntime.dll that sherpa-onnx drops
-// alongside its sidecar. tauri.windows.conf.json declares `bin/*.dll` as a
-// required resource glob, and Tauri hard-fails the build when that glob matches
-// zero files. If sherpa-onnx provisioning flakes (transient curl failure) the
-// glob would be empty, so seed a `.placeholder.dll` on Windows that satisfies
-// the glob while staying out of the real sidecar path. The placeholder name
-// matches the existing `*.placeholder.dll` gitignore entry, so it never leaks
-// into source control.
+// DLLs that ever land in bin/ are the onnxruntime ones sherpa-onnx drops
+// alongside its sidecar. tauri.windows.conf.json declares those DLLs as an
+// EXPLICIT resources map (onnxruntime.dll is placed at the install root next
+// to sherpa-onnx.exe — the only location the Windows loader prefers over an
+// ancient System32\onnxruntime.dll shipped with Windows ML, which otherwise
+// shadows any PATH entry and crashes the sidecar with an ORT API-version
+// mismatch). Map entries must exist at bundle time or Tauri hard-fails, so
+// seed zero-byte stand-ins for every mapped DLL that isn't present yet
+// (e.g. sherpa provisioning failed on a network-less local build). The
+// placeholder names match the existing gitignore entries and never leak into
+// source control.
 function ensureWindowsDllPlaceholder(targetTriple) {
   if (!targetTriple.includes('windows')) return;
-  const placeholder = path.join(BIN_DIR, 'onnxruntime.placeholder.dll');
-  if (!fs.existsSync(placeholder)) {
-    fs.writeFileSync(placeholder, Buffer.alloc(0));
-    console.log(`Seeded ${placeholder} so the bin/*.dll resource glob is never empty.`);
+  const placeholders = [
+    'onnxruntime.dll',
+    'onnxruntime_providers_shared.dll',
+    'onnxruntime.placeholder.dll',
+  ];
+  for (const name of placeholders) {
+    const placeholder = path.join(BIN_DIR, name);
+    if (!fs.existsSync(placeholder)) {
+      fs.writeFileSync(placeholder, Buffer.alloc(0));
+      console.log(`Seeded ${placeholder} so the Windows resources map always resolves.`);
+    }
   }
 }
 
