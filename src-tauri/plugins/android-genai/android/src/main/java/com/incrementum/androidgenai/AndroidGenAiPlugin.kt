@@ -29,6 +29,7 @@ import app.tauri.Logger
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
@@ -93,6 +94,7 @@ class NativePromptArgs {
     var outputMode: String? = null
     var systemInstruction: String? = null
     var stream: Boolean? = null
+    var onEvent: Channel? = null
 }
 
 @InvokeArg
@@ -518,6 +520,7 @@ private const val STREAM_EVENT_TEXT = "ondevice-genai://text"
 private const val STREAM_EVENT_COMPLETE = "ondevice-genai://complete"
 private const val STREAM_EVENT_ERROR = "ondevice-genai://error"
 private const val STREAM_EVENT_RETRY = "ondevice-genai://retry"
+private const val FAST_PATH_CHAR_LIMIT = 500
 
 @TauriPlugin
 class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
@@ -547,8 +550,14 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
     private var summarizerBullets: Summarizer? = null
     private var promptModel: GenerativeModel? = null
     private var promptFutures: GenerativeModelFutures? = null
+    @Volatile
+    private var cachedTokenLimit: Int? = null
     private var closed = false
     private val streamRegistry = StreamRequestRegistry<NativePromptArgs>(STREAM_QUEUE_CAPACITY)
+
+    private fun getCachedTokenLimit(): Int = synchronized(clientLock) {
+        cachedTokenLimit ?: prompt().getTokenLimit().get().also { cachedTokenLimit = it }
+    }
 
     private fun summarizer(): Summarizer = synchronized(clientLock) {
         check(!closed) { "plugin torn down" }
@@ -675,7 +684,7 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
             try {
                 val request = buildPromptRequest(args)
                 val inputTokens = prompt().countTokens(request).get().totalTokens
-                val tokenLimit = prompt().getTokenLimit().get()
+                val tokenLimit = getCachedTokenLimit()
                 invoke.resolveObject(
                     PromptTokenCountDto(
                         requestId = requireNotNull(args.requestId),
@@ -892,6 +901,13 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                     override fun onNewText(text: String) {
                         if (text.isEmpty() || !streamRegistry.isActive(requestId)) return
                         emittedText = true
+                        args.onEvent?.send(
+                            JSObject().apply {
+                                put("event", "text")
+                                put("requestId", requestId)
+                                put("text", text)
+                            }
+                        )
                         trigger(
                             STREAM_EVENT_TEXT,
                             JSObject().apply {
@@ -909,6 +925,13 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                 val response = future.get()
                 val result = promptResponse(args, prepared, response)
                 if (streamRegistry.claimTerminal(requestId)) {
+                    args.onEvent?.send(
+                        JSObject().apply {
+                            put("event", "complete")
+                            put("requestId", requestId)
+                            put("data", result.toJsObject())
+                        }
+                    )
                     trigger(STREAM_EVENT_COMPLETE, result.toJsObject())
                 }
                 return
@@ -920,6 +943,14 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                     null
                 }
                 if (retryDelay != null && streamRegistry.isActive(requestId)) {
+                    args.onEvent?.send(
+                        JSObject().apply {
+                            put("event", "retry")
+                            put("requestId", requestId)
+                            put("attempt", failedAttempt + 1)
+                            put("delayMs", retryDelay)
+                        }
+                    )
                     trigger(
                         STREAM_EVENT_RETRY,
                         JSObject().apply {
@@ -935,6 +966,14 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
 
                 if (streamRegistry.claimTerminal(requestId)) {
                     Logger.error("genai", "streaming Prompt failed (${failure.code})", failure.cause)
+                    args.onEvent?.send(
+                        JSObject().apply {
+                            put("event", "error")
+                            put("requestId", requestId)
+                            put("code", failure.code)
+                            put("message", failure.message)
+                        }
+                    )
                     emitStreamError(requestId, failure.code, failure.message)
                 }
                 return
@@ -1042,9 +1081,17 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
     /** Build, count, and enforce the real context budget before inference. */
     private fun preparePrompt(args: NativePromptArgs): PreparedPrompt {
         val request = buildPromptRequest(args)
-        val inputTokens = prompt().countTokens(request).get().totalTokens
-        val tokenLimit = prompt().getTokenLimit().get()
+        val tokenLimit = getCachedTokenLimit()
         val requestedOutputTokens = request.maxOutputTokens
+
+        // Fast-path: for short text inputs (< 500 characters and no image),
+        // estimate tokens locally (~3 chars/token conservative ceiling) to bypass synchronous IPC countTokens() call.
+        val textLength = (args.text?.length ?: 0) + (args.systemInstruction?.length ?: 0) + (args.promptPrefix?.length ?: 0)
+        val inputTokens = if (args.image == null && textLength < FAST_PATH_CHAR_LIMIT) {
+            Math.ceil(textLength / 3.0).toInt().coerceAtLeast(1)
+        } else {
+            prompt().countTokens(request).get().totalTokens
+        }
 
         if (exceedsTokenBudget(inputTokens, requestedOutputTokens, tokenLimit)) {
             val metadata = JSObject().apply {
@@ -1098,7 +1145,6 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
         )
     }
 
-    /** Count, enforce the real context budget, then run one native inference. */
     private fun executePrompt(args: NativePromptArgs): NativePromptResponseDto {
         val prepared = preparePrompt(args)
         val response = prompt().generateContent(prepared.request).get()
@@ -1165,7 +1211,7 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                 optionalMetadata("base model name") { it.getBaseModelName().get() }
             },
             tokenLimit = futures?.let {
-                optionalMetadata("token limit") { it.getTokenLimit().get() }
+                optionalMetadata("token limit") { getCachedTokenLimit() }
             }
         )
     }

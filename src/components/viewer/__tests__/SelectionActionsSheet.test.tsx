@@ -10,6 +10,9 @@ const passage = vi.hoisted(() => ({
   answerPassage: vi.fn(),
 }));
 
+const warmUpOnDevicePrompt = vi.fn(async () => {});
+const isOnDeviceAiSupportedPlatform = vi.fn(() => false);
+
 vi.mock("../../../lib/i18n", () => ({
   useI18n: () => ({ t: (key: string) => key }),
 }));
@@ -20,9 +23,10 @@ vi.mock("../../../lib/ai/passageAI", () => passage);
 vi.mock("../../../lib/ai/provider", () => ({ hasCloudProvider: () => true }));
 vi.mock("../../../lib/ai/onDeviceAI", () => ({
   getOnDeviceRequirementStatus: vi.fn(async () => ({ status: "unavailable" })),
-  isOnDeviceAiSupportedPlatform: () => false,
+  isOnDeviceAiSupportedPlatform: () => isOnDeviceAiSupportedPlatform(),
   requestModelDownload: vi.fn(),
   toOnDeviceAiError: (e: unknown) => e as Error,
+  warmUpOnDevicePrompt: () => warmUpOnDevicePrompt(),
 }));
 vi.mock("../SelectionPopup", () => ({
   copySelectionTextToClipboard: vi.fn(async () => true),
@@ -39,7 +43,7 @@ describe("passageAroundSelection", () => {
     return { anchorNode: target.firstChild } as unknown as Selection;
   }
 
-  it("returns the surrounding text of a known content container", () => {
+  it("returns the surrounding text of a known content container for short selection", () => {
     const selection = selectionIn(
       `<div class="prose"><p>Before it. <em data-sel="a">the selection</em> After it.</p></div>`,
       "[data-sel='a']"
@@ -47,6 +51,19 @@ describe("passageAroundSelection", () => {
     const passage = passageAroundSelection(selection, "the selection");
     expect(passage).toContain("Before it.");
     expect(passage).toContain("After it.");
+  });
+
+  it("returns self-contained text directly without surrounding context for long selections", () => {
+    const longText = "This is a very long paragraph that contains more than one hundred and fifty characters to test that the adaptive context windowing does not prepend or append redundant surrounding characters when the user selects a full block.";
+    expect(longText.length).toBeGreaterThanOrEqual(150);
+    const selection = selectionIn(
+      `<div class="prose"><p>Pre-header context. <em data-sel="long">${longText}</em> Post-footer context.</p></div>`,
+      "[data-sel='long']"
+    );
+    const passage = passageAroundSelection(selection, longText);
+    expect(passage).toBe(longText);
+    expect(passage).not.toContain("Pre-header context.");
+    expect(passage).not.toContain("Post-footer context.");
   });
 
   it("does not sweep in app chrome when the selection is outside any content container", () => {
@@ -165,5 +182,11 @@ describe("SelectionActionsSheet", () => {
     await waitFor(() => expect(screen.queryByText("Too late.")).toBeNull());
     // Only the on-device attempt ran; no second (cloud) call was made.
     expect(passage.explainPassage).toHaveBeenCalledTimes(1);
+  });
+
+  it("triggers speculative warmup when on-device AI is supported and available", () => {
+    isOnDeviceAiSupportedPlatform.mockReturnValue(true);
+    renderSheet();
+    expect(warmUpOnDevicePrompt).toHaveBeenCalled();
   });
 });
