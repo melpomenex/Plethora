@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useMobileShell } from "../../hooks/useMobileShell";
 import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useDocumentQAStore, useReviewStore, useStudyDeckStore, useTabsStore, type QAMessage, type QAToolCall } from "../../stores";
 import { chatWithContext, type LLMMessage } from "../../api/llm";
 import { getDocument, extractDocumentText } from "../../api/documents";
@@ -169,6 +170,7 @@ export function DocumentQATab() {
     if (typeof localStorage === "undefined") return false;
     return localStorage.getItem(SESSION_STORAGE_KEYS.sidebarCollapsed) === "1";
   });
+  const isMobile = useMobileShell();
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -1895,8 +1897,9 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
 
   return (
     <div className="h-full flex bg-background">
-      {/* Sessions sidebar (chat-app-native history rail) */}
-      {!sidebarCollapsed && (
+      {/* Sessions sidebar (chat-app-native history rail); desktop only — a
+          256px rail leaves no room for the chat column on a phone. */}
+      {!isMobile && !sidebarCollapsed && (
         <aside className="w-64 flex-shrink-0 border-r border-border flex flex-col bg-card/50">
           <div className="p-3 border-b border-border flex items-center gap-2">
             <button
@@ -2060,14 +2063,14 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
       {/* Chat column */}
       <div className="flex-1 flex flex-col min-w-0">
       {/* Header */}
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ChatCircle className="w-5 h-5 text-primary" />
-          <h2 className="text-xl font-bold text-foreground">{t("toolbar.documentQA")}</h2>
+      <div className="p-2 sm:p-4 border-b border-border flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <ChatCircle className="w-5 h-5 text-primary flex-shrink-0" />
+          <h2 className="text-base sm:text-xl font-bold text-foreground truncate">{t("toolbar.documentQA")}</h2>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
           {documents.length > 0 && (
-            <div className="flex items-center gap-1.5 bg-muted/50 border border-border rounded-lg px-2.5 py-1 text-muted-foreground focus-within:ring-1 focus-within:ring-primary transition-all">
+            <div className="flex items-center gap-1.5 bg-muted/50 border border-border rounded-lg px-2.5 py-1 text-muted-foreground focus-within:ring-1 focus-within:ring-primary transition-all max-w-[45vw]">
               <BookOpen className="w-3.5 h-3.5" />
               <select
                 aria-label="Select focus document"
@@ -2086,20 +2089,20 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
           )}
           <button
             onClick={handleNewChat}
-            className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-1"
+            className="px-2 sm:px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-1 min-h-[36px]"
             title={t("tabs.newChatShortcut")}
           >
             <Plus className="w-4 h-4" />
-            {t("tabs.newChat")}
+            <span className="hidden sm:inline">{t("tabs.newChat")}</span>
           </button>
           {messages.length > 0 && (
             <button
               onClick={clearConversation}
-              className="px-3 py-1.5 text-sm bg-muted text-muted-foreground rounded hover:bg-destructive hover:text-destructive-foreground transition-colors flex items-center gap-1"
+              className="px-2 sm:px-3 py-1.5 text-sm bg-muted text-muted-foreground rounded hover:bg-destructive hover:text-destructive-foreground transition-colors flex items-center gap-1 min-h-[36px]"
               title={t("tabs.clearChat")}
             >
               <Trash className="w-4 h-4" />
-              {t("tabs.clearChat")}
+              <span className="hidden sm:inline">{t("tabs.clearChat")}</span>
             </button>
           )}
         </div>
@@ -2294,18 +2297,18 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-2 sm:p-4">
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center max-w-md">
-              <Sparkle className="w-12 h-12 mx-auto mb-4 text-primary opacity-50" />
-              <h2 className="text-2xl font-bold text-foreground mb-2">
+              <Sparkle className="w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-2 sm:mb-4 text-primary opacity-50" />
+              <h2 className="text-lg sm:text-2xl font-bold text-foreground mb-2">
                 {t("tabs.askYourDocuments")}
               </h2>
               <p className="text-muted-foreground mb-4">
                 {t("tabs.typeAtToMention")}
               </p>
-              <div className="text-sm text-muted-foreground text-left">
+              <div className={`${isMobile ? "hidden" : ""} text-sm text-muted-foreground text-left`}>
                 <p className="font-semibold mb-2">Example questions:</p>
                 <ul className="space-y-1">
                   <li>• "@MyDocument What are the main points?"</li>
@@ -2356,7 +2359,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
 
                 {/* Message content */}
                 <div
-                  className={`max-w-[85%] rounded-lg p-4 relative group ${
+                  className={`max-w-[85%] rounded-lg p-3 sm:p-4 relative group ${
                     message.role === "user"
                       ? "bg-primary text-primary-foreground"
                       : message.role === "system"
@@ -2484,7 +2487,10 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-border relative">
+      <div
+        className="p-2 sm:p-4 border-t border-border relative"
+        style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+      >
         <div className="flex gap-2 max-w-4xl mx-auto">
           <div className="relative flex-1">
             <textarea
@@ -2493,8 +2499,8 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder="Type @ to mention documents... (Shift+Enter for new line)"
-              className="w-full px-4 py-3 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground resize-none pr-12"
-              rows={2}
+              className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground resize-none pr-12 text-[15px]"
+              rows={isMobile ? 1 : 2}
               disabled={isProcessing}
             />
             {/* Character indicator for mentions */}
@@ -2507,7 +2513,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
           <button
             onClick={() => setWebSearchEnabled(!webSearchEnabled)}
             title="Toggle Web Search"
-            className={`px-4 py-3 border rounded-lg transition-all flex items-center gap-1.5 ${
+            className={`px-3 sm:px-4 py-2 sm:py-3 min-h-[44px] border rounded-lg transition-all flex items-center gap-1.5 ${
               webSearchEnabled
                 ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20"
                 : "bg-muted/50 border-border text-muted-foreground hover:bg-muted"
@@ -2520,7 +2526,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
           <button
             onClick={handleSendMessage}
             disabled={!rawInput.trim() || isProcessing}
-            className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-4 sm:px-6 py-2 sm:py-3 min-h-[44px] bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isProcessing ? (
               <CircleNotch className="w-5 h-5 animate-spin" />
