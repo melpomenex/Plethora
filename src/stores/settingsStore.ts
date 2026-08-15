@@ -349,6 +349,13 @@ interface AISettings {
    */
   preferOnDevice: boolean;
   /**
+   * Whether an on-device failure may automatically retry on a configured
+   * cloud provider (design D27). Default true (matches the long-standing
+   * `runAiAction` fallback-with-toast behavior); turning it off is the
+   * "on-device only" lock — no AI content ever leaves the device.
+   */
+  allowCloudFallback: boolean;
+  /**
    * Active-recall reading mode (design D19 / ai-active-recall): `off` (the
    * default and the kill switch), or the interruption budget `low` /
    * `adaptive` / `intensive`. Only takes effect together with the
@@ -802,6 +809,7 @@ export const defaultSettings: Settings = {
     pwaAssistantButtonEnabled: false,
     pwaAssistantButtonSide: "right",
     preferOnDevice: true,
+    allowCloudFallback: true,
     // Active recall ships dark (design D19: off is the default + kill switch).
     activeRecallMode: "off",
     aiControls: {

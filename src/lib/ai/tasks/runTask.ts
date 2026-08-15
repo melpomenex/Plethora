@@ -17,6 +17,7 @@
 import { estimateTokens } from "../chunkTextByTokens";
 import { recordTaskDiagnostic } from "../diagnostics";
 import { AIError, isCancelledError, toAIError } from "../errors";
+import { allowCloudFallback } from "../provider";
 import type {
   AIModelCapabilities,
   AIRequest,
@@ -24,6 +25,7 @@ import type {
   AIProvider,
 } from "../providers/types";
 import { fnv1aHash, hashCapabilities } from "../providers/types";
+import { repairTruncatedJson } from "../schemas/jsonRepair";
 import type { ValidationOutcome } from "../schemas/common";
 import { isFailedOutcome, isValidOutcome } from "../schemas/common";
 import { resolveTaskRoute, type AITaskRoute } from "./router";
@@ -41,7 +43,9 @@ const REPAIR_INSTRUCTION =
   "Respond again with ONLY the corrected JSON value — no prose, no markdown fences.";
 
 const STRICT_JSON_PREAMBLE =
-  "Respond with ONLY a single JSON value (no prose, no markdown fences, no commentary) exactly matching this shape:";
+  "Respond with ONLY a single JSON value (no prose, no markdown fences, no commentary) " +
+  "exactly matching this shape. Emit COMPACT JSON on a single line: no indentation and " +
+  "no redundant whitespace — pretty-printing wastes the output budget and gets truncated:";
 
 // ──────────────────────────────────────────────────────────────────────────
 // In-flight coalescing (design D7)
@@ -262,6 +266,36 @@ async function executeTask<I, O>(
       );
     }
     recordFailure(task, options, started, mapped, route, capabilityHash, firstTokenAt);
+
+    // On-device failure (e.g. timeout or generation failure) may retry on the
+    // configured cloud provider — mirroring the long-standing `runAiAction`
+    // fallback — but ONLY when the user allows cloud fallback at all (design
+    // D27: cloud transmission is never silent, and the "on-device only"
+    // preference is a hard lock), never for user cancellations, and never for
+    // SafetyBlocked (content the on-device model refused must not be re-sent
+    // to a cloud provider).
+    if (
+      provider.kind === "ondevice" &&
+      !options.kind &&
+      !options.provider &&
+      !options.signal?.aborted &&
+      mapped.category !== "Cancelled" &&
+      mapped.category !== "SafetyBlocked" &&
+      allowCloudFallback()
+    ) {
+      try {
+        const cloudRoute = await resolveTaskRoute(task, { kind: "cloud" });
+        if (cloudRoute) {
+          return await executeTask(task, input, {
+            ...options,
+            provider: cloudRoute.provider,
+          });
+        }
+      } catch {
+        // Fallback also failed or unavailable; throw original mapped error below
+      }
+    }
+
     throw mapped;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
@@ -380,6 +414,27 @@ async function validateOutput<I, O>(
   // 3. Strict-JSON parse of the text response.
   const parsed = parseStrictJson(response.text);
   if (isParseFailure(parsed)) {
+    // Truncation salvage (device reports: "Unterminated string … at position
+    // N"): output clipped at the token cap. Close strings/brackets and drop
+    // the incomplete tail programmatically — a proposal missing its last,
+    // half-written entry beats no proposal, and the repair retry would
+    // truncate again at the same cap. The task validator still gates this.
+    const salvaged = repairTruncatedJson(response.text);
+    if (salvaged !== null) {
+      const outcome = attempt(salvaged);
+      if (outcome !== undefined && isValidOutcome(outcome)) {
+        return { value: outcome.value, validationOutcome: "truncated-json-salvaged" };
+      }
+      // Salvage parsed but failed validation: repair against the real
+      // validation errors rather than the parse error.
+      const errors =
+        outcome !== undefined && isFailedOutcome(outcome)
+          ? outcome.errors
+          : [parsed.error];
+      const repaired = await repairOnce(task, input, ctx, errors);
+      if (repaired) return repaired;
+      throw invalidStructuredOutput(task.id, errors);
+    }
     const repaired = await repairOnce(task, input, ctx, [parsed.error]);
     if (repaired) return repaired;
     throw invalidStructuredOutput(task.id, [parsed.error]);
@@ -403,6 +458,14 @@ async function repairOnce<I, O>(
   ctx: GenerationContext,
   errors: string[]
 ): Promise<{ value: O; validationOutcome: AITaskValidationOutcome } | undefined> {
+  // A truncation-shaped parse error means the previous output was cut off
+  // at the token cap — tell the model to compact and shorten instead of
+  // re-emitting the same length (which would truncate identically).
+  const truncationHint = errors.some((e) =>
+    /Unterminated string|Unexpected end|truncat/i.test(e)
+  )
+    ? "\nYour previous output was CUT OFF at the output-token limit. Shorten the content (fewer or terser entries) so the JSON document completes within the limit."
+    : "";
   const repairRequest: AIRequest = {
     requestId: makeRequestId(`${task.id}-repair`),
     systemInstruction: `${task.systemInstruction}\n\n${STRICT_JSON_PREAMBLE} ${
@@ -411,7 +474,7 @@ async function repairOnce<I, O>(
     text: `${ctx.built.text}\n\n${REPAIR_PREAMBLE}\n${errors
       .slice(0, 8)
       .map((e) => `- ${e}`)
-      .join("\n")}\n${REPAIR_INSTRUCTION}`,
+      .join("\n")}${truncationHint}\n${REPAIR_INSTRUCTION}`,
     image: ctx.built.image,
     maxOutputTokens: ctx.maxOutputTokens,
     structured: false,

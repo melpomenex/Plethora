@@ -129,6 +129,7 @@ export type AITaskValidationOutcome =
   | "text"
   | "native-structured"
   | "strict-json"
+  | "truncated-json-salvaged"
   | "repaired"
   | "invalid-structured-output";
 

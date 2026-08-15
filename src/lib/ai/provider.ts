@@ -42,6 +42,15 @@ export function prefersOnDevice(): boolean {
 }
 
 /**
+ * Whether an on-device failure may automatically retry on a configured cloud
+ * provider (design D27: cloud transmission is never silent/forced — this is
+ * the single switch the "on-device only" preference turns off).
+ */
+export function allowCloudFallback(): boolean {
+  return useSettingsStore.getState().settings.ai.allowCloudFallback !== false;
+}
+
+/**
  * Decide which path an AI action should take right now for a given requirement.
  *
  * `none` means no AI is possible — callers should hide their AI-assisted
