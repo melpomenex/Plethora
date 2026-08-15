@@ -205,6 +205,24 @@ impl EmbeddingBackend {
     /// inert stub otherwise (desktop, tests) so indexing degrades to
     /// lexical-only.
     pub fn from_config(config: Option<&EmbeddingConfigInput>) -> Self {
+        // On Android with the on-device embedding model live, it wins over any
+        // configured cloud embedding backend: queries MUST be embedded by the
+        // same model that built the index (cross-model cosine matches nothing
+        // and silently degrades retrieval to lexical-only), and on-device is
+        // the privacy/offline default (design D10). A deliberately local
+        // Ollama config is still honored.
+        if let Some(cfg) = config {
+            let is_local =
+                cfg.provider == crate::ai::embeddings::EmbeddingProviderType::Ollama;
+            if !is_local && on_device_embedder().is_some() {
+                tracing::info!(
+                    provider = %crate::ai::embedding_config::provider_name(cfg),
+                    "preferring live on-device embedding model over configured cloud backend \
+                     (same-model index/query + on-device default)"
+                );
+                return Self::on_device_default();
+            }
+        }
         match config {
             None => Self::on_device_default(),
             Some(cfg) => match build_provider(cfg) {

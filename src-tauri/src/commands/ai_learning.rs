@@ -9,8 +9,8 @@
 
 use crate::ai_learning::embeddings_backend::EmbeddingBackend;
 use crate::ai_learning::indexer::{
-    aggregate_status, document_statuses, reset_index, BackendFactory, IndexerQueue,
-    IndexerRuntimeStatus,
+    aggregate_status, document_statuses, mark_all_stale, reset_index, BackendFactory,
+    IndexerQueue, IndexerRuntimeStatus,
 };
 use crate::ai_learning::models::{RetrievalFilters, RetrievalResponse};
 use crate::ai_learning::retrieval::{self, DEFAULT_K};
@@ -78,9 +78,41 @@ pub async fn ai_learning_enqueue_all(
     require_charging: Option<bool>,
     config: Option<EmbeddingConfigInput>,
     state: State<'_, AiLearningState>,
+    repo: State<'_, Repository>,
 ) -> Result<()> {
     state.update_config(config);
+    mark_stale_on_backend_change(&state, repo.inner()).await;
     state.queue.enqueue_all(require_charging.unwrap_or(true))
+}
+
+/// When the active embedding backend's model/version no longer matches stored
+/// embeddings (e.g. the on-device model was downloaded after the index was
+/// built with a cloud provider), unchanged documents would be skipped by the
+/// content-hash diff and never re-embedded. Mark everything stale so the pass
+/// rebuilds vectors with the active model (design D10 same-model rule).
+async fn mark_stale_on_backend_change(state: &AiLearningState, repo: &Repository) {
+    let cfg = state.config.read().ok().and_then(|guard| guard.clone());
+    let backend = EmbeddingBackend::from_config(cfg.as_ref());
+    let model = backend.model_name();
+    let version = backend.embedding_version();
+    let mismatch: Option<bool> = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM semantic_chunk_embeddings \
+         WHERE model <> ?1 OR embedding_version <> ?2 LIMIT 1)",
+    )
+    .bind(model)
+    .bind(version)
+    .fetch_one(repo.pool())
+    .await
+    .ok();
+    if mismatch == Some(true) {
+        match mark_all_stale(repo).await {
+            Ok(count) => tracing::info!(
+                documents = count,
+                "embedding backend changed; marked indexed documents stale for re-embedding"
+            ),
+            Err(e) => tracing::warn!("failed to mark stale after backend change: {}", e),
+        }
+    }
 }
 
 /// Aggregate + per-document index status for the settings panel.
