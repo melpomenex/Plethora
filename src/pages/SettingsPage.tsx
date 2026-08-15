@@ -4,14 +4,13 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { useCollectionStore } from "../stores/collectionStore";
 import { UserProfilePanel } from "../components/settings/UserProfilePanel";
 import { AISettings } from "../components/settings/AISettings";
-import { SyncSettings } from "../components/settings/SyncSettings";
 import { IntegrationSettings } from "../components/settings/IntegrationSettings";
 import { AudioTranscriptionSettings } from "../components/settings/AudioTranscriptionSettings";
 import { SmartQueuesSettings } from "../components/settings/SmartQueuesSettings";
 import { TTSSettings } from "../components/settings/TTSSettings";
 import { useI18n } from "../lib/i18n";
 
-type SettingsTab = "profile" | "general" | "ai" | "sync" | "integrations" | "audio-transcription" | "tts" | "smart-queues" | "about";
+type SettingsTab = "profile" | "general" | "ai" | "integrations" | "audio-transcription" | "tts" | "smart-queues" | "about";
 
 const LOCALE_OPTIONS = [
   { value: "en", label: "English" },
@@ -30,7 +29,6 @@ export function SettingsPage() {
     { id: "profile" as const, label: t("settings.profile"), icon: "👤" },
     { id: "general" as const, label: t("settings.general"), icon: "⚙️" },
     { id: "ai" as const, label: t("settings.ai"), icon: "🤖" },
-    { id: "sync" as const, label: t("settings.sync"), icon: "☁️" },
     { id: "integrations" as const, label: t("settings.integrations"), icon: "🔗" },
     { id: "audio-transcription" as const, label: t("settings.audioTranscription"), icon: "🎤" },
     { id: "tts" as const, label: t("settings.tts"), icon: "🗣️" },
@@ -73,7 +71,6 @@ export function SettingsPage() {
         )}
         {activeTab === "general" && <GeneralSettings />}
         {activeTab === "ai" && <AISettings />}
-        {activeTab === "sync" && <SyncSettings />}
         {activeTab === "integrations" && <IntegrationSettings />}
         {activeTab === "audio-transcription" && <AudioTranscriptionTab />}
         {activeTab === "tts" && <TTSTab />}

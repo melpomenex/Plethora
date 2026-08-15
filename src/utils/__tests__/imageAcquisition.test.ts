@@ -19,6 +19,7 @@ function makeDeps(overrides: Partial<ImageAcquisitionDeps> = {}): ImageAcquisiti
     ingestBlob: vi.fn(async () => asset),
     ingestRemote: vi.fn(async () => asset),
     ingestFromPath: vi.fn(async () => asset),
+    captureElement: vi.fn(async () => new Blob(["el"], { type: "image/png" })),
     captureRect: vi.fn(async () => new Blob(["y"], { type: "image/png" })),
     ...overrides,
   };
@@ -52,7 +53,7 @@ describe("strategy planning", () => {
 
   it("omits native strategies outside the desktop app", () => {
     const plan = planStrategies({ src: "https://example.com/a.png", rect }, { isTauri: () => false });
-    expect(plan).toEqual(["direct"]);
+    expect(plan).toEqual(["direct", "element-canvas"]);
   });
 
   it("omits pixel capture when there is no rect to capture", () => {
@@ -80,6 +81,7 @@ describe("acquiring an image", () => {
       fetchBlob: loadFailed,
       ingestFromPath: () => Promise.reject(new Error("ENOENT")),
       ingestRemote: () => Promise.reject(new Error("HTTP 404 Not Found")),
+      captureElement: () => Promise.reject(new Error("the image is no longer on screen")),
     });
 
     const result = await acquireImageAsset({ src: "http://localhost:1420/article/img.png", rect }, deps);
@@ -89,7 +91,10 @@ describe("acquiring an image", () => {
   });
 
   it("falls back to pixel capture for an in-app viewer blob the webview cannot read", async () => {
-    const deps = makeDeps({ fetchBlob: loadFailed });
+    const deps = makeDeps({
+      fetchBlob: loadFailed,
+      captureElement: () => Promise.reject(new Error("the image is no longer on screen")),
+    });
 
     const result = await acquireImageAsset({ src: "blob:http://localhost/abc", rect }, deps);
 
@@ -158,6 +163,7 @@ describe("acquiring an image", () => {
     const deps = makeDeps({
       ingestRemote: () => Promise.reject(new Error("HTTP 403 Forbidden")),
       fetchBlob: loadFailed,
+      captureElement: () => Promise.reject(new Error("canvas export failed (cross-origin pixels)")),
     });
 
     const result = await acquireImageAsset({ src: "https://example.com/pic.png", rect }, deps);
@@ -171,6 +177,7 @@ describe("acquiring an image", () => {
       fetchBlob: loadFailed,
       ingestRemote: loadFailed,
       ingestFromPath: () => Promise.reject(new Error("ENOENT")),
+      captureElement: () => Promise.reject(new Error("the image is no longer on screen")),
       captureRect: () => Promise.reject(new Error("capture unavailable")),
     });
 
@@ -189,6 +196,7 @@ describe("acquiring an image", () => {
     const deps = makeDeps({
       fetchBlob: loadFailed,
       ingestRemote: () => Promise.reject(new Error("HTTP 403 Forbidden")),
+      captureElement: () => Promise.reject(new Error("canvas export failed (cross-origin pixels)")),
       captureRect: () => Promise.reject(new Error("capture unavailable")),
     });
 
@@ -196,7 +204,41 @@ describe("acquiring an image", () => {
       (e) => e,
     )) as ImageAcquisitionError;
 
-    expect(error.attempts.map((a) => a.strategy)).toEqual(["native", "direct", "pixel-capture"]);
+    expect(error.attempts.map((a) => a.strategy)).toEqual([
+      "native",
+      "direct",
+      "element-canvas",
+      "pixel-capture",
+    ]);
+  });
+
+  it("recovers a revoked blob image by reading the on-screen element's pixels", async () => {
+    // The Android EPUB report: epub.js substitutes archived images with
+    // blob: URLs and revokes them, so the displayed image's src no longer
+    // fetches — but the <img> still carries decoded, same-origin pixels.
+    const deps = makeDeps({ fetchBlob: loadFailed });
+
+    const result = await acquireImageAsset({ src: "blob:http://tauri.localhost/abc", rect }, deps);
+
+    expect(result).toBe(asset);
+    expect(deps.captureElement).toHaveBeenCalledWith("blob:http://tauri.localhost/abc");
+    expect(deps.ingestBlob).toHaveBeenCalled();
+  });
+
+  it("reports a revoked object URL — not a cross-origin block — when a blob image cannot be reread", async () => {
+    const deps = makeDeps({
+      fetchBlob: loadFailed,
+      captureElement: () => Promise.reject(new Error("the image is no longer on screen")),
+    });
+
+    const error = (await acquireImageAsset({ src: "blob:http://tauri.localhost/abc" }, deps).catch(
+      (e) => e,
+    )) as ImageAcquisitionError;
+
+    expect(error).toBeInstanceOf(ImageAcquisitionError);
+    expect(error.attempts.map((a) => a.strategy)).toEqual(["direct", "element-canvas"]);
+    expect(error.attempts[0].reason).toContain("revoked");
+    expect(error.message).not.toContain("cross-origin");
   });
 });
 

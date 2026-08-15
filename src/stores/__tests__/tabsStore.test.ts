@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
-import { getProgressiveSyncScheduler, resetProgressiveSyncSchedulerForTest } from "../../lib/sync/progressiveScheduler";
-import { clearSyncTelemetry, getSyncTelemetry } from "../../lib/sync/syncTelemetry";
 
 vi.mock("../uiStore", () => ({
   useUIStore: {
@@ -334,39 +332,4 @@ describe("tab workspace persistence", () => {
     expect(snapshot.rootPane.activeTabId).toBe(secondId);
   });
 
-  it("keeps rapid switching across a 50-tab workspace bounded with sync backlog", () => {
-    vi.useFakeTimers();
-    clearSyncTelemetry();
-    const scheduler = getProgressiveSyncScheduler();
-    for (let index = 0; index < 20; index += 1) {
-      scheduler.enqueue({
-        id: `documents:remote:stress-${index}`,
-        lane: "P1",
-        run: async (context) => {
-          if (context.shouldYield()) await context.yield();
-        },
-      });
-    }
-
-    const tabIds = Array.from({ length: 50 }, (_, index) => useTabsStore.getState().addTab({
-      title: `Document ${index}`,
-      icon: null,
-      type: "document-viewer",
-      content: DummyComponent,
-      closable: true,
-      data: { documentId: `stress-${index}` },
-    }));
-    const paneId = useTabsStore.getState().rootPane.id;
-    for (let index = 0; index < 200; index += 1) {
-      useTabsStore.getState().setActiveTab(paneId, tabIds[index % tabIds.length]);
-    }
-    vi.runAllTimers();
-    const switchDurations = getSyncTelemetry()
-      .filter((sample) => sample.phase === "tab-switch" && sample.durationMs !== undefined)
-      .map((sample) => sample.durationMs ?? 0)
-      .sort((a, b) => a - b);
-    expect(switchDurations.length).toBeGreaterThan(0);
-
-    resetProgressiveSyncSchedulerForTest();
-  });
 });

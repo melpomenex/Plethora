@@ -1738,29 +1738,6 @@ export function QueueScrollPage() {
     queueTimedTarget
   );
 
-  // Keep a small cross-device download horizon ahead of the reader. This is
-  // fire-and-forget and bounded to the current item plus the next two
-  // documents; queue rendering and navigation never wait for file sync.
-  useEffect(() => {
-    const horizonDocuments: Array<(typeof documents)[number]> = [];
-    for (let index = currentIndex; index < scrollItems.length && horizonDocuments.length < 3; index += 1) {
-      const item = scrollItems[index];
-      if (item?.type !== "document") continue;
-      const doc = documentsMap.get(item.documentId);
-      if (doc) horizonDocuments.push(doc);
-    }
-    let cancelled = false;
-    void import("../lib/autoFileSyncDownload")
-      .then(({ prefetchQueuedDocuments }) => {
-        if (!cancelled) return prefetchQueuedDocuments(horizonDocuments);
-        return undefined;
-      })
-      .catch((error) => console.warn("[QueueScroll] queue file prefetch unavailable", error));
-    return () => {
-      cancelled = true;
-    };
-  }, [scrollItems, currentIndex, documentsMap]);
-
   const isNewDocument =
     currentDocument
       ? (currentDocument.reps ?? currentDocument.readingCount ?? 0) <= 0

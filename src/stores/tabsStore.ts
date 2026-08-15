@@ -4,8 +4,6 @@ import { generateId } from "../utils/id";
 import { useUIStore } from "./uiStore";
 import { useCollectionStore } from "./collectionStore";
 import { useSettingsStore } from "./settingsStore";
-import { getProgressiveSyncScheduler } from "../lib/sync/progressiveScheduler";
-import { measureTabSwitch } from "../lib/sync/syncTelemetry";
 
 export type TabType =
   | "continue-reading"
@@ -238,10 +236,8 @@ let tabsPersistenceListenersInstalled = false;
 // Rapid-switch profiling identified two synchronous contributors on the tab
 // activation path: serializing the complete workspace snapshot in saveTabs()
 // and JSON-stringifying every mounted tab's restore data in TabContent's memo
-// comparator. Sync projections were a third contributor when their observers
-// ran in P0; those remote enqueue sites now use the scheduler's input-aware P1
-// lane. Keep this note next to the persistence fix so future changes do not
-// move serialization back into the interaction hot path.
+// comparator. Keep this note next to the persistence fix so future changes do
+// not move serialization back into the interaction hot path.
 
 function flushPendingTabsSave(): void {
   if (pendingTabsSaveTimer) {
@@ -928,39 +924,34 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
   // Set the active tab in a specific pane
   setActiveTab: (paneId, tabId) => {
-    measureTabSwitch(
-      () => {
-        set((state) => {
-          const rootPane = updatePaneInTree(state.rootPane, paneId, (p) => ({
-            ...(p as TabPane),
-            activeTabId: tabId,
-          }));
-          const activeTabHistory = [
-            ...state.activeTabHistory.filter((x) => x !== tabId),
-            tabId,
-          ];
-          // Activating a tab makes it resident again if the cap had evicted it.
-          const evictedTabIds = clearEvicted(state.evictedTabIds, [tabId]);
+    set((state) => {
+      const rootPane = updatePaneInTree(state.rootPane, paneId, (p) => ({
+        ...(p as TabPane),
+        activeTabId: tabId,
+      }));
+      const activeTabHistory = [
+        ...state.activeTabHistory.filter((x) => x !== tabId),
+        tabId,
+      ];
+      // Activating a tab makes it resident again if the cap had evicted it.
+      const evictedTabIds = clearEvicted(state.evictedTabIds, [tabId]);
 
-          return {
-            rootPane,
-            activeTabHistory,
-            // A direct navigation invalidates any forward history (browser semantics).
-            forwardTabHistory: [],
-            // The cap is evaluated here rather than on a timer: activation is
-            // the only moment the resident set can grow, and a timer would both
-            // wake an idle app and make "when does a tab disappear" untestable.
-            evictedTabIds: applyResidentCap(
-              { tabs: state.tabs, rootPane, activeTabHistory, evictedTabIds },
-              residentTabCap(),
-              readerTabCap(),
-            ),
-          };
-        });
-        scheduleTabsSave(() => get().saveTabs());
-      },
-      () => getProgressiveSyncScheduler().stats().queued,
-    );
+      return {
+        rootPane,
+        activeTabHistory,
+        // A direct navigation invalidates any forward history (browser semantics).
+        forwardTabHistory: [],
+        // The cap is evaluated here rather than on a timer: activation is
+        // the only moment the resident set can grow, and a timer would both
+        // wake an idle app and make "when does a tab disappear" untestable.
+        evictedTabIds: applyResidentCap(
+          { tabs: state.tabs, rootPane, activeTabHistory, evictedTabIds },
+          residentTabCap(),
+          readerTabCap(),
+        ),
+      };
+    });
+    scheduleTabsSave(() => get().saveTabs());
   },
 
   updateTab: (tabId, updates) => {

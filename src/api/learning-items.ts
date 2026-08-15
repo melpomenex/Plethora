@@ -170,18 +170,6 @@ export async function createLearningItem(input: CreateLearningItemInput): Promis
     interactionMetadata: input.interaction_metadata,
     allowDuplicate: input.allow_duplicate,
   });
-  void (async () => {
-    try {
-      const { publishCard, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
-      const { nowHLC } = await import("../lib/sync/syncClock");
-      const synced = toSyncedLearningItem(item as unknown as Record<string, unknown>);
-      synced.updated_at = nowHLC();
-      synced.updatedAt = synced.updated_at;
-      await publishCard(synced);
-    } catch (err) {
-      console.warn("[learning-items] sync publish failed (non-fatal)", err);
-    }
-  })();
   return item;
 }
 
@@ -201,14 +189,6 @@ export async function createLearningItemsBatch(
   const items = await invokeCommand<LearningItem[]>("create_learning_items_batch", {
     items: inputs,
   });
-  void (async () => {
-    try {
-      const { publishCards } = await import("../lib/sync/entities/flashcards");
-      await publishCards(items);
-    } catch (err) {
-      console.warn("[learning-items] batch sync publish failed (non-fatal)", err);
-    }
-  })();
   return items;
 }
 
@@ -234,14 +214,6 @@ export async function generateLearningItemsFromExtract(extractId: string): Promi
   const items = await invokeCommand<LearningItem[]>("generate_learning_items_from_extract", {
     extractId,
   });
-  void (async () => {
-    try {
-      const { publishCards } = await import("../lib/sync/entities/flashcards");
-      await publishCards(items);
-    } catch (err) {
-      console.warn("[learning-items] generate sync publish failed (non-fatal)", err);
-    }
-  })();
   return items;
 }
 
@@ -259,18 +231,6 @@ export async function updateLearningItemContentWithVersion(
     reason,
     clozeText,
   });
-  void (async () => {
-    try {
-      const { publishCard, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
-      const { nowHLC } = await import("../lib/sync/syncClock");
-      const synced = toSyncedLearningItem(item as unknown as Record<string, unknown>);
-      synced.updated_at = nowHLC();
-      synced.updatedAt = synced.updated_at;
-      await publishCard(synced);
-    } catch (err) {
-      console.warn("[learning-items] update sync publish failed (non-fatal)", err);
-    }
-  })();
   return item;
 }
 
@@ -280,18 +240,6 @@ export async function getLearningItemVersions(itemId: string): Promise<CardVersi
 
 export async function updateLearningItemTags(itemId: string, tags: string[]): Promise<LearningItem> {
   const item = await invokeCommand<LearningItem>("update_learning_item_tags", { itemId, tags });
-  void (async () => {
-    try {
-      const { publishCard, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
-      const { nowHLC } = await import("../lib/sync/syncClock");
-      const synced = toSyncedLearningItem(item as unknown as Record<string, unknown>);
-      synced.updated_at = nowHLC();
-      synced.updatedAt = synced.updated_at;
-      await publishCard(synced);
-    } catch (err) {
-      console.warn("[learning-items] tag update sync publish failed (non-fatal)", err);
-    }
-  })();
   return item;
 }
 
@@ -300,18 +248,6 @@ export async function revertLearningItemVersion(itemId: string, versionId: strin
     itemId,
     versionId,
   });
-  void (async () => {
-    try {
-      const { publishCard, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
-      const { nowHLC } = await import("../lib/sync/syncClock");
-      const synced = toSyncedLearningItem(item as unknown as Record<string, unknown>);
-      synced.updated_at = nowHLC();
-      synced.updatedAt = synced.updated_at;
-      await publishCard(synced);
-    } catch (err) {
-      console.warn("[learning-items] revert sync publish failed (non-fatal)", err);
-    }
-  })();
   return item;
 }
 

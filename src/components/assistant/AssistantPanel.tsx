@@ -686,18 +686,6 @@ export function AssistantPanel({
       }
       publishConversationTimerRef.current = window.setTimeout(() => {
         publishConversationTimerRef.current = null;
-        void (async () => {
-          try {
-            const { publishConversation } = await import("../../lib/sync/entities/conversations");
-            // Re-read the just-written entry so we publish exactly what landed.
-            const fresh = readStoredConversations()[key];
-            if (fresh) {
-              await publishConversation(key, { messages: fresh.messages, input: fresh.input });
-            }
-          } catch (err) {
-            console.warn("[assistant] failed to publish conversation", err);
-          }
-        })();
       }, 500);
     }
   }, [messages, input]);

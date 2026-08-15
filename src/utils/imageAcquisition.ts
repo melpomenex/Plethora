@@ -44,10 +44,22 @@ export interface ImageAcquisitionDeps {
     fileName?: string,
     mimeType?: string,
   ) => Promise<ImageAsset>;
+  /**
+   * Re-read the pixels of the <img> element currently displaying this src
+   * (main document or a same-origin iframe) via canvas. Works even when the
+   * src URL is no longer fetchable — e.g. an epub.js blob: URL that was
+   * revoked after the image had already rendered.
+   */
+  captureElement: (src: string) => Promise<Blob>;
   captureRect: (rect: NonNullable<ImageAcquisitionSource["rect"]>) => Promise<Blob>;
 }
 
-export type StrategyName = "direct" | "native" | "local-file" | "pixel-capture";
+export type StrategyName =
+  | "direct"
+  | "native"
+  | "local-file"
+  | "element-canvas"
+  | "pixel-capture";
 
 export class ImageAcquisitionError extends Error {
   readonly attempts: { strategy: StrategyName; reason: string }[];
@@ -62,10 +74,15 @@ export class ImageAcquisitionError extends Error {
 /** WebKit's generic cross-origin fetch rejection. Never show this to a user. */
 const OPAQUE_PLATFORM_ERRORS = ["load failed", "failed to fetch", "networkerror"];
 
-function describeFailure(error: unknown): string {
+function describeFailure(error: unknown, src?: string): string {
   const raw = error instanceof Error ? error.message : String(error);
   const normalized = raw.trim().toLowerCase();
   if (OPAQUE_PLATFORM_ERRORS.some((opaque) => normalized === opaque || normalized.startsWith(opaque))) {
+    // "Failed to fetch" on a blob:/data: URL is not CORS — it is almost
+    // always a revoked object URL (epub.js revokes section resources).
+    if (src && (src.startsWith("blob:") || src.startsWith("data:"))) {
+      return "the source URL is no longer readable (object URL was revoked)";
+    }
     return "blocked by the browser engine (cross-origin)";
   }
   return raw.trim() || "unknown error";
@@ -194,21 +211,24 @@ export function planStrategies(
   const plan: StrategyName[] = [];
 
   if (src.startsWith("data:") || src.startsWith("blob:")) {
-    // Same-origin by construction; a direct read always wins.
-    plan.push("direct");
+    // Same-origin by construction; a direct read always wins. The element
+    // canvas follows: epub.js revokes blob: URLs after rendering, so a
+    // displayed image can be unreadable by URL yet still carry live pixels.
+    plan.push("direct", "element-canvas");
   } else if (native && isLoopbackStreamUrl(src)) {
     // One of the app's own media/epub stream URLs. The webview fetch is
     // cross-origin (the loopback server sends no CORS headers) and the
     // native remote fetch is rejected by the SSRF guard, but the URL names
     // its backing file — from-path ingestion is the one strategy whose
     // transport cannot fail. Lead with it.
-    plan.push("local-file", "direct", "native");
+    plan.push("local-file", "direct", "element-canvas", "native");
   } else if (native && isPublicRemoteImageUrl(src)) {
     // A webview fetch would be CORS-blocked, so lead with native ingestion.
-    plan.push("native", "direct");
+    plan.push("native", "direct", "element-canvas");
   } else {
     plan.push("direct");
-    if (native) plan.push("local-file", "native");
+    if (native) plan.push("local-file", "native", "element-canvas");
+    else plan.push("element-canvas");
   }
 
   // Capturing what is already painted works regardless of scheme or origin,
@@ -250,13 +270,17 @@ export async function acquireImageAsset(
             mimeTypeForPath(path),
           );
         }
+        case "element-canvas": {
+          const blob = await deps.captureElement(source.src);
+          return await deps.ingestBlob(blob, fileNameFor(source.src, "png"));
+        }
         case "pixel-capture": {
           const blob = await deps.captureRect(source.rect!);
           return await deps.ingestBlob(blob, `captured-image-${Date.now()}.png`);
         }
       }
     } catch (error) {
-      attempts.push({ strategy, reason: describeFailure(error) });
+      attempts.push({ strategy, reason: describeFailure(error, source.src) });
     }
   }
 

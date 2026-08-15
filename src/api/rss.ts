@@ -4,7 +4,6 @@
 
 import { invokeCommand, isTauri } from "../lib/tauri";
 import { useCollectionStore } from "../stores/collectionStore";
-import { nowHLC } from "../lib/sync/syncClock";
 
 /**
  * Detect a "command not registered" error from Tauri IPC, so callers can fall
@@ -1289,16 +1288,6 @@ async function createOrUpdateFeedViaTauri(
   return { feed: created, created: true };
 }
 
-async function publishTauriFeedSync(feed: TauriRssFeed): Promise<void> {
-  try {
-    const { publishRssFeed, toSyncedRssFeed } = await import("../lib/sync/entities/rss");
-    const collectionId = useCollectionStore.getState().activeCollectionId;
-    const row = toSyncedRssFeed({ ...feed, updated_at: nowHLC(), collection_id: collectionId });
-    await publishRssFeed(row);
-  } catch (error) {
-    console.warn("[RSS] feed sync publish failed (non-fatal)", error);
-  }
-}
 
 async function createArticlesViaTauri(feedId: string, items: FeedItem[]): Promise<void> {
   if (items.length === 0) return;
@@ -1739,7 +1728,6 @@ export async function subscribeToFeedAuto(feed: Feed): Promise<void> {
       if (created) {
         await createArticlesViaTauri(createdFeed.id, feed.items);
       }
-      await publishTauriFeedSync(createdFeed);
       // Auto-detect favicon
       try {
         const baseUrl = new URL(feed.feedUrl).origin;
@@ -1772,8 +1760,6 @@ export async function unsubscribeFromFeedAuto(feedId: string): Promise<void> {
   if (isTauri()) {
     try {
       await invokeCommand("delete_rss_feed", { id: feedId });
-      const { publishRssFeedDeleted } = await import("../lib/sync/entities/rss");
-      await publishRssFeedDeleted(feedId);
       return;
     } catch (error) {
       console.warn("[RSS] Tauri unsubscribe failed, removing local feed.", error);
@@ -1801,20 +1787,6 @@ export async function markItemReadAuto(
   if (isTauri()) {
     // In Tauri mode, use the backend command to update SQLite
     await invokeCommand("mark_rss_article_read", { id: itemId, isRead: read, is_read: read });
-    // Replicate the read-state change. Fire-and-forget so the UI never waits
-    // on sync. The field-LWW merge uses the transition clock so two devices
-    // toggling concurrently resolve deterministically (the newer wins).
-    void (async () => {
-      try {
-        const { publishRssArticleReadState } = await import("../lib/sync/entities/rss");
-        await publishRssArticleReadState({
-          article: emptyArticleState(itemId, feedId),
-          isRead: read,
-        });
-      } catch (err) {
-        console.warn("[RSS] sync publish read-state failed (non-fatal)", err);
-      }
-    })();
     return;
   }
   if (shouldUseHttpBackend()) {
@@ -1862,18 +1834,6 @@ export async function toggleItemFavoriteAuto(feedId: string, itemId: string): Pr
 
   if (isTauri()) {
     await invokeCommand("toggle_rss_article_queued", { id: itemId });
-    // Replicate the queued (star/save) state. Fire-and-forget.
-    void (async () => {
-      try {
-        const { publishRssArticleQueuedState } = await import("../lib/sync/entities/rss");
-        await publishRssArticleQueuedState({
-          article: emptyArticleState(itemId, feedId, item),
-          isQueued: !item?.favorite,
-        });
-      } catch (err) {
-        console.warn("[RSS] sync publish queued-state failed (non-fatal)", err);
-      }
-    })();
   } else if (shouldUseHttpBackend()) {
     try {
       // In HTTP-backed mode, queued status is used as the persisted favorite flag.

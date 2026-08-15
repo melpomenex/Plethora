@@ -24,7 +24,6 @@ import { buildSegmentCfiMap, findActiveSegment, type SyncSegment } from "../../u
 import { dispatchCommandPaletteOpen, isCommandPaletteOpenShortcut } from "../../utils/commandPaletteShortcut";
 import { getShortcutCombo, eventMatchesCombo } from "../common/KeyboardShortcuts";
 import { tolerantPhraseRegex, collectSectionCfiMatches } from "../../utils/epubQuoteSearch";
-import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
 import { useReaderVolumeNavigation } from "../../hooks/useReaderVolumeNavigation";
 import { ReaderTapZones } from "./ReaderTapZones";
@@ -2571,10 +2570,6 @@ export function EPUBViewer({
       {error && (
         <div className="p-4 bg-destructive/10 border border-destructive text-destructive rounded-lg m-4">
           {t("viewer.failedToLoadEpub", { error })}
-          {/* If this is a synced EPUB whose file hasn't transferred yet, offer
-              a download instead of just showing a dead-end error. The doc's
-              fileId links to the file manifest / transfer manager. */}
-          {doc && <ReaderFileDownload doc={doc} />}
         </div>
       )}
 

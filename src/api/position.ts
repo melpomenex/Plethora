@@ -11,8 +11,6 @@ import type {
   DocumentWithProgress,
   ReadingSession,
 } from '../types/position';
-import { enqueueSyncOperation } from '../lib/sync/syncJournal';
-import { nowHLC } from '../lib/sync/syncClock';
 import { normalizeUnixTimestampMs } from '../utils/relativeTime';
 // Re-export position helper functions for convenience
 export {
@@ -61,16 +59,7 @@ export async function saveDocumentPosition(
   }
   // Tauri invoke expects camelCase for snake_case Rust parameters.
   await invokeCommand('save_document_position', { documentId, position });
-  void enqueueSyncOperation({ domain: "readingPositions", entityKey: documentId, operation: "upsert", payload: { documentId, position }, clock: nowHLC() });
 
-  // Re-publish the document so other devices receive the new unified position
-  // (position_json + progress_percent). The command returns void, so we pass
-  // the id and let the replication layer refetch the freshly-written row.
-  // Fire-and-forget: the local save already succeeded. Dynamic import avoids
-  // the static cycle (documentReplication -> api/documents -> ... ).
-  void import('../lib/documentReplication')
-    .then(({ republishDocumentPosition }) => republishDocumentPosition(documentId))
-    .catch(() => {});
 }
 
 /**
@@ -95,7 +84,6 @@ export async function createBookmark(
     return await browserInvoke<Bookmark>('create_bookmark', { document_id: documentId, name, position });
   }
   const bookmark = await invokeCommand<Bookmark>('create_bookmark', { documentId, name, position });
-  void enqueueSyncOperation({ domain: "bookmarks", entityKey: bookmark.id, operation: "upsert", payload: bookmark, clock: nowHLC() });
   return bookmark;
 }
 
@@ -118,7 +106,6 @@ export async function deleteBookmark(bookmarkId: string): Promise<void> {
     return;
   }
   await invokeCommand('delete_bookmark', { bookmarkId });
-  void enqueueSyncOperation({ domain: "bookmarks", entityKey: bookmarkId, operation: "delete", payload: null, clock: nowHLC() });
 }
 
 /**
@@ -135,7 +122,6 @@ export async function startReadingSession(
     });
   }
   const session = await invokeCommand<ReadingSession>('start_reading_session', { documentId, progressStart });
-  void enqueueSyncOperation({ domain: "readerSessions", entityKey: session.id, operation: "append", payload: session, clock: nowHLC() });
   return session;
 }
 
@@ -148,7 +134,6 @@ export async function endReadingSession(sessionId: string, progressEnd: number):
     return;
   }
   await invokeCommand('end_reading_session', { sessionId, progressEnd });
-  void enqueueSyncOperation({ domain: "readerSessions", entityKey: sessionId, operation: "upsert", payload: { sessionId, progressEnd }, clock: nowHLC() });
 }
 
 /**

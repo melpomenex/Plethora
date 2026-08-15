@@ -23,6 +23,62 @@ interface ImageHoverData {
   };
 }
 
+/**
+ * Locate the <img> element currently displaying this src — in the main
+ * document or inside a same-origin iframe (epub.js renders EPUB sections in
+ * iframes and substitutes archived images with blob: URLs).
+ */
+function findDisplayedImage(src: string): HTMLImageElement | null {
+  const selectorSrc = src.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const collect = (doc: Document): HTMLImageElement | null => {
+    const candidates = Array.from(
+      doc.querySelectorAll<HTMLImageElement>(`img[src="${selectorSrc}"]`),
+    );
+    return (
+      candidates.find((img) => img.complete && img.naturalWidth > 0) ??
+      candidates[0] ??
+      null
+    );
+  };
+  const direct = collect(window.document);
+  if (direct) return direct;
+  for (const iframe of Array.from(window.document.querySelectorAll("iframe"))) {
+    try {
+      const doc = iframe.contentDocument;
+      const found = doc ? collect(doc) : null;
+      if (found) return found;
+    } catch {
+      // Cross-origin iframe — not reachable, keep looking.
+    }
+  }
+  return null;
+}
+
+/**
+ * Re-read the pixels of the on-screen image via canvas. A displayed blob: or
+ * data: image keeps its decoded pixels even after the object URL was revoked
+ * (the case where re-fetching the src fails), and same-origin images never
+ * taint the canvas.
+ */
+async function captureElementPixels(src: string): Promise<Blob> {
+  const img = findDisplayedImage(src);
+  if (!img) throw new Error("the image is no longer on screen");
+  const width = img.naturalWidth || img.width;
+  const height = img.naturalHeight || img.height;
+  if (!width || !height) throw new Error("the image has no rendered pixels");
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas rendering is unavailable");
+  ctx.drawImage(img, 0, 0, width, height);
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/png"),
+  );
+  if (!blob) throw new Error("canvas export failed (cross-origin pixels)");
+  return blob;
+}
+
 export function ImageSaveOverlay() {
   const toast = useToast();
   const { t } = useI18n();
@@ -103,6 +159,7 @@ export function ImageSaveOverlay() {
         // capability grants no read permission, and images inside documents
         // are served from the loopback media server the webview cannot fetch.
         ingestFromPath: ingestImageFromPath,
+        captureElement: captureElementPixels,
         captureRect: async (rect) => {
           // The overlay's own buttons sit on top of the image being captured.
           if (overlayRef.current) overlayRef.current.style.visibility = "hidden";

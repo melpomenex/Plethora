@@ -1154,7 +1154,12 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                             pixelBox = intArrayOf(box.left, box.top, box.right, box.bottom)
                         )
                     }
-                invoke.resolveObject(
+                // resolve(), not resolveObject(): Invoke.resolveObject
+                // serializes with Jackson, which mangles org.json JSObjects
+                // (the response loses its top-level keys and the Rust shim
+                // fails with "missing field `sourceWidth`"). resolve() goes
+                // through PluginResult's org.json serialization.
+                invoke.resolve(
                     OcrLabelsResultDto(
                         labels = labels,
                         sourceWidth = bitmap.width,
@@ -1313,7 +1318,9 @@ class AndroidGenAiPlugin(private val activity: Activity) : Plugin(activity) {
                     kind = args.kind,
                     normalize = normalize
                 )
-                invoke.resolveObject(
+                // Same JSObject rule as ocrImageLabels above: resolve() so the
+                // org.json serialization reaches Rust intact.
+                invoke.resolve(
                     EmbedTextsResultDto(
                         vectors = vectors,
                         dimension = EMBEDDING_DIMENSION,

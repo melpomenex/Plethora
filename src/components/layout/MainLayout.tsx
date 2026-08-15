@@ -421,31 +421,6 @@ export function MainLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync corruption is reported by the global Yjs rejection handler. Keep the
-  // recovery message visible until the user chooses to dismiss it.
-  useEffect(() => {
-    const handleSyncCorruption = (event: Event) => {
-      const detail = (event as CustomEvent<{ message?: string }>).detail;
-      const diagnostic = detail?.message || t("mainLayout.syncCorruptionMessage");
-      void emitFeedback("sync.corruption", { message: diagnostic }, {
-        toast: {
-          type: ToastType.Error,
-          title: t("mainLayout.syncCorruptionTitle"),
-          message: t("mainLayout.syncCorruptionMessage"),
-          duration: 0,
-          action: {
-            label: t("mainLayout.openSettings"),
-            onClick: () => openTabByType("settings"),
-          },
-        },
-      });
-    };
-
-    window.addEventListener("incrementum:sync-corruption", handleSyncCorruption);
-    return () => window.removeEventListener("incrementum:sync-corruption", handleSyncCorruption);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Handle native Android/iOS and PWA share targets
   useShareTarget();
 

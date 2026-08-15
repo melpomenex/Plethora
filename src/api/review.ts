@@ -144,31 +144,6 @@ export async function submitReview(
   // is appended to the revlog under a deterministic id so two devices reviewing
   // the same card both count once.
   if (!options?.noScheduleUpdate) {
-    void (async () => {
-      try {
-        const { publishCard, publishReview, toSyncedLearningItem } = await import("../lib/sync/entities/flashcards");
-        const { nowHLC } = await import("../lib/sync/syncClock");
-        const synced = toSyncedLearningItem(updated as unknown as Record<string, unknown>);
-        synced.updated_at = nowHLC();
-        await Promise.all([
-          publishCard(synced),
-          publishReview({
-            itemId,
-            collectionId: synced.collection_id,
-            rating,
-            timeTaken,
-            resultDueDate: synced.due_date,
-            resultInterval: synced.interval,
-            resultEase: synced.ease_factor,
-            sessionId: normalizedSessionId,
-            arena: options?.arenaSelection,
-            arenaProvenance: options?.arenaProvenance,
-          }),
-        ]);
-      } catch (err) {
-        console.warn("[review] sync publish failed (non-fatal)", err);
-      }
-    })();
   }
 
   return updated;

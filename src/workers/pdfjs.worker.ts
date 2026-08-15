@@ -30,7 +30,7 @@
  *   `GlobalWorkerOptions.workerPort`. PDF.js honors `workerPort` directly and
  *   never touches the throwing `workerSrc` getter. The `new Worker(new URL(...))`
  *   form makes Vite emit a *relative* asset reference (the same pattern already
- *   used by `src/lib/sync/argon2id.worker.ts` and `src/workers/alignment.worker.ts`,
+ *   used by `src/workers/alignment.worker.ts`,
  *   both of which work on mobile), so resolution works under Tauri's custom
  *   protocol.
  *

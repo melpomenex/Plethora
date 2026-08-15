@@ -148,33 +148,3 @@ export const useCollectionStore = create<CollectionState>()((set, get) => ({
 useCollectionStore.subscribe(() => {
   useQueueStore.getState().applyFilters();
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Cross-device sync: refresh the store when a collection arrives from another
-// device. The replication layer (src/lib/sync/entities/collections.ts) writes
-// the row to SQLite then dispatches `incrementum:synced-collection(-deleted)`.
-// Without this listener the sidebar / collection switcher wouldn't reflect the
-// new collection until a manual reload. Debounced so a burst of arrivals (e.g.
-// first-join backfill) triggers one reload, not N.
-//
-// Guarded to Tauri: in the browser/PWA dev shell there's no sync subsystem and
-// getCollections() would hit a missing-invoke error.
-let _collectionSyncReloadTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleCollectionSyncReload(): void {
-  if (typeof window === "undefined") return;
-  if (_collectionSyncReloadTimer) clearTimeout(_collectionSyncReloadTimer);
-  _collectionSyncReloadTimer = setTimeout(() => {
-    _collectionSyncReloadTimer = null;
-    void useCollectionStore.getState().loadCollections().catch(() => {
-      /* best-effort; a transient failure just leaves the stale list until the
-         next sync event or manual reload */
-    });
-  }, 200);
-}
-
-if (typeof window !== "undefined" &&
-  (window as any).__incrementumCollectionSyncWired !== true) {
-  (window as any).__incrementumCollectionSyncWired = true;
-  window.addEventListener("incrementum:synced-collection", scheduleCollectionSyncReload);
-  window.addEventListener("incrementum:synced-collection-deleted", scheduleCollectionSyncReload);
-}

@@ -154,38 +154,3 @@ export const useExtractStore = create<ExtractState>((set, get) => ({
 
   setLastHighlightColor: (color) => set({ lastHighlightColor: color }),
 }));
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Cross-device sync: refresh the store when an extract arrives from another
-// device. The replication layer (src/lib/sync/entities/extracts.ts) writes the
-// row to SQLite then dispatches `incrementum:synced-extract(-deleted)`. Without
-// this listener the open DocumentViewer minimap / ExtractsList wouldn't
-// reflect the new extract until a manual navigate-away-and-back. Debounced so
-// a first-join backfill (many rows arriving at once) triggers one reload.
-//
-// Guarded to Tauri: in the browser/PWA dev shell there's no sync subsystem and
-// the load would hit a missing-invoke error.
-let _extractSyncReloadTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleExtractSyncReload(): void {
-  if (typeof window === "undefined") return;
-  if (_extractSyncReloadTimer) clearTimeout(_extractSyncReloadTimer);
-  _extractSyncReloadTimer = setTimeout(() => {
-    _extractSyncReloadTimer = null;
-    const { loadedDocumentId, loadExtracts } = useExtractStore.getState();
-    // Only reload if a document's extracts are currently in view; otherwise the
-    // next mount/load will pick the row up. Pass the same doc id so the user's
-    // current view refreshes in place.
-    if (loadedDocumentId !== null) {
-      void loadExtracts(loadedDocumentId).catch(() => {
-        /* best-effort */
-      });
-    }
-  }, 200);
-}
-
-if (typeof window !== "undefined" &&
-  (window as any).__incrementumExtractSyncWired !== true) {
-  (window as any).__incrementumExtractSyncWired = true;
-  window.addEventListener("incrementum:synced-extract", scheduleExtractSyncReload);
-  window.addEventListener("incrementum:synced-extract-deleted", scheduleExtractSyncReload);
-}

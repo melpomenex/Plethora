@@ -7,14 +7,6 @@ export async function createCollection(
   color?: string
 ): Promise<Collection> {
   const res = await invoke<Collection>('create_collection', { name, icon, color });
-  void (async () => {
-    try {
-      const { publishCollection } = await import("../lib/sync/entities/collections");
-      await publishCollection(res);
-    } catch (e) {
-      console.warn("Failed to publish collection creation", e);
-    }
-  })();
   return res;
 }
 
@@ -33,27 +25,11 @@ export async function updateCollection(
   color?: string
 ): Promise<Collection> {
   const res = await invoke<Collection>('update_collection', { id, name, icon, color });
-  void (async () => {
-    try {
-      const { publishCollection } = await import("../lib/sync/entities/collections");
-      await publishCollection(res);
-    } catch (e) {
-      console.warn("Failed to publish collection update", e);
-    }
-  })();
   return res;
 }
 
 export async function deleteCollection(id: string): Promise<void> {
   const res = await invoke<void>('delete_collection', { id });
-  void (async () => {
-    try {
-      const { publishCollectionDeleted } = await import("../lib/sync/entities/collections");
-      await publishCollectionDeleted(id);
-    } catch (e) {
-      console.warn("Failed to publish collection deletion", e);
-    }
-  })();
   return res;
 }
 

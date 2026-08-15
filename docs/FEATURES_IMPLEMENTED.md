@@ -248,7 +248,6 @@ Complete list of Incrementum features and their implementation status.
 | Sync with Desktop | ✅ Implemented | Bidirectional sync |
 | Quick Add | ✅ Implemented | One-click content addition |
 | Highlighting | ✅ Implemented | Web page highlighting |
-| Cloud Sync | ✅ Implemented | readsync.org relay with QR device pairing |
 | Offline Queue | ✅ Implemented | Queue items when offline, sync on reconnect |
 | Automation REST API | ✅ Implemented | HTTP API for programmatic card creation and review |
 

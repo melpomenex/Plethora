@@ -7,18 +7,12 @@
   },
   "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373.",
   "benchmarks": {
-    "file-manifest/add-1000-entries": {
-      "cost": 7.84,
-      "tolerance": 1.4,
-      "reason": "addFile called getSyncFeatureFlags() twice per entry (a localStorage+JSON.parse+env read on every call); for the bench's 1000-add loop that was ~76% of addFile time. Read the flags once into a local. Byte-identical: the two reads were synchronous with no await between them, so they observed equal values."
-    },
     "postpone/plan-1000-items": {
       "cost": 0.02902,
       "tolerance": 1.5
     },
     "sm20/review-sequence": {
-      "cost": 13.87,
-      "tolerance": 1.25,
+      "cost": 8.477,
       "reason": "reviewM2/reviewM3 replaced structuredClone of the optimizer/matrices (recursive walk of ~57k elements + nested cubes) with hand-written shallow copies (.slice of each mutable array, per-row/per-cell for the number[][][] cubes). ~26x faster, byte-identical output; the commit:false clone is the per-review hot path. Re-recorded as the median of three calibrated runs (13.00, 13.87, 14.46) because this long allocation-heavy path scales differently from the gate's median mixed-workload runner calibration; the longer 2s/100-iteration sample supports tightening tolerance from 1.6x to the 1.25x default."
     },
     "queue/build-500-items": {
@@ -41,7 +35,7 @@
       "reason": "convertAnkiCardsToLearningItems did deck.notes.find(n => n.id === card.noteId) inside the card loop, an O(n) linear scan of all notes per card (O(n^2) overall, ~4M comparisons for 2000 cards). Indexed notes by id in a first-wins Map once before the loop (preserving Array.find's first-match semantics), so each lookup is O(1). Byte-identical for all finite-integer ids (verified by differential testing); NaN ids would differ but are unreachable (Rust producer types ids as i64 from SQLite). Re-recorded as the median of three unchanged-code Linux x86_64 / Node 24.18.0 CI samples (1.202, 1.408, 1.368) after GitHub Actions moved the LTS runner from Node 22 to Node 24; the 1.25x tolerance remains unchanged."
     },
     "markdown/render-document": {
-      "cost": 1.064
+      "cost": 0.5807
     },
     "semanticGrading/routing-fallback": {
       "cost": 3.22,
@@ -70,12 +64,12 @@
       "reason": "jsdom mount cost includes React scheduling and garbage collection variance."
     },
     "tabs-dom/switch-active-tab-12-tabs": {
-      "cost": 0.5298,
+      "cost": 0.2713,
       "tolerance": 1.6,
       "reason": "jsdom interaction cost includes React scheduling and garbage collection variance."
     },
     "tabs-dom/rerender-on-tab-collection-change": {
-      "cost": 0.1671,
+      "cost": 0.089,
       "tolerance": 1.6,
       "reason": "jsdom rerender cost includes React scheduling and garbage collection variance."
     }

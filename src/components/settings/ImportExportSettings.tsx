@@ -275,14 +275,6 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
 
           restoreLocalStorage(parsed.payload.localStorage);
           onChange();
-          void (async () => {
-            try {
-              const { triggerReSeed } = await import("../../lib/sync/migrate");
-              await triggerReSeed();
-            } catch (e) {
-              console.warn("[ImportExportSettings] triggerReSeed failed", e);
-            }
-          })();
           return;
         } catch (error) {
           console.warn("Not a collection archive, falling back to legacy import.", error);
@@ -326,14 +318,6 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
         }
         alert(`Imported ${imported.length} Anki card(s) as learning items`);
         if (imported.length > 0) {
-          void (async () => {
-            try {
-              const { publishCards } = await import("../../lib/sync/entities/flashcards");
-              await publishCards(imported);
-            } catch (err) {
-              console.warn("[ImportExportSettings] apkg sync publish failed", err);
-            }
-          })();
         }
         onChange();
         return;
@@ -362,14 +346,6 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
           `Review Results: ${summary.reviewResults}`
         );
         onChange();
-        void (async () => {
-          try {
-            const { triggerReSeed } = await import("../../lib/sync/migrate");
-            await triggerReSeed();
-          } catch (e) {
-            console.warn("[ImportExportSettings] legacy import triggerReSeed failed", e);
-          }
-        })();
         return;
       }
 

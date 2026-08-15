@@ -240,7 +240,7 @@ A substantial sync subsystem lives in `lib/sync/` (~45 files): end-to-end encryp
 
 ### Browser Extension
 
-A Chrome/Firefox extension captures web pages, selected text, and highlights, syncing to the desktop app via the local bridge server or the readsync.org relay with QR pairing. Includes an offline queue and a REST automation API for programmatic card creation and review.
+A Chrome/Firefox extension captures web pages, selected text, and highlights, syncing to the desktop app via the local bridge server. Includes an offline queue and a REST automation API for programmatic card creation and review.
 
 ### NotebookLM Workspace
 
