@@ -66,7 +66,7 @@ import { getAgentTool } from "./registry";
 
 export const AGENT_RUNNER_TASK_ID = "agent-runner";
 export const AGENT_TURN_TIMEOUT_MS = 30_000;
-export const AGENT_MAX_OUTPUT_TOKENS = 900;
+export const AGENT_MAX_OUTPUT_TOKENS = 1400;
 
 /**
  * Transcript budget: keep the wrapped tool-result history under this many

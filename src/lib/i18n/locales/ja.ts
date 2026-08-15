@@ -5768,6 +5768,7 @@ export const ja: Dict = {
   "aiLearning.kt.causeEffect": "原因と結果",
   "aiLearning.kt.dateEvent": "日付 / 出来事",
   "aiLearning.kt.example": "例",
+  "aiLearning.kt.general": "一般",
   "aiLearning.ct.qa": "質問 / 答え",
   "aiLearning.ct.cloze": "空所補充",
   "aiLearning.ct.definition": "定義",

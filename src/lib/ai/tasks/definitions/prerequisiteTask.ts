@@ -28,9 +28,9 @@ import type { AITaskDefinition, AITaskRunOptions } from "../types";
 export const PREREQUISITE_TASK_ID = "prerequisite-analysis";
 
 /** Full-class latency budget (matches the prerequisite row of design D3). */
-export const PREREQUISITE_TIMEOUT_MS = 30_000;
+export const PREREQUISITE_TIMEOUT_MS = 60_000;
 /** ≤ 12 concepts × short {concept, why} pairs fit comfortably in 400 tokens. */
-export const PREREQUISITE_MAX_OUTPUT_TOKENS = 400;
+export const PREREQUISITE_MAX_OUTPUT_TOKENS = 900;
 
 export interface PrerequisiteInput {
   /** The selected (or otherwise targeted) passage — untrusted content. */

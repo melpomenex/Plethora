@@ -36,8 +36,8 @@ export const TUTOR_TURN_TASK_ID = "tutor-turn";
 /** Full-class twin executed by the router when no reasoning provider exists. */
 export const TUTOR_TURN_FALLBACK_TASK_ID = "tutor-turn-full";
 
-export const TUTOR_TURN_TIMEOUT_MS = 15_000;
-export const TUTOR_TURN_MAX_OUTPUT_TOKENS = 350;
+export const TUTOR_TURN_TIMEOUT_MS = 60_000;
+export const TUTOR_TURN_MAX_OUTPUT_TOKENS = 900;
 
 /** One conversation entry supplied to the model (bounded by the session). */
 export interface TutorConversationEntry {

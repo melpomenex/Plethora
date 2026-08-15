@@ -60,10 +60,17 @@ export function validateAnswerAssessment(output: unknown): ValidationOutcome<Ans
   const score = checkNumber(output.score, "score", errors, { min: 0, max: 1 });
   const completeness = checkNumber(output.completeness, "completeness", errors, { min: 0, max: 1 });
   const confidence = checkNumber(output.confidence, "confidence", errors, { min: 0, max: 1 });
-  const missingConcepts = checkStringArray(output.missingConcepts, "missingConcepts", errors, {
-    max: 10,
-    maxLength: 120,
-  });
+  // Near-miss normalization: models omit `missingConcepts` when nothing is
+  // missing — default to [] instead of failing the envelope.
+  const missingConcepts = checkStringArray(
+    Array.isArray(output.missingConcepts) ? output.missingConcepts : [],
+    "missingConcepts",
+    errors,
+    {
+      max: 10,
+      maxLength: 120,
+    }
+  );
   const feedback = checkString(output.feedback, "feedback", errors, { maxLength: 2000 });
   const misconception =
     output.misconception === undefined

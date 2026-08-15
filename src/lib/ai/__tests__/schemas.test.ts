@@ -120,13 +120,13 @@ describe("LearningMaterialProposal", () => {
     expect(result.ok).toBe(false);
   });
 
-  it("rejects cards missing required conceptKeys", () => {
-    const bad = proposal() as unknown as Record<string, unknown>;
-    const card = (bad.suggestedCards as Array<Record<string, unknown>>)[0];
+  it("defaults omitted card conceptKeys (device report: sparse cards)", () => {
+    const sparse = proposal() as unknown as Record<string, unknown>;
+    const card = (sparse.suggestedCards as Array<Record<string, unknown>>)[0];
     delete card.conceptKeys;
-    const result = validateLearningMaterialProposal(bad);
-    expect(result.ok).toBe(false);
-    expect(result.ok === false && result.errors.join(" ")).toContain("conceptKeys");
+    const result = validateLearningMaterialProposal(sparse);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.suggestedCards[0].conceptKeys).toEqual([]);
   });
 
   it("accepts imageRefId on occlusion-ref cards", () => {
@@ -213,33 +213,37 @@ describe("LearningMaterialProposal", () => {
     );
   });
 
-  it("uses the Kotlin-contract knowledge-type spelling and rejects unknowns", () => {
+  it("normalizes near-miss knowledge types and buckets unknowns as general", () => {
     expect(validateLearningMaterialProposal(proposal({ knowledgeType: "dateEvent" })).ok).toBe(
       true
     );
-    expect(
-      validateLearningMaterialProposal(invalid(proposal(), { knowledgeType: "date-event" })).ok
-    ).toBe(false);
-    expect(
-      validateLearningMaterialProposal(invalid(proposal(), { knowledgeType: "diagram" })).ok
-    ).toBe(false);
-    expect(
-      validateLearningMaterialProposal(invalid(proposal(), { knowledgeType: "vibe" })).ok
-    ).toBe(false);
+    // On-device near-misses (v2.6.2 EPUB report) are salvaged, not rejected:
+    const aliased = validateLearningMaterialProposal(proposal({ knowledgeType: "date-event" as unknown as LearningMaterialProposal["knowledgeType"] }));
+    expect(aliased.ok).toBe(true);
+    if (aliased.ok) expect(aliased.value.knowledgeType).toBe("dateEvent");
+    // "diagram" is not a knowledge type (occlusion is image-driven) — bucketed generically.
+    const diagram = validateLearningMaterialProposal(proposal({ knowledgeType: "diagram" as unknown as LearningMaterialProposal["knowledgeType"] }));
+    expect(diagram.ok).toBe(true);
+    if (diagram.ok) expect(diagram.value.knowledgeType).toBe("general");
+    const unknown = validateLearningMaterialProposal(proposal({ knowledgeType: "vibe" as unknown as LearningMaterialProposal["knowledgeType"] }));
+    expect(unknown.ok).toBe(true);
+    if (unknown.ok) expect(unknown.value.knowledgeType).toBe("general");
   });
 
   it("rejects malformed payloads without partial output", () => {
     expect(validateLearningMaterialProposal(null).ok).toBe(false);
     expect(validateLearningMaterialProposal("text").ok).toBe(false);
     expect(validateLearningMaterialProposal([]).ok).toBe(false);
-    expect(validateLearningMaterialProposal({ ...proposal(), importance: 4 }).ok).toBe(false);
-    expect(validateLearningMaterialProposal({ ...proposal(), importance: "high" }).ok).toBe(false);
+    // importance is coerced (4 → 0.8 on a 0–10 scale, "high" → 0.75) instead of
+    // failing the envelope; only structural malformation still rejects.
+    expect(validateLearningMaterialProposal({ ...proposal(), importance: 4 }).ok).toBe(true);
+    expect(validateLearningMaterialProposal({ ...proposal(), importance: "high" }).ok).toBe(true);
     expect(
       validateLearningMaterialProposal({ ...proposal(), suggestedCards: "many" }).ok
     ).toBe(false);
-    expect(
-      validateLearningMaterialProposal({ ...proposal(), rationale: "" }).ok
-    ).toBe(false);
+    // Empty rationale is replaced with a default (device report: omitted
+    // metadata must not kill the envelope).
+    expect(validateLearningMaterialProposal({ ...proposal(), rationale: "" }).ok).toBe(true);
     const missing = validateLearningMaterialProposal({ importance: 0.5 });
     expect(missing.ok).toBe(false);
     expect(missing.ok === false && missing.errors.length).toBeGreaterThan(0);
@@ -337,9 +341,10 @@ describe("RecallQuestionProposal", () => {
   it("rejects malformed payloads", () => {
     expect(validateRecallQuestionProposal({ question: "Q?" }).ok).toBe(false);
     expect(validateRecallQuestionProposal(null).ok).toBe(false);
+    // A non-array conceptKeys defaults to []; core fields still reject.
     expect(
       validateRecallQuestionProposal({ ...recall(), conceptKeys: "mitochondria" }).ok
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -443,10 +448,10 @@ describe("PrerequisiteAnalysis", () => {
     expect(validatePrerequisiteAnalysis({ prerequisites: [] }).ok).toBe(true);
   });
 
-  it("rejects entries missing concept or why", () => {
-    expect(
-      validatePrerequisiteAnalysis({ prerequisites: [{ concept: "X" }] }).ok
-    ).toBe(false);
+  it("defaults a missing why; concept stays required", () => {
+    expect(validatePrerequisiteAnalysis({ prerequisites: [{ concept: "X" }] }).ok).toBe(
+      true
+    );
     expect(
       validatePrerequisiteAnalysis({ prerequisites: [{ why: "because" }] }).ok
     ).toBe(false);
@@ -532,15 +537,19 @@ describe("TutorTurn", () => {
     ).toBe(true);
   });
 
-  it("rejects bad moves, hint levels, and promotion shapes", () => {
+  it("rejects bad moves/hint levels; unusable promotions are dropped, not fatal", () => {
     expect(validateTutorTurn(invalid(turn(), { move: "answer" })).ok).toBe(false);
     expect(validateTutorTurn(invalid(turn(), { hintLevel: 4 })).ok).toBe(false);
     expect(validateTutorTurn(invalid(turn(), { hintLevel: 1.5 })).ok).toBe(false);
     expect(validateTutorTurn(invalid(turn(), { stuckDetected: "yes" })).ok).toBe(false);
-    expect(validateTutorTurn(invalid(turn(), { promoteToCard: { question: "Q?" } })).ok).toBe(
-      false
-    );
     expect(validateTutorTurn(invalid(turn(), { content: "" })).ok).toBe(false);
+    // Device report: promoteToCard arrived as a plain string — dropped, turn valid.
+    const stringPromotion = validateTutorTurn(invalid(turn(), { promoteToCard: "eigenvectors" }));
+    expect(stringPromotion.ok).toBe(true);
+    if (stringPromotion.ok) expect(stringPromotion.value.promoteToCard).toBeUndefined();
+    const partial = validateTutorTurn(invalid(turn(), { promoteToCard: { question: "Q?" } }));
+    expect(partial.ok).toBe(true);
+    if (partial.ok) expect(partial.value.promoteToCard).toBeUndefined();
   });
 
   it("rejects non-objects", () => {

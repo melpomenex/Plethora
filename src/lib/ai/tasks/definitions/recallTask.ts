@@ -28,8 +28,8 @@ import type { AITaskDefinition, AITaskRunOptions } from "../types";
 export const RECALL_QUESTION_TASK_ID = "recall-question";
 
 /** Fast-class latency budget for a single-question generation. */
-export const RECALL_QUESTION_TIMEOUT_MS = 20_000;
-export const RECALL_QUESTION_MAX_OUTPUT_TOKENS = 150;
+export const RECALL_QUESTION_TIMEOUT_MS = 45_000;
+export const RECALL_QUESTION_MAX_OUTPUT_TOKENS = 350;
 
 /** One already-read chunk (semantic-index chunk or a stable approximation). */
 export interface RecallChunkInput {

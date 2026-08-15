@@ -59,9 +59,9 @@ describe("learnThisTask definition invariants (design D4/D9/D16)", () => {
     expect(learnThisTask.modelClass).toBe("full");
     expect(learnThisTask.outputKind).toBe("structured");
     expect(learnThisTask.maxOutputTokens).toBe(LEARN_THIS_MAX_OUTPUT_TOKENS);
-    expect(LEARN_THIS_MAX_OUTPUT_TOKENS).toBe(600);
+    expect(LEARN_THIS_MAX_OUTPUT_TOKENS).toBe(1500);
     expect(learnThisTask.timeoutMs).toBe(LEARN_THIS_TIMEOUT_MS);
-    expect(LEARN_THIS_TIMEOUT_MS).toBe(20_000);
+    expect(LEARN_THIS_TIMEOUT_MS).toBe(60_000);
   });
 
   it("declares the canonical learningMaterialProposal schema", () => {

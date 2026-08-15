@@ -6103,6 +6103,7 @@ export const en: Dict = {
   "aiLearning.kt.causeEffect": "Cause and effect",
   "aiLearning.kt.dateEvent": "Date / event",
   "aiLearning.kt.example": "Example",
+  "aiLearning.kt.general": "General",
   "aiLearning.ct.qa": "Question / answer",
   "aiLearning.ct.cloze": "Cloze",
   "aiLearning.ct.definition": "Definition",

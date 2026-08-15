@@ -46,7 +46,7 @@ export const ASK_LIBRARY_TASK_ID = "ask-library";
 
 /** Library answering is a full-class task (design D3 policy table). */
 export const ASK_LIBRARY_TIMEOUT_MS = 60_000;
-export const ASK_LIBRARY_MAX_OUTPUT_TOKENS = 600;
+export const ASK_LIBRARY_MAX_OUTPUT_TOKENS = 1200;
 
 /** Default retrieval width for a library question (k≈8 per design D15). */
 export const ASK_LIBRARY_K = DEFAULT_RETRIEVAL_K;

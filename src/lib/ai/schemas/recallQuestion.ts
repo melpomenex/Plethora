@@ -52,10 +52,13 @@ export function validateRecallQuestionProposal(
   const expectedAnswer = checkString(output.expectedAnswer, "expectedAnswer", errors, {
     maxLength: 2000,
   });
-  const conceptKeys = checkStringArray(output.conceptKeys, "conceptKeys", errors, {
-    max: 8,
-    maxLength: 120,
-  });
+  // Near-miss normalization: models omit conceptKeys — default to [].
+  const conceptKeys = checkStringArray(
+    Array.isArray(output.conceptKeys) ? output.conceptKeys : [],
+    "conceptKeys",
+    errors,
+    { max: 8, maxLength: 120 }
+  );
   const chunkRefs = checkStringArray(output.chunkRefs, "chunkRefs", errors, {
     max: 8,
     maxLength: 200,

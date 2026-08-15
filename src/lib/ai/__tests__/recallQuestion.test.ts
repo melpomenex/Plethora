@@ -113,7 +113,9 @@ describe("recall-question eval fixtures through the real pipeline", () => {
 describe("recallQuestionTask definition invariants", () => {
   it("declares the fast model class and a small output ceiling", () => {
     expect(recallQuestionTask.modelClass).toBe("fast");
-    expect(recallQuestionTask.maxOutputTokens).toBeLessThanOrEqual(200);
+    // 350: single-question envelope with expected answer + concept keys;
+    // anything tighter truncates mid-JSON on-device.
+    expect(recallQuestionTask.maxOutputTokens).toBeLessThanOrEqual(350);
     expect(recallQuestionTask.systemInstruction).toContain("untrusted_source");
   });
 });
