@@ -20,25 +20,6 @@ function isWebMode(): boolean {
  * Import a podcast episode as a document in the incremental reading system.
  */
 
-/**
- * Load an episode's full row in the sync wire shape (camelCase), for the
- * podcast replication publish hooks. Returns null if the episode isn't local
- * (the field-LWW merge handles absence). Uses the dedicated sync read command
- * so we don't depend on a store being warm.
- */
-async function loadEpisodeForSync(
-  episodeId: string,
-): Promise<import("../lib/sync/entities/podcasts").SyncedPodcastEpisode | null> {
-  try {
-    return await invokeCommand<import("../lib/sync/entities/podcasts").SyncedPodcastEpisode | null>(
-      "get_synced_podcast_episode",
-      { id: episodeId },
-    );
-  } catch {
-    return null;
-  }
-}
-
 export async function importPodcastEpisodeAsDocument(episodeId: string, collectionId?: string): Promise<any> {
   if (isTauri()) {
     return invokeCommand<any>("import_podcast_episode_as_document", { episodeId, collectionId: collectionId ?? null });
@@ -149,7 +130,6 @@ export async function subscribeToPodcast(feedUrl: string): Promise<PodcastFeed> 
     return browserInvoke<PodcastFeed>("subscribe_podcast", { feedUrl });
   }
   const feed = await invokeCommand<PodcastFeed>("subscribe_podcast", { feedUrl });
-  void publishPodcastFeedSync(feed);
   return feed;
 }
 
@@ -161,7 +141,6 @@ export async function renamePodcastFeed(feedId: string, newTitle: string): Promi
     return browserInvoke<void>("rename_podcast_feed", { feedId, newTitle });
   }
   await invokeCommand<void>("rename_podcast_feed", { feedId, newTitle });
-  void publishPodcastFeedSyncById(feedId);
 }
 
 /**
@@ -172,26 +151,6 @@ export async function unsubscribeFromPodcast(feedId: string): Promise<void> {
     return browserInvoke<void>("unsubscribe_podcast", { feedId });
   }
   await invokeCommand<void>("unsubscribe_podcast", { feedId });
-  void (async () => {
-    try {
-      const { publishPodcastFeedDeleted } = await import("../lib/sync/entities/podcasts");
-      await publishPodcastFeedDeleted(feedId);
-    } catch (error) { console.warn("[podcast] feed delete sync failed", error); }
-  })();
-}
-
-async function publishPodcastFeedSync(feed: PodcastFeed): Promise<void> {
-  try {
-    const { publishPodcastFeed, toSyncedPodcastFeed } = await import("../lib/sync/entities/podcasts");
-    await publishPodcastFeed(toSyncedPodcastFeed(feed as unknown as Record<string, unknown>));
-  } catch (error) { console.warn("[podcast] feed sync publish failed", error); }
-}
-
-async function publishPodcastFeedSyncById(feedId: string): Promise<void> {
-  try {
-    const feed = await invokeCommand<PodcastFeed | null>("get_podcast_feed", { feedId });
-    if (feed) await publishPodcastFeedSync(feed);
-  } catch (error) { console.warn("[podcast] feed rename sync failed", error); }
 }
 
 /**
@@ -258,17 +217,6 @@ export async function markEpisodePlayed(
 ): Promise<void> {
   if (isTauri()) {
     await invokeCommand<void>("mark_episode_played", { episodeId, played });
-    // Replicate the played change. Fire-and-forget so playback UX never waits
-    // on sync; field-LWW (played_at/unplayed_at) resolves concurrent toggles.
-    void (async () => {
-      try {
-        const { publishEpisodePlayed } = await import("../lib/sync/entities/podcasts");
-        const row = await loadEpisodeForSync(episodeId);
-        if (row) await publishEpisodePlayed({ row, played });
-      } catch (err) {
-        console.warn("[podcast] sync publish played failed (non-fatal)", err);
-      }
-    })();
     return;
   }
   // Web/PWA: persist to IndexedDB (no cross-device sync from browser).
@@ -286,19 +234,6 @@ export async function updateEpisodePosition(
 ): Promise<void> {
   if (isTauri()) {
     await invokeCommand<void>("update_episode_position", { episodeId, position });
-    // Debounced publish — coalesces a burst of position ticks into one wire write.
-    void (async () => {
-      try {
-        const { publishEpisodePositionDebounced } = await import("../lib/sync/entities/podcasts");
-        publishEpisodePositionDebounced(episodeId, async () => {
-          const row = await loadEpisodeForSync(episodeId);
-          if (!row) throw new Error("episode not found");
-          return { ...row, playbackPosition: position };
-        });
-      } catch (err) {
-        console.warn("[podcast] sync publish position failed (non-fatal)", err);
-      }
-    })();
     return;
   }
   // Web/PWA: persist to IndexedDB (no cross-device sync from browser).
@@ -710,15 +645,6 @@ export async function savePodcastTranscriptSegments(
 ): Promise<void> {
   if (isTauri()) {
     await invokeCommand<void>("save_podcast_transcript_segments", { episodeId, segments });
-    try {
-      const { publishPodcastEpisode } = await import("../lib/sync/entities/podcasts");
-      const row = await loadEpisodeForSync(episodeId);
-      if (row) {
-        await publishPodcastEpisode(row);
-      }
-    } catch (err) {
-      console.warn("[podcast] sync publish transcript segments failed", err);
-    }
     return;
   }
   console.warn("[Browser] savePodcastTranscriptSegments: no-op in browser fallback mode");
@@ -740,15 +666,6 @@ export async function savePodcastTranscript(
       error: error ?? null,
       transcript: transcript ?? null,
     });
-    try {
-      const { publishPodcastEpisode } = await import("../lib/sync/entities/podcasts");
-      const row = await loadEpisodeForSync(episodeId);
-      if (row) {
-        await publishPodcastEpisode(row);
-      }
-    } catch (err) {
-      console.warn("[podcast] sync publish transcript failed", err);
-    }
     return;
   }
   throw new Error("Transcripts not available in browser mode");

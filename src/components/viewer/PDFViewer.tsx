@@ -74,7 +74,6 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { loadPdfMobilePreferences, pdfMobilePreferencesFromSettings, savePdfMobilePreferences } from "./pdfMobilePreferences";
 import { PdfReflowOcrController, type PdfPageOcrUpdate } from "./pdfReflowOcr";
 import { anchorFromReflowBlock, resolveReflowBlock } from "./pdfAnchorResolver";
-import { ReaderFileDownload } from "../sync/ReaderFileDownload";
 import type { PdfVimRuntime } from "../../utils/vim/readerRuntimes";
 import { useReaderVolumeNavigation } from "../../hooks/useReaderVolumeNavigation";
 import { ReaderTapZones } from "./ReaderTapZones";
@@ -3545,7 +3544,7 @@ export function PDFViewer({
         <div className="p-4 bg-destructive/10 border border-destructive text-destructive rounded-lg m-4">
           <p className="font-medium">{pdfErrorUserMessage(error)}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc?.fileId), hasLocalFile: Boolean(doc?.filePath) }).includes("retry") && (
+            {pdfRecoveryActionsFor(error, { hasSyncedFile: false, hasLocalFile: Boolean(doc?.filePath) }).includes("retry") && (
               <button
                 type="button"
                 className="min-h-11 rounded-md border border-destructive/40 px-4 text-sm font-medium"
@@ -3554,7 +3553,7 @@ export function PDFViewer({
                 Try again
               </button>
             )}
-            {doc?.filePath && pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc.fileId), hasLocalFile: true }).includes("open-original") && (
+            {doc?.filePath && pdfRecoveryActionsFor(error, { hasSyncedFile: false, hasLocalFile: true }).includes("open-original") && (
               <button
                 type="button"
                 className="min-h-11 rounded-md border border-destructive/40 px-4 text-sm"
@@ -3563,7 +3562,7 @@ export function PDFViewer({
                 Open original
               </button>
             )}
-            {pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc?.fileId), hasLocalFile: Boolean(doc?.filePath) }).includes("copy-diagnostics") && <button
+            {pdfRecoveryActionsFor(error, { hasSyncedFile: false, hasLocalFile: Boolean(doc?.filePath) }).includes("copy-diagnostics") && <button
               type="button"
               className="min-h-11 rounded-md border border-destructive/40 px-4 text-sm"
               onClick={() => void navigator.clipboard?.writeText(diagnosticsRef.current.toSafeText())}
@@ -3571,8 +3570,7 @@ export function PDFViewer({
               Copy diagnostics
             </button>}
           </div>
-          {doc && pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc.fileId), hasLocalFile: Boolean(doc.filePath) }).includes("download") && <ReaderFileDownload doc={doc} />}
-          {pdfRecoveryActionsFor(error, { hasSyncedFile: Boolean(doc?.fileId), hasLocalFile: Boolean(doc?.filePath) }).includes("locate") && (
+          {pdfRecoveryActionsFor(error, { hasSyncedFile: false, hasLocalFile: Boolean(doc?.filePath) }).includes("locate") && (
             <p className="mt-2 text-sm">Re-import or locate the original PDF from the document menu.</p>
           )}
         </div>

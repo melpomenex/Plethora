@@ -75,9 +75,6 @@ const AIProviderSettings = lazySection("AIProviderSettings", () =>
 const ImportExportSettingsComponent = lazySection("ImportExportSettings", () =>
   import("./ImportExportSettings").then((m) => ({ default: m.ImportExportSettings }))
 );
-const SyncSettingsOriginal = lazySection("SyncSettings", () =>
-  import("./SyncSettings").then((m) => ({ default: m.SyncSettings }))
-);
 const LearningSettings = lazySection("LearningSettings", () =>
   import("./LearningSettings").then((m) => ({ default: m.LearningSettings }))
 );
@@ -134,7 +131,6 @@ export enum SettingsTab {
   AI = "ai",
   AudioTranscription = "audio-transcription",
   TTS = "tts",
-  Sync = "sync",
   Integrations = "integrations",
   CloudStorage = "cloud-storage",
   ImportExport = "import-export",
@@ -269,13 +265,6 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
     icon: SpeakerHigh,
     keywords: ["tts", "text to speech", "fal", "voice clone", "speech synthesis", "audio output"],
     description: "Configure Fal.ai voices, cloning, and generation presets",
-  },
-  {
-    id: SettingsTab.Sync,
-    label: "settings.sync",
-    icon: ArrowsClockwise,
-    keywords: ["synchronization", "backup", "cloud", "export", "import", "data transfer"],
-    description: "Data synchronization settings",
   },
   {
     id: SettingsTab.Integrations,
@@ -687,7 +676,6 @@ export function SettingsPage() {
               <AiIndexPanel />
             </div>
           )}
-          {activeTab === SettingsTab.Sync && <SyncSettings onChange={() => setHasChanges(true)} />}
           {activeTab === SettingsTab.Integrations && <IntegrationSettings />}
           {activeTab === SettingsTab.CloudStorage && (
             <CloudStorageSettings onChange={() => setHasChanges(true)} />
@@ -1462,10 +1450,6 @@ function ShortcutSettings({ onChange }: { onChange: () => void }) {
 
 function AISettings({ onChange }: { onChange: () => void }) {
   return <AIProviderSettings onChange={onChange} />;
-}
-
-function SyncSettings({ onChange: _onChange }: { onChange: () => void }) {
-  return <SyncSettingsOriginal />;
 }
 
 function ImportExportSettings({ onChange }: { onChange: () => void }) {

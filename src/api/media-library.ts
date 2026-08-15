@@ -1,5 +1,3 @@
-import { enqueueSyncOperation } from "../lib/sync/syncJournal";
-import { nowHLC } from "../lib/sync/syncClock";
 
 /**
  * Media library management for organizing video and audio files
@@ -181,7 +179,6 @@ export function recordPlayback(id: string, position: number): void {
     items[index].playCount += 1;
     items[index].position = position;
     saveMediaItems(items);
-    void enqueueSyncOperation({ domain: "mediaPositions", entityKey: id, operation: "upsert", payload: { id, position }, clock: nowHLC() });
   }
 }
 
@@ -194,7 +191,6 @@ export function updatePlaybackPosition(id: string, position: number): void {
   if (index !== -1) {
     items[index].position = position;
     saveMediaItems(items);
-    void enqueueSyncOperation({ domain: "mediaPositions", entityKey: id, operation: "upsert", payload: { id, position }, clock: nowHLC() });
   }
 }
 

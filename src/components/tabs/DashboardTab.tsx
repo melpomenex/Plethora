@@ -228,16 +228,6 @@ export function DashboardTab() {
     });
   };
 
-  const openSyncSettings = () => {
-    localStorage.setItem("incrementum_settings_initial_tab", "sync");
-    addTab({
-      title: t("nav.settings"),
-      icon: null,
-      type: "settings",
-      content: SettingsTab,
-      closable: true,
-    });
-  };
 
   const importDocument = () => {
     const documentsAction = quickActions.find((action) => action.id === "documents")!;
@@ -553,36 +543,6 @@ export function DashboardTab() {
             </div>
           </div>
 
-          {/* Sync Card */}
-          <div className="border border-primary/20 bg-primary/[0.04] rounded-xl p-4 md:p-6">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 bg-primary/10 rounded-lg">
-                <svg
-                  className="w-5 h-5 text-primary"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v4m0 0l-2-2m2 2l2-2M8 8h8v8H8V8zm0 8l2 2m-2-2l2 2m4-2l-2 2m2-2l-2 2"
-                  />
-                </svg>
-              </div>
-              <h3 className="font-semibold text-foreground">{t("dashboard.deviceSync")}</h3>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">
-              {t("dashboard.syncDescription")}
-            </p>
-            <button
-              onClick={openSyncSettings}
-              className="w-full py-2.5 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
-            >
-              {t("dashboard.setupSync")}
-            </button>
-          </div>
         </div>
         </SummarySection>
 

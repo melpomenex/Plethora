@@ -13,19 +13,6 @@ import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { emitFeedback } from "../lib/feedback";
 import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
-import { markSyncPhaseStart } from "../lib/sync/syncTelemetry";
-
-let fileSyncModPromise: Promise<typeof import("../lib/fileSyncRegistration")> | null = null;
-let docReplicationModPromise: Promise<typeof import("../lib/documentReplication")> | null = null;
-
-function getFileSyncModule() {
-  if (!fileSyncModPromise) fileSyncModPromise = import("../lib/fileSyncRegistration");
-  return fileSyncModPromise;
-}
-function getDocReplicationModule() {
-  if (!docReplicationModPromise) docReplicationModPromise = import("../lib/documentReplication");
-  return docReplicationModPromise;
-}
 
 /**
  * Apply the user's default-category setting to a freshly imported document
@@ -46,38 +33,6 @@ async function applyDefaultCategoryIfNeeded(doc: Document): Promise<void> {
     Object.assign(doc, updated);
   } catch (e) {
     console.warn("[documentStore] failed to apply default category on import", e);
-  }
-}
-
-function registerImportedFileSyncLazy(doc: Document): Promise<string | null> {
-  return getFileSyncModule().then(({ registerImportedFileSync }) => registerImportedFileSync(doc));
-}
-
-function registerExistingFilesSyncLazy(docs: Document[]): Promise<void> {
-  return getFileSyncModule().then(({ registerExistingFilesSync }) => registerExistingFilesSync(docs));
-}
-
-function publishDocumentLazy(doc: Document): Promise<void> {
-  return getDocReplicationModule().then(({ publishDocument }) => publishDocument(doc));
-}
-
-function deleteDocumentSyncLazy(id: string): Promise<void> {
-  return getDocReplicationModule().then(({ deleteDocumentSync }) => deleteDocumentSync(id));
-}
-
-function runDeferredSyncSetup(task: () => void): void {
-  type IdleWindow = Window & {
-    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-  };
-  if (typeof window === "undefined") {
-    setTimeout(task, 0);
-    return;
-  }
-  const win = window as IdleWindow;
-  if (typeof win.requestIdleCallback === "function") {
-    win.requestIdleCallback(task, { timeout: 5000 });
-  } else {
-    setTimeout(task, 1500);
   }
 }
 
@@ -272,7 +227,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         );
         return { documents: mergedDocs, isLoading: false };
       });
-      void registerExistingFilesSyncLazy(docs);
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : "Failed to load documents",
@@ -285,12 +239,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     set({ documents, isLoading: false, error: null });
     // File manifests and local binary registration can be large on mobile;
     // the first render only needs the metadata projection above.
-    runDeferredSyncSetup(() => {
-      const endHydration = markSyncPhaseStart("background-hydration");
-      void registerExistingFilesSyncLazy(documents).finally(() => {
-        endHydration({ records: documents.length, surface: "startup" });
-      });
-    });
   },
 
   hydrateDocument: async (id) => {
@@ -347,9 +295,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         isLoading: false,
         currentPage: page,
         totalPages: Math.max(1, Math.ceil(snapshot.documents.total / 50)),
-      });
-      runDeferredSyncSetup(() => {
-        void registerExistingFilesSyncLazy(snapshot.documents.items);
       });
     } catch (error) {
       set({
@@ -411,7 +356,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       documents: state.documents.filter((doc) => doc.id !== id),
       currentDocument: state.currentDocument?.id === id ? null : state.currentDocument,
     }));
-    await deleteDocumentSyncLazy(id);
   },
 
   /**
@@ -440,8 +384,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         return { pendingDeletions: newPending };
       });
 
-      await deleteDocumentSyncLazy(id);
-
+  
       return { success: true };
     } catch (error) {
       // Rollback on failure
@@ -500,8 +443,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
             : state.currentDocument,
       }));
       for (const id of result.succeeded) {
-        await deleteDocumentSyncLazy(id);
-      }
+          }
       return result;
     },
 
@@ -596,24 +538,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       const doc = await documentsApi.importDocument(filePath, collectionId);
       await applyDefaultCategoryIfNeeded(doc);
 
-      // Register with sync manifest (best-effort, see importFromFiles).
-      const fileId = await registerImportedFileSyncLazy(doc).catch((e) => {
-        console.warn("[documentStore] file-sync registration failed", e);
-        return null;
-      });
-      if (fileId) {
-        doc.fileId = fileId;
-        doc.metadata = { ...doc.metadata, fileId };
-        await documentsApi.upsertSyncedDocument(doc).catch((e) => {
-          console.warn("[documentStore] failed to save fileId to SQLite metadata", e);
-        });
-      }
-
-      // Publish the doc row to the sync room (see importFromFiles).
-      await publishDocumentLazy(doc).catch((e) => {
-        console.warn("[documentStore] document publish failed", e);
-      });
-
       set((state) => ({
         documents: [...state.documents, doc],
         isImporting: false,
@@ -702,22 +626,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         try {
           const doc = await documentsApi.importDocument(filePath, collectionId);
           await applyDefaultCategoryIfNeeded(doc);
-
-          const fileId = await registerImportedFileSyncLazy(doc).catch((e) => {
-            console.warn("[documentStore] file-sync registration failed", e);
-            return null;
-          });
-          if (fileId) {
-            doc.fileId = fileId;
-            doc.metadata = { ...doc.metadata, fileId };
-            await documentsApi.upsertSyncedDocument(doc).catch((e) => {
-              console.warn("[documentStore] failed to save fileId to SQLite metadata", e);
-            });
-          }
-
-          await publishDocumentLazy(doc).catch((e) => {
-            console.warn("[documentStore] document publish failed", e);
-          });
 
           imported.push(doc);
 
@@ -919,15 +827,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         console.warn('[DocumentStore] Failed to update document fully:', updateError);
       }
 
-      // Publish the doc row to the sync room so other devices' libraries
-      // receive it. URL imports (YouTube, web articles, etc.) store the URL in
-      // filePath and have no local file bytes to transfer via the file-sync
-      // layer — the URL IS the content, so the receiver opens it directly.
-      // Without this publish, the doc never leaves the importing device.
-      await publishDocumentLazy(doc).catch((e) => {
-        console.warn("[documentStore] document publish failed", e);
-      });
-
       set((state) => ({
         documents: [...state.documents, doc],
         isImporting: false,
@@ -990,12 +889,6 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       } catch (updateError) {
         console.warn('[DocumentStore] Failed to update document fully:', updateError);
       }
-
-      // Publish the doc row to the sync room (see importFromUrl). arXiv imports
-      // are URL/PDF-content documents with no device-local file to transfer.
-      await publishDocumentLazy(doc).catch((e) => {
-        console.warn("[documentStore] document publish failed", e);
-      });
 
       set((state) => ({
         documents: [...state.documents, doc],
@@ -1087,14 +980,4 @@ if (isTauri()) {
     console.warn("[DocumentStore] Failed to register listener for browser-sync://document-saved:", err);
   });
 
-  runDeferredSyncSetup(() => {
-    void import("../lib/yjsSync").then(({ registerRoomChangeListener }) => {
-      registerRoomChangeListener(() => {
-        const docs = useDocumentStore.getState().documents;
-        void registerExistingFilesSyncLazy(docs);
-      });
-    }).catch((err) => {
-      console.warn("[DocumentStore] Failed to register sync room-change listener:", err);
-    });
-  });
 }

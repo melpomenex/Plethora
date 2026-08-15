@@ -86,15 +86,6 @@ if (typeof window !== 'undefined') {
       return;
     }
 
-    if (message.includes("TextDecoder") && message.includes("encoded data was not valid")) {
-      event.preventDefault();
-      // A decode failure is isolated to the sync subsystem. Never wipe the
-      // entire local Yjs database or reload the app from a global rejection:
-      // local SQLite remains usable and the scoped recovery UI can retry the
-      // affected provider/domain when the user chooses.
-      console.error('[Yjs] Decode failure detected; sync is paused for recovery.', reason);
-      window.dispatchEvent(new CustomEvent("incrementum:sync-corruption", { detail: { message } }));
-    }
   });
 }
 
@@ -107,10 +98,9 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
-import { isNativeMobile, isPWA, isTauri } from "./lib/tauri";
+import { isNativeMobile, isTauri } from "./lib/tauri";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 import { installConsoleLogcatBridge } from "./lib/consoleLogcatBridge";
-import { markSyncPhaseStart } from "./lib/sync/syncTelemetry";
 import { startReminderScheduler } from "./lib/feedback/reminderScheduler";
 import { startTranscriptionConfigMirror } from "./lib/transcriptionConfigMirror";
 
@@ -253,12 +243,6 @@ function runAfterFirstPaint(task: () => void, idleTimeout = 3000) {
   });
 }
 
-function initLocalStorageSyncLazy(): Promise<void> {
-  return import("./lib/localStorageSync").then(({ initLocalStorageSync }) =>
-    initLocalStorageSync(),
-  );
-}
-
 // The browser-extension server runs in Rust, while the current AI settings UI
 // is backed by the persisted LLM provider registry in the WebView. Bridge the
 // selected provider after hydration on every native startup so HTTP AI routes
@@ -281,52 +265,13 @@ runAfterFirstPaint(() => {
   startReminderScheduler();
 });
 
-// Initialize localStorage -> Yjs sync (shared state across devices). Keep the
-// module lazy on native/Tauri boot so the Yjs/hash-wasm dependency chain stays
-// out of the first render path.
-if (isPWA()) {
-  runAfterFirstPaint(() => {
-    initLocalStorageSyncLazy().catch((error) => {
-      console.error("[main.tsx] Failed to initialize local storage sync:", error);
-    });
-  });
-}
-
-// Boot the full Yjs sync subsystem chain (provider → file sync → auto-download
-// → document/card/RSS/podcast replication → first-join backfill).
-//
-// Desktop: automatic, but after first paint. The chain can still do expensive
-// crypto/IndexedDB work on first launch, so keep it off the bootstrap path.
-//
-// Native mobile: DEFERRED past first paint. The eager chain previously caused
-// OutOfMemoryError on Android (~189MB allocation against a 512MB Java heap
-// during boot — see commit 524f087a). Deferring to idle keeps that allocation
-// off the bootstrap critical path: the React tree mounts and the UI is
-// interactive before the (large) sync room is pulled into the WebView heap.
-// Sync still comes up automatically — just not during the splash. The user can
-// also force it on immediately via the SyncSettings real-time-sync toggle,
-// which calls startSyncSubsystems() directly.
-if (isTauri()) {
-  const bootSync = () => {
-    import("./lib/startSyncSubsystems")
-      .then(({ startSyncSubsystems }) => startSyncSubsystems())
-      .then(() => {
-        // localStorage bridge depends on the shared yjs doc created above; start
-        // it once the subsystem chain is up so settings/collections mirror too.
-        if (isPWA() || isTauri()) {
-          return initLocalStorageSyncLazy();
-        }
-      })
-      .catch((error) => {
-        console.error("[main.tsx] Failed to initialize Yjs sync subsystems:", error);
-      });
-  };
-
-  // Start after first paint. The progressive scheduler keeps replay/projection
-  // work in short idle slices, so sync remains automatic without making the
-  // local shell wait for the room or network.
-  runAfterFirstPaint(bootSync);
-}
+// One-time removal of real-time-sync residue (y-indexeddb databases, stale
+// localStorage keys) on installs that predate the sync removal.
+runAfterFirstPaint(() => {
+  import("./lib/syncResidueCleanup").then(({ runSyncResidueCleanup }) =>
+    runSyncResidueCleanup(),
+  );
+});
 
 // Dev/Tauri: ensure no service worker or cache is present to avoid stale assets.
 if ((import.meta.env.DEV || isTauri()) && "serviceWorker" in navigator) {
@@ -385,8 +330,6 @@ if (isTauri()) {
 
 const rootEl = document.getElementById("root") as HTMLElement;
 const reactRoot = ReactDOM.createRoot(rootEl);
-const endFirstPaint = markSyncPhaseStart("first-paint");
-const endLocalUsable = markSyncPhaseStart("local-usable");
 reactRoot.render(
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
@@ -426,6 +369,4 @@ reactRoot.render(
 // runtime errors (it should only do that for bootstrap failures).
 requestAnimationFrame(() => {
   rootEl?.setAttribute("data-incrementum-mounted", "true");
-  endFirstPaint();
-  endLocalUsable();
 });

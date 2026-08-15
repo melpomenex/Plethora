@@ -676,15 +676,6 @@ export async function importYouTubeVideo(url: string, collectionId?: string): Pr
     return await browserInvoke<Document>("import_youtube_video", { url, collectionId: collectionId ?? null });
   }
   const doc = await invokeCommand<Document>("import_youtube_video", { url, collectionId: collectionId ?? null });
-  // Publish so other devices' libraries receive the YouTube doc. Its filePath
-  // is the watch URL (the content), so the receiver opens it directly — no
-  // file-sync transfer involved. Fire-and-forget; dynamic import avoids the
-  // static cycle (documentReplication -> this module).
-  if (doc) {
-    void import("../lib/documentReplication")
-      .then(({ publishDocument }) => publishDocument(doc))
-      .catch(() => {});
-  }
   return doc;
 }
 
@@ -715,32 +706,6 @@ export async function fetchTwitterVideoInfo(url: string): Promise<TwitterVideoIn
  */
 export async function importTwitterVideo(url: string, collectionId?: string): Promise<Document> {
   const doc = await invokeCommand<Document>("import_twitter_video", { url, collectionId: collectionId ?? null });
-  // Twitter downloads a local MP4, so — unlike YouTube — the receiver needs the
-  // file-sync layer to obtain the bytes. Register the file (manifest entry +
-  // lazy loader + background upload to the file-service), stamp the fileId onto
-  // the doc + metadata, persist it, then publish the row. Mirrors the local-
-  // file import path (see documentStore.importFromFile). Fire-and-forget via
-  // dynamic import to avoid the static cycle (fileSyncRegistration ->
-  // documentReplication -> this module).
-  if (doc) {
-    void import("../lib/fileSyncRegistration")
-      .then(async ({ registerImportedFileSync }) => {
-        const fileId = await registerImportedFileSync(doc).catch((e) => {
-          console.warn("[importTwitterVideo] file-sync registration failed", e);
-          return null;
-        });
-        if (fileId) {
-          doc.fileId = fileId;
-          doc.metadata = { ...doc.metadata, fileId };
-          await upsertSyncedDocument(doc).catch((e) => {
-            console.warn("[importTwitterVideo] failed to save fileId to metadata", e);
-          });
-        }
-        const { publishDocument } = await import("../lib/documentReplication");
-        await publishDocument(doc);
-      })
-      .catch(() => {});
-  }
   return doc;
 }
 
@@ -786,18 +751,6 @@ export async function updateDocumentProgressAuto(
       currentViewState: viewStatePayload,
     });
 
-    // Re-publish so other devices learn the new position. The command returns
-    // the full updated Document, so we pass it straight through (no refetch).
-    // Dynamic import breaks the static cycle: documentReplication imports this
-    // module. Fire-and-forget — the local save already succeeded; sync must
-    // never block the viewer's save path.
-    if (updated) {
-      void import("../lib/documentReplication")
-        .then(({ republishDocumentPosition }) =>
-          republishDocumentPosition(updated),
-        )
-        .catch(() => {});
-    }
     return updated;
   } catch (error) {
     // Non-critical — scroll/page position save can fail (e.g. disk I/O on Pi)
@@ -948,11 +901,4 @@ export async function deleteBundleImages(docId: string): Promise<void> {
     return;
   }
   return await invokeCommand<void>("delete_bundle_images", { docId });
-}
-
-export async function upsertSyncedDocument(document: Document): Promise<Document> {
-  const result = isWebMode()
-    ? await browserInvoke<Document>("upsert_synced_document", { document })
-    : await invokeCommand<Document>("upsert_synced_document", { document });
-  return mapDocument(result) as Document;
 }

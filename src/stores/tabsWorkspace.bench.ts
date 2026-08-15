@@ -6,23 +6,8 @@
  * a nested split-pane tree, and the reuse scan performed when a tab is opened.
  * The render-level costs live in the jsdom lane
  * (`src/components/common/Tabs/tabWorkspace.bench.tsx`).
- *
- * Two modules are stubbed so the benchmark measures the *production* path:
- *
- * - `../lib/sync/syncTelemetry` — `measureTabSwitch` is a pass-through in
- *   release builds but allocates a telemetry sample and schedules a callback
- *   whenever `DEV` or `VITEST` is set, which is always true under this runner.
- *   Measuring it would price the diagnostics, not the reducer.
- * - `../lib/sync/progressiveScheduler` — only reachable from the telemetry
- *   callback above, and it pulls in the whole sync subsystem at import time.
- *
- * `localStorage` is stubbed to a Map so `saveTabs` measures the snapshot build
- * rather than a host storage implementation that does not exist in Node.
- *
- * Inputs are built from fixed constants and the shared seeded PRNG (see
- * `src/test/bench-support.ts`) — never `Math.random()`, never the clock.
  */
-import { bench, describe, vi } from "vitest";
+import { bench, describe } from "vitest";
 import type { ComponentType } from "react";
 import { seededRandom } from "../test/bench-support";
 import {
@@ -34,14 +19,6 @@ import {
   type Pane,
   type TabType,
 } from "./tabsStore";
-
-vi.mock("../lib/sync/syncTelemetry", () => ({
-  measureTabSwitch: <T,>(work: () => T) => work(),
-}));
-
-vi.mock("../lib/sync/progressiveScheduler", () => ({
-  getProgressiveSyncScheduler: () => ({ stats: () => ({ queued: 0 }) }),
-}));
 
 // `saveTabs` writes to `localStorage`, which Node does not implement. A Map is
 // enough: the benchmark is about building the snapshot, not storing it.

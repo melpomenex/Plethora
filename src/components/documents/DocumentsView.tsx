@@ -88,7 +88,6 @@ import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
 import { invokeCommand, isTauri, isNativeMobile } from "../../lib/tauri";
 import { renderPdfCover } from "../../lib/pdfCoverRender";
-import { DocumentFileSyncBadge } from "../sync/DocumentFileSyncBadge";
 import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
 import { useI18n } from "../../lib/i18n";
 import { findCompanionDoc } from "../../utils/documentPairing";
@@ -1745,7 +1744,6 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                               {doc.fileType}
                             </span>
                             <DueDateBadge doc={doc} />
-                            <DocumentFileSyncBadge doc={doc} />
                             {(doc.fileType === 'audio' || doc.fileType === 'video') && (() => {
                               const store = useTranscriptionQueueStore.getState();
                               const entry = store.getEntryForDocument(doc.id);

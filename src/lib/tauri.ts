@@ -7,7 +7,6 @@
  */
 
 import { browserInvoke } from './browser-backend.js';
-import { measureSyncPhase } from './sync/syncTelemetry';
 
 let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
 let tauriApiLoadPromise: Promise<void> | null = null;
@@ -327,7 +326,7 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
     }
     try {
       if (command !== "wait_for_backend_ready") {
-        backendReadyPromise ??= measureSyncPhase("backend-ready", awaitBackendReadyWithRetry);
+        backendReadyPromise ??= awaitBackendReadyWithRetry();
         await backendReadyPromise;
       }
       return await tauriInvoke(command, args) as T;

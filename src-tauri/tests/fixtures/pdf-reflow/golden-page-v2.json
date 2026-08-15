@@ -1,0 +1,163 @@
+{
+  "pageNumber": 237,
+  "width": 612.0,
+  "height": 792.0,
+  "rotation": 0,
+  "state": "ready",
+  "classification": "semantic-with-warnings",
+  "confidence": 0.875,
+  "textCoverage": 0.5,
+  "words": [
+    {
+      "id": "p237:w0",
+      "pageNumber": 237,
+      "text": "international",
+      "sourceBbox": {
+        "x0": 105.0,
+        "y0": 700.0,
+        "x1": 140.0,
+        "y1": 712.0
+      },
+      "sourceFragments": [
+        {
+          "x0": 105.0,
+          "y0": 700.0,
+          "x1": 118.0,
+          "y1": 712.0
+        },
+        {
+          "x0": 90.0,
+          "y0": 686.0,
+          "x1": 108.0,
+          "y1": 698.0
+        }
+      ],
+      "bboxExact": false,
+      "readingOrder": 0,
+      "confidence": 1.0,
+      "source": "native-pdf-text",
+      "dehyphenated": true,
+      "font": {
+        "size": 11.0,
+        "bold": false,
+        "italic": false,
+        "family": "g_d0_f1"
+      }
+    },
+    {
+      "id": "p237:w1",
+      "pageNumber": 237,
+      "text": "genome",
+      "sourceBbox": {
+        "x0": 142.0,
+        "y0": 700.0,
+        "x1": 175.0,
+        "y1": 712.0
+      },
+      "sourceFragments": [],
+      "bboxExact": true,
+      "readingOrder": 1,
+      "confidence": 1.0,
+      "source": "native-pdf-text",
+      "dehyphenated": false,
+      "font": {
+        "size": 11.0,
+        "bold": false,
+        "italic": true,
+        "family": null
+      }
+    }
+  ],
+  "lines": [
+    {
+      "id": "p237:l0",
+      "wordIds": [
+        "p237:w0",
+        "p237:w1"
+      ],
+      "bbox": {
+        "x0": 105.0,
+        "y0": 700.0,
+        "x1": 175.0,
+        "y1": 712.0
+      },
+      "baselineY": 702.5,
+      "readingOrder": 0
+    }
+  ],
+  "blocks": [
+    {
+      "id": "p237:b0",
+      "kind": "paragraph",
+      "role": "body",
+      "pageNumber": 237,
+      "sourceRegions": [
+        {
+          "pageNumber": 237,
+          "bbox": {
+            "x0": 105.0,
+            "y0": 700.0,
+            "x1": 175.0,
+            "y1": 712.0
+          }
+        }
+      ],
+      "wordIds": [
+        "p237:w0",
+        "p237:w1"
+      ],
+      "lineIds": [
+        "p237:l0"
+      ],
+      "readingOrder": 0,
+      "confidence": 0.75,
+      "text": "international genome",
+      "direction": "ltr",
+      "language": "en",
+      "items": null,
+      "table": null,
+      "assetId": null,
+      "altText": null,
+      "captionOf": null,
+      "href": null,
+      "extraction": "native-pdf-text"
+    },
+    {
+      "id": "p237:b1",
+      "kind": "figure",
+      "role": "body",
+      "pageNumber": 237,
+      "sourceRegions": [
+        {
+          "pageNumber": 237,
+          "bbox": {
+            "x0": 105.0,
+            "y0": 400.0,
+            "x1": 510.0,
+            "y1": 583.0
+          }
+        }
+      ],
+      "wordIds": [],
+      "lineIds": [],
+      "readingOrder": 1,
+      "confidence": 0.5,
+      "text": "",
+      "direction": "auto",
+      "language": null,
+      "items": null,
+      "table": null,
+      "assetId": "f00fbeef4711c0de4711c0de4711c0de4711c0de4711c0de4711c0de",
+      "altText": "Diagram of the mitochondrial genome",
+      "captionOf": null,
+      "href": null,
+      "extraction": "graphical"
+    }
+  ],
+  "warnings": [
+    "figure-region-low-confidence"
+  ],
+  "errorCategory": null,
+  "schemaVersion": 2,
+  "engineVersion": "rust-hybrid-v2"
+}

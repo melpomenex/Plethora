@@ -5,7 +5,6 @@
 
 import * as db from './database.js';
 import { getBrowserFile } from './browser-file-store';
-import { createYjsFilePath, downloadRoomFile, parseYjsFilePath, uploadRoomFile } from './yjs-file-service.js';
 import { parseAnkiPackage, convertAnkiToLearningItems } from '../utils/ankiParserBrowser';
 import {
     getDemoContentStatus,
@@ -1200,7 +1199,7 @@ const commandHandlers: Record<string, CommandHandler> = {
 
         // browser-file://: new uploads from file picker / drag-drop (in-memory store).
         // browser-fetched://: files fetched via fetch_url_content and stored in IndexedDB.
-        // For both, we attempt to upload to yjs-sync and rewrite file_path to yjs-file://...
+        // Store the file locally in IndexedDB under its incoming key.
         let sourceFile: File | null = null;
         if (filePath.startsWith('browser-file://')) {
             const file = getBrowserFile(filePath);
@@ -1219,18 +1218,13 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         if (sourceFile) {
-            // Upload to yjs-sync file service (so other devices can fetch it),
-            // and store a local cached copy keyed by the yjs-file:// path.
+            // Store the file in IndexedDB under its original key.
             try {
-                const meta = await uploadRoomFile(sourceFile);
-                finalFilePath = createYjsFilePath(meta.room, meta.id, meta.filename);
-                await db.storeFile(sourceFile, finalFilePath);
-            } catch (e) {
-                console.warn('[Browser] yjs-sync upload failed, falling back to local-only file:', e);
-                // Fallback: ensure it is in IndexedDB under its original key.
                 await db.storeFile(sourceFile, filePath);
-                finalFilePath = filePath;
+            } catch (e) {
+                console.warn('[Browser] file storage failed:', e);
             }
+            finalFilePath = filePath;
 
             if (fileType === 'pdf' || fileType === 'epub') {
                 try {
@@ -1418,22 +1412,6 @@ const commandHandlers: Record<string, CommandHandler> = {
         const filePath = args.filePath as string;
         const blobToBytes = async (blob: Blob): Promise<Uint8Array> =>
             new Uint8Array(await blob.arrayBuffer());
-
-        // yjs-file://...: try IndexedDB cache first; otherwise download from yjs-sync and cache it.
-        const yjsInfo = parseYjsFilePath(filePath);
-        if (yjsInfo) {
-            const cached = await db.getFile(filePath);
-            if (cached) {
-                return await blobToBytes(cached.blob);
-            }
-
-            const blob = await downloadRoomFile(yjsInfo.room, yjsInfo.id);
-            const filename = yjsInfo.filename || 'document';
-            const contentType = blob.type || 'application/octet-stream';
-            const file = new File([blob], filename, { type: contentType });
-            await db.storeFile(file, filePath);
-            return await blobToBytes(file);
-        }
 
         // If it's a browser-file:// path, try to find it in the file store first (IndexedDB)
         if (filePath.startsWith('browser-file://')) {

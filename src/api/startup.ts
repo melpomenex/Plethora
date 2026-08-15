@@ -11,7 +11,6 @@ import {
   type StartupSurface,
 } from "../types/startup";
 import type { Document } from "../types/document";
-import { markSyncPhaseStart, recordStartupRequest } from "../lib/sync/syncTelemetry";
 import { normalizeUnixTimestampMs } from "../utils/relativeTime";
 
 interface StartupPageWire<T> {
@@ -55,8 +54,6 @@ export async function getStartupSnapshot(options: {
   queueMode?: "due-today" | "due-all";
 } = {}): Promise<StartupSnapshot> {
   const surface = options.surface ?? "dashboard";
-  const endPhase = markSyncPhaseStart("startup-command");
-  recordStartupRequest("get_startup_snapshot");
   const args = {
     includeQueue: options.includeQueue ?? surface === "queue",
     documentLimit: STARTUP_DOCUMENT_LIMIT,
@@ -104,19 +101,11 @@ export async function getStartupSnapshot(options: {
 
     // Keep the response-size budget observable without retaining the payload.
     const bytes = bytesOf(raw);
-    endPhase({
-      bytes,
-      records: documents.length + queue.length,
-      hasMore: snapshot.documents.hasMore || snapshot.queue.hasMore,
-      request: "get_startup_snapshot",
-      surface,
-    });
     if (bytes > STARTUP_RESPONSE_BYTE_BUDGET) {
       console.warn(`[startup] snapshot exceeded 256 KiB (${bytes} bytes)`);
     }
     return snapshot;
   } catch (error) {
-    endPhase({ request: "get_startup_snapshot", surface });
     throw error;
   }
 }

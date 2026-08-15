@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { getStartupSnapshot } from "../api/startup";
 import type { StartupSnapshot, StartupSurface } from "../types/startup";
-import { markSyncPhaseStart } from "../lib/sync/syncTelemetry";
 import { useCollectionStore } from "./collectionStore";
 import { useDocumentStore } from "./documentStore";
 import { useQueueStore } from "./queueStore";
@@ -80,9 +79,6 @@ export const useStartupStore = create<StartupState>((set, get) => ({
       lastSurface: surface,
       lastQueueMode: surface === "queue" ? (options?.queueMode ?? "due-all") : null,
     });
-    const endCollectionPhase = markSyncPhaseStart("collections-ready");
-    const endDocumentPhase = markSyncPhaseStart("first-document-data");
-    const endQueuePhase = surface === "queue" ? markSyncPhaseStart("first-queue-data") : null;
     let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
     const snapshotTimeout = new Promise<null>((resolve) => {
       snapshotTimer = setTimeout(() => resolve(null), SNAPSHOT_REQUEST_TIMEOUT_MS);
@@ -97,9 +93,6 @@ export const useStartupStore = create<StartupState>((set, get) => ({
           // reset the status machine so a retry starts cleanly. The legacy
           // fallback deliberately does NOT run — its invokes would queue
           // behind the same stalled bridge.
-          endCollectionPhase({ request: "get_startup_snapshot", surface });
-          endDocumentPhase({ request: "get_startup_snapshot", surface });
-          endQueuePhase?.({ request: "get_startup_snapshot", surface });
           set({ status: "idle" });
           return null;
         }
@@ -109,9 +102,6 @@ export const useStartupStore = create<StartupState>((set, get) => ({
         // do not reject the first authoritative response in that state.
         const collectionState = useCollectionStore.getState();
         if (collectionState.loaded && collectionState.activeCollectionId !== snapshot.activeCollectionId) {
-          endCollectionPhase({ request: "get_startup_snapshot", surface });
-          endDocumentPhase({ request: "get_startup_snapshot", surface });
-          endQueuePhase?.({ request: "get_startup_snapshot", surface });
           return null;
         }
         useCollectionStore.getState().hydrateStartup(
@@ -119,11 +109,6 @@ export const useStartupStore = create<StartupState>((set, get) => ({
           snapshot.activeCollectionId,
           snapshot.dueCount,
         );
-        endCollectionPhase({
-          records: snapshot.collections.length,
-          request: "get_startup_snapshot",
-          surface,
-        });
         useDocumentStore.getState().hydrateStartupDocuments(snapshot.documents.items);
         if (surface === "queue") {
           useQueueStore.getState().hydrateStartupQueue(snapshot.queue.items);
@@ -136,24 +121,9 @@ export const useStartupStore = create<StartupState>((set, get) => ({
           lastSurface: surface,
           lastQueueMode: surface === "queue" ? (options?.queueMode ?? "due-all") : null,
         });
-        endDocumentPhase({
-          records: snapshot.documents.items.length,
-          hasMore: snapshot.documents.hasMore,
-          request: "get_startup_snapshot",
-          surface,
-        });
-        endQueuePhase?.({
-          records: snapshot.queue.items.length,
-          hasMore: snapshot.queue.hasMore,
-          request: "get_startup_snapshot",
-          surface,
-        });
         return snapshot;
       })
       .catch(async (error) => {
-        endCollectionPhase({ request: "get_startup_snapshot", surface });
-        endDocumentPhase({ request: "get_startup_snapshot", surface });
-        endQueuePhase?.({ request: "get_startup_snapshot", surface });
         try {
           await fallbackToLegacyLoads(surface, options?.queueMode);
           set({

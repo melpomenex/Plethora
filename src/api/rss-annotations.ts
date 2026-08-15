@@ -4,8 +4,6 @@
  */
 
 import { invokeCommand, isTauri } from "../lib/tauri";
-import { enqueueSyncOperation } from "../lib/sync/syncJournal";
-import { nowHLC } from "../lib/sync/syncClock";
 
 export interface RssAnnotation {
   id: string;
@@ -58,7 +56,6 @@ export async function createAnnotationAuto(payload: CreateAnnotationPayload): Pr
     endOffset: payload.end_offset,
     color: payload.color,
   });
-  void enqueueSyncOperation({ domain: "rssAnnotations", entityKey: annotation.id, operation: "append", payload: annotation, clock: nowHLC() });
   return annotation;
 }
 
@@ -82,7 +79,6 @@ export async function updateAnnotationAuto(id: string, updates: Partial<CreateAn
     return res.json();
   }
   const annotation = await invokeCommand<RssAnnotation>("update_annotation", { id, updates });
-  void enqueueSyncOperation({ domain: "rssAnnotations", entityKey: id, operation: "upsert", payload: annotation, clock: nowHLC() });
   return annotation;
 }
 
@@ -93,5 +89,4 @@ export async function deleteAnnotationAuto(id: string): Promise<void> {
     return;
   }
   await invokeCommand<void>("delete_annotation", { id });
-  void enqueueSyncOperation({ domain: "rssAnnotations", entityKey: id, operation: "delete", payload: null, clock: nowHLC() });
 }

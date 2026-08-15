@@ -39,8 +39,6 @@ import { useShallow } from "zustand/react/shallow";
 import { convertFileSrc, isNativeMobile, isTauri } from "../../lib/tauri";
 import { markBusy } from "../../lib/memoryScenario/activity";
 import { shouldUseNativePdfRangeSource } from "./pdfFeatureFlags";
-import { ReaderFileDownload } from "../sync/ReaderFileDownload";
-import { clearInvalidSyncedFilePath } from "../../lib/fileSyncRegistration";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
@@ -2234,14 +2232,6 @@ export function DocumentViewer({
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error("[DocumentViewer] Failed to resolve EPUB stream URL:", error);
-            if (doc.fileId && errorMessage.includes("Invalid EPUB archive")) {
-              await clearInvalidSyncedFilePath(
-                doc.id,
-                doc.fileId,
-                "EPUB archive signature validation failed",
-              );
-              updateDocument(doc.id, { filePath: "", dateModified: doc.dateModified });
-            }
             setMediaError(
               `Unable to open this EPUB${doc.title ? ` (${doc.title})` : ""}. ${errorMessage}`,
             );
@@ -2255,10 +2245,6 @@ export function DocumentViewer({
         // because pdfjs uses XMLHttpRequest internally, which is blocked on asset://.
         const rawBytes = await documentsApi.readDocumentFile(doc.filePath);
         if (rawBytes.length === 0) {
-          if (doc.fileId) {
-            await clearInvalidSyncedFilePath(doc.id, doc.fileId, "read returned zero bytes");
-            updateDocument(doc.id, { filePath: "", dateModified: doc.dateModified });
-          }
           throw new Error(`${inferredType.toUpperCase()} file is empty.`);
         }
         // Ensure the Uint8Array has its own independent ArrayBuffer.
@@ -6882,7 +6868,6 @@ export function DocumentViewer({
                 >
                   Retry playback
                 </button>
-                {currentDocument && <ReaderFileDownload doc={currentDocument} />}
               </div>
             </div>
           ) : (
@@ -7289,7 +7274,6 @@ export function DocumentViewer({
                   )}
                 </>
               )}
-              {currentDocument && <ReaderFileDownload doc={currentDocument} />}
             </div>
           </div>
         )}

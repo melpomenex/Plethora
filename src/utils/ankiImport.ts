@@ -289,14 +289,6 @@ export async function importAnkiPackageFromPicker(
   }
 
   if (Array.isArray(imported) && imported.length > 0) {
-    void (async () => {
-      try {
-        const { publishCards } = await import("../lib/sync/entities/flashcards");
-        await publishCards(imported);
-      } catch (err) {
-        console.warn("[ankiImport] sync publish failed (non-fatal)", err);
-      }
-    })();
   }
 
   return imported;

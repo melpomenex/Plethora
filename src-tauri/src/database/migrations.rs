@@ -2892,6 +2892,29 @@ pub const MIGRATIONS: &[Migration] = &[
         END;
         "#,
     ),
+    // Migration 087: drop the cross-device sync bookkeeping tables.
+    // Real-time sync was removed; these tables held replication state
+    // (outbox/inbox/checkpoints/cutover), never user data. User data lives
+    // in the domain tables and is untouched. DROP IF EXISTS keeps fresh
+    // installs (which never created some of these) valid.
+    Migration::new(
+        "087_drop_sync_tables",
+        r#"
+        DROP TABLE IF EXISTS sync_config;
+        DROP TABLE IF EXISTS sync_queue;
+        DROP TABLE IF EXISTS sync_device_id;
+        DROP TABLE IF EXISTS sync_tombstones;
+        DROP TABLE IF EXISTS sync_outbox;
+        DROP TABLE IF EXISTS sync_inbox;
+        DROP TABLE IF EXISTS sync_applied_operations;
+        DROP TABLE IF EXISTS sync_checkpoints;
+        DROP TABLE IF EXISTS sync_dead_letters;
+        DROP TABLE IF EXISTS sync_projection_hashes;
+        DROP TABLE IF EXISTS sync_migration_state;
+        DROP TABLE IF EXISTS sync_cutover_state;
+        DROP TABLE IF EXISTS sync_cutover_domain_progress;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

@@ -364,23 +364,6 @@ interface AISettings {
   activeRecallMode: ActiveRecallMode;
 }
 
-/**
- * Sync Settings
- */
-interface SyncSettings {
-  enabled: boolean;
-  provider: "dropbox" | "google-drive" | "onedrive";
-  interval: number;
-  onStartup: boolean;
-  lastSync?: string;
-  /** Auto-download behavior for files from other devices */
-  autoDownloadMode: "always" | "wifi-only" | "manual";
-  /** Yjs CRDT real-time sync toggle. Mirrors types/settings.ts SyncSettings. */
-  yjs: {
-    enabled: boolean;
-    url?: string;
-  };
-}
 
 /**
  * Import/Export Settings
@@ -633,7 +616,6 @@ export interface Settings {
   learning: LearningSettings;
   documents: DocumentSettings;
   ai: AISettings;
-  sync: SyncSettings;
   importExport: ImportExportSettings;
   notifications: NotificationSettings;
   privacy: PrivacySettings;
@@ -830,14 +812,6 @@ export const defaultSettings: Settings = {
     },
     memoryEnabled: false,
   },
-  sync: {
-    enabled: false,
-    provider: "dropbox",
-    interval: 3600,
-    onStartup: false,
-    autoDownloadMode: "wifi-only",
-    yjs: { enabled: false, url: "" },
-  },
   importExport: {
     autoBackup: false,
     backupInterval: 86400,
@@ -1030,24 +1004,6 @@ export const useSettingsStore = create<SettingsState>()(
         if (root?.ai && version < 3) {
           root.ai.pwaAssistantButtonEnabled = false;
         }
-        // v3 -> v4: ensure the yjs sync settings field exists with the right
-        // shape. The onRehydrateStorage merge already applies defaults, but we
-        // explicitly seed it here so the toggle renders correctly even if a
-        // user opens Settings before the rehydration callback fires.
-        // NOTE: real-time sync is OPT-IN — we deliberately do NOT auto-enable
-        // it here. We preserve whatever the user previously chose (defaulting
-        // to false when unset), so existing users who never opted in stay
-        // opted out and the app does not start syncing on its own.
-        if (version < 4) {
-          if (root?.sync) {
-            const existingEnabled = root.sync.yjs?.enabled ?? false;
-            const existingUrl = root.sync.yjs?.url ?? "";
-            root.sync = {
-              ...root.sync,
-              yjs: { enabled: existingEnabled, url: existingUrl },
-            };
-          }
-        }
         // v4 -> v5: animated themes are now gated by `interface.animationsEnabled`
         // instead of being hardcoded off on native mobile. To preserve the
         // mobile behavior users actually experienced (no animation, to avoid
@@ -1137,7 +1093,6 @@ export const useSettingsStore = create<SettingsState>()(
             // to the safe default instead of enabling prompts accidentally.
             activeRecallMode: normalizeActiveRecallMode(persisted.ai?.activeRecallMode),
           },
-          sync: { ...defaultSettings.sync, ...persisted.sync },
           importExport: { ...defaultSettings.importExport, ...persisted.importExport },
           notifications: { ...defaultSettings.notifications, ...persisted.notifications },
           privacy: { ...defaultSettings.privacy, ...persisted.privacy },
