@@ -186,19 +186,27 @@ mod tests {
         use crate::database::Repository;
 
         let repo = Repository::new(pool.clone());
-        super::test_support::seed_document(&pool, "rt-1", "Round trip content with several words. ", "text").await;
+        super::test_support::seed_document(
+            &pool,
+            "rt-1",
+            "Round trip content with several words. ",
+            "text",
+        )
+        .await;
 
-        let backend = EmbeddingBackend::Mock { dim: 16, model: "mock-rt" };
+        let backend = EmbeddingBackend::Mock {
+            dim: 16,
+            model: "mock-rt",
+        };
         index_document_once(&repo, "rt-1", &backend, &mut || true)
             .await
             .expect("round trip index");
 
-        let (state,): (String,) = sqlx::query_as(
-            "SELECT state FROM ai_index_state WHERE document_id = 'rt-1'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let (state,): (String,) =
+            sqlx::query_as("SELECT state FROM ai_index_state WHERE document_id = 'rt-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(state, "indexed");
 
         // Deleting the document cascades chunks, embeddings, and state.

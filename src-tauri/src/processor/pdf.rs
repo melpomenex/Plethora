@@ -245,7 +245,9 @@ pub async fn extract_pdf_pages_text(file_path: &str) -> Result<Vec<String>> {
     let buffer_for_fallback = std::sync::Arc::clone(&buffer);
     let fallback = match tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        tokio::task::spawn_blocking(move || pdf_extract::extract_text_from_mem(&buffer_for_fallback)),
+        tokio::task::spawn_blocking(move || {
+            pdf_extract::extract_text_from_mem(&buffer_for_fallback)
+        }),
     )
     .await
     {

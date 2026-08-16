@@ -1011,7 +1011,8 @@ pub async fn update_document_priority(
     // The slider is a *position* request, not a stored value: resolve it into
     // an order key that lands the document at that rank in the one global
     // priority queue (see database::priority_rank).
-    let score = crate::database::priority_rank::key_for_slider(repo.db_pool(), slider_value).await?;
+    let score =
+        crate::database::priority_rank::key_for_slider(repo.db_pool(), slider_value).await?;
 
     let updated = repo
         .update_document_priority(&id, rating_value, slider_value, score)
@@ -1723,7 +1724,11 @@ mod browser_import_recovery_tests {
         // A fresh load (simulating `extract_document_text`'s second read) must
         // now see the healed full body, not the original empty content — the
         // parity guarantee between the two commands.
-        let reloaded = repo.get_document(&doc.id).await.expect("reload").expect("present");
+        let reloaded = repo
+            .get_document(&doc.id)
+            .await
+            .expect("reload")
+            .expect("present");
         assert!(
             reloaded
                 .content
@@ -1738,7 +1743,11 @@ mod browser_import_recovery_tests {
     fn content_is_flattened_detects_old_extractor_output() {
         // A whole chapter joined to one line by the old space-collapsing
         // extractor — tens of thousands of chars between newlines.
-        let flattened = format!("Title\n{}\nNext chapter\n{}", "word ".repeat(4000), "word ".repeat(4000));
+        let flattened = format!(
+            "Title\n{}\nNext chapter\n{}",
+            "word ".repeat(4000),
+            "word ".repeat(4000)
+        );
         assert!(content_is_flattened(Some(&flattened)));
 
         // A healthy extraction: many paragraphs, each well under the threshold.

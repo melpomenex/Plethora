@@ -275,8 +275,16 @@ mod tests {
     #[test]
     fn high_priority_surfaces_first() {
         let elems = vec![
-            SortElement { id: "low", priority: 10.0, element_type: SortElementType::Item },
-            SortElement { id: "high", priority: 90.0, element_type: SortElementType::Topic },
+            SortElement {
+                id: "low",
+                priority: 10.0,
+                element_type: SortElementType::Item,
+            },
+            SortElement {
+                id: "high",
+                priority: 90.0,
+                element_type: SortElementType::Topic,
+            },
         ];
         let order = sort_session(&elems, &CombinedSortConfig::default());
         assert_eq!(order[0], 1, "higher-priority element leads");
@@ -287,10 +295,26 @@ mod tests {
         // Two topics and two items, all equal priority. The proportion bias
         // should push toward alternation rather than clustering.
         let elems = vec![
-            SortElement { id: "t1", priority: 50.0, element_type: SortElementType::Topic },
-            SortElement { id: "t2", priority: 50.0, element_type: SortElementType::Topic },
-            SortElement { id: "i1", priority: 50.0, element_type: SortElementType::Item },
-            SortElement { id: "i2", priority: 50.0, element_type: SortElementType::Item },
+            SortElement {
+                id: "t1",
+                priority: 50.0,
+                element_type: SortElementType::Topic,
+            },
+            SortElement {
+                id: "t2",
+                priority: 50.0,
+                element_type: SortElementType::Topic,
+            },
+            SortElement {
+                id: "i1",
+                priority: 50.0,
+                element_type: SortElementType::Item,
+            },
+            SortElement {
+                id: "i2",
+                priority: 50.0,
+                element_type: SortElementType::Item,
+            },
         ];
         let order = sort_session(&elems, &CombinedSortConfig::default());
         let types: Vec<_> = order.iter().map(|&i| elems[i].element_type).collect();
@@ -306,7 +330,10 @@ mod tests {
             }
         }
         max_run = max_run.max(run);
-        assert!(max_run <= 1, "topics and items interleave; max same-type run was {max_run}");
+        assert!(
+            max_run <= 1,
+            "topics and items interleave; max same-type run was {max_run}"
+        );
     }
 
     #[test]
@@ -318,8 +345,16 @@ mod tests {
             let low = Box::leak(format!("low{i}").into_boxed_str());
             let high = Box::leak(format!("high{i}").into_boxed_str());
             let elems = vec![
-                SortElement { id: low, priority: 48.0, element_type: SortElementType::Item },
-                SortElement { id: high, priority: 52.0, element_type: SortElementType::Item },
+                SortElement {
+                    id: low,
+                    priority: 48.0,
+                    element_type: SortElementType::Item,
+                },
+                SortElement {
+                    id: high,
+                    priority: 52.0,
+                    element_type: SortElementType::Item,
+                },
             ];
             let order = sort_session(&elems, &CombinedSortConfig::default());
             assert_eq!(order[0], 1, "id pair {i}: the 52 must lead the 48");
@@ -332,7 +367,11 @@ mod tests {
             .map(|i| SortElement {
                 id: Box::leak(format!("e{i}").into_boxed_str()),
                 priority: 50.0,
-                element_type: if i % 2 == 0 { SortElementType::Topic } else { SortElementType::Item },
+                element_type: if i % 2 == 0 {
+                    SortElementType::Topic
+                } else {
+                    SortElementType::Item
+                },
             })
             .collect();
         let a = sort_session(&elems, &CombinedSortConfig::default());

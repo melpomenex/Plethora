@@ -25,7 +25,6 @@ use crate::commands::semantic_graph::EmbeddingConfigInput;
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 
-
 /// Which backend produced/stores an embedding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EmbeddingBackendKind {
@@ -147,10 +146,9 @@ impl std::fmt::Display for OnDeviceEmbedFailure {
 /// Bridge closure: `(&texts, normalize, kind)` → vectors or a coded failure.
 /// `kind` is "document" (indexing) or "query" (retrieval) and selects the
 /// Gemma prompt template applied natively.
-pub type OnDeviceEmbedFn =
-    dyn Fn(&[String], bool, &str) -> Result<OnDeviceEmbedOutput, OnDeviceEmbedFailure>
-        + Send
-        + Sync;
+pub type OnDeviceEmbedFn = dyn Fn(&[String], bool, &str) -> Result<OnDeviceEmbedOutput, OnDeviceEmbedFailure>
+    + Send
+    + Sync;
 
 /// Process-wide bridge installed by the app setup (Android only). Mutex (not
 /// OnceLock) so tests and teardown can clear it; reads are short critical
@@ -212,8 +210,7 @@ impl EmbeddingBackend {
         // the privacy/offline default (design D10). A deliberately local
         // Ollama config is still honored.
         if let Some(cfg) = config {
-            let is_local =
-                cfg.provider == crate::ai::embeddings::EmbeddingProviderType::Ollama;
+            let is_local = cfg.provider == crate::ai::embeddings::EmbeddingProviderType::Ollama;
             if !is_local && on_device_embedder().is_some() {
                 tracing::info!(
                     provider = %crate::ai::embedding_config::provider_name(cfg),
@@ -328,7 +325,9 @@ impl EmbeddingBackend {
     /// Embed a single text (query-side embedding at retrieval time): the
     /// on-device backend uses the query prompt template.
     pub async fn embed_text(&self, text: &str) -> Result<Vec<f32>, EmbeddingUnavailable> {
-        let mut out = self.embed_texts_with_kind(&[text.to_string()], "query").await?;
+        let mut out = self
+            .embed_texts_with_kind(&[text.to_string()], "query")
+            .await?;
         Ok(out.pop().unwrap_or_default())
     }
 
@@ -390,16 +389,14 @@ async fn embed_via_bridge(
         let batch: Vec<String> = batch.to_vec();
         let batch_len = batch.len();
         let kind = kind.to_string();
-        let output = tokio::task::spawn_blocking(move || {
-            embedder(&batch, true, &kind)
-        })
-        .await
-        .map_err(|e| EmbeddingUnavailable {
-            reason: format!("on-device embedding task failed: {e}"),
-        })?
-        .map_err(|f| EmbeddingUnavailable {
-            reason: format!("on-device embedding unavailable ({}): {f}", f.code),
-        })?;
+        let output = tokio::task::spawn_blocking(move || embedder(&batch, true, &kind))
+            .await
+            .map_err(|e| EmbeddingUnavailable {
+                reason: format!("on-device embedding task failed: {e}"),
+            })?
+            .map_err(|f| EmbeddingUnavailable {
+                reason: format!("on-device embedding unavailable ({}): {f}", f.code),
+            })?;
         if output.vectors.len() != batch_len {
             return Err(EmbeddingUnavailable {
                 reason: format!(
@@ -435,11 +432,7 @@ pub fn embedding_is_stale(
 pub fn mock_embedding(text: &str, dim: usize) -> Vec<f32> {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
-    let seed = u64::from_be_bytes(
-        hasher.finalize()[..8]
-            .try_into()
-            .expect("8 bytes"),
-    );
+    let seed = u64::from_be_bytes(hasher.finalize()[..8].try_into().expect("8 bytes"));
     let mut state = seed;
     let mut v = Vec::with_capacity(dim);
     for _ in 0..dim {
@@ -511,10 +504,12 @@ mod tests {
         // Live and stub on-device backends share the version identity.
         let live = EmbeddingBackend::OnDeviceLive {
             model: ON_DEVICE_MODEL,
-            embedder: Arc::new(|_, _, _| Err(OnDeviceEmbedFailure {
-                code: "inference_failed".into(),
-                message: "unused".into(),
-            })),
+            embedder: Arc::new(|_, _, _| {
+                Err(OnDeviceEmbedFailure {
+                    code: "inference_failed".into(),
+                    message: "unused".into(),
+                })
+            }),
         };
         assert_eq!(live.embedding_version(), v1);
         assert_eq!(live.model_name(), backend.model_name());
@@ -530,8 +525,15 @@ mod tests {
         };
         assert!(!backend.is_available());
         assert_eq!(backend.dimension(), 768);
-        let err = backend.embed_texts(&["hello".to_string()]).await.unwrap_err();
-        assert!(err.reason.contains("bridge not installed"), "{}", err.reason);
+        let err = backend
+            .embed_texts(&["hello".to_string()])
+            .await
+            .unwrap_err();
+        assert!(
+            err.reason.contains("bridge not installed"),
+            "{}",
+            err.reason
+        );
         let query_err = backend.embed_text("hello").await.unwrap_err();
         assert!(query_err.reason.contains("bridge not installed"));
     }
@@ -573,9 +575,15 @@ mod tests {
 
         let calls = calls.lock().unwrap();
         assert_eq!(calls.len(), 2, "one call per entry point");
-        assert_eq!(calls[0].2, "document", "batch path uses the document template");
+        assert_eq!(
+            calls[0].2, "document",
+            "batch path uses the document template"
+        );
         assert!(calls[0].1, "vectors are L2-normalized for the index");
-        assert_eq!(calls[1].2, "query", "single-text path uses the query template");
+        assert_eq!(
+            calls[1].2, "query",
+            "single-text path uses the query template"
+        );
         assert_eq!(calls[1].0, ["find this".to_string()]);
     }
 
@@ -644,7 +652,11 @@ mod tests {
             .embed_texts(&["a".to_string(), "b".to_string()])
             .await
             .unwrap_err();
-        assert!(err.reason.contains("returned 1 vectors for 2 texts"), "{}", err.reason);
+        assert!(
+            err.reason.contains("returned 1 vectors for 2 texts"),
+            "{}",
+            err.reason
+        );
 
         let empty = EmbeddingBackend::OnDeviceLive {
             model: ON_DEVICE_MODEL,
@@ -698,7 +710,10 @@ mod tests {
             })
         }));
         let backend = EmbeddingBackend::from_config(None);
-        assert!(backend.is_available(), "installed bridge makes the backend live");
+        assert!(
+            backend.is_available(),
+            "installed bridge makes the backend live"
+        );
         clear_on_device_embedder();
         // And back to stub after teardown.
         let backend = EmbeddingBackend::from_config(None);

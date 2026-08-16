@@ -45,17 +45,24 @@ pub(crate) async fn pool_migrated_up_to(stop_before: &str) -> sqlx::SqlitePool {
             .execute(&pool)
             .await
             .unwrap_or_else(|e| panic!("migration {} failed: {}", migration.name, e));
-        sqlx::query("INSERT INTO _schema_migrations (name, applied_at) VALUES (?1, datetime('now'))")
-            .bind(migration.name)
-            .execute(&pool)
-            .await
-            .expect("record migration");
+        sqlx::query(
+            "INSERT INTO _schema_migrations (name, applied_at) VALUES (?1, datetime('now'))",
+        )
+        .bind(migration.name)
+        .execute(&pool)
+        .await
+        .expect("record migration");
     }
     panic!("migration {} not found", stop_before);
 }
 
 /// Seed a minimal document row.
-pub(crate) async fn seed_document(pool: &sqlx::SqlitePool, id: &str, content: &str, file_type: &str) {
+pub(crate) async fn seed_document(
+    pool: &sqlx::SqlitePool,
+    id: &str,
+    content: &str,
+    file_type: &str,
+) {
     sqlx::query(
         "INSERT INTO documents (id, title, file_path, file_type, content, date_added, date_modified)
          VALUES (?1, ?2, '/tmp/x', ?3, ?4, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",

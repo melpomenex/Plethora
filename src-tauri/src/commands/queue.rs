@@ -47,7 +47,8 @@ pub async fn get_priority_standing(
     let Some(score) = priority_rank::key_of_element(pool, &id).await? else {
         return Ok(None);
     };
-    let (percentile, position, queue_size) = priority_rank::percentile_for_score(pool, score).await?;
+    let (percentile, position, queue_size) =
+        priority_rank::percentile_for_score(pool, score).await?;
     Ok(Some(PriorityStanding {
         percentile,
         position,

@@ -17,7 +17,7 @@
 //! this repository additionally enforces a hard anti-spam backstop of
 //! `MAX_AI_LINKS_PER_DAY` AI-created links per UTC day.
 //!
-//! Follows the sub-repository pattern of `document_repository.rs` / 
+//! Follows the sub-repository pattern of `document_repository.rs` /
 //! `ai_provenance_repository.rs` (owns a `Pool<Sqlite>` clone).
 
 use crate::error::{IncrementumError as Error, Result};
@@ -95,7 +95,10 @@ pub struct ConceptBacklink {
 
 /// Normalize a concept name for dedupe: lowercase, collapse whitespace.
 pub fn normalize_concept_name(name: &str) -> String {
-    name.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ")
+    name.to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn now_rfc3339() -> String {
@@ -173,11 +176,7 @@ impl ConceptRepository {
     /// Insert or reuse a concept by `normalized_name`. A provided
     /// non-empty description replaces a null/empty one; names differing
     /// only in case/whitespace dedupe onto the same row.
-    pub async fn upsert_concept(
-        &self,
-        name: &str,
-        description: Option<&str>,
-    ) -> Result<Concept> {
+    pub async fn upsert_concept(&self, name: &str, description: Option<&str>) -> Result<Concept> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
             return Err(Error::Validation("concept name must not be empty".into()));
@@ -291,11 +290,12 @@ impl ConceptRepository {
         }
 
         if created_by == "ai" {
-            let count: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM concept_links WHERE created_by = 'ai' AND created_at >= ?1")
-                    .bind(utc_day_start())
-                    .fetch_one(&self.pool)
-                    .await?;
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM concept_links WHERE created_by = 'ai' AND created_at >= ?1",
+            )
+            .bind(utc_day_start())
+            .fetch_one(&self.pool)
+            .await?;
             if count >= MAX_AI_LINKS_PER_DAY {
                 return Err(Error::Validation(format!(
                     "concept-link daily cap reached ({MAX_AI_LINKS_PER_DAY} AI links/day)"
@@ -405,7 +405,11 @@ impl ConceptRepository {
             "SELECT {LINK_COLUMNS} FROM concept_links \
              WHERE source_kind = ?1 AND source_id = ?2 {} \
              ORDER BY created_at DESC",
-            if include_dismissed { "" } else { "AND is_dismissed = 0" }
+            if include_dismissed {
+                ""
+            } else {
+                "AND is_dismissed = 0"
+            }
         );
         let rows = sqlx::query(&sql)
             .bind(source_kind)
@@ -427,7 +431,11 @@ impl ConceptRepository {
             "SELECT {LINK_COLUMNS} FROM concept_links \
              WHERE target_kind = ?1 AND target_id = ?2 {} \
              ORDER BY created_at DESC",
-            if include_dismissed { "" } else { "AND is_dismissed = 0" }
+            if include_dismissed {
+                ""
+            } else {
+                "AND is_dismissed = 0"
+            }
         );
         let rows = sqlx::query(&sql)
             .bind(target_kind)
@@ -494,7 +502,10 @@ mod tests {
 
     #[test]
     fn test_normalize_concept_name() {
-        assert_eq!(normalize_concept_name("  Context-Free   Grammars "), "context-free grammars");
+        assert_eq!(
+            normalize_concept_name("  Context-Free   Grammars "),
+            "context-free grammars"
+        );
         assert_eq!(normalize_concept_name("Parse Trees"), "parse trees");
     }
 
@@ -502,16 +513,25 @@ mod tests {
     async fn test_upsert_concept_dedupes_normalized_names() {
         let repo = setup().await;
 
-        let first = repo.upsert_concept("Parse Trees", Some("Tree derivations of a string")).await.unwrap();
+        let first = repo
+            .upsert_concept("Parse Trees", Some("Tree derivations of a string"))
+            .await
+            .unwrap();
         assert_eq!(first.name, "Parse Trees");
         assert_eq!(first.normalized_name, "parse trees");
-        assert_eq!(first.description.as_deref(), Some("Tree derivations of a string"));
+        assert_eq!(
+            first.description.as_deref(),
+            Some("Tree derivations of a string")
+        );
 
         // Same name, different casing/whitespace → same row (no duplicate).
         let again = repo.upsert_concept("  parse   TREES ", None).await.unwrap();
         assert_eq!(again.id, first.id);
         // Existing description survives a None update.
-        assert_eq!(again.description.as_deref(), Some("Tree derivations of a string"));
+        assert_eq!(
+            again.description.as_deref(),
+            Some("Tree derivations of a string")
+        );
 
         // Empty name rejected.
         assert!(repo.upsert_concept("   ", None).await.is_err());
@@ -521,7 +541,10 @@ mod tests {
     async fn test_get_and_find_concepts_by_names() {
         let repo = setup().await;
         let a = repo.upsert_concept("Pumping Lemma", None).await.unwrap();
-        let _b = repo.upsert_concept("Regular Languages", None).await.unwrap();
+        let _b = repo
+            .upsert_concept("Regular Languages", None)
+            .await
+            .unwrap();
 
         let got = repo.get_concept(&a.id).await.unwrap().expect("concept");
         assert_eq!(got.normalized_name, "pumping lemma");
@@ -530,8 +553,8 @@ mod tests {
             .find_concepts_by_names(&[
                 "pumping   lemma".into(), // normalized match
                 "REGULAR LANGUAGES".into(),
-                "missing concept".into(),  // absent → omitted
-                "pumping lemma".into(),    // duplicate input → deduped
+                "missing concept".into(), // absent → omitted
+                "pumping lemma".into(),   // duplicate input → deduped
             ])
             .await
             .unwrap();
@@ -548,9 +571,15 @@ mod tests {
 
         let LinkProposalOutcome::Created(link) = repo
             .propose_link(
-                "document", "doc-1", "concept", &concept.id,
-                "prerequisite-of", 0.8, Some(r#"{"task":"prerequisite-analysis"}"#),
-                Some("fp-doc1-pumping"), "ai",
+                "document",
+                "doc-1",
+                "concept",
+                &concept.id,
+                "prerequisite-of",
+                0.8,
+                Some(r#"{"task":"prerequisite-analysis"}"#),
+                Some("fp-doc1-pumping"),
+                "ai",
             )
             .await
             .unwrap()
@@ -564,11 +593,17 @@ mod tests {
         assert_eq!(link.created_by, "ai");
         assert!(!link.is_dismissed);
 
-        let links_for = repo.list_links_for("document", "doc-1", false).await.unwrap();
+        let links_for = repo
+            .list_links_for("document", "doc-1", false)
+            .await
+            .unwrap();
         assert_eq!(links_for.len(), 1);
         assert_eq!(links_for[0].id, link.id);
 
-        let targeting = repo.list_links_targeting("concept", &concept.id, false).await.unwrap();
+        let targeting = repo
+            .list_links_targeting("concept", &concept.id, false)
+            .await
+            .unwrap();
         assert_eq!(targeting.len(), 1);
 
         let backlinks = repo.backlinks(&concept.id).await.unwrap();
@@ -578,8 +613,15 @@ mod tests {
 
         // Dismissed rows are hidden from the live queries.
         repo.dismiss_link(&link.id).await.unwrap();
-        assert!(repo.list_links_for("document", "doc-1", false).await.unwrap().is_empty());
-        let including = repo.list_links_for("document", "doc-1", true).await.unwrap();
+        assert!(repo
+            .list_links_for("document", "doc-1", false)
+            .await
+            .unwrap()
+            .is_empty());
+        let including = repo
+            .list_links_for("document", "doc-1", true)
+            .await
+            .unwrap();
         assert_eq!(including.len(), 1);
         assert!(including[0].is_dismissed);
         // Backlinks exclude dismissed.
@@ -589,19 +631,46 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_fingerprint_is_idempotent() {
         let repo = setup().await;
-        let concept = repo.upsert_concept("Proof by Contradiction", None).await.unwrap();
+        let concept = repo
+            .upsert_concept("Proof by Contradiction", None)
+            .await
+            .unwrap();
 
         let LinkProposalOutcome::Created(first) = repo
-            .propose_link("chunk", "c1", "concept", &concept.id, "related-to", 0.7, None, Some("fp-1"), "ai")
+            .propose_link(
+                "chunk",
+                "c1",
+                "concept",
+                &concept.id,
+                "related-to",
+                0.7,
+                None,
+                Some("fp-1"),
+                "ai",
+            )
             .await
             .unwrap()
-        else { panic!("first insert") };
+        else {
+            panic!("first insert")
+        };
 
         let LinkProposalOutcome::Duplicate(dup) = repo
-            .propose_link("chunk", "c1", "concept", &concept.id, "related-to", 0.9, None, Some("fp-1"), "ai")
+            .propose_link(
+                "chunk",
+                "c1",
+                "concept",
+                &concept.id,
+                "related-to",
+                0.9,
+                None,
+                Some("fp-1"),
+                "ai",
+            )
             .await
             .unwrap()
-        else { panic!("expected Duplicate") };
+        else {
+            panic!("expected Duplicate")
+        };
         assert_eq!(dup.id, first.id);
 
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM concept_links")
@@ -614,27 +683,57 @@ mod tests {
     #[tokio::test]
     async fn test_dismissed_fingerprint_blocks_reproposal() {
         let repo = setup().await;
-        let concept = repo.upsert_concept("Context-Free Grammars", None).await.unwrap();
+        let concept = repo
+            .upsert_concept("Context-Free Grammars", None)
+            .await
+            .unwrap();
 
         let LinkProposalOutcome::Created(link) = repo
-            .propose_link("document", "doc-9", "concept", &concept.id, "prerequisite-of", 0.65, None, Some("fp-dismiss-me"), "ai")
+            .propose_link(
+                "document",
+                "doc-9",
+                "concept",
+                &concept.id,
+                "prerequisite-of",
+                0.65,
+                None,
+                Some("fp-dismiss-me"),
+                "ai",
+            )
             .await
             .unwrap()
-        else { panic!("insert") };
+        else {
+            panic!("insert")
+        };
 
         // Dismiss → fingerprint remembered.
         let dismissed = repo.dismiss_link(&link.id).await.unwrap().expect("row");
         assert!(dismissed.is_dismissed);
-        assert!(repo.dismissed_fingerprint_exists("fp-dismiss-me").await.unwrap());
+        assert!(repo
+            .dismissed_fingerprint_exists("fp-dismiss-me")
+            .await
+            .unwrap());
         assert!(!repo.dismissed_fingerprint_exists("fp-other").await.unwrap());
 
         // Same fingerprint, later analysis, even with different confidence:
         // refused (Dismissed), no new row.
         let LinkProposalOutcome::Dismissed(blocked) = repo
-            .propose_link("document", "doc-9", "concept", &concept.id, "prerequisite-of", 0.95, None, Some("fp-dismiss-me"), "ai")
+            .propose_link(
+                "document",
+                "doc-9",
+                "concept",
+                &concept.id,
+                "prerequisite-of",
+                0.95,
+                None,
+                Some("fp-dismiss-me"),
+                "ai",
+            )
             .await
             .unwrap()
-        else { panic!("expected Dismissed") };
+        else {
+            panic!("expected Dismissed")
+        };
         assert_eq!(blocked.id, link.id);
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM concept_links")
             .fetch_one(repo.pool())
@@ -643,18 +742,37 @@ mod tests {
         assert_eq!(count, 1);
 
         // Live list stays empty after the blocked re-proposal.
-        assert!(repo.list_links_for("document", "doc-9", false).await.unwrap().is_empty());
+        assert!(repo
+            .list_links_for("document", "doc-9", false)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
     async fn test_accept_sets_user_creator_and_delete_removes() {
         let repo = setup().await;
-        let concept = repo.upsert_concept("Analogous Reasoning", None).await.unwrap();
+        let concept = repo
+            .upsert_concept("Analogous Reasoning", None)
+            .await
+            .unwrap();
         let LinkProposalOutcome::Created(link) = repo
-            .propose_link("extract", "ext-1", "concept", &concept.id, "example-of", 0.7, None, Some("fp-acc"), "ai")
+            .propose_link(
+                "extract",
+                "ext-1",
+                "concept",
+                &concept.id,
+                "example-of",
+                0.7,
+                None,
+                Some("fp-acc"),
+                "ai",
+            )
             .await
             .unwrap()
-        else { panic!("insert") };
+        else {
+            panic!("insert")
+        };
 
         let accepted = repo.accept_link(&link.id).await.unwrap().expect("accepted");
         assert_eq!(accepted.created_by, "user");
@@ -662,7 +780,11 @@ mod tests {
 
         assert!(repo.delete_link(&link.id).await.unwrap());
         assert!(!repo.delete_link(&link.id).await.unwrap());
-        assert!(repo.list_links_targeting("concept", &concept.id, true).await.unwrap().is_empty());
+        assert!(repo
+            .list_links_targeting("concept", &concept.id, true)
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
@@ -671,13 +793,33 @@ mod tests {
         let concept = repo.upsert_concept("Valid Concept", None).await.unwrap();
 
         let err = repo
-            .propose_link("document", "d", "concept", &concept.id, "derives-from", 0.5, None, None, "ai")
+            .propose_link(
+                "document",
+                "d",
+                "concept",
+                &concept.id,
+                "derives-from",
+                0.5,
+                None,
+                None,
+                "ai",
+            )
             .await
             .unwrap_err();
         assert!(err.to_string().to_lowercase().contains("relation"));
 
         let err = repo
-            .propose_link("document", "d", "concept", &concept.id, "related-to", 1.5, None, None, "ai")
+            .propose_link(
+                "document",
+                "d",
+                "concept",
+                &concept.id,
+                "related-to",
+                1.5,
+                None,
+                None,
+                "ai",
+            )
             .await
             .unwrap_err();
         assert!(err.to_string().contains("confidence"));
@@ -706,17 +848,39 @@ mod tests {
         }
 
         let err = repo
-            .propose_link("document", "doc-over", "concept", &concept.id, "related-to", 0.9, None, Some("fp-over"), "ai")
+            .propose_link(
+                "document",
+                "doc-over",
+                "concept",
+                &concept.id,
+                "related-to",
+                0.9,
+                None,
+                Some("fp-over"),
+                "ai",
+            )
             .await
             .unwrap_err();
         assert!(err.to_string().to_lowercase().contains("cap"), "got: {err}");
 
         // User-created links are not subject to the AI cap.
         let LinkProposalOutcome::Created(_) = repo
-            .propose_link("document", "doc-user", "concept", &concept.id, "related-to", 0.9, None, Some("fp-user"), "user")
+            .propose_link(
+                "document",
+                "doc-user",
+                "concept",
+                &concept.id,
+                "related-to",
+                0.9,
+                None,
+                Some("fp-user"),
+                "user",
+            )
             .await
             .unwrap()
-        else { panic!("user link must bypass the ai cap") };
+        else {
+            panic!("user link must bypass the ai cap")
+        };
 
         // Yesterday's AI links do not count against today's window.
         sqlx::query("DELETE FROM concept_links WHERE source_id = 'doc-cap'")
@@ -724,9 +888,21 @@ mod tests {
             .await
             .unwrap();
         let LinkProposalOutcome::Created(_) = repo
-            .propose_link("document", "doc-fresh", "concept", &concept.id, "related-to", 0.9, None, Some("fp-fresh"), "ai")
+            .propose_link(
+                "document",
+                "doc-fresh",
+                "concept",
+                &concept.id,
+                "related-to",
+                0.9,
+                None,
+                Some("fp-fresh"),
+                "ai",
+            )
             .await
             .unwrap()
-        else { panic!("fresh day must allow ai links") };
+        else {
+            panic!("fresh day must allow ai links")
+        };
     }
 }

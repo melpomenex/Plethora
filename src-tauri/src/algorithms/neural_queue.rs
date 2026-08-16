@@ -257,7 +257,11 @@ pub fn propagate_concept_links(
     queue: &mut NeuralQueueBuilder,
 ) {
     for (neighbor_id, is_parent) in graph.concept_neighbors(seed) {
-        let link_priority = if is_parent { CONCEPT_PARENT } else { CONCEPT_CHILD };
+        let link_priority = if is_parent {
+            CONCEPT_PARENT
+        } else {
+            CONCEPT_CHILD
+        };
         // Combine the orchestrator concept weight with the directional weight,
         // then insert. The activation constant is the seed's contribution.
         let combined = combine(ACTIVATION, combine(LINK_CONCEPT, link_priority));
@@ -339,7 +343,11 @@ pub fn propagate_parent_and_siblings(
 
     // Root-article-aware base weight. A root article has no parent.
     let is_root = seed_node.parent_id.is_none();
-    let _base_sibling_weight = if is_root { LINK_SIBLING_ROOT } else { LINK_SIBLING_NORMAL };
+    let _base_sibling_weight = if is_root {
+        LINK_SIBLING_ROOT
+    } else {
+        LINK_SIBLING_NORMAL
+    };
 
     // Walk siblings in both directions. The link priority at generation g is
     // SIBLING_INITIAL * SIBLING_GROWTH^g. We do NOT let it reach the 1.0 floor
@@ -526,7 +534,10 @@ mod tests {
             self.semantic.get(&id).cloned().unwrap_or_default()
         }
         fn intrinsic_priority(&self, id: ElementId) -> f64 {
-            self.intrinsic.get(&id).copied().unwrap_or(INTRINSIC_DEFAULT)
+            self.intrinsic
+                .get(&id)
+                .copied()
+                .unwrap_or(INTRINSIC_DEFAULT)
         }
     }
 
@@ -571,14 +582,20 @@ mod tests {
         let mut max: f64 = 0.0;
         for g in 1..=SIBLING_MAX_GENERATIONS {
             let lp = SIBLING_INITIAL * SIBLING_GROWTH.powi(g as i32);
-            assert!(lp < 1.0, "generation {g} link priority {lp} reached the 1.0 floor");
+            assert!(
+                lp < 1.0,
+                "generation {g} link priority {lp} reached the 1.0 floor"
+            );
             max = max.max(lp);
         }
         // Spec example: generation 4 → 0.3 * 1.1^4 ≈ 0.4392.
         let g4 = SIBLING_INITIAL * SIBLING_GROWTH.powi(4);
         assert!((g4 - 0.4392).abs() < 1e-3, "gen 4 = {g4}");
         // Even the 8th generation stays well under 1.0 (≈0.643).
-        assert!(max < 0.7, "max sibling link priority {max} too close to 1.0");
+        assert!(
+            max < 0.7,
+            "max sibling link priority {max} too close to 1.0"
+        );
     }
 
     #[test]
@@ -683,7 +700,10 @@ mod tests {
         // The queue was built (non-empty)...
         assert!(!entries.is_empty());
         // ...but the intrinsic priorities are byte-for-byte unchanged.
-        assert_eq!(g.intrinsic, snapshot, "neural build must not mutate priorities");
+        assert_eq!(
+            g.intrinsic, snapshot,
+            "neural build must not mutate priorities"
+        );
     }
 
     // ── orchestrator order (spec: concept → inter → descendants → semantic → siblings) ──
@@ -745,7 +765,10 @@ mod tests {
 
         let p2 = q.entries.get(&2).copied();
         let p3 = q.entries.get(&3).copied();
-        assert!(p2.is_some() && p3.is_some(), "both semantic neighbors inserted");
+        assert!(
+            p2.is_some() && p3.is_some(),
+            "both semantic neighbors inserted"
+        );
         assert!(
             p2.unwrap() < p3.unwrap(),
             "higher-similarity neighbor should surface earlier (lower priority value)"
@@ -761,7 +784,10 @@ mod tests {
         let mut q = NeuralQueueBuilder::new();
         propagate_semantic_neighbors(&g, 1, &mut q);
 
-        assert!(q.entries.is_empty(), "no neighbors inserted when semantic map is empty");
+        assert!(
+            q.entries.is_empty(),
+            "no neighbors inserted when semantic map is empty"
+        );
     }
 
     #[test]

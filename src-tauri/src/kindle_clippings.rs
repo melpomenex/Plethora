@@ -1472,19 +1472,17 @@ Deep Work (Cal Newport)
         // document per book with the metadata the generic import path relies
         // on for dedup and backfill.
         let repo = setup_repo().await;
-        let result = do_import_kindle_clippings_from_text(
-            &multi_book_sample(),
-            &repo,
-            None,
-            None,
-        )
-        .await
-        .expect("import");
+        let result = do_import_kindle_clippings_from_text(&multi_book_sample(), &repo, None, None)
+            .await
+            .expect("import");
 
         // Two distinct books → two documents.
         assert_eq!(result.new_documents, 2, "one document per book");
         assert_eq!(result.document_ids.len(), 2);
-        assert!(result.new_extracts >= 3, "highlights + notes become extracts");
+        assert!(
+            result.new_extracts >= 3,
+            "highlights + notes become extracts"
+        );
 
         for id in &result.document_ids {
             let doc = repo
@@ -1576,10 +1574,9 @@ Another original highlight.
         let updated = format!(
             "{original}==========\nDeep Work (Cal Newport)\n- Your Highlight on page 99 | Location 999-1000 | Added on Thursday, March 14, 2024 1:00:00 PM\n\nA brand new highlight added later.\n\n==========\n"
         );
-        let second =
-            do_import_kindle_clippings_from_text(&updated, &repo, None, None)
-                .await
-                .expect("second");
+        let second = do_import_kindle_clippings_from_text(&updated, &repo, None, None)
+            .await
+            .expect("second");
 
         assert_eq!(second.new_documents, 0, "no new books on partial re-import");
         assert_eq!(
@@ -1630,10 +1627,12 @@ Another original highlight.
         // so re-running it on a freshly-migrated DB is safe.)
         db.migrate().await.expect("migrate through 063");
         let pool = db.pool();
-        sqlx::query("DELETE FROM _schema_migrations WHERE name = '064_kindle_clippings_docs_are_markdown'")
-            .execute(pool)
-            .await
-            .expect("un-record 064");
+        sqlx::query(
+            "DELETE FROM _schema_migrations WHERE name = '064_kindle_clippings_docs_are_markdown'",
+        )
+        .execute(pool)
+        .await
+        .expect("un-record 064");
         let repo = Repository::new(pool.clone());
 
         // Insert a legacy Kindle doc with the pre-fix file_type = 'other'.
@@ -1674,14 +1673,22 @@ Another original highlight.
             .await
             .expect("run_migrations");
 
-        let legacy = repo.get_document(legacy_id).await.expect("db").expect("doc");
+        let legacy = repo
+            .get_document(legacy_id)
+            .await
+            .expect("db")
+            .expect("doc");
         assert_eq!(
             legacy.file_type,
             FileType::Markdown,
             "migration 064 must re-type legacy Kindle docs as markdown"
         );
 
-        let control = repo.get_document(control_id).await.expect("db").expect("doc");
+        let control = repo
+            .get_document(control_id)
+            .await
+            .expect("db")
+            .expect("doc");
         assert_eq!(
             control.file_type,
             FileType::Other,

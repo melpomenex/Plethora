@@ -87,9 +87,18 @@ pub async fn propose_concept_link(
         )
         .await?;
     Ok(match outcome {
-        LinkProposalOutcome::Created(link) => LinkProposalResult { outcome: "created".into(), link },
-        LinkProposalOutcome::Duplicate(link) => LinkProposalResult { outcome: "duplicate".into(), link },
-        LinkProposalOutcome::Dismissed(link) => LinkProposalResult { outcome: "dismissed".into(), link },
+        LinkProposalOutcome::Created(link) => LinkProposalResult {
+            outcome: "created".into(),
+            link,
+        },
+        LinkProposalOutcome::Duplicate(link) => LinkProposalResult {
+            outcome: "duplicate".into(),
+            link,
+        },
+        LinkProposalOutcome::Dismissed(link) => LinkProposalResult {
+            outcome: "dismissed".into(),
+            link,
+        },
     })
 }
 
@@ -164,5 +173,7 @@ pub async fn concept_link_fingerprint_dismissed(
     fingerprint: String,
     state: State<'_, crate::database::Repository>,
 ) -> Result<bool> {
-    repo(&state).dismissed_fingerprint_exists(&fingerprint).await
+    repo(&state)
+        .dismissed_fingerprint_exists(&fingerprint)
+        .await
 }

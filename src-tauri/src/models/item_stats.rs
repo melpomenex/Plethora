@@ -331,6 +331,8 @@ mod tests {
         assert_eq!(curve.len(), 31);
         assert!((curve[0].retention - 1.0).abs() < f64::EPSILON);
         assert!(curve[30].retention < curve[1].retention);
-        assert!(curve.iter().all(|p| p.retention > 0.0 && p.retention <= 1.0));
+        assert!(curve
+            .iter()
+            .all(|p| p.retention > 0.0 && p.retention <= 1.0));
     }
 }

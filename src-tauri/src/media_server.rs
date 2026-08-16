@@ -457,18 +457,19 @@ pub async fn get_media_stream_url(
             // Outside the app-managed roots. Authorize only when the path is
             // the stored file path of a registered document, then grant the
             // canonical path so the stream handler serves it without a lookup.
-            let canonical = canonicalize_media_file(Path::new(&file_path)).map_err(|status| {
-                match status {
+            let canonical =
+                canonicalize_media_file(Path::new(&file_path)).map_err(|status| match status {
                     StatusCode::NOT_FOUND => {
                         "Cannot stream media file: file not found on disk".to_string()
                     }
                     _ => "Cannot stream media file: path is not a regular file".to_string(),
-                }
-            })?;
+                })?;
             let mut registered = repo
                 .document_exists_with_file_path(&file_path)
                 .await
-                .map_err(|error| format!("Cannot stream media file: failed to verify registration: {error}"))?;
+                .map_err(|error| {
+                    format!("Cannot stream media file: failed to verify registration: {error}")
+                })?;
             // The request path may differ from the stored `file_path` in
             // separators/`..`/symlink normalization — fall back to matching
             // the canonical path too (both lookups are parameterized; this
@@ -478,7 +479,9 @@ pub async fn get_media_stream_url(
                 registered = repo
                     .document_exists_with_file_path(&canonical_string)
                     .await
-                    .map_err(|error| format!("Cannot stream media file: failed to verify registration: {error}"))?;
+                    .map_err(|error| {
+                        format!("Cannot stream media file: failed to verify registration: {error}")
+                    })?;
             }
             if !registered {
                 return Err(
@@ -551,7 +554,10 @@ mod tests {
 
         // The set never exceeds the bound.
         let size = state.granted_paths.lock().expect("lock").len();
-        assert!(size <= MAX_GRANTED_PATHS, "grant set must stay within the bound");
+        assert!(
+            size <= MAX_GRANTED_PATHS,
+            "grant set must stay within the bound"
+        );
 
         // Eviction semantics: at most MAX entries are still accepted, and
         // re-granting is allowed (a NEW request for an evicted path is simply
@@ -579,7 +585,9 @@ mod tests {
         fs::write(&outside, b"x").expect("fixture");
 
         let roots = vec![roots_dir.path().to_path_buf()];
-        assert!(canonical_path_within_roots_or_granted(&inside, &roots, &state.granted_paths).is_ok());
+        assert!(
+            canonical_path_within_roots_or_granted(&inside, &roots, &state.granted_paths).is_ok()
+        );
         assert_eq!(
             canonical_path_within_roots_or_granted(&outside, &roots, &state.granted_paths)
                 .unwrap_err(),
@@ -602,12 +610,18 @@ mod tests {
             // The exact members at the bound are nondeterministic; drop any
             // current member (e.g. the first granted fixture path that is
             // still resident) to make room.
-            if let Some(victim) = set.iter().find(|p| granted_ids.iter().any(|g| g == *p)).cloned() {
+            if let Some(victim) = set
+                .iter()
+                .find(|p| granted_ids.iter().any(|g| g == *p))
+                .cloned()
+            {
                 set.remove(&victim);
             }
         }
         grant_path(&state, canonical_outside);
-        assert!(canonical_path_within_roots_or_granted(&outside, &roots, &state.granted_paths).is_ok());
+        assert!(
+            canonical_path_within_roots_or_granted(&outside, &roots, &state.granted_paths).is_ok()
+        );
     }
 
     fn temp_file(bytes: &[u8]) -> (PathBuf, PathBuf) {
@@ -646,13 +660,17 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), bytes.len()).await.expect("body");
+        let body = to_bytes(response.into_body(), bytes.len())
+            .await
+            .expect("body");
         assert_eq!(body.as_ref(), bytes);
 
         // After the stream completes, the server state holds only the
         // bounded grant set — and no per-document byte buffers or handles.
         let granted = state.granted_paths.lock().expect("lock");
-        assert!(granted.iter().all(|p| !p.to_string_lossy().contains("fixture")));
+        assert!(granted
+            .iter()
+            .all(|p| !p.to_string_lossy().contains("fixture")));
         assert_eq!(granted.len(), 0);
     }
 

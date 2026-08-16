@@ -232,13 +232,12 @@ impl AutoTranscriptionQueue {
             .execute(repo.pool())
             .await?;
 
-        let transcript_id: i64 = sqlx::query_scalar(
-            "SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?",
-        )
-        .bind(&entry.document_id)
-        .bind(chapter_id)
-        .fetch_one(repo.pool())
-        .await?;
+        let transcript_id: i64 =
+            sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ? AND chapter_id = ?")
+                .bind(&entry.document_id)
+                .bind(chapter_id)
+                .fetch_one(repo.pool())
+                .await?;
         let resume_start_ms: i64 = sqlx::query_scalar(
             "SELECT COALESCE(MAX(end_ms), 0) FROM transcript_segments WHERE transcript_id = ?",
         )

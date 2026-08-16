@@ -107,16 +107,16 @@ async fn set_queue_items_suspended(
 
     for item_id in item_ids {
         let outcome: Result<()> = match resolved.get(item_id) {
-            Some(QueueEntityKind::LearningItem) => {
-                sqlx::query("UPDATE learning_items SET is_suspended = ?, date_modified = ? WHERE id = ?")
-                    .bind(suspended)
-                    .bind(Utc::now())
-                    .bind(item_id)
-                    .execute(repo.pool())
-                    .await
-                    .map(|_| ())
-                    .map_err(crate::error::IncrementumError::from)
-            }
+            Some(QueueEntityKind::LearningItem) => sqlx::query(
+                "UPDATE learning_items SET is_suspended = ?, date_modified = ? WHERE id = ?",
+            )
+            .bind(suspended)
+            .bind(Utc::now())
+            .bind(item_id)
+            .execute(repo.pool())
+            .await
+            .map(|_| ())
+            .map_err(crate::error::IncrementumError::from),
             Some(QueueEntityKind::Document) => repo
                 .update_document_dismiss(item_id, suspended)
                 .await
@@ -621,7 +621,6 @@ pub async fn apply_easy_days(
     Ok(LoadManagementResult { affected, skipped })
 }
 
-
 // ---------------------------------------------------------------------------
 // Batch queue mutations (queue-bulk-actions)
 //
@@ -709,12 +708,14 @@ pub(crate) async fn bulk_update_item_priorities_inner(
                 result.succeeded.push(item_id.clone());
             }
             Some(QueueEntityKind::Extract) => {
-                sqlx::query("UPDATE extracts SET priority_score = ?, date_modified = ? WHERE id = ?")
-                    .bind(score.clamp(0.0, 100.0))
-                    .bind(now)
-                    .bind(item_id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "UPDATE extracts SET priority_score = ?, date_modified = ? WHERE id = ?",
+                )
+                .bind(score.clamp(0.0, 100.0))
+                .bind(now)
+                .bind(item_id)
+                .execute(&mut *tx)
+                .await?;
                 result.succeeded.push(item_id.clone());
             }
             Some(QueueEntityKind::LearningItem) => {
@@ -725,7 +726,9 @@ pub(crate) async fn bulk_update_item_priorities_inner(
             }
             None => {
                 result.failed.push(item_id.clone());
-                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+                result
+                    .errors
+                    .push(format!("{}: {}", item_id, not_found(item_id)));
             }
         }
     }
@@ -815,7 +818,9 @@ pub(crate) async fn bulk_postpone_items_inner(
             }
             None => {
                 result.failed.push(item_id.clone());
-                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+                result
+                    .errors
+                    .push(format!("{}: {}", item_id, not_found(item_id)));
             }
         }
     }
@@ -865,7 +870,9 @@ pub(crate) async fn bulk_move_items_to_collection_inner(
             Some(QueueEntityKind::LearningItem) => "learning_items",
             None => {
                 result.failed.push(item_id.clone());
-                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+                result
+                    .errors
+                    .push(format!("{}: {}", item_id, not_found(item_id)));
                 continue;
             }
         };
@@ -918,7 +925,9 @@ pub(crate) async fn bulk_update_item_tags_inner(
             Some(QueueEntityKind::LearningItem) => "learning_items",
             None => {
                 result.failed.push(item_id.clone());
-                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+                result
+                    .errors
+                    .push(format!("{}: {}", item_id, not_found(item_id)));
                 continue;
             }
         };
@@ -984,7 +993,9 @@ pub(crate) async fn bulk_set_item_lifecycle_inner(
             Some(kind) => *kind,
             None => {
                 result.failed.push(item_id.clone());
-                result.errors.push(format!("{}: {}", item_id, not_found(item_id)));
+                result
+                    .errors
+                    .push(format!("{}: {}", item_id, not_found(item_id)));
                 continue;
             }
         };
@@ -993,13 +1004,11 @@ pub(crate) async fn bulk_set_item_lifecycle_inner(
             // Done / Dismiss both remove the item from the active queue. The
             // difference is intent, not mechanism, for documents and extracts.
             (LifecycleTransition::Done, QueueEntityKind::Document) => {
-                sqlx::query(
-                    "UPDATE documents SET is_archived = 1, date_modified = ? WHERE id = ?",
-                )
-                .bind(now)
-                .bind(item_id)
-                .execute(&mut *tx)
-                .await?;
+                sqlx::query("UPDATE documents SET is_archived = 1, date_modified = ? WHERE id = ?")
+                    .bind(now)
+                    .bind(item_id)
+                    .execute(&mut *tx)
+                    .await?;
             }
             (LifecycleTransition::Dismiss, QueueEntityKind::Document) => {
                 sqlx::query(
@@ -1012,13 +1021,11 @@ pub(crate) async fn bulk_set_item_lifecycle_inner(
             }
             (LifecycleTransition::Done, QueueEntityKind::Extract)
             | (LifecycleTransition::Dismiss, QueueEntityKind::Extract) => {
-                sqlx::query(
-                    "UPDATE extracts SET is_dismissed = 1, date_modified = ? WHERE id = ?",
-                )
-                .bind(now)
-                .bind(item_id)
-                .execute(&mut *tx)
-                .await?;
+                sqlx::query("UPDATE extracts SET is_dismissed = 1, date_modified = ? WHERE id = ?")
+                    .bind(now)
+                    .bind(item_id)
+                    .execute(&mut *tx)
+                    .await?;
             }
             (LifecycleTransition::Done, QueueEntityKind::LearningItem)
             | (LifecycleTransition::Dismiss, QueueEntityKind::LearningItem) => {
@@ -1064,7 +1071,6 @@ pub(crate) async fn bulk_set_item_lifecycle_inner(
     tx.commit().await?;
     Ok(result)
 }
-
 
 // Tauri entry points. The logic lives in the `_inner` helpers above so the
 // tests can drive it with a plain `&Repository` instead of a Tauri `State`.
@@ -1128,13 +1134,23 @@ mod bulk_item_tests {
     }
 
     async fn make_document(repo: &Repository, title: &str) -> String {
-        let doc = Document::new(title.to_string(), format!("/tmp/{}.pdf", title), FileType::Pdf);
-        repo.create_document(&doc).await.expect("create document").id
+        let doc = Document::new(
+            title.to_string(),
+            format!("/tmp/{}.pdf", title),
+            FileType::Pdf,
+        );
+        repo.create_document(&doc)
+            .await
+            .expect("create document")
+            .id
     }
 
     async fn make_extract(repo: &Repository, document_id: &str) -> String {
         let extract = Extract::new(document_id.to_string(), "extract body".to_string());
-        repo.create_extract(&extract).await.expect("create extract").id
+        repo.create_extract(&extract)
+            .await
+            .expect("create extract")
+            .id
     }
 
     async fn make_learning_item(repo: &Repository) -> String {
@@ -1181,8 +1197,19 @@ mod bulk_item_tests {
 
         let result = suspend(&repo, &[extract.clone()], true).await;
 
-        assert_eq!(result.succeeded, vec![extract.clone()], "errors: {:?}", result.errors);
-        assert!(repo.get_extract(&extract).await.unwrap().unwrap().is_dismissed);
+        assert_eq!(
+            result.succeeded,
+            vec![extract.clone()],
+            "errors: {:?}",
+            result.errors
+        );
+        assert!(
+            repo.get_extract(&extract)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_dismissed
+        );
     }
 
     #[tokio::test]
@@ -1192,7 +1219,12 @@ mod bulk_item_tests {
 
         let result = suspend(&repo, &[item.clone()], true).await;
 
-        assert_eq!(result.succeeded, vec![item.clone()], "errors: {:?}", result.errors);
+        assert_eq!(
+            result.succeeded,
+            vec![item.clone()],
+            "errors: {:?}",
+            result.errors
+        );
         assert!(
             repo.get_learning_item_by_id(&item)
                 .await
@@ -1228,7 +1260,14 @@ mod bulk_item_tests {
 
         assert_eq!(result.succeeded.len(), 3, "errors: {:?}", result.errors);
         assert!(!repo.get_document(&doc).await.unwrap().unwrap().is_dismissed);
-        assert!(!repo.get_extract(&extract).await.unwrap().unwrap().is_dismissed);
+        assert!(
+            !repo
+                .get_extract(&extract)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_dismissed
+        );
         assert!(
             !repo
                 .get_learning_item_by_id(&item)
@@ -1462,9 +1501,14 @@ mod bulk_item_tests {
         assert_eq!(result.succeeded, vec![doc.clone()]);
         assert!(result.failed.is_empty());
 
-        bulk_update_item_tags_inner(&repo, vec![doc.clone()], vec![], vec!["physics".to_string()])
-            .await
-            .expect("bulk tag remove");
+        bulk_update_item_tags_inner(
+            &repo,
+            vec![doc.clone()],
+            vec![],
+            vec!["physics".to_string()],
+        )
+        .await
+        .expect("bulk tag remove");
         let tags: String = sqlx::query("SELECT tags FROM documents WHERE id = ?")
             .bind(&doc)
             .fetch_one(repo.pool())
@@ -1490,13 +1534,10 @@ mod bulk_item_tests {
         .await
         .expect("seed review state");
 
-        let result = bulk_set_item_lifecycle_inner(
-            &repo,
-            vec![card.clone()],
-            LifecycleTransition::Forget,
-        )
-        .await
-        .expect("bulk forget");
+        let result =
+            bulk_set_item_lifecycle_inner(&repo, vec![card.clone()], LifecycleTransition::Forget)
+                .await
+                .expect("bulk forget");
         assert_eq!(result.succeeded, vec![card.clone()]);
 
         let row = sqlx::query(

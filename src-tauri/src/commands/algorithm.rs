@@ -300,7 +300,10 @@ pub async fn rate_document(
         result.interval_days = modified;
         result.next_review = Utc::now() + Duration::days(modified);
         result.stability = modified as f64;
-        result.scheduling_reason = format!("{}; interval_modifier={:.1}x", result.scheduling_reason, modifier);
+        result.scheduling_reason = format!(
+            "{}; interval_modifier={:.1}x",
+            result.scheduling_reason, modifier
+        );
     }
 
     let new_reps = document.reps.unwrap_or(0) + 1;
@@ -414,7 +417,10 @@ pub async fn rate_document_engaging(
         result.interval_days = modified;
         result.next_review = Utc::now() + Duration::days(modified);
         result.stability = modified as f64;
-        result.scheduling_reason = format!("{}; interval_modifier={:.1}x", result.scheduling_reason, modifier);
+        result.scheduling_reason = format!(
+            "{}; interval_modifier={:.1}x",
+            result.scheduling_reason, modifier
+        );
     }
 
     let new_reps = review_count + 1;

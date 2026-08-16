@@ -165,12 +165,14 @@ impl Database {
     /// callers that must distinguish corruption from a transient failure (i.e.
     /// anything that decides to quarantine) use `open_checked` directly.
     async fn open_with_integrity_check(path: &Path) -> Result<Self> {
-        Self::open_checked(path).await.map_err(|failure| match failure {
-            OpenFailure::Corrupt(verdict) => {
-                IncrementumError::Internal(format!("Database integrity check failed: {verdict}"))
-            }
-            OpenFailure::Transient(err) => err,
-        })
+        Self::open_checked(path)
+            .await
+            .map_err(|failure| match failure {
+                OpenFailure::Corrupt(verdict) => IncrementumError::Internal(format!(
+                    "Database integrity check failed: {verdict}"
+                )),
+                OpenFailure::Transient(err) => err,
+            })
     }
 
     /// Open the database at `path`, distinguishing a failed structural check

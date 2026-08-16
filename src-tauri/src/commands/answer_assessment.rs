@@ -237,7 +237,8 @@ mod tests {
             completeness: Some(0.7),
             confidence: Some(0.9),
             missing_concepts: vec!["virtual address space".to_string()],
-            misconception: (classification == "misconception").then(|| "confuses paging".to_string()),
+            misconception: (classification == "misconception")
+                .then(|| "confuses paging".to_string()),
             feedback: Some("feedback".to_string()),
             suggested_correction: Some("correction".to_string()),
         }
@@ -276,9 +277,39 @@ mod tests {
     #[tokio::test]
     async fn test_insert_and_fetch_round_trip() {
         let pool = test_pool().await;
-        insert_direct(&pool, "a1", Some("item-1"), Some(42), "misconception", "2026-08-15T10:00:00Z", Some("ondevice-nano"), Some("gemini-nano")).await;
-        insert_direct(&pool, "a2", Some("item-1"), None, "correct", "2026-08-15T11:00:00Z", None, None).await;
-        insert_direct(&pool, "a3", Some("item-2"), None, "partial", "2026-08-15T12:00:00Z", None, None).await;
+        insert_direct(
+            &pool,
+            "a1",
+            Some("item-1"),
+            Some(42),
+            "misconception",
+            "2026-08-15T10:00:00Z",
+            Some("ondevice-nano"),
+            Some("gemini-nano"),
+        )
+        .await;
+        insert_direct(
+            &pool,
+            "a2",
+            Some("item-1"),
+            None,
+            "correct",
+            "2026-08-15T11:00:00Z",
+            None,
+            None,
+        )
+        .await;
+        insert_direct(
+            &pool,
+            "a3",
+            Some("item-2"),
+            None,
+            "partial",
+            "2026-08-15T12:00:00Z",
+            None,
+            None,
+        )
+        .await;
 
         let rows = sqlx::query(
             "SELECT id, review_result_id, item_id, classification, score, completeness, confidence, \
@@ -289,7 +320,11 @@ mod tests {
         .fetch_all(&pool)
         .await
         .unwrap();
-        let records: Vec<AnswerAssessmentRecord> = rows.iter().map(row_to_record).collect::<Result<_>>().unwrap();
+        let records: Vec<AnswerAssessmentRecord> = rows
+            .iter()
+            .map(row_to_record)
+            .collect::<Result<_>>()
+            .unwrap();
 
         assert_eq!(records.len(), 2);
         // Newest first.
@@ -325,10 +360,50 @@ mod tests {
     #[tokio::test]
     async fn test_counts_aggregate_by_classification() {
         let pool = test_pool().await;
-        insert_direct(&pool, "a1", Some("item-1"), None, "correct", "2026-08-15T10:00:00Z", None, None).await;
-        insert_direct(&pool, "a2", Some("item-1"), None, "correct", "2026-08-15T11:00:00Z", None, None).await;
-        insert_direct(&pool, "a3", Some("item-1"), None, "partial", "2026-08-15T12:00:00Z", None, None).await;
-        insert_direct(&pool, "a4", Some("item-2"), None, "incorrect", "2026-08-15T13:00:00Z", None, None).await;
+        insert_direct(
+            &pool,
+            "a1",
+            Some("item-1"),
+            None,
+            "correct",
+            "2026-08-15T10:00:00Z",
+            None,
+            None,
+        )
+        .await;
+        insert_direct(
+            &pool,
+            "a2",
+            Some("item-1"),
+            None,
+            "correct",
+            "2026-08-15T11:00:00Z",
+            None,
+            None,
+        )
+        .await;
+        insert_direct(
+            &pool,
+            "a3",
+            Some("item-1"),
+            None,
+            "partial",
+            "2026-08-15T12:00:00Z",
+            None,
+            None,
+        )
+        .await;
+        insert_direct(
+            &pool,
+            "a4",
+            Some("item-2"),
+            None,
+            "incorrect",
+            "2026-08-15T13:00:00Z",
+            None,
+            None,
+        )
+        .await;
 
         let count = |rows: &Vec<(String, i64)>, classification: &str| -> i64 {
             rows.iter()
@@ -368,9 +443,13 @@ mod tests {
         // The command clamps limits into [1, MAX]; mirror the clamp locally.
         assert_eq!(DEFAULT_ASSESSMENT_LIMIT, 20);
         assert_eq!(MAX_ASSESSMENT_LIMIT, 500);
-        let clamped = None.unwrap_or(DEFAULT_ASSESSMENT_LIMIT).clamp(1, MAX_ASSESSMENT_LIMIT);
+        let clamped = None
+            .unwrap_or(DEFAULT_ASSESSMENT_LIMIT)
+            .clamp(1, MAX_ASSESSMENT_LIMIT);
         assert_eq!(clamped, 20);
-        let zero = Some(0).unwrap_or(DEFAULT_ASSESSMENT_LIMIT).clamp(1, MAX_ASSESSMENT_LIMIT);
+        let zero = Some(0)
+            .unwrap_or(DEFAULT_ASSESSMENT_LIMIT)
+            .clamp(1, MAX_ASSESSMENT_LIMIT);
         assert!(zero >= 1);
     }
 
@@ -422,10 +501,12 @@ mod tests {
         .await
         .expect("payload insert");
 
-        let json: String = sqlx::query_scalar("SELECT missing_concepts FROM answer_assessments WHERE id = 'cmd-1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let json: String = sqlx::query_scalar(
+            "SELECT missing_concepts FROM answer_assessments WHERE id = 'cmd-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         let parsed: Vec<String> = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, vec!["page table".to_string()]);
     }

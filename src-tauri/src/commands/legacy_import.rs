@@ -717,7 +717,10 @@ fn parse_learning_item_row(row: &sqlx::sqlite::SqliteRow) -> Result<LearningItem
         first_reviewed_at: row.try_get("first_reviewed_at").ok().flatten(),
         priority_slider: row.try_get::<i64, _>("priority_slider").unwrap_or(50) as i32,
         priority_score: row.try_get("priority_score").unwrap_or(0.0),
-        priority_explicitly_set: row.try_get::<i64, _>("priority_explicitly_set").unwrap_or(0) != 0,
+        priority_explicitly_set: row
+            .try_get::<i64, _>("priority_explicitly_set")
+            .unwrap_or(0)
+            != 0,
     })
 }
 

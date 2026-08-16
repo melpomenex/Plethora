@@ -1,7 +1,7 @@
 use crate::database::Repository;
 use crate::error::AppError;
-use crate::models::document::{Document, DocumentMetadata, FileType};
 use crate::models::collection::DEFAULT_COLLECTION_ID;
+use crate::models::document::{Document, DocumentMetadata, FileType};
 use crate::models::{ItemType, LearningItem};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -909,12 +909,11 @@ async fn run_notebooklm_command_no_bootstrap(
 /// retained as a migration/read-only fallback so an existing notebooklm-py
 /// installation can be reused without forcing the user to sign in twice.
 fn notebooklm_browser_profile_candidates(ctx: &ProviderContext) -> Vec<PathBuf> {
-    let mut candidates = vec![
-        ctx.app_dir
-            .join("profiles")
-            .join("default")
-            .join("browser_profile"),
-    ];
+    let mut candidates = vec![ctx
+        .app_dir
+        .join("profiles")
+        .join("default")
+        .join("browser_profile")];
 
     if let Some(home) = dirs::home_dir() {
         candidates.push(
@@ -1032,7 +1031,9 @@ except Exception:
         .notebooklm_runtime_site_packages
         .as_ref()
         .ok_or_else(|| {
-            AppError::IntegrationError("bundled NotebookLM site-packages are unavailable".to_string())
+            AppError::IntegrationError(
+                "bundled NotebookLM site-packages are unavailable".to_string(),
+            )
         })?;
     let mut command = Command::new(runtime_python);
     command
@@ -1200,8 +1201,7 @@ fn parse_source_summary_json(value: &serde_json::Value) -> Option<SourceSummary>
     let id = notebook_text(inner, &["id", "source_id"])?;
     let title = notebook_text(inner, &["title", "name"]).unwrap_or_else(|| "Source".to_string());
     let kind = notebook_text(inner, &["kind", "type"]).unwrap_or_else(|| "unknown".to_string());
-    let status =
-        notebook_text(inner, &["status"]).unwrap_or_else(|| "unknown".to_string());
+    let status = notebook_text(inner, &["status"]).unwrap_or_else(|| "unknown".to_string());
     Some(SourceSummary {
         id,
         title,
@@ -1222,7 +1222,10 @@ fn parse_source_list_json(value: &serde_json::Value) -> Vec<SourceSummary> {
             .cloned()
             .unwrap_or_default()
     };
-    source_array.iter().filter_map(parse_source_summary_json).collect()
+    source_array
+        .iter()
+        .filter_map(parse_source_summary_json)
+        .collect()
 }
 
 /// Parse the JSON output of `notebooklm create <title> --json` into a
@@ -1232,10 +1235,14 @@ fn parse_source_list_json(value: &serde_json::Value) -> Vec<SourceSummary> {
 /// `notebook` object: `{"notebook": {"id", "title", "created_at", ...}}`.
 /// Older CLI shapes put `id`/`title` at the top level directly. Both are
 /// accepted; returns `None` when no id can be found.
-fn parse_create_notebook_json(value: &serde_json::Value, fallback_title: &str) -> Option<NotebookSummary> {
+fn parse_create_notebook_json(
+    value: &serde_json::Value,
+    fallback_title: &str,
+) -> Option<NotebookSummary> {
     let inner = value.get("notebook").unwrap_or(value);
     let id = notebook_text(inner, &["id", "notebook_id"])?;
-    let title = notebook_text(inner, &["title", "name"]).unwrap_or_else(|| fallback_title.to_string());
+    let title =
+        notebook_text(inner, &["title", "name"]).unwrap_or_else(|| fallback_title.to_string());
     Some(NotebookSummary {
         id,
         title,
@@ -1475,12 +1482,11 @@ impl NotebookLMProvider for CliNotebookLMProvider {
         )
         .await?;
         if let Some(json) = result.json() {
-            return parse_create_notebook_json(&json, title)
-                .ok_or_else(|| {
-                    AppError::IntegrationError(
-                        "NotebookLM CLI create did not return notebook ID".to_string(),
-                    )
-                });
+            return parse_create_notebook_json(&json, title).ok_or_else(|| {
+                AppError::IntegrationError(
+                    "NotebookLM CLI create did not return notebook ID".to_string(),
+                )
+            });
         }
         Err(AppError::IntegrationError(
             "NotebookLM CLI create returned non-JSON output. Re-run command manually with --json."
@@ -3779,7 +3785,12 @@ pub async fn notebooklm_export_job_artifact(
         // Text content (reports, study guides) and structured content
         // (mind-maps, data-tables) live outside flashcards/quiz payloads —
         // omitting them produced an empty file for those types.
-        if let Some(raw) = job.payload.raw_text.as_ref().filter(|r| !r.trim().is_empty()) {
+        if let Some(raw) = job
+            .payload
+            .raw_text
+            .as_ref()
+            .filter(|r| !r.trim().is_empty())
+        {
             if !lines.is_empty() {
                 lines.push(String::new());
             }
@@ -3974,7 +3985,9 @@ async fn retrieve_artifact_media(
     );
     fs::rename(&temp_path, &final_path).map_err(|e| {
         let _ = fs::remove_file(&temp_path);
-        AppError::Internal(format!("Failed to move downloaded artifact into place: {e}"))
+        AppError::Internal(format!(
+            "Failed to move downloaded artifact into place: {e}"
+        ))
     })?;
     Ok(final_path)
 }
@@ -3990,7 +4003,11 @@ async fn ocr_imported_infographic(image_path: &str) -> Option<String> {
     match crate::commands::ocr::ocr_image_file(request).await {
         Ok(response) => {
             let text = response.text.trim().to_string();
-            if text.is_empty() { None } else { Some(text) }
+            if text.is_empty() {
+                None
+            } else {
+                Some(text)
+            }
         }
         Err(err) => {
             tracing::warn!(
@@ -4042,16 +4059,9 @@ pub async fn notebooklm_import_job_artifact(
     let artifact_type = normalize_cli_type(&job.artifact_type);
 
     // Already-imported check: a document whose metadata records this job id.
-    let existing = repo
-        .list_documents()
-        .await?
-        .into_iter()
-        .find(|d| {
-            d.metadata
-                .as_ref()
-                .and_then(|m| m.source_job_id.as_deref())
-                == Some(job.id.as_str())
-        });
+    let existing = repo.list_documents().await?.into_iter().find(|d| {
+        d.metadata.as_ref().and_then(|m| m.source_job_id.as_deref()) == Some(job.id.as_str())
+    });
     if let Some(existing) = existing {
         tracing::info!(
             "notebooklm.import.already_imported job_id={} document_id={}",
@@ -4185,10 +4195,12 @@ pub async fn notebooklm_import_job_artifact(
                 // `get_downloaded_episode_path` resolves it. The episode ROW
                 // is inserted only after the document row is created (see
                 // below) so a failed import leaves no phantom episode.
-                let audio_dir = crate::commands::podcast::podcast_audio_dir_public(&app)
-                    .map_err(|e| AppError::IntegrationError(format!(
-                        "Failed to resolve podcast audio dir: {e}"
-                    )))?;
+                let audio_dir =
+                    crate::commands::podcast::podcast_audio_dir_public(&app).map_err(|e| {
+                        AppError::IntegrationError(format!(
+                            "Failed to resolve podcast audio dir: {e}"
+                        ))
+                    })?;
                 let episode_path = audio_dir.join(format!("{}.{}", job.id, ext));
                 if episode_path != media_path {
                     // Re-import after a failed run may leave a stale file
@@ -4198,9 +4210,7 @@ pub async fn notebooklm_import_job_artifact(
                     // rename semantics.
                     if episode_path.exists() {
                         fs::remove_file(&episode_path).map_err(|e| {
-                            AppError::Internal(format!(
-                                "Failed to clear stale imported audio: {e}"
-                            ))
+                            AppError::Internal(format!("Failed to clear stale imported audio: {e}"))
                         })?;
                     }
                     fs::rename(&media_path, &episode_path).map_err(|e| {
@@ -4221,9 +4231,7 @@ pub async fn notebooklm_import_job_artifact(
             if artifact_type == "infographic" {
                 // Best-effort OCR through the user's configured provider. A
                 // failure still imports the image; the text layer is a bonus.
-                if let Some(text) =
-                    ocr_imported_infographic(&media_path.to_string_lossy()).await
-                {
+                if let Some(text) = ocr_imported_infographic(&media_path.to_string_lossy()).await {
                     doc.content = Some(text);
                 }
             }
@@ -4268,14 +4276,8 @@ pub async fn notebooklm_import_job_artifact(
     if artifact_type == "audio" {
         let feed = repo.ensure_notebooklm_podcast_feed().await?;
         let episode_path = &document.file_path;
-        repo.insert_podcast_episode_with_id(
-            &job.id,
-            &feed.id,
-            &created.title,
-            episode_path,
-            None,
-        )
-        .await?;
+        repo.insert_podcast_episode_with_id(&job.id, &feed.id, &created.title, episode_path, None)
+            .await?;
     }
 
     // Infographics also register in the image registry so the artifact is
@@ -4301,14 +4303,13 @@ pub async fn notebooklm_import_job_artifact(
         } else {
             "image/png"
         };
-        if let Err(err) =
-            crate::commands::image_registry::ingest_image_asset_from_path_inner(
-                &file_path,
-                Some(mime.to_string()),
-                file_name,
-                repo.inner(),
-            )
-            .await
+        if let Err(err) = crate::commands::image_registry::ingest_image_asset_from_path_inner(
+            &file_path,
+            Some(mime.to_string()),
+            file_name,
+            repo.inner(),
+        )
+        .await
         {
             tracing::warn!(
                 "notebooklm.import.image_registry failed job_id={} err={}",
@@ -4704,8 +4705,7 @@ pub async fn notebooklm_cli_login(app: tauri::AppHandle) -> Result<serde_json::V
                     verify_err
                 );
 
-                if let Some(profile) =
-                    try_recover_notebooklm_browser_auth(&ctx, &app_storage).await
+                if let Some(profile) = try_recover_notebooklm_browser_auth(&ctx, &app_storage).await
                 {
                     persist_cli_auth_state(&root, &app_storage)?;
                     return Ok(serde_json::json!({
@@ -5006,7 +5006,9 @@ mod tests {
     fn affirmative_json_reports_authenticated() {
         assert!(stdout_reports_authenticated(r#"{"authenticated": true}"#));
         assert!(stdout_reports_authenticated(r#"{"loggedIn": true}"#));
-        assert!(stdout_reports_authenticated(r#"{"is_authenticated": true}"#));
+        assert!(stdout_reports_authenticated(
+            r#"{"is_authenticated": true}"#
+        ));
         assert!(stdout_reports_authenticated(
             r#"{"email": "reader@example.com"}"#
         ));
@@ -5041,7 +5043,9 @@ mod tests {
         assert!(!stdout_reports_authenticated(r#"{"email": ""}"#));
         // Unrelated diagnostics previously counted as authenticated because
         // they did not contain one of two exact phrases.
-        assert!(!stdout_reports_authenticated("Error: browser profile locked"));
+        assert!(!stdout_reports_authenticated(
+            "Error: browser profile locked"
+        ));
         assert!(!stdout_reports_authenticated(
             "The browser window was closed during login."
         ));
@@ -5049,7 +5053,9 @@ mod tests {
 
     #[test]
     fn plain_text_needs_an_explicit_positive() {
-        assert!(stdout_reports_authenticated("Logged in as reader@example.com"));
+        assert!(stdout_reports_authenticated(
+            "Logged in as reader@example.com"
+        ));
         assert!(stdout_reports_authenticated("Signed in as someone"));
         assert!(!stdout_reports_authenticated("Not logged in"));
         assert!(!stdout_reports_authenticated("No active session"));

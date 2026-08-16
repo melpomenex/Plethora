@@ -362,7 +362,8 @@ pub async fn update_learning_item_priority(
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
     let slider_value = slider.clamp(0, 100);
-    let score = crate::database::priority_rank::key_for_slider(repo.db_pool(), slider_value).await?;
+    let score =
+        crate::database::priority_rank::key_for_slider(repo.db_pool(), slider_value).await?;
     let updated = repo
         .update_learning_item_priority(&id, slider_value, score)
         .await?;
@@ -805,11 +806,12 @@ pub async fn get_learning_item_ids_modified_since(
     since_hlc: String,
     repo: State<'_, Repository>,
 ) -> Result<Vec<String>> {
-    let rows: Vec<(String,)> =
-        sqlx::query_as("SELECT id FROM learning_items WHERE updated_at > ?1 ORDER BY updated_at ASC")
-            .bind(since_hlc)
-            .fetch_all(repo.pool())
-            .await?;
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT id FROM learning_items WHERE updated_at > ?1 ORDER BY updated_at ASC",
+    )
+    .bind(since_hlc)
+    .fetch_all(repo.pool())
+    .await?;
     Ok(rows.into_iter().map(|(id,)| id).collect())
 }
 

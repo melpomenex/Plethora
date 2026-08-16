@@ -555,7 +555,9 @@ pub async fn llm_stream_chat(
     // `llm_cancel_stream` can abort it. Blank ids stream without
     // cancellation, matching callers that never pass a request id.
     let request_id = request_id.filter(|id| !id.trim().is_empty());
-    let cancel_token = request_id.as_deref().and_then(|id| STREAM_REQUESTS.register(id));
+    let cancel_token = request_id
+        .as_deref()
+        .and_then(|id| STREAM_REQUESTS.register(id));
 
     let stream_fut = async {
         match provider.as_str() {

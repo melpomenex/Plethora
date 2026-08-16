@@ -132,13 +132,12 @@ impl ItemStatsRepository {
                 Ok((total, repetitions))
             }
             StatsItemType::Extract => {
-                let row: Option<(Option<i64>, i64)> = sqlx::query_as(
-                    "SELECT total_time_spent, reps FROM extracts WHERE id = ?1",
-                )
-                .bind(item_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(map_err("extract totals"))?;
+                let row: Option<(Option<i64>, i64)> =
+                    sqlx::query_as("SELECT total_time_spent, reps FROM extracts WHERE id = ?1")
+                        .bind(item_id)
+                        .fetch_optional(&self.pool)
+                        .await
+                        .map_err(map_err("extract totals"))?;
 
                 let Some((total, reps)) = row else {
                     return Ok((None, None));
@@ -194,7 +193,9 @@ impl ItemStatsRepository {
             .await
             .map_err(map_err("interaction bounds"))?;
 
-        Ok(row.map(|(first, last)| (first, last)).unwrap_or((None, None)))
+        Ok(row
+            .map(|(first, last)| (first, last))
+            .unwrap_or((None, None)))
     }
 
     // --------------------------------------------------------------- timeline
@@ -339,9 +340,13 @@ impl ItemStatsRepository {
         let summary = self.summary(item_type, item_id).await?;
         let events = self.timeline(item_type, item_id).await?;
 
-        let time = self.time_stats(item_type, item_id, &summary, &events).await?;
+        let time = self
+            .time_stats(item_type, item_id, &summary, &events)
+            .await?;
         let schedule = self.schedule_stats(item_type, item_id, &events).await?;
-        let history = self.history_stats(item_type, item_id, events, leech_threshold).await?;
+        let history = self
+            .history_stats(item_type, item_id, events, leech_threshold)
+            .await?;
         let content = self.content_stats(item_type, item_id).await?;
         let rank = self.rank_by_time_invested(item_type, item_id).await?;
 
@@ -619,11 +624,17 @@ impl ItemStatsRepository {
                             .flatten(),
                     ),
                     word_count: Metric::tracked(
-                        content.as_ref().map(|c| c.split_whitespace().count() as i64),
+                        content
+                            .as_ref()
+                            .map(|c| c.split_whitespace().count() as i64),
                     ),
-                    character_count: Metric::tracked(content.as_ref().map(|c| c.chars().count() as i64)),
+                    character_count: Metric::tracked(
+                        content.as_ref().map(|c| c.chars().count() as i64),
+                    ),
                     progress_percent: Metric::tracked(
-                        row.try_get::<Option<f64>, _>("progress_percent").ok().flatten(),
+                        row.try_get::<Option<f64>, _>("progress_percent")
+                            .ok()
+                            .flatten(),
                     ),
                     extracts_yielded: Metric::value(
                         row.try_get::<i64, _>("extract_count").unwrap_or(0),
@@ -637,7 +648,9 @@ impl ItemStatsRepository {
                     priority_slider: Metric::value(
                         row.try_get::<i64, _>("priority_slider").unwrap_or(0),
                     ),
-                    category: Metric::tracked(row.try_get::<Option<String>, _>("category").ok().flatten()),
+                    category: Metric::tracked(
+                        row.try_get::<Option<String>, _>("category").ok().flatten(),
+                    ),
                     tags: parse_tags(row.try_get::<String, _>("tags").ok()),
                 }))
             }
@@ -661,9 +674,13 @@ impl ItemStatsRepository {
                     created_at: Metric::tracked(created_at),
                     first_seen_at: Metric::NotApplicable,
                     word_count: Metric::tracked(
-                        content.as_ref().map(|c| c.split_whitespace().count() as i64),
+                        content
+                            .as_ref()
+                            .map(|c| c.split_whitespace().count() as i64),
                     ),
-                    character_count: Metric::tracked(content.as_ref().map(|c| c.chars().count() as i64)),
+                    character_count: Metric::tracked(
+                        content.as_ref().map(|c| c.chars().count() as i64),
+                    ),
                     progress_percent: Metric::NotApplicable,
                     // An extract never yields extracts; the metric does not
                     // apply rather than being a zero the user must interpret.
@@ -673,7 +690,9 @@ impl ItemStatsRepository {
                         row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
                     ),
                     priority_slider: Metric::NotApplicable,
-                    category: Metric::tracked(row.try_get::<Option<String>, _>("category").ok().flatten()),
+                    category: Metric::tracked(
+                        row.try_get::<Option<String>, _>("category").ok().flatten(),
+                    ),
                     tags: parse_tags(row.try_get::<String, _>("tags").ok()),
                 }))
             }
@@ -814,7 +833,11 @@ fn retrievability_now(
     let days_until_due = due.signed_duration_since(Utc::now()).num_seconds() as f64 / 86_400.0;
     let elapsed = (interval - days_until_due).max(0.0);
 
-    Some((1.0 + elapsed / (9.0 * stability)).powf(-1.0).clamp(0.0, 1.0))
+    Some(
+        (1.0 + elapsed / (9.0 * stability))
+            .powf(-1.0)
+            .clamp(0.0, 1.0),
+    )
 }
 
 #[cfg(test)]
@@ -910,8 +933,18 @@ mod tests {
         .await;
 
         for (id, started, ended, seconds) in [
-            ("sess-1", "2026-03-02T09:00:00Z", "2026-03-02T09:10:00Z", 600),
-            ("sess-2", "2026-03-04T09:00:00Z", "2026-03-04T09:05:00Z", 300),
+            (
+                "sess-1",
+                "2026-03-02T09:00:00Z",
+                "2026-03-02T09:10:00Z",
+                600,
+            ),
+            (
+                "sess-2",
+                "2026-03-04T09:00:00Z",
+                "2026-03-04T09:05:00Z",
+                300,
+            ),
         ] {
             sqlx::query(
                 "INSERT INTO reading_sessions (id, document_id, started_at, ended_at, duration_seconds, progress_start, progress_end)
@@ -981,7 +1014,10 @@ mod tests {
             "the pre-existing total is reported, not reset"
         );
         assert_eq!(summary.repetitions.as_value(), Some(&4));
-        assert_eq!(summary.average_seconds_per_repetition.as_value(), Some(&900));
+        assert_eq!(
+            summary.average_seconds_per_repetition.as_value(),
+            Some(&900)
+        );
         assert!(
             summary.first_interaction_at.is_untracked(),
             "no event rows means no known first interaction — not a fabricated date"
