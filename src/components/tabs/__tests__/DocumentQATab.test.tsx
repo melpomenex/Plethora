@@ -462,4 +462,95 @@ describe("DocumentQATab audiobook section parity", () => {
     expect(request).toContain("CORTICAL_COLUMN_CONTENT");
     expect(request).not.toContain("FOREWORD_ONLY");
   });
+
+  it("renders /20rules quick chip and clicking it populates the composer", async () => {
+    render(<DocumentQATab />);
+    const chip = screen.getByRole("button", { name: /\/20rules/i });
+    expect(chip).toBeInTheDocument();
+
+    fireEvent.click(chip);
+    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)") as HTMLTextAreaElement;
+    expect(composer.value).toBe("/20rules ");
+  });
+
+  it("injects 20 Rules formulation directives when /20rules is submitted with document mention", async () => {
+    useLLMProvidersStore.setState({
+      providers: [{
+        id: "provider-1",
+        provider: "openai",
+        name: "Test provider",
+        apiKey: "test-key",
+        model: "test-model",
+        enabled: true,
+        temperature: 0.2,
+        maxTokens: 1000,
+      }],
+    });
+    vi.mocked(chatWithContext).mockResolvedValue({ content: "Created cards." } as never);
+
+    render(<DocumentQATab />);
+    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)");
+    fireEvent.change(composer, { target: { value: "@{doc-1} /20rules create cards" } });
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => expect(chatWithContext).toHaveBeenCalledTimes(1));
+    const callArgs = vi.mocked(chatWithContext).mock.calls[0];
+    const systemPrompt = callArgs[2][0]?.content as string;
+    expect(systemPrompt).toContain("20 Rules of Knowledge Formulation");
+    expect(systemPrompt).toContain("MINIMUM INFORMATION PRINCIPLE");
+  });
+
+  it("supports #section /20rules to focus a specific section and apply 20 rules", async () => {
+    const chapters: SectionNode[] = [
+      {
+        id: "sec-photosynthesis",
+        title: "001 Light Reactions",
+        content: "LIGHT_REACTIONS_DETAIL: Chlorophyll absorbs photons in thylakoid membrane.",
+        level: 1,
+        source: "media-transcript",
+        documentId: "doc-1",
+        preview: "LIGHT_REACTIONS_DETAIL: Chlorophyll absorbs photons in thylakoid membrane.",
+        parentId: null,
+        children: [],
+        breadcrumb: [],
+      },
+    ];
+    sectionHookState.flat = chapters;
+    sectionHookState.tree = chapters;
+    useDocumentOutlineStore.setState({
+      mediaSectionsByDocId: new Map([["doc-1", chapters]]),
+    });
+    useLLMProvidersStore.setState({
+      providers: [{
+        id: "provider-1",
+        provider: "openai",
+        name: "Test provider",
+        apiKey: "test-key",
+        model: "test-model",
+        enabled: true,
+        temperature: 0.2,
+        maxTokens: 1000,
+      }],
+    });
+    vi.mocked(chatWithContext).mockResolvedValue({ content: "Created atomic cards." } as never);
+
+    render(<DocumentQATab />);
+    fireEvent.change(screen.getByLabelText("Select focus document"), { target: { value: "doc-1" } });
+    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)");
+    fireEvent.change(composer, { target: { value: "#", selectionStart: 1 } });
+    const sectionList = await screen.findByRole("listbox", { name: "Sections" });
+    fireEvent.click(within(sectionList).getByRole("option", { name: /001/ }));
+    const prompt = `${(composer as HTMLTextAreaElement).value} /20rules`;
+    fireEvent.change(composer, { target: { value: prompt, selectionStart: prompt.length } });
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => expect(chatWithContext).toHaveBeenCalledTimes(1));
+    const callArgs = vi.mocked(chatWithContext).mock.calls[0];
+    const systemPrompt = callArgs[2][0]?.content as string;
+    const userPrompt = callArgs[2][1]?.content as string;
+
+    expect(systemPrompt).toContain("20 Rules of Knowledge Formulation");
+    expect(systemPrompt).toContain("MINIMUM INFORMATION PRINCIPLE");
+    expect(userPrompt).toContain("LIGHT_REACTIONS_DETAIL");
+  });
 });

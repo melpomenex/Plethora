@@ -72,6 +72,12 @@ import {
   toolCallsToFlashcardArtifacts,
   type ChatFlashcardArtifact,
 } from "../../features/assistant/chatFlashcardArtifacts";
+import {
+  buildTwentyRulesSystemPrompt,
+  getTwentyRulesReminderMarkdown,
+  isTwentyRulesCommand,
+  stripTwentyRulesCommand,
+} from "../../lib/ai/knowledgeFormulation";
 
 export interface AssistantContext {
   type: "document" | "web" | "video" | "general";
@@ -910,6 +916,7 @@ export function AssistantPanel({
 
 /help - Show this help message
 /tools - List available tools
+/20rules - Formulate atomic flashcards following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation (Minimum Information Principle, clozes, anti-interference)
 /clear - Clear conversation
 
 **Available Tools:**
@@ -922,6 +929,7 @@ ${toolsList || "No tools available."}
 - Summarize and explain concepts
 
 **Example prompts:**
+- "/20rules" - Create atomic flashcards following the 20 Rules of Knowledge Formulation
 - "Create 5 flashcards from this paper" - I'll extract key concepts and make Q&A or cloze cards
 - "Summarize the main points" - I'll summarize the document content
 - "What is the author's argument?" - I'll analyze the provided content
@@ -957,6 +965,27 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         setMessages([]);
         setIsLoading(false);
         return;
+      }
+
+      if (isTwentyRulesCommand(userInput)) {
+        const stripped = stripTwentyRulesCommand(userInput);
+        const hasContext = !!(
+          context?.content ||
+          context?.documentId ||
+          context?.selection ||
+          selectedSectionNodes.length > 0
+        );
+        if (!hasContext && !stripped) {
+          const rulesReminderMessage: Message = {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: `${getTwentyRulesReminderMarkdown()}\n\n---\n💡 **Usage:** Open a document, chapter, or select text, then type \`/20rules\` (or click the **/20rules** button) to formulate atomic, high-retention flashcards adhering to spaced repetition best practices.`,
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, rulesReminderMessage]);
+          setIsLoading(false);
+          return;
+        }
       }
 
       // Whole-library RAG branch: retrieve top-k chunks across the collection
@@ -1019,7 +1048,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       };
 
       // Call the LLM API
-      const response = await callLLM(userMessage.content, contextData);
+      const isTwentyRules = isTwentyRulesCommand(userMessage.content);
+      const response = await callLLM(userMessage.content, contextData, isTwentyRules);
       const { cleanedContent, toolCalls } = parseToolCalls(response.content);
 
       // Show warning if images were stripped due to unsupported model
@@ -1092,7 +1122,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
   const callLLM = async (
     prompt: string,
-    contextData: Record<string, unknown>
+    contextData: Record<string, unknown>,
+    isTwentyRules?: boolean
   ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string; sourceContext?: SectionSourceReference }> => {
     const mentionCandidates = selectionSection
       ? [selectionSection, ...assistantSectionFlat]
@@ -1148,7 +1179,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       // Convert messages to LLM format
       // NOTE: conversation history comes BEFORE the current user prompt so the LLM
       // sees correct turn ordering: system → [past turns...] → current user message
-      const toolInstruction = buildToolInstruction(getAvailableTools());
+      const toolInstruction = buildToolInstruction(getAvailableTools(), isTwentyRules);
+      const effectivePrompt = isTwentyRules
+        ? (stripTwentyRulesCommand(prompt) || "Create atomic flashcards from the provided content strictly following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation.")
+        : prompt;
+
       const llmMessages: LLMMessage[] = [
         {
           role: "system" as const,
@@ -1175,7 +1210,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         }),
         {
           role: "user" as const,
-          content: prompt,
+          content: effectivePrompt,
         },
       ];
 
@@ -1863,9 +1898,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     }
   };
 
-  const buildToolInstruction = (tools: MCPTool[]) => {
+  const buildToolInstruction = (tools: MCPTool[], isTwentyRules?: boolean) => {
     if (tools.length === 0) {
-      return "Answer normally. Tool calls are unavailable.";
+      return isTwentyRules
+        ? `Answer normally. Tool calls are unavailable.\n\n${buildTwentyRulesSystemPrompt()}`
+        : "Answer normally. Tool calls are unavailable.";
     }
     const toolNames = tools.map((tool) => tool.name).join(", ");
     const toolDescriptions = tools.map((tool) => `- **${tool.name}**: ${tool.description}`).join("\n");
@@ -1875,6 +1912,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       .map((t) => t.name)
       .join(", ");
     const sharedCardPolicy = buildFlashcardToolInstruction(tools.map((tool) => tool.name));
+    const twentyRulesPolicy = isTwentyRules ? `\n\n${buildTwentyRulesSystemPrompt()}` : "";
 
     return `You are a helpful assistant with access to document content and tools. You can answer questions about the content AND create learning items from it.
 
@@ -1882,7 +1920,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
 ${toolDescriptions}
 
-${sharedCardPolicy}
+${sharedCardPolicy}${twentyRulesPolicy}
 
 ## CRITICAL RULES — Respond vs. Act
 
@@ -3086,6 +3124,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
           {/* Quick Actions */}
           <div className="flex items-center gap-2 text-xs">
+            <button
+              onClick={() => setInput("/20rules")}
+              className="px-2 py-1 bg-muted hover:bg-muted/80 rounded text-muted-foreground transition-colors font-medium"
+              title="Formulate atomic flashcards with Dr. Wozniak's 20 Rules"
+            >
+              /20rules
+            </button>
             <button
               onClick={() => setInput("/tools")}
               className="px-2 py-1 bg-muted hover:bg-muted/80 rounded text-muted-foreground transition-colors"

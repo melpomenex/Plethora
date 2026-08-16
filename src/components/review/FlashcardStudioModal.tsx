@@ -100,6 +100,14 @@ import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
 import { ExtractBrowserPanel } from "./ExtractBrowserPanel";
 import { extractDocumentText, getDocument } from "../../api/documents";
 import {
+  buildTwentyRulesSystemPrompt,
+  getTwentyRulesReminderMarkdown,
+  isTwentyRulesCommand,
+  stripTwentyRulesCommand,
+  TWENTY_RULES_COMMAND,
+  TWENTY_RULES_PROMPT_TEMPLATE,
+} from "../../lib/ai/knowledgeFormulation";
+import {
   migrateLegacyState,
   loadSessions,
   saveSessions,
@@ -230,6 +238,7 @@ interface QuickTemplate {
   label: string;
   description: string;
   prompt: string;
+  command?: string;
 }
 
 interface GenerationHistoryItem {
@@ -266,8 +275,10 @@ function extractExplicitCardCount(text: string): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
-function buildSystemPrompt(targetCount: number): string {
-  return `You are an expert flashcard creation assistant specialized in spaced repetition and active recall learning.
+export function buildSystemPrompt(targetCount: number, isTwentyRules?: boolean): string {
+  return `You are an expert flashcard creation assistant specialized in spaced repetition and active recall learning.${
+    isTwentyRules ? `\n\n${buildTwentyRulesSystemPrompt()}` : ""
+  }
 
 When creating flashcards, return them as JSON in a code block using this exact schema:
 
@@ -305,7 +316,15 @@ Rules for excellent flashcards:
 }
 
 
-const QUICK_TEMPLATES: QuickTemplate[] = [
+export const QUICK_TEMPLATES: QuickTemplate[] = [
+  {
+    id: "twenty-rules",
+    icon: <Sparkle className="w-4 h-4 text-amber-500" />,
+    label: "20 Rules Formulation",
+    description: "Atomic items via Dr. Wozniak's 20 Rules (Min info principle, clozes, anti-interference)",
+    prompt: TWENTY_RULES_PROMPT_TEMPLATE,
+    command: "/20rules",
+  },
   {
     id: "summarize",
     icon: <AlignLeft className="w-4 h-4" />,
@@ -2083,7 +2102,14 @@ function TemplateCard({
         {template.icon}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm text-foreground">{template.label}</div>
+        <div className="flex items-center gap-2">
+          <div className="font-medium text-sm text-foreground">{template.label}</div>
+          {template.command && (
+            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-normal">
+              {template.command}
+            </span>
+          )}
+        </div>
         <div className="text-xs text-muted-foreground mt-0.5">{template.description}</div>
       </div>
       <CaretRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -3294,6 +3320,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       // cards") takes precedence over the configured/resolved target for this
       // one generation; otherwise use the effective (session or global) target,
       // recomputed against the content actually being sent as context.
+      const isTwentyRules = isTwentyRulesCommand(promptText);
       const explicitCount = extractExplicitCardCount(promptText);
       const resolvedTarget = explicitCount
         ? explicitCount
@@ -3303,7 +3330,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
             sessionTargetOverride
           ).count;
 
-      const llmMessages: LLMMessage[] = [{ role: "system", content: buildSystemPrompt(resolvedTarget) }];
+      const llmMessages: LLMMessage[] = [{ role: "system", content: buildSystemPrompt(resolvedTarget, isTwentyRules) }];
       
       // Add context-specific system messages
       if (selectedDocument?.title) {
@@ -4565,6 +4592,23 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
             {viewMode === "templates" && (
               <div className="flex-1 min-h-0 overflow-y-auto p-6">
                 <div className="max-w-2xl mx-auto">
+                  <div className="mb-6 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 dark:bg-amber-950/20">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500 mt-0.5">
+                        <Sparkle className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm text-foreground flex items-center gap-2">
+                          <span>Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation</span>
+                          <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 font-normal">/20rules</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Effective flashcards must be <strong>atomic</strong>, clear, and resistant to interference. Use <strong>/20rules</strong> to formulate cards adhering to the Minimum Information Principle, cloze mnemonic anchors, and high applicability.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   <h3 className="text-lg font-semibold text-foreground mb-2">{t("flashcardStudio.quickTemplates")}</h3>
                   <p className="text-sm text-muted-foreground mb-6">
                     {t("flashcardStudio.quickTemplatesDesc")}{" "}

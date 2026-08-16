@@ -82,6 +82,12 @@ import {
   updateSession,
   type DocumentQaSession,
 } from "./documentQaSessions";
+import {
+  buildTwentyRulesSystemPrompt,
+  getTwentyRulesReminderMarkdown,
+  isTwentyRulesCommand,
+  stripTwentyRulesCommand,
+} from "../../lib/ai/knowledgeFormulation";
 
 // Re-export types with simpler names for local use
 type Message = QAMessage;
@@ -1556,6 +1562,24 @@ export function DocumentQATab() {
     setProviderError(null);
     setIsProcessing(true);
 
+    let userQuestion = savedRawInput.replace(MENTION_REGEX, "").replace(SECTION_REGEX, "").trim();
+    const isTwentyRules = isTwentyRulesCommand(userQuestion);
+
+    if (isTwentyRules && mentionedDocumentIds.length === 0 && !hasSectionMentions && !stripTwentyRulesCommand(userQuestion)) {
+      addMessage({
+        id: `assistant-${Date.now()}`,
+        role: "assistant" as const,
+        content: `${getTwentyRulesReminderMarkdown()}\n\n---\n💡 **Usage:** Mention a document using \`@\` (e.g. \`@DocumentName /20rules\`) or focus on a section to formulate atomic, high-retention flashcards adhering to spaced repetition best practices.`,
+        timestamp: Date.now(),
+      });
+      setIsProcessing(false);
+      return;
+    }
+
+    if (isTwentyRules) {
+      userQuestion = stripTwentyRulesCommand(userQuestion) || "Create atomic flashcards from the provided content strictly following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation.";
+    }
+
     try {
       const enabledProviders = getEnabledProviders();
       if (!enabledProviders || enabledProviders.length === 0) {
@@ -1699,7 +1723,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
 **REQUIRED TOOL CALL FORMAT**:
 \`\`\`tool_calls
 {"tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}
-\`\`\`` : ''}`,
+\`\`\`` : ''}${isTwentyRules ? `\n\n${buildTwentyRulesSystemPrompt()}` : ""}`,
       };
 
       // Get document context (chapter-aware or section-aware)
@@ -1708,8 +1732,6 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         chapterRef,
         focusedSectionContext
       );
-
-      let userQuestion = savedRawInput.replace(MENTION_REGEX, "").replace(SECTION_REGEX, "").trim();
 
       let webSearchContext = "";
       if (webSearchEnabled) {
@@ -2491,6 +2513,28 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         className="p-2 sm:p-4 border-t border-border relative"
         style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
       >
+        {/* Quick Command Chips */}
+        <div className="flex items-center gap-2 max-w-4xl mx-auto mb-2 text-xs">
+          <button
+            type="button"
+            onClick={() => {
+              setRawInput((prev) => {
+                const trimmed = prev.trim();
+                if (!trimmed) return "/20rules ";
+                if (isTwentyRulesCommand(trimmed)) return prev;
+                return `/20rules ${trimmed}`;
+              });
+              textareaRef.current?.focus();
+            }}
+            title="Formulate atomic flashcards following Dr. Wozniak's 20 Rules (Minimum Info Principle, clozes, anti-interference)"
+            className="px-2.5 py-1 bg-muted/80 hover:bg-muted border border-border/80 rounded-md text-foreground transition-colors flex items-center gap-1.5 font-medium shadow-xs"
+          >
+            <Sparkle className="w-3.5 h-3.5 text-amber-500" />
+            <span className="font-mono font-semibold">/20rules</span>
+            <span className="text-[11px] text-muted-foreground font-normal hidden sm:inline">— 20 Rules Formulation</span>
+          </button>
+        </div>
+
         <div className="flex gap-2 max-w-4xl mx-auto">
           <div className="relative flex-1">
             <textarea

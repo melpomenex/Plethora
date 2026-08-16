@@ -1340,6 +1340,10 @@ export const es: Dict = {
   "flashcardStudio.imagesImported": "Imágenes importadas",
   "flashcardStudio.imagesImportedDesc": "{count} imagen(es) añadida(s) al registro.",
   "flashcardStudio.importImage": "Importar imagen",
+  "knowledgeFormulation.commandLabel": "Formulación 20 Reglas",
+  "knowledgeFormulation.commandDescription": "Formular tarjetas atómicas según las 20 reglas del Dr. Piotr Wozniak",
+  "knowledgeFormulation.reminderTitle": "20 Reglas de Formulación del Conocimiento (Dr. Piotr Wozniak)",
+  "knowledgeFormulation.reminderSubtitle": "Las tarjetas efectivas deben ser atómicas, claras y resistentes a la interferencia. Usa /20rules para aplicar el Principio de Información Mínima y clozes.",
   "flashcardStudio.noLlmProvider": "No hay proveedor LLM configurado",
   "flashcardStudio.noLlmProviderDesc":
     "Añade o activa un proveedor en Ajustes → Proveedores de IA.",
