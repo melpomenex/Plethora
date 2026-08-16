@@ -33,7 +33,7 @@ function page(number: number): PdfCanonicalPage {
     warnings: [],
     errorCategory: null,
     schemaVersion: 2,
-    engineVersion: "rust-hybrid-v2",
+    engineVersion: "rust-hybrid-v3",
   };
 }
 
@@ -41,7 +41,7 @@ const CONTEXT = {
   documentId: "doc-1",
   sourceIdentity: "identity-1",
   schemaVersion: 2,
-  engineVersion: "rust-hybrid-v2",
+  engineVersion: "rust-hybrid-v3",
 };
 
 describe("PdfCanonicalPageCache", () => {

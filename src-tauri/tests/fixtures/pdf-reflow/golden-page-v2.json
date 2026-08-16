@@ -148,6 +148,8 @@
       "items": null,
       "table": null,
       "assetId": "f00fbeef4711c0de4711c0de4711c0de4711c0de4711c0de4711c0de",
+      "sourceWidth": 818,
+      "sourceHeight": 374,
       "altText": "Diagram of the mitochondrial genome",
       "captionOf": null,
       "href": null,
@@ -159,5 +161,5 @@
   ],
   "errorCategory": null,
   "schemaVersion": 2,
-  "engineVersion": "rust-hybrid-v2"
+  "engineVersion": "rust-hybrid-v3"
 }

@@ -65,8 +65,9 @@ impl PageInkMask {
     }
 
     pub fn from_png(png: &[u8]) -> Result<Self> {
-        let image = image::load_from_memory(png)
-            .map_err(|error| IncrementumError::InvalidInput(format!("Analysis raster decode failed: {error}")))?;
+        let image = image::load_from_memory(png).map_err(|error| {
+            IncrementumError::InvalidInput(format!("Analysis raster decode failed: {error}"))
+        })?;
         let luma = image.to_luma8();
         let (width, height) = luma.dimensions();
         Ok(Self::from_grayscale(width, height, luma.as_raw()))
@@ -97,7 +98,11 @@ impl PageInkMask {
                         band.peak_ink = band.peak_ink.max(count);
                     }
                     None => {
-                        current = Some(InkRowBand { y0: y, y1: y, peak_ink: count });
+                        current = Some(InkRowBand {
+                            y0: y,
+                            y1: y,
+                            peak_ink: count,
+                        });
                     }
                 }
             } else if let Some(band) = current.as_mut() {
@@ -180,8 +185,14 @@ impl PageRaster {
         page_height: f64,
     ) -> Result<Self> {
         let mask = PageInkMask::from_png(png)?;
-        let geometry =
-            RasterGeometry::new(mask.width, mask.height, scale, rotation, page_width, page_height);
+        let geometry = RasterGeometry::new(
+            mask.width,
+            mask.height,
+            scale,
+            rotation,
+            page_width,
+            page_height,
+        );
         Ok(Self { mask, geometry })
     }
 }
@@ -215,11 +226,14 @@ mod tests {
 
     #[test]
     fn row_bands_split_on_blank_gaps_and_merge_small_ones() {
-        // Lines at y=5, y=7 (same band), y=20 (own band); speck at y=9 ignored.
+        // Contiguous line at y=5..7, own line at y=20; speck at y=9 ignored.
         let mut ink = Vec::new();
+        for y in 5..=7 {
+            for x in 0..10 {
+                ink.push((x, y));
+            }
+        }
         for x in 0..10 {
-            ink.push((x, 5));
-            ink.push((x, 7));
             ink.push((x, 20));
         }
         ink.push((50, 9)); // below MIN_INK_RUN_DENSITY=3
@@ -236,19 +250,19 @@ mod tests {
     }
 
     #[test]
-    fn ink_bounds_ignore_specks_below_density() {
+    fn ink_bounds_use_raw_profiles_including_specks() {
         let mut ink = Vec::new();
-        for y in 10..12 {
-            for x in 100..120 {
+        for y in 10..=11 {
+            for x in 100..=119 {
                 ink.push((x, y));
             }
         }
-        ink.push((200, 3)); // single-pixel speck in column 200
+        ink.push((200, 3)); // single-pixel speck at (200, 3)
         let mask = PageInkMask::from_grayscale(256, 32, &gray_with_ink(256, 32, &ink));
-        // Column 200 has only 1 ink px — col_profile counts it, bounds use raw
-        // profiles, so x1 includes it. Bounds are profile-based, not
-        // density-filtered; the test pins that contract.
-        assert_eq!(mask.ink_bounds(), Some((100, 10, 200, 11)));
+        // Bounds are profile-based, not density-filtered, so the speck
+        // extends them; row_bands/density checks are where specks are
+        // ignored. The test pins that contract.
+        assert_eq!(mask.ink_bounds(), Some((100, 3, 200, 11)));
     }
 
     #[test]

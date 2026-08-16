@@ -219,3 +219,40 @@ jobs:
             .bench/memory-result.json
             .bench/memory-evaluation.json
           if-no-files-found: warn
+
+  visual:
+    # PDF reflow visual regression (change add-pdf-reflow, task 10.2).
+    # Warn-only until baselines stabilize across CI runners (same posture
+    # the perf gate used); failures never block the pipeline here.
+    runs-on: ubuntu-latest
+    needs: test
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Sync node version and setup cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run visual regression (warn-only)
+        run: npm run test:visual
+
+      - name: Upload visual results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-results
+          path: .playwright/results
+          retention-days: 7

@@ -30,6 +30,8 @@ export default defineConfig({
       // the unit run. `.tsx` covers the jsdom render-cost lane.
       "src/**/*.bench.ts",
       "src/**/*.bench.tsx",
+      // Playwright visual suites run via `npm run test:visual`, not vitest.
+      "src/visual/**",
     ],
   },
   resolve: {

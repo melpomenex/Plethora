@@ -4,6 +4,7 @@ version = "2.6.2"
 description = "Incrementum - Incremental Reading and Spaced Repetition"
 authors = ["Incrementum Team"]
 edition = "2021"
+default-run = "incrementum-tauri"
 
 [lib]
 name = "incrementum_tauri_lib"
@@ -211,12 +212,17 @@ devtools = ["tauri/devtools"]
 # NOTE: Some environments have observed rustc/LLVM crashes (SIGSEGV) with high
 # optimization on large dependency graphs. If this happens, temporarily fall
 # back to opt-level = "z", lto = "thin", codegen-units = 4.
+#
+# panic = "unwind" (the default) is REQUIRED: third-party PDF font parsers
+# (cff-parser via pdf-extract) panic on exotic font encodings, and the
+# import pipeline relies on catching those panics at the spawn_blocking
+# JoinError to degrade to metadata-only import. With abort, one such PDF
+# killed the whole app on Android (verified crash log, 2026-08-15).
 [profile.release]
 opt-level = "z"
 lto = "thin"
 codegen-units = 4
 strip = true
-panic = "abort"
 
 # Ensure third-party crates also get full optimization
 [profile.release.package."*"]

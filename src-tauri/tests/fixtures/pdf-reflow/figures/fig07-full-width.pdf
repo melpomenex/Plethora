@@ -1,0 +1,45 @@
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj
+4 0 obj << /Length 1047 >>
+stream
+BT /F1 14 Tf 72 740 Td (Full-Width Spanning Figure) Tj ET
+BT /F1 10 Tf 72 710 Td (Left column text 1.) Tj ET
+BT /F1 10 Tf 72 696 Td (Left column text 2.) Tj ET
+BT /F1 10 Tf 72 682 Td (Left column text 3.) Tj ET
+BT /F1 10 Tf 72 668 Td (Left column text 4.) Tj ET
+BT /F1 10 Tf 72 654 Td (Left column text 5.) Tj ET
+BT /F1 10 Tf 316 710 Td (Right column text 1.) Tj ET
+BT /F1 10 Tf 316 696 Td (Right column text 2.) Tj ET
+BT /F1 10 Tf 316 682 Td (Right column text 3.) Tj ET
+BT /F1 10 Tf 316 668 Td (Right column text 4.) Tj ET
+BT /F1 10 Tf 316 654 Td (Right column text 5.) Tj ET
+1.4 w
+0 G
+72 380 468 190 re S
+0.6 g 90 400 130 150 re f 0 g
+0.45 g 240 400 130 150 re f 0 g
+0.7 g 390 400 130 150 re f 0 g
+72 475 m 540 475 l S
+BT /F1 10 Tf 72 352 Td (Figure 7. Full-width figure spanning both columns.) Tj ET
+BT /F1 10 Tf 72 330 Td (Body text below the figure 1.) Tj ET
+BT /F1 10 Tf 72 316 Td (Body text below the figure 2.) Tj ET
+BT /F1 10 Tf 72 302 Td (Body text below the figure 3.) Tj ET
+BT /F1 10 Tf 72 288 Td (Body text below the figure 4.) Tj ET
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Courier >> endobj
+xref
+0 7
+0000000000 65535 f 
+0000000000 00000 n 
+0000000049 00000 n 
+0000000106 00000 n 
+0000000242 00000 n 
+0000001341 00000 n 
+0000001411 00000 n 
+trailer << /Size 7 /Root 1 0 R >>
+startxref
+1479
+%%EOF

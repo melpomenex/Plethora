@@ -1,6 +1,6 @@
 /**
  * Canonical PDF content model — TypeScript mirror of
- * `src-tauri/src/pdf/model.rs` (schema v2, engine `rust-hybrid-v2`).
+ * `src-tauri/src/pdf/model.rs` (schema v2, engine `rust-hybrid-v3`).
  *
  * Field names must match the Rust serde output exactly (camelCase); parity is
  * enforced against a shared golden fixture by
@@ -8,7 +8,7 @@
  */
 
 export const PDF_CANONICAL_SCHEMA_VERSION = 2;
-export const PDF_CANONICAL_ENGINE_VERSION = "rust-hybrid-v2";
+export const PDF_CANONICAL_ENGINE_VERSION = "rust-hybrid-v3";
 
 /** Where a word's text came from; born-digital text stays "native-pdf-text". */
 export type PdfWordSource = "native-pdf-text" | "ocr" | "graphical";
@@ -111,6 +111,13 @@ export interface PdfCanonicalBlock {
   table: PdfTableData | null;
   /** Cached source-crop asset id (figure/equation/low-confidence crops). */
   assetId: string | null;
+  /**
+   * Intrinsic pixel size of the cached source crop (visual blocks) — the
+   * reflow renderer's aspect basis before the asset loads. Absent on text
+   * blocks and pages cached before the field existed (serde skips None).
+   */
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
   /** Textual fallback for visual blocks (search/TTS/AI, never flowing text). */
   altText: string | null;
   /** Caption blocks link to the figure they describe. */
@@ -170,5 +177,5 @@ export function parsePdfCanonicalPage(raw: string): PdfCanonicalPage | null {
   if (value.schemaVersion !== PDF_CANONICAL_SCHEMA_VERSION) return null;
   if (value.engineVersion !== PDF_CANONICAL_ENGINE_VERSION) return null;
   if (typeof value.pageNumber !== "number" || !Array.isArray(value.blocks)) return null;
-  return value as PdfCanonicalPage;
+  return value as unknown as PdfCanonicalPage;
 }

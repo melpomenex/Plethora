@@ -110,7 +110,9 @@ export function buildPdfSelectionExtractPayload(params: {
 
   return {
     documentId: params.documentId,
-    text: params.selectedText.trim(),
+    // Canonical text (word-snapped, exact) wins over the DOM text-layer
+    // string when the v2 anchor is present (design D8).
+    text: (params.selectionContext.canonical?.text ?? params.selectedText).trim(),
     color: params.color,
     pageNumber: params.selectionContext.pages[0]?.pageNumber,
     selectionContext: params.selectionContext,

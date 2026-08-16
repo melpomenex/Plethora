@@ -1,0 +1,44 @@
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj
+4 0 obj << /Length 1087 >>
+stream
+BT /F1 14 Tf 72 740 Td (Two-Column Page With Column Figure) Tj ET
+BT /F1 10 Tf 72 710 Td (Left column text line 1.) Tj ET
+BT /F1 10 Tf 72 696 Td (Left column text line 2.) Tj ET
+BT /F1 10 Tf 72 682 Td (Left column text line 3.) Tj ET
+BT /F1 10 Tf 72 668 Td (Left column text line 4.) Tj ET
+BT /F1 10 Tf 72 654 Td (Left column text line 5.) Tj ET
+BT /F1 10 Tf 72 640 Td (Left column text line 6.) Tj ET
+BT /F1 10 Tf 72 626 Td (Left column text line 7.) Tj ET
+BT /F1 10 Tf 72 612 Td (Left column text line 8.) Tj ET
+BT /F1 10 Tf 316 360 Td (Right column text above figure 1.) Tj ET
+BT /F1 10 Tf 316 346 Td (Right column text above figure 2.) Tj ET
+BT /F1 10 Tf 316 332 Td (Right column text above figure 3.) Tj ET
+1.2 w
+0 G
+330 380 200 180 re S
+0.55 g 340 390 180 160 re f 0 g
+330 470 m 530 470 l S
+BT /F1 10 Tf 316 352 Td (Figure 6. Column-width figure.) Tj ET
+BT /F1 10 Tf 72 310 Td (Left column lower text 1.) Tj ET
+BT /F1 10 Tf 72 296 Td (Left column lower text 2.) Tj ET
+BT /F1 10 Tf 72 282 Td (Left column lower text 3.) Tj ET
+BT /F1 10 Tf 72 268 Td (Left column lower text 4.) Tj ET
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Courier >> endobj
+xref
+0 7
+0000000000 65535 f 
+0000000000 00000 n 
+0000000049 00000 n 
+0000000106 00000 n 
+0000000242 00000 n 
+0000001381 00000 n 
+0000001451 00000 n 
+trailer << /Size 7 /Root 1 0 R >>
+startxref
+1519
+%%EOF

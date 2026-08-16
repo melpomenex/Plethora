@@ -10,12 +10,14 @@ use crate::pdf::model::PdfSourceRegion;
 pub fn content_bounds(raster: Option<&PageRaster>) -> Option<PdfRect> {
     let raster = raster?;
     let bounds = raster.mask.ink_bounds()?;
-    let rect = raster.geometry.raster_rect_to_pdf(&super::coordinates::RasterRect {
-        x: bounds.0 as f64,
-        y: bounds.1 as f64,
-        width: (bounds.2 - bounds.0) as f64,
-        height: (bounds.3 - bounds.1) as f64,
-    });
+    let rect = raster
+        .geometry
+        .raster_rect_to_pdf(&super::coordinates::RasterRect {
+            x: bounds.0 as f64,
+            y: bounds.1 as f64,
+            width: (bounds.2 - bounds.0) as f64,
+            height: (bounds.3 - bounds.1) as f64,
+        });
     Some(rect)
 }
 
@@ -36,11 +38,11 @@ mod tests {
     use crate::pdf::coordinates::RasterGeometry;
 
     fn raster_with_ink(scale: f64) -> PageRaster {
-        // 100×200 raster, ink rectangle at pixels (20..80, 60..140) →
-        // 60×80 px at 2 px/pt = 30×40 pt; rotation 0 flips y.
+        // 100×200 raster, ink rectangle at pixels (20..=80, 60..=140) →
+        // 61×81 px at 2 px/pt; rotation 0 flips y.
         let mut gray = vec![255u8; 100 * 200];
-        for y in 60..140 {
-            for x in 20..80 {
+        for y in 60..=140 {
+            for x in 20..=80 {
                 gray[y * 100 + x] = 0;
             }
         }
@@ -54,7 +56,7 @@ mod tests {
         let bounds = content_bounds(Some(&raster_with_ink(2.0))).unwrap();
         assert!((bounds.x0 - 10.0).abs() < 1e-9);
         assert!((bounds.x1 - 40.0).abs() < 1e-9);
-        // Raster y 60..140 → PDF y (100 - 70) .. (100 - 30) = 30..70.
+        // Raster y 60..=140 → PDF y (100 − 70) .. (100 − 30) = 30..70.
         assert!((bounds.y0 - 30.0).abs() < 1e-9);
         assert!((bounds.y1 - 70.0).abs() < 1e-9);
     }

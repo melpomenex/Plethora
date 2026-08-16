@@ -5,7 +5,7 @@
     "name": "noise-anchor",
     "iterations": 200000
   },
-  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373.",
+  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and SM-20 runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373. PDF-reflow hot paths (point/rect round trips, canonical anchor resolution): first add-pdf-reflow implementation session, local bench:check run.",
   "benchmarks": {
     "postpone/plan-1000-items": {
       "cost": 0.02902,
@@ -72,6 +72,22 @@
       "cost": 0.089,
       "tolerance": 1.6,
       "reason": "jsdom rerender cost includes React scheduling and garbage collection variance."
+    },
+    "point round trip (rotation 0)": {
+      "cost": 0.07121,
+      "reason": "add-pdf-reflow: initial baseline for canonical PDF reflow hot paths"
+    },
+    "rect round trip": {
+      "cost": 0.04742,
+      "reason": "add-pdf-reflow: initial baseline for canonical PDF reflow hot paths"
+    },
+    "anchor round trip via wordId (400 words)": {
+      "cost": 0.1549,
+      "reason": "add-pdf-reflow: initial baseline for canonical PDF reflow hot paths"
+    },
+    "anchor resolution via textQuote fallback": {
+      "cost": 0.09592,
+      "reason": "add-pdf-reflow: initial baseline for canonical PDF reflow hot paths"
     }
   }
 }

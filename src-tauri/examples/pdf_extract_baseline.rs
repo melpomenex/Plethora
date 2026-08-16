@@ -38,11 +38,18 @@ fn main() {
             Err(e) => std::fs::write(&full_path, format!("ERROR: {}", e)).expect("write full text"),
         }
         match pages {
-            Ok(pages) => std::fs::write(&pages_path, pages.join("===PAGE==="))
-                .expect("write pages text"),
-            Err(e) => std::fs::write(&pages_path, format!("ERROR: {}", e))
-                .expect("write pages text"),
+            Ok(pages) => {
+                std::fs::write(&pages_path, pages.join("===PAGE===")).expect("write pages text")
+            }
+            Err(e) => {
+                std::fs::write(&pages_path, format!("ERROR: {}", e)).expect("write pages text")
+            }
         }
-        eprintln!("{}: wrote {}.full.txt / {}.pages.txt", pdf.display(), stem, stem);
+        eprintln!(
+            "{}: wrote {}.full.txt / {}.pages.txt",
+            pdf.display(),
+            stem,
+            stem
+        );
     }
 }

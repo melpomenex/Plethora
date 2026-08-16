@@ -1,0 +1,88 @@
+{
+  "comment": "A-priori expectations for the synthetic figure corpus (src-tauri/tests/fixtures/pdf-reflow/figures, drawn by scripts/generate-pdf-reflow-fixtures.mjs at KNOWN user-space coordinates, origin bottom-left y-up). Checked end-to-end by `npm run test:figures` (scripts/diagnose-pdf-figures.mjs --fixtures) through the pure checker scripts/figure-expectations.mjs. Regions are the tight drawn-ink rectangles (axis labels count as chart ink); bbox format [x0,y0,x1,y1]. Intentional pipeline changes that move these numbers MUST update this file in the same PR (same protocol as scripts/perf-baselines.json).",
+  "fixtures": {
+    "fig01-raster": {
+      "rotation": 0,
+      "figureCount": 1,
+      "regions": [
+        { "bbox": [100, 400, 340, 580], "note": "embedded 240x180 raster image" }
+      ]
+    },
+    "fig02-vector-labels": {
+      "rotation": 0,
+      "figureCount": 1,
+      "regions": [
+        { "bbox": [150, 410, 460, 575], "note": "nested boxes + arrows + internal labels, tight ink" }
+      ]
+    },
+    "fig03-flowchart": {
+      "rotation": 0,
+      "figureCount": 1,
+      "regions": [
+        { "bbox": [120, 430, 480, 596], "note": "4 connected boxes, tight ink" }
+      ]
+    },
+    "fig04-chart-axes": {
+      "rotation": 0,
+      "figureCount": 1,
+      "regions": [
+        { "bbox": [90, 380, 520, 570], "note": "axes x=140..520 y=380..570 union the 'Load' y-axis label at x=90 (axis labels are chart ink; the detector includes them)" }
+      ]
+    },
+    "fig05-sparse-lineart": {
+      "rotation": 0,
+      "figureCount": 1,
+      "regions": [
+        { "bbox": [170, 440, 440, 580], "note": "triangle + diagonal, low ink density still detected as figure" }
+      ]
+    },
+    "fig06-two-column-figure": {
+      "rotation": 0,
+      "figureCount": 1,
+      "regions": [
+        { "bbox": [330, 380, 530, 560], "note": "figure confined to the right column (columns x 72..296 / 316..540)" }
+      ]
+    },
+    "fig07-full-width": {
+      "rotation": 0,
+      "figureCount": 1,
+      "regions": [
+        { "bbox": [72, 380, 540, 570], "note": "spans both columns edge to edge" }
+      ]
+    },
+    "fig08-multi-figures": {
+      "rotation": 0,
+      "figureCount": 2,
+      "warningsInclude": ["figure-ink-uncovered"],
+      "regions": [
+        { "bbox": [90, 560, 540, 690], "checkCropAspect": false, "note": "top figure pair (90,560)-(300,690) + (330,560)-(540,690): adjacent same-band figures merge into ONE analyzer block whose crop legitimately covers the band plus gap, so the crop aspect is not either figure's aspect" },
+        { "bbox": [180, 330, 430, 470], "note": "third figure, tight ink" }
+      ]
+    },
+    "fig09-rotated-figure": {
+      "rotation": 90,
+      "figureCount": 3,
+      "warningsInclude": ["figure-ink-uncovered"],
+      "regions": [
+        { "bbox": [100, 300, 480, 520], "note": "drawn figure on the /Rotate 90 page; crop aspect must be the INVERTED drawn aspect (rotation-aware crop math)" }
+      ]
+    },
+    "fig10-extreme-aspects": {
+      "rotation": 0,
+      "figureCount": 2,
+      "warningsInclude": ["figure-ink-uncovered"],
+      "regions": [
+        { "bbox": [72, 640, 540, 664], "checkCropAspect": false, "note": "19.5:1 wide banner: at this sliver ratio one caption line of bbox bleed moves the crop aspect ~45%, so aspect is not asserted; position/coverage are" },
+        { "bbox": [280, 80, 320, 470], "note": "1:9.75 tall strip carries the extreme-aspect crop-aspect guarantee" }
+      ]
+    },
+    "fig11-wide-aspect-crop": {
+      "rotation": 0,
+      "figureCount": 1,
+      "warningsInclude": ["figure-ink-uncovered"],
+      "regions": [
+        { "bbox": [66, 400, 546, 460], "note": "8:1 wide banner, clear vertical whitespace, caption tucked under the bottom edge so caption-bleed cannot legitimately move the aspect — the WIDE extreme-aspect crop-aspect guarantee (fig10's 19.5:1 banner opted out)" }
+      ]
+    }
+  }
+}

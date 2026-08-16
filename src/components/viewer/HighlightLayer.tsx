@@ -20,6 +20,8 @@ export interface StoredHighlight {
   note?: string;
   /** Creation timestamp */
   createdAt: number;
+  /** Canonical word ids (selection_context v2) for word-exact reflow painting. */
+  wordIds?: string[];
 }
 
 export interface HighlightLayerProps {
