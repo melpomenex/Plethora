@@ -1323,6 +1323,10 @@ export const ja: Dict = {
   "flashcardStudio.imagesImported": "画像をインポートしました",
   "flashcardStudio.imagesImportedDesc": "{count} 枚の画像をレジストリに追加しました。",
   "flashcardStudio.importImage": "画像をインポート",
+  "knowledgeFormulation.commandLabel": "20の知識定式化ルール",
+  "knowledgeFormulation.commandDescription": "ピョートル・ウォズニアック博士の20のルールに基づき原子的なカードを作成",
+  "knowledgeFormulation.reminderTitle": "知識定式化の20のルール (Piotr Wozniak博士)",
+  "knowledgeFormulation.reminderSubtitle": "効果的なフラッシュカードは原子的で明確、干渉が起きない構造が必要です。/20rules を使用して最小情報原則と穴埋め問題を活用してください。",
   "flashcardStudio.noLlmProvider": "LLM プロバイダーが設定されていません",
   "flashcardStudio.noLlmProviderDesc":
     "設定 → AI プロバイダーでプロバイダーを追加または有効にしてください。",

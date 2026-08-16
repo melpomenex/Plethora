@@ -1335,6 +1335,10 @@ export const de: Dict = {
   "flashcardStudio.imagesImported": "Bilder importiert",
   "flashcardStudio.imagesImportedDesc": "{count} Bild(er) zur Registry hinzugefügt.",
   "flashcardStudio.importImage": "Bild importieren",
+  "knowledgeFormulation.commandLabel": "20-Regeln-Formulierung",
+  "knowledgeFormulation.commandDescription": "Atomare Karteikarten nach Dr. Piotr Wozniaks 20 Regeln formulieren",
+  "knowledgeFormulation.reminderTitle": "Dr. Piotr Wozniaks 20 Regeln der Wissensformulierung",
+  "knowledgeFormulation.reminderSubtitle": "Effektive Karteikarten müssen atomar, klar und interferenzresistent sein. Verwenden Sie /20rules für minimale Information und Lückentext-Mnemotechnik.",
   "flashcardStudio.noLlmProvider": "Kein LLM-Anbieter konfiguriert",
   "flashcardStudio.noLlmProviderDesc":
     "Füge einen Anbieter hinzu oder aktiviere ihn unter Einstellungen → KI-Anbieter.",
