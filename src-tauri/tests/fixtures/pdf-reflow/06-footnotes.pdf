@@ -1,0 +1,36 @@
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj
+4 0 obj << /Length 1021 >>
+stream
+BT /F1 10 Tf 72 700 Td (Body sentence 1 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 686 Td (Body sentence 2 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 672 Td (Body sentence 3 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 658 Td (Body sentence 4 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 644 Td (Body sentence 5 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 630 Td (Body sentence 6 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 616 Td (Body sentence 7 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 602 Td (Body sentence 8 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 588 Td (Body sentence 9 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 574 Td (Body sentence 10 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 560 Td (Body sentence 11 of the footnote fixture.) Tj ET
+BT /F1 10 Tf 72 546 Td (Body sentence 12 of the footnote fixture.) Tj ET
+BT /F1 8 Tf 72 480 Td (1. See the appendix for full derivation details.) Tj ET
+BT /F1 8 Tf 72 468 Td (2. Second footnote with a citation reference.) Tj ET
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Courier >> endobj
+xref
+0 7
+0000000000 65535 f 
+0000000000 00000 n 
+0000000049 00000 n 
+0000000106 00000 n 
+0000000242 00000 n 
+0000001315 00000 n 
+0000001385 00000 n 
+trailer << /Size 7 /Root 1 0 R >>
+startxref
+1453
+%%EOF

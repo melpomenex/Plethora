@@ -336,14 +336,9 @@ pub async fn read_pdf_document_range(
     expected_identity: String,
     repo: State<'_, Repository>,
 ) -> std::result::Result<tauri::ipc::Response, PdfNativeError> {
-    let bytes = read_pdf_document_range_impl(
-        &document_id,
-        offset,
-        length,
-        &expected_identity,
-        &repo,
-    )
-    .await?;
+    let bytes =
+        read_pdf_document_range_impl(&document_id, offset, length, &expected_identity, &repo)
+            .await?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -472,7 +467,10 @@ mod tests {
         let error = get_pdf_document_source_info_impl("does-not-exist", &repo)
             .await
             .expect_err("unknown document must be refused");
-        assert!(matches!(error.code, "pdf_source_unavailable" | "pdf_source_missing"));
+        assert!(matches!(
+            error.code,
+            "pdf_source_unavailable" | "pdf_source_missing"
+        ));
     }
 
     #[tokio::test]
@@ -480,7 +478,11 @@ mod tests {
         let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
         db.migrate().await.expect("migrate");
         let repo = Repository::new(db.pool().clone());
-        let document = Document::new("txt".to_string(), "/tmp/whatever.txt".to_string(), FileType::Markdown);
+        let document = Document::new(
+            "txt".to_string(),
+            "/tmp/whatever.txt".to_string(),
+            FileType::Markdown,
+        );
         repo.create_document(&document).await.expect("document");
         let error = get_pdf_document_source_info_impl(&document.id, &repo)
             .await

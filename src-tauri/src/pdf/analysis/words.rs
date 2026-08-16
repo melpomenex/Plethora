@@ -57,6 +57,16 @@ const ZERO_WIDTH_ADVANCE_FACTOR: f64 = 0.5;
 pub fn extract_words(items: &[TextItemInput]) -> Vec<RawWord> {
     let mut words = Vec::new();
     for item in items {
+        // Boundary sanitization: a single non-finite transform/width/height
+        // value would poison every downstream geometry computation with NaN
+        // (line bboxes, ink subtraction, sorts). Degenerate-but-finite items
+        // are handled below; non-finite ones have no usable geometry at all.
+        let finite = item.transform.iter().all(|v| v.is_finite())
+            && item.width.is_finite()
+            && item.height.is_finite();
+        if !finite {
+            continue;
+        }
         if item.text.chars().all(char::is_whitespace) {
             continue;
         }
@@ -158,7 +168,12 @@ fn push_word(
         ax.max(top_ax).max(bx).max(top_bx),
         ay.max(top_ay).max(by).max(top_by),
     );
-    let text: String = item.text.chars().skip(*token_start).take(token_end - *token_start).collect();
+    let text: String = item
+        .text
+        .chars()
+        .skip(*token_start)
+        .take(token_end - *token_start)
+        .collect();
     words.push(RawWord {
         text,
         bbox,
@@ -209,7 +224,9 @@ mod tests {
         assert_eq!(words[1].text, "quick");
         assert!((words[0].bbox.x0 - 100.0).abs() < 1e-9);
         assert!((words[0].bbox.x1 - 160.0).abs() < 1e-9);
-        assert!((words[1].bbox.x0 - 160.0).abs() < 1e-9);
+        // "quick" spans chars 4..9 → its box starts after the space's
+        // proportional advance (4/9 × 180pt = 80pt from the origin).
+        assert!((words[1].bbox.x0 - 180.0).abs() < 1e-9);
         assert!((words[1].bbox.x1 - 280.0).abs() < 1e-9);
         // Height extends upward from the baseline.
         assert!((words[0].bbox.y0 - 700.0).abs() < 1e-9);

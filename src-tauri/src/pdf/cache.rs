@@ -222,9 +222,13 @@ impl PdfReflowCache {
 
     async fn enforce_limit(&self) -> Result<()> {
         let root = self.root.clone();
-        tokio::task::spawn_blocking(move || enforce_limit_blocking(&root, PDF_REFLOW_V2_CACHE_LIMIT_BYTES))
-            .await
-            .map_err(|error| IncrementumError::Internal(format!("PDF cache cleanup failed: {error}")))??;
+        tokio::task::spawn_blocking(move || {
+            enforce_limit_blocking(&root, PDF_REFLOW_V2_CACHE_LIMIT_BYTES)
+        })
+        .await
+        .map_err(|error| {
+            IncrementumError::Internal(format!("PDF cache cleanup failed: {error}"))
+        })??;
         Ok(())
     }
 }
@@ -320,7 +324,12 @@ mod tests {
         let dir = cache.entry_dir("../../private", "source/id", 2, "rust-hybrid-v2");
         assert_eq!(dir.file_name().unwrap().to_string_lossy().len(), 64);
         assert_eq!(
-            dir.parent().unwrap().file_name().unwrap().to_string_lossy().len(),
+            dir.parent()
+                .unwrap()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .len(),
             64
         );
         assert!(PdfReflowCache::page_path(&dir, 7).ends_with("page-7.json"));
@@ -337,34 +346,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stale_engine_version_entry_is_not_returned_after_bump() {
+        // A page written under a previous engine version (e.g. the pre-bump
+        // "rust-hybrid-v2") must become unreachable once
+        // PDF_CANONICAL_ENGINE_VERSION moves on: the cache key derives from
+        // identity|schema|engine, so the stale page lives under a different
+        // hash and reads for the current engine miss cleanly.
+        let dir = tempfile::tempdir().unwrap();
+        let cache = PdfReflowCache::at_root(dir.path().to_path_buf());
+        let mut stale = sample_page(3);
+        stale.engine_version = "rust-hybrid-v2".into();
+        cache
+            .put_page(
+                "doc-1",
+                "identity",
+                PDF_CANONICAL_SCHEMA_VERSION,
+                "rust-hybrid-v2",
+                &stale,
+            )
+            .await
+            .unwrap();
+        // Still readable under its own (stale) key...
+        assert!(cache
+            .get_page("doc-1", "identity", PDF_CANONICAL_SCHEMA_VERSION, "rust-hybrid-v2", 3)
+            .await
+            .unwrap()
+            .is_some());
+        // ...but NOT under the current engine key.
+        assert_ne!(PDF_CANONICAL_ENGINE_VERSION, "rust-hybrid-v2");
+        assert!(cache
+            .get_page(
+                "doc-1",
+                "identity",
+                PDF_CANONICAL_SCHEMA_VERSION,
+                PDF_CANONICAL_ENGINE_VERSION,
+                3,
+            )
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
     async fn page_round_trips_typed_json() {
         let dir = tempfile::tempdir().unwrap();
         let cache = PdfReflowCache::at_root(dir.path().to_path_buf());
         let page = sample_page(3);
         cache
-            .put_page("doc-1", "identity", PDF_CANONICAL_SCHEMA_VERSION, PDF_CANONICAL_ENGINE_VERSION, &page)
+            .put_page(
+                "doc-1",
+                "identity",
+                PDF_CANONICAL_SCHEMA_VERSION,
+                PDF_CANONICAL_ENGINE_VERSION,
+                &page,
+            )
             .await
             .unwrap();
         let loaded = cache
-            .get_page("doc-1", "identity", PDF_CANONICAL_SCHEMA_VERSION, PDF_CANONICAL_ENGINE_VERSION, 3)
+            .get_page(
+                "doc-1",
+                "identity",
+                PDF_CANONICAL_SCHEMA_VERSION,
+                PDF_CANONICAL_ENGINE_VERSION,
+                3,
+            )
             .await
             .unwrap()
             .expect("page should be cached");
         assert_eq!(loaded, page);
         // Misses return None without materializing directories.
-        assert!(
-            cache
-                .get_page("doc-1", "identity", PDF_CANONICAL_SCHEMA_VERSION, PDF_CANONICAL_ENGINE_VERSION, 4)
-                .await
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            !cache
-                .entry_dir("doc-1", "identity", PDF_CANONICAL_SCHEMA_VERSION, PDF_CANONICAL_ENGINE_VERSION)
-                .join("page-4.json")
-                .exists()
-        );
+        assert!(cache
+            .get_page(
+                "doc-1",
+                "identity",
+                PDF_CANONICAL_SCHEMA_VERSION,
+                PDF_CANONICAL_ENGINE_VERSION,
+                4
+            )
+            .await
+            .unwrap()
+            .is_none());
+        assert!(!cache
+            .entry_dir(
+                "doc-1",
+                "identity",
+                PDF_CANONICAL_SCHEMA_VERSION,
+                PDF_CANONICAL_ENGINE_VERSION
+            )
+            .join("page-4.json")
+            .exists());
     }
 
     #[tokio::test]
@@ -399,12 +469,10 @@ mod tests {
             .unwrap()
             .expect("asset should be cached");
         assert_eq!(loaded, bytes);
-        assert!(
-            cache
-                .get_asset("doc-1", "identity", 2, "rust-hybrid-v2", "not-a-hash")
-                .await
-                .is_err()
-        );
+        assert!(cache
+            .get_asset("doc-1", "identity", 2, "rust-hybrid-v2", "not-a-hash")
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -425,6 +493,10 @@ mod tests {
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
             .collect();
-        assert_eq!(remaining.len(), 2, "oldest files beyond the cap are evicted");
+        assert_eq!(
+            remaining.len(),
+            2,
+            "oldest files beyond the cap are evicted"
+        );
     }
 }

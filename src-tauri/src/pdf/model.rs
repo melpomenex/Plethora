@@ -1,4 +1,4 @@
-//! Canonical PDF content model (schema v2, engine `rust-hybrid-v2`).
+//! Canonical PDF content model (schema v2, engine `rust-hybrid-v3`).
 //!
 //! Field names serialize to camelCase to mirror the TypeScript types in
 //! `src/types/pdfCanonical.ts`. Fields added by later analysis phases use
@@ -11,7 +11,12 @@ use serde::{Deserialize, Serialize};
 use super::coordinates::PdfRect;
 
 pub const PDF_CANONICAL_SCHEMA_VERSION: u32 = 2;
-pub const PDF_CANONICAL_ENGINE_VERSION: &str = "rust-hybrid-v2";
+// v3 (from v2): figure-geometry overhaul — rotation-aware detection/crop
+// basis and stricter visual-block bbox validation changed block geometry
+// output materially, so v2-keyed page caches must not survive the upgrade
+// (the cache key derives from identity|schema|engine, so stale entries
+// become unreachable automatically).
+pub const PDF_CANONICAL_ENGINE_VERSION: &str = "rust-hybrid-v3";
 
 /// Where a word's text came from. Born-digital pages must stay
 /// `NativePdfText` — OCR is never invoked for text native extraction handles.
@@ -184,6 +189,14 @@ pub struct PdfCanonicalBlock {
     /// Cached source-crop asset (`figure`, `equation`, low-confidence crops).
     #[serde(default)]
     pub asset_id: Option<String>,
+    /// Intrinsic pixel size of the cached source crop (visual blocks), used
+    /// by the reflow renderer to reserve layout space before the asset
+    /// loads. None for text blocks and pages cached before the field
+    /// existed; serialization skips None so old payloads stay byte-shaped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_height: Option<u32>,
     /// Textual fallback for visual blocks; searchable and TTS-readable but
     /// never rendered as flowing reflow text.
     #[serde(default)]
@@ -360,6 +373,8 @@ mod tests {
                 items: None,
                 table: None,
                 asset_id: None,
+                source_width: None,
+                source_height: None,
                 alt_text: None,
                 caption_of: None,
                 href: None,
@@ -395,6 +410,49 @@ mod tests {
         let output = serde_json::to_value(&page).unwrap();
         let expected: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(output, expected, "golden fixture and serde output drifted");
+    }
+
+    /// Figure intrinsic dims are optional: present blocks round trip them,
+    /// absent blocks (older cache entries, text blocks) serialize without
+    /// the keys so the payload shape is stable across the field's rollout.
+    #[test]
+    fn source_dims_serialize_only_when_present() {
+        let mut block = PdfCanonicalBlock {
+            id: block_id(1, 0),
+            kind: PdfCanonicalBlockKind::Figure,
+            role: PdfCanonicalRole::Body,
+            page_number: 1,
+            source_regions: vec![PdfSourceRegion {
+                page_number: 1,
+                bbox: PdfRect::new(105.0, 400.0, 510.0, 583.0),
+            }],
+            word_ids: vec![],
+            line_ids: vec![],
+            reading_order: 0,
+            confidence: 0.5,
+            text: String::new(),
+            direction: PdfCanonicalDirection::Auto,
+            language: None,
+            items: None,
+            table: None,
+            asset_id: Some("f00f".into()),
+            source_width: Some(818),
+            source_height: Some(374),
+            alt_text: None,
+            caption_of: None,
+            href: None,
+            extraction: PdfWordSource::Graphical,
+        };
+        let json = serde_json::to_string(&block).unwrap();
+        assert!(json.contains("\"sourceWidth\":818"));
+        assert!(json.contains("\"sourceHeight\":374"));
+        let parsed: PdfCanonicalBlock = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, block);
+        block.source_width = None;
+        block.source_height = None;
+        let none_json = serde_json::to_string(&block).unwrap();
+        assert!(!none_json.contains("sourceWidth"));
+        assert!(!none_json.contains("sourceHeight"));
     }
 
     #[test]

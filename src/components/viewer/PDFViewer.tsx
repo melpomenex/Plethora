@@ -16,9 +16,11 @@ import {
   CaretRight,
   CornersIn,
   CornersOut,
+  FileText,
   List,
   Scan,
   SlidersHorizontal,
+  TextAa,
   X,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
@@ -31,6 +33,8 @@ import { getDocumentAuto, updateDocumentProgressAuto } from "../../api/documents
 import { getFormFactor, isTauri } from "../../lib/tauri";
 import { shouldUseNativePdfRangeSource, isPdfFeatureEnabled } from "./pdfFeatureFlags";
 import { markBusy } from "../../lib/memoryScenario/activity";
+import { enrichPdfSelectionWithCanonical } from "../../lib/pdf/canonicalSelection";
+import { ensureRegionAssetUrl } from "../../lib/pdf/reflowAssets";
 import { createPdfDocumentHolder } from "../../lib/pdf/pdfDocumentHolder";
 import {
   deriveCurrentPageFromOffsets,
@@ -51,6 +55,7 @@ import {
   initialPdfSelectionPersistenceState,
   type SelectionClearReason,
 } from "./pdfSelectionPersistence";
+import { resolvePdfContextMenu } from "./pdfContextMenu";
 import { useI18n } from "../../lib/i18n";
 import { useVimModeStore } from "../../stores/vimModeStore";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
@@ -69,7 +74,16 @@ import { initialPdfReaderState, reducePdfReaderState } from "./pdfReaderState";
 import { createBrowserPdfReflowCache } from "./pdfReflowCache";
 import { createPdfReflowDocument, pdfReflowCacheKey, type PdfReflowBlock, type PdfReflowDocument } from "./pdfReflowTypes";
 import { PdfReflowScheduler } from "./pdfReflowScheduler";
+import { PdfCanonicalScheduler } from "./pdfCanonicalScheduler";
 import { PdfReflowRenderer } from "./PdfReflowRenderer";
+import { PdfCanonicalReflowRenderer, type PdfVisualAssetDims } from "./PdfCanonicalReflowRenderer";
+import { createPdfCanonicalPageCache, type PdfCanonicalPageCache } from "./pdfCanonicalCache";
+import { canonicalReflowSelectionFromRange } from "./pdfCanonicalReflowSelection";
+import { graphicalFallbackPage, ocrCanonicalPage } from "./pdfCanonicalOcr";
+import { isPdfReflowDebugEnabled, PdfCanonicalDebugOverlay } from "./PdfCanonicalDebugOverlay";
+import { anchorFromCanonicalBlock, resolveCanonicalAnchor } from "./pdfAnchorResolver";
+import type { PdfCanonicalBlock, PdfCanonicalPage } from "../../types/pdfCanonical";
+import { PDF_CANONICAL_ENGINE_VERSION, PDF_CANONICAL_SCHEMA_VERSION } from "../../types/pdfCanonical";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { loadPdfMobilePreferences, pdfMobilePreferencesFromSettings, savePdfMobilePreferences } from "./pdfMobilePreferences";
 import { PdfReflowOcrController, type PdfPageOcrUpdate } from "./pdfReflowOcr";
@@ -405,6 +419,13 @@ interface PDFViewerProps {
   ttsHighlightEnabled?: boolean;
   onTextLayerRootsChange?: (roots: (HTMLDivElement | null)[], scrollContainer: HTMLElement | null) => void;
   onVimRuntimeChange?: (runtime: PdfVimRuntime | null) => void;
+  /** Right-click on a committed selection asks the host to open its shared
+   *  text-selection context menu. Mirrors EPUBViewer's contract; coords are
+   *  top-document client coords (PDF surfaces are not iframed). */
+  onContextMenu?: (event: { x: number; y: number; selectedText: string; selectionContext: PdfSelectionContext | null }) => void;
+  /** While true the floating selection popup stays hidden — the host's context
+   *  menu supersedes it, and the popup returns when this flips back false. */
+  selectionPopupSuppressed?: boolean;
 }
 
 type PdfSearchMatch = {
@@ -464,6 +485,8 @@ export function PDFViewer({
   ttsHighlightEnabled,
   onTextLayerRootsChange,
   onVimRuntimeChange,
+  onContextMenu,
+  selectionPopupSuppressed = false,
 }: PDFViewerProps) {
   const { t } = useI18n();
 
@@ -481,6 +504,13 @@ export function PDFViewer({
   const [mobilePdfMode, setMobilePdfMode] = useState<"fixed" | "reflow">("fixed");
   const reflowCacheRef = useRef(createBrowserPdfReflowCache());
   const reflowSchedulerRef = useRef<PdfReflowScheduler | null>(null);
+  // Canonical (v2) pipeline: activates on every form factor when both flags
+  // are on; the v1 phone-only prototype backs off in that case (D14).
+  const canonicalPipelineActive = isPdfFeatureEnabled("canonicalPdfModel") && isPdfFeatureEnabled("semanticReflow");
+  const [canonicalPages, setCanonicalPages] = useState<Map<number, PdfCanonicalPage>>(new Map());
+  const canonicalCacheRef = useRef<PdfCanonicalPageCache | null>(null);
+  const canonicalSchedulerRef = useRef<PdfCanonicalScheduler | null>(null);
+  const canonicalReadyRef = useRef<Set<number>>(new Set());
   const modeOverriddenRef = useRef(false);
   const isPhone = typeof window !== "undefined" && getFormFactor() === "phone";
   const pdfSettings = useSettingsStore((state) => state.settings.documents.pdfSettings);
@@ -568,6 +598,8 @@ export function PDFViewer({
   const textWindowRef = useRef<{ start: number; end: number }>({ start: 1, end: 1 });
   const skipAutoScrollOnceRef = useRef(false);
   const lastSelectionWasPdfRef = useRef(false);
+  const onContextMenuRef = useRef(onContextMenu);
+  onContextMenuRef.current = onContextMenu;
   const pageTextSelectionAvailabilityRef = useRef<Map<number, boolean>>(new Map());
   // Track the last restored page to prevent scroll events from resetting backwards
   const restoredPageRef = useRef<number | null>(null);
@@ -614,6 +646,12 @@ export function PDFViewer({
   useEffect(() => {
     persistedSelectionRef.current = persistedSelection.selection;
   }, [persistedSelection.selection]);
+  // Selected-text mirror so event-time readers (contextmenu) see the latest
+  // commit without re-registering on every reducer state change.
+  const persistedSelectedTextRef = useRef("");
+  useEffect(() => {
+    persistedSelectedTextRef.current = persistedSelection.selectedText;
+  }, [persistedSelection.selectedText]);
   // Bumped when a page viewport changes while a selection is persisted, so the
   // per-page overlay re-derives its rects even when the geometry change did
   // not flow through the `scale` prop (e.g. a relayout that resizes pages).
@@ -1438,8 +1476,15 @@ export function PDFViewer({
     // shouldn't trigger reloading the PDF source.
   }, [documentId, fileData, fileUrl, isTauriRuntime, onTextSelectionCapabilityChange, retryNonce, useNativeRange]);
 
+  // Lazy analysis window around the reader (design D10): analyze at most this
+  // many pages away from the current one per scheduler run. Whole-document
+  // runs kept a 691-page book analyzing (raster + IPC + Rust) for hours in
+  // the background, starving the UI; page changes restart with a fresh
+  // window and analyzed pages are cache-hits, so nothing is lost.
+  const ANALYSIS_WINDOW_PAGES = 8;
+
   useEffect(() => {
-    if (!pdf || !pdfSourceIdentity || !isPhone || !isPdfFeatureEnabled("semanticReflow")) {
+    if (!pdf || !pdfSourceIdentity || !isPhone || !isPdfFeatureEnabled("semanticReflow") || canonicalPipelineActive) {
       reflowSchedulerRef.current?.cancel();
       return;
     }
@@ -1476,7 +1521,7 @@ export function PDFViewer({
         }
       });
       reflowSchedulerRef.current = scheduler;
-      await scheduler.start(pageNumber);
+      await scheduler.start(pageNumber, ANALYSIS_WINDOW_PAGES);
       if (!disposed) setReaderState((state) => reducePdfReaderState(state, { type: "READY" }));
     };
     void start();
@@ -1484,11 +1529,118 @@ export function PDFViewer({
       disposed = true;
       reflowSchedulerRef.current?.cancel();
     };
-  }, [documentId, isPhone, metadata?.language, mobilePreferences.preferredMobileMode, pdf, pdfSourceIdentity]);
+  }, [canonicalPipelineActive, documentId, isPhone, metadata?.language, mobilePreferences.preferredMobileMode, pdf, pdfSourceIdentity]);
+
+  // Canonical (v2) pipeline: cache-first hybrid analysis on every platform.
+  useEffect(() => {
+    if (!pdf || !pdfSourceIdentity || !canonicalPipelineActive) {
+      canonicalSchedulerRef.current?.cancel();
+      return;
+    }
+    let disposed = false;
+    canonicalCacheRef.current = createPdfCanonicalPageCache({
+      documentId,
+      sourceIdentity: pdfSourceIdentity.identity,
+      schemaVersion: PDF_CANONICAL_SCHEMA_VERSION,
+      engineVersion: PDF_CANONICAL_ENGINE_VERSION,
+    });
+    canonicalReadyRef.current = new Set();
+    setCanonicalPages(new Map());
+    setReaderState((state) => reducePdfReaderState(state, { type: "ANALYZE" }));
+    const onPage = (page: PdfCanonicalPage) => {
+      if (disposed) return;
+      if (page.state === "ready") canonicalReadyRef.current.add(page.pageNumber);
+      else canonicalReadyRef.current.delete(page.pageNumber);
+      setCanonicalPages((prev) => new Map(prev).set(page.pageNumber, page));
+      setReaderState((state) => reducePdfReaderState(state, { type: "PARTIAL_REFLOW" }));
+      const preferred = mobilePreferences.preferredMobileMode;
+      if (!modeOverriddenRef.current && page.pageNumber === pageNumber && page.state === "ready"
+        && (preferred === "reflow" || (preferred === "auto" && (page.classification === "semantic" || page.classification === "semantic-with-warnings")))) {
+        setMobilePdfMode("reflow");
+      }
+    };
+    const scheduler = new PdfCanonicalScheduler(pdf, canonicalCacheRef.current, onPage);
+    canonicalSchedulerRef.current = scheduler;
+    void scheduler.start(pageNumber, canonicalReadyRef.current, ANALYSIS_WINDOW_PAGES).finally(() => {
+      if (!disposed) setReaderState((state) => reducePdfReaderState(state, { type: "READY" }));
+    });
+    return () => {
+      disposed = true;
+      scheduler.cancel();
+    };
+  }, [canonicalPipelineActive, documentId, mobilePreferences.preferredMobileMode, pdf, pdfSourceIdentity]);
 
   useEffect(() => {
-    if (reflowSchedulerRef.current) void reflowSchedulerRef.current.start(pageNumber);
+    if (reflowSchedulerRef.current) void reflowSchedulerRef.current.start(pageNumber, ANALYSIS_WINDOW_PAGES);
   }, [pageNumber]);
+
+  useEffect(() => {
+    if (canonicalSchedulerRef.current) void canonicalSchedulerRef.current.start(pageNumber, canonicalReadyRef.current, ANALYSIS_WINDOW_PAGES);
+  }, [pageNumber]);
+
+  /**
+   * Placeholder list for the reflow stream: the window around the reader
+   * (+5/−2, design D10) whose pages are not analyzed yet. Keeps scroll
+   * height stable while the scheduler catches up.
+   */
+  const pendingCanonicalPages = useMemo(() => {
+    if (!pdf) return [];
+    const pending: number[] = [];
+    for (let page = Math.max(1, pageNumber - 2); page <= Math.min(pdf.numPages, pageNumber + 5); page += 1) {
+      const state = canonicalPages.get(page)?.state;
+      if (!state || state === "pending" || state === "processing") pending.push(page);
+    }
+    return pending;
+  }, [canonicalPages, pageNumber, pdf]);
+
+  // Lazy source-crop assets for visual blocks (task 6.2): render → upload →
+  // object URL, once per block per document. The measured crop dims travel
+  // alongside so the renderer can reserve the figure's aspect box before
+  // the lazy PNG ever loads.
+  const [canonicalAssetUrls, setCanonicalAssetUrls] = useState<Map<string, string>>(new Map());
+  const [canonicalAssetDims, setCanonicalAssetDims] = useState<Map<string, PdfVisualAssetDims>>(new Map());
+  useEffect(() => {
+    if (!pdf || !pdfSourceIdentity || !canonicalPipelineActive || canonicalPages.size === 0) return;
+    let disposed = false;
+    const context = {
+      documentId,
+      sourceIdentity: pdfSourceIdentity.identity,
+      schemaVersion: PDF_CANONICAL_SCHEMA_VERSION,
+      engineVersion: PDF_CANONICAL_ENGINE_VERSION,
+    };
+    const visualBlocks = [...canonicalPages.values()]
+      .flatMap((page) => page.blocks)
+      .filter((block) =>
+        block.kind === "figure" || block.kind === "equation"
+        || (block.kind === "table" && !block.table)
+        || block.kind === "unknown-visual",
+      );
+    void (async () => {
+      for (const block of visualBlocks) {
+        if (disposed) return;
+        if (canonicalAssetUrls.has(block.id)) continue;
+        const region = block.sourceRegions[0];
+        if (!region) continue;
+        const asset = await ensureRegionAssetUrl({
+          pdf,
+          pageNumber: block.pageNumber,
+          rect: region.bbox,
+          context,
+        });
+        if (disposed) return;
+        if (asset) {
+          setCanonicalAssetUrls((prev) => new Map(prev).set(block.id, asset.url));
+          setCanonicalAssetDims((prev) => new Map(prev).set(block.id, { width: asset.width, height: asset.height }));
+        }
+      }
+    })();
+    return () => {
+      disposed = true;
+    };
+    // canonicalAssetUrls/canonicalAssetDims intentionally excluded: only new
+    // blocks matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canonicalPages, canonicalPipelineActive, documentId, pdf, pdfSourceIdentity]);
 
   const handleReflowScroll = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -1502,6 +1654,7 @@ export function PDFViewer({
     if (current !== pageNumber) onPageChange?.(current);
     const currentBlockElement = container.querySelector<HTMLElement>(`[data-pdf-reflow-page="${current}"] [data-pdf-reflow-block]`);
     const blockId = currentBlockElement?.dataset.pdfReflowBlock;
+    const canonicalBlock = canonicalPages.get(current)?.blocks.find((candidate) => candidate.id === blockId);
     const block = reflowDocument?.pages[current]?.blocks.find((candidate) => candidate.id === blockId);
     const denominator = Math.max(1, container.scrollHeight - container.clientHeight);
     onScrollPositionChange?.({
@@ -1511,42 +1664,120 @@ export function PDFViewer({
       scrollHeight: container.scrollHeight,
       clientHeight: container.clientHeight,
       scrollPercent: (container.scrollTop / denominator) * 100,
-      pdfAnchor: block ? anchorFromReflowBlock(block, pdfSourceIdentity?.fingerprint) : { pageNumber: current, fingerprint: pdfSourceIdentity?.fingerprint },
+      // Canonical anchors carry a word id (primary); v1 anchors fall back
+      // to block/textQuote (design D9).
+      pdfAnchor: canonicalBlock
+        ? anchorFromCanonicalBlock(canonicalBlock, pdfSourceIdentity?.fingerprint, canonicalBlock.wordIds[0])
+        : block
+          ? anchorFromReflowBlock(block, pdfSourceIdentity?.fingerprint)
+          : { pageNumber: current, fingerprint: pdfSourceIdentity?.fingerprint },
     });
-  }, [onPageChange, onScrollPositionChange, pageNumber, pdfSourceIdentity?.fingerprint, reflowDocument]);
+  }, [canonicalPages, onPageChange, onScrollPositionChange, pageNumber, pdfSourceIdentity?.fingerprint, reflowDocument]);
+
+  // v1 reflow: map the live DOM range to its [data-pdf-reflow-block] owner and
+  // build the block-scoped selection context. Returns null when the range does
+  // not resolve to a block (caller decides whether that clears the selection).
+  const buildV1ReflowBlockSelection = useCallback(
+    (selection: Selection, text: string): { text: string; context: PdfSelectionContext } | null => {
+      if (!reflowDocument) return null;
+      const node = selection.getRangeAt(0).commonAncestorContainer;
+      const baseElement = node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement;
+      const element = baseElement?.closest<HTMLElement>("[data-pdf-reflow-block]");
+      const blockId = element?.dataset.pdfReflowBlock;
+      const block = Object.values(reflowDocument.pages).flatMap((page) => page.blocks).find((candidate) => candidate.id === blockId);
+      if (!block) return null;
+      return {
+        text,
+        context: {
+          type: "pdf",
+          documentId,
+          fingerprint: pdfSourceIdentity?.fingerprint,
+          source: "native",
+          pages: [{
+            pageNumber: block.source.pageNumber,
+            viewportRects: [],
+            pdfRects: block.source.rects.map((rect) => ({ x1: rect.x, y1: rect.y, x2: rect.x + rect.width, y2: rect.y + rect.height })),
+          }],
+          tokenData: block.source.tokenIds.length ? {
+            startTokenId: block.source.tokenIds[0],
+            endTokenId: block.source.tokenIds.at(-1)!,
+            tokenIds: block.source.tokenIds,
+          } : undefined,
+          reflowBlockIds: [block.id],
+          mappingConfidence: block.source.confidence,
+        },
+      };
+    },
+    [documentId, pdfSourceIdentity?.fingerprint, reflowDocument],
+  );
+
+  // Derive the current reflow selection (canonical v2 first, v1 block fallback)
+  // without emitting anything. Shared by the mouseup handler and the
+  // contextmenu listener so both report identical provenance.
+  const buildReflowSelectionContext = useCallback((): { text: string; context: PdfSelectionContext } | null => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? "";
+    if (!text || !selection?.rangeCount || selection.isCollapsed) return null;
+    // Canonical (v2): DOM range → data-w word spans → word-exact anchor.
+    if (canonicalPipelineActive && canonicalPages.size > 0) {
+      const container = scrollContainerRef.current;
+      const canonical = container
+        ? canonicalReflowSelectionFromRange(selection, container, canonicalPages, documentId, pdfSourceIdentity?.fingerprint)
+        : null;
+      if (canonical) {
+        return { text: canonical.text, context: canonical.context };
+      }
+      // Fallback for multi-page or non-word elements: preserve selection so context menu / Learn This works
+      const baseElement = selection.anchorNode instanceof Element ? selection.anchorNode : selection.anchorNode?.parentElement;
+      const pageEl = baseElement?.closest<HTMLElement>("[data-pdf-reflow-page]");
+      const pageNum = pageEl ? Number(pageEl.dataset.pdfReflowPage) : (pageNumberRef.current || 1);
+      return {
+        text,
+        context: {
+          type: "pdf",
+          documentId,
+          fingerprint: pdfSourceIdentity?.fingerprint,
+          source: "native",
+          pages: [{
+            pageNumber: pageNum,
+            viewportRects: [],
+            pdfRects: [],
+          }],
+        },
+      };
+    }
+    const v1 = buildV1ReflowBlockSelection(selection, text);
+    if (v1) return v1;
+    return {
+      text,
+      context: {
+        type: "pdf",
+        documentId,
+        fingerprint: pdfSourceIdentity?.fingerprint,
+        source: "native",
+        pages: [{
+          pageNumber: pageNumberRef.current || 1,
+          viewportRects: [],
+          pdfRects: [],
+        }],
+      },
+    };
+  }, [buildV1ReflowBlockSelection, canonicalPipelineActive, canonicalPages, documentId, pdfSourceIdentity?.fingerprint]);
 
   const handleReflowSelection = useCallback(() => {
     const selection = window.getSelection();
     const text = selection?.toString().trim() ?? "";
-    if (!text || !selection?.rangeCount || !reflowDocument) {
+    if (!text || !selection?.rangeCount || selection.isCollapsed) {
       onSelectionChange?.("", null);
       return;
     }
-    const node = selection.getRangeAt(0).commonAncestorContainer;
-    const baseElement = node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement;
-    const element = baseElement?.closest<HTMLElement>("[data-pdf-reflow-block]");
-    const blockId = element?.dataset.pdfReflowBlock;
-    const block = Object.values(reflowDocument.pages).flatMap((page) => page.blocks).find((candidate) => candidate.id === blockId);
-    if (!block) return;
-    onSelectionChange?.(text, {
-      type: "pdf",
-      documentId,
-      fingerprint: pdfSourceIdentity?.fingerprint,
-      source: "native",
-      pages: [{
-        pageNumber: block.source.pageNumber,
-        viewportRects: [],
-        pdfRects: block.source.rects.map((rect) => ({ x1: rect.x, y1: rect.y, x2: rect.x + rect.width, y2: rect.y + rect.height })),
-      }],
-      tokenData: block.source.tokenIds.length ? {
-        startTokenId: block.source.tokenIds[0],
-        endTokenId: block.source.tokenIds.at(-1)!,
-        tokenIds: block.source.tokenIds,
-      } : undefined,
-      reflowBlockIds: [block.id],
-      mappingConfidence: block.source.confidence,
-    });
-  }, [documentId, onSelectionChange, pdfSourceIdentity?.fingerprint, reflowDocument]);
+    const result = buildReflowSelectionContext();
+    if (result) {
+      onSelectionChange?.(result.text, result.context);
+    } else {
+      onSelectionChange?.("", null);
+    }
+  }, [buildReflowSelectionContext, onSelectionChange]);
 
   const handleMobileSurfaceClick = useCallback((event: React.MouseEvent) => {
     if (!isPhone || event.target instanceof Element && event.target.closest("button,a,input,select,textarea,[role=dialog]")) return;
@@ -1560,6 +1791,61 @@ export function PDFViewer({
     onPageChange?.(block.source.pageNumber);
   }, [onPageChange]);
 
+  const handleViewOriginalCanonicalBlock = useCallback((block: PdfCanonicalBlock) => {
+    modeOverriddenRef.current = true;
+    setMobilePdfMode("fixed");
+    onPageChange?.(block.pageNumber);
+  }, [onPageChange]);
+
+  // OCR / graphical fallback for scanned pages (tasks 7.3–7.5): the
+  // degradation ladder never leaves a page unreadable.
+  const handleCanonicalOcr = useCallback(async (page: PdfCanonicalPage) => {
+    if (!pdf || !pdfSourceIdentity) return;
+    const result = await ocrCanonicalPage({
+      pdf,
+      pageNumber: page.pageNumber,
+      context: {
+        documentId,
+        sourceIdentity: pdfSourceIdentity.identity,
+        schemaVersion: PDF_CANONICAL_SCHEMA_VERSION,
+        engineVersion: PDF_CANONICAL_ENGINE_VERSION,
+      },
+    });
+    if (result) setCanonicalPages((prev) => new Map(prev).set(page.pageNumber, result));
+  }, [documentId, pdf, pdfSourceIdentity]);
+
+  const handleCanonicalGraphicalFallback = useCallback(async (page: PdfCanonicalPage) => {
+    if (!pdf || !pdfSourceIdentity) return;
+    const result = await graphicalFallbackPage({
+      pdf,
+      pageNumber: page.pageNumber,
+      context: {
+        documentId,
+        sourceIdentity: pdfSourceIdentity.identity,
+        schemaVersion: PDF_CANONICAL_SCHEMA_VERSION,
+        engineVersion: PDF_CANONICAL_ENGINE_VERSION,
+      },
+    });
+    if (result) setCanonicalPages((prev) => new Map(prev).set(page.pageNumber, result));
+  }, [documentId, pdf, pdfSourceIdentity]);
+
+  // Identity-stable pass-throughs so the memoized reflow page sections skip
+  // re-rendering when these reach the renderer as props.
+  const handleCanonicalOcrRequest = useCallback(
+    (page: PdfCanonicalPage) => { void handleCanonicalOcr(page); },
+    [handleCanonicalOcr],
+  );
+  const handleCanonicalGraphicalFallbackRequest = useCallback(
+    (page: PdfCanonicalPage) => { void handleCanonicalGraphicalFallback(page); },
+    [handleCanonicalGraphicalFallback],
+  );
+  // Sorted once per analysis update, not per host render — a fresh array here
+  // re-renders every memoized page section on each scroll/state update.
+  const canonicalReflowPages = useMemo(
+    () => [...canonicalPages.values()].sort((a, b) => a.pageNumber - b.pageNumber),
+    [canonicalPages],
+  );
+
   const scrollReflowToPage = useCallback((targetPage: number, behavior: ScrollBehavior = "smooth") => {
     const container = scrollContainerRef.current;
     const section = container?.querySelector<HTMLElement>(`[data-pdf-reflow-page="${targetPage}"]`);
@@ -1569,18 +1855,44 @@ export function PDFViewer({
     return true;
   }, [onPageChange]);
 
+  // Restore must run ONCE per restore request — not on every analyzed page.
+  // The scheduler updates `canonicalPages` continuously, and re-running the
+  // scroll here yanked the reader back mid-scroll ("bounces back" bug).
+  const canonicalPagesRef = useRef(canonicalPages);
   useEffect(() => {
-    if (mobilePdfMode !== "reflow" || !reflowDocument || !restoreState) return;
-    const block = restoreState.pdfAnchor ? resolveReflowBlock(reflowDocument, restoreState.pdfAnchor) : null;
+    canonicalPagesRef.current = canonicalPages;
+  }, [canonicalPages]);
+  const reflowRestoreKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (mobilePdfMode !== "reflow" || !restoreState) {
+      reflowRestoreKeyRef.current = null;
+      return;
+    }
+    const key = `${restoreRequestId ?? "none"}:${restoreState.pageNumber}`;
+    if (reflowRestoreKeyRef.current === key) return;
+    reflowRestoreKeyRef.current = key;
+    // Canonical resolution first (wordId → blockId → quote → rect, D9);
+    // the v1 prototype resolves when the v2 pipeline is off.
+    const pages = canonicalPagesRef.current;
+    const canonicalResolved = restoreState.pdfAnchor && pages.size > 0
+      ? resolveCanonicalAnchor(pages, restoreState.pdfAnchor)
+      : null;
+    const block = !canonicalResolved && reflowDocument && restoreState.pdfAnchor
+      ? resolveReflowBlock(reflowDocument, restoreState.pdfAnchor)
+      : null;
+    const targetElementId = canonicalResolved?.block.id ?? block?.id ?? null;
     const frame = requestAnimationFrame(() => {
-      if (block) {
-        document.getElementById(block.id)?.scrollIntoView({ block: "start", behavior: "auto" });
+      if (targetElementId && document.getElementById(targetElementId)) {
+        document.getElementById(targetElementId)?.scrollIntoView({ block: "start", behavior: "auto" });
       } else {
         scrollReflowToPage(restoreState.pageNumber, "auto");
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [mobilePdfMode, reflowDocument, restoreState, scrollReflowToPage]);
+    // canonicalPages deliberately read via ref — see above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobilePdfMode, reflowDocument, restoreState, restoreRequestId, scrollReflowToPage]);
 
   useEffect(() => {
     if (mobilePdfMode !== "reflow" || !highlightPageNumber) return;
@@ -1597,7 +1909,36 @@ export function PDFViewer({
   }, [highlightPageNumber, highlightQuery, highlightTextQuote, mobilePdfMode, reflowDocument, scrollReflowToPage]);
 
   useEffect(() => {
-    if (mobilePdfMode !== "reflow" || !reflowDocument || !searchQuery?.trim()) {
+    if (mobilePdfMode !== "reflow" || !searchQuery?.trim()) {
+      setReflowSearchBlockId(null);
+      return;
+    }
+    // Canonical (v2) search (task 8.2): matches carry word ids and render in
+    // the reflow view; the fixed view keeps its own text-layer search.
+    if (canonicalPipelineActive && canonicalPages.size > 0) {
+      const query = searchQuery.trim().toLocaleLowerCase();
+      const matches = [...canonicalPages.values()]
+        .sort((a, b) => a.pageNumber - b.pageNumber)
+        .flatMap((page) =>
+          page.blocks
+            .filter((block) => block.text.toLocaleLowerCase().includes(query)
+              || (block.altText ?? "").toLocaleLowerCase().includes(query))
+            .map((block) => ({ id: block.id, wordIds: block.wordIds })),
+        );
+      const targetIndex = Math.max(0, Math.min(matches.length - 1, searchNavigationRequest?.targetIndex ?? 0));
+      const target = matches[targetIndex];
+      setReflowSearchBlockId(target?.id ?? null);
+      onSearchResultsChange?.({
+        query: searchQuery,
+        totalMatches: matches.length,
+        activeMatchIndex: target ? targetIndex : -1,
+        isSearchable: true,
+        status: "ready",
+      });
+      if (target) requestAnimationFrame(() => document.getElementById(target.id)?.scrollIntoView({ block: "center", behavior: "smooth" }));
+      return;
+    }
+    if (!reflowDocument) {
       setReflowSearchBlockId(null);
       return;
     }
@@ -1616,7 +1957,7 @@ export function PDFViewer({
       status: "ready",
     });
     if (target) requestAnimationFrame(() => document.getElementById(target.id)?.scrollIntoView({ block: "center", behavior: "smooth" }));
-  }, [mobilePdfMode, onSearchResultsChange, reflowDocument, searchNavigationRequest?.requestId, searchNavigationRequest?.targetIndex, searchQuery]);
+  }, [canonicalPages, canonicalPipelineActive, mobilePdfMode, onSearchResultsChange, reflowDocument, searchNavigationRequest?.requestId, searchNavigationRequest?.targetIndex, searchQuery]);
 
   const handleRequestPageOcr = useCallback(async (reflowPage: import("./pdfReflowTypes").PdfReflowPage) => {
     if (!pdf || !reflowDocument) return;
@@ -1935,6 +2276,30 @@ export function PDFViewer({
 
     const updateWindow = () => {
       const { start: windowStart, end: windowEnd } = textWindowRef.current;
+      // Canonical model first (task 8.1/8.3): reading-order block text with
+      // marginal roles suppressed — TTS and AI context stop interleaving
+      // columns. Legacy flattened text covers unanalyzed pages.
+      if (canonicalPipelineActive) {
+        const canonicalChunks: string[] = [];
+        let covered = 0;
+        for (let page = windowStart; page <= windowEnd; page += 1) {
+          const model = canonicalPages.get(page);
+          if (!model || model.state !== "ready") continue;
+          covered += 1;
+          const ordered = [...model.blocks]
+            .filter((block) => block.role === "body")
+            .sort((a, b) => a.readingOrder - b.readingOrder);
+          const text = ordered
+            .map((block) => block.text || block.altText || "")
+            .filter(Boolean)
+            .join("\n\n");
+          canonicalChunks.push(`<page number="${page}"/>${text}`);
+        }
+        if (covered > 0) {
+          onTextWindowChange(canonicalChunks.join("\n\n"));
+          return;
+        }
+      }
       const chunks: string[] = [];
       for (let page = windowStart; page <= windowEnd; page += 1) {
         const cached = textCacheRef.current.get(page);
@@ -1960,7 +2325,7 @@ export function PDFViewer({
     }
     // Note: onTextWindowChange is intentionally excluded from deps - callbacks
     // shouldn't trigger effect re-runs, only data changes should
-  }, [contextPageWindow, extractPdfPageText, onTextWindowChange, pageNumber, pdf]);
+  }, [canonicalPages, canonicalPipelineActive, contextPageWindow, extractPdfPageText, onTextWindowChange, pageNumber, pdf]);
 
   useEffect(() => {
     searchQueryRef.current = searchQuery?.trim() ?? "";
@@ -2362,7 +2727,11 @@ export function PDFViewer({
     // when a valid PDF selection was committed. The reducer ignores invalid
     // selections (collapsed / non-PDF / empty text) and leaves the persisted
     // state untouched.
-    const commitSelection = (): boolean => {
+    //
+    // With the canonical model flag on, the DOM range is used only for
+    // geometry: the Rust resolver snaps it to canonical words and the exact
+    // canonical text replaces the DOM text-layer string (design D8).
+    const commitSelection = async (): Promise<boolean> => {
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
 
@@ -2378,13 +2747,20 @@ export function PDFViewer({
       const context = buildPdfSelectionContext();
       if (!context) return false;
 
-      const text = selection.toString().trim();
-      if (!text) return false;
+      const domText = selection.toString().trim();
+      if (!domText) return false;
+
+      let enrichedContext = context;
+      let text = domText;
+      if (isPdfFeatureEnabled("canonicalPdfModel")) {
+        enrichedContext = await enrichPdfSelectionWithCanonical(context);
+        text = enrichedContext.canonical?.text?.trim() || domText;
+      }
 
       lastSelectionWasPdfRef.current = true;
       const rect = selection.getRangeAt(0).getBoundingClientRect();
-      dispatchPersistence({ type: "commit", selection: context, text, rect });
-      onSelectionChange(text, context);
+      dispatchPersistence({ type: "commit", selection: enrichedContext, text, rect });
+      onSelectionChange(text, enrichedContext);
       return true;
     };
 
@@ -2392,6 +2768,10 @@ export function PDFViewer({
     // particular can report a stale/collapsed selection at the instant mouseup
     // fires; a short delay lets the browser settle the range first.
     const handleMouseUp = (e: MouseEvent) => {
+      // Only the primary button finalizes selections. A right-click's mouseup
+      // must not re-commit (and re-surface the popup) while the context menu
+      // handles the gesture.
+      if (e.button !== 0) return;
       // A mouseup on the selection popup (focus moved to a popup control) can
       // drop the native selection in WKWebView. That is a focus move, NOT a
       // dismissal — the popup's own click handler decides what happens to the
@@ -2399,11 +2779,12 @@ export function PDFViewer({
       const releasedOnPopup =
         e.target instanceof Node && selectionPopupHostRef.current?.contains(e.target) === true;
       setTimeout(() => {
-        const committed = commitSelection();
-        if (!releasedOnPopup && !committed && lastSelectionWasPdfRef.current) {
-          // mouseup landed on an empty/non-PDF selection — drop the old one.
-          clearPersistedSelection("outside-page-click");
-        }
+        void commitSelection().then((committed) => {
+          if (!releasedOnPopup && !committed && lastSelectionWasPdfRef.current) {
+            // mouseup landed on an empty/non-PDF selection — drop the old one.
+            clearPersistedSelection("outside-page-click");
+          }
+        });
       }, 0);
     };
 
@@ -2420,6 +2801,10 @@ export function PDFViewer({
     // and must NOT clear either: that is exactly the WKWebView focus-loss case
     // the committed overlay exists to survive.
     const handleMouseDown = (e: MouseEvent) => {
+      // Right-click must not clear the committed selection: the contextmenu
+      // handler below needs it, and macOS fires contextmenu on the same
+      // mousedown.
+      if (e.button !== 0) return;
       const target = e.target as Node;
       if (!(target instanceof Node)) return;
       if (selectionPopupHostRef.current?.contains(target)) return;
@@ -2457,6 +2842,39 @@ export function PDFViewer({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [onSelectionChange, buildPdfSelectionContext, clearPersistedSelection]);
+
+  // Right-click on a committed selection surfaces the host's shared
+  // text-selection context menu (same contract as EPUBViewer). The PDF text
+  // layers and the reflow DOM live in the top document, so pointer coords are
+  // already in the coordinate space the menu positions itself in. Without a
+  // valid selection the platform's default menu passes through untouched.
+  useEffect(() => {
+    if (!onContextMenu) return;
+
+    const handleContextMenu = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      const container = scrollContainerRef.current;
+      if (!target || !container || !container.contains(target)) return;
+
+      // The reflow surface is only mounted when its document data exists; the
+      // container falls back to fixed page views otherwise.
+      const payload = resolvePdfContextMenu({
+        clientX: e.clientX,
+        clientY: e.clientY,
+        reflowSurfaceActive: mobilePdfMode === "reflow" && Boolean(container.querySelector(".pdf-mobile-reflow, .pdf-reflow-content, [data-pdf-reflow-page]")),
+        committedSelection: persistedSelectionRef.current,
+        committedText: persistedSelectedTextRef.current,
+        liveReflowSelection: mobilePdfMode === "reflow" ? buildReflowSelectionContext() : null,
+      });
+      if (!payload) return;
+
+      e.preventDefault();
+      onContextMenuRef.current?.(payload);
+    };
+
+    document.addEventListener("contextmenu", handleContextMenu);
+    return () => document.removeEventListener("contextmenu", handleContextMenu);
+  }, [onContextMenu, mobilePdfMode, buildReflowSelectionContext]);
 
   // A new document (or a fresh pdf.js proxy) invalidates the persisted
   // selection's geometry and page context — clear it. `clearPersistedSelection`
@@ -3249,7 +3667,20 @@ export function PDFViewer({
   }, []);
 
   // Pan/drag handlers for zoomed content
+  /** Reflow-mode tap handling: taps outside the action sheet dismiss it.
+   * Hide-only — clearing native ranges from JS while the WebView's own
+   * selection action mode is up wedges it (UI freeze), so the popup just
+   * hides; the browser selection dissolves on the next tap naturally. */
+  const handleReflowMouseDown = useCallback((e: React.MouseEvent) => {
+    const target = e.target as Node;
+    if (selectionPopupHostRef.current?.contains(target)) return;
+    if (window.getSelection()?.toString()) return;
+    hideSelectionPopup();
+  }, [hideSelectionPopup]);
+
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Right-click belongs to the context menu — never start a drag-pan with it.
+    if (e.button === 2) return;
     // Only enable drag when:
     // 1. Zoomed in significantly (scale > 1.2) or in custom zoom mode
     // 2. Not clicking on the text layer (to allow text selection)
@@ -3610,27 +4041,33 @@ export function PDFViewer({
         )}
 
         {/* Main Viewer Area */}
-        <div className="flex-1 flex flex-col">
+        {/* min-w-0 is load-bearing: without it the toolbar's nowrap buttons
+            (min-content ~511px) stretch this column past a phone viewport and
+            clip the reading column's right edge off-screen. */}
+        <div className="flex-1 flex flex-col min-w-0">
           {/* Viewer Toolbar */}
           <div className={cn(
-            "pdf-reader-toolbar flex items-center justify-between p-1 md:p-2 border-b border-border bg-card gap-2 overflow-x-auto transition-all duration-200",
+            "pdf-reader-toolbar flex items-center justify-between py-1 md:py-2 safe-x-pad border-b border-border bg-card gap-2 overflow-x-auto transition-all duration-200",
             isPhone && !mobileChromeVisible && "pointer-events-none absolute inset-x-0 top-0 z-30 -translate-y-full opacity-0",
           )}>
             <div className="flex flex-shrink-0 items-center gap-0.5 md:gap-1">
-              {isPhone && reflowDocument && (
+              {(isPhone || canonicalPipelineActive) && (canonicalPipelineActive || reflowDocument || canonicalPages.size > 0) && (
                 <button
                   type="button"
-                  className="min-h-11 rounded-md border border-border px-3 text-xs font-medium"
+                  className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+                  aria-pressed={mobilePdfMode === "reflow"}
+                  aria-label={mobilePdfMode === "fixed" ? "Switch to reflow view" : "Switch to original PDF view"}
+                  title={mobilePdfMode === "fixed" ? "Reflow" : "Original"}
                   onClick={() => {
                     modeOverriddenRef.current = true;
-                    setMobilePdfMode((mode) => {
-                      const next = mode === "fixed" ? "reflow" : "fixed";
+                    setMobilePdfMode((current) => {
+                      const next = current === "fixed" ? "reflow" : "fixed";
                       updateMobilePreferences({ preferredMobileMode: next });
                       return next;
                     });
                   }}
                 >
-                  {mobilePdfMode === "fixed" ? "Reflow" : "Original"}
+                  {mobilePdfMode === "fixed" ? <TextAa className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
                 </button>
               )}
               {isPhone && (
@@ -3747,19 +4184,29 @@ export function PDFViewer({
             onPrevPage={handlePrevPage}
             onNextPage={handleNextPage}
             onToggleChrome={() => setMobileChromeVisible((v) => !v)}
-            className="flex-1 min-h-0 flex flex-col"
+            className="flex-1 min-h-0 min-w-0 flex flex-col"
           >
           <div
             ref={scrollContainerRef}
             onScroll={mobilePdfMode === "reflow" ? handleReflowScroll : handleScroll}
             className={cn(
               "flex-1 min-h-0 overflow-auto",
-              mobilePdfMode === "fixed" ? "bg-muted/30 p-4 [contain:strict]" : "bg-background px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-5",
+              mobilePdfMode === "fixed"
+                ? "bg-muted/30 p-4 [contain:strict]"
+                : cn(
+                    "bg-background px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-5",
+                    // Reflow fits the viewport width (spec: pdf-reflow-reading)
+                    // — except original-size images, the one mode whose content
+                    // is expected to scroll horizontally.
+                    mobilePdfMode === "reflow" && mobilePreferences.reflowImageScaling === "original"
+                      ? "overflow-x-auto"
+                      : "overflow-x-clip",
+                  ),
               isDragging && "cursor-grabbing",
               !isDragging && ocr.flowState === "idle" && (scale > 1 || zoomMode === "custom") && "cursor-grab",
               ocr.flowState !== "idle" && !isDragging && "cursor-crosshair"
             )}
-            onMouseDown={mobilePdfMode === "fixed" ? handleMouseDown : undefined}
+            onMouseDown={mobilePdfMode === "fixed" ? handleMouseDown : handleReflowMouseDown}
             onMouseMove={mobilePdfMode === "fixed" ? handleMouseMove : undefined}
             onMouseUp={mobilePdfMode === "fixed" ? handleMouseUp : handleReflowSelection}
             onMouseLeave={mobilePdfMode === "fixed" ? handleMouseLeave : undefined}
@@ -3769,7 +4216,7 @@ export function PDFViewer({
             data-document-scroll-container
             onClick={handleMobileSurfaceClick}
           >
-            {mobilePdfMode === "reflow" && reflowDocument ? (
+            {mobilePdfMode === "reflow" && (canonicalPipelineActive || reflowDocument || canonicalPages.size > 0) ? (
               <div
                 className="pdf-mobile-reflow mx-auto w-full max-w-[42rem]"
                 dir={mobilePreferences.reflowDirection}
@@ -3789,13 +4236,27 @@ export function PDFViewer({
                       : "ui-sans-serif, system-ui, sans-serif",
                 } as CSSProperties}
               >
-                <PdfReflowRenderer
-                  pages={Object.values(reflowDocument.pages).sort((a, b) => a.pageNumber - b.pageNumber)}
-                  onViewOriginal={handleViewOriginalBlock}
-                  onRequestOcr={(page) => void handleRequestPageOcr(page)}
-                  highlights={persistedHighlights}
-                  activeSearchBlockId={reflowSearchBlockId}
-                />
+                {canonicalPipelineActive ? (
+                  <PdfCanonicalReflowRenderer
+                    pages={canonicalReflowPages}
+                    pendingPageNumbers={pendingCanonicalPages}
+                    onViewOriginal={handleViewOriginalCanonicalBlock}
+                    highlights={persistedHighlights}
+                    activeSearchBlockId={reflowSearchBlockId}
+                    assetUrls={canonicalAssetUrls}
+                    assetDims={canonicalAssetDims}
+                    onRequestOcr={handleCanonicalOcrRequest}
+                    onRequestGraphicalFallback={handleCanonicalGraphicalFallbackRequest}
+                  />
+                ) : (
+                  <PdfReflowRenderer
+                    pages={Object.values(reflowDocument?.pages ?? {}).sort((a, b) => a.pageNumber - b.pageNumber)}
+                    onViewOriginal={handleViewOriginalBlock}
+                    onRequestOcr={(page) => void handleRequestPageOcr(page)}
+                    highlights={persistedHighlights}
+                    activeSearchBlockId={reflowSearchBlockId}
+                  />
+                )}
                 {pageOcrUpdate && pageOcrUpdate.state !== "ready" && (
                   <div className="sticky bottom-3 mt-4 rounded-xl border border-border bg-card/95 p-3 text-sm shadow-lg backdrop-blur" role="status">
                     <div className="flex items-center justify-between gap-3">
@@ -3848,6 +4309,23 @@ export function PDFViewer({
                           : undefined
                       }
                     >
+                      {/* Canonical layout debug overlay (task 8.5). */}
+                      {isPdfReflowDebugEnabled() && canonicalPipelineActive
+                        && canonicalPages.get(pageNum)?.state === "ready" ? (() => {
+                          const model = canonicalPages.get(pageNum)!;
+                          const pageScale = pageScales[index] ?? scale;
+                          // The render applies the viewer rotation, so its CSS
+                          // size swaps model dims on quarter-rotated pages.
+                          const quarter = model.rotation % 180 === 90;
+                          return (
+                            <PdfCanonicalDebugOverlay
+                              page={model}
+                              rotation={model.rotation}
+                              viewportWidth={(quarter ? model.height : model.width) * pageScale}
+                              viewportHeight={(quarter ? model.width : model.height) * pageScale}
+                            />
+                          );
+                        })() : null}
                       {/* OCR region selection and overlays - only on current page */}
                       {ocr.flowState !== "idle" && pageNum === pageNumber && (
                         <>
@@ -4020,7 +4498,7 @@ export function PDFViewer({
           PDF page (which clear the persisted selection). */}
       <div ref={selectionPopupHostRef}>
         <SelectionPopup
-          visible={persistedSelection.popupVisible}
+          visible={persistedSelection.popupVisible && !isPhone && !selectionPopupSuppressed}
           selectionRect={persistedSelection.popupRect}
           selectedText={persistedSelection.selectedText}
           onHighlight={handleHighlight}

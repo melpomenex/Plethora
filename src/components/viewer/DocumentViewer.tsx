@@ -59,7 +59,8 @@ import { useToast } from "../common/Toast";
 import { tourAnchor } from "../onboarding/tour/anchors";
 import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
 import { EditExtractDialog } from "../extracts/EditExtractDialog";
-import type { PdfSelectionContext, SelectionContext, TextSelectionContext, EpubSelectionContext } from "../../types/selection";
+import type { PdfRect, PdfSelectionContext, SelectionContext, TextSelectionContext, EpubSelectionContext } from "../../types/selection";
+import { legacyFromCanonicalRect } from "../../lib/pdf/coordinates";
 import { createExtract, type Extract } from "../../api/extracts";
 import { shouldAutoExtract } from "./extractModeGate";
 import { QueueNavigationControls } from "../queue/QueueNavigationControls";
@@ -127,6 +128,7 @@ import {
   canUsePdfSelectionAction,
   type PdfTextSelectionCapability,
 } from "./pdfTextSelection";
+import { createScrollDismissGate, isSuppressedSelection } from "./touchSelectionDismissal";
 import { useI18n } from "../../lib/i18n";
 import { useTheme } from "../../contexts/ThemeContext";
 import type { StoredHighlight } from "./HighlightLayer";
@@ -997,6 +999,20 @@ export function DocumentViewer({
   // The actions sheet owns dismissal once it is open (scrim/Escape), so a
   // selection cleared by focusing the sheet's own input must not close it.
   const mobileSheetOpenRef = useRef(false);
+  // Text of the selection currently surfaced to the touch actions sheet, and
+  // of the one the user explicitly dismissed it for. Dismissal must NOT clear
+  // the native selection on Android (removeAllRanges during the native action
+  // mode wedges the WebView), so the live selection survives — without this
+  // guard the next selectionchange would re-surface the same selection and
+  // snap the sheet open. The key is TEXT, not offsets: reflow DOM churn
+  // (lazy page sections appending around the live selection) shifts
+  // anchor/focus offsets and would defeat an offset-keyed guard.
+  const activeSelectionKeyRef = useRef<string | null>(null);
+  const dismissedSelectionKeyRef = useRef<string | null>(null);
+  // Timestamp of the last dismissal (diagnostics only — suppression is
+  // gesture-cleared, not time-boxed; a fresh touchstart in the content or a
+  // collapsed native selection re-enables the sheet for the same text).
+  const dismissedSelectionAtRef = useRef(0);
   // Set when an AI action is picked from the selection context menu; drives the
   // result sheet. Null means no AI request is on screen.
   const [aiSheetRequest, setAiSheetRequest] = useState<{
@@ -1061,12 +1077,25 @@ export function DocumentViewer({
   // EPUB and HTML render inside an iframe, where the top-level
   // `window.getSelection()` feeding `mobileSelection` is always empty.
   const mobileSheetText = mobileSelection.text || activeExtractSelection;
+  // On touch PDF surfaces the actions sheet must open ONLY from the
+  // stability-gated selectionchange path below (mobileSelection.text) — never
+  // straight off `activeExtractSelection`, which PDFViewer commits at the
+  // first finger-lift, mid-gesture. That used to drop the modal scrim over
+  // the native drag handles before the user could adjust the selection.
+  const isPdfTouchSurface = isMobileTouch && docType === "pdf" && pdfViewMode !== "ocr-html";
+  const mobileSheetSource = isPdfTouchSurface ? mobileSelection.text : mobileSheetText;
   const mobileMenuSheetOpen =
-    isMobileTouch && viewMode === "document" && Boolean(mobileSheetText);
+    isMobileTouch && viewMode === "document" && Boolean(mobileSheetSource);
   const mobileSheetOpen = mobileMenuSheetOpen || Boolean(aiSheetRequest);
   useEffect(() => {
     mobileSheetOpenRef.current = mobileSheetOpen;
   }, [mobileSheetOpen]);
+  // Scroll dismissal targets only the selection menu sheet — the AI result
+  // sheet scrolls its own content and must survive content scrolls.
+  const mobileMenuSheetOpenRef = useRef(false);
+  useEffect(() => {
+    mobileMenuSheetOpenRef.current = mobileMenuSheetOpen;
+  }, [mobileMenuSheetOpen]);
 
   const handleDictionaryLookup = useCallback(async () => {
     const word = activeExtractSelection.trim().split(/\s+/)[0] || "";
@@ -1160,6 +1189,29 @@ export function DocumentViewer({
       const title = extract.content ?? extract.page_title ?? extract.pageTitle ?? "";
 
       if (isPdfSelectionContext(context)) {
+        // Canonical regions (selection_context v2) paint exact per-line word
+        // unions; legacy geometry remains the fallback for older extracts.
+        if (context.canonical && context.canonical.pageRegions.length > 0) {
+          const regionsByPage = new Map<number, PdfRect[]>();
+          for (const region of context.canonical.pageRegions) {
+            const list = regionsByPage.get(region.pageNumber) ?? [];
+            list.push(legacyFromCanonicalRect(region.bbox));
+            regionsByPage.set(region.pageNumber, list);
+          }
+          for (const [pageNumber, pdfRects] of regionsByPage) {
+            pdfHighlights.push({
+              id: `${extract.id}:${pageNumber}`,
+              pageNumber,
+              pdfRects,
+              color: normalizePdfHighlightColor(highlightColor),
+              text: title,
+              note: extract.notes ?? undefined,
+              createdAt: Date.parse(extract.date_created ?? extract.dateCreated ?? "") || Date.now(),
+              wordIds: context.canonical.wordIds,
+            });
+          }
+          continue;
+        }
         for (const page of context.pages) {
           pdfHighlights.push({
             id: `${extract.id}:${page.pageNumber}`,
@@ -1261,6 +1313,12 @@ export function DocumentViewer({
     setSelectionContext(null);
     setInitialHighlightColor(undefined);
     setContextMenuState(null);
+    // On touch shells, NEVER clear the native selection programmatically:
+    // removeAllRanges() while Android's native selection action mode is up
+    // wedges the WebView input (the app stops responding to touches). The OS
+    // clears the selection natively on the next tap; our own UI state above
+    // is what the dismissal logic reads, so nothing lingers visually.
+    if (isMobileTouch) return;
     // Clear the browser's text selection
     window.getSelection()?.removeAllRanges();
     // Also clear selection inside the HTML/Markdown iframe if present
@@ -1274,7 +1332,7 @@ export function DocumentViewer({
     try {
       epubIframeWindowRef.current?.getSelection()?.removeAllRanges();
     } catch { /* cross-origin guard */ }
-  }, []);
+  }, [isMobileTouch]);
 
   // Dismiss the selection UI after creating an extract. Clears the current
   // selection AND arms a short-lived guard (see suppressSelectionUntilRef) so
@@ -3501,91 +3559,210 @@ export function DocumentViewer({
     };
   }, [docType, updateSelection]);
 
-  // Mobile PWA: Handle text selection via selectionchange event
+  // Mobile PWA: surface text-selection actions only once the selection is
+  // STABLE. The previous version opened the actions sheet on the first
+  // `selectionchange` — i.e. the instant a long-press selected one word —
+  // and its full-screen scrim then covered the native drag handles, so the
+  // selection could never be adjusted (and dismissing the sheet mid-action-
+  // mode wedged the WebView). Now the sheet waits until the selection has
+  // stopped changing for SELECTION_STABLE_MS *and* no touch is active: a
+  // long-press hold or a handle drag keeps re-arming the wait.
   useEffect(() => {
     if (!isMobileTouch) return;
 
-    let rafId: number | null = null;
+    const SELECTION_STABLE_MS = 500;
+    // If a touch is still down when the stability timer fires (long-press
+    // hold, handle drag), defer in short steps — but never forever: Android
+    // swallows touchend for gestures the system consumes (native selection
+    // handles), and an unbounded defer loop kept the CPU busy forever.
+    const MAX_DEFER_MS = 3000;
 
-    const handleSelectionChange = () => {
-      // Cancel any pending RAF to avoid multiple updates
-      if (rafId) {
-        cancelAnimationFrame(rafId);
+    let stableTimer: ReturnType<typeof setTimeout> | null = null;
+    let touchActive = false;
+    let deferStartedAt = 0;
+
+    const clearStableTimer = () => {
+      if (stableTimer) {
+        clearTimeout(stableTimer);
+        stableTimer = null;
       }
-
-      rafId = requestAnimationFrame(() => {
-        if (mobileSheetOpenRef.current) return;
-
-        const selection = window.getSelection();
-        if (!selection) {
-          setMobileSelection(prev => ({ ...prev, showButton: false }));
-          return;
-        }
-
-        const text = selection.toString().trim();
-
-        const anchorElement = selection.anchorNode instanceof Element
-          ? selection.anchorNode
-          : selection.anchorNode?.parentElement;
-        const focusElement = selection.focusNode instanceof Element
-          ? selection.focusNode
-          : selection.focusNode?.parentElement;
-
-        // Only handle selections within document content
-        const isInDocumentContent = anchorElement?.closest("[data-document-content='true']") ||
-          focusElement?.closest("[data-document-content='true']") ||
-          anchorElement?.closest(".prose") ||
-          focusElement?.closest(".prose") ||
-          anchorElement?.closest(".textLayer") ||
-          focusElement?.closest(".textLayer");
-
-        if (!text || text.length === 0 || !isInDocumentContent) {
-          setMobileSelection(prev => ({ ...prev, showButton: false }));
-          return;
-        }
-
-        try {
-          const range = selection.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-
-          // Position the button centered above the selection
-          const x = rect.left + rect.width / 2;
-          const y = rect.top - 60; // 60px above selection
-
-          setMobileSelection({
-            text,
-            passage: passageAroundSelection(selection, text),
-            position: { x, y },
-            showButton: true,
-          });
-
-          if (docType !== "pdf") {
-            // For non-PDF content, mobile selection directly drives extract text.
-            setSelectedText(text);
-            lastSelectionRef.current = text;
-          }
-          // No auto-hide: the actions sheet is modal and dismissed explicitly.
-        } catch {
-          // Range might be invalid, ignore
-        }
-      });
     };
 
-    // Also handle touchend for immediate response on mobile
+    const hideSelectionUi = () => {
+      clearStableTimer();
+      // The selection is gone, so a future selection is a fresh gesture that
+      // deserves a fresh sheet — drop the dismissal guard.
+      dismissedSelectionKeyRef.current = null;
+      dismissedSelectionAtRef.current = 0;
+      activeSelectionKeyRef.current = null;
+      setMobileSelection(prev =>
+        prev.text ? { text: "", passage: "", position: { x: 0, y: 0 }, showButton: false } : prev,
+      );
+    };
+
+    // A live, non-empty selection anchored inside document content, or null.
+    const readDocumentSelection = (): Selection | null => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return null;
+
+      const text = selection.toString().trim();
+      if (!text) return null;
+
+      const anchorElement = selection.anchorNode instanceof Element
+        ? selection.anchorNode
+        : selection.anchorNode?.parentElement;
+      const focusElement = selection.focusNode instanceof Element
+        ? selection.focusNode
+        : selection.focusNode?.parentElement;
+
+      const isInDocumentContent = anchorElement?.closest("[data-document-content='true']") ||
+        focusElement?.closest("[data-document-content='true']") ||
+        anchorElement?.closest(".prose") ||
+        focusElement?.closest(".prose") ||
+        anchorElement?.closest(".textLayer") ||
+        focusElement?.closest(".textLayer");
+
+      return isInDocumentContent ? selection : null;
+    };
+
+    // Scroll dismissal: close the sheet, drop app-level selection state, and
+    // record the suppression — but NEVER touch the native selection (Android
+    // wedge workaround; it dissolves on its own or survives harmlessly).
+    const dismissSelectionUiFromScroll = () => {
+      clearStableTimer();
+      if (activeSelectionKeyRef.current) {
+        dismissedSelectionKeyRef.current = activeSelectionKeyRef.current;
+        dismissedSelectionAtRef.current = Date.now();
+      }
+      setMobileSelection(prev =>
+        prev.text ? { text: "", passage: "", position: { x: 0, y: 0 }, showButton: false } : prev,
+      );
+    };
+
+    // Scroll events don't bubble, but they DO reach capture listeners on the
+    // document, so one listener covers every content scroller (PDF fixed and
+    // reflow containers, markdown/HTML hosts). Only scrollers inside the
+    // document content count — the actions sheet and other overlays scroll
+    // their own trees and must not dismiss anything.
+    const scrollDismissGate = createScrollDismissGate();
+
+    const isDocumentContentScrollTarget = (target: EventTarget | null): target is Element => {
+      if (!(target instanceof Element)) return false;
+      return target.closest("[data-document-content='true'], .prose, .textLayer") !== null;
+    };
+
+    const handleScrollCapture = (e: Event) => {
+      // Only a pending stability timer or the selection menu sheet responds;
+      // the AI result sheet owns its own lifecycle.
+      if (!mobileMenuSheetOpenRef.current && !stableTimer) return;
+      if (!isDocumentContentScrollTarget(e.target)) return;
+      if (scrollDismissGate.track(e.target, (e.target as Element).scrollTop, (e.target as Element).scrollLeft)) {
+        dismissSelectionUiFromScroll();
+      }
+    };
+
+    const surfaceStableSelection = () => {
+      if (mobileSheetOpenRef.current) return; // sheet owns dismissal once open
+      const selection = readDocumentSelection();
+      if (!selection) {
+        hideSelectionUi();
+        return;
+      }
+      // Still touching (long-press hold or an active handle drag): re-check
+      // shortly instead of dropping the scrim over the user's finger.
+      if (touchActive) {
+        if (!deferStartedAt) deferStartedAt = Date.now();
+        if (Date.now() - deferStartedAt > MAX_DEFER_MS) {
+          // Touch state is stuck (system-consumed gesture): stop waiting.
+          hideSelectionUi();
+          return;
+        }
+        clearStableTimer();
+        stableTimer = setTimeout(surfaceStableSelection, 150);
+        return;
+      }
+      deferStartedAt = 0;
+      const text = selection.toString().trim();
+      // Text-keyed suppression with no expiry: reflow DOM churn around the
+      // still-live native selection fires selectionchange on every scroll,
+      // and any of those re-arming the sheet is exactly the reported bug. The
+      // guard clears on a fresh gesture (handleTouchStart) or when the native
+      // selection collapses (hideSelectionUi), so deliberately re-selecting
+      // the same passage still opens the sheet.
+      if (isSuppressedSelection(dismissedSelectionKeyRef.current, text)) {
+        return;
+      }
+      activeSelectionKeyRef.current = text;
+
+      try {
+        const rect = selection.getRangeAt(0).getBoundingClientRect();
+        setMobileSelection({
+          text,
+          passage: passageAroundSelection(selection, text),
+          // Positioned centered above the selection (kept for callers that
+          // still anchor UI to it).
+          position: { x: rect.left + rect.width / 2, y: rect.top - 60 },
+          showButton: true,
+        });
+
+        if (docType !== "pdf") {
+          // For non-PDF content, mobile selection directly drives extract text.
+          setSelectedText(text);
+          lastSelectionRef.current = text;
+        }
+        // No auto-hide: the actions sheet is modal and dismissed explicitly.
+      } catch {
+        // Range might be invalid, ignore
+      }
+    };
+
+    const handleSelectionChange = () => {
+      if (!readDocumentSelection()) {
+        hideSelectionUi();
+        return;
+      }
+      clearStableTimer();
+      stableTimer = setTimeout(surfaceStableSelection, SELECTION_STABLE_MS);
+    };
+
+    const handleTouchStart = (e: Event) => {
+      touchActive = true;
+      // A fresh gesture in the content can re-select suppressed text
+      // deliberately — clear the dismissal guard so the sheet may open again.
+      // Touches on the sheet/scrim (outside the content) keep the guard.
+      if (e.target instanceof Element) {
+        const inContent = e.target.closest("[data-document-content='true'], .prose, .textLayer");
+        if (inContent) {
+          dismissedSelectionKeyRef.current = null;
+          dismissedSelectionAtRef.current = 0;
+        }
+      }
+    };
+
     const handleTouchEnd = () => {
-      // Small delay to allow selection to be finalized, then use RAF
-      setTimeout(handleSelectionChange, 100);
+      // Finger lifted: only clears the touch-active flag. NEVER re-arms the
+      // timer from here — touchend fires on EVERY scroll flick, and with the
+      // native selection surviving dismissal (Android wedge workaround) that
+      // re-opened the actions sheet over unrelated views (e.g. the queue).
+      // Handle-drag releases are covered by the stability timer armed by the
+      // last selectionchange, deferred above until the touch ends.
+      touchActive = false;
+      deferStartedAt = 0;
     };
 
     document.addEventListener("selectionchange", handleSelectionChange);
-    document.addEventListener("touchend", handleTouchEnd);
+    document.addEventListener("touchstart", handleTouchStart, { capture: true, passive: true });
+    document.addEventListener("touchend", handleTouchEnd, { capture: true, passive: true });
+    document.addEventListener("touchcancel", handleTouchEnd, { capture: true, passive: true });
+    document.addEventListener("scroll", handleScrollCapture, { capture: true, passive: true });
 
     return () => {
       document.removeEventListener("selectionchange", handleSelectionChange);
-      document.removeEventListener("touchend", handleTouchEnd);
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-      }
+      document.removeEventListener("touchstart", handleTouchStart, { capture: true } as EventListenerOptions);
+      document.removeEventListener("touchend", handleTouchEnd, { capture: true } as EventListenerOptions);
+      document.removeEventListener("touchcancel", handleTouchEnd, { capture: true } as EventListenerOptions);
+      document.removeEventListener("scroll", handleScrollCapture, { capture: true } as EventListenerOptions);
+      clearStableTimer();
     };
   }, [docType, isMobileTouch, setSelectedText]);
 
@@ -5788,7 +5965,7 @@ export function DocumentViewer({
       {!embedded && !isFullscreen && !(isMobileTouch && docType === "epub" && viewMode === "document") && (
         isMobileTouch ? (
           /* Mobile Compact Toolbar */
-          <div className="flex items-center justify-between gap-2 p-2 bg-card border-b border-border min-h-[56px] relative animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between gap-2 py-2 safe-x-pad bg-card border-b border-border min-h-[56px] relative animate-in fade-in slide-in-from-top-2 duration-200">
             {/* Left: Back button and Title */}
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <button
@@ -6738,6 +6915,8 @@ export function DocumentViewer({
               setPdfScrollContainer(container);
             }}
             onVimRuntimeChange={setPdfVimRuntime}
+            onContextMenu={({ x, y, selectedText: text, selectionContext: ctx }) => setContextMenuState({ visible: true, x, y, selectedText: text, selectionContext: ctx })}
+            selectionPopupSuppressed={Boolean(contextMenuState?.visible)}
             pageNumber={pageNumber}
             scale={scale}
             zoomMode={zoomMode}
@@ -7520,12 +7699,20 @@ export function DocumentViewer({
       {/* Mobile: bottom sheet of actions for the current text selection. */}
       <SelectionActionsSheet
         open={mobileSheetOpen}
-        text={aiSheetRequest?.text || mobileSheetText}
+        text={aiSheetRequest?.text || mobileSheetSource || mobileSheetText}
         passage={aiSheetRequest?.passage || mobileSelection.passage}
         initialAction={aiSheetRequest?.action}
         onClose={() => {
           setAiSheetRequest(null);
-          setMobileSelection(prev => ({ ...prev, showButton: false }));
+          // Remember this exact selection as dismissed. On Android the native
+          // selection survives dismissal (clearing it programmatically wedges
+          // the WebView), so without this guard the next touchend re-surfaces
+          // the same selection and the sheet snaps open again.
+          if (activeSelectionKeyRef.current) {
+            dismissedSelectionKeyRef.current = activeSelectionKeyRef.current;
+            dismissedSelectionAtRef.current = Date.now();
+          }
+          setMobileSelection({ text: "", passage: "", position: { x: 0, y: 0 }, showButton: false });
           clearTextSelection();
         }}
         onCreateExtract={() => handleMobileExtract()}
@@ -7667,8 +7854,10 @@ export function DocumentViewer({
         </button>
       )}
 
-      {/* Text selection context menu for non-PDF viewers */}
-      {contextMenuState && contextMenuState.visible && docType !== "pdf" && (
+      {/* Text selection context menu (EPUB/HTML/Markdown viewers and PDF
+          selections — native, reflow, and OCR-HTML surfaces all feed
+          contextMenuState) */}
+      {contextMenuState && contextMenuState.visible && (
         <ContextMenu
           menuId="text-selection-context-menu"
           items={buildContextMenuItems(contextMenuState.selectedText, contextMenuState.selectionContext)}

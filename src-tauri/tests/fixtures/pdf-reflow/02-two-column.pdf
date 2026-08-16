@@ -1,0 +1,47 @@
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj
+4 0 obj << /Length 1398 >>
+stream
+BT /F1 16 Tf 72 720 Td (Two-Column Layout) Tj ET
+BT /F1 10 Tf 72 690 Td (Left column sentence 1.) Tj ET
+BT /F1 10 Tf 72 676 Td (Left column sentence 2.) Tj ET
+BT /F1 10 Tf 72 662 Td (Left column sentence 3.) Tj ET
+BT /F1 10 Tf 72 648 Td (Left column sentence 4.) Tj ET
+BT /F1 10 Tf 72 634 Td (Left column sentence 5.) Tj ET
+BT /F1 10 Tf 72 620 Td (Left column sentence 6.) Tj ET
+BT /F1 10 Tf 72 606 Td (Left column sentence 7.) Tj ET
+BT /F1 10 Tf 72 592 Td (Left column sentence 8.) Tj ET
+BT /F1 10 Tf 72 578 Td (Left column sentence 9.) Tj ET
+BT /F1 10 Tf 72 564 Td (Left column sentence 10.) Tj ET
+BT /F1 10 Tf 72 550 Td (Left column sentence 11.) Tj ET
+BT /F1 10 Tf 72 536 Td (Left column sentence 12.) Tj ET
+BT /F1 10 Tf 316 690 Td (Right column sentence 1.) Tj ET
+BT /F1 10 Tf 316 676 Td (Right column sentence 2.) Tj ET
+BT /F1 10 Tf 316 662 Td (Right column sentence 3.) Tj ET
+BT /F1 10 Tf 316 648 Td (Right column sentence 4.) Tj ET
+BT /F1 10 Tf 316 634 Td (Right column sentence 5.) Tj ET
+BT /F1 10 Tf 316 620 Td (Right column sentence 6.) Tj ET
+BT /F1 10 Tf 316 606 Td (Right column sentence 7.) Tj ET
+BT /F1 10 Tf 316 592 Td (Right column sentence 8.) Tj ET
+BT /F1 10 Tf 316 578 Td (Right column sentence 9.) Tj ET
+BT /F1 10 Tf 316 564 Td (Right column sentence 10.) Tj ET
+BT /F1 10 Tf 316 550 Td (Right column sentence 11.) Tj ET
+BT /F1 10 Tf 316 536 Td (Right column sentence 12.) Tj ET
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Courier >> endobj
+xref
+0 7
+0000000000 65535 f 
+0000000000 00000 n 
+0000000049 00000 n 
+0000000106 00000 n 
+0000000242 00000 n 
+0000001692 00000 n 
+0000001762 00000 n 
+trailer << /Size 7 /Root 1 0 R >>
+startxref
+1830
+%%EOF

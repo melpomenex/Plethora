@@ -1,0 +1,40 @@
+%PDF-1.4
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj
+4 0 obj << /Length 864 >>
+stream
+BT /F1 10 Tf 72 745 Td (Fixture body text line 1 above the figure region.) Tj ET
+BT /F1 10 Tf 72 731 Td (Fixture body text line 2 above the figure region.) Tj ET
+BT /F1 10 Tf 72 717 Td (Fixture body text line 3 above the figure region.) Tj ET
+2 w
+0 G
+72 640 468 24 re S
+72 652 m 540 652 l S
+BT /F1 10 Tf 72 612 Td (Figure 10. Wide banner figure.) Tj ET
+BT /F1 10 Tf 72 560 Td (Body line between the two figures 1.) Tj ET
+BT /F1 10 Tf 72 546 Td (Body line between the two figures 2.) Tj ET
+BT /F1 10 Tf 72 532 Td (Body line between the two figures 3.) Tj ET
+BT /F1 10 Tf 72 518 Td (Body line between the two figures 4.) Tj ET
+BT /F1 10 Tf 72 504 Td (Body line between the two figures 5.) Tj ET
+BT /F1 10 Tf 72 490 Td (Body line between the two figures 6.) Tj ET
+2 w
+280 80 40 390 re S
+300 80 m 300 470 l S
+BT /F1 10 Tf 72 52 Td (Figure 11. Tall strip figure.) Tj ET
+endstream endobj
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj
+6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Courier >> endobj
+xref
+0 7
+0000000000 65535 f 
+0000000000 00000 n 
+0000000049 00000 n 
+0000000106 00000 n 
+0000000242 00000 n 
+0000001157 00000 n 
+0000001227 00000 n 
+trailer << /Size 7 /Root 1 0 R >>
+startxref
+1295
+%%EOF

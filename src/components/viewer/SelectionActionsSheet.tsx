@@ -114,7 +114,14 @@ export const SHORT_SELECTION_CONTEXT_CHARS = 300;
 export function passageAroundSelection(selection: Selection | null, text: string): string {
   const node = selection?.anchorNode;
   const element = node instanceof Element ? node : node?.parentElement;
+  const reflowBlock = element?.closest<HTMLElement>("[data-pdf-reflow-block]") ?? null;
   const container =
+    // PDF reflow first: the closest canonical block is the natural context
+    // unit AND keeps this cheap. Falling through to the document-content
+    // markers below would make `textContent` walk the ENTIRE reflowed
+    // document (megabytes on long PDFs) — a main-thread stall on phones
+    // every time a selection settles.
+    reflowBlock ??
     element?.closest<HTMLElement>(
       "[data-document-content='true'], [data-transcript-scroll='true'], .prose, article, .textLayer"
     ) ??
@@ -135,7 +142,16 @@ export function passageAroundSelection(selection: Selection | null, text: string
     return needle;
   }
 
-  // Short selection: attach bounded local context
+  // In the reflow view a sentence-sized selection is self-defining: padding
+  // it with the surrounding paragraph made the AI material (and the cards
+  // built from it) cover the whole block even though the user carefully
+  // selected one sentence. Only word/phrase selections need context.
+  if (reflowBlock && needle.length >= 40) {
+    return needle;
+  }
+
+  // Short selection: attach bounded local context (the reflow container is
+  // one block, so this stays within the paragraph)
   return full.slice(
     Math.max(0, at - SHORT_SELECTION_CONTEXT_CHARS),
     at + needle.length + SHORT_SELECTION_CONTEXT_CHARS

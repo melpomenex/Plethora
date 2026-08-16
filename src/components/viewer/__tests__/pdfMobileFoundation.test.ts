@@ -12,6 +12,10 @@ describe("PDF range-source feature flag (task 6.1)", () => {
   beforeEach(() => localStorage.clear());
 
   it("enables the range source by default and keeps semantic reflow independent", () => {
+    // TEST BUILD (2026-08-15): reflow defaults ON for on-device testing;
+    // production restores the `false` default when the D14 gates pass.
+    expect(isPdfFeatureEnabled("semanticReflow")).toBe(true);
+    localStorage.setItem(PDF_FEATURE_KEYS.semanticReflow, "false");
     expect(isPdfFeatureEnabled("semanticReflow")).toBe(false);
     localStorage.setItem(PDF_FEATURE_KEYS.semanticReflow, "true");
     expect(isPdfFeatureEnabled("semanticReflow")).toBe(true);

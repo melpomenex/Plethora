@@ -342,6 +342,43 @@
   font-size: var(--pdf-reflow-font-size, 19px);
   line-height: var(--pdf-reflow-line-height, 1.72);
   overflow-wrap: anywhere;
+  /* Fit-to-viewport guarantee: nothing inside may force horizontal
+     scrolling (spec: pdf-reflow-reading, responsive at every viewport). */
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pdf-mobile-reflow {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Selection must work across word spans on WebKit/Android: explicit
+   user-select beats any inherited suppression, and touch-callout lets
+   long-press start a native selection drag. */
+.pdf-reflow-content,
+.pdf-reflow-content *,
+.pdf-mobile-reflow,
+.pdf-mobile-reflow * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.pdf-reflow-page-divider,
+.pdf-reflow-page-divider * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
+.pdf-mobile-reflow pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pdf-mobile-reflow img {
+  max-width: 100%;
+  height: auto;
 }
 
 .pdf-mobile-reflow .pdf-reflow-block {
@@ -399,6 +436,35 @@
 .pdf-mobile-reflow[data-image-scaling="original"] img { max-width: none; }
 .pdf-mobile-reflow[data-image-scaling="hide"] img,
 .pdf-mobile-reflow[data-image-scaling="hide"] figure { display: none; }
+
+/* Visual crops render inside a reserved aspect box (inline aspect-ratio
+ * from the crop's intrinsic dims). The box holds the block's height before
+ * the lazy PNG loads and caps the render width so wide panes never blow
+ * figures up past ~the reading measure. */
+.pdf-reflow-visual-box {
+  display: block;
+  width: min(100%, 56rem);
+}
+
+/* Intrinsic-size viewing: drop the box constraints so the img sizes to its
+ * own width/height attributes (which also reserve the pre-load height).
+ * `!important` is required to beat the inline aspect-ratio — with it kept,
+ * a natural-size image taller than the box ratio would overflow into the
+ * following content. */
+.pdf-mobile-reflow[data-image-scaling="original"] .pdf-reflow-visual-box {
+  width: auto;
+  max-width: none;
+  aspect-ratio: unset !important;
+}
+
+/* Left-align oversized figures in original mode: a centered flex item
+   wider than its container overflows to both sides and the left half
+   becomes unreachable by scroll. */
+.pdf-mobile-reflow[data-image-scaling="original"] figure {
+  align-items: flex-start;
+}
+
+.pdf-mobile-reflow[data-image-scaling="hide"] .pdf-reflow-visual-box { display: none; }
 
 @media (max-width: 767px) {
   [data-document-scroll-container] {

@@ -41,6 +41,9 @@ const KEYS = {
     "confidence", "text", "direction", "language", "items", "table", "assetId", "altText",
     "captionOf", "href", "extraction",
   ],
+  // Figure intrinsic dims are optional (serde skips None): present only on
+  // visual blocks that carry them, never required on any block.
+  blockOptional: ["sourceWidth", "sourceHeight"],
   region: ["pageNumber", "bbox"],
   font: ["size", "bold", "italic", "family"],
   rect: ["x0", "y0", "x1", "y1"],
@@ -85,11 +88,29 @@ describe("pdfCanonical golden fixture parity", () => {
       expectKeys(line as unknown as Record<string, unknown>, KEYS.line, `line ${line.id}`);
     }
     for (const block of golden.blocks) {
-      expectKeys(block as unknown as Record<string, unknown>, KEYS.block, `block ${block.id}`);
+      const keys = Object.keys(block as unknown as Record<string, unknown>);
+      const requiredKeys = KEYS.block as readonly string[];
+      const optionalKeys = KEYS.blockOptional as readonly string[];
+      const unexpected = keys.filter((key) => !requiredKeys.includes(key) && !optionalKeys.includes(key));
+      expect(unexpected, `block ${block.id} carries non-vocabulary keys`).toEqual([]);
+      const missing = requiredKeys.filter((key) => !keys.includes(key));
+      expect(missing, `block ${block.id} misses required keys`).toEqual([]);
       for (const region of block.sourceRegions) {
         expectKeys(region as unknown as Record<string, unknown>, KEYS.region, "block region");
       }
     }
+  });
+
+  it("figure source dims are optional and only present on visual blocks", () => {
+    // Pins both serde directions: the figure round trips its crop size, the
+    // paragraph serializes without the keys (skip_serializing_if = None).
+    const paragraph = golden.blocks[0]!;
+    const figure = golden.blocks[1] as PdfCanonicalBlock;
+    expect(figure.kind).toBe("figure");
+    expect(figure.sourceWidth).toBe(818);
+    expect(figure.sourceHeight).toBe(374);
+    expect(paragraph.sourceWidth).toBeUndefined();
+    expect(paragraph.sourceHeight).toBeUndefined();
   });
 
   it("enum vocabularies match the Rust kebab-case serialization", () => {

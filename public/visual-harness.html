@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF reflow visual harness</title>
+    <style>
+      body { margin: 0; background: #fffdf8; color: #24211d; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- React-refresh preamble: @vitejs/plugin-react requires this in any
+         page that loads JSX modules outside the main app graph. -->
+    <script type="module">
+      import RefreshRuntime from "/@react-refresh";
+      RefreshRuntime.injectIntoGlobalHook(window);
+      window.$RefreshReg$ = () => {};
+      window.$RefreshSig$ = (type) => type;
+      window.__vite_plugin_react_preamble_installed__ = true;
+    </script>
+    <script type="module">
+      // Deterministic harness: mounts the canonical reflow renderer on a
+      // fixed fixture page (text blocks + realistic visual blocks with
+      // deterministic SVG data-URL assets) so visual regression exercises
+      // real layout without the backend or network.
+      // Public-dir HTML is served verbatim (no Vite transform), so bare
+      // specifiers don't resolve — import the dev server's pre-bundled deps
+      // and the on-demand-transformed modules explicitly. The app CSS import
+      // pulls in the same reflow/aspect-box rules the viewer uses.
+      import * as ReactModule from "/node_modules/.vite/deps/react.js";
+      import * as ReactDOMClient from "/node_modules/.vite/deps/react-dom_client.js";
+      import "/src/components/viewer/PDFViewer.css";
+      import { PdfCanonicalReflowRenderer } from "/src/components/viewer/PdfCanonicalReflowRenderer.tsx";
+      const React = ReactModule.default ?? ReactModule;
+      const createRoot = ReactDOMClient.default?.createRoot ?? ReactDOMClient.createRoot;
+
+      // Inline SVG assets: deterministic, no network. width/height attributes
+      // matter — they give the browser the natural size (naturalWidth > 0)
+      // exactly like the PNG crops the real pipeline stores.
+      function svgAsset(width, height, body, hue) {
+        const svg =
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img">` +
+          `<rect width="100%" height="100%" fill="hsl(${hue} 42% 90%)"/>` +
+          `<rect x="8" y="8" width="${width - 16}" height="${height - 16}" fill="none" stroke="hsl(${hue} 45% 40%)" stroke-width="4"/>` +
+          body +
+          `</svg>`;
+        return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+      }
+
+      const wideChart = svgAsset(
+        1200, 400,
+        [60, 170, 110, 240, 200, 330].map((h, i) =>
+          `<rect x="${120 + i * 170}" y="${360 - h}" width="110" height="${h}" fill="hsl(215 55% ${35 + i * 8}%)"/>`,
+        ).join(""),
+        215,
+      );
+      const tallDiagram = svgAsset(
+        400, 1200,
+        [0, 1, 2, 3].map((i) =>
+          `<rect x="70" y="${80 + i * 280}" width="260" height="180" rx="12" fill="hsl(150 40% ${72 - i * 10}%)"/>` +
+          `<line x1="200" y1="${260 + i * 280}" x2="200" y2="${360 + i * 280}" stroke="hsl(150 45% 30%)" stroke-width="6"/>`,
+        ).join(""),
+        150,
+      );
+      const squarePlot = svgAsset(
+        600, 600,
+        `<circle cx="300" cy="300" r="200" fill="none" stroke="hsl(280 45% 45%)" stroke-width="8"/>` +
+        `<line x1="300" y1="70" x2="300" y2="530" stroke="hsl(280 45% 45%)" stroke-width="4"/>` +
+        `<line x1="70" y1="300" x2="530" y2="300" stroke="hsl(280 45% 45%)" stroke-width="4"/>`,
+        280,
+      );
+      const tinyGlyph = svgAsset(120, 80, `<rect x="20" y="12" width="80" height="56" rx="8" fill="hsl(35 70% 60%)"/>`, 35);
+
+      const words = Array.from({ length: 48 }, (_, index) => ({
+        id: `p1:w${index}`,
+        pageNumber: 1,
+        text: `word${index}`,
+        sourceBbox: {
+          x0: 100 + (index % 12) * 30,
+          y0: 700 - Math.floor(index / 12) * 12,
+          x1: 126 + (index % 12) * 30,
+          y1: 710 - Math.floor(index / 12) * 12,
+        },
+        sourceFragments: [],
+        bboxExact: true,
+        readingOrder: index,
+        confidence: 1,
+        source: "native-pdf-text",
+        dehyphenated: false,
+        font: null,
+      }));
+      const trailingWords = Array.from({ length: 24 }, (_, index) => ({
+        id: `p1:w${48 + index}`,
+        pageNumber: 1,
+        text: `after${index}`,
+        sourceBbox: {
+          x0: 100 + (index % 12) * 30,
+          y0: 300 - Math.floor(index / 12) * 12,
+          x1: 126 + (index % 12) * 30,
+          y1: 310 - Math.floor(index / 12) * 12,
+        },
+        sourceFragments: [],
+        bboxExact: true,
+        readingOrder: 48 + index,
+        confidence: 1,
+        source: "native-pdf-text",
+        dehyphenated: false,
+        font: null,
+      }));
+
+      function textBlock(id, order, wordList, prefix) {
+        return {
+          id,
+          kind: "paragraph",
+          role: "body",
+          pageNumber: 1,
+          sourceRegions: [{ pageNumber: 1, bbox: { x0: 100, y0: 600, x1: 460, y1: 710 } }],
+          wordIds: wordList.map((word) => word.id),
+          lineIds: [],
+          readingOrder: order,
+          confidence: 0.95,
+          text: wordList.map((word) => word.text).join(" "),
+          direction: "ltr",
+          language: null,
+          items: null,
+          table: null,
+          assetId: null,
+          altText: null,
+          captionOf: null,
+          href: null,
+          extraction: "native-pdf-text",
+        };
+      }
+
+      // Visual fixtures mirror the app's props: assetUrls + per-block dims.
+      // Each figure exercises one aspect source:
+      //   fig-wide    — measured assetDims (the normal pipeline path)
+      //   fig-tall    — measured assetDims
+      //   fig-square  — model sourceWidth/sourceHeight (stamped analysis)
+      //   fig-tiny    — bbox fallback only (no dims anywhere)
+      //   fig-blocked — URL that never resolves (pre-load reservation)
+      function figureBlock(id, order, alt, bbox, sourceWidth, sourceHeight) {
+        return {
+          id,
+          kind: "figure",
+          role: "body",
+          pageNumber: 1,
+          sourceRegions: [{ pageNumber: 1, bbox }],
+          wordIds: [],
+          lineIds: [],
+          readingOrder: order,
+          confidence: 0.9,
+          text: "",
+          direction: "auto",
+          language: null,
+          items: null,
+          table: null,
+          assetId: null,
+          sourceWidth,
+          sourceHeight,
+          altText: alt,
+          captionOf: null,
+          href: null,
+          extraction: "graphical",
+        };
+      }
+
+      const page = {
+        pageNumber: 1,
+        width: 612,
+        height: 792,
+        rotation: 0,
+        state: "ready",
+        classification: "semantic",
+        confidence: 0.95,
+        textCoverage: 1,
+        words: [...words, ...trailingWords],
+        lines: [],
+        blocks: [
+          textBlock("p1:b0", 0, words),
+          {
+            id: "p1:b1",
+            kind: "heading",
+            role: "body",
+            pageNumber: 1,
+            sourceRegions: [{ pageNumber: 1, bbox: { x0: 100, y0: 710, x1: 300, y1: 730 } }],
+            wordIds: [],
+            lineIds: [],
+            readingOrder: 1,
+            confidence: 0.9,
+            text: "Figure 7.3 — Deterministic heading",
+            direction: "ltr",
+            language: null,
+            items: null,
+            table: null,
+            assetId: null,
+            sourceWidth: null,
+            sourceHeight: null,
+            altText: null,
+            captionOf: null,
+            href: null,
+            extraction: "native-pdf-text",
+          },
+          figureBlock("p1:figwide", 2, "Wide chart 1200 by 400", { x0: 60, y0: 380, x1: 560, y1: 546 }, null, null),
+          figureBlock("p1:figtall", 3, "Tall diagram 400 by 1200", { x0: 150, y0: 60, x1: 330, y1: 604 }, null, null),
+          figureBlock("p1:figsquare", 4, "Square plot 600 by 600", { x0: 106, y0: 120, x1: 506, y1: 620 }, 600, 600),
+          figureBlock("p1:figtiny", 5, "Tiny glyph 120 by 80", { x0: 246, y0: 300, x1: 366, y1: 380 }, null, null),
+          figureBlock("p1:figblocked", 6, "Blocked figure never loads", { x0: 106, y0: 200, x1: 506, y1: 400 }, null, null),
+          textBlock("p1:b7", 7, trailingWords),
+        ],
+        warnings: [],
+        errorCategory: null,
+        schemaVersion: 2,
+        engineVersion: "rust-hybrid-v3",
+      };
+
+      const assetUrls = new Map([
+        ["p1:figwide", wideChart],
+        ["p1:figtall", tallDiagram],
+        ["p1:figsquare", squarePlot],
+        ["p1:figtiny", tinyGlyph],
+        ["p1:figblocked", "/blocked-figure.png"],
+      ]);
+      const assetDims = new Map([
+        ["p1:figwide", { width: 1200, height: 400 }],
+        ["p1:figtall", { width: 400, height: 1200 }],
+        ["p1:figblocked", { width: 1000, height: 500 }],
+      ]);
+
+      createRoot(document.getElementById("root")).render(
+        React.createElement(
+          "div",
+          {
+            className: "pdf-mobile-reflow",
+            "data-image-scaling": "fit",
+            style: { maxWidth: "42rem", margin: "0 auto", padding: "24px" },
+          },
+          React.createElement(PdfCanonicalReflowRenderer, { pages: [page], assetUrls, assetDims }),
+        ),
+      );
+    </script>
+  </body>
+</html>

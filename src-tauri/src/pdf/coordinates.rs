@@ -136,13 +136,31 @@ impl RasterGeometry {
             matches!(rotation, 0 | 90 | 180 | 270),
             "rotation must be 0/90/180/270"
         );
+        // Finite-guard the float inputs: a NaN page dim or scale would make
+        // every coordinate transform produce NaN. `max(f64::NAN, x)` returns
+        // x, so clamp explicitly.
+        let safe_scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        let safe_width = if page_width.is_finite() && page_width > 0.0 {
+            page_width
+        } else {
+            1.0
+        };
+        let safe_height = if page_height.is_finite() && page_height > 0.0 {
+            page_height
+        } else {
+            1.0
+        };
         Self {
             width,
             height,
-            scale: scale.max(f64::MIN_POSITIVE),
+            scale: safe_scale.max(f64::MIN_POSITIVE),
             rotation: rotation % 360,
-            page_width,
-            page_height,
+            page_width: safe_width,
+            page_height: safe_height,
         }
     }
 
@@ -194,7 +212,10 @@ impl RasterGeometry {
 }
 
 pub fn pdf_rect_to_normalized(rect: &PdfRect, page_width: f64, page_height: f64) -> NormalizedRect {
-    let (w, h) = (page_width.max(f64::MIN_POSITIVE), page_height.max(f64::MIN_POSITIVE));
+    let (w, h) = (
+        page_width.max(f64::MIN_POSITIVE),
+        page_height.max(f64::MIN_POSITIVE),
+    );
     NormalizedRect {
         x0: rect.x0 / w,
         y0: rect.y0 / h,
@@ -232,7 +253,15 @@ mod tests {
     #[test]
     fn rect_constructor_normalizes_corners() {
         let rect = PdfRect::new(5.0, 9.0, 1.0, 2.0);
-        assert_eq!(rect, PdfRect { x0: 1.0, y0: 2.0, x1: 5.0, y1: 9.0 });
+        assert_eq!(
+            rect,
+            PdfRect {
+                x0: 1.0,
+                y0: 2.0,
+                x1: 5.0,
+                y1: 9.0
+            }
+        );
     }
 
     #[test]
@@ -295,12 +324,7 @@ mod tests {
     fn points_round_trip_for_every_rotation() {
         for rotation in [0, 90, 180, 270] {
             let g = geometry(rotation);
-            for (x, y) in [
-                (0.0, 0.0),
-                (W, H),
-                (100.5, 333.25),
-                (W - 1.0, 42.0),
-            ] {
+            for (x, y) in [(0.0, 0.0), (W, H), (100.5, 333.25), (W - 1.0, 42.0)] {
                 let (vx, vy) = g.pdf_point_to_raster(x, y);
                 let (rx, ry) = g.raster_point_to_pdf(vx, vy);
                 assert!(

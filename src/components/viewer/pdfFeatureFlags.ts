@@ -8,17 +8,25 @@ export const PDF_FEATURE_KEYS = {
   // disabled the flag before the rename keeps it disabled after.
   legacyNativeMobileRangeSource: "incrementum.feature.nativeMobilePdfRangeSource",
   semanticReflow: "incrementum.feature.pdfSemanticReflow",
+  // Canonical Rust model (v2): hybrid analysis cache + Original-view
+  // canonical selection snapping. Ships off; the reflow *view* stays gated
+  // separately by `semanticReflow`.
+  canonicalPdfModel: "incrementum.feature.pdfCanonicalModel",
 } as const;
 
 export type PdfFeature = keyof typeof PDF_FEATURE_KEYS;
 
 const DEFAULTS: Record<PdfFeature, boolean> = {
   // The range source fixes a correctness issue (whole-file IPC buffers) and
-  // retains the legacy source as a runtime override for one release cycle.
+  // retains the legacy source as an runtime override for one release cycle.
   nativePdfRangeSource: true,
   legacyNativeMobileRangeSource: true,
-  // Reflow is enabled independently so source reliability can ship first.
-  semanticReflow: false,
+  // TEST BUILD (2026-08-15, on-device reflow testing): both reflow flags
+  // default ON so the Original|Reflow toggle appears without console-side
+  // localStorage setup. Production keeps these off until the D14 gates
+  // pass; a localStorage override ("false") still disables them.
+  semanticReflow: true,
+  canonicalPdfModel: true,
 };
 
 export function isPdfFeatureEnabled(feature: PdfFeature): boolean {

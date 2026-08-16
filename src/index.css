@@ -728,6 +728,14 @@
   .safe-right {
     padding-right: env(safe-area-inset-right, 0px);
   }
+  /* Horizontal clearance for in-flow mobile toolbars (PDF reader toolbar,
+     viewer compact toolbar): at least 12px from each edge, expanding under the
+     notch in landscape. Pair with vertical-only padding utilities (py-*) so no
+     shorthand padding competes with these longhands. */
+  .safe-x-pad {
+    padding-left: max(env(safe-area-inset-left, 0px), 12px);
+    padding-right: max(env(safe-area-inset-right, 0px), 12px);
+  }
 
   @keyframes tab-enter {
     from {
