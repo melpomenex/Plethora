@@ -1,0 +1,101 @@
+<!--
+  Gauntlet Loop — live progress page template.
+
+  The lead agent copies this file into the workspace (e.g. gauntlet-progress.html)
+  and updates the <main> below each round so progress is viewable from a phone.
+  Auto-refreshes every 15s so a human can watch without poking the agents.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gauntlet Progress</title>
+  <meta http-equiv="refresh" content="15" />
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --card: #14181d;
+      --line: #232a32;
+      --text: #e6e9ee;
+      --muted: #8a93a0;
+      --win: #3ecf8e;
+      --lose: #f0715b;
+      --tie: #e3b341;
+      --run: #4aa8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 16px;
+    }
+    header { margin-bottom: 16px; }
+    header h1 { font-size: 16px; margin: 0 0 4px; letter-spacing: 0.02em; }
+    header .meta { color: var(--muted); font-size: 12px; }
+    header .meta code { color: var(--text); }
+    main { display: grid; gap: 10px; }
+    .piece {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .piece h2 {
+      font-size: 14px;
+      margin: 0 0 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .verdict {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .verdict.bar-wins { background: rgba(240,113,91,0.15); color: var(--lose); }
+    .verdict.output-wins { background: rgba(62,207,142,0.15); color: var(--win); }
+    .verdict.tie { background: rgba(227,179,65,0.15); color: var(--tie); }
+    .verdict.running { background: rgba(74,168,255,0.15); color: var(--run); }
+    .row { display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
+    .row b { color: var(--text); font-weight: 600; }
+    .gap { margin: 8px 0 0; font-size: 13px; }
+    .gap span { color: var(--muted); }
+    img {
+      max-width: 100%;
+      border-radius: 6px;
+      margin-top: 10px;
+      border: 1px solid var(--line);
+    }
+    footer { color: var(--muted); font-size: 11px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>GAUNTLET LOOP</h1>
+    <div class="meta">
+      Goal: <code>[GOAL]</code> · Bar: <code>[BAR]</code> · Updated: <code>[TIMESTAMP]</code>
+    </div>
+  </header>
+
+  <main>
+    <!-- One .piece block per decomposed piece. Duplicate as needed. -->
+    <div class="piece">
+      <h2>[Piece name] <span class="verdict running">running</span></h2>
+      <div class="row">
+        <span>Round: <b>0</b></span>
+        <span>Output: <code>[path or url]</code></span>
+      </div>
+      <p class="gap"><span>Last gap:</span> —</p>
+      <!-- <img src="[screenshot of current output]" alt="current output" /> -->
+    </div>
+  </main>
+
+  <footer>Auto-refreshes every 15s. Verdicts: output-wins closes a piece; bar-wins/tie loops back.</footer>
+</body>
+</html>

@@ -146,3 +146,8 @@ browser_extension/tests/*
 !browser_extension/tests/shared.test.cjs
 
 scratch/
+.playwright/
+
+# gauntlet diagnostics (temporary)
+debug/
+gauntlet-progress.html
