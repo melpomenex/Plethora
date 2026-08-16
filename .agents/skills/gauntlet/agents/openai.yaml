@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gauntlet Loop"
+  short_description: "Build-vs-bar critique loop"
+  default_prompt: "Use $gauntlet to run a builder/critic loop against a concrete quality bar for: [GOAL]"
