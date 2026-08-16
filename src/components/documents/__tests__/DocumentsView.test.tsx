@@ -137,6 +137,24 @@ describe("DocumentsView", () => {
     expect(screen.queryByText("In Priority Queue")).toBeNull();
   });
 
+  it("reloads when the active collection hydrates after mount (first-load race)", () => {
+    // First activation can race the startup snapshot: the effect runs while
+    // activeCollectionId still holds the pre-hydration id, so nothing reloads
+    // when the real id lands — the view stayed empty until the user cycled
+    // tabs. The collection id is a load dependency now.
+    const previousCollectionId = collectionsMock.activeCollectionId;
+    try {
+      const view = render(<DocumentsView enableYouTubeImport={false} />);
+      expect(mockStore.loadDocuments).toHaveBeenCalledTimes(1);
+
+      collectionsMock.activeCollectionId = "col-hydrated";
+      view.rerender(<DocumentsView enableYouTubeImport={false} />);
+      expect(mockStore.loadDocuments).toHaveBeenCalledTimes(2);
+    } finally {
+      collectionsMock.activeCollectionId = previousCollectionId;
+    }
+  });
+
   it("updates inspector on selection", () => {
     render(<DocumentsView enableYouTubeImport={false} />);
     fireEvent.click(screen.getAllByText("Priority Doc")[0]);

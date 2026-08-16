@@ -28,6 +28,28 @@ export interface PdfSelectionTokenData {
   tokenIds: string[];
 }
 
+/**
+ * Canonical model anchoring (selection_context v2, additive): exact word-ID
+ * range resolved by the Rust canonical model. When present, downstream
+ * consumers (highlight painting, extract provenance, view-source navigation)
+ * prefer this over legacy `pdfRects` geometry; legacy payloads without it
+ * keep rendering unchanged.
+ */
+export interface PdfCanonicalSelectionAnchor {
+  version: 2;
+  startWordId: string;
+  endWordId: string;
+  wordIds: string[];
+  blockIds: string[];
+  /** Canonical-space regions (x0/y0/x1/y1, PDF user space, y up). */
+  pageRegions: Array<{
+    pageNumber: number;
+    bbox: { x0: number; y0: number; x1: number; y1: number };
+  }>;
+  /** Exact canonical text of the word range. */
+  text: string;
+}
+
 export interface PdfSelectionContext {
   type: "pdf";
   documentId: string;
@@ -40,6 +62,8 @@ export interface PdfSelectionContext {
   /** Semantic-reflow anchors; geometry remains the source of truth when present. */
   reflowBlockIds?: string[];
   mappingConfidence?: number;
+  /** Canonical word-ID anchoring (v2); takes precedence when present. */
+  canonical?: PdfCanonicalSelectionAnchor;
 }
 
 export interface EpubSelectionContext {

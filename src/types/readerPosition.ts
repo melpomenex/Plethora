@@ -9,6 +9,8 @@ export type PdfSourceAnchorState = {
   fingerprint?: string | null;
   pageNumber: number;
   blockId?: string;
+  /** Canonical word id (`p{page}:w{index}`) — primary anchor when present. */
+  wordId?: string;
   textQuote?: string;
   rect?: { x: number; y: number; width: number; height: number };
   intraBlockOffset?: number;

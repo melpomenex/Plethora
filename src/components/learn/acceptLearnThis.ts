@@ -152,11 +152,13 @@ export async function acceptLearnThisCandidates(
       batchCandidates.map((c) => toBatchEntry(c, ctx))
     );
     created.push(...items);
-    for (let i = 0; i < items.length; i++) {
-      if (await recordProvenanceForItem(items[i].id, batchCandidates[i], ctx)) {
-        provenanceRecorded++;
-      }
-    }
+    // Provenance rows are independent of each other — recording them
+    // sequentially serialized one IPC round trip per card and made accepting
+    // a stack of cards feel wedged on phones.
+    const recorded = await Promise.all(
+      items.map((item, i) => recordProvenanceForItem(item.id, batchCandidates[i], ctx))
+    );
+    provenanceRecorded += recorded.filter(Boolean).length;
   }
 
   for (const candidate of clozeCandidates) {

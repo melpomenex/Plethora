@@ -328,54 +328,91 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       sessionCustomization.semanticStudy?.enabled,
       sessionCustomization.semanticStudy?.focalTopic,
     ]);
-    const storeState = useQueueStore.getState();
-    if (storeState.loadedQueryKey === loadKey) return;
-    // Record the key up-front so a rapid re-entry (e.g. isActiveTab toggling)
-    // doesn't double-fire the load; each loader path below is also dedupeLoad-
-    // coalesced. The key is only "claimed" when a load actually runs.
-    storeState.setLoadedQueryKey(loadKey);
+    if (useQueueStore.getState().loadedQueryKey === loadKey) return;
 
-    const isFirstLoad = !storeState.hasCompletedFirstLoad;
-    if (isFirstLoad) storeState.setHasCompletedFirstLoad(true);
+    // The key is claimed only AFTER a load path succeeds. The old up-front
+    // claim stranded the view when the startup snapshot hit its watchdog
+    // (cold IPC / slow migration) and the fallback stalled: every later
+    // activation early-returned on the claimed key — the "queue opens empty
+    // until you visit another view and come back" bug. Re-entries re-fire
+    // the load, but every store loader is dedupeLoad-coalesced, so rapid
+    // toggling shares one IPC round trip instead of doubling up.
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryDelay = 3_000;
+    let cancelled = false;
+    const claim = () => {
+      if (cancelled) return;
+      useQueueStore.getState().setLoadedQueryKey(loadKey);
+      useQueueStore.getState().setHasCompletedFirstLoad(true);
+    };
+    const claimAfter = (load: Promise<void> | void) => {
+      // Synchronously-completed loads claim immediately; promised loads claim
+      // on fulfillment. Failure leaves the key unclaimed so the next
+      // activation retries instead of early-returning on a claimed-but-empty
+      // state.
+      if (load != null && typeof (load as Promise<void>).then === "function") {
+        void (load as Promise<void>).then(claim, () => undefined);
+      } else {
+        claim();
+      }
+    };
+    const cleanup = () => {
+      cancelled = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+    };
 
     if (
-      isFirstLoad &&
+      !useQueueStore.getState().hasCompletedFirstLoad &&
       queueFilterMode === "due-all" &&
       !sessionCustomization.semanticStudy?.enabled
     ) {
-      void ensureStartup("queue").finally(() => {
-        if (isActiveTab) {
+      // First load goes through the startup snapshot. A null snapshot
+      // (watchdog) schedules its own retry with backoff — mirrors
+      // MobileQueueView — so the queue self-populates once the backend
+      // bridge recovers without waiting for the user to cycle views.
+      const attempt = () => {
+        if (cancelled) return;
+        void ensureStartup("queue").then((snapshot) => {
+          if (cancelled) return;
+          if (snapshot == null) {
+            retryTimer = setTimeout(attempt, retryDelay);
+            retryDelay = Math.min(retryDelay * 2, 15_000);
+            return;
+          }
+          claim();
           void loadStats();
           if (useQueueStore.getState().items.length <= 50) {
             void loadDueQueueItems();
           }
-        }
-      });
-      return;
+        });
+      };
+      attempt();
+      return cleanup;
     }
     // If a semantic study focus is active, load the entire database/collection
     // so we can query all matching items in the library.
     if (sessionCustomization.semanticStudy?.enabled && sessionCustomization.semanticStudy?.focalTopic) {
-      loadQueue(true);
+      claimAfter(loadQueue(true));
       loadStats();
-      return;
+      return cleanup;
     }
 
     // Reading & Review queue: load based on current filter mode
     switch (queueFilterMode) {
       case "due-today":
-        loadDueDocumentsOnly();
+        claimAfter(loadDueDocumentsOnly());
         break;
       case "due-all":
-        loadDueQueueItems();
+        claimAfter(loadDueQueueItems());
         break;
       case "all-items":
       case "new-only":
       default:
-        loadQueue();
+        claimAfter(loadQueue());
         break;
     }
     loadStats();
+    return cleanup;
   }, [
     queueFilterMode,
     isActiveTab,
