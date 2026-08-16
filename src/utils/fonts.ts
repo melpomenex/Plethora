@@ -99,7 +99,7 @@ export async function loadSelectedFonts(fontFamilies: string[]): Promise<void> {
       const pkg = FONT_TO_PACKAGE[family];
       if (!pkg) return;
       try {
-        await import(`@fontsource/${pkg}`);
+        await import(/* @vite-ignore */ `@fontsource/${pkg}`);
         loadedFonts.add(family);
       } catch {
         console.warn(`[fonts] Failed to load @fontsource/${pkg}`);

@@ -326,7 +326,15 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
     }
     try {
       if (command !== "wait_for_backend_ready") {
-        backendReadyPromise ??= awaitBackendReadyWithRetry();
+        backendReadyPromise ??= awaitBackendReadyWithRetry().catch((error) => {
+          // A cycle that exhausted every probe attempt must not poison later
+          // commands: with `??=` alone the rejected promise stays cached and
+          // every subsequent invoke fails instantly until app restart, even
+          // after the backend finishes initializing. Drop the cache so the
+          // next command re-probes.
+          backendReadyPromise = null;
+          throw error;
+        });
         await backendReadyPromise;
       }
       return await tauriInvoke(command, args) as T;

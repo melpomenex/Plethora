@@ -330,7 +330,12 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   useEffect(() => {
     if (!isActiveTab) return;
     void loadDocuments();
-  }, [isActiveTab, loadDocuments]);
+    // activeCollectionId is a load dependency, not just a store read inside
+    // loadDocuments: first activation can race the startup snapshot (the id
+    // is still the pre-hydration placeholder), and without it here nothing
+    // re-triggers when hydration lands the real collection id — the view
+    // stayed empty until the user cycled tabs.
+  }, [isActiveTab, loadDocuments, activeCollectionId]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
