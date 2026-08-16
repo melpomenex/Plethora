@@ -137,10 +137,7 @@ impl IndexerQueue {
     }
 
     pub fn runtime_status(&self) -> IndexerRuntimeStatus {
-        self.status
-            .lock()
-            .map(|s| s.clone())
-            .unwrap_or_default()
+        self.status.lock().map(|s| s.clone()).unwrap_or_default()
     }
 }
 
@@ -162,11 +159,10 @@ impl Worker {
 
     async fn run(mut self, rx: &mut mpsc::UnboundedReceiver<IndexerCommand>) {
         // Resume rows stranded in `indexing` by a previous run.
-        if let Err(e) = sqlx::query(
-            "UPDATE ai_index_state SET state = 'queued' WHERE state = 'indexing'",
-        )
-        .execute(self.repo.pool())
-        .await
+        if let Err(e) =
+            sqlx::query("UPDATE ai_index_state SET state = 'queued' WHERE state = 'indexing'")
+                .execute(self.repo.pool())
+                .await
         {
             warn!("failed to reset interrupted index states: {}", e);
         }
@@ -308,7 +304,9 @@ impl Worker {
                     info!("bulk index enqueue skipped: battery not charging (require_charging)");
                     return;
                 }
-                let ids = list_indexable_documents(&self.repo).await.unwrap_or_default();
+                let ids = list_indexable_documents(&self.repo)
+                    .await
+                    .unwrap_or_default();
                 let added = ids.len();
                 for id in ids {
                     self.set_state_if(&id, IndexState::Queued).await;
@@ -391,7 +389,16 @@ pub async fn index_document_once(
     if content.trim().is_empty() {
         // Nothing indexable (e.g. scanned PDF awaiting OCR). Record an empty
         // but successful state so the document is not perpetually requeued.
-        upsert_state_row(repo, document_id, IndexState::Indexed, Some(backend), 0, 0, None).await?;
+        upsert_state_row(
+            repo,
+            document_id,
+            IndexState::Indexed,
+            Some(backend),
+            0,
+            0,
+            None,
+        )
+        .await?;
         return Ok(IndexOutcome::Completed);
     }
 
@@ -422,8 +429,16 @@ pub async fn index_document_once(
         });
     }
 
-    upsert_state_row(repo, document_id, IndexState::Indexed, Some(backend), total, total, None)
-        .await?;
+    upsert_state_row(
+        repo,
+        document_id,
+        IndexState::Indexed,
+        Some(backend),
+        total,
+        total,
+        None,
+    )
+    .await?;
     Ok(IndexOutcome::Completed)
 }
 
@@ -502,7 +517,11 @@ async fn load_html_content(repo: &Repository, document_id: &str) -> Option<Strin
         .await
         .ok()
         .flatten()
-        .and_then(|row| row.try_get::<Option<String>, _>("html_content").ok().flatten())
+        .and_then(|row| {
+            row.try_get::<Option<String>, _>("html_content")
+                .ok()
+                .flatten()
+        })
 }
 
 /// Extracts become single chunks with their own location payload (task 4.7).
@@ -547,8 +566,12 @@ async fn build_annotation_chunks(repo: &Repository, document_id: &str) -> Vec<Ch
     let location_type = document_location_type(repo, document_id).await;
     let mut out = Vec::new();
     for (ordinal, row) in rows.into_iter().enumerate() {
-        let Ok(id) = row.try_get::<String, _>("id") else { continue };
-        let Ok(page) = row.try_get::<i64, _>("page_number") else { continue };
+        let Ok(id) = row.try_get::<String, _>("id") else {
+            continue;
+        };
+        let Ok(page) = row.try_get::<i64, _>("page_number") else {
+            continue;
+        };
         let content: Option<String> = row.try_get("content").ok().flatten();
         let Some(text) = content else { continue };
         let ctx = ChunkContext {
@@ -628,13 +651,16 @@ async fn document_location_type(repo: &Repository, document_id: &str) -> String 
 /// Content-hash diff: delete stored chunks whose id is absent from the new
 /// set (orphans), insert new ids, and refresh ordinals/locations of retained
 /// chunks (cheap metadata UPDATE, never a re-embed).
-async fn apply_chunk_diff(repo: &Repository, document_id: &str, new_chunks: &[ChunkModel]) -> Result<()> {
-    let stored: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT id, ordinal FROM semantic_chunks WHERE document_id = ?1",
-    )
-    .bind(document_id)
-    .fetch_all(repo.pool())
-    .await?;
+async fn apply_chunk_diff(
+    repo: &Repository,
+    document_id: &str,
+    new_chunks: &[ChunkModel],
+) -> Result<()> {
+    let stored: Vec<(String, i64)> =
+        sqlx::query_as("SELECT id, ordinal FROM semantic_chunks WHERE document_id = ?1")
+            .bind(document_id)
+            .fetch_all(repo.pool())
+            .await?;
 
     let new_ids: HashSet<&str> = new_chunks.iter().map(|c| c.id.as_str()).collect();
 
@@ -653,7 +679,11 @@ async fn apply_chunk_diff(repo: &Repository, document_id: &str, new_chunks: &[Ch
                 .await?;
         }
         tx.commit().await?;
-        debug!("removed {} orphan chunks for {}", orphans.len(), document_id);
+        debug!(
+            "removed {} orphan chunks for {}",
+            orphans.len(),
+            document_id
+        );
     }
 
     // Insert new chunks one by one (per-chunk commit: interruption-safe).
@@ -803,13 +833,12 @@ async fn store_embedding_row(
     let bytes = embedding_bytes(vector);
     let dimension = vector.len() as i64;
     // Content hash of the chunk's current text (staleness check on read).
-    let content_hash: String = sqlx::query_scalar(
-        "SELECT content_hash FROM semantic_chunks WHERE id = ?1",
-    )
-    .bind(chunk_id)
-    .fetch_optional(repo.pool())
-    .await?
-    .unwrap_or_default();
+    let content_hash: String =
+        sqlx::query_scalar("SELECT content_hash FROM semantic_chunks WHERE id = ?1")
+            .bind(chunk_id)
+            .fetch_optional(repo.pool())
+            .await?
+            .unwrap_or_default();
 
     sqlx::query(
         "INSERT INTO semantic_chunk_embeddings (chunk_id, embedding, model, dimension, embedding_version, content_hash)
@@ -947,11 +976,10 @@ pub async fn mark_all_stale(repo: &Repository) -> Result<u64> {
 
 /// Documents worth bulk-indexing: have text content and are not archived.
 async fn list_indexable_documents(repo: &Repository) -> Result<Vec<String>> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, COALESCE(content, '') FROM documents WHERE is_archived = 0",
-    )
-    .fetch_all(repo.pool())
-    .await?;
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, COALESCE(content, '') FROM documents WHERE is_archived = 0")
+            .fetch_all(repo.pool())
+            .await?;
     Ok(rows
         .into_iter()
         .filter(|(_, content)| !content.trim().is_empty())
@@ -1110,7 +1138,9 @@ mod tests {
         let content = format!(
             "# Head\n\n{}",
             (0..40)
-                .map(|i| format!("Original paragraph {i} with stable content that will not change at all."))
+                .map(|i| format!(
+                    "Original paragraph {i} with stable content that will not change at all."
+                ))
                 .collect::<Vec<_>>()
                 .join("\n\n")
         );
@@ -1131,7 +1161,11 @@ mod tests {
         .into_iter()
         .map(|(id,)| id)
         .collect();
-        assert!(ids_before.len() >= 2, "expected several chunks, got {}", ids_before.len());
+        assert!(
+            ids_before.len() >= 2,
+            "expected several chunks, got {}",
+            ids_before.len()
+        );
 
         // Edit: append one new paragraph — every unchanged paragraph keeps
         // its content hash, so only the tail chunk(s) change identity.
@@ -1161,13 +1195,19 @@ mod tests {
         // Most chunk ids are retained: only the chunks whose text actually
         // changed got new content-addressed ids. This is the incremental
         // guarantee — an edit to one paragraph must not re-embed the rest.
-        let retained = ids_after.iter().filter(|id| ids_before.contains(id)).count();
+        let retained = ids_after
+            .iter()
+            .filter(|id| ids_before.contains(id))
+            .count();
         assert!(
             retained * 2 > ids_before.len(),
             "expected most chunks retained, {retained}/{} ",
             ids_before.len()
         );
-        assert!(retained < ids_after.len(), "the edited tail must produce at least one new chunk");
+        assert!(
+            retained < ids_after.len(),
+            "the edited tail must produce at least one new chunk"
+        );
 
         // Every stored chunk has a current embedding (nothing orphaned).
         let (missing,): (i64,) = sqlx::query_as(
@@ -1205,7 +1245,11 @@ mod tests {
         .expect("interrupted run");
 
         let state = state_of(&pool, "doc-3").await.expect("state exists");
-        assert_eq!(state.0, "queued", "interrupted doc returns to queued, got {}", state.0);
+        assert_eq!(
+            state.0, "queued",
+            "interrupted doc returns to queued, got {}",
+            state.0
+        );
         let (committed,): (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM semantic_chunks WHERE document_id = 'doc-3'")
                 .fetch_one(&pool)
@@ -1221,14 +1265,23 @@ mod tests {
         let state = state_of(&pool, "doc-3").await.unwrap();
         assert_eq!(state.0, "indexed");
         assert_eq!(state.1, state.2);
-        assert!(matches!(outcome, IndexOutcome::Paused | IndexOutcome::Cancelled | IndexOutcome::Completed));
+        assert!(matches!(
+            outcome,
+            IndexOutcome::Paused | IndexOutcome::Cancelled | IndexOutcome::Completed
+        ));
     }
 
     #[tokio::test]
     async fn deletion_cascades_chunks_and_state() {
         let pool = test_pool().await;
         let repo = Repository::new(pool.clone());
-        seed_document(&pool, "doc-4", "Some content to index here. More text follows for chunking. ", "text").await;
+        seed_document(
+            &pool,
+            "doc-4",
+            "Some content to index here. More text follows for chunking. ",
+            "text",
+        )
+        .await;
         let backend = mock_backend();
         index_document_once(&repo, "doc-4", &backend, &mut || true)
             .await
@@ -1263,7 +1316,13 @@ mod tests {
     async fn unavailable_backend_stores_chunks_without_embeddings() {
         let pool = test_pool().await;
         let repo = Repository::new(pool.clone());
-        seed_document(&pool, "doc-5", "Text content for lexical-only indexing. ", "text").await;
+        seed_document(
+            &pool,
+            "doc-5",
+            "Text content for lexical-only indexing. ",
+            "text",
+        )
+        .await;
         let backend = EmbeddingBackend::OnDevice {
             model: "embeddinggemma-300m",
         };
@@ -1288,7 +1347,13 @@ mod tests {
     async fn extra_sources_become_single_chunks() {
         let pool = test_pool().await;
         let repo = Repository::new(pool.clone());
-        seed_document(&pool, "doc-6", "Document body content for chunking purposes. ", "pdf").await;
+        seed_document(
+            &pool,
+            "doc-6",
+            "Document body content for chunking purposes. ",
+            "pdf",
+        )
+        .await;
 
         sqlx::query(
             "INSERT INTO extracts (id, document_id, content, date_created, date_modified)
@@ -1329,7 +1394,11 @@ mod tests {
         let types: Vec<&str> = rows.iter().map(|(t, _)| t.as_str()).collect();
         assert!(types.contains(&"document"), "document chunks: {:?}", types);
         assert!(types.contains(&"extract"), "extract chunk: {:?}", types);
-        assert!(types.contains(&"annotation"), "annotation chunk: {:?}", types);
+        assert!(
+            types.contains(&"annotation"),
+            "annotation chunk: {:?}",
+            types
+        );
         assert!(types.contains(&"card"), "card chunk: {:?}", types);
 
         let extract_chunk = rows.iter().find(|(t, _)| t == "extract").unwrap();
@@ -1383,12 +1452,11 @@ mod tests {
             .await
             .expect("reindex");
 
-        let (orphans,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM semantic_chunks WHERE source_id = 'ext-doomed'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let (orphans,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM semantic_chunks WHERE source_id = 'ext-doomed'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(orphans, 0, "deleted extract's chunk removed by diff");
     }
 
@@ -1396,7 +1464,13 @@ mod tests {
     async fn embedding_version_change_reembeds() {
         let pool = test_pool().await;
         let repo = Repository::new(pool.clone());
-        seed_document(&pool, "doc-8", "Content that will be re-embedded after a version bump. ", "text").await;
+        seed_document(
+            &pool,
+            "doc-8",
+            "Content that will be re-embedded after a version bump. ",
+            "text",
+        )
+        .await;
 
         let v1 = EmbeddingBackend::Mock {
             dim: 32,
@@ -1483,8 +1557,10 @@ mod tests {
         seed_document(&pool, "q-1", "Queue test content one. ", "text").await;
         seed_document(&pool, "q-2", "Queue test content two. ", "text").await;
 
-        let factory: BackendFactory =
-            Arc::new(|| EmbeddingBackend::Mock { dim: 32, model: "mock-queue" });
+        let factory: BackendFactory = Arc::new(|| EmbeddingBackend::Mock {
+            dim: 32,
+            model: "mock-queue",
+        });
         let queue = IndexerQueue::new(repo.clone(), factory);
 
         queue.enqueue_all(false).expect("enqueue all");
@@ -1502,11 +1578,17 @@ mod tests {
         loop {
             let s1 = state_of(&pool, "q-1").await;
             let s2 = state_of(&pool, "q-2").await;
-            if matches!(&s1, Some(s) if s.0 == "indexed") && matches!(&s2, Some(s) if s.0 == "indexed")
+            if matches!(&s1, Some(s) if s.0 == "indexed")
+                && matches!(&s2, Some(s) if s.0 == "indexed")
             {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "queue did not finish in time: {:?} {:?}", s1, s2);
+            assert!(
+                std::time::Instant::now() < deadline,
+                "queue did not finish in time: {:?} {:?}",
+                s1,
+                s2
+            );
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
 

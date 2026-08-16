@@ -61,7 +61,11 @@ pub async fn record_active_time(
         .await?;
 
     let session_absorbed = match session_id.as_deref() {
-        Some(id) => activity.heartbeat_reading_session(id, active_seconds).await?,
+        Some(id) => {
+            activity
+                .heartbeat_reading_session(id, active_seconds)
+                .await?
+        }
         None => false,
     };
 

@@ -40,7 +40,10 @@ const SCORE_COLUMNS: &str =
     "chunk_hash, passage_type, extract_worthiness, suggested_action, model, created_at";
 
 /// Pool-level get (shared by the command and tests).
-async fn get_score(pool: &sqlx::Pool<sqlx::Sqlite>, chunk_hash: &str) -> Result<Option<PassageScore>> {
+async fn get_score(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    chunk_hash: &str,
+) -> Result<Option<PassageScore>> {
     let row = sqlx::query(&format!(
         "SELECT {SCORE_COLUMNS} FROM passage_scores WHERE chunk_hash = ?1"
     ))
@@ -133,8 +136,12 @@ mod tests {
         let pool = pool().await;
 
         let stored = put_score(
-            &pool, "hash-abc", "definition", 0.9,
-            Some("extract"), Some("gemini-nano"),
+            &pool,
+            "hash-abc",
+            "definition",
+            0.9,
+            Some("extract"),
+            Some("gemini-nano"),
         )
         .await
         .unwrap();
@@ -143,15 +150,25 @@ mod tests {
         assert!((stored.extract_worthiness - 0.9).abs() < 1e-9);
         assert!(!stored.created_at.is_empty());
 
-        let got = get_score(&pool, "hash-abc").await.unwrap().expect("cached score");
+        let got = get_score(&pool, "hash-abc")
+            .await
+            .unwrap()
+            .expect("cached score");
         assert_eq!(got.passage_type, "definition");
         assert_eq!(got.suggested_action.as_deref(), Some("extract"));
         assert_eq!(got.model.as_deref(), Some("gemini-nano"));
 
         // Re-scoring the same content replaces the verdict.
-        put_score(&pool, "hash-abc", "supporting-detail", 1.7, None, Some("new-model"))
-            .await
-            .unwrap();
+        put_score(
+            &pool,
+            "hash-abc",
+            "supporting-detail",
+            1.7,
+            None,
+            Some("new-model"),
+        )
+        .await
+        .unwrap();
         let replaced = get_score(&pool, "hash-abc").await.unwrap().unwrap();
         assert_eq!(replaced.passage_type, "supporting-detail");
         assert!((replaced.extract_worthiness - 1.0).abs() < 1e-9);
@@ -161,9 +178,18 @@ mod tests {
         assert!(get_score(&pool, "missing").await.unwrap().is_none());
 
         // Distinct hashes stay distinct.
-        put_score(&pool, "hash-other", "transition", 0.1, None, None).await.unwrap();
+        put_score(&pool, "hash-other", "transition", 0.1, None, None)
+            .await
+            .unwrap();
         let other = get_score(&pool, "hash-other").await.unwrap().unwrap();
         assert_eq!(other.passage_type, "transition");
-        assert_eq!(get_score(&pool, "hash-abc").await.unwrap().unwrap().passage_type, "supporting-detail");
+        assert_eq!(
+            get_score(&pool, "hash-abc")
+                .await
+                .unwrap()
+                .unwrap()
+                .passage_type,
+            "supporting-detail"
+        );
     }
 }

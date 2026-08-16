@@ -90,7 +90,10 @@ pub fn decide(candidates: &[PostponeCandidate], config: &PostponeConfig) -> Post
     //    items win ties when respect_difficulty is on.
     postponable.sort_by(|a, b| {
         // Primary: priority descending (higher priority kept first).
-        let by_priority = b.priority.partial_cmp(&a.priority).unwrap_or(std::cmp::Ordering::Equal);
+        let by_priority = b
+            .priority
+            .partial_cmp(&a.priority)
+            .unwrap_or(std::cmp::Ordering::Equal);
         if by_priority != std::cmp::Ordering::Equal {
             return by_priority;
         }
@@ -106,9 +109,7 @@ pub fn decide(candidates: &[PostponeCandidate], config: &PostponeConfig) -> Post
     });
 
     // 3. Capacity: how many postponable slots remain after protected ones.
-    let remaining_capacity = config
-        .daily_capacity
-        .saturating_sub(protected.len());
+    let remaining_capacity = config.daily_capacity.saturating_sub(protected.len());
 
     // 4. Keep the top-N postponable; postpone the rest.
     let (keep_postponable, postpone) = if postponable.len() <= remaining_capacity {
@@ -208,7 +209,10 @@ mod tests {
             cand("mid", 60.0),
         ];
         let dec = decide(&cands, &config(1, 70.0));
-        assert!(dec.keep.contains(&"high".to_string()), "threshold element kept");
+        assert!(
+            dec.keep.contains(&"high".to_string()),
+            "threshold element kept"
+        );
     }
 
     #[test]

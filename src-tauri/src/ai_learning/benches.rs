@@ -143,7 +143,11 @@ fn bench_chunker_throughput_100kb_markdown() {
         spine_index: None,
     };
     let start = Instant::now();
-    let chunks = chunk_document(&ctx, ChunkInput::Markdown { text: &text }, &ChunkOptions::default());
+    let chunks = chunk_document(
+        &ctx,
+        ChunkInput::Markdown { text: &text },
+        &ChunkOptions::default(),
+    );
     let elapsed = start.elapsed();
 
     let throughput_mbps = text.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
@@ -203,7 +207,11 @@ fn bench_cosine_topk_10k_and_100k_vectors() {
         // pure-Rust kernel check is deliberately much looser for CI variance.
         assert_eq!(top.len(), 8);
         assert_eq!(top[0].0, needle_idx, "exact-match needle must rank first");
-        assert!((top[0].1 - 1.0).abs() < 1e-4, "needle score {} ≈ 1.0", top[0].1);
+        assert!(
+            (top[0].1 - 1.0).abs() < 1e-4,
+            "needle score {} ≈ 1.0",
+            top[0].1
+        );
         assert!(
             elapsed.as_secs() < wall_clock_cap_secs,
             "cosine top-k @{n} took {elapsed:?} (cap {wall_clock_cap_secs}s)"

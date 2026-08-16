@@ -259,9 +259,16 @@ pub async fn refresh_podcast_feed(
 
                         tokio::spawn(async move {
                             // Background best-effort — errors are logged, not propagated
-                            if let Err(e) =
-                                run_transcription_job(ep_id, Some(model), lang, None, app, repo, tokens)
-                                    .await
+                            if let Err(e) = run_transcription_job(
+                                ep_id,
+                                Some(model),
+                                lang,
+                                None,
+                                app,
+                                repo,
+                                tokens,
+                            )
+                            .await
                             {
                                 eprintln!("[auto-transcribe] Transcription failed: {}", e);
                             }
@@ -1559,10 +1566,12 @@ pub async fn transcribe_audio_file_groq(
     let resume_start_ms: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(end_ms), 0) FROM transcript_segments WHERE transcript_id = ?",
     )
-        .bind(transcript_id)
-        .fetch_one(repo.pool())
-        .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read transcript checkpoint: {}", e)))?;
+    .bind(transcript_id)
+    .fetch_one(repo.pool())
+    .await
+    .map_err(|e| {
+        IncrementumError::Internal(format!("Failed to read transcript checkpoint: {}", e))
+    })?;
 
     // 4. Upload each chunk to Groq and persist segments as they arrive.
     for (i, chunk) in chunks.iter().enumerate() {

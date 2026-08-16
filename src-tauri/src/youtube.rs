@@ -1244,7 +1244,9 @@ pub async fn get_youtube_transcript_by_id(
     repo: State<'_, Repository>,
 ) -> Result<Vec<TranscriptSegment>, String> {
     // 1. Try on-device InnerTube API fetcher first (no yt-dlp binary dependency)
-    let res = innertube::fetch_youtube_transcript_on_device_internal(&video_id, language.as_deref()).await;
+    let res =
+        innertube::fetch_youtube_transcript_on_device_internal(&video_id, language.as_deref())
+            .await;
     match res {
         innertube::OnDeviceTranscriptResult::Ok { segments, .. } if !segments.is_empty() => {
             return Ok(segments);

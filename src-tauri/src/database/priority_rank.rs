@@ -222,10 +222,16 @@ mod tests {
         assert_eq!(queue_size(&pool).await.unwrap(), 5);
 
         let top = key_for_slider(&pool, 100).await.unwrap();
-        assert!(top > 50.0, "slider 100 must sort above everything, got {top}");
+        assert!(
+            top > 50.0,
+            "slider 100 must sort above everything, got {top}"
+        );
 
         let bottom = key_for_slider(&pool, 0).await.unwrap();
-        assert!(bottom < 10.0, "slider 0 must sort below everything, got {bottom}");
+        assert!(
+            bottom < 10.0,
+            "slider 0 must sort below everything, got {bottom}"
+        );
 
         let middle = key_for_slider(&pool, 50).await.unwrap();
         assert!(
@@ -323,7 +329,10 @@ mod tests {
         for pair in keys.windows(2) {
             assert!(pair[0] < pair[1], "keys must be strictly ascending");
         }
-        assert!(keys[0] > 10.0 && keys[499] < 20.0, "keys must stay in the gap");
+        assert!(
+            keys[0] > 10.0 && keys[499] < 20.0,
+            "keys must stay in the gap"
+        );
     }
 
     #[test]

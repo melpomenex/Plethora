@@ -44,7 +44,9 @@ const SETTINGS_KEY: &str = "auto_postpone_config";
 
 /// Read the persisted auto-postpone settings, falling back to defaults.
 #[tauri::command]
-pub async fn get_auto_postpone_settings(repo: State<'_, Repository>) -> Result<AutoPostponeSettings> {
+pub async fn get_auto_postpone_settings(
+    repo: State<'_, Repository>,
+) -> Result<AutoPostponeSettings> {
     let raw = repo.get_setting(SETTINGS_KEY).await?;
     Ok(raw
         .and_then(|s| serde_json::from_str::<AutoPostponeSettings>(&s).ok())
@@ -69,9 +71,7 @@ pub async fn set_auto_postpone_settings(
 /// When auto-postpone is disabled, every due item is in `keep` and `postpone`
 /// is empty (the capacity is treated as unlimited).
 #[tauri::command]
-pub async fn run_auto_postpone(
-    repo: State<'_, Repository>,
-) -> Result<PostponeDecision> {
+pub async fn run_auto_postpone(repo: State<'_, Repository>) -> Result<PostponeDecision> {
     let settings = repo.get_setting(SETTINGS_KEY).await?;
     let settings = settings
         .and_then(|s| serde_json::from_str::<AutoPostponeSettings>(&s).ok())

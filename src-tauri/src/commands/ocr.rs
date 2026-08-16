@@ -99,9 +99,8 @@ impl OCRResponse {
             .map(|line| OcrTextLine {
                 text: line.text.clone(),
                 confidence: line.confidence.clamp(0.0, 100.0),
-                bbox_percent: image_dims.map(|(w, h)| {
-                    crate::ocr::providers::pixel_box_to_percent(&line.bbox, w, h)
-                }),
+                bbox_percent: image_dims
+                    .map(|(w, h)| crate::ocr::providers::pixel_box_to_percent(&line.bbox, w, h)),
             })
             .collect();
         self
@@ -248,7 +247,7 @@ pub async fn ocr_image_file(request: OCRImageRequest) -> Result<OCRResponse> {
                     format: "text".to_string(),
                     success: false,
                     error: Some(e.to_string()),
-            lines: Vec::new(),
+                    lines: Vec::new(),
                 });
             }
         }
@@ -1082,14 +1081,32 @@ mod tests {
     fn percent_conversion_clamps_and_scales() {
         use crate::ocr::providers::{pixel_box_to_percent, BoundingBox};
         // Full-image box → 0,0,100,100.
-        let full = BoundingBox { left: 0.0, top: 0.0, right: 1000.0, bottom: 500.0 };
-        assert_eq!(pixel_box_to_percent(&full, 1000, 500), [0.0, 0.0, 100.0, 100.0]);
+        let full = BoundingBox {
+            left: 0.0,
+            top: 0.0,
+            right: 1000.0,
+            bottom: 500.0,
+        };
+        assert_eq!(
+            pixel_box_to_percent(&full, 1000, 500),
+            [0.0, 0.0, 100.0, 100.0]
+        );
         // Boxes outside the frame clamp.
-        let outside = BoundingBox { left: -500.0, top: -100.0, right: 100.0, bottom: 100.0 };
+        let outside = BoundingBox {
+            left: -500.0,
+            top: -100.0,
+            right: 100.0,
+            bottom: 100.0,
+        };
         let [x, y, w, h] = pixel_box_to_percent(&outside, 1000, 1000);
         assert_eq!((x, y, w, h), (0.0, 0.0, 10.0, 10.0));
         // Degenerate image dims never divide by zero.
-        let zero = BoundingBox { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 };
+        let zero = BoundingBox {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        };
         assert_eq!(pixel_box_to_percent(&zero, 0, 0), [0.0, 0.0, 0.0, 0.0]);
     }
 
@@ -1100,8 +1117,9 @@ mod tests {
         let mut buffer = Vec::new();
         {
             let mut encoder = image::codecs::png::PngEncoder::new(&mut buffer);
-            let pixels: Vec<u8> = vec![0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
-                0, 0, 0, 255, 0, 0, 0, 255];
+            let pixels: Vec<u8> = vec![
+                0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
+            ];
             encoder
                 .encode(&pixels, 2, 3, image::ColorType::Rgba8)
                 .unwrap();

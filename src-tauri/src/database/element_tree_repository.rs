@@ -101,11 +101,7 @@ impl ElementTreeRepository {
 
     /// Resolve the `(element_kind, element_ref_id)` pair for a concrete item
     /// to its element_tree id, if one has been registered.
-    pub async fn find_node_id(
-        &self,
-        kind: ElementKind,
-        ref_id: &str,
-    ) -> Result<Option<i64>> {
+    pub async fn find_node_id(&self, kind: ElementKind, ref_id: &str) -> Result<Option<i64>> {
         find_node_id_pool(&self.pool, kind, ref_id).await
     }
 
@@ -230,11 +226,12 @@ impl ElementTreeRepository {
                 // Defensive: a malformed chain would otherwise loop forever.
                 return Ok(false);
             }
-            let parent: Option<(Option<i64>,)> =
-                sqlx::query_as::<_, (Option<i64>,)>("SELECT parent_id FROM element_tree WHERE id = ?1")
-                    .bind(current)
-                    .fetch_optional(&self.pool)
-                    .await?;
+            let parent: Option<(Option<i64>,)> = sqlx::query_as::<_, (Option<i64>,)>(
+                "SELECT parent_id FROM element_tree WHERE id = ?1",
+            )
+            .bind(current)
+            .fetch_optional(&self.pool)
+            .await?;
             match parent {
                 None => return Ok(false),
                 Some((Some(p),)) => {
@@ -391,12 +388,11 @@ pub async fn register_node_in_tx(
     // one past the current max so the append-as-last-child order is stable.
     let next_sort_order: i64 = match parent_id {
         Some(pid) => {
-            let (max_sort,): (Option<i64>,) = sqlx::query_as(
-                "SELECT MAX(sort_order) FROM element_tree WHERE parent_id = ?1",
-            )
-            .bind(pid)
-            .fetch_one(&mut **tx)
-            .await?;
+            let (max_sort,): (Option<i64>,) =
+                sqlx::query_as("SELECT MAX(sort_order) FROM element_tree WHERE parent_id = ?1")
+                    .bind(pid)
+                    .fetch_one(&mut **tx)
+                    .await?;
             max_sort.unwrap_or(-1) + 1
         }
         None => 0,
@@ -454,12 +450,11 @@ pub async fn register_node_in_tx(
     // child. On first append there is no last_child, so the new node is also
     // the first child.
     if let Some(pid) = parent_id {
-        let (first_child,): (Option<i64>,) = sqlx::query_as(
-            "SELECT first_child_id FROM element_tree WHERE id = ?1",
-        )
-        .bind(pid)
-        .fetch_one(&mut **tx)
-        .await?;
+        let (first_child,): (Option<i64>,) =
+            sqlx::query_as("SELECT first_child_id FROM element_tree WHERE id = ?1")
+                .bind(pid)
+                .fetch_one(&mut **tx)
+                .await?;
         if first_child.is_none() {
             sqlx::query("UPDATE element_tree SET first_child_id = ?1 WHERE id = ?2")
                 .bind(new_id)
@@ -489,12 +484,11 @@ pub async fn reparent_in_tx(
     // children, so the moved node lands last.
     let next_sort_order: i64 = match new_parent {
         Some(pid) => {
-            let (max_sort,): (Option<i64>,) = sqlx::query_as(
-                "SELECT MAX(sort_order) FROM element_tree WHERE parent_id = ?1",
-            )
-            .bind(pid)
-            .fetch_one(&mut **tx)
-            .await?;
+            let (max_sort,): (Option<i64>,) =
+                sqlx::query_as("SELECT MAX(sort_order) FROM element_tree WHERE parent_id = ?1")
+                    .bind(pid)
+                    .fetch_one(&mut **tx)
+                    .await?;
             max_sort.unwrap_or(-1) + 1
         }
         None => 0,
@@ -548,12 +542,11 @@ pub async fn reparent_in_tx(
     // Initialize / keep the new parent's first_child_id. On first append there
     // is no last child, so the moved node becomes the first child.
     if let Some(pid) = new_parent {
-        let (first_child,): (Option<i64>,) = sqlx::query_as(
-            "SELECT first_child_id FROM element_tree WHERE id = ?1",
-        )
-        .bind(pid)
-        .fetch_one(&mut **tx)
-        .await?;
+        let (first_child,): (Option<i64>,) =
+            sqlx::query_as("SELECT first_child_id FROM element_tree WHERE id = ?1")
+                .bind(pid)
+                .fetch_one(&mut **tx)
+                .await?;
         if first_child.is_none() {
             sqlx::query("UPDATE element_tree SET first_child_id = ?1 WHERE id = ?2")
                 .bind(id)
@@ -597,12 +590,11 @@ pub async fn unlink_node_in_tx(tx: &mut Transaction<'_, Sqlite>, id: i64) -> Res
 
     // If the node was its parent's first child, advance the parent's pointer.
     if let Some(pid) = parent_id {
-        let (first_child,): (Option<i64>,) = sqlx::query_as(
-            "SELECT first_child_id FROM element_tree WHERE id = ?1",
-        )
-        .bind(pid)
-        .fetch_one(&mut **tx)
-        .await?;
+        let (first_child,): (Option<i64>,) =
+            sqlx::query_as("SELECT first_child_id FROM element_tree WHERE id = ?1")
+                .bind(pid)
+                .fetch_one(&mut **tx)
+                .await?;
         if first_child == Some(id) {
             sqlx::query("UPDATE element_tree SET first_child_id = ?1 WHERE id = ?2")
                 .bind(next_id)
@@ -668,7 +660,13 @@ mod tests {
         let repo = setup().await;
         // Root document node.
         let doc = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         // First extract child.
@@ -695,7 +693,13 @@ mod tests {
     async fn register_second_child_wires_sibling_chain() {
         let repo = setup().await;
         let doc = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         let e1 = repo
@@ -735,11 +739,23 @@ mod tests {
     async fn register_node_is_idempotent() {
         let repo = setup().await;
         let a = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         let b = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         assert_eq!(a, b);
@@ -749,19 +765,43 @@ mod tests {
     async fn unlink_middle_of_chain_reconnects_prev_and_next() {
         let repo = setup().await;
         let doc = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         let e1 = repo
-            .register_node(ElementKind::Extract, "ext1", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext1",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
         let e2 = repo
-            .register_node(ElementKind::Extract, "ext2", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext2",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
         let e3 = repo
-            .register_node(ElementKind::Extract, "ext3", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext3",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
 
@@ -779,15 +819,33 @@ mod tests {
     async fn unlink_head_advances_parent_first_child() {
         let repo = setup().await;
         let doc = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         let e1 = repo
-            .register_node(ElementKind::Extract, "ext1", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext1",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
         let e2 = repo
-            .register_node(ElementKind::Extract, "ext2", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext2",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
 
@@ -803,15 +861,33 @@ mod tests {
     async fn unlink_tail_clears_prev_pointer() {
         let repo = setup().await;
         let doc = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         let e1 = repo
-            .register_node(ElementKind::Extract, "ext1", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext1",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
         let e2 = repo
-            .register_node(ElementKind::Extract, "ext2", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext2",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
 
@@ -824,15 +900,33 @@ mod tests {
     async fn is_descendant_rejects_moving_into_own_descendant() {
         let repo = setup().await;
         let doc = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         let ext = repo
-            .register_node(ElementKind::Extract, "ext1", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext1",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
         let card = repo
-            .register_node(ElementKind::LearningItem, "c1", ELEMENT_TYPE_ITEM, Some(ext), &now())
+            .register_node(
+                ElementKind::LearningItem,
+                "c1",
+                ELEMENT_TYPE_ITEM,
+                Some(ext),
+                &now(),
+            )
             .await
             .unwrap();
 
@@ -849,11 +943,23 @@ mod tests {
     async fn move_node_reparents() {
         let repo = setup().await;
         let doc = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         let ext = repo
-            .register_node(ElementKind::Extract, "ext1", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext1",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
 
@@ -871,15 +977,33 @@ mod tests {
     async fn get_descendants_returns_whole_subtree() {
         let repo = setup().await;
         let doc = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         let ext = repo
-            .register_node(ElementKind::Extract, "ext1", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext1",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
         let _card = repo
-            .register_node(ElementKind::LearningItem, "c1", ELEMENT_TYPE_ITEM, Some(ext), &now())
+            .register_node(
+                ElementKind::LearningItem,
+                "c1",
+                ELEMENT_TYPE_ITEM,
+                Some(ext),
+                &now(),
+            )
             .await
             .unwrap();
 
@@ -892,15 +1016,33 @@ mod tests {
     async fn get_root_article_walks_to_topmost_ancestor() {
         let repo = setup().await;
         let doc = repo
-            .register_node(ElementKind::Document, "doc1", ELEMENT_TYPE_TOPIC, None, &now())
+            .register_node(
+                ElementKind::Document,
+                "doc1",
+                ELEMENT_TYPE_TOPIC,
+                None,
+                &now(),
+            )
             .await
             .unwrap();
         let ext = repo
-            .register_node(ElementKind::Extract, "ext1", ELEMENT_TYPE_TOPIC, Some(doc), &now())
+            .register_node(
+                ElementKind::Extract,
+                "ext1",
+                ELEMENT_TYPE_TOPIC,
+                Some(doc),
+                &now(),
+            )
             .await
             .unwrap();
         let card = repo
-            .register_node(ElementKind::LearningItem, "c1", ELEMENT_TYPE_ITEM, Some(ext), &now())
+            .register_node(
+                ElementKind::LearningItem,
+                "c1",
+                ELEMENT_TYPE_ITEM,
+                Some(ext),
+                &now(),
+            )
             .await
             .unwrap();
 

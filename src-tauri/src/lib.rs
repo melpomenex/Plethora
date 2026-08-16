@@ -22,7 +22,10 @@ mod models;
 mod notebooklm;
 mod notifications;
 mod ocr;
-mod pdf;
+// `pub` (visibility only, no behavior change) so the dev-only diagnostic bin
+// `src/bin/pdf-reflow-diag.rs` can call `pdf::analysis::analyze_page`
+// directly without a Tauri runtime.
+pub mod pdf;
 mod pocket_tts;
 mod podcast;
 mod processor;
@@ -45,13 +48,13 @@ mod youtube;
 ))]
 mod screenshot;
 
-mod media_server;
 mod epub_server;
+mod media_server;
 mod security;
-mod web_proxy;
 #[cfg(test)]
 mod security_tests;
 mod sponsorblock;
+mod web_proxy;
 
 use anyhow::Context;
 use database::Database;
@@ -205,7 +208,10 @@ fn detect_database_integrity_artifacts(app: &tauri::AppHandle, app_dir: &std::pa
         if !path.is_file() {
             continue;
         }
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
         if name.contains(".sync-conflict-") || name.contains(".corrupt-") {
             let metadata = match entry.metadata() {
                 Ok(metadata) => metadata,
@@ -228,7 +234,10 @@ fn detect_database_integrity_artifacts(app: &tauri::AppHandle, app_dir: &std::pa
     if artifact_entries.is_empty() {
         return;
     }
-    let artifacts: Vec<String> = artifact_entries.iter().map(|(path, _)| path.clone()).collect();
+    let artifacts: Vec<String> = artifact_entries
+        .iter()
+        .map(|(path, _)| path.clone())
+        .collect();
     let marker = app_dir.join(".database-integrity-notice");
     let signature = artifact_entries
         .iter()
@@ -240,7 +249,10 @@ fn detect_database_integrity_artifacts(app: &tauri::AppHandle, app_dir: &std::pa
         return;
     }
     if let Err(err) = std::fs::write(&marker, &signature) {
-        tracing::warn!("failed to persist database integrity notice marker: {}", err);
+        tracing::warn!(
+            "failed to persist database integrity notice marker: {}",
+            err
+        );
     }
     startup_notice::set(app, StartupNotice::DatabaseIntegrityWarning { artifacts });
 }
@@ -270,24 +282,42 @@ fn sweep_orphaned_transcription_temp_files(
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        let Ok(metadata) = entry.metadata() else { continue };
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
         if !metadata.is_file() {
             continue;
         }
-        let Ok(modified) = metadata.modified() else { continue };
-        let Ok(age) = now.duration_since(modified) else { continue };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        let Ok(age) = now.duration_since(modified) else {
+            continue;
+        };
         if age <= max_age {
             continue;
         }
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-        let active = active_episode_ids.iter().any(|id| name.starts_with(&format!("{}_episode.", id)));
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        let active = active_episode_ids
+            .iter()
+            .any(|id| name.starts_with(&format!("{}_episode.", id)));
         if active {
             continue;
         }
         if let Err(err) = std::fs::remove_file(&path) {
-            tracing::debug!("failed to remove orphaned transcription temp file {}: {}", path.display(), err);
+            tracing::debug!(
+                "failed to remove orphaned transcription temp file {}: {}",
+                path.display(),
+                err
+            );
         } else {
-            tracing::info!("removed orphaned transcription temp file {}", path.display());
+            tracing::info!(
+                "removed orphaned transcription temp file {}",
+                path.display()
+            );
         }
     }
 }
@@ -1283,6 +1313,11 @@ pub fn run() {
             commands::pdf_reflow_put_asset,
             commands::pdf_reflow_get_asset,
             commands::pdf_reflow_delete_cache,
+            commands::pdf_reflow_analyze_page,
+            commands::pdf_reflow_apply_ocr_page,
+            commands::pdf_reflow_build_graphical_fallback,
+            commands::pdf_reflow_resolve_selection,
+            commands::pdf_reflow_selection_rects,
             media_server::get_media_stream_url,
             epub_server::get_epub_stream_url,
             web_proxy::get_web_proxy_url,

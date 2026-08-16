@@ -40,14 +40,12 @@ static WEB_PROXY_PORT: OnceCell<u16> = OnceCell::const_new();
 
 /// The bridge script injected into proxied HTML documents, registered by the
 /// frontend through [`set_web_bridge_script`]. `None` until registered.
-static BRIDGE_SCRIPT: std::sync::RwLock<Option<String>> =
-    std::sync::RwLock::new(None);
+static BRIDGE_SCRIPT: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
 /// Desktop-browser user agent. The old `Incrementum/1.0` UA made many sites
 /// serve a degraded or refusing response; an ordinary Chrome UA gets the
 /// page the user's own browser would (D5).
-const USER_AGENT: &str =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
+const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -120,7 +118,9 @@ fn validate_target(url: &str) -> Result<(), String> {
 /// `Attempt` (which `reqwest` only constructs internally).
 fn validate_redirect_hop(next: &url::Url, hop_count: usize) -> Result<(), String> {
     if hop_count >= MAX_REDIRECTS {
-        return Err(format!("web_proxy: too many redirects (limit {MAX_REDIRECTS})"));
+        return Err(format!(
+            "web_proxy: too many redirects (limit {MAX_REDIRECTS})"
+        ));
     }
     if !matches!(next.scheme(), "http" | "https") {
         return Err(format!(
@@ -170,8 +170,7 @@ fn build_client(accept_language: Option<&HeaderValue>) -> Result<reqwest::Client
 pub fn set_web_bridge_script(script: String) -> Result<(), String> {
     *BRIDGE_SCRIPT
         .write()
-        .map_err(|_| "web_proxy: bridge script lock poisoned".to_string())? =
-        Some(script);
+        .map_err(|_| "web_proxy: bridge script lock poisoned".to_string())? = Some(script);
     Ok(())
 }
 
@@ -385,9 +384,8 @@ async fn web_handler(Query(params): Query<WebParams>, headers: HeaderMap) -> Res
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let is_html =
-        content_type.to_ascii_lowercase().starts_with("text/html")
-            || content_type.to_ascii_lowercase().contains("xhtml");
+    let is_html = content_type.to_ascii_lowercase().starts_with("text/html")
+        || content_type.to_ascii_lowercase().contains("xhtml");
 
     // Snapshot the upstream headers before the body is consumed.
     let mut upstream_headers = HeaderMap::new();
@@ -418,7 +416,11 @@ async fn web_handler(Query(params): Query<WebParams>, headers: HeaderMap) -> Res
                     "[web_proxy] body read failed url={} error={error}",
                     requested_url
                 );
-                return proxy_error_page(StatusCode::BAD_GATEWAY, "upstream body read failed", &host);
+                return proxy_error_page(
+                    StatusCode::BAD_GATEWAY,
+                    "upstream body read failed",
+                    &host,
+                );
             }
         };
         if bytes.len() > MAX_HTML_BYTES {
@@ -459,9 +461,7 @@ async fn web_handler(Query(params): Query<WebParams>, headers: HeaderMap) -> Res
             }
         }
 
-        let stream = response
-            .bytes_stream()
-            .take(MAX_STREAMED_BYTES + 1);
+        let stream = response.bytes_stream().take(MAX_STREAMED_BYTES + 1);
         let mut proxied = Response::new(Body::from_stream(stream));
         *proxied.status_mut() = status;
         *proxied.headers_mut() = upstream_headers;
@@ -572,11 +572,11 @@ mod tests {
             header::TRANSFER_ENCODING,
             HeaderValue::from_static("chunked"),
         );
+        upstream.insert(header::CONNECTION, HeaderValue::from_static("keep-alive"));
         upstream.insert(
-            header::CONNECTION,
-            HeaderValue::from_static("keep-alive"),
+            header::HeaderName::from_static("keep-alive"),
+            HeaderValue::from_static("timeout=5"),
         );
-        upstream.insert(header::HeaderName::from_static("keep-alive"), HeaderValue::from_static("timeout=5"));
         upstream.insert(header::UPGRADE, HeaderValue::from_static("h2c"));
         upstream.insert(header::TE, HeaderValue::from_static("trailers"));
 
@@ -584,7 +584,9 @@ mod tests {
         copy_headers(&upstream, &mut stripped_html, true);
         assert!(stripped_html.get(header::TRANSFER_ENCODING).is_none());
         assert!(stripped_html.get(header::CONNECTION).is_none());
-        assert!(stripped_html.get(header::HeaderName::from_static("keep-alive")).is_none());
+        assert!(stripped_html
+            .get(header::HeaderName::from_static("keep-alive"))
+            .is_none());
         assert!(stripped_html.get(header::UPGRADE).is_none());
         assert!(stripped_html.get(header::TE).is_none());
 
@@ -617,11 +619,7 @@ mod tests {
 
     #[test]
     fn injects_after_head_in_normal_document() {
-        let out = inject_into_html(
-            sample_html(),
-            "https://example.com/a",
-            Some("window.__x=1"),
-        );
+        let out = inject_into_html(sample_html(), "https://example.com/a", Some("window.__x=1"));
         let text = String::from_utf8(out).unwrap();
         assert!(text.starts_with(
             "<html><head><base href=\"https://example.com/a\"><script>window.__x=1</script><title>"
@@ -672,15 +670,9 @@ mod tests {
 
     #[test]
     fn escapes_base_href_attribute() {
-        let out = inject_into_html(
-            sample_html(),
-            "https://example.com/a?b=1&c=\"2\"",
-            None,
-        );
+        let out = inject_into_html(sample_html(), "https://example.com/a?b=1&c=\"2\"", None);
         let text = String::from_utf8(out).unwrap();
-        assert!(text.contains(
-            r#"<base href="https://example.com/a?b=1&amp;c=&quot;2&quot;">"#
-        ));
+        assert!(text.contains(r#"<base href="https://example.com/a?b=1&amp;c=&quot;2&quot;">"#));
     }
 
     #[tokio::test]

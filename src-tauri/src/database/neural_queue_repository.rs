@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use sqlx::{Pool, Sqlite};
 
 use crate::algorithms::neural_queue::{
-    run_spreading_activation, NeuralEntry, NeuralGraph, ElementId, ElementNode, QUEUE_REFILL_MIN,
+    run_spreading_activation, ElementId, ElementNode, NeuralEntry, NeuralGraph, QUEUE_REFILL_MIN,
 };
 use crate::commands::semantic_graph::EmbeddingConfigInput;
 use crate::error::{IncrementumError, Result};
@@ -161,10 +161,9 @@ impl NeuralQueueRepository {
 
     /// The count of unconsumed (remaining) entries — the depletion signal.
     pub async fn remaining(&self) -> Result<usize> {
-        let (n,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM neural_queue WHERE consumed = 0")
-                .fetch_one(&self.pool)
-                .await?;
+        let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM neural_queue WHERE consumed = 0")
+            .fetch_one(&self.pool)
+            .await?;
         Ok(n as usize)
     }
 
@@ -325,16 +324,29 @@ struct DbNeuralGraph {
 
 impl DbNeuralGraph {
     fn new(pool: Pool<Sqlite>, embedding_config: Option<EmbeddingConfigInput>) -> Self {
-        Self { pool, embedding_config }
+        Self {
+            pool,
+            embedding_config,
+        }
     }
 }
 
 impl NeuralGraph for DbNeuralGraph {
     fn node(&self, id: ElementId) -> Option<ElementNode> {
         block_on(async move {
-            let row = sqlx::query_as::<_, (
-                i64, i32, Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>,
-            )>(
+            let row = sqlx::query_as::<
+                _,
+                (
+                    i64,
+                    i32,
+                    Option<i64>,
+                    Option<i64>,
+                    Option<i64>,
+                    Option<i64>,
+                    Option<i64>,
+                    Option<i64>,
+                ),
+            >(
                 r#"SELECT id, element_type, parent_id, first_child_id,
                    next_sibling_id, prev_sibling_id, concept_link_id,
                    inter_element_link_id
@@ -442,9 +454,7 @@ impl NeuralGraph for DbNeuralGraph {
                     "extract" => ElementKind::Extract,
                     _ => ElementKind::LearningItem,
                 };
-                if let Ok(Some(peer_id)) =
-                    et.find_node_id(peer_element_kind, &peer_ref).await
-                {
+                if let Ok(Some(peer_id)) = et.find_node_id(peer_element_kind, &peer_ref).await {
                     out.push((peer_id, false)); // peer → child-concept weight
                     if out.len() >= CONCEPT_CAP {
                         break;
@@ -491,16 +501,14 @@ impl NeuralGraph for DbNeuralGraph {
             let (seed_kind, seed_ref) = seed_row?;
             let seed_doc_id = match seed_kind.as_str() {
                 "document" => seed_ref.clone(),
-                "extract" => {
-                    sqlx::query_as::<_, (Option<String>,)>(
-                        "SELECT document_id FROM extracts WHERE id = ?1",
-                    )
-                    .bind(&seed_ref)
-                    .fetch_optional(&self.pool)
-                    .await
-                    .ok()?
-                    .and_then(|(d,)| d)?
-                }
+                "extract" => sqlx::query_as::<_, (Option<String>,)>(
+                    "SELECT document_id FROM extracts WHERE id = ?1",
+                )
+                .bind(&seed_ref)
+                .fetch_optional(&self.pool)
+                .await
+                .ok()?
+                .and_then(|(d,)| d)?,
                 _ => {
                     // learning_item — resolve via extract_id, then document.
                     let (extract_id, document_id): (Option<String>, Option<String>) =
@@ -536,7 +544,12 @@ impl NeuralGraph for DbNeuralGraph {
             if seed_chunks.is_empty() {
                 return Some(Vec::new());
             }
-            let seed_vec = mean_pool(&seed_chunks.iter().map(|c| c.embedding.as_slice()).collect::<Vec<_>>());
+            let seed_vec = mean_pool(
+                &seed_chunks
+                    .iter()
+                    .map(|c| c.embedding.as_slice())
+                    .collect::<Vec<_>>(),
+            );
 
             // Score every other indexed document's pooled vector.
             let all_chunks = repo
@@ -584,14 +597,17 @@ impl NeuralGraph for DbNeuralGraph {
     fn inter_element_neighbors(&self, id: ElementId) -> Vec<ElementId> {
         block_on(async move {
             // Follow the inter_element_link_id pointer, if set.
-            let row: Option<(Option<i64>,)> = sqlx::query_as(
-                "SELECT inter_element_link_id FROM element_tree WHERE id = ?1",
+            let row: Option<(Option<i64>,)> =
+                sqlx::query_as("SELECT inter_element_link_id FROM element_tree WHERE id = ?1")
+                    .bind(id)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .ok()?;
+            Some(
+                row.and_then(|(link,)| link)
+                    .map(|l| vec![l])
+                    .unwrap_or_default(),
             )
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await
-            .ok()?;
-            Some(row.and_then(|(link,)| link).map(|l| vec![l]).unwrap_or_default())
         })
         .unwrap_or_default()
     }
@@ -634,15 +650,27 @@ impl NeuralGraph for DbNeuralGraph {
             Some(slider.unwrap_or(100))
         });
         // Normalize a 0-100 slider to [0,1]; default to max urgency.
-        slider.map(|s| s.clamp(0, 100) as f64 / 100.0).unwrap_or(1.0)
+        slider
+            .map(|s| s.clamp(0, 100) as f64 / 100.0)
+            .unwrap_or(1.0)
     }
 }
 
 /// Async helper: fetch a single node by id.
 async fn fetch_node(pool: &Pool<Sqlite>, id: ElementId) -> Option<ElementNode> {
-    let row = sqlx::query_as::<_, (
-        i64, i32, Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>,
-    )>(
+    let row = sqlx::query_as::<
+        _,
+        (
+            i64,
+            i32,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+        ),
+    >(
         r#"SELECT id, element_type, parent_id, first_child_id,
            next_sibling_id, prev_sibling_id, concept_link_id,
            inter_element_link_id
@@ -761,7 +789,10 @@ mod tests {
         // Every entry must carry a concrete (kind, ref_id) the UI can render.
         for entry in &resolved {
             assert!(
-                matches!(entry.element_kind.as_str(), "document" | "extract" | "learning_item"),
+                matches!(
+                    entry.element_kind.as_str(),
+                    "document" | "extract" | "learning_item"
+                ),
                 "unexpected kind: {}",
                 entry.element_kind
             );
@@ -897,7 +928,11 @@ mod tests {
     }
 
     /// Helper: insert a document row with given tags, registered in element_tree.
-    async fn seed_tagged_document(repo: &NeuralQueueRepository, id: &str, tags_json: &str) -> ElementId {
+    async fn seed_tagged_document(
+        repo: &NeuralQueueRepository,
+        id: &str,
+        tags_json: &str,
+    ) -> ElementId {
         use crate::database::ElementTreeRepository;
         let pool = repo.pool();
         let now = chrono::Utc::now().to_rfc3339();
@@ -938,10 +973,7 @@ mod tests {
         let _c = seed_tagged_document(&repo, "chem-a", r#"["chemistry"]"#).await;
 
         let entries = repo.build(a, None).await.expect("build");
-        let ref_ids: Vec<String> = entries
-            .iter()
-            .map(|e| e.element_id.to_string())
-            .collect();
+        let ref_ids: Vec<String> = entries.iter().map(|e| e.element_id.to_string()).collect();
 
         // The queue contains the seed (bio-a) and the tag-mate (bio-b), but not
         // chem-a. Resolve element ids back to ref ids to check.
@@ -958,7 +990,10 @@ mod tests {
                 queued_ref_ids.push(r);
             }
         }
-        assert!(queued_ref_ids.contains(&"bio-a".to_string()), "seed present");
+        assert!(
+            queued_ref_ids.contains(&"bio-a".to_string()),
+            "seed present"
+        );
         assert!(
             queued_ref_ids.contains(&"bio-b".to_string()),
             "tag-mate bio-b reached via concept propagation"

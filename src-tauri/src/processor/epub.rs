@@ -30,8 +30,24 @@ fn extract_text_from_html(html: &str) -> String {
     // Tags whose end forces a line break (block-level + headings). `<br>` is
     // handled separately since it self-opens a break.
     const BLOCK_TAGS: &[&str] = &[
-        "p", "div", "section", "article", "header", "footer", "main", "aside",
-        "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "blockquote", "pre",
+        "p",
+        "div",
+        "section",
+        "article",
+        "header",
+        "footer",
+        "main",
+        "aside",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "tr",
+        "blockquote",
+        "pre",
     ];
 
     let mut result = String::new();
@@ -129,7 +145,9 @@ fn extract_text_from_html(html: &str) -> String {
 /// and whitespace. e.g. `"/h1 "` -> "h1", `"br /"` -> "br".
 fn tag_name(tag_body: &str) -> String {
     let mut s = tag_body.trim().trim_start_matches('/');
-    let end = s.find(|c: char| c.is_whitespace() || c == '/' || c == '>').unwrap_or(s.len());
+    let end = s
+        .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
+        .unwrap_or(s.len());
     s = &s[..end];
     s.to_lowercase()
 }
@@ -331,10 +349,25 @@ mod tests {
         assert!(!text.contains("margin"));
 
         // Each heading must be alone on its own line.
-        let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-        assert!(lines.iter().any(|l| *l == "Part One: SEX, ROMANCE, AND LOVE"), "part heading on own line; got: {lines:?}");
-        assert!(lines.iter().any(|l| *l == "Chapter 1: DARWIN COMES OF AGE"), "chapter heading on own line; got: {lines:?}");
-        assert!(lines.iter().any(|l| *l == "AN UNLIKELY HERO"), "section heading on own line; got: {lines:?}");
+        let lines: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert!(
+            lines
+                .iter()
+                .any(|l| *l == "Part One: SEX, ROMANCE, AND LOVE"),
+            "part heading on own line; got: {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| *l == "Chapter 1: DARWIN COMES OF AGE"),
+            "chapter heading on own line; got: {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| *l == "AN UNLIKELY HERO"),
+            "section heading on own line; got: {lines:?}"
+        );
 
         // Body text must be preserved and not glued onto a heading line.
         assert!(text.contains("As for an English lady, the real chapter body begins here."));

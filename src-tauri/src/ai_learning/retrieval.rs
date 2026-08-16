@@ -336,11 +336,10 @@ async fn lexical_results(
         return Ok(out);
     }
 
-    let allowed_docs = filters.document_ids.as_ref().map(|docs| {
-        docs.iter()
-            .map(|d| d.as_str())
-            .collect::<HashSet<&str>>()
-    });
+    let allowed_docs = filters
+        .document_ids
+        .as_ref()
+        .map(|docs| docs.iter().map(|d| d.as_str()).collect::<HashSet<&str>>());
     let allowed_types: Option<HashSet<&str>> = filters
         .source_types
         .as_ref()
@@ -459,7 +458,11 @@ async fn lexical_results(
         .fetch_optional(repo.pool())
         .await?;
         if let Some(row) = row {
-            let mut result = row_to_result(row, normalize_bm25(rank) as f32, RetrievalMode::LexicalOnly.as_str());
+            let mut result = row_to_result(
+                row,
+                normalize_bm25(rank) as f32,
+                RetrievalMode::LexicalOnly.as_str(),
+            );
             if !type_ok(&result.source_type) {
                 continue;
             }
@@ -514,21 +517,26 @@ async fn best_lexical_chunk(
             best = Some((overlap, result));
         }
     }
-    let (_, mut result) = best.map(|(o, r)| (o, r)).unwrap_or_else(|| (0, SearchResult {
-        chunk_id: String::new(),
-        document_id: document_id.to_string(),
-        document_title: None,
-        source_type: source_type.to_string(),
-        source_id: None,
-        ordinal: 0,
-        text: String::new(),
-        heading_path: Vec::new(),
-        location: serde_json::Value::Null,
-        content_hash: String::new(),
-        token_count: 0,
-        score: 0.0,
-        mode: RetrievalMode::LexicalOnly.as_str().to_string(),
-    }));
+    let (_, mut result) = best.map(|(o, r)| (o, r)).unwrap_or_else(|| {
+        (
+            0,
+            SearchResult {
+                chunk_id: String::new(),
+                document_id: document_id.to_string(),
+                document_title: None,
+                source_type: source_type.to_string(),
+                source_id: None,
+                ordinal: 0,
+                text: String::new(),
+                heading_path: Vec::new(),
+                location: serde_json::Value::Null,
+                content_hash: String::new(),
+                token_count: 0,
+                score: 0.0,
+                mode: RetrievalMode::LexicalOnly.as_str().to_string(),
+            },
+        )
+    });
     if result.chunk_id.is_empty() {
         return Ok(None);
     }
@@ -588,15 +596,27 @@ mod tests {
     async fn lexical_fallback_without_backend_or_index() {
         let pool = test_pool().await;
         let repo = Repository::new(pool.clone());
-        seed_document(&pool, "lex-1", "The quantum tunneling effect explains alpha decay.", "text").await;
+        seed_document(
+            &pool,
+            "lex-1",
+            "The quantum tunneling effect explains alpha decay.",
+            "text",
+        )
+        .await;
         reindex_fts(&pool).await;
 
         let backend = EmbeddingBackend::OnDevice {
             model: "embeddinggemma-300m",
         };
-        let response = retrieve(&repo, &backend, "quantum tunneling", 5, &RetrievalFilters::default())
-            .await
-            .expect("retrieve");
+        let response = retrieve(
+            &repo,
+            &backend,
+            "quantum tunneling",
+            5,
+            &RetrievalFilters::default(),
+        )
+        .await
+        .expect("retrieve");
         assert_eq!(response.mode, "lexicalOnly");
         assert!(!response.results.is_empty(), "FTS hit surfaced");
         assert!(response.results[0].document_id == "lex-1");
@@ -609,26 +629,53 @@ mod tests {
         let repo = Repository::new(pool.clone());
         // One large paragraph (~800 chars) becomes its own chunk verbatim, so
         // querying with that exact text must score cosine 1.0 against it.
-        let target_text = "alpha bravo charlie delta echo foxtrot golf hotel india juliet ".repeat(12);
+        let target_text =
+            "alpha bravo charlie delta echo foxtrot golf hotel india juliet ".repeat(12);
         let target_text = target_text.trim_end();
-        let content = format!("# Section\n\n{}\n\n{}", target_text, "uniform victor whiskey xray yankee zulu ".repeat(20));
+        let content = format!(
+            "# Section\n\n{}\n\n{}",
+            target_text,
+            "uniform victor whiskey xray yankee zulu ".repeat(20)
+        );
         seed_document(&pool, "sem-1", &content, "markdown").await;
-        seed_document(&pool, "sem-2", "Completely different topic about cooking recipes and ingredients.", "text").await;
+        seed_document(
+            &pool,
+            "sem-2",
+            "Completely different topic about cooking recipes and ingredients.",
+            "text",
+        )
+        .await;
 
-        let backend = EmbeddingBackend::Mock { dim: 32, model: "mock-retrieve" };
-        index_document_once(&repo, "sem-1", &backend, &mut || true).await.expect("index");
-        index_document_once(&repo, "sem-2", &backend, &mut || true).await.expect("index");
+        let backend = EmbeddingBackend::Mock {
+            dim: 32,
+            model: "mock-retrieve",
+        };
+        index_document_once(&repo, "sem-1", &backend, &mut || true)
+            .await
+            .expect("index");
+        index_document_once(&repo, "sem-2", &backend, &mut || true)
+            .await
+            .expect("index");
 
         // The mock embedding of the exact chunk text matches itself with
         // cosine 1.0 — deterministic top hit.
-        let response = retrieve(&repo, &backend, target_text, 5, &RetrievalFilters::default())
-            .await
-            .expect("retrieve");
+        let response = retrieve(
+            &repo,
+            &backend,
+            target_text,
+            5,
+            &RetrievalFilters::default(),
+        )
+        .await
+        .expect("retrieve");
         assert_eq!(response.mode, "semantic", "semantic mode expected");
         assert!(!response.results.is_empty());
         assert_eq!(response.results[0].document_id, "sem-1");
         let sim = response.results[0].score;
-        assert!((sim - 1.0).abs() < 1e-5, "exact chunk must score 1.0, got {sim}");
+        assert!(
+            (sim - 1.0).abs() < 1e-5,
+            "exact chunk must score 1.0, got {sim}"
+        );
         assert_eq!(response.results[0].mode, "semantic");
         assert!(response.results[0].document_title.is_some() || true);
         assert!(response.candidates_scanned > 0);
@@ -643,9 +690,16 @@ mod tests {
         seed_document(&pool, "f-1", content_a, "text").await;
         seed_document(&pool, "f-2", content_b, "text").await;
 
-        let backend = EmbeddingBackend::Mock { dim: 32, model: "mock-filter" };
-        index_document_once(&repo, "f-1", &backend, &mut || true).await.expect("index f-1");
-        index_document_once(&repo, "f-2", &backend, &mut || true).await.expect("index f-2");
+        let backend = EmbeddingBackend::Mock {
+            dim: 32,
+            model: "mock-filter",
+        };
+        index_document_once(&repo, "f-1", &backend, &mut || true)
+            .await
+            .expect("index f-1");
+        index_document_once(&repo, "f-2", &backend, &mut || true)
+            .await
+            .expect("index f-2");
 
         let filters = RetrievalFilters {
             document_ids: Some(vec!["f-1".to_string()]),
@@ -665,7 +719,13 @@ mod tests {
     async fn source_type_filter_extracts_only() {
         let pool = test_pool().await;
         let repo = Repository::new(pool.clone());
-        seed_document(&pool, "st-1", "Body about astronomy and telescopes and stars. More filler. ", "text").await;
+        seed_document(
+            &pool,
+            "st-1",
+            "Body about astronomy and telescopes and stars. More filler. ",
+            "text",
+        )
+        .await;
         sqlx::query(
             "INSERT INTO extracts (id, document_id, content, date_created, date_modified)
              VALUES ('ext-st', 'st-1', 'astronomy telescopes stars extract', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
@@ -674,21 +734,36 @@ mod tests {
         .await
         .unwrap();
 
-        let backend = EmbeddingBackend::Mock { dim: 32, model: "mock-st" };
-        index_document_once(&repo, "st-1", &backend, &mut || true).await.expect("index");
+        let backend = EmbeddingBackend::Mock {
+            dim: 32,
+            model: "mock-st",
+        };
+        index_document_once(&repo, "st-1", &backend, &mut || true)
+            .await
+            .expect("index");
 
         let filters = RetrievalFilters {
             document_ids: None,
             source_types: Some(vec!["extract".to_string()]),
         };
-        let response = retrieve(&repo, &backend, "astronomy telescopes stars extract", 5, &filters)
-            .await
-            .expect("retrieve");
+        let response = retrieve(
+            &repo,
+            &backend,
+            "astronomy telescopes stars extract",
+            5,
+            &filters,
+        )
+        .await
+        .expect("retrieve");
         assert!(!response.results.is_empty());
         assert!(
             response.results.iter().all(|r| r.source_type == "extract"),
             "expected extract-only results, got {:?}",
-            response.results.iter().map(|r| r.source_type.clone()).collect::<Vec<_>>()
+            response
+                .results
+                .iter()
+                .map(|r| r.source_type.clone())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -699,18 +774,36 @@ mod tests {
         // One long section → adjacent chunks with near-identical content (and
         // therefore near-identical mock embeddings).
         let content = (0..60)
-            .map(|i| format!("Shared thematic vocabulary number {i} about planetary geology and tectonics."))
+            .map(|i| {
+                format!(
+                    "Shared thematic vocabulary number {i} about planetary geology and tectonics."
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n\n");
         seed_document(&pool, "dup-1", &content, "text").await;
 
-        let backend = EmbeddingBackend::Mock { dim: 32, model: "mock-dup" };
-        index_document_once(&repo, "dup-1", &backend, &mut || true).await.expect("index");
-
-        let response = retrieve(&repo, &backend, "planetary geology tectonics", 10, &RetrievalFilters::default())
+        let backend = EmbeddingBackend::Mock {
+            dim: 32,
+            model: "mock-dup",
+        };
+        index_document_once(&repo, "dup-1", &backend, &mut || true)
             .await
-            .expect("retrieve");
-        assert!(response.results.len() >= 2, "need multiple results to check dedup");
+            .expect("index");
+
+        let response = retrieve(
+            &repo,
+            &backend,
+            "planetary geology tectonics",
+            10,
+            &RetrievalFilters::default(),
+        )
+        .await
+        .expect("retrieve");
+        assert!(
+            response.results.len() >= 2,
+            "need multiple results to check dedup"
+        );
         for (a, b) in response.results.iter().zip(response.results.iter().skip(1)) {
             if a.document_id == b.document_id && a.source_type == b.source_type {
                 assert!(
@@ -728,22 +821,41 @@ mod tests {
         let pool = test_pool().await;
         let repo = Repository::new(pool.clone());
         let content = (0..40)
-            .map(|i| format!("Distinct paragraph {i} vocabulary cluster with number {i} content words."))
+            .map(|i| {
+                format!("Distinct paragraph {i} vocabulary cluster with number {i} content words.")
+            })
             .collect::<Vec<_>>()
             .join("\n\n");
         seed_document(&pool, "k-1", &content, "text").await;
-        let backend = EmbeddingBackend::Mock { dim: 32, model: "mock-k" };
-        index_document_once(&repo, "k-1", &backend, &mut || true).await.expect("index");
-
-        let response = retrieve(&repo, &backend, "vocabulary cluster", 2, &RetrievalFilters::default())
+        let backend = EmbeddingBackend::Mock {
+            dim: 32,
+            model: "mock-k",
+        };
+        index_document_once(&repo, "k-1", &backend, &mut || true)
             .await
-            .expect("retrieve");
+            .expect("index");
+
+        let response = retrieve(
+            &repo,
+            &backend,
+            "vocabulary cluster",
+            2,
+            &RetrievalFilters::default(),
+        )
+        .await
+        .expect("retrieve");
         assert!(response.results.len() <= 2);
 
         // Oversized k clamps to MAX_K.
-        let response = retrieve(&repo, &backend, "vocabulary cluster", 10_000, &RetrievalFilters::default())
-            .await
-            .expect("retrieve");
+        let response = retrieve(
+            &repo,
+            &backend,
+            "vocabulary cluster",
+            10_000,
+            &RetrievalFilters::default(),
+        )
+        .await
+        .expect("retrieve");
         assert!(response.results.len() <= MAX_K);
     }
 
@@ -751,18 +863,23 @@ mod tests {
     async fn empty_query_returns_nothing() {
         let pool = test_pool().await;
         let repo = Repository::new(pool.clone());
-        let backend = EmbeddingBackend::Mock { dim: 8, model: "mock-e" };
+        let backend = EmbeddingBackend::Mock {
+            dim: 8,
+            model: "mock-e",
+        };
         let response = retrieve(&repo, &backend, "   ", 5, &RetrievalFilters::default())
             .await
             .expect("retrieve");
         assert!(response.results.is_empty());
     }
 
-
     #[test]
     fn fts_sanitization_handles_operators_and_cjk() {
         assert_eq!(sanitize_fts_query("hello world"), "\"hello\"* \"world\"*");
-        assert_eq!(sanitize_fts_query("a \" OR 1=1 --"), "\"a\"* \"OR\"* \"11\"* \"--\"*");
+        assert_eq!(
+            sanitize_fts_query("a \" OR 1=1 --"),
+            "\"a\"* \"OR\"* \"11\"* \"--\"*"
+        );
         assert_eq!(sanitize_fts_query("量子计算"), "\"量子计算\"*");
         assert_eq!(sanitize_fts_query("!!! ..."), "");
     }
@@ -772,5 +889,4 @@ mod tests {
         assert!(normalize_bm25(-5.0) < normalize_bm25(-1.0));
         assert!((normalize_bm25(0.0) - 1.0).abs() < 1e-9);
     }
-
 }

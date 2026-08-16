@@ -73,11 +73,9 @@ pub async fn ingest_image_asset_from_path_inner(
     file_name: Option<String>,
     repo: &Repository,
 ) -> Result<ImageAssetDto> {
-    let bytes = tokio::fs::read(file_path)
-        .await
-        .map_err(|e| {
-            IncrementumError::NotFound(format!("Failed to read image file {file_path}: {e}"))
-        })?;
+    let bytes = tokio::fs::read(file_path).await.map_err(|e| {
+        IncrementumError::NotFound(format!("Failed to read image file {file_path}: {e}"))
+    })?;
     if bytes.is_empty() {
         return Err(IncrementumError::InvalidInput(format!(
             "Image file is empty: {file_path}"
@@ -306,10 +304,9 @@ pub async fn rename_image_asset(
         )));
     }
 
-    let asset = repo
-        .get_image_asset(&asset_id)
-        .await?
-        .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Image asset {}", asset_id)))?;
+    let asset = repo.get_image_asset(&asset_id).await?.ok_or_else(|| {
+        crate::error::IncrementumError::NotFound(format!("Image asset {}", asset_id))
+    })?;
     Ok(to_dto(asset))
 }
 

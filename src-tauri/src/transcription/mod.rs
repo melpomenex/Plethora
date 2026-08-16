@@ -217,7 +217,8 @@ pub async fn enqueue_auto_transcription(
         }
     }
 
-    let mut entry = TranscriptionQueueEntry::new(document_id, audio_path, provider, model_id, language);
+    let mut entry =
+        TranscriptionQueueEntry::new(document_id, audio_path, provider, model_id, language);
     entry.chapter_id = chapter_id;
     let entry = TranscriptionQueueEntry {
         priority: priority.unwrap_or(0),

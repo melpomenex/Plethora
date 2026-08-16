@@ -2735,14 +2735,24 @@ pub const MIGRATIONS: &[Migration] = &[
             ON semantic_chunk_embeddings(embedding_version, model);
 
         -- One-time fold of legacy whole-library RAG embeddings (051) into the
-        -- unified semantic index, then retire the old table.
+        -- unified semantic index, then retire the old table. Rows whose
+        -- document no longer exists (common in DBs synced across devices,
+        -- where a deletion on one side outlived the embedding on the other)
+        -- are dropped: semantic_chunks carries a foreign key to documents and
+        -- the fold would otherwise abort the whole migration at startup.
         INSERT INTO semantic_chunks (id, document_id, source_type, ordinal, text, content_hash, token_count, created_at, updated_at)
         SELECT id, document_id, 'document', chunk_index, chunk_text, content_hash, 0,
                datetime(created_at / 1000, 'unixepoch'), datetime(created_at / 1000, 'unixepoch')
-        FROM document_chunk_embeddings;
+        FROM document_chunk_embeddings
+        WHERE EXISTS (
+            SELECT 1 FROM documents doc WHERE doc.id = document_chunk_embeddings.document_id
+        );
         INSERT INTO semantic_chunk_embeddings (chunk_id, embedding, model, dimension, embedding_version, content_hash, created_at)
         SELECT id, embedding, model, dimension, 1, content_hash, datetime(created_at / 1000, 'unixepoch')
-        FROM document_chunk_embeddings;
+        FROM document_chunk_embeddings
+        WHERE EXISTS (
+            SELECT 1 FROM semantic_chunks sc WHERE sc.id = document_chunk_embeddings.id
+        );
         DROP TABLE IF EXISTS document_chunk_embeddings;
 
         CREATE TABLE IF NOT EXISTS ai_provenance (

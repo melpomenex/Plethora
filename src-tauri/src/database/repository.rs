@@ -2,7 +2,7 @@
 
 use crate::database::{
     find_node_id_in_tx, find_node_id_pool, register_node_in_tx, unlink_node_in_tx,
-    DocumentChunkEmbedding, ElementKind, ELEMENT_TYPE_ITEM, ELEMENT_TYPE_TOPIC, QueueItemEmbedding,
+    DocumentChunkEmbedding, ElementKind, QueueItemEmbedding, ELEMENT_TYPE_ITEM, ELEMENT_TYPE_TOPIC,
 };
 use crate::error::{IncrementumError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
@@ -1705,11 +1705,10 @@ impl Repository {
         // element_tree node, in the same transaction so a failure rolls both
         // back. Documents register a root node on import (see create_document),
         // so the parent always exists for a real extract.
-        let doc_node =
-            find_node_id_pool(&self.pool, ElementKind::Document, &extract.document_id)
-                .await
-                .ok()
-                .flatten();
+        let doc_node = find_node_id_pool(&self.pool, ElementKind::Document, &extract.document_id)
+            .await
+            .ok()
+            .flatten();
         if let Some(parent_id) = doc_node {
             let created_at = extract.date_created.to_rfc3339();
             register_node_in_tx(
@@ -2396,9 +2395,15 @@ impl Repository {
         // extract_id is set, else its document's node. Parent must already be
         // registered (extracts register on create; documents on import).
         let parent_node = if let Some(extract_id) = &item.extract_id {
-            find_node_id_in_tx(&mut tx, ElementKind::Extract, extract_id).await.ok().flatten()
+            find_node_id_in_tx(&mut tx, ElementKind::Extract, extract_id)
+                .await
+                .ok()
+                .flatten()
         } else if let Some(doc_id) = &item.document_id {
-            find_node_id_in_tx(&mut tx, ElementKind::Document, doc_id).await.ok().flatten()
+            find_node_id_in_tx(&mut tx, ElementKind::Document, doc_id)
+                .await
+                .ok()
+                .flatten()
         } else {
             None
         };
@@ -2765,9 +2770,9 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        self.get_learning_item_by_id(id)
-            .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Learning item {}", id)))
+        self.get_learning_item_by_id(id).await?.ok_or_else(|| {
+            crate::error::IncrementumError::NotFound(format!("Learning item {}", id))
+        })
     }
 
     pub async fn get_all_learning_items(&self) -> Result<Vec<LearningItem>> {
@@ -8414,16 +8419,23 @@ mod tests {
 
         repo.create_extract(&a).await.expect("create a");
         repo.create_extract(&b).await.expect("create b");
-        assert_eq!(reload_count().await, 2, "two creates should persist count 2");
+        assert_eq!(
+            reload_count().await,
+            2,
+            "two creates should persist count 2"
+        );
 
         repo.delete_extract(&a.id).await.expect("delete a");
         assert_eq!(reload_count().await, 1, "delete should persist count 1");
 
         // Deleting the last extract floors at 0, never negative.
         repo.delete_extract(&b.id).await.expect("delete b");
-        assert_eq!(reload_count().await, 0, "final delete should persist count 0");
+        assert_eq!(
+            reload_count().await,
+            0,
+            "final delete should persist count 0"
+        );
     }
-
 
     #[tokio::test]
     async fn learning_item_create_read_roundtrip() {
@@ -8978,12 +8990,11 @@ mod tests {
         );
         repo.create_document(&doc).await.expect("create document");
 
-        let doc_node =
-            crate::database::ElementTreeRepository::new(repo.pool().clone())
-                .find_node_id(crate::database::ElementKind::Document, &doc.id)
-                .await
-                .expect("find doc node")
-                .expect("document registered a root node");
+        let doc_node = crate::database::ElementTreeRepository::new(repo.pool().clone())
+            .find_node_id(crate::database::ElementKind::Document, &doc.id)
+            .await
+            .expect("find doc node")
+            .expect("document registered a root node");
         let node = sqlx::query_as::<_, (i32, Option<i64>)>(
             "SELECT element_type, parent_id FROM element_tree WHERE id = ?1",
         )
@@ -8998,12 +9009,11 @@ mod tests {
         let mut extract = Extract::new(doc.id.clone(), "extracted text".to_string());
         repo.create_extract(&extract).await.expect("create extract");
 
-        let ext_node =
-            crate::database::ElementTreeRepository::new(repo.pool().clone())
-                .find_node_id(crate::database::ElementKind::Extract, &extract.id)
-                .await
-                .expect("find extract node")
-                .expect("extract registered a node");
+        let ext_node = crate::database::ElementTreeRepository::new(repo.pool().clone())
+            .find_node_id(crate::database::ElementKind::Extract, &extract.id)
+            .await
+            .expect("find extract node")
+            .expect("extract registered a node");
         let ext_row = sqlx::query_as::<_, (i32, Option<i64>, Option<i64>)>(
             "SELECT element_type, parent_id, prev_sibling_id FROM element_tree WHERE id = ?1",
         )
@@ -9012,7 +9022,11 @@ mod tests {
         .await
         .expect("read extract node");
         assert_eq!(ext_row.0, crate::database::ELEMENT_TYPE_TOPIC);
-        assert_eq!(ext_row.1, Some(doc_node), "extract's parent is the document");
+        assert_eq!(
+            ext_row.1,
+            Some(doc_node),
+            "extract's parent is the document"
+        );
         // First extract: no prev sibling, and it is the document's first child.
         assert_eq!(ext_row.2, None);
 
@@ -9031,12 +9045,11 @@ mod tests {
         item.document_id = Some(doc.id.clone());
         repo.create_learning_item(&item).await.expect("create item");
 
-        let card_node =
-            crate::database::ElementTreeRepository::new(repo.pool().clone())
-                .find_node_id(crate::database::ElementKind::LearningItem, &item.id)
-                .await
-                .expect("find card node")
-                .expect("card registered a node");
+        let card_node = crate::database::ElementTreeRepository::new(repo.pool().clone())
+            .find_node_id(crate::database::ElementKind::LearningItem, &item.id)
+            .await
+            .expect("find card node")
+            .expect("card registered a node");
         let card_row = sqlx::query_as::<_, (i32, Option<i64>)>(
             "SELECT element_type, parent_id FROM element_tree WHERE id = ?1",
         )
@@ -9110,11 +9123,7 @@ mod tests {
     #[tokio::test]
     async fn element_tree_extract_delete_unlinks_node() {
         let repo = setup_repo().await;
-        let doc = Document::new(
-            "Del".to_string(),
-            "/d.pdf".to_string(),
-            FileType::Pdf,
-        );
+        let doc = Document::new("Del".to_string(), "/d.pdf".to_string(), FileType::Pdf);
         repo.create_document(&doc).await.expect("create document");
         let e1 = Extract::new(doc.id.clone(), "first".to_string());
         let e2 = Extract::new(doc.id.clone(), "second".to_string());
@@ -9172,8 +9181,10 @@ mod tests {
         let pool = db.pool();
 
         // No nodes yet — a fresh migrate of an empty DB backfills nothing.
-        let (empty,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM element_tree").fetch_one(pool).await.unwrap();
+        let (empty,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM element_tree")
+            .fetch_one(pool)
+            .await
+            .unwrap();
         assert_eq!(empty, 0);
 
         // Insert one document, one extract under it, and one card under the
@@ -9212,8 +9223,10 @@ mod tests {
         sqlx::query("UPDATE element_tree SET prev_sibling_id = (SELECT p.id FROM element_tree p WHERE p.parent_id = element_tree.parent_id AND (p.sort_order, p.created_at, p.id) < (element_tree.sort_order, element_tree.created_at, element_tree.id) ORDER BY p.sort_order DESC, p.created_at DESC, p.id DESC LIMIT 1) WHERE parent_id IS NOT NULL").execute(pool).await.unwrap();
 
         // Three nodes total: one document, one extract, one card.
-        let (total,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM element_tree").fetch_one(pool).await.unwrap();
+        let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM element_tree")
+            .fetch_one(pool)
+            .await
+            .unwrap();
         assert_eq!(total, 3);
 
         // The extract's parent is the document; the card's parent is the extract.
@@ -9224,7 +9237,10 @@ mod tests {
         let doc_node: i64 = sqlx::query_as::<_, (i64,)>(
             "SELECT id FROM element_tree WHERE element_kind='document' AND element_ref_id='d1'",
         )
-        .fetch_one(pool).await.unwrap().0;
+        .fetch_one(pool)
+        .await
+        .unwrap()
+        .0;
         assert_eq!(ext_parent.0, Some(doc_node));
 
         let card_parent: (Option<i64>,) = sqlx::query_as(
@@ -9234,20 +9250,27 @@ mod tests {
         let ext_node: i64 = sqlx::query_as::<_, (i64,)>(
             "SELECT id FROM element_tree WHERE element_kind='extract' AND element_ref_id='e1'",
         )
-        .fetch_one(pool).await.unwrap().0;
+        .fetch_one(pool)
+        .await
+        .unwrap()
+        .0;
         assert_eq!(card_parent.0, Some(ext_node));
 
         // The document's first child is the extract (its only Topic child).
         let doc_first: (Option<i64>,) =
             sqlx::query_as("SELECT first_child_id FROM element_tree WHERE id = ?1")
                 .bind(doc_node)
-                .fetch_one(pool).await.unwrap();
+                .fetch_one(pool)
+                .await
+                .unwrap();
         assert_eq!(doc_first.0, Some(ext_node));
 
         // Idempotency: re-running the backfill inserts nothing new.
         sqlx::query("INSERT INTO element_tree (element_kind, element_ref_id, parent_id, first_child_id, next_sibling_id, prev_sibling_id, element_type, concept_link_id, inter_element_link_id, descendant_count_a, descendant_count_b, sort_order, created_at) SELECT 'document', d.id, NULL, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, 0, d.date_added FROM documents d WHERE NOT EXISTS (SELECT 1 FROM element_tree e WHERE e.element_kind = 'document' AND e.element_ref_id = d.id)").execute(pool).await.unwrap();
-        let (still,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM element_tree").fetch_one(pool).await.unwrap();
+        let (still,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM element_tree")
+            .fetch_one(pool)
+            .await
+            .unwrap();
         assert_eq!(still, 3);
 
         // Use `now` to avoid an unused-variable warning if the compiler

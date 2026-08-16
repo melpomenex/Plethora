@@ -9,8 +9,8 @@
 
 use crate::ai_learning::embeddings_backend::EmbeddingBackend;
 use crate::ai_learning::indexer::{
-    aggregate_status, document_statuses, mark_all_stale, reset_index, BackendFactory,
-    IndexerQueue, IndexerRuntimeStatus,
+    aggregate_status, document_statuses, mark_all_stale, reset_index, BackendFactory, IndexerQueue,
+    IndexerRuntimeStatus,
 };
 use crate::ai_learning::models::{RetrievalFilters, RetrievalResponse};
 use crate::ai_learning::retrieval::{self, DEFAULT_K};
@@ -191,9 +191,14 @@ pub async fn ai_learning_retrieve(
     }
     let backend = state.backend();
     let filters = filters.unwrap_or_default();
-    let mut response =
-        retrieval::retrieve(repo.inner(), &backend, &query, k.unwrap_or(DEFAULT_K), &filters)
-            .await?;
+    let mut response = retrieval::retrieve(
+        repo.inner(),
+        &backend,
+        &query,
+        k.unwrap_or(DEFAULT_K),
+        &filters,
+    )
+    .await?;
     retrieval::resolve_titles(repo.inner(), &mut response.results).await;
     Ok(response)
 }
@@ -207,11 +212,12 @@ pub async fn ai_learning_remove_source_chunks(
     source_id: String,
     repo: State<'_, Repository>,
 ) -> Result<u64> {
-    let result = sqlx::query("DELETE FROM semantic_chunks WHERE source_type = ?1 AND source_id = ?2")
-        .bind(&source_type)
-        .bind(&source_id)
-        .execute(repo.pool())
-        .await?;
+    let result =
+        sqlx::query("DELETE FROM semantic_chunks WHERE source_type = ?1 AND source_id = ?2")
+            .bind(&source_type)
+            .bind(&source_id)
+            .execute(repo.pool())
+            .await?;
     Ok(result.rows_affected())
 }
 

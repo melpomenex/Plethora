@@ -171,11 +171,7 @@ pub struct TextLine {
 /// Normalize a pixel box to `[x, y, width, height]` percent 0–100 of the
 /// source image (design D18): clamped to bounds, never negative, never > 100.
 /// Degenerate dimensions guard against division by zero.
-pub fn pixel_box_to_percent(
-    bbox: &BoundingBox,
-    image_width: u32,
-    image_height: u32,
-) -> [f64; 4] {
+pub fn pixel_box_to_percent(bbox: &BoundingBox, image_width: u32, image_height: u32) -> [f64; 4] {
     let width = image_width.max(1) as f64;
     let height = image_height.max(1) as f64;
 
@@ -311,8 +307,7 @@ pub fn parse_tesseract_tsv(tsv: &str) -> Option<(u32, u32, Vec<TextLine>)> {
                 .map(|w| w.text.as_str())
                 .collect::<Vec<_>>()
                 .join(" ");
-            let confidence =
-                group.iter().map(|w| w.confidence).sum::<f64>() / group.len() as f64;
+            let confidence = group.iter().map(|w| w.confidence).sum::<f64>() / group.len() as f64;
             TextLine {
                 text,
                 confidence,
@@ -1437,7 +1432,7 @@ impl OCRProvider for GLMOCRProvider {
                     "model": self.model.clone(),
                     "pages": page_count
                 }),
-            lines: Vec::new(),
+                lines: Vec::new(),
             });
         }
 
@@ -1914,7 +1909,12 @@ mod tests {
         let line = TextLine {
             text: "A".into(),
             confidence: 90.0,
-            bbox: BoundingBox { left: 0.0, top: 0.0, right: 10.0, bottom: 10.0 },
+            bbox: BoundingBox {
+                left: 0.0,
+                top: 0.0,
+                right: 10.0,
+                bottom: 10.0,
+            },
         };
         let json = serde_json::to_string(&result_with_lines(vec![line])).unwrap();
         assert!(json.contains("lines"), "lines missing: {json}");
@@ -1963,16 +1963,36 @@ mod tests {
     fn pixel_box_to_percent_is_clamped_and_scale_free() {
         // The same RELATIVE box (a quarter in from each edge) yields the same
         // percents regardless of image size.
-        let quarter_small = BoundingBox { left: 250.0, top: 125.0, right: 750.0, bottom: 375.0 };
-        let quarter_large = BoundingBox { left: 500.0, top: 250.0, right: 1500.0, bottom: 750.0 };
+        let quarter_small = BoundingBox {
+            left: 250.0,
+            top: 125.0,
+            right: 750.0,
+            bottom: 375.0,
+        };
+        let quarter_large = BoundingBox {
+            left: 500.0,
+            top: 250.0,
+            right: 1500.0,
+            bottom: 750.0,
+        };
         assert_eq!(
             pixel_box_to_percent(&quarter_small, 1000, 500),
             pixel_box_to_percent(&quarter_large, 2000, 1000)
         );
-        assert_eq!(pixel_box_to_percent(&quarter_small, 1000, 500), [25.0, 25.0, 50.0, 50.0]);
+        assert_eq!(
+            pixel_box_to_percent(&quarter_small, 1000, 500),
+            [25.0, 25.0, 50.0, 50.0]
+        );
 
-        let outside = BoundingBox { left: -10.0, top: -10.0, right: 5000.0, bottom: 5000.0 };
-        assert_eq!(pixel_box_to_percent(&outside, 1000, 1000), [0.0, 0.0, 100.0, 100.0]);
+        let outside = BoundingBox {
+            left: -10.0,
+            top: -10.0,
+            right: 5000.0,
+            bottom: 5000.0,
+        };
+        assert_eq!(
+            pixel_box_to_percent(&outside, 1000, 1000),
+            [0.0, 0.0, 100.0, 100.0]
+        );
     }
-
 }

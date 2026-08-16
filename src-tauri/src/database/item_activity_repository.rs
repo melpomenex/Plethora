@@ -384,12 +384,11 @@ mod tests {
             .expect("heartbeat");
         }
 
-        let rows: Vec<(i64,)> = sqlx::query_as(
-            "SELECT active_seconds FROM item_activity_log WHERE item_id = 'doc-1'",
-        )
-        .fetch_all(repo.pool())
-        .await
-        .expect("read rows");
+        let rows: Vec<(i64,)> =
+            sqlx::query_as("SELECT active_seconds FROM item_activity_log WHERE item_id = 'doc-1'")
+                .fetch_all(repo.pool())
+                .await
+                .expect("read rows");
 
         assert_eq!(rows.len(), 1, "contiguous flushes coalesce into one row");
         assert_eq!(rows[0].0, 90);
@@ -400,8 +399,8 @@ mod tests {
         let repo = setup().await;
 
         // A stale row whose last engagement is well outside the window.
-        let stale_end = (Utc::now() - Duration::seconds(ACTIVITY_COALESCE_WINDOW_SECONDS + 60))
-            .to_rfc3339();
+        let stale_end =
+            (Utc::now() - Duration::seconds(ACTIVITY_COALESCE_WINDOW_SECONDS + 60)).to_rfc3339();
         sqlx::query(
             "INSERT INTO item_activity_log (id, item_type, item_id, surface, started_at, ended_at, active_seconds)
              VALUES ('stale', 'document', 'doc-1', 'reader', ?1, ?1, 120)",
@@ -492,11 +491,12 @@ mod tests {
             .expect("heartbeat");
 
         assert!(!applied);
-        let (duration,): (i64,) =
-            sqlx::query_as("SELECT duration_seconds FROM reading_sessions WHERE id = 'sess-closed'")
-                .fetch_one(repo.pool())
-                .await
-                .expect("read duration");
+        let (duration,): (i64,) = sqlx::query_as(
+            "SELECT duration_seconds FROM reading_sessions WHERE id = 'sess-closed'",
+        )
+        .fetch_one(repo.pool())
+        .await
+        .expect("read duration");
         assert_eq!(duration, 600);
     }
 
@@ -512,10 +512,7 @@ mod tests {
         .await
         .expect("seed stale session");
 
-        let recovered = repo
-            .close_stale_reading_sessions()
-            .await
-            .expect("recover");
+        let recovered = repo.close_stale_reading_sessions().await.expect("recover");
         assert_eq!(recovered, 1);
 
         let (ended_at, duration): (String, i64) = sqlx::query_as(

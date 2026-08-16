@@ -19,11 +19,13 @@ pub use concept_repository::{
 pub use connection::Database;
 pub use element_tree_repository::{
     find_node_id_in_tx, find_node_id_pool, register_node_in_tx, unlink_node_in_tx, ElementKind,
-    ElementTreeRepository, ElementTreeNode, ELEMENT_TYPE_ITEM, ELEMENT_TYPE_TOPIC,
+    ElementTreeNode, ElementTreeRepository, ELEMENT_TYPE_ITEM, ELEMENT_TYPE_TOPIC,
 };
 pub use item_activity_repository::{ItemActivityRepository, ACTIVITY_COALESCE_WINDOW_SECONDS};
 pub use item_stats_repository::ItemStatsRepository;
-pub use neural_queue_repository::{NeuralQueueRepository, NeuralQueueRow, ResolvedNeuralQueueEntry};
+pub use neural_queue_repository::{
+    NeuralQueueRepository, NeuralQueueRow, ResolvedNeuralQueueEntry,
+};
 pub use repository::DocumentQueueInfo;
 pub use repository::Repository;
 

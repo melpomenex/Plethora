@@ -1,8 +1,8 @@
 use super::auto_queue::AutoTranscriptionQueue;
 use super::model_manager::ModelManager;
+use crate::commands::transcription_config::read_transcription_config;
 use crate::database::Repository;
 use crate::models::TranscriptionQueueEntry;
-use crate::commands::transcription_config::read_transcription_config;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
@@ -88,7 +88,9 @@ impl IdleScanner {
                 let config = match read_transcription_config(&repo).await {
                     Some(config) => config,
                     None => {
-                        eprintln!("Idle scanner skipped: transcription_config is missing or invalid");
+                        eprintln!(
+                            "Idle scanner skipped: transcription_config is missing or invalid"
+                        );
                         continue;
                     }
                 };

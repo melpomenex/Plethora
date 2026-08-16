@@ -105,7 +105,12 @@ pub fn approx_token_count(text: &str) -> i64 {
 }
 
 /// Deterministic chunk id so re-indexing identical content reuses rows.
-fn chunk_id(document_id: &str, source_type: &str, source_id: Option<&str>, content_hash: &str) -> String {
+fn chunk_id(
+    document_id: &str,
+    source_type: &str,
+    source_id: Option<&str>,
+    content_hash: &str,
+) -> String {
     let mut hasher = Sha256::new();
     hasher.update(document_id.as_bytes());
     hasher.update(b"|");
@@ -235,12 +240,24 @@ fn parse_markdown_blocks(text: &str) -> Vec<Block> {
         let trimmed = line.trim();
         let heading = parse_atx_heading(trimmed);
         if let Some((level, title)) = heading {
-            flush(&mut para, &mut para_start, offset, &mut blocks, &heading_path);
+            flush(
+                &mut para,
+                &mut para_start,
+                offset,
+                &mut blocks,
+                &heading_path,
+            );
             // Level-indexed path: drop deeper-or-equal levels, then push.
             heading_path.retain(|(l, _)| *l < level);
             heading_path.push((level, title));
         } else if trimmed.is_empty() {
-            flush(&mut para, &mut para_start, offset, &mut blocks, &heading_path);
+            flush(
+                &mut para,
+                &mut para_start,
+                offset,
+                &mut blocks,
+                &heading_path,
+            );
         } else {
             if para_start.is_none() {
                 let lead = line.chars().take_while(|c| c.is_whitespace()).count();
@@ -255,7 +272,13 @@ fn parse_markdown_blocks(text: &str) -> Vec<Block> {
         }
         offset += line_len;
     }
-    flush(&mut para, &mut para_start, offset, &mut blocks, &heading_path);
+    flush(
+        &mut para,
+        &mut para_start,
+        offset,
+        &mut blocks,
+        &heading_path,
+    );
     blocks
 }
 
@@ -361,9 +384,31 @@ fn parse_paged_blocks(pages: &[String]) -> Vec<Block> {
 
 /// Block-level HTML tags that force a paragraph boundary.
 const HTML_BLOCK_TAGS: &[&str] = &[
-    "p", "div", "section", "article", "header", "footer", "main", "aside", "ul", "ol",
-    "table", "figure", "figcaption", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr",
-    "blockquote", "pre", "br", "hr",
+    "p",
+    "div",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "main",
+    "aside",
+    "ul",
+    "ol",
+    "table",
+    "figure",
+    "figcaption",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "tr",
+    "blockquote",
+    "pre",
+    "br",
+    "hr",
 ];
 
 /// Scan HTML tags into blocks with a heading path (task 4.2: "html via tag
@@ -814,7 +859,12 @@ fn build_chunk(
         anchor_id: ctx.source_id.map(str::to_string),
     };
     ChunkModel {
-        id: chunk_id(ctx.document_id, ctx.source_type, ctx.source_id, &content_hash),
+        id: chunk_id(
+            ctx.document_id,
+            ctx.source_type,
+            ctx.source_id,
+            &content_hash,
+        ),
         document_id: ctx.document_id.to_string(),
         source_type: ctx.source_type.to_string(),
         source_id: ctx.source_id.map(str::to_string),
@@ -879,7 +929,12 @@ pub fn single_chunk(
         anchor_id: ctx.source_id.map(str::to_string),
     };
     Some(ChunkModel {
-        id: chunk_id(ctx.document_id, ctx.source_type, ctx.source_id, &content_hash),
+        id: chunk_id(
+            ctx.document_id,
+            ctx.source_type,
+            ctx.source_id,
+            &content_hash,
+        ),
         document_id: ctx.document_id.to_string(),
         source_type: ctx.source_type.to_string(),
         source_id: ctx.source_id.map(str::to_string),
@@ -912,13 +967,20 @@ mod tests {
 
     #[test]
     fn markdown_headings_close_chunks_and_record_paths() {
-        let text = "# Intro\n\n"
-            .to_string()
+        let text = "# Intro\n\n".to_string()
             + &"Intro paragraph. ".repeat(30)
             + "\n\n## Details\n\n"
             + &"Detail paragraph. ".repeat(120);
-        let chunks = chunk_document(&ctx("d1"), ChunkInput::Markdown { text: &text }, &ChunkOptions::default());
-        assert!(chunks.len() >= 3, "expected multiple chunks, got {}", chunks.len());
+        let chunks = chunk_document(
+            &ctx("d1"),
+            ChunkInput::Markdown { text: &text },
+            &ChunkOptions::default(),
+        );
+        assert!(
+            chunks.len() >= 3,
+            "expected multiple chunks, got {}",
+            chunks.len()
+        );
 
         // No chunk spans the Intro/Details boundary.
         for c in &chunks {
@@ -931,7 +993,9 @@ mod tests {
             );
         }
         // Heading paths recorded.
-        assert!(chunks.iter().any(|c| c.heading_path == vec!["Intro".to_string()]));
+        assert!(chunks
+            .iter()
+            .any(|c| c.heading_path == vec!["Intro".to_string()]));
         assert!(chunks
             .iter()
             .any(|c| c.heading_path == vec!["Intro".to_string(), "Details".to_string()]));
@@ -940,7 +1004,11 @@ mod tests {
     #[test]
     fn nested_headings_build_level_indexed_paths() {
         let text = "# A\n\none\n\n## B\n\ntwo\n\n### C\n\nthree\n\n## D\n\nfour";
-        let chunks = chunk_document(&ctx("d2"), ChunkInput::Markdown { text }, &ChunkOptions::default());
+        let chunks = chunk_document(
+            &ctx("d2"),
+            ChunkInput::Markdown { text },
+            &ChunkOptions::default(),
+        );
         let paths: Vec<Vec<String>> = chunks.iter().map(|c| c.heading_path.clone()).collect();
         assert!(paths.contains(&vec!["A".into()]));
         assert!(paths.contains(&vec!["A".into(), "B".into()]));
@@ -955,7 +1023,11 @@ mod tests {
             .map(|i| format!("Paragraph {i} {para}"))
             .collect::<Vec<_>>()
             .join("\n\n");
-        let chunks = chunk_document(&ctx("d3"), ChunkInput::Markdown { text: &text }, &ChunkOptions::default());
+        let chunks = chunk_document(
+            &ctx("d3"),
+            ChunkInput::Markdown { text: &text },
+            &ChunkOptions::default(),
+        );
         assert!(chunks.len() > 1);
         for c in &chunks {
             let len = c.text.chars().count();
@@ -981,8 +1053,19 @@ mod tests {
             atomic_max: 40,
             overlap_sentences: 1,
         };
-        let chunks = chunk_document(&ctx("d4"), ChunkInput::Plain { text: &para, heading_heuristic: false }, &opts);
-        assert!(chunks.len() >= 3, "expected >= 3 chunks, got {}", chunks.len());
+        let chunks = chunk_document(
+            &ctx("d4"),
+            ChunkInput::Plain {
+                text: &para,
+                heading_heuristic: false,
+            },
+            &opts,
+        );
+        assert!(
+            chunks.len() >= 3,
+            "expected >= 3 chunks, got {}",
+            chunks.len()
+        );
         for pair in chunks.windows(2) {
             let prev_tail = pair[0].text.rsplit(". ").next().unwrap_or("").to_string();
             let next_head = pair[1].text.split(". ").next().unwrap_or("").to_string();
@@ -1000,7 +1083,14 @@ mod tests {
     fn atomic_paragraph_rule_keeps_short_paragraphs_whole() {
         let para = "w".repeat(1100); // < atomic_max 1200, single "word"
         let text = para.clone();
-        let chunks = chunk_document(&ctx("d5"), ChunkInput::Plain { text: &text, heading_heuristic: false }, &ChunkOptions::default());
+        let chunks = chunk_document(
+            &ctx("d5"),
+            ChunkInput::Plain {
+                text: &text,
+                heading_heuristic: false,
+            },
+            &ChunkOptions::default(),
+        );
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].text, para);
     }
@@ -1011,7 +1101,14 @@ mod tests {
         for i in 0..200 {
             para.push_str(&format!("This is sentence {i} with several words. "));
         }
-        let chunks = chunk_document(&ctx("d6"), ChunkInput::Plain { text: &para, heading_heuristic: false }, &ChunkOptions::default());
+        let chunks = chunk_document(
+            &ctx("d6"),
+            ChunkInput::Plain {
+                text: &para,
+                heading_heuristic: false,
+            },
+            &ChunkOptions::default(),
+        );
         assert!(chunks.len() > 1);
         for c in &chunks {
             // Allow overlap sentence slack of ~80 chars.
@@ -1027,16 +1124,32 @@ mod tests {
     fn offsets_are_monotonic_and_within_input() {
         let mut text = String::from("# Head\n\n");
         for i in 0..60 {
-            text.push_str(&format!("Paragraph {i} with a moderate amount of text to accumulate. "));
+            text.push_str(&format!(
+                "Paragraph {i} with a moderate amount of text to accumulate. "
+            ));
             text.push_str("\n\n");
         }
         let total = text.chars().count();
-        let chunks = chunk_document(&ctx("d7"), ChunkInput::Markdown { text: &text }, &ChunkOptions::default());
+        let chunks = chunk_document(
+            &ctx("d7"),
+            ChunkInput::Markdown { text: &text },
+            &ChunkOptions::default(),
+        );
         let mut last_start = 0usize;
         for (i, c) in chunks.iter().enumerate() {
             let loc = parse_location(c);
-            assert!(loc.start_offset >= last_start, "chunk {i} start {} < previous {}", loc.start_offset, last_start);
-            assert!(loc.end_offset <= total, "chunk {i} end {} > total {}", loc.end_offset, total);
+            assert!(
+                loc.start_offset >= last_start,
+                "chunk {i} start {} < previous {}",
+                loc.start_offset,
+                last_start
+            );
+            assert!(
+                loc.end_offset <= total,
+                "chunk {i} end {} > total {}",
+                loc.end_offset,
+                total
+            );
             assert!(loc.end_offset >= loc.start_offset);
             last_start = loc.start_offset;
         }
@@ -1065,12 +1178,17 @@ mod tests {
             &ChunkOptions::default(),
         );
         assert!(chunks.len() >= 2);
-        assert!(chunks.iter().any(|c| c.heading_path == vec!["Part One".to_string()]
-            && c.text.contains("First paragraph")));
-        assert!(chunks.iter().any(|c| c.heading_path == vec!["Part One".to_string(), "Chapter".to_string()]
+        assert!(chunks
+            .iter()
+            .any(|c| c.heading_path == vec!["Part One".to_string()]
+                && c.text.contains("First paragraph")));
+        assert!(chunks.iter().any(|c| c.heading_path
+            == vec!["Part One".to_string(), "Chapter".to_string()]
             && c.text.contains("Second paragraph")));
         // style/script content must not leak.
-        assert!(chunks.iter().all(|c| !c.text.contains("color") && !c.text.contains("var x")));
+        assert!(chunks
+            .iter()
+            .all(|c| !c.text.contains("color") && !c.text.contains("var x")));
     }
 
     #[test]
@@ -1085,7 +1203,10 @@ mod tests {
                 location_source_type: "epub",
                 spine_index: Some(3),
             },
-            ChunkInput::Plain { text, heading_heuristic: true },
+            ChunkInput::Plain {
+                text,
+                heading_heuristic: true,
+            },
             &ChunkOptions::default(),
         );
         let paths: Vec<Vec<String>> = chunks.iter().map(|c| c.heading_path.clone()).collect();
@@ -1097,7 +1218,9 @@ mod tests {
         // Heading text itself is not chunk content.
         assert!(chunks.iter().all(|c| !c.text.contains("ALLCAPS SECTION")));
         // Spine index recorded for later CFI enrichment.
-        assert!(chunks.iter().all(|c| parse_location(c).spine_index == Some(3)));
+        assert!(chunks
+            .iter()
+            .all(|c| parse_location(c).spine_index == Some(3)));
     }
 
     #[test]
@@ -1133,14 +1256,20 @@ mod tests {
         let text = "# 标题\n\n这是一段中文文本。它包含多个句子。用于验证字符偏移。".to_string()
             + &"\n\n日本語の段落もここにあります。オフセットを確認します。".repeat(5);
         let total = text.chars().count();
-        let chunks = chunk_document(&ctx("d11"), ChunkInput::Markdown { text: &text }, &ChunkOptions::default());
+        let chunks = chunk_document(
+            &ctx("d11"),
+            ChunkInput::Markdown { text: &text },
+            &ChunkOptions::default(),
+        );
         assert!(!chunks.is_empty());
         for c in &chunks {
             let loc = parse_location(c);
             assert!(loc.end_offset <= total);
             assert!(loc.start_offset <= loc.end_offset);
         }
-        assert!(chunks.iter().any(|c| c.heading_path == vec!["标题".to_string()]));
+        assert!(chunks
+            .iter()
+            .any(|c| c.heading_path == vec!["标题".to_string()]));
     }
 
     #[test]
@@ -1148,7 +1277,11 @@ mod tests {
         let text = "第一句在这里。第二句在这里！第三句呢？English \"quoted.\" Done";
         let sentences = split_sentences(text);
         assert!(sentences.len() >= 4, "got {:?}", sentences);
-        let joined: String = sentences.iter().map(|(_, _, s)| s.clone()).collect::<Vec<_>>().join("");
+        let joined: String = sentences
+            .iter()
+            .map(|(_, _, s)| s.clone())
+            .collect::<Vec<_>>()
+            .join("");
         assert!(joined.contains("第一句在这里。"));
         assert!(joined.contains("English \"quoted.\""));
     }
@@ -1156,9 +1289,17 @@ mod tests {
     #[test]
     fn empty_and_whitespace_inputs_produce_no_chunks() {
         for input in [
-            ChunkInput::Plain { text: "", heading_heuristic: true },
-            ChunkInput::Plain { text: "   \n\n  \n", heading_heuristic: true },
-            ChunkInput::Html { html: "<html><body></body></html>" },
+            ChunkInput::Plain {
+                text: "",
+                heading_heuristic: true,
+            },
+            ChunkInput::Plain {
+                text: "   \n\n  \n",
+                heading_heuristic: true,
+            },
+            ChunkInput::Html {
+                html: "<html><body></body></html>",
+            },
         ] {
             let chunks = chunk_document(&ctx("d12"), input, &ChunkOptions::default());
             assert!(chunks.is_empty());
@@ -1184,7 +1325,10 @@ mod tests {
         assert_eq!(loc.page_number, Some(12));
         assert_eq!(loc.start_offset, 30);
         assert_eq!(loc.end_offset, 52);
-        assert_eq!(chunk.content_hash, chunk_content_hash("An extracted passage."));
+        assert_eq!(
+            chunk.content_hash,
+            chunk_content_hash("An extracted passage.")
+        );
     }
 
     #[test]
@@ -1202,11 +1346,32 @@ mod tests {
     #[test]
     fn chunk_ids_are_deterministic_and_content_addressed() {
         let text = "Deterministic content for identity.";
-        let a = chunk_document(&ctx("same"), ChunkInput::Plain { text, heading_heuristic: false }, &ChunkOptions::default());
-        let b = chunk_document(&ctx("same"), ChunkInput::Plain { text, heading_heuristic: false }, &ChunkOptions::default());
+        let a = chunk_document(
+            &ctx("same"),
+            ChunkInput::Plain {
+                text,
+                heading_heuristic: false,
+            },
+            &ChunkOptions::default(),
+        );
+        let b = chunk_document(
+            &ctx("same"),
+            ChunkInput::Plain {
+                text,
+                heading_heuristic: false,
+            },
+            &ChunkOptions::default(),
+        );
         assert_eq!(a.len(), b.len());
         assert_eq!(a[0].id, b[0].id);
-        let c = chunk_document(&ctx("other"), ChunkInput::Plain { text, heading_heuristic: false }, &ChunkOptions::default());
+        let c = chunk_document(
+            &ctx("other"),
+            ChunkInput::Plain {
+                text,
+                heading_heuristic: false,
+            },
+            &ChunkOptions::default(),
+        );
         assert_ne!(a[0].id, c[0].id);
     }
 
@@ -1218,7 +1383,11 @@ mod tests {
             text.push_str(&"Body text sentence. ".repeat(20));
             text.push_str("\n\n");
         }
-        let chunks = chunk_document(&ctx("d13"), ChunkInput::Markdown { text: &text }, &ChunkOptions::default());
+        let chunks = chunk_document(
+            &ctx("d13"),
+            ChunkInput::Markdown { text: &text },
+            &ChunkOptions::default(),
+        );
         for (i, c) in chunks.iter().enumerate() {
             assert_eq!(c.ordinal, i as i64);
             assert_eq!(parse_location(c).ordinal, i as i64);

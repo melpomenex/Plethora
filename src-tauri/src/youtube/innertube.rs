@@ -126,7 +126,10 @@ struct CaptionTrack {
 /// This uses the `visitor_id` endpoint rather than scraping a watch page, so it does not
 /// inherit the watch page's HTTP 429 fragility.
 async fn fetch_visitor_data(client: &Client) -> Option<String> {
-    let url = format!("https://www.youtube.com/youtubei/v1/visitor_id?key={}", FALLBACK_API_KEY);
+    let url = format!(
+        "https://www.youtube.com/youtubei/v1/visitor_id?key={}",
+        FALLBACK_API_KEY
+    );
     let payload = serde_json::json!({
         "context": {
             "client": {
@@ -648,11 +651,9 @@ mod tests {
 
         // The karaoke-sync feature depends on per-word offsets surviving the parse.
         assert!(
-            segments.iter().any(|s| s
-                .words
-                .as_ref()
-                .map(|w| !w.is_empty())
-                .unwrap_or(false)),
+            segments
+                .iter()
+                .any(|s| s.words.as_ref().map(|w| !w.is_empty()).unwrap_or(false)),
             "expected per-word timings from the ASR track"
         );
     }
@@ -700,7 +701,9 @@ mod tests {
                     println!(
                         "  OK   {label:32} {} segments, lang={language}, first={:?}",
                         segments.len(),
-                        segments.first().map(|s| s.text.chars().take(40).collect::<String>())
+                        segments
+                            .first()
+                            .map(|s| s.text.chars().take(40).collect::<String>())
                     );
                     assert!(!segments.is_empty());
                 }
