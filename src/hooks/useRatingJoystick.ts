@@ -26,6 +26,7 @@
 
 import { useRef, useCallback, useState, useEffect } from "react";
 import { vibrate } from "../utils/soundService";
+import { SUPERMEMO_GRADES } from "../lib/supermemo-grades";
 
 /** Pixel radius around the base inside which no grade is selected. */
 const DEAD_ZONE = 24;
@@ -45,23 +46,34 @@ export interface JoystickGrade {
   tint: string;
 }
 
+/** Hex tint per grade for the joystick zone fills (derived from the shared
+ * grade colors so the joystick and tappable grid stay consistent). */
+const TINT_BY_GRADE: Record<number, string> = {
+  0: "#b91c1c",
+  1: "#ef4444",
+  2: "#f97316",
+  3: "#f59e0b",
+  4: "#3b82f6",
+  5: "#22c55e",
+};
+
 /**
- * The 6 grades laid out on the H. Order is row-major for the 2×3 grid:
+ * The 6 shared grades laid out on the H. Order is row-major for the 2×3 grid:
  * index 0-2 = pass row (3,4,5), index 3-5 = fail row (0,1,2).
  *
- * Colors mirror `RatingButtons`' `GRADE_BUTTONS` so the joystick and the
- * tappable grid stay visually consistent.
+ * Grade semantics come from `lib/supermemo-grades`; only the H-layout order
+ * and zone tints are joystick-specific.
  */
-export const JOYSTICK_GRADES: JoystickGrade[] = [
-  // Pass row — drag up (grades 3 → 5, left → right)
-  { grade: 3, rating: 2, labelKey: "review.grade3", color: "bg-amber-500", tint: "#f59e0b" },
-  { grade: 4, rating: 3, labelKey: "review.grade4", color: "bg-blue-500", tint: "#3b82f6" },
-  { grade: 5, rating: 4, labelKey: "review.grade5", color: "bg-green-500", tint: "#22c55e" },
-  // Fail row — drag down (grades 0 → 2, left → right)
-  { grade: 0, rating: 1, labelKey: "review.grade0", color: "bg-red-700", tint: "#b91c1c" },
-  { grade: 1, rating: 1, labelKey: "review.grade1", color: "bg-red-500", tint: "#ef4444" },
-  { grade: 2, rating: 1, labelKey: "review.grade2", color: "bg-orange-500", tint: "#f97316" },
-];
+export const JOYSTICK_GRADES: JoystickGrade[] = [3, 4, 5, 0, 1, 2].map((grade) => {
+  const shared = SUPERMEMO_GRADES.find((g) => g.grade === grade)!;
+  return {
+    grade: shared.grade,
+    rating: shared.rating,
+    labelKey: shared.labelKey,
+    color: shared.color.split(" ")[0],
+    tint: TINT_BY_GRADE[grade],
+  };
+});
 
 /** Resolve the grade for a thumb delta relative to the base. Returns
  * `null` while inside the dead-zone (no commitment yet). */
@@ -82,6 +94,9 @@ export interface UseRatingJoystickOptions {
   onSelect: (rating: 1 | 2 | 3 | 4, grade: number) => void;
   /** Gate the whole gesture (e.g. only when the answer is shown). */
   enabled?: () => boolean;
+  /** Bind the gesture to an external element (e.g. the card container)
+   *  instead of the hook's own ref. */
+  targetRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 export interface UseRatingJoystickReturn {
@@ -98,9 +113,10 @@ export interface UseRatingJoystickReturn {
 export function useRatingJoystick(
   options: UseRatingJoystickOptions,
 ): UseRatingJoystickReturn {
-  const { onSelect, enabled } = options;
+  const { onSelect, enabled, targetRef } = options;
 
-  const ref = useRef<HTMLDivElement | null>(null);
+  const internalRef = useRef<HTMLDivElement | null>(null);
+  const ref = targetRef ?? internalRef;
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const lastGradeRef = useRef<number | null>(null);
 

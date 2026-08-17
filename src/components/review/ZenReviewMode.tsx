@@ -17,7 +17,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useReviewStore, type ReviewSessionItem } from "../../stores/reviewStore";
-import { ReviewRating, formatInterval } from "../../api/review";
+import { formatInterval } from "../../api/review";
 import { cn } from "../../utils";
 import { renderAnkiHtmlWithLatex } from "../../utils/ankiLatex";
 import { parseSm18State, sm18Retrievability } from "../../lib/sm18";
@@ -25,11 +25,18 @@ import { parseSm20State, sm20Retrievability } from "../../lib/sm20";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { normalizeClozeSyntax } from "../../utils/cloze";
-import { useFormFactor } from "../../hooks/useFormFactor";
-import { useRatingJoystick } from "../../hooks/useRatingJoystick";
 import { useSwipeGesture } from "../../hooks/useSwipeGesture";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
-import { RatingJoystick } from "./RatingJoystick";
+import {
+  SuperMemoRatingControl,
+  useIsTouchRating,
+} from "./SuperMemoRatingControl";
+import {
+  gradeToRating,
+  useRatingSchema,
+  type ReviewRating,
+  type SM20NativeGrade,
+} from "../../lib/supermemo-grades";
 import { Trash, X } from "@phosphor-icons/react";
 import { AlgorithmArenaDecision } from "./AlgorithmArenaDecision";
 
@@ -334,12 +341,12 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
   const containerRef = useRef<HTMLDivElement>(null);
   const { settings } = useSettingsStore();
 
-  // Touch grading: SM-18/SM-20 get the 6-grade H-pattern joystick; FSRS/SM-2
-  // (and desktop) keep the classic 4-direction swipe. Mirrors ReviewSession.
-  const useNativeGrades =
-    settings.learning.algorithm === "sm20" || settings.learning.algorithm === "sm18";
-  const formFactor = useFormFactor();
-  const isTouch = formFactor === "phone" || formFactor === "tablet";
+  // Touch grading: SuperMemo six-grade schedulers get the 6-grade H-pattern
+  // joystick; four-grade schedulers (and desktop) keep the classic 4-direction
+  // swipe. The scale is declared by the shared rating schema.
+  const ratingSchema = useRatingSchema();
+  const useNativeGrades = ratingSchema.type === "supermemo";
+  const isTouch = useIsTouchRating();
   const useJoystick = useNativeGrades && isTouch;
   const haptic = useHapticFeedback();
 
@@ -400,13 +407,11 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
     preventDefaultTouch: true,
   });
 
-  const joystick = useRatingJoystick({
-    onSelect: (rating, grade) => ratingCbRef.current(rating as ReviewRating, grade),
-    enabled: () => answerShownRef.current && !submittingRef.current,
-  });
-  // The joystick and swipe hooks both attach to the card container; only one
-  // is active depending on the algorithm + form factor.
-  const gestureRef = useJoystick ? joystick.ref : swipeRef;
+  // The joystick and swipe gestures both attach to the card container; only
+  // one is active depending on the algorithm + form factor. The joystick
+  // itself is owned by `SuperMemoRatingControl` below.
+  const joystickAreaRef = useRef<HTMLDivElement | null>(null);
+  const gestureRef = useJoystick ? joystickAreaRef : swipeRef;
   
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -460,9 +465,8 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
         if (useNativeGrades && /^[0-5]$/.test(key)) {
           // Native SM-18/SM-20 0-5 grade scale (mirrors ReviewSession).
           e.preventDefault();
-          const grade = Number(key);
-          const rating = (grade < 3 ? 1 : grade - 1) as ReviewRating;
-          handleRating(rating, grade);
+          const grade = Number(key) as SM20NativeGrade;
+          handleRating(gradeToRating(grade), grade);
         } else if (key >= "1" && key <= "4") {
           e.preventDefault();
           const rating = parseInt(key) as ReviewRating;
@@ -677,15 +681,17 @@ export function ZenReviewMode({ onExit, onRequestDelete, isDeleting = false }: Z
         )}
       </div>
 
-      {/* Touch rating overlay — same H-pattern joystick as the regular
-          review; active on touch devices with an SM-18/SM-20 algorithm. */}
-      {useJoystick && (
-        <RatingJoystick
-          activeGrade={joystick.activeGrade}
-          knob={joystick.knob}
-          base={joystick.base}
-          isActive={joystick.isActive}
+      {/* Touch rating overlay — the shared H-pattern joystick control (same
+          as the regular review); active on touch devices with a SuperMemo
+          six-grade schema. Zen renders no tappable grid (keyboard-only on
+          desktop). */}
+      {useNativeGrades && (
+        <SuperMemoRatingControl
+          onSelect={(rating, grade) => ratingCbRef.current(rating, grade)}
+          enabled={() => answerShownRef.current && !submittingRef.current}
           previewIntervals={previewIntervals}
+          touchAreaRef={useJoystick ? joystickAreaRef : undefined}
+          showButtons={false}
         />
       )}
     </div>
