@@ -20,3 +20,11 @@
 
 - [x] 4.1 Component/engine/policy tests; `npm run test:run` new suites
 - [x] 4.2 `npm run build:check` (entry budget, lazy load verified); manual e-ink/reduced-motion gating check
+
+## 5. Interactivity pass
+
+- [x] 5.1 Perch discovery (data-companion-perch opt-in + toolbar/panel edges + floor) with dialog/opt-out exclusion; pure math (edge spots, snap radius, arc, duration) unit-tested
+- [x] 5.2 Drag & drop: pointer capture, carried state, snap-to-perch, open-space fall with flapping then flight to nearest perch
+- [x] 5.3 Flight: rAF-scoped parabolic arc with banking tilt, landing settle; reduced-motion instant reposition
+- [x] 5.4 Ambient wandering between perches (bounded probability, never while dragged/in flight/suppressed)
+- [x] 5.5 Position persistence in localStorage with viewport-clamped restore

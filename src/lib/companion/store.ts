@@ -5,7 +5,14 @@
 
 import { create } from "zustand";
 import { ambientReaction, createCompanionEngine } from "./engine";
-import type { CompanionContext, CompanionEvent, CompanionReaction, CompanionStateId } from "./types";
+import type {
+  CompanionContext,
+  CompanionEvent,
+  CompanionMode,
+  CompanionPosition,
+  CompanionReaction,
+  CompanionStateId,
+} from "./types";
 
 export interface ActiveSpeech {
   key: string;
@@ -16,6 +23,11 @@ export interface ActiveSpeech {
 
 interface CompanionStore {
   state: CompanionStateId;
+  /** Where the bird currently rests (host keeps this in sync imperatively). */
+  position: CompanionPosition | null;
+  mode: CompanionMode;
+  setMode: (mode: CompanionMode) => void;
+  setPosition: (position: CompanionPosition) => void;
   /** Non-null while a transient state plays; host resets to perch after. */
   transientUntil: number | null;
   speech: ActiveSpeech | null;
@@ -51,6 +63,10 @@ function reactionPatch(reaction: CompanionReaction, now: number): Partial<Compan
 
 export const useCompanionStore = create<CompanionStore>((set) => ({
   state: "perch",
+  position: null,
+  mode: "anchored",
+  setMode: (mode) => set({ mode }),
+  setPosition: (position) => set({ position }),
   transientUntil: null,
   speech: null,
   sessionSpeechCount: 0,

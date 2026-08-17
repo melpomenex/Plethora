@@ -2600,3 +2600,99 @@
     animation: none !important;
   }
 }
+
+/* ── Companion interaction states (drag / fly / fall / land) ─────────────── */
+
+.companion-bird-hit {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.companion-bird-hit:active {
+  cursor: grabbing;
+}
+
+.companion-host[data-companion-mode="dragging"] {
+  z-index: 60; /* above toasts while carried, back under none otherwise */
+}
+
+.companion-host[data-companion-mode="dragging"] .companion-bird {
+  filter: drop-shadow(0 14px 22px rgb(124 58 237 / 0.35));
+}
+
+/* Carried: wings spread, gentle sway, slightly larger */
+.companion-bird[data-companion-state="carried"] {
+  animation: companion-carried 1.6s ease-in-out infinite;
+  scale: 1.12;
+}
+
+.companion-bird[data-companion-state="carried"] .companion-wing {
+  transform-origin: 380px 520px;
+  transform: rotate(-38deg);
+}
+
+@keyframes companion-carried {
+  0%, 100% { rotate: -3deg; }
+  50% { rotate: 4deg; }
+}
+
+/* Fly: continuous flap, body banked into the travel direction (host sets
+   --companion-fly-tilt); a slight bob keeps it alive. */
+.companion-bird[data-companion-state="fly"] {
+  animation: companion-fly-bob 0.55s ease-in-out infinite;
+  rotate: var(--companion-fly-tilt, 0deg);
+  scale: 1.04;
+}
+
+.companion-bird[data-companion-state="fly"] .companion-wing {
+  transform-origin: 380px 520px;
+  animation: companion-flap 0.24s ease-in-out infinite;
+}
+
+@keyframes companion-fly-bob {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -6px; }
+}
+
+/* Fall: fast flap, nose-down wobble */
+.companion-bird[data-companion-state="fall"] {
+  animation: companion-fall-wobble 0.4s ease-in-out infinite;
+}
+
+.companion-bird[data-companion-state="fall"] .companion-wing {
+  transform-origin: 380px 520px;
+  animation: companion-flap 0.16s ease-in-out infinite;
+}
+
+@keyframes companion-fall-wobble {
+  0%, 100% { rotate: 8deg; }
+  50% { rotate: -6deg; }
+}
+
+/* Land: squash-and-settle on touchdown */
+.companion-bird[data-companion-state="land"] {
+  animation: companion-land 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+@keyframes companion-land {
+  0% { transform: translateY(-10px) scale(1.06, 0.94); }
+  45% { transform: translateY(2px) scale(0.94, 1.08); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .companion-bird[data-companion-state="carried"],
+  .companion-bird[data-companion-state="fly"],
+  .companion-bird[data-companion-state="fall"],
+  .companion-bird[data-companion-state="land"] {
+    animation: none !important;
+    rotate: 0deg;
+    scale: 1;
+  }
+  .companion-host[data-companion-mode="dragging"] .companion-bird {
+    filter: drop-shadow(0 4px 10px rgb(124 58 237 / 0.25));
+  }
+}
