@@ -189,3 +189,32 @@ legacy mentions (historical or Phase B internal renames). No license change.
   `src/api/sponsorblock.ts`
 - 2.8 `browser_extension/manifest.json`, `popup.html`, `options.html`, `popup.js`,
   `options.js`, plus display strings in `background.js`/`content.js` (D7)
+
+## Late decisions during execution
+
+### D17 — Android legacy launcher icons rendered at exact density buckets
+The pinned `@tauri-apps/cli` 2.10.0 emits a 49x49 `ic_launcher.png` for hdpi
+(its composite size table); the repo historically shipped the exact bucket
+sizes (48/72/96/144/192). `generate-icons.mjs` therefore renders the legacy
+(non-adaptive) launcher PNGs explicitly from the square master at exact bucket
+sizes; adaptive foregrounds still come from the manifest run (108–432px, correct).
+
+### D18 — Vestigial inputs removed
+`src-tauri/icons/incrementum-android.png` / `incrementum-android-foreground.png`
+(old-brand icon sources for the previous manual Android icon flow; referenced by
+nothing after the pipeline rewrite) were deleted. Extension code comments
+(`// … for Incrementum Browser Sync`, `[Incrementum]` log prefixes) and other
+developer-facing comments keep legacy wording — internal-only, Phase B sweep.
+
+### D19 — Test fixtures keep legacy URLs/paths
+`src/lib/__tests__/shareTarget.test.ts` (`https://incrementum.app` as arbitrary
+shared-URL fixture) and `src/utils/__tests__/imageAcquisition.test.ts`
+(`/data/user/0/com.incrementum.app/...` Android path fixtures) are parser test
+data, not brand surfaces — left untouched so the tests keep exercising the
+exact production paths that exist today (com.incrementum.app until Phase B).
+
+### D20 — Quirks noted
+- `browser_extension/icons/` matches a gitignore advisory; the four tracked
+  icon PNGs stage fine when addressed by file path.
+- `icon.icns` bytes are nondeterministic across pipeline runs (embedded
+  timestamps); regeneration commits should stage it once, not repeatedly.
