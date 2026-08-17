@@ -64,6 +64,8 @@ import { EditExtractDialog } from "../extracts/EditExtractDialog";
 import type { Extract } from "../../api/extracts";
 import { useToastExtract } from "../../hooks/useToastExtract";
 import { useTrainFeedback } from "../../hooks/useTrainFeedback";
+import { notifyCompanion } from "../../lib/companion/store";
+import { buildCompanionContext, getCompanionEnabled } from "../../lib/companion/bridge";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { chatWithLLM, type LLMMessage } from "../../api/llm";
 import { getAIConfig, type AIConfig } from "../../api/ai";
@@ -862,18 +864,35 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
 
   // Quick train: thumbs up/down on current article.
   // Delegates to useTrainFeedback for sound + haptic + pulse + toast-with-undo.
+  // Also persists article-level feedback so the semantic preference profile
+  // learns from the article's content, not just author/tag classifiers.
   const handleQuickTrain = useCallback(async (sentiment: "like" | "dislike") => {
     const current = visibleScrollItems[currentIndex];
     if (!current) return;
     const { feed, item } = current;
     const value = item.author || item.categories?.[0] || "";
     const classifierType = item.author ? "author" : "tag";
+    if (getCompanionEnabled()) {
+      notifyCompanion(
+        sentiment === "like" ? { type: "rss_liked", title: item.title } : { type: "rss_disliked" },
+        buildCompanionContext()
+      );
+    }
     await trainClassifier({
       feedId: feed.id,
       classifierType,
       value,
       sentiment,
       scope: "feed",
+      articleFeedback: {
+        articleId: item.id,
+        summary: {
+          id: `rss-${item.id}`,
+          title: item.title ?? "",
+          text_content: item.content || item.description || item.title || "",
+          tags: item.categories ?? [],
+        },
+      },
     });
   }, [visibleScrollItems, currentIndex, trainClassifier]);
 

@@ -4617,6 +4617,148 @@ impl Repository {
     }
 
     // -----------------------------------------------------------------------
+    // RSS semantic preferences (OpenSpec: rss-semantic-preference-learning)
+    // -----------------------------------------------------------------------
+
+    /// Title lookup for exemplar metadata (empty string when missing).
+    pub async fn get_rss_article_title(&self, article_id: &str) -> Result<String> {
+        let row = sqlx::query("SELECT title FROM rss_articles WHERE id = ?1")
+            .bind(article_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row
+            .and_then(|r| r.try_get::<String, _>("title").ok())
+            .unwrap_or_default())
+    }
+
+    pub async fn upsert_rss_article_feedback(
+        &self,
+        article_id: &str,
+        sentiment: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<()> {
+        let ts = now.timestamp_millis();
+        sqlx::query(
+            r#"INSERT INTO rss_article_feedback (article_id, sentiment, feedback_source, created_at, updated_at)
+               VALUES (?1, ?2, 'thumbs', ?3, ?3)
+               ON CONFLICT(article_id) DO UPDATE SET sentiment = ?2, updated_at = ?3"#,
+        )
+        .bind(article_id)
+        .bind(sentiment)
+        .bind(ts)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_rss_article_feedback(&self, article_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM rss_article_feedback WHERE article_id = ?1")
+            .bind(article_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// All feedback ordered chronologically: (article_id, sentiment, created_at_ms, title).
+    pub async fn get_all_rss_article_feedback(
+        &self,
+    ) -> Result<Vec<(String, String, i64, String)>> {
+        let rows = sqlx::query(
+            r#"SELECT f.article_id, f.sentiment, f.created_at, COALESCE(a.title, '') AS title
+               FROM rss_article_feedback f
+               LEFT JOIN rss_articles a ON a.id = f.article_id
+               ORDER BY f.created_at ASC"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok((
+                    row.try_get::<String, _>("article_id")?,
+                    row.try_get::<String, _>("sentiment")?,
+                    row.try_get::<i64, _>("created_at")?,
+                    row.try_get::<String, _>("title")?,
+                ))
+            })
+            .collect()
+    }
+
+    pub async fn get_rss_preference_clusters(
+        &self,
+        sentiment: Option<&str>,
+    ) -> Result<Vec<crate::rss_preferences::PreferenceCluster>> {
+        let rows = match sentiment {
+            Some(s) => {
+                sqlx::query("SELECT * FROM rss_preference_clusters WHERE sentiment = ?1")
+                    .bind(s)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            None => {
+                sqlx::query("SELECT * FROM rss_preference_clusters")
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+        };
+        rows.into_iter()
+            .map(|row| -> Result<crate::rss_preferences::PreferenceCluster> {
+                let blob: Vec<u8> = row.try_get("centroid_sum")?;
+                let sum: Vec<f32> = blob
+                    .chunks_exact(4)
+                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                Ok(crate::rss_preferences::PreferenceCluster {
+                    id: row.try_get("id")?,
+                    sentiment: row.try_get("sentiment")?,
+                    sum,
+                    weight: row.try_get("weight")?,
+                    last_updated: row.try_get("last_updated")?,
+                    exemplar_article_id: row.try_get("exemplar_article_id")?,
+                    exemplar_title: row.try_get("exemplar_title")?,
+                    dim: row.try_get("dim")?,
+                    model: row.try_get("model")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Replace all clusters for one sentiment (clusters are derived state).
+    pub async fn replace_rss_preference_clusters(
+        &self,
+        sentiment: &str,
+        clusters: &[crate::rss_preferences::PreferenceCluster],
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM rss_preference_clusters WHERE sentiment = ?1")
+            .bind(sentiment)
+            .execute(&mut *tx)
+            .await?;
+        for cluster in clusters.iter().filter(|c| c.sentiment == sentiment) {
+            let mut bytes = Vec::with_capacity(cluster.sum.len() * 4);
+            for &val in &cluster.sum {
+                bytes.extend_from_slice(&val.to_le_bytes());
+            }
+            sqlx::query(
+                r#"INSERT INTO rss_preference_clusters
+                   (sentiment, centroid_sum, weight, last_updated, exemplar_article_id, exemplar_title, dim, model)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+            )
+            .bind(sentiment)
+            .bind(&bytes)
+            .bind(cluster.weight)
+            .bind(cluster.last_updated)
+            .bind(&cluster.exemplar_article_id)
+            .bind(&cluster.exemplar_title)
+            .bind(cluster.dim)
+            .bind(&cluster.model)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // Document chunk embeddings (whole-library RAG)
     // -----------------------------------------------------------------------
 

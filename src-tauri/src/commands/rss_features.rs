@@ -3371,3 +3371,86 @@ pub async fn seed_curated_feeds(repo: State<'_, Repository>) -> Result<i32> {
 
     Ok(inserted)
 }
+
+// ── Semantic preference learning (OpenSpec: rss-semantic-preference-learning) ──
+
+/// Persist article-level thumbs feedback and update the semantic preference
+/// profile. `sentiment = None` removes the feedback (undo). When `summary`
+/// and `config` are provided and the article has no stored embedding, one is
+/// generated via the configured provider (local-first: Ollama works offline).
+#[tauri::command]
+pub async fn set_rss_article_feedback(
+    article_id: String,
+    sentiment: Option<String>,
+    summary: Option<crate::commands::semantic_graph::QueueItemSummary>,
+    config: Option<crate::commands::semantic_graph::EmbeddingConfigInput>,
+    repo: State<'_, Repository>,
+) -> Result<()> {
+    let parsed = match sentiment.as_deref() {
+        Some("like") => Some(crate::rss_preferences::FeedbackSentiment::Like),
+        Some("dislike") => Some(crate::rss_preferences::FeedbackSentiment::Dislike),
+        _ => None,
+    };
+
+    // Ensure an embedding exists so clusters can learn from article content.
+    // Failures are non-fatal: feedback persists and a later rebuild picks it up.
+    let mut embedding: Option<Vec<f32>> = None;
+    let mut model = String::new();
+    if let (Some(item), Some(cfg)) = (summary.as_ref(), config.as_ref()) {
+        let item_id = item.id.clone();
+        let existing = repo.get_embeddings_for_items(&[item_id.clone()]).await?;
+        if let Some(hit) = existing.iter().find(|e| e.item_id == item_id) {
+            embedding = Some(hit.embedding.clone());
+            model = hit.model.clone();
+        } else {
+            let provider = crate::ai::embedding_config::build_provider(cfg)
+                .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+            let text = crate::commands::semantic_graph::item_to_embedding_text(item);
+            if let Ok(responses) = provider.generate_embeddings_batch(&[text]).await {
+                if let Some(response) = responses.first() {
+                    let now = chrono::Utc::now().timestamp_millis();
+                    let hash = crate::commands::semantic_graph::content_hash(
+                        &item.title,
+                        &item.text_content,
+                        &item.tags,
+                    );
+                    let emb = crate::database::QueueItemEmbedding {
+                        item_id,
+                        embedding: response.embedding.clone(),
+                        content_hash: hash,
+                        provider: crate::ai::embedding_config::provider_name(cfg).to_string(),
+                        model: crate::ai::embedding_config::model_name(cfg).to_string(),
+                        dimension: response.embedding.len() as i32,
+                        created_at: now,
+                    };
+                    model = emb.model.clone();
+                    repo.upsert_embedding(&emb).await?;
+                    embedding = Some(response.embedding.clone());
+                }
+            }
+        }
+    }
+
+    crate::rss_preferences::apply_feedback(&repo, &article_id, parsed, embedding.as_ref(), &model)
+        .await
+}
+
+#[tauri::command]
+pub async fn get_rss_preference_profile(
+    repo: State<'_, Repository>,
+) -> Result<crate::rss_preferences::PreferenceProfile> {
+    crate::rss_preferences::profile(&repo).await
+}
+
+#[tauri::command]
+pub async fn score_rss_items_semantic(
+    item_ids: Vec<String>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<crate::rss_preferences::SemanticScore>> {
+    crate::rss_preferences::score_items(&repo, &item_ids).await
+}
+
+#[tauri::command]
+pub async fn rebuild_rss_preference_profile(repo: State<'_, Repository>) -> Result<()> {
+    crate::rss_preferences::rebuild(&repo).await
+}

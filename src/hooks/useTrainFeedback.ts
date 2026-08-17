@@ -25,6 +25,10 @@ import {
   playTrainDislikeSound,
   supportsHaptics,
 } from "../utils/soundService";
+import {
+  setRssArticleFeedback,
+  type RssFeedbackSummary,
+} from "../api/rss-preferences";
 
 export type TrainSentiment = "like" | "dislike";
 
@@ -34,6 +38,16 @@ export interface TrainParams {
   value: string;
   sentiment: TrainSentiment;
   scope?: string;
+  /**
+   * Article-level semantic feedback (OpenSpec: rss-semantic-preference-
+   * learning). When provided, the same train/undo also persists/removes an
+   * article feedback event so the preference profile learns from content,
+   * not just the classifier dimension.
+   */
+  articleFeedback?: {
+    articleId: string;
+    summary: RssFeedbackSummary;
+  };
 }
 
 export interface UseTrainFeedbackOptions {
@@ -90,6 +104,23 @@ export function useTrainFeedback(options: UseTrainFeedbackOptions = {}) {
         const created = await addClassifier(feedId, classifierType, value, sentiment, scope);
         lastCreatedId.current = created?.id ?? null;
 
+        // Semantic preference write — non-fatal: classifier training must
+        // succeed even when embeddings/profile are unavailable.
+        if (params.articleFeedback) {
+          const { articleId, summary } = params.articleFeedback;
+          void (async () => {
+            try {
+              const { resolveEmbeddingConfigForRag } = await import(
+                "../components/assistant/ragConfig"
+              );
+              const config = await resolveEmbeddingConfigForRag().catch(() => null);
+              await setRssArticleFeedback(articleId, sentiment, summary, config);
+            } catch {
+              // Base classifier behavior remains intact.
+            }
+          })();
+        }
+
         if (!silentToast) {
           toast.info(
             sentiment === "like" ? t("training.trainLiked") : t("training.trainDisliked"),
@@ -102,6 +133,11 @@ export function useTrainFeedback(options: UseTrainFeedbackOptions = {}) {
                   const id = lastCreatedId.current;
                   if (!id) return;
                   void removeClassifier(id).then(() => {
+                    if (params.articleFeedback) {
+                      void setRssArticleFeedback(params.articleFeedback.articleId, null).catch(
+                        () => undefined
+                      );
+                    }
                     toast.info(t("training.trainUndone"));
                   });
                 },

@@ -1094,6 +1094,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
   const settings = useSettingsStore((state) => state.settings);
   const updateSettingsCategory = useSettingsStore((state) => state.updateSettingsCategory);
   const { toolbarPosition, splitViewSpawn } = settings.interface;
+  const companion = settings.interface.companion;
 
   // Apply font family when it changes
   useEffect(() => {
@@ -1119,6 +1120,88 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
 
       <SettingsSection title="Display Mode & E-Ink" description="Monochrome profiles and reader hardware optimizations">
         <EinkSettingsPanel />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Plethora Companion"
+        description="An optional ambient bird that occasionally reacts to your reading and study"
+      >
+        <SettingsRow
+          label="Show the companion bird"
+          description="A small, quiet mascot that perches in the corner and sometimes comments on what you're doing. Off by default; never appears in e-ink mode and stays still under reduced motion."
+        >
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={companion?.enabled ?? false}
+              onChange={(e) => {
+                updateSettingsCategory("interface", {
+                  companion: { ...companion, enabled: e.target.checked },
+                });
+              }}
+            />
+            <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary" />
+          </label>
+        </SettingsRow>
+        {companion?.enabled && (
+          <>
+            <SettingsRow
+              label="Speech frequency"
+              description="How often the companion may speak up on its own."
+            >
+              <select
+                value={companion.speechFrequency}
+                onChange={(e) => {
+                  updateSettingsCategory("interface", {
+                    companion: { ...companion, speechFrequency: e.target.value as typeof companion.speechFrequency },
+                  });
+                }}
+                className="px-3 py-2 rounded-md border border-border bg-background text-foreground"
+              >
+                <option value="quiet">Quiet</option>
+                <option value="normal">Normal</option>
+                <option value="chatty">Chatty</option>
+              </select>
+            </SettingsRow>
+            <SettingsRow
+              label="Reading comments"
+              description="Occasional contextual notes about documents and highlights."
+            >
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={companion.contextualComments}
+                  onChange={(e) => {
+                    updateSettingsCategory("interface", {
+                      companion: { ...companion, contextualComments: e.target.checked },
+                    });
+                  }}
+                />
+                <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary" />
+              </label>
+            </SettingsRow>
+            <SettingsRow
+              label="Study encouragement"
+              description="Small celebrations and encouragement while reviewing."
+            >
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={companion.encouragement}
+                  onChange={(e) => {
+                    updateSettingsCategory("interface", {
+                      companion: { ...companion, encouragement: e.target.checked },
+                    });
+                  }}
+                />
+                <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary" />
+              </label>
+            </SettingsRow>
+          </>
+        )}
       </SettingsSection>
 
       <SettingsSection

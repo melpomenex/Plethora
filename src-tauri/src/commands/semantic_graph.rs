@@ -89,7 +89,7 @@ pub struct SemanticGraphResult {
 }
 
 /// Compute a content hash for an item (title + text + tags)
-fn content_hash(title: &str, text: &str, tags: &[String]) -> String {
+pub fn content_hash(title: &str, text: &str, tags: &[String]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(title.as_bytes());
     hasher.update(b"\0");
@@ -101,7 +101,7 @@ fn content_hash(title: &str, text: &str, tags: &[String]) -> String {
 }
 
 /// Build text suitable for embedding from a queue item summary
-fn item_to_embedding_text(item: &QueueItemSummary) -> String {
+pub fn item_to_embedding_text(item: &QueueItemSummary) -> String {
     let mut parts = vec![item.title.clone()];
     if !item.text_content.is_empty() {
         parts.push(item.text_content.clone());

@@ -94,7 +94,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
-import React, { Suspense } from "react";
+import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { loadSelectedFonts } from "./utils/fonts";
 import "./index.css";
@@ -115,6 +115,7 @@ import { Toast } from "./components/common/Toast";
 import { OnDeviceRunIndicator } from "./components/common/OnDeviceRunIndicator";
 import { Modal } from "./components/common/Modal";
 import { KindleImportDialogHost } from "./components/import/KindleImportDialogHost";
+const CompanionHost = lazy(() => import("./components/companion/CompanionHost"));
 import { Analytics } from "@vercel/analytics/react";
 import { BatteryProvider } from "./contexts/BatteryContext";
 import { PresentationProvider } from "./contexts/PresentationContext";
@@ -385,6 +386,9 @@ reactRoot.render(
             </Suspense>
             <DevPerformanceMonitor />
             <Toast />
+            {/* Optional ambient mascot companion — lazily loaded, renders
+                nothing unless the user enables it (Settings → Appearance). */}
+            <CompanionHost />
             {/* Chunk progress + cancel for long on-device AI runs (Android). */}
             <OnDeviceRunIndicator />
             <Modal />

@@ -8,6 +8,7 @@ mod anki;
 mod backup;
 mod battery;
 mod browser_sync_server;
+mod rss_preferences;
 mod cloud;
 mod cloud_sync;
 mod commands;
@@ -1821,6 +1822,10 @@ pub fn run() {
             commands::update_rss_classifiers_batch,
             commands::compute_intelligence_score,
             commands::recompute_all_intelligence_scores,
+            commands::set_rss_article_feedback,
+            commands::get_rss_preference_profile,
+            commands::score_rss_items_semantic,
+            commands::rebuild_rss_preference_profile,
             commands::get_rss_articles_with_intelligence,
             commands::mark_rss_article_unread,
             commands::mark_rss_articles_before_date_read,

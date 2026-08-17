@@ -91,6 +91,7 @@ import { cn } from "../utils";
 import type { SessionItemTypes } from "../utils/reviewUx";
 import type { Document } from "../types/document";
 import { scoreRssRelevance, type RssClassifier } from "../utils/rssRelevance";
+import { scoreRssItemsSemantic } from "../api/rss-preferences";
 import { useClassifiersStore } from "../stores/classifiersStore";
 import { RelevanceIndicator } from "../components/media/RelevanceIndicator";
 import { ItemDetailsPopover, type ItemDetailsTarget } from "../components/common/ItemDetailsPopover";
@@ -219,6 +220,12 @@ interface ScrollItem {
   engagementScore?: number;
   /** RSS relevance score (0.0-1.0) from classifier-based scoring */
   relevanceScore?: number;
+  /** Semantic preference info (exemplar-driven reason) for the indicator */
+  semanticReason?: {
+    score?: number | null;
+    driver_exemplar_title?: string | null;
+    driver_sentiment?: "like" | "dislike" | null;
+  };
   /**
    * The element_tree.id this item came from in neural review (undefined in
    * normal Scroll Mode). Used to correlate with the neural_queue so advancing
@@ -1509,9 +1516,21 @@ export function QueueScrollPage() {
           ? filteredRssItems.slice(0, rssSettings.maxItemsPerSession)
           : filteredRssItems;
 
-        // Score RSS items for relevance using classifiers
+        // Score RSS items for relevance using classifiers + semantic preference
         const classifiers = useClassifiersStore.getState().classifiers;
         const hasClassifiers = classifiers.length > 0;
+
+        // Semantic preference scores are computed once per assembly against
+        // the local like/dislike cluster profile; items without embeddings (or
+        // a cold-start profile) simply keep their metadata-only score.
+        let semanticScores: Map<string, { score?: number | null }> = new Map();
+        try {
+          semanticScores = await scoreRssItemsSemantic(
+            limitedRssItems.map(({ item }) => `rss-${item.id}`),
+          );
+        } catch {
+          // Base ranking still applies.
+        }
 
         rssItems = limitedRssItems.map(({ feed, item }) => {
           let relevanceScore: number | undefined;
@@ -1534,6 +1553,10 @@ export function QueueScrollPage() {
                 scope: c.scope,
                 feed_id: c.feed_id,
               })),
+              {
+                semanticScore: semanticScores.get(`rss-${item.id}`)?.score ?? null,
+                saved: Boolean(item.favorite),
+              },
             );
             // Scale relevance 0-1 to engagementScore 0-10
             engagementScore = relevanceScore * 10;
@@ -1551,6 +1574,7 @@ export function QueueScrollPage() {
             estimatedTime: 5,
             engagementScore,
             relevanceScore,
+            semanticReason: semanticScores.get(`rss-${item.id}`),
           };
         });
 
@@ -4078,7 +4102,15 @@ export function QueueScrollPage() {
                     </div>
                     <h1 className="text-3xl font-bold text-foreground mb-3 reading-title flex items-center gap-2">
                       {renderedItem.rssItem?.title}
-                      <RelevanceIndicator score={renderedItem.relevanceScore} className="mt-1.5" />
+                      <RelevanceIndicator
+                        score={renderedItem.relevanceScore}
+                        reason={
+                          renderedItem.semanticReason?.driver_exemplar_title
+                            ? renderedItem.semanticReason
+                            : undefined
+                        }
+                        className="mt-1.5"
+                      />
                     </h1>
                     <div className="flex items-center flex-wrap gap-4 text-sm text-muted-foreground reading-meta">
                       {renderedItem.rssItem?.pubDate && (

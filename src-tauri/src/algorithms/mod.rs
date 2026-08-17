@@ -20,6 +20,7 @@ pub mod optimizer;
 pub mod postpone;
 pub mod priority_queue;
 pub mod queue_selector;
+pub mod relevance;
 pub mod sm18;
 pub mod sm20;
 pub mod supermemo;
