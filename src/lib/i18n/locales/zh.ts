@@ -59,6 +59,9 @@ export const zh: Dict = {
   "mainLayout.sharedLinkAdded": "分享链接已添加到您的队列。",
   "mainLayout.open": "打开",
   "mainLayout.importFailed": "导入失败",
+  "mainLayout.legacyDataTitle": "发现 Incrementum 数据",
+  "mainLayout.legacyDataMigrate": "复制我的数据",
+  "mainLayout.legacyDataDecline": "从空白开始",
   "mainLayout.legacyDataPrompt":
     "Plethora 在此电脑上发现了已有的 Incrementum 资料库。是否现在将您的文档、复习历史、主题和 API 密钥复制到 Plethora？",
   "mainLayout.legacyDataLegacyKept":

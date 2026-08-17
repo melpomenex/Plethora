@@ -37,6 +37,9 @@ export const ja: Dict = {
   "mainLayout.sharedLinkAdded": "共有リンクをキューに追加しました。",
   "mainLayout.open": "開く",
   "mainLayout.importFailed": "インポート失敗",
+  "mainLayout.legacyDataTitle": "Incrementum のデータが見つかりました",
+  "mainLayout.legacyDataMigrate": "データをコピー",
+  "mainLayout.legacyDataDecline": "新しく始める",
   "mainLayout.legacyDataPrompt":
     "このコンピュータに既存の Incrementum ライブラリが見つかりました。ドキュメント・復習履歴・テーマ・API キーを今すぐ Plethora にコピーしますか？",
   "mainLayout.legacyDataLegacyKept":

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useModal } from "../common/Modal";
 import {
   ArrowsClockwise,
   BookOpen,
@@ -78,6 +79,8 @@ export function IntegrationSettings() {
       }
     });
   };
+
+  const modal = useModal();
 
   // Obsidian state
   const [obsidianVault, setObsidianVault] = useState("");
@@ -626,13 +629,14 @@ export function IntegrationSettings() {
                   showResult(false, t("integrations.migrateVaultIdsNeedVault"));
                   return;
                 }
-                if (
-                  !window.confirm(
-                    t("integrations.migrateVaultIdsConfirm", {
-                      notes: config.notesFolder,
-                    })
-                  )
-                ) {
+                const confirmed = await modal.confirm(
+                  t("integrations.migrateVaultIdsConfirm", {
+                    notes: config.notesFolder,
+                  }),
+                  t("integrations.migrateVaultIdsTitle"),
+                  { confirmText: t("integrations.migrateVaultIdsButton") }
+                );
+                if (!confirmed) {
                   return;
                 }
                 setIsOperating(true);
