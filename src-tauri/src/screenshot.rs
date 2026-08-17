@@ -74,7 +74,7 @@ pub async fn capture_app_window() -> Result<String> {
         .map_err(|err| PlethoraError::Internal(format!("Failed to enumerate windows: {err}")))?;
     let window = windows
         .iter()
-        .find(|w| w.title().as_deref().unwrap_or("") == "Incrementum")
+        .find(|w| w.title().as_deref().unwrap_or("") == "Plethora")
         .or_else(|| windows.first())
         .ok_or_else(|| PlethoraError::NotFound("No windows available".to_string()))?;
 

@@ -97,12 +97,15 @@ impl ArenaModelId {
         }
     }
 
+    /// User-facing display name. Product naming only — `as_str()` ids are the
+    /// compatibility contract and stay SuperMemo-derived. Keep in sync with
+    /// `ARENA_MODEL_LABELS` in `src/lib/schedulerCatalog.ts`.
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Sm2 => "SM-2",
-            Self::Sm15 => "SM-15",
-            Self::Sm19 => "SM-19",
-            Self::Sm20 => "SM-20",
+            Self::Sm2 => "Plethora Classic",
+            Self::Sm15 => "Classic 15",
+            Self::Sm19 => "Classic 19",
+            Self::Sm20 => "Plethora Precision",
             Self::Fsrs => "FSRS",
         }
     }

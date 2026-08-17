@@ -53,7 +53,7 @@ docker run --rm \
 # Copy the final binary to the project directory for easy access
 echo ""
 echo "Copying binary to project directory..."
-find "$CARGO_TARGET_DIR" -name "incrementum.exe" -type f -exec cp {} "$FINAL_OUTPUT_DIR/" \; 2>/dev/null || echo "Note: incrementum.exe not found (build may have failed or produced a different output)"
+find "$CARGO_TARGET_DIR" -name "plethora.exe" -type f -exec cp {} "$FINAL_OUTPUT_DIR/" \; 2>/dev/null || echo "Note: plethora.exe not found (build may have failed or produced a different output)"
 
 echo ""
 echo "Done!"

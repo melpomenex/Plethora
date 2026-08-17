@@ -8,11 +8,11 @@
 //!   cargo run --release --example figdiag -- debug/gauntlet/inputs/<file>.json [expand]
 
 use base64::Engine as _;
-use incrementum_tauri_lib::pdf::analysis::raster::{PageInkMask, PageRaster};
-use incrementum_tauri_lib::pdf::analysis::rows::band_lines;
-use incrementum_tauri_lib::pdf::analysis::words::extract_words;
-use incrementum_tauri_lib::pdf::analysis::TextItemInput;
-use incrementum_tauri_lib::pdf::coordinates::RasterGeometry;
+use plethora_tauri_lib::pdf::analysis::raster::{PageInkMask, PageRaster};
+use plethora_tauri_lib::pdf::analysis::rows::band_lines;
+use plethora_tauri_lib::pdf::analysis::words::extract_words;
+use plethora_tauri_lib::pdf::analysis::TextItemInput;
+use plethora_tauri_lib::pdf::coordinates::RasterGeometry;
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -148,7 +148,7 @@ fn main() {
             hs.sort_by(|a, b| a.total_cmp(b));
             hs.get(hs.len() / 2).copied().unwrap_or(10.0)
         };
-        let mut regions = incrementum_tauri_lib::pdf::analysis::figures::detect_visual_regions(
+        let mut regions = plethora_tauri_lib::pdf::analysis::figures::detect_visual_regions(
             Some(&raster),
             &lines,
             median,
@@ -165,7 +165,7 @@ fn main() {
                 r.bbox.y1
             );
         }
-        incrementum_tauri_lib::pdf::analysis::figures::attach_captions(
+        plethora_tauri_lib::pdf::analysis::figures::attach_captions(
             &mut regions,
             &lines,
             median,

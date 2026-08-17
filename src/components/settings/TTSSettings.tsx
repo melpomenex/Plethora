@@ -265,7 +265,7 @@ export function TTSSettings() {
   const [operationState, setOperationState] = useState<LifecycleState>("idle");
   const [operationMessage, setOperationMessage] = useState<string>("");
   const [generateText, setGenerateText] = useState(
-    "Welcome to Incrementum. This is your configured text to speech output."
+    "Welcome to Plethora. This is your configured text to speech output."
   );
   const [overrideVoiceId, setOverrideVoiceId] = useState("default");
   const [overridePresetId, setOverridePresetId] = useState("default");
@@ -551,7 +551,7 @@ export function TTSSettings() {
   };
 
   const handleGroqTest = async () => {
-    const testText = generateText.trim() || "This is a Groq TTS test in Incrementum.";
+    const testText = generateText.trim() || "This is a Groq TTS test in Plethora.";
     if (!generateText.trim()) {
       setGenerateText(testText);
     }

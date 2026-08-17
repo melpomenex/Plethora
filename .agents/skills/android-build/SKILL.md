@@ -1,9 +1,9 @@
 ---
 name: android-build
-description: Build the Incrementum Android APK and install it to a connected phone. Use whenever the user wants to build the APK, make an android build, send/install the app to their phone, or test on mobile. Covers setting up the Android SDK/NDK env vars, running the Tauri android build, locating the output APK, and installing via adb.
+description: Build the PLETHORA Android APK and install it to a connected phone. Use whenever the user wants to build the APK, make an android build, send/install the app to their phone, or test on mobile. Covers setting up the Android SDK/NDK env vars, running the Tauri android build, locating the output APK, and installing via adb.
 ---
 
-# Build & install the Incrementum Android APK
+# Build & install the PLETHORA Android APK
 
 End-to-end mobile build workflow for this Tauri app. The build itself is `npm run tauri:android:build` (which runs `tauri android build --ci --target aarch64 --apk`), but the build fails instantly if `ANDROID_HOME` / `NDK_HOME` aren't set — that is the #1 (and so far only) way this build has failed. This skill makes sure the env is right before wasting a full Gradle+Rust compile.
 
@@ -84,19 +84,19 @@ find src-tauri/gen/android -name "*.apk" -type f -exec ls -lh {} \;
    adb -s <SERIAL> install -r src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
    ```
 
-   `-r` reinstalls and keeps data. Expect `Success`. If you get `INSTALL_FAILED_UPDATE_INCOMPATIBLE` (signature mismatch, e.g. switching between debug/release builds), uninstall first: `adb -s <SERIAL> uninstall com.incrementum.app`, then reinstall.
+   `-r` reinstalls and keeps data. Expect `Success`. If you get `INSTALL_FAILED_UPDATE_INCOMPATIBLE` (signature mismatch, e.g. switching between debug/release builds), uninstall first: `adb -s <SERIAL> uninstall com.plethora.app`, then reinstall.
 
 3. **Verify it landed:**
 
    ```bash
-   adb -s <SERIAL> shell dumpsys package com.incrementum.app | grep -E "versionName|lastUpdateTime"
+   adb -s <SERIAL> shell dumpsys package com.plethora.app | grep -E "versionName|lastUpdateTime"
    ```
 
-   The package name is `com.incrementum.app` and `versionName` tracks the project version from `package.json` / `tauri.conf.json`.
+   The package name is `com.plethora.app` and `versionName` tracks the project version from `package.json` / `tauri.conf.json`.
 
 ## Notes
 
-- The app's package name on this device is `com.incrementum.app`. Two other Incrementum packages may coexist (`com.incrementum.incrementum_mobile`, `com.incrementum.android.debug`) — don't install over those; target `com.incrementum.app`.
+- The app's package name on this device is `com.plethora.app`. Two other PLETHORA packages may coexist (`com.PLETHORA.incrementum_mobile`, `com.PLETHORA.android.debug`) — don't install over those; target `com.plethora.app`.
 - The APK is `universal`, so it works on arm64 and x86_64 emulators alike — no per-ABI selection needed.
 - This build does **not** require a clean git tree or a version bump; it builds whatever is in the working directory. That's the point — it's for getting the current code onto the phone for testing.
 - Mobile UI differs from desktop; if the user is testing a specific feature on mobile, mention any mobile-specific caveats you know of after install.

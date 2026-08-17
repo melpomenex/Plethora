@@ -4,6 +4,7 @@
  */
 
 import * as db from './database.js';
+import { ARENA_MODEL_LABEL_ORDER } from "./schedulerCatalog";
 import { getBrowserFile } from './browser-file-store';
 import { parseAnkiPackage, convertAnkiToLearningItems } from '../utils/ankiParserBrowser';
 import {
@@ -351,7 +352,7 @@ async function applySm18ReviewBrowser(item: db.LearningItem, rating: number, alg
     });
 }
 
-const BROWSER_ARENA_LABELS = ['SM-2', 'SM-15', 'SM-19', 'SM-20', 'FSRS'];
+const BROWSER_ARENA_LABELS = ARENA_MODEL_LABEL_ORDER;
 
 async function loadBrowserSm20Collection(): Promise<SM20CollectionState> {
     return parseSm20CollectionState(await db.getSyncState('sm20_collection_state'));
@@ -2570,7 +2571,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             0
         );
         return {
-            model_names: ["SM-2", "SM-15", "SM-19", "SM-20", "FSRS"],
+            model_names: [...ARENA_MODEL_LABEL_ORDER],
             weights: [6, 14, 45, 25, 10],
             mean_losses: null,
             r_metric: null,
@@ -2599,7 +2600,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             val_loss_before: 0,
             val_loss_after: 0,
             iterations: 0,
-            message: "SM-20 parameter fitting runs in the desktop app; browser data stays on this device.",
+            message: "Plethora Precision parameter fitting runs in the desktop app; browser data stays on this device.",
         };
     },
 

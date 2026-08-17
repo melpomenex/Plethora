@@ -10,6 +10,7 @@ import {
 import { parseSm18State, sm18Retrievability, type SM18State } from "../../lib/sm18";
 import { parseSm20State, sm20Retrievability, type SM20State } from "../../lib/sm20";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { schedulerLabel } from "../../lib/schedulerCatalog";
 
 interface ReviewTransparencyPanelProps {
   card: LearningItem;
@@ -17,13 +18,13 @@ interface ReviewTransparencyPanelProps {
 }
 
 const ALGORITHM_LABELS: Record<string, string> = {
-  fsrs: "FSRS-6 Transparency",
-  sm18: "SM-18 Transparency",
-  sm20: "SM-20 Transparency",
+  fsrs: `${schedulerLabel("fsrs")} Transparency`,
+  sm18: `${schedulerLabel("sm18")} Transparency`,
+  sm20: `${schedulerLabel("sm20")} Transparency`,
 };
 
 function getAlgorithmLabel(algorithmType?: string): string {
-  return ALGORITHM_LABELS[algorithmType ?? ""] ?? "FSRS-6 Transparency";
+  return ALGORITHM_LABELS[algorithmType ?? ""] ?? `${schedulerLabel("fsrs")} Transparency`;
 }
 
 export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransparencyPanelProps) {
@@ -114,7 +115,7 @@ export function ReviewTransparencyPanel({ card, previewIntervals }: ReviewTransp
         <div className="text-xs text-muted-foreground">
           {settings.learning.sm20PureM4 ? (
             <span className="text-amber-500 font-semibold block mb-0.5">
-              Pure SM-20 Mode (scheduling with M4 only; Arena weights not used):
+              Pure {schedulerLabel("sm20")} Mode (scheduling with M4 only; Arena weights not used):
             </span>
           ) : null}
           Arena{" "}

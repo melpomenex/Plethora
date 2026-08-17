@@ -19,13 +19,6 @@ export const KEYBOARD_SHORTCUTS = {
   GO_TO_SETTINGS: "Cmd+,",
 } as const;
 
-export const ALGORITHM_NAMES = {
-  fsrs: "FSRS-6",
-  sm2: "SM-2",
-  sm18: "SM-18",
-  sm20: "SM-20",
-} as const;
-
 export const FILE_TYPE_ICONS = {
   pdf: "file-text",
   epub: "book-open",

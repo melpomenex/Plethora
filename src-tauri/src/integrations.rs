@@ -329,7 +329,7 @@ fn generate_conversation_markdown(
     markdown.push_str("---\n");
     markdown.push_str(&format!("title: \"{}\"\n", title));
     markdown.push_str(&format!("created: {}\n", now.format("%Y-%m-%d %H:%M")));
-    markdown.push_str("source: \"Incrementum AI Assistant\"\n");
+    markdown.push_str("source: \"Plethora AI Assistant\"\n");
     if let Some(context) = context_info {
         markdown.push_str(&format!("context: \"{}\"\n", context.replace('"', "\\\"")));
     }
@@ -404,7 +404,7 @@ fn generate_single_message_markdown(
     markdown.push_str("---\n");
     markdown.push_str(&format!("title: \"{}\"\n", title));
     markdown.push_str(&format!("created: {}\n", now.format("%Y-%m-%d %H:%M")));
-    markdown.push_str("source: \"Incrementum AI Assistant\"\n");
+    markdown.push_str("source: \"Plethora AI Assistant\"\n");
     markdown.push_str(&format!("message-type: \"{}\"\n", message.role));
     if let Some(context) = context_info {
         markdown.push_str(&format!("context: \"{}\"\n", context.replace('"', "\\\"")));

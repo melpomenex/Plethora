@@ -2910,7 +2910,7 @@ fn generate_opml_content(feeds: &[RssFeed]) -> String {
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <opml version="2.0">
   <head>
-    <title>Incrementum RSS Feeds</title>
+    <title>Plethora RSS Feeds</title>
     <dateCreated>"#,
     );
 

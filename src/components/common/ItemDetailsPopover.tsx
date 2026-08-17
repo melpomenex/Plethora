@@ -10,6 +10,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { getDocument, dismissDocument, updateDocument } from "../../api/documents";
+import { schedulerLabel } from "../../lib/schedulerCatalog";
 import { useToast } from "../common/Toast";
 import { getExtract } from "../../api/extracts";
 import { getLearningItem } from "../../api/learning-items";
@@ -493,13 +494,15 @@ export function ItemDetailsPopover({
 
             <div className="border-t border-border pt-3 space-y-2">
               <div className="text-xs text-muted-foreground">
-                {t("itemDetails.scheduling")} / {
-                  details.algorithmType === "sm18" || (details.algorithmType !== "fsrs" && settings.learning.algorithm === "sm18")
-                    ? "SM-18"
-                    : details.algorithmType === "sm20" || (details.algorithmType !== "fsrs" && settings.learning.algorithm === "sm20")
-                    ? "SM-20"
-                    : "FSRS-6"
-                }
+                {t("itemDetails.scheduling")} / {schedulerLabel(
+                  details.algorithmType === "sm18" ||
+                    (details.algorithmType !== "fsrs" && settings.learning.algorithm === "sm18")
+                    ? "sm18"
+                    : details.algorithmType === "sm20" ||
+                        (details.algorithmType !== "fsrs" && settings.learning.algorithm === "sm20")
+                    ? "sm20"
+                    : "fsrs"
+                )}
               </div>
               {isLoading ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">

@@ -4,7 +4,7 @@
 // Test Chrome APIs availability
 
 // Simple initialization without complex logic
-class MinimalIncrementumSync {
+class MinimalPlethoraSync {
   constructor() {
     this.serverUrl = 'http://127.0.0.1:8766';
     this.isEnabled = true;
@@ -34,7 +34,7 @@ class MinimalIncrementumSync {
           
           chrome.contextMenus.create({
             id: 'test-menu',
-            title: 'Test Incrementum',
+            title: 'Test Plethora',
             contexts: ['page']
           }, () => {
             if (chrome.runtime.lastError) {
@@ -48,12 +48,12 @@ class MinimalIncrementumSync {
       }
       
     } catch (error) {
-      console.error('Error in MinimalIncrementumSync init:', error);
+      console.error('Error in MinimalPlethoraSync init:', error);
     }
   }
 }
 
-const minimalSync = new MinimalIncrementumSync();
+const minimalSync = new MinimalPlethoraSync();
 
 // Initialize after a short delay to ensure Chrome APIs are ready
 setTimeout(() => {

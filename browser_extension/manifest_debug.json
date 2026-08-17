@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Incrementum Browser Sync (Debug)",
+  "name": "Plethora Capture (Debug)",
   "version": "1.0.0",
   "description": "Debug version to isolate extension loading issues",
   

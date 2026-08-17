@@ -1,6 +1,6 @@
 # Installation Guide
 
-Detailed setup instructions for Incrementum on all platforms.
+Detailed setup instructions for Plethora on all platforms.
 
 ---
 
@@ -16,15 +16,15 @@ Detailed setup instructions for Incrementum on all platforms.
 
 ## Pre-built Binaries
 
-The easiest way to install Incrementum is to download a pre-built binary.
+The easiest way to install Plethora is to download a pre-built binary.
 
 ### Download
 
 1. Visit the [Releases](https://github.com/melpomenex/incrementum-tauri/releases) page
 2. Download the appropriate version for your platform:
-   - **Windows**: `Incrementum_x64-setup.exe` or `Incrementum_x64.msi`
-   - **macOS**: `Incrementum_x64.dmg` (Intel) or `Incrementum_aarch64.dmg` (Apple Silicon)
-   - **Linux**: `incrementum_x64.AppImage`, `.deb`, or `.rpm`
+   - **Windows**: `Plethora_x64-setup.exe` or `Plethora_x64.msi`
+   - **macOS**: `Plethora_x64.dmg` (Intel) or `Plethora_aarch64.dmg` (Apple Silicon)
+   - **Linux**: `Plethora_x64.AppImage`, `.deb`, or `.rpm`
 
 ### Installation
 
@@ -32,14 +32,14 @@ The easiest way to install Incrementum is to download a pre-built binary.
 
 1. Run the downloaded `.exe` or `.msi` installer
 2. Follow the setup wizard
-3. Launch Incrementum from the Start menu or desktop shortcut
+3. Launch Plethora from the Start menu or desktop shortcut
 
 **Windows Defender**: If Windows SmartScreen appears, click "More info" → "Run anyway"
 
 #### macOS
 
 1. Open the downloaded `.dmg` file
-2. Drag Incrementum to the Applications folder
+2. Drag Plethora to the Applications folder
 3. Launch from Applications
 
 **Security Warning**: If you see "Cannot be opened because the developer cannot be verified":
@@ -52,30 +52,30 @@ The easiest way to install Incrementum is to download a pre-built binary.
 **AppImage (Recommended)**
 ```bash
 # Make executable
-chmod +x incrementum_x64.AppImage
+chmod +x Plethora_x64.AppImage
 
 # Run
-./incrementum_x64.AppImage
+./Plethora_x64.AppImage
 
 # Optional: Move to applications directory
-sudo mv incrementum_x64.AppImage /usr/local/bin/incrementum
+sudo mv Plethora_x64.AppImage /usr/local/bin/plethora
 ```
 
 **Debian/Ubuntu (.deb)**
 ```bash
-sudo dpkg -i incrementum_x64.deb
+sudo dpkg -i Plethora_x64.deb
 sudo apt-get install -f  # Fix dependencies if needed
 ```
 
 **Fedora/RHEL (.rpm)**
 ```bash
-sudo rpm -i incrementum_x64.rpm
+sudo rpm -i Plethora_x64.rpm
 ```
 
 **Arch Linux**
 ```bash
 # Using the PKGBUILD in the repository
-cd incrementum-tauri
+cd plethora-tauri
 makepkg -si
 ```
 
@@ -160,7 +160,7 @@ If you don't have them:
 1. **Clone the repository**
    ```bash
    git clone https://github.com/melpomenex/incrementum-tauri.git
-   cd incrementum-tauri
+   cd plethora-tauri
    ```
 
 2. **Install Node.js dependencies**
@@ -205,7 +205,7 @@ ANTHROPIC_API_KEY=your_key_here
 
 ### Rust Toolchain
 
-Incrementum uses a specific Rust toolchain version:
+Plethora uses a specific Rust toolchain version:
 
 ```bash
 # The project uses rust-toolchain.toml
@@ -217,13 +217,15 @@ rustup override set stable
 
 ### Database Location
 
-Incrementum uses SQLite for data storage:
+Plethora uses SQLite for data storage:
 
 | Platform | Database Location |
 |----------|-------------------|
-| Windows | `%APPDATA%\incrementum\incrementum.db` |
-| macOS | `~/Library/Application Support/incrementum/incrementum.db` |
-| Linux | `~/.local/share/incrementum/incrementum.db` |
+| Windows | `%APPDATA%\plethora\plethora.db` |
+| macOS | `~/Library/Application Support/plethora/plethora.db` |
+| Linux | `~/.local/share/plethora/plethora.db` |
+
+> Upgrades from Incrementum automatically adopt the old `incrementum.db` into `plethora.db` on first launch.
 
 ---
 
@@ -252,9 +254,9 @@ sudo apt install libwebkit2gtk-4.1-dev
 **Blank screen on startup**
 1. Check the console for errors (Ctrl+Shift+I)
 2. Try clearing app data:
-   - Windows: Delete `%APPDATA%\incrementum`
-   - macOS: Delete `~/Library/Application Support/incrementum`
-   - Linux: Delete `~/.local/share/incrementum`
+   - Windows: Delete `%APPDATA%\plethora`
+   - macOS: Delete `~/Library/Application Support/plethora`
+   - Linux: Delete `~/.local/share/plethora`
 
 **Import not working**
 - Check file permissions
@@ -270,8 +272,8 @@ sudo apt install libwebkit2gtk-4.1-dev
 
 **AppImage won't run**
 ```bash
-chmod +x incrementum_x64.AppImage
-./incrementum_x64.AppImage --no-sandbox
+chmod +x Plethora_x64.AppImage
+./Plethora_x64.AppImage --no-sandbox
 ```
 
 **Missing libssl**
@@ -287,7 +289,7 @@ sudo dnf install openssl-libs
 
 **"Damaged" app warning**
 ```bash
-xattr -cr /Applications/Incrementum.app
+xattr -cr /Applications/Plethora.app
 ```
 
 ---
@@ -330,7 +332,7 @@ npm run format
 ### Project Structure
 
 ```
-incrementum-tauri/
+plethora-tauri/
 ├── src/                    # Frontend (React + TypeScript)
 │   ├── components/         # UI components
 │   ├── pages/             # Page components
@@ -372,7 +374,7 @@ RUST_LOG=debug npm run tauri:dev 2> debug.log
 
 ```bash
 # Using sqlite3 CLI
-sqlite3 ~/.local/share/incrementum/incrementum.db
+sqlite3 ~/.local/share/plethora/plethora.db
 
 # Or use a GUI tool like DB Browser for SQLite
 ```
@@ -390,7 +392,7 @@ sqlite3 ~/.local/share/incrementum/incrementum.db
 ### Source Build
 
 ```bash
-cd incrementum-tauri
+cd plethora-tauri
 git pull origin main
 npm install
 npm run tauri:build
@@ -402,27 +404,27 @@ npm run tauri:build
 
 ### Windows
 
-1. Settings → Apps → Incrementum → Uninstall
+1. Settings → Apps → Plethora → Uninstall
 2. Or: Control Panel → Programs → Uninstall
 
 ### macOS
 
 ```bash
-rm -rf /Applications/Incrementum.app
-rm -rf ~/Library/Application\ Support/incrementum
+rm -rf /Applications/Plethora.app
+rm -rf ~/Library/Application\ Support/plethora
 ```
 
 ### Linux
 
 ```bash
 # AppImage - just delete the file
-rm /path/to/incrementum.AppImage
+rm /path/to/plethora.AppImage
 
 # .deb package
-sudo apt remove incrementum
+sudo apt remove plethora
 
 # Remove data
-rm -rf ~/.local/share/incrementum
+rm -rf ~/.local/share/plethora
 ```
 
 ---

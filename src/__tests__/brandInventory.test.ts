@@ -179,6 +179,69 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
         "incrementum-browser-sync@melpomenex.dev"
       );
     });
+
+    it("debug/minimal manifests and dev notifications are Plethora-branded too", () => {
+      for (const rel of [
+        "browser_extension/manifest_debug.json",
+        "browser_extension/manifest_minimal.json",
+      ]) {
+        const dev = JSON.parse(read(rel));
+        expect(dev.name, `${rel} name`).not.toMatch(OLD_BRAND);
+        expect(dev.description ?? "", `${rel} description`).not.toMatch(OLD_BRAND);
+      }
+      expect(read("browser_extension/background_minimal.js")).not.toContain("Incrementum");
+    });
+  });
+
+  describe("platform window titles (all tauri.*.conf.json)", () => {
+    it.each(["tauri.linux.conf.json", "tauri.macos.conf.json", "tauri.windows.conf.json", "tauri.android.conf.json", "tauri.ios.conf.json"])(
+      "%s titles windows Plethora where a title is set",
+      (rel) => {
+        const raw = read(join("src-tauri", rel));
+        if (!existsSync(join(root, "src-tauri", rel))) return;
+        const conf = JSON.parse(raw);
+        for (const window of conf.app?.windows ?? []) {
+          if (window.title !== undefined) {
+            expect(window.title, `${rel} window title`).toBe("Plethora");
+          }
+        }
+      }
+    );
+  });
+
+  describe("Rust user-visible identity strings", () => {
+    // Exemptions: legacy compatibility identifiers documented in BRANDING.md
+    // (keychain/db/app-data names, protocol tokens, migration markers) and
+    // developer comments — this scan only covers string literals that reach
+    // users: MCP identity, exported-file content, spoken TTS sentences,
+    // window titles, export filenames, user agents.
+    it("MCP server/client/tools identify as Plethora", () => {
+      expect(read("src-tauri/src/mcp/server.rs")).toContain('name: "Plethora".to_string()');
+      expect(read("src-tauri/src/mcp/client.rs")).toContain('"name": "Plethora"');
+      expect(read("src-tauri/src/mcp/tools.rs")).not.toMatch(/description: "[^"]*Incrementum/);
+    });
+
+    it("exported artifacts and windows say Plethora", () => {
+      expect(read("src-tauri/src/browser_sync_server.rs")).toContain("<title>Plethora RSS Feeds</title>");
+      expect(read("src-tauri/src/commands/learning_item.rs")).toContain('"plethora-mnemosyne-{}.txt"');
+      expect(read("src-tauri/src/commands/article_capture.rs")).toContain('.title("Plethora Article Capture")');
+      expect(read("src-tauri/src/commands/ai.rs")).not.toMatch(/# Incrementum AI Memory/);
+      expect(read("src-tauri/src/integrations.rs")).not.toMatch(/Incrementum AI Assistant/);
+      expect(read("src-tauri/src/screenshot.rs")).toContain('== "Plethora"');
+    });
+  });
+
+  describe("frontend UI surfaces", () => {
+    it("PWA install banner and spoken TTS test sentences say Plethora", () => {
+      const pwa = read("src/components/pwa/PWAComponents.tsx");
+      expect(pwa).not.toMatch(/Install Incrementum|Add Incrementum/);
+      const tts = read("src/components/settings/TTSSettings.tsx");
+      expect(tts).not.toMatch(/Incrementum/);
+    });
+
+    it("Rust outbound user agents no longer carry the old brand", () => {
+      expect(read("src-tauri/src/commands/podcast.rs")).not.toMatch(/AppleWebKit\/537\.36 Incrementum/);
+    });
   });
 
   describe("in-app handbook (bundled via ?raw imports — user-visible)", () => {

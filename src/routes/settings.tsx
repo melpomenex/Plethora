@@ -1,6 +1,7 @@
 import { useSettingsStore } from "../stores";
 import { useEffect } from "react";
 import { useI18n } from "../lib/i18n";
+import { LEGACY_SELECTABLE_SCHEDULERS } from "../lib/schedulerCatalog";
 
 export function Settings() {
   const { t } = useI18n();
@@ -89,13 +90,11 @@ export function Settings() {
                 onChange={(e) => updateSettings({ learning: { ...settings.learning, algorithm: e.target.value as any } })}
                 className="px-3 py-2 bg-background border border-border rounded-md text-foreground"
               >
-                <option value="fsrs">{t("settingsLegacy.fsrsRecommended")}</option>
-                <option value="sm18">SM-18</option>
-                <option value="sm20">SM-20</option>
-                <option value="sm15">SM-15</option>
-                <option value="sm8">SM-8</option>
-                <option value="sm5">SM-5</option>
-                <option value="sm2">SM-2</option>
+                {LEGACY_SELECTABLE_SCHEDULERS.map((scheduler) => (
+                  <option key={scheduler.id} value={scheduler.id}>
+                    {scheduler.id === "fsrs" ? t("settingsLegacy.fsrsRecommended") : scheduler.label}
+                  </option>
+                ))}
               </select>
             </div>
 

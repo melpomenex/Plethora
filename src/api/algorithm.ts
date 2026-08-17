@@ -54,7 +54,7 @@ export interface DocumentScheduleRequest {
  */
 export enum AlgorithmType {
   Fsrs = "Fsrs",
-  SM2 = "SM2",
+  SM2 = "sm2",
 }
 
 /**

@@ -146,7 +146,7 @@ export const CAPABILITY_REGISTRY: Record<CapabilityId, CapabilityDescriptor> = {
     defaultPlan: 'pro',
     requiresAccount: true,
     hasQuotas: true,
-    localFallback: 'Manual card editing and FSRS/SM-20 parameter tuning.',
+    localFallback: 'Manual card editing and FSRS/Plethora Precision parameter tuning.',
   },
   advanced_analytics: {
     id: 'advanced_analytics',

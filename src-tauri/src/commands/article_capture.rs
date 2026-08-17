@@ -232,7 +232,7 @@ async fn capture_rendered_dom_impl(
 
         let window =
             WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(parsed_url))
-                .title("Incrementum Article Capture")
+                .title("Plethora Article Capture")
                 .visible(false)
                 .inner_size(1024.0, 768.0)
                 .initialization_script(&init_script)

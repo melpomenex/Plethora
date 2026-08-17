@@ -27,7 +27,7 @@ impl MCPToolRegistry {
     fn register_default_tools(&mut self) {
         self.register_tool(ToolDefinition {
             name: "create_document".to_string(),
-            description: "Create a new document in Incrementum".to_string(),
+            description: "Create a new document in Plethora".to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {

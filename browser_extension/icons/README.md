@@ -1,6 +1,6 @@
 # Browser Extension Icons
 
-This directory should contain the following icon files for the Incrementum Browser Sync extension:
+This directory should contain the following icon files for the Plethora Browser Sync extension:
 
 - `icon16.png` - 16x16 pixels (toolbar icon)
 - `icon32.png` - 32x32 pixels (Windows taskbar)

@@ -1,9 +1,9 @@
 ---
 name: cut-release
-description: Cut a new Incrementum release. Use whenever the user wants to ship a new version, cut a release, publish a release, bump the version, tag a release, or says things like "release v1.x", "ship it", "publish the new version", or "make a new release". Covers staging cleanly, writing release notes, running scripts/release.cjs, and verifying the result.
+description: Cut a new PLETHORA release. Use whenever the user wants to ship a new version, cut a release, publish a release, bump the version, tag a release, or says things like "release v1.x", "ship it", "publish the new version", or "make a new release". Covers staging cleanly, writing release notes, running scripts/release.cjs, and verifying the result.
 ---
 
-# Cut an Incrementum release
+# Cut an PLETHORA release
 
 End-to-end release workflow for this Tauri app. The mechanics are handled by
 `scripts/release.cjs` (bumps every manifest, prepends the CHANGELOG entry,
@@ -207,7 +207,7 @@ The signed Firefox extension XPI lives on GitHub Releases, and the README
 links to it with the **`/latest/download/`** stable URL:
 
 ```
-https://github.com/melpomenex/incrementum-tauri/releases/latest/download/incrementum-browser-sync-<extver>.signed.xpi
+https://github.com/melpomenex/PLETHORA-tauri/releases/latest/download/PLETHORA-browser-sync-<extver>.signed.xpi
 ```
 
 `latest` points at the release you just cut, not the one the XPI was
@@ -235,8 +235,8 @@ is rebuilt. Most app releases reuse the same XPI. Either way:
    ```
 3. **Copy it to the release-naming convention** and upload to the new release:
    ```bash
-   cp ~/Downloads/cf99…-<extver>.xpi /tmp/incrementum-browser-sync-<extver>.signed.xpi
-   gh release upload v<version> /tmp/incrementum-browser-sync-<extver>.signed.xpi --clobber
+   cp ~/Downloads/cf99…-<extver>.xpi /tmp/PLETHORA-browser-sync-<extver>.signed.xpi
+   gh release upload v<version> /tmp/PLETHORA-browser-sync-<extver>.signed.xpi --clobber
    ```
    Don't commit the `.xpi` into the repo — it's a release asset, not source.
    Clean up the `/tmp` staging copy after upload.
@@ -262,7 +262,7 @@ After the script reports success:
   `200` with `content-type: application/x-xpinstall` and the expected
   `content-length`:
   ```bash
-  curl -sIL "https://github.com/melpomenex/incrementum-tauri/releases/latest/download/incrementum-browser-sync-<extver>.signed.xpi" \
+  curl -sIL "https://github.com/melpomenex/PLETHORA-tauri/releases/latest/download/PLETHORA-browser-sync-<extver>.signed.xpi" \
     | grep -iE "HTTP/|content-type|content-length"
   ```
   A 404 here means the XPI isn't on the latest release — go back and attach it.

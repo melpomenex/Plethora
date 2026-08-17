@@ -931,8 +931,8 @@ export async function commitBrowserSm20Review(
         tx.objectStore(STORES.learningItems).put(item);
         tx.objectStore(STORES.syncState).put({ key: 'sm20_collection_state', value: collectionState });
         tx.oncomplete = () => resolve();
-        tx.onabort = () => reject(tx.error ?? new Error('SM-20 transaction aborted'));
-        tx.onerror = () => reject(tx.error ?? new Error('SM-20 transaction failed'));
+        tx.onabort = () => reject(tx.error ?? new Error('review transaction aborted'));
+        tx.onerror = () => reject(tx.error ?? new Error('review transaction failed'));
     }));
 }
 

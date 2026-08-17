@@ -669,7 +669,7 @@ pub async fn get_memory_content(app: tauri::AppHandle) -> Result<String> {
 
     let memory_file = memories_dir.join("MEMORY.md");
     if !memory_file.exists() {
-        let default_content = "# Incrementum AI Memory\n\n\
+        let default_content = "# Plethora AI Memory\n\n\
         This file contains durable facts, preferences, and standing decisions that you've told the assistant or that the assistant has learned about you.\n\n\
         ## About Me\n\
         - (No facts recorded yet)\n\n\

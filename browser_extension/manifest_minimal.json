@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Incrementum Browser Sync (Minimal Test)",
+  "name": "Plethora Capture (Minimal Test)",
   "version": "1.0.0",
   "description": "Minimal test version to debug extension loading issues",
   
@@ -20,7 +20,7 @@
   },
   
   "action": {
-    "default_title": "Incrementum Test",
+    "default_title": "Plethora Test",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",

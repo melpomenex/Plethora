@@ -40,7 +40,7 @@ pub async fn backup_create(
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-    let db_path = app_dir.join("incrementum.db");
+    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
 
     let db = Database::from_pool(repo.pool().clone());
     let manager = BackupManager::new(db, db_path).map_err(|e| e.to_string())?;
@@ -70,7 +70,7 @@ pub async fn backup_restore(
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-    let db_path = app_dir.join("incrementum.db");
+    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
 
     // Close the connection pool before restoring to avoid SQLite lock conflicts.
     // The restore uses rusqlite directly on the file, not the pool.
@@ -101,7 +101,7 @@ pub async fn backup_list(
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-    let db_path = app_dir.join("incrementum.db");
+    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
 
     let db = Database::from_pool(repo.pool().clone());
     let manager = BackupManager::new(db, db_path).map_err(|e| e.to_string())?;

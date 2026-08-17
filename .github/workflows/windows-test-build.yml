@@ -95,7 +95,7 @@ jobs:
           name: plethora-windows-test
           path: |
             src-tauri/target/**/release/bundle/**
-            src-tauri/target/*/release/incrementum.exe
+            src-tauri/target/*/release/plethora.exe
           if-no-files-found: warn
           retention-days: 7
 
