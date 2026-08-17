@@ -63,5 +63,5 @@ fn main() {
             std::env::set_var("GST_REGISTRY", "/dev/null");
         }
     }
-    incrementum_tauri_lib::run()
+    plethora_tauri_lib::run()
 }

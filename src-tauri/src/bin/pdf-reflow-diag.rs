@@ -19,7 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
-use incrementum_tauri_lib::pdf::analysis::{analyze_page, PageAnalysisRequest};
+use plethora_tauri_lib::pdf::analysis::{analyze_page, PageAnalysisRequest};
 
 fn usage() -> ! {
     eprintln!("usage: pdf-reflow-diag --input-dir <dir> --output-dir <dir> [--pretty]");

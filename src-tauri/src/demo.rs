@@ -30,7 +30,7 @@ pub fn get_demo_content_dir() -> PathBuf {
 
     // If we're in development, look for demo/ in project root
     // If we're in production (Tauri app), look in resources
-    if path.ends_with("incrementum-tauri") || path.ends_with("src-tauri") {
+    if path.ends_with("incrementum-tauri") || path.ends_with("plethora-tauri") || path.ends_with("src-tauri") {
         path = path.parent().map(|p| p.to_path_buf()).unwrap_or(path);
     }
 

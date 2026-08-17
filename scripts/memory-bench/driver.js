@@ -35,7 +35,7 @@ import { sleep } from "./util.js";
 
 export const DEFAULT_OUTPUT = join(process.cwd(), ".bench", "memory-result.json");
 export const DEFAULT_CORPUS_DIR = join(process.cwd(), ".bench", "corpus");
-const DEFAULT_APP = join(process.cwd(), "src-tauri", "target", "debug", "incrementum-tauri");
+const DEFAULT_APP = join(process.cwd(), "src-tauri", "target", "debug", "plethora-tauri");
 
 const RUN_ID_ENV = "INCREMENTUM_MEMORY_RUN_ID";
 
@@ -355,7 +355,7 @@ function parseArgs(argv) {
 const USAGE = `Usage: node scripts/memory-bench/driver.js [options]
 
 Options:
-  --app <binary>            app binary (default: src-tauri/target/debug/incrementum-tauri)
+  --app <binary>            app binary (default: src-tauri/target/debug/plethora-tauri)
   --cycles <n>              repeated open/close cycle count (default 8)
   --corpus-dir <path>       corpus directory (default .bench/corpus)
   --output <path>           result file (default .bench/memory-result.json)
