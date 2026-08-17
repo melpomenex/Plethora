@@ -110,7 +110,7 @@ export function Documents() {
         try {
           const collection = await importSuperMemoPackage(data.filePath);
           if (collection.items.length === 0) {
-            setError("No items found in the SuperMemo export.");
+            setError("No items found in the legacy export.");
             setImporting(false);
             return;
           }
@@ -136,7 +136,7 @@ export function Documents() {
           }
 
           if (firstDoc) importedDoc = firstDoc;
-          else setError("Failed to import any items from the SuperMemo collection.");
+          else setError("Failed to import any items from the legacy collection.");
         } finally {
           setImporting(false);
           setImportProgress(0, 0);

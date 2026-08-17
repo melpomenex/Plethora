@@ -637,6 +637,32 @@ fn apply_unbundled_dock_icon() {
     unsafe { app.setApplicationIconImage(Some(&image)) };
 }
 
+/// Give every window the Plethora mascot icon at runtime.
+///
+/// Bundled installs get their icons from the package (.desktop + hicolor on
+/// Linux, the embedded .ico resource on Windows), but unbundled runs —
+/// `tauri dev` and cargo-run binaries — would otherwise show the generic
+/// window-manager cog. GTK accepts a runtime window icon on X11; Wayland
+/// taskbars derive icons from the desktop entry instead (bundled installs
+/// ship one). On Windows this covers the taskbar/alt-tab icon of dev runs.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn apply_window_icons(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    const ICON_PNG: &'static [u8] = include_bytes!("../icons/icon.png");
+    let icon = match tauri::image::Image::from_bytes(ICON_PNG) {
+        Ok(icon) => icon,
+        Err(err) => {
+            tracing::warn!("[window-icon] mascot PNG failed to decode: {err}");
+            return;
+        }
+    };
+    for (_label, window) in app.webview_windows() {
+        if let Err(err) = window.set_icon(icon.clone()) {
+            tracing::warn!("[window-icon] failed to set on window: {err}");
+        }
+    }
+}
+
 pub fn run() {
     // Install the rustls crypto provider as the very first thing. reqwest's
     // `rustls-tls` feature compiles rustls 0.23 in `*-no-provider` mode, so no
@@ -1004,6 +1030,12 @@ pub fn run() {
             // icon that bundled .app builds get from their icns.
             #[cfg(target_os = "macos")]
             apply_unbundled_dock_icon();
+
+            // Same class of fix for Linux/Windows: unbundled runs get the
+            // mascot as their window icon instead of the generic cog.
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            apply_window_icons(&app.handle());
+
 
             // Verify window state file is valid JSON, delete if corrupted or empty
             #[cfg(all(

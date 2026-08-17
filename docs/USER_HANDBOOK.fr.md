@@ -56,7 +56,7 @@ Importons votre premier document :
 | **Marquage** | Fichiers `.md` | Documentation technique, remarques |
 | **HTML** | Pages Web | Articles, billets de blog |
 | **Anki (.apkg)** | Forfait de pont Anki | Migrer depuis Anki |
-| **SuperMémo** | Exportations ZIP | Migrer depuis SuperMemo |
+| Anciennes applis d'apprentissage | Exportations ZIP | Migrer depuis des applis d'apprentissage incrémental compatibles |
 | **JSON (.json)** | Fichiers de jeu de cartes mémoire | Importer des decks avec des données de planification |
 | **URL** | Tout lien Web | Articles en ligne, blogs |
 | **Arxiv** | Articles académiques | Littérature de recherche |
@@ -207,7 +207,7 @@ Une fois importé, ouvrez n'importe quel document pour accéder :
 
 ### Comprendre le Plethora Adaptive
 
-**Plethora Adaptive** (SuperMemo 18) est l'algorithme précédent de la famille SuperMemo. Il représente une évolution significative par rapport à Plethora Classic, introduisant une modélisation de la stabilité de la mémoire et une approche basée sur les données pour le calcul des intervalles.
+**Plethora Adaptive** est le planificateur de la génération précédente de la famille. Il représente une évolution significative par rapport à Plethora Classic, introduisant une modélisation de la stabilité de la mémoire et une approche basée sur les données pour le calcul des intervalles.
 
 Plethora Adaptive :
 
@@ -226,7 +226,7 @@ Plethora Adaptive :
 
 ### Comprendre le Plethora Precision
 
-L'option **Plethora Precision** de Plethora est **Algorithm Arena** — un portage par ingénierie inverse du « sm20.exe » de SuperMemo qui exécute **cinq** algorithmes à répétition espacée en parallèle sur chaque flashcard et mélange leurs prédictions en un seul calendrier. Les cinq concurrents, avec les poids de mélange par défaut auxquels ils commencent :
+L'option **Plethora Precision** de Plethora est **Algorithm Arena** — une réimplémentation fidèle du planificateur d'origine qui exécute **cinq** algorithmes à répétition espacée en parallèle sur chaque flashcard et mélange leurs prédictions en un seul calendrier. Les cinq concurrents, avec les poids de mélange par défaut auxquels ils commencent :
 
 | Fente | Modèle | Poids par défaut | Apprend comment? |
 |------|-------|---------------:|-------------|
@@ -617,7 +617,7 @@ Chaque document, extrait et carte se trouve quelque part dans une **liste class�
 
 **La priorité est une position, pas une étiquette.**
 
-Il s’agit du modèle SuperMemo, et c’est la raison pour laquelle les chiffres se comportent comme ils le font. Lorsque vous définissez un objet à 70 %, il se déplace jusqu'à 70 % de la hauteur de votre collection, soit au-dessus d'environ 70 % de tout ce que vous possédez, en dessous des 30 % supérieurs. Rien d'autre n'est renuméroté ; l'article s'insère simplement.
+Il s’agit du modèle de file de priorité, et c’est la raison pour laquelle les chiffres se comportent comme ils le font. Lorsque vous définissez un objet à 70 %, il se déplace jusqu'à 70 % de la hauteur de votre collection, soit au-dessus d'environ 70 % de tout ce que vous possédez, en dessous des 30 % supérieurs. Rien d'autre n'est renuméroté ; l'article s'insère simplement.
 
 Définissez la priorité de 0 à 100 sur n'importe quel élément :
 
@@ -664,7 +664,7 @@ Comprendre comment la file d'attente classe les éléments et pourquoi les posit
 
 ### Examen neuronal (« Devenez neuronal »)
 
-L'examen neuronal est un mode exploratoire facultatif construit sur *Learn : Go neural* de SuperMemo. Au lieu de parcourir votre file d'attente prioritaire dans l'ordre, il crée une nouvelle séquence de révision en **diffusant l'activation** à partir d'un seul point de départ - l'élément que vous lisez actuellement - et en faisant apparaître tout ce qui y est connecté. C'est le mode à privilégier lorsque vous souhaitez suivre un fil de discussion dans votre collection plutôt que de parcourir ce qui est dû.
+L'examen neuronal est un mode exploratoire facultatif inspiré du concept *Learn : Go neural*. Au lieu de parcourir votre file d'attente prioritaire dans l'ordre, il crée une nouvelle séquence de révision en **diffusant l'activation** à partir d'un seul point de départ - l'élément que vous lisez actuellement - et en faisant apparaître tout ce qui y est connecté. C'est le mode à privilégier lorsque vous souhaitez suivre un fil de discussion dans votre collection plutôt que de parcourir ce qui est dû.
 
 **Comment l'utiliser.** Pendant la lecture en mode défilement, cliquez sur **Devenir neuronal** dans la barre supérieure. La session passe à une file d'attente d'activation de diffusion amorcée au niveau du document, de la carte ou de l'extrait actuel ; la pilule de position devient violette et indique « Examen neuronal · N restant ». Cliquez sur **Quitter** pour revenir exactement là où vous en étiez dans votre lecture : l'examen neuronal ne modifie jamais votre file d'attente prioritaire ou votre planification. Lorsque la file d'attente est faible, elle se remplit automatiquement à partir de l'élément que vous venez de terminer.
 
@@ -949,14 +949,14 @@ Plethora prend en charge quatre algorithmes de planification. Choisissez celui q
 - Développe des connaissances au fil du temps via des matrices d'intervalle/compte persistantes de 21 × 21 × 21
 
 **Plethora Adaptive (SuperMémo 18) :**
-- Dernier algorithme SuperMemo, rétro-ingénierie à partir de l'application d'origine
+- Le planificateur le plus avancé de la famille, réimplémenté à partir de l'application d'origine
 - Utilise une matrice de recherche 3D SInc (Stability Increase) en fonction de la difficulté, de la stabilité et de la récupérabilité
 - Suivi explicite des difficultés avec mises à jour de la moyenne finale
 - Modèle de courbe d'oubli exponentielle : `R = 0,9^(t/S)`
 - Gestion sophistiquée des pannes avec réduction de la stabilité en fonction des déchéances
 
 **Plethora Classic (Classique) :**
-- Algorithme traditionnel SuperMemo 2 (documenté publiquement)
+- L'algorithme classique traditionnel (documenté publiquement)
 - Plus simple, prévisible
 - Plus d'avis requis
 

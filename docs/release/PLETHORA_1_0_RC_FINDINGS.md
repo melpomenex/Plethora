@@ -75,6 +75,30 @@ Caveats recorded:
 - **F-25** Export: app-state export/import round-trips with legacy
   `.incrementum` extension dual-read (compat window).
 
+### Post-RC follow-ups (user-reported, fixed in this pass)
+
+- **F-15 (fixed)** Full SuperMemo word scrub: zero occurrences remain in any
+  user-facing surface. Handbooks (6 languages) rewritten without the word
+  (attribution for the formulation rules now names the author, Wozniak, not
+  the product); import UI relabeled "Legacy Collection"; AI prompt, dialog
+  names, and console copy neutralized. `schedulerNaming` guard now has an
+  EMPTY SuperMemo allowlist; `brandInventory` asserts handbooks carry no
+  third-party scheduler branding (incl. translated variants).
+- **F-16 (fixed)** Dev-mode window icon on Linux/Windows showed the generic
+  cog: unbundled runs never set a window icon (bundled installs get theirs
+  from .desktop/hicolor/.ico resources). New `apply_window_icons()` sets the
+  embedded 512px mascot PNG on every webview window at startup on
+  Linux/Windows (mirrors the existing macOS unbundled-dock-icon fix);
+  `icons/icon.png` added to `bundle.icon` so bundlers pick the hi-res source.
+  Validated: all bundle PNGs correct sizes; icon.ico has 6 valid 16–256px
+  32bpp entries (Windows resource embed is handled by tauri-build from this
+  file); PKGBUILD already installs 32/128/512 hicolor icons.
+  **Caveat:** on Wayland, taskbar icons are derived from the desktop entry
+  (app_id), not settable by clients — installed packages get the right icon
+  via their .desktop file, but `tauri dev` under Wayland will still show a
+  generic taskbar entry (the window icon fix applies to X11 and Windows).
+  Running dev with `QT_QPA_PLATFORM=xcb` / X11 session shows the mascot.
+
 ### Open / deferred
 
 - **F-30 (P2)** 55 TODO/FIXME comments remain in app code, concentrated in

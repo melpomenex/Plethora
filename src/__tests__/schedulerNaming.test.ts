@@ -11,14 +11,11 @@ import path from "node:path";
 
 const ROOT = path.resolve(__dirname, "../..");
 
-const ALLOWED_FILES = new Set([
-  // Third-party product name used as an import source label, not a scheduler name.
-  "src/utils/supermemoImport.ts",
-  "src/components/documents/EnhancedFilePicker.tsx",
-  "src/utils/ankiImport.ts",
-  "src/routes/documents.tsx",
-  // Factual attribution of Wozniak's published formulation rules in an AI prompt.
-  "src/lib/ai/knowledgeFormulation.ts",
+// Empty by design: after the full SuperMemo scrub, NO user-facing string may
+// contain the word. Adding an entry requires a rationale comment and review —
+// factual attribution should name the author (e.g. "Wozniak's 20 rules"),
+// never the third-party product.
+const ALLOWED_FILES = new Set<string>([
   // This test's own fixtures/wording.
   "src/__tests__/schedulerNaming.test.ts",
 ]);
