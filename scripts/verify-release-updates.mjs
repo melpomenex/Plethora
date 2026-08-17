@@ -16,7 +16,7 @@
  *
  * Usage:
  *   GITHUB_TOKEN=… node scripts/verify-release-updates.mjs \
- *     --repo melpomenex/Incrementum --tag v2.6.2 \
+ *     --repo melpomenex/Plethora --tag v2.6.2 \
  *     [--pubkey-config src-tauri/tauri.conf.json]
  *
  * Exit codes: 0 all platforms verified; 1 any failure; 2 usage error.

@@ -152,3 +152,7 @@ scratch/
 # gauntlet diagnostics (temporary)
 debug/
 gauntlet-progress.html
+
+# Plethora updater minisign keypair (private key never committed; see
+# docs/legacy/updater-key-rotation.md)
+src-tauri/keys/

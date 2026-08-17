@@ -89,9 +89,9 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://github.com/melpomenex/incrementum-tauri/releases/latest/download/latest.json"
+        "https://github.com/melpomenex/Plethora/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZCM0Q0ODk0NDY4NjE0M0MKUldROEZJWkdsRWc5YTBDUU5VRlY2TEpWejR3cy9DZm9MVDh3eloxKy9XWmY5RUhlR0NoOFpINzEK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXkgRjFGMjQ0MEJFNUMwRTlDNQpSV1RGNmNEbEMwVHk4V3ppZVJhcmROYlJIZ09Gc1ExK05WTGZIRXBuV1BCTjdtcmFZTjV4QTJERwo=",
       "dialog": false,
       "windows": {
         "installMode": "passive"

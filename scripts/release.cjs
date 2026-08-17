@@ -106,7 +106,7 @@ const cargoLockPath = path.join(rootDir, 'src-tauri', 'Cargo.lock');
 if (fs.existsSync(cargoLockPath)) {
   let cargoLock = fs.readFileSync(cargoLockPath, 'utf8');
   const pkgBlock = new RegExp(
-    '(name = "incrementum-tauri"\\n)version = "' + currentVersion.replace(/\./g, '\\.') + '"'
+    '(name = "plethora-tauri"\\n)version = "' + currentVersion.replace(/\./g, '\\.') + '"'
   );
   if (pkgBlock.test(cargoLock)) {
     cargoLock = cargoLock.replace(pkgBlock, `$1version = "${newVersion}"`);
