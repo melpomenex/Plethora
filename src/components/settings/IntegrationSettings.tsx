@@ -1313,26 +1313,34 @@ function ApiTokensIntegrationPanel() {
   const [newWebhookSecret, setNewWebhookSecret] = useState<string | null>(null);
   const toast = useToast();
 
-  const handleCreateToken = () => {
+  const handleCreateToken = async () => {
     if (!tokenName.trim()) {
-      toast.show("Please enter a token name", "warning");
+      toast.warning("Please enter a token name");
       return;
     }
-    const token = createToken(tokenName.trim(), selectedScopes);
-    setNewlyCreatedSecret(token.secretToken || null);
-    setTokenName("");
-    toast.show("API Bearer Token created successfully", "success");
+    try {
+      const token = await createToken(tokenName.trim(), selectedScopes);
+      setNewlyCreatedSecret(token.secretToken || null);
+      setTokenName("");
+      toast.success("API Bearer Token created successfully");
+    } catch (err) {
+      toast.error("Token creation failed", err instanceof Error ? err.message : String(err));
+    }
   };
 
-  const handleRegisterWebhook = () => {
+  const handleRegisterWebhook = async () => {
     if (!webhookUrl.trim() || !webhookUrl.startsWith("http")) {
-      toast.show("Please enter a valid HTTP/HTTPS webhook URL", "warning");
+      toast.warning("Please enter a valid HTTP/HTTPS webhook URL");
       return;
     }
-    const wh = registerWebhook(webhookUrl.trim(), webhookEvents);
-    setNewWebhookSecret(wh.secret);
-    setWebhookUrl("");
-    toast.show("Webhook registered with HMAC secret", "success");
+    try {
+      const wh = await registerWebhook(webhookUrl.trim(), webhookEvents);
+      setNewWebhookSecret(wh.secret);
+      setWebhookUrl("");
+      toast.success("Webhook registered with HMAC secret");
+    } catch (err) {
+      toast.error("Webhook registration failed", err instanceof Error ? err.message : String(err));
+    }
   };
 
   const availableScopes = [
@@ -1422,7 +1430,7 @@ function ApiTokensIntegrationPanel() {
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(newlyCreatedSecret);
-                  toast.show("Secret token copied to clipboard", "success");
+                  toast.success("Secret token copied to clipboard");
                 }}
                 className="px-3 py-2 bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg text-xs font-medium"
               >
@@ -1447,7 +1455,7 @@ function ApiTokensIntegrationPanel() {
                     {token.name}
                   </p>
                   <p className="text-xs font-mono text-muted-foreground mt-0.5">
-                    {token.maskedToken} • Created {new Date(token.createdAt).toLocaleDateString()}
+                    {token.prefix}… • Created {new Date(token.createdAt).toLocaleDateString()}
                   </p>
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {token.scopes.map((s) => (
@@ -1460,8 +1468,9 @@ function ApiTokensIntegrationPanel() {
                 {!token.revokedAt && (
                   <button
                     onClick={() => {
-                      revokeToken(token.id);
-                      toast.show("Token revoked", "info");
+                      void revokeToken(token.id)
+                        .then(() => toast.info("Token revoked"))
+                        .catch((err: unknown) => toast.error("Revoke failed", err instanceof Error ? err.message : String(err)));
                     }}
                     className="px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                   >
@@ -1511,7 +1520,7 @@ function ApiTokensIntegrationPanel() {
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(newWebhookSecret);
-                  toast.show("HMAC Secret copied", "success");
+                  toast.success("HMAC Secret copied");
                 }}
                 className="px-3 py-2 bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg text-xs font-medium"
               >
@@ -1526,15 +1535,16 @@ function ApiTokensIntegrationPanel() {
             {webhooks.map((wh) => (
               <div key={wh.id} className="p-4 flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-mono text-foreground break-all">{wh.targetUrl}</p>
+                  <p className="text-sm font-mono text-foreground break-all">{wh.url}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Events: {wh.events.join(", ")} • Added {new Date(wh.createdAt).toLocaleDateString()}
                   </p>
                 </div>
                 <button
                   onClick={() => {
-                    deleteWebhook(wh.id);
-                    toast.show("Webhook removed", "info");
+                    void deleteWebhook(wh.id)
+                      .then(() => toast.info("Webhook removed"))
+                      .catch((err: unknown) => toast.error("Delete failed", err instanceof Error ? err.message : String(err)));
                   }}
                   className="px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                 >

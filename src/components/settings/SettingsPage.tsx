@@ -41,7 +41,8 @@ import { importWithRetry } from "../../utils/importWithRetry";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { isTauri } from "../../lib/tauri";
 import { checkForUpdates, setSkippedVersion, type UpdateInfo } from "../../utils/updateChecker";
-import { useSettingsStore, useTabsStore } from "../../stores";
+import { useAccountStore, useSettingsStore, useTabsStore } from "../../stores";
+import { PLETHORA_API_URL } from "../../config/product";
 import type { DefaultStartupView } from "../../stores/settingsStore";
 import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { loadGoogleFont } from "../../utils/fonts";
@@ -1480,8 +1481,8 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
   const handleExportData = async () => {
     setIsExporting(true);
     try {
-      const token = useAccountStore.getState().token;
-      const res = await fetch('http://localhost:3000/v1/auth/export', {
+      const token = useAccountStore.getState().tokens?.accessToken;
+      const res = await fetch(`${PLETHORA_API_URL}/v1/auth/export`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) {
@@ -1495,39 +1496,36 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
       a.download = `plethora-cloud-export-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.show('Cloud data exported successfully', 'success');
+      toast.success('Cloud data exported successfully');
     } catch {
-      toast.show('Export downloaded from local library state', 'info');
+      toast.info('Export unavailable — sign in and connect to Plethora cloud to export your account data');
     } finally {
       setIsExporting(false);
     }
   };
 
-  const handleDeleteAccount = () => {
-    modal.confirm({
-      title: 'Delete Account & Erase Cloud Data?',
-      description: 'This will permanently wipe all cloud data (synced items, web captures, devices, API tokens) across all servers. Your local on-device files will remain safe.',
-      confirmText: 'Delete Everything Permanently',
-      cancelText: 'Cancel',
-      isDestructive: true,
-      onConfirm: async () => {
-        setIsDeleting(true);
-        try {
-          const token = useAccountStore.getState().token;
-          await fetch('http://localhost:3000/v1/auth/account', {
-            method: 'DELETE',
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          });
-          await signOut();
-          toast.show('Account and cloud data permanently deleted', 'success');
-        } catch {
-          await signOut();
-          toast.show('Account signed out and local session cleared', 'info');
-        } finally {
-          setIsDeleting(false);
-        }
-      },
-    });
+  const handleDeleteAccount = async () => {
+    const confirmed = await modal.confirm(
+      'This will permanently wipe all cloud data (synced items, web captures, devices, API tokens) across all servers. Your local on-device files will remain safe.',
+      'Delete Account & Erase Cloud Data?',
+      { confirmText: 'Delete Everything Permanently', cancelText: 'Cancel', variant: 'danger' }
+    );
+    if (!confirmed) return;
+    setIsDeleting(true);
+    try {
+      const token = useAccountStore.getState().tokens?.accessToken;
+      await fetch(`${PLETHORA_API_URL}/v1/auth/account`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      await signOut();
+      toast.success('Account and cloud data permanently deleted');
+    } catch {
+      await signOut();
+      toast.info('Account signed out and local session cleared');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
