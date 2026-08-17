@@ -12,6 +12,7 @@ import {
   nearestPerchSpot,
   randomOtherSpot,
   SNAP_RADIUS,
+  discoverPerchSpots,
   spotsAlongEdge,
 } from "../perches";
 
@@ -37,10 +38,10 @@ describe("perch spots", () => {
     expect(spots.length).toBeLessThan(3);
   });
 
-  it("floor spot sits at the bottom inset", () => {
-    const floor = floorSpot(viewport, 16);
-    expect(floor.y).toBe(784);
-    expect(floor.kind).toBe("floor");
+  it("floor spot puts the feet right at the viewport bottom", () => {
+    expect(floorSpot(viewport).y).toBe(796);
+    expect(floorSpot(viewport, 16).y).toBe(784);
+    expect(floorSpot(viewport).kind).toBe("floor");
   });
 });
 
@@ -66,7 +67,7 @@ describe("nearest perch and drop outcomes", () => {
     const outcome = chooseDropOutcome({ x: 400, y: 500 }, spots, viewport);
     expect(outcome.kind).toBe("fall");
     if (outcome.kind === "fall") {
-      expect(outcome.floorY).toBe(viewport.height - 16);
+      expect(outcome.floorY).toBe(viewport.height - 6);
       expect(outcome.thenFlyTo?.id).toBe("b");
     }
   });
@@ -112,5 +113,53 @@ describe("flight math", () => {
     expect(short).toBeGreaterThanOrEqual(500);
     expect(long).toBeLessThanOrEqual(1600);
     expect(long).toBeGreaterThan(short);
+  });
+});
+
+describe("button perch discovery", () => {
+  function mockRect(el: HTMLElement, rect: { x: number; y: number; w: number; h: number }) {
+    Object.defineProperty(el, "getBoundingClientRect", {
+      value: () => ({
+        left: rect.x,
+        top: rect.y,
+        right: rect.x + rect.w,
+        bottom: rect.y + rect.h,
+        width: rect.w,
+        height: rect.h,
+        x: rect.x,
+        y: rect.y,
+        toJSON: () => ({}),
+      }),
+    });
+    // jsdom has no layout — fake a non-null offset parent so the visibility
+    // check passes, mirroring a rendered element.
+    Object.defineProperty(el, "offsetParent", { value: document.body });
+  }
+
+  it("discovers text buttons like 'Open Document' as perch spots", () => {
+    document.body.innerHTML = "";
+    const openDoc = document.createElement("button");
+    openDoc.textContent = "Open Document";
+    mockRect(openDoc, { x: 200, y: 300, w: 160, h: 40 });
+    document.body.appendChild(openDoc);
+
+    const spots = discoverPerchSpots(viewport);
+    expect(spots.some((s) => s.kind === "button" && s.x > 200 && s.x < 360 && s.y === 300)).toBe(true);
+    // The floor is always available.
+    expect(spots.some((s) => s.kind === "floor")).toBe(true);
+  });
+
+  it("skips icon-only (too narrow) and off-screen buttons", () => {
+    document.body.innerHTML = "";
+    const tiny = document.createElement("button");
+    tiny.textContent = "×";
+    mockRect(tiny, { x: 50, y: 300, w: 28, h: 28 });
+    const offscreen = document.createElement("button");
+    offscreen.textContent = "Hidden";
+    mockRect(offscreen, { x: 50, y: 795, w: 120, h: 32 });
+    document.body.append(tiny, offscreen);
+
+    const spots = discoverPerchSpots(viewport);
+    expect(spots.some((s) => s.kind === "button")).toBe(false);
   });
 });
