@@ -87,6 +87,14 @@ export async function syncPrimaryProviderToNativeAI(
           ollama_base_url: provider.provider === 'ollama'
             ? (provider.baseUrl || 'http://localhost:11434').replace(/\/v1\/?$/, '')
             : 'http://localhost:11434',
+          // OpenAI-compatible custom endpoints (e.g. Inception Mercury) must
+          // reach the native Q&A/summarize/flashcard commands too, not just chat.
+          openai_base_url: provider.provider === 'openai' && provider.baseUrl?.trim()
+            ? provider.baseUrl.trim()
+            : 'https://api.openai.com/v1',
+          deepseek_base_url: provider.provider === 'deepseek' && provider.baseUrl?.trim()
+            ? provider.baseUrl.trim()
+            : 'https://api.deepseek.com/v1',
         },
       },
     });

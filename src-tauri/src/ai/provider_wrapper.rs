@@ -106,9 +106,10 @@ impl AIProvider {
                     .as_ref()
                     .ok_or("OpenAI API key not set")?
                     .clone();
-                Ok(AIProvider::OpenAI(OpenAIProvider::new(
+                Ok(AIProvider::OpenAI(OpenAIProvider::with_base_url(
                     api_key,
                     models.openai_model.clone(),
+                    local_settings.openai_base_url.clone(),
                 )))
             }
             LLMProviderType::Anthropic => {
@@ -146,7 +147,7 @@ impl AIProvider {
                 Ok(AIProvider::DeepSeek(OpenAIProvider::with_base_url(
                     api_key,
                     models.deepseek_model.clone(),
-                    "https://api.deepseek.com/v1".to_string(),
+                    local_settings.deepseek_base_url.clone(),
                 )))
             }
         }
@@ -182,6 +183,23 @@ pub struct ModelPreferences {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalSettings {
     pub ollama_base_url: String,
+    /// OpenAI-compatible endpoint for the OpenAI provider slot. The provider
+    /// registry syncs custom endpoints here (e.g. Inception Mercury), so
+    /// native Q&A/summarize/flashcards reach the same backend as chat.
+    #[serde(default = "default_openai_base_url")]
+    pub openai_base_url: String,
+    /// OpenAI-compatible endpoint for the DeepSeek provider slot (editable in
+    /// the provider registry).
+    #[serde(default = "default_deepseek_base_url")]
+    pub deepseek_base_url: String,
+}
+
+fn default_openai_base_url() -> String {
+    "https://api.openai.com/v1".to_string()
+}
+
+fn default_deepseek_base_url() -> String {
+    "https://api.deepseek.com/v1".to_string()
 }
 
 impl Default for ModelPreferences {
@@ -200,6 +218,8 @@ impl Default for LocalSettings {
     fn default() -> Self {
         Self {
             ollama_base_url: "http://localhost:11434".to_string(),
+            openai_base_url: default_openai_base_url(),
+            deepseek_base_url: default_deepseek_base_url(),
         }
     }
 }
