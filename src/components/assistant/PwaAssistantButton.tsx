@@ -85,7 +85,7 @@ function requestMicPermissionInGesture(setError: (msg: string) => void) {
       if (name === "NotAllowedError" || name === "SecurityError") {
         setError(
           isNativeMobile()
-            ? "Microphone permission was denied. Allow microphone access for this app in Android Settings → Apps → Incrementum → Permissions, then try again."
+            ? "Microphone permission was denied. Allow microphone access for this app in Android Settings → Apps → Plethora → Permissions, then try again."
             : "Microphone permission is blocked. Allow microphone access for this site in your browser settings, then try again."
         );
       } else if (name === "NotFoundError" || name === "OverconstrainedError") {
@@ -220,7 +220,7 @@ export function PwaAssistantButton({
       if (msg === "not-allowed" || msg === "service-not-allowed") {
         setError(
           isNativeMobile()
-            ? "Voice permission was denied. Allow microphone access for this app in Android Settings → Apps → Incrementum → Permissions, then try again. You can still type your question below."
+            ? "Voice permission was denied. Allow microphone access for this app in Android Settings → Apps → Plethora → Permissions, then try again. You can still type your question below."
             : "Voice permission is blocked (not-allowed). Enable microphone permission for this site in your browser settings, then try again. You can still type your question below."
         );
       } else if (msg === "no-speech") {

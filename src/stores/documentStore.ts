@@ -1261,7 +1261,7 @@ if (isTauri()) {
 
       useToastStore.getState().addToast({
         type: ToastType.Success,
-        title: "Page saved to Incrementum",
+        title: "Page saved to Plethora",
         message: title || undefined,
       });
 
