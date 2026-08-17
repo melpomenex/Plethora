@@ -338,3 +338,56 @@ authRouter.post('/devices/:id/revoke', authMiddleware, async (req: AuthRequest, 
     next(err);
   }
 });
+
+// DELETE /v1/auth/account (Proposal 22 - Cascading Account Deletion)
+authRouter.delete('/account', authMiddleware, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const pool = getPool();
+    const userId = req.userId;
+
+    // Delete in sequence or rely on cascade
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM devices WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM api_tokens WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM webhooks WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM inbox_items WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM sync_records WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM usage_records WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM capability_grants WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM quota_state WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM purchases WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM jobs WHERE user_id = $1', [userId]);
+    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+
+    res.json({ success: true, message: 'Account and associated cloud data deleted completely.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /v1/auth/export (Proposal 22 - Portability & Cloud Data Export)
+authRouter.get('/export', authMiddleware, async (req: AuthRequest, res: Response, next) => {
+  try {
+    const pool = getPool();
+    const userId = req.userId;
+
+    const userRes = await pool.query('SELECT id, email, subscription_tier, created_at FROM users WHERE id = $1', [userId]);
+    const devicesRes = await pool.query('SELECT id, device_name, platform, created_at FROM devices WHERE user_id = $1', [userId]);
+    const inboxRes = await pool.query('SELECT id, url, title, status, created_at FROM inbox_items WHERE user_id = $1', [userId]);
+    const tokensRes = await pool.query('SELECT id, name, prefix, scopes, created_at FROM api_tokens WHERE user_id = $1', [userId]);
+    const webhooksRes = await pool.query('SELECT id, url, events, created_at FROM webhooks WHERE user_id = $1', [userId]);
+
+    res.json({
+      exportVersion: '1.0',
+      exportedAt: new Date().toISOString(),
+      user: userRes.rows[0] || null,
+      devices: devicesRes.rows,
+      inboxItems: inboxRes.rows,
+      apiTokens: tokensRes.rows,
+      webhooks: webhooksRes.rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
