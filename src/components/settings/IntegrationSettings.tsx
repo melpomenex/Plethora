@@ -11,10 +11,12 @@ import {
   Globe,
   HardDrives,
   Info,
+  Key,
   Plug,
   Queue,
   Sparkle,
   Trash,
+
   Upload,
   WarningCircle,
   X,
@@ -54,15 +56,19 @@ import {
   type YouTubeCookie,
 } from "../../utils/youtubeCookies";
 import { useI18n } from "../../lib/i18n";
+import { useToast } from "../common/Toast";
+import { useApiTokensStore } from "../../stores/apiTokensStore";
 
 type IntegrationType =
   | "obsidian"
   | "anki"
   | "extension"
+  | "notebooklm"
   | "youtube"
   | "youtube-cookies"
   | "youtube-transcript"
-  | "notebooklm";
+  | "api-tokens";
+
 
 export function IntegrationSettings() {
   const { t } = useI18n();
@@ -496,6 +502,17 @@ export function IntegrationSettings() {
         >
           <YoutubeLogo className="w-4 h-4" />
           {t("integrations.youtubeTranscript") || "Transcript Server"}
+        </button>
+        <button
+          onClick={() => setActiveTab("api-tokens")}
+          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+            activeTab === "api-tokens"
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-secondary-foreground hover:opacity-90"
+          }`}
+        >
+          <Key className="w-4 h-4" />
+          API & Webhooks
         </button>
       </div>
 
@@ -1276,10 +1293,259 @@ export function IntegrationSettings() {
                 </div>
               )}
             </div>
-
           </div>
         </div>
       )}
+
+      {/* Public API Tokens & Webhooks Settings */}
+      {activeTab === "api-tokens" && <ApiTokensIntegrationPanel />}
     </div>
   );
 }
+
+function ApiTokensIntegrationPanel() {
+  const { tokens, webhooks, createToken, revokeToken, registerWebhook, deleteWebhook } = useApiTokensStore();
+  const [tokenName, setTokenName] = useState("");
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(["read:library", "write:inbox"]);
+  const [newlyCreatedSecret, setNewlyCreatedSecret] = useState<string | null>(null);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookEvents, setWebhookEvents] = useState<string[]>(["document.created", "item.reviewed"]);
+  const [newWebhookSecret, setNewWebhookSecret] = useState<string | null>(null);
+  const toast = useToast();
+
+  const handleCreateToken = () => {
+    if (!tokenName.trim()) {
+      toast.show("Please enter a token name", "warning");
+      return;
+    }
+    const token = createToken(tokenName.trim(), selectedScopes);
+    setNewlyCreatedSecret(token.secretToken || null);
+    setTokenName("");
+    toast.show("API Bearer Token created successfully", "success");
+  };
+
+  const handleRegisterWebhook = () => {
+    if (!webhookUrl.trim() || !webhookUrl.startsWith("http")) {
+      toast.show("Please enter a valid HTTP/HTTPS webhook URL", "warning");
+      return;
+    }
+    const wh = registerWebhook(webhookUrl.trim(), webhookEvents);
+    setNewWebhookSecret(wh.secret);
+    setWebhookUrl("");
+    toast.show("Webhook registered with HMAC secret", "success");
+  };
+
+  const availableScopes = [
+    { id: "read:library", label: "Read Library Documents" },
+    { id: "write:inbox", label: "Write to Remote Inbox" },
+    { id: "read:notes", label: "Read Annotations & Notes" },
+    { id: "write:cards", label: "Create & Update Flashcards" },
+    { id: "admin:webhooks", label: "Manage Webhook Subscriptions" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Overview Card */}
+      <div className="p-6 bg-card border rounded-lg space-y-2">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+            <Key className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Pro Public API & Webhooks</h3>
+            <p className="text-sm text-muted-foreground">Automate document ingest, capture flows, and sync with custom scripts</p>
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground pt-2">
+          Use scoped Bearer tokens to connect Raycast, Obsidian, iOS Shortcuts, or CLI scripts directly to your Plethora workspace.
+        </p>
+      </div>
+
+      {/* Token Generator */}
+      <div className="p-6 bg-card border rounded-lg space-y-4">
+        <h4 className="text-base font-semibold text-foreground">Generate Scoped API Token</h4>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Token Name / Client Description</label>
+            <input
+              type="text"
+              value={tokenName}
+              onChange={(e) => setTokenName(e.target.value)}
+              placeholder="e.g., Raycast Extension, Obsidian Ingest Script"
+              className="w-full px-3 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-2">Granted Scopes</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {availableScopes.map((scope) => (
+                <label key={scope.id} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedScopes.includes(scope.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedScopes([...selectedScopes, scope.id]);
+                      } else {
+                        setSelectedScopes(selectedScopes.filter((s) => s !== scope.id));
+                      }
+                    }}
+                    className="rounded border-border"
+                  />
+                  <span>{scope.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={handleCreateToken}
+            className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg text-sm font-medium transition-colors"
+          >
+            Generate Token
+          </button>
+        </div>
+
+        {newlyCreatedSecret && (
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg space-y-2">
+            <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              Secret Token (Copy now — this will not be shown again):
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={newlyCreatedSecret}
+                className="flex-1 font-mono text-xs px-3 py-2 bg-background border rounded-lg text-foreground select-all"
+              />
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(newlyCreatedSecret);
+                  toast.show("Secret token copied to clipboard", "success");
+                }}
+                className="px-3 py-2 bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg text-xs font-medium"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Active Tokens Table */}
+      <div className="p-6 bg-card border rounded-lg space-y-4">
+        <h4 className="text-base font-semibold text-foreground">Active Tokens ({tokens.filter((t) => !t.revokedAt).length})</h4>
+        {tokens.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No API tokens created yet.</p>
+        ) : (
+          <div className="divide-y border rounded-lg overflow-hidden">
+            {tokens.map((token) => (
+              <div key={token.id} className="p-4 flex items-center justify-between gap-4">
+                <div>
+                  <p className={`text-sm font-medium ${token.revokedAt ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                    {token.name}
+                  </p>
+                  <p className="text-xs font-mono text-muted-foreground mt-0.5">
+                    {token.maskedToken} • Created {new Date(token.createdAt).toLocaleDateString()}
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {token.scopes.map((s) => (
+                      <span key={s} className="px-1.5 py-0.5 bg-muted text-muted-foreground rounded text-[10px] font-mono">
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                {!token.revokedAt && (
+                  <button
+                    onClick={() => {
+                      revokeToken(token.id);
+                      toast.show("Token revoked", "info");
+                    }}
+                    className="px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Webhook Registration */}
+      <div className="p-6 bg-card border rounded-lg space-y-4">
+        <h4 className="text-base font-semibold text-foreground">Webhook Subscriptions</h4>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Webhook Endpoint URL</label>
+            <input
+              type="text"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="https://your-server.com/api/plethora-webhook"
+              className="w-full px-3 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          <button
+            onClick={handleRegisterWebhook}
+            className="px-4 py-2 bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg text-sm font-medium transition-colors"
+          >
+            Register Webhook
+          </button>
+        </div>
+
+        {newWebhookSecret && (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg space-y-2">
+            <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+              Webhook HMAC Secret for Signature Verification:
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={newWebhookSecret}
+                className="flex-1 font-mono text-xs px-3 py-2 bg-background border rounded-lg text-foreground select-all"
+              />
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(newWebhookSecret);
+                  toast.show("HMAC Secret copied", "success");
+                }}
+                className="px-3 py-2 bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg text-xs font-medium"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        )}
+
+        {webhooks.length > 0 && (
+          <div className="divide-y border rounded-lg overflow-hidden mt-4">
+            {webhooks.map((wh) => (
+              <div key={wh.id} className="p-4 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-mono text-foreground break-all">{wh.targetUrl}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Events: {wh.events.join(", ")} • Added {new Date(wh.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    deleteWebhook(wh.id);
+                    toast.show("Webhook removed", "info");
+                  }}
+                  className="px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
