@@ -5745,4 +5745,30 @@ export const de: Dict = {
   "aiOcclusion.cardLabels": "verdeckt {count} Beschriftung(en)",
   "aiOcclusion.rejectedLabels": "{count} von der KI abgelehnte Beschriftung(en)",
 
+  // AI Diagnostics
+  "aiDiagnostics.title": "KI-Diagnose & Hardware-Funktionen",
+  "aiDiagnostics.button": "KI-Diagnose",
+  "aiDiagnostics.hardwareCapabilities": "On-Device-Hardwarefunktionen",
+  "aiDiagnostics.active": "Aktiv",
+  "aiDiagnostics.unavailable": "Nicht verfügbar",
+  "aiDiagnostics.ready": "Bereit (Auf Datenträger)",
+  "aiDiagnostics.notDownloaded": "Nicht heruntergeladen",
+  "aiDiagnostics.compiled": "Kompiliert",
+  "aiDiagnostics.querying": "On-Device-ML-Kit- / LiteRT-Funktionen werden abgefragt…",
+  "aiDiagnostics.desktopEnv": "Desktop- / Browser-Umgebung — konfigurierte Cloud- / Endpunkt-Anbieter werden verwendet.",
+  "aiDiagnostics.recentLogs": "Protokolle der letzten Aufgabenausführungen ({count})",
+  "aiDiagnostics.clearLogs": "Protokolle löschen",
+  "aiDiagnostics.noTasks": "In dieser Sitzung wurden bisher keine KI-Aufgaben ausgeführt.",
+  "aiDiagnostics.provider": "Anbieter",
+  "aiDiagnostics.class": "Klasse",
+  "aiDiagnostics.latency": "Latenz",
+  "aiDiagnostics.validation": "Validierung",
+  "aiDiagnostics.fallback": "Fallback",
+  "aiDiagnostics.error": "Fehler",
+
+  // Item details & AI library additions
+  "itemDetails.invalidModifier": "Ungültiger Wert",
+  "itemDetails.modifierSaved": "Intervall-Modifikator gespeichert",
+  "itemDetails.modifierSaveFailed": "Fehler beim Speichern des Intervall-Modifikators",
+  "aiLibrary.indexNoDocuments": "Keine Dokumente in der Indexwarteschlange oder im Indexstatus.",
 };

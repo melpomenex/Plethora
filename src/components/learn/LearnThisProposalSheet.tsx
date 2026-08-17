@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowsClockwise, Check, PencilSimple, Warning } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowsClockwise, Check, CircleNotch, PencilSimple, Warning } from "@phosphor-icons/react";
 import { MobileContextMenuSheet } from "../common/MobileContextMenuSheet";
 import { useI18n } from "../../lib/i18n";
 import { AIError } from "../../lib/ai/errors";
@@ -130,6 +130,7 @@ export function LearnThisProposalSheet({
   const [createdCount, setCreatedCount] = useState(0);
 
   const sourcePassage = (passage || text).trim();
+  const startedRef = useRef(false);
 
   /** Static-proposal path: seed rows from pre-validated candidates. */
   const seedStatic = useCallback(
@@ -202,14 +203,21 @@ export function LearnThisProposalSheet({
   // Closing aborts whatever is in flight; a cancelled request never creates
   // anything (spec: "Proposal timeout or failure creates nothing").
   useEffect(() => {
-    if (open) {
-      if (staticCandidates && staticCandidates.length > 0) {
-        seedStatic(staticCandidates);
-      } else {
-        generate();
-      }
+    if (!open) {
+      startedRef.current = false;
+      abortRef.current?.abort();
+      abortRef.current = null;
+      return;
     }
-    return () => abortRef.current?.abort();
+
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    if (staticCandidates && staticCandidates.length > 0) {
+      seedStatic(staticCandidates);
+    } else {
+      generate();
+    }
   }, [open, generate, seedStatic, staticCandidates]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -269,15 +277,21 @@ export function LearnThisProposalSheet({
     >
       <div data-learn-this-sheet="true" className="max-h-[70vh] overflow-y-auto px-4 pb-4 space-y-3">
         {phase === "running" && (
-          <p className="py-6 text-center text-[15px] text-muted-foreground">
-            {t("aiLearning.running")}
-          </p>
+          <div className="py-8 text-center space-y-3">
+            <CircleNotch className="w-6 h-6 animate-spin text-primary mx-auto" aria-hidden="true" />
+            <p className="text-[15px] font-medium text-foreground">
+              {t("aiLearning.running")}
+            </p>
+          </div>
         )}
 
         {phase === "creating" && (
-          <p className="py-6 text-center text-[15px] text-muted-foreground">
-            {t("aiLearning.creating")}
-          </p>
+          <div className="py-8 text-center space-y-3">
+            <CircleNotch className="w-6 h-6 animate-spin text-primary mx-auto" aria-hidden="true" />
+            <p className="text-[15px] font-medium text-foreground">
+              {t("aiLearning.creating")}
+            </p>
+          </div>
         )}
 
         {phase === "error" && (

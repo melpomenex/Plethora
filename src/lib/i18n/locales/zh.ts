@@ -5564,4 +5564,30 @@ export const zh: Dict = {
   "aiOcclusion.cardLabels": "遮住 {count} 个标注",
   "aiOcclusion.rejectedLabels": "{count} 个标注被 AI 拒绝",
 
+  // AI Diagnostics
+  "aiDiagnostics.title": "AI 诊断与硬件功能",
+  "aiDiagnostics.button": "AI 诊断",
+  "aiDiagnostics.hardwareCapabilities": "端侧硬件功能",
+  "aiDiagnostics.active": "已激活",
+  "aiDiagnostics.unavailable": "不可用",
+  "aiDiagnostics.ready": "就绪（已下载到磁盘）",
+  "aiDiagnostics.notDownloaded": "未下载",
+  "aiDiagnostics.compiled": "已编译",
+  "aiDiagnostics.querying": "正在查询端侧 ML Kit / LiteRT 功能…",
+  "aiDiagnostics.desktopEnv": "桌面 / 浏览器环境 — 使用配置的云端 / 接口提供商。",
+  "aiDiagnostics.recentLogs": "最近的任务执行日志 ({count})",
+  "aiDiagnostics.clearLogs": "清除日志",
+  "aiDiagnostics.noTasks": "此会话中尚未执行任何 AI 任务。",
+  "aiDiagnostics.provider": "提供商",
+  "aiDiagnostics.class": "类别",
+  "aiDiagnostics.latency": "延迟",
+  "aiDiagnostics.validation": "验证",
+  "aiDiagnostics.fallback": "回退",
+  "aiDiagnostics.error": "错误",
+
+  // Item details & AI library additions
+  "itemDetails.invalidModifier": "无效值",
+  "itemDetails.modifierSaved": "间隔修正系数已保存",
+  "itemDetails.modifierSaveFailed": "保存间隔修正系数失败",
+  "aiLibrary.indexNoDocuments": "索引队列或状态中没有文档。",
 };

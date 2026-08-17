@@ -5739,4 +5739,30 @@ export const es: Dict = {
   "aiOcclusion.cardLabels": "oculta {count} etiqueta(s)",
   "aiOcclusion.rejectedLabels": "{count} etiqueta(s) rechazada(s) por la IA",
 
+  // AI Diagnostics
+  "aiDiagnostics.title": "Diagnóstico de IA y capacidades de hardware",
+  "aiDiagnostics.button": "Diagnóstico de IA",
+  "aiDiagnostics.hardwareCapabilities": "Capacidades de hardware en el dispositivo",
+  "aiDiagnostics.active": "Activo",
+  "aiDiagnostics.unavailable": "No disponible",
+  "aiDiagnostics.ready": "Listo (en disco)",
+  "aiDiagnostics.notDownloaded": "No descargado",
+  "aiDiagnostics.compiled": "Compilado",
+  "aiDiagnostics.querying": "Consultando capacidades de ML Kit / LiteRT en el dispositivo…",
+  "aiDiagnostics.desktopEnv": "Entorno de escritorio / navegador: uso de proveedores en la nube / punto de conexión configurados.",
+  "aiDiagnostics.recentLogs": "Registros de ejecución de tareas recientes ({count})",
+  "aiDiagnostics.clearLogs": "Borrar registros",
+  "aiDiagnostics.noTasks": "Aún no se han ejecutado tareas de IA en esta sesión.",
+  "aiDiagnostics.provider": "Proveedor",
+  "aiDiagnostics.class": "Clase",
+  "aiDiagnostics.latency": "Latencia",
+  "aiDiagnostics.validation": "Validación",
+  "aiDiagnostics.fallback": "Alternativa",
+  "aiDiagnostics.error": "Error",
+
+  // Item details & AI library additions
+  "itemDetails.invalidModifier": "Valor no válido",
+  "itemDetails.modifierSaved": "Modificador de intervalo guardado",
+  "itemDetails.modifierSaveFailed": "Error al guardar el modificador de intervalo",
+  "aiLibrary.indexNoDocuments": "No hay documentos en la cola de índice ni en el estado.",
 };

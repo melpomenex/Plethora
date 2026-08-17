@@ -272,7 +272,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
               onClick={() => setShowDiagnostics(true)}
               className="px-3 py-1.5 bg-muted text-foreground border border-border rounded-lg text-xs font-medium hover:bg-muted/80 transition-colors"
             >
-              AI Diagnostics
+              {t("aiDiagnostics.button")}
             </button>
           </div>
         </SettingsRow>
