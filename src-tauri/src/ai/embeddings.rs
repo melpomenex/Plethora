@@ -668,8 +668,8 @@ impl EmbeddingProvider for OpenRouterEmbeddingProvider {
             .client
             .post(url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("HTTP-Referer", "https://incrementum.app")
-            .header("X-Title", "Incrementum")
+            .header("HTTP-Referer", "https://plethora.app")
+            .header("X-Title", "Plethora")
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -723,8 +723,8 @@ impl EmbeddingProvider for OpenRouterEmbeddingProvider {
             .client
             .post(url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("HTTP-Referer", "https://incrementum.app")
-            .header("X-Title", "Incrementum")
+            .header("HTTP-Referer", "https://plethora.app")
+            .header("X-Title", "Plethora")
             .header("Content-Type", "application/json")
             .json(&body)
             .send()

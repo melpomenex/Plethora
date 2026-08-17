@@ -3434,8 +3434,8 @@ const commandHandlers: Record<string, CommandHandler> = {
 
         // Add OpenRouter-specific headers
         if (provider === 'openrouter') {
-            headers['HTTP-Referer'] = 'https://incrementum.app';
-            headers['X-Title'] = 'Incrementum';
+            headers['HTTP-Referer'] = 'https://plethora.app';
+            headers['X-Title'] = 'Plethora';
         }
 
         const response = await fetch(`${config.url}/chat/completions`, {
@@ -3673,8 +3673,8 @@ const commandHandlers: Record<string, CommandHandler> = {
                 const response = await fetch(`${url}/models`, {
                     headers: {
                         'Authorization': `Bearer ${apiKey}`,
-                        'HTTP-Referer': 'https://incrementum.app',
-                        'X-Title': 'Incrementum',
+                        'HTTP-Referer': 'https://plethora.app',
+                        'X-Title': 'Plethora',
                     },
                 });
 
