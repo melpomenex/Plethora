@@ -103,7 +103,7 @@ function TabBarImpl({
       }
     };
 
-    const payload = read("application/x-incrementum-tab") ?? read("text/plain");
+    const payload = read("application/x-plethora-tab") ?? read("text/plain");
     if (!payload?.tabId || !payload.sourcePaneId) return null;
     return payload as { tabId: string; sourcePaneId: string; sourceIndex?: number };
   };
@@ -194,7 +194,7 @@ function TabBarImpl({
     
     e.dataTransfer.setDragImage(ghost, rect.width / 2, 20);
     e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("application/x-incrementum-tab", JSON.stringify({
+    e.dataTransfer.setData("application/x-plethora-tab", JSON.stringify({
       tabId,
       sourcePaneId: paneId,
       sourceIndex: index,

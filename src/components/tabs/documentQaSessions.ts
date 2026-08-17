@@ -32,7 +32,7 @@ export const STORAGE_KEYS = {
  * persisted value is wrapped by zustand as `{ state: { messages }, version }`.
  */
 export const LEGACY_STORAGE_KEYS = {
-  state: "incrementum-document-qa",
+  state: "plethora-document-qa",
 } as const;
 
 export const MAX_SESSIONS = 50;

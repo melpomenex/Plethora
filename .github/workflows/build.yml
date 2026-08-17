@@ -550,7 +550,7 @@ jobs:
           mkdir -p arch-pkg
 
           # Copy built artifacts for the PKGBUILD to install
-          cp src-tauri/target/release/incrementum-tauri arch-pkg/incrementum-tauri
+          cp src-tauri/target/release/plethora-tauri arch-pkg/plethora-tauri
           cp src-tauri/icons/128x128.png arch-pkg/128x128.png
           cp src-tauri/plethora.desktop arch-pkg/plethora.desktop 2>/dev/null || true
 
@@ -561,16 +561,16 @@ jobs:
           pkgrel=1
           pkgdesc="Plethora - Spaced repetition and incremental reading for effective learning"
           arch=('x86_64')
-          url="https://github.com/melpomenex/incrementum-tauri"
+          url="https://github.com/melpomenex/Plethora"
           license=('MIT')
           depends=('webkit2gtk-4.1' 'gtk3' 'libappindicator-gtk3' 'librsvg' 'gcc-libs' 'glibc' 'zstd')
           optdepends=('notebooklm-py: NotebookLM integration for AI-powered flashcard generation'
                       'python-notebooklm: Alternative NotebookLM package')
-          source=("incrementum-tauri" "128x128.png" "plethora.desktop")
+          source=("plethora-tauri" "128x128.png" "plethora.desktop")
           sha256sums=('SKIP' 'SKIP' 'SKIP')
 
           package() {
-            install -Dm755 "\$srcdir/incrementum-tauri" "\$pkgdir/usr/bin/plethora"
+            install -Dm755 "\$srcdir/plethora-tauri" "\$pkgdir/usr/bin/plethora"
             install -Dm644 "\$srcdir/128x128.png" "\$pkgdir/usr/share/icons/hicolor/128x128/apps/plethora.png"
             install -Dm644 "\$srcdir/plethora.desktop" "\$pkgdir/usr/share/applications/plethora.desktop" 2>/dev/null || true
           }

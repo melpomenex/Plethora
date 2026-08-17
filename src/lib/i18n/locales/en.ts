@@ -62,6 +62,22 @@ export const en: Dict = {
   "mainLayout.sharedLinkAdded": "Shared link added to your queue.",
   "mainLayout.open": "Open",
   "mainLayout.importFailed": "Import failed",
+  "mainLayout.legacyDataTitle": "Incrementum Data Found",
+  "mainLayout.legacyDataMigrate": "Copy my data",
+  "mainLayout.legacyDataDecline": "Start fresh",
+  "mainLayout.legacyDataPrompt":
+    "Plethora found an existing Incrementum library on this computer. Copy your documents, review history, themes, and API keys into Plethora now?",
+  "mainLayout.legacyDataLegacyKept":
+    "Your original Incrementum folder will not be modified. Choose OK to copy your data, or Cancel to start fresh.",
+  "mainLayout.legacyDataMigrating": "Migrating your data...",
+  "mainLayout.legacyDataMigratingDesc":
+    "Copying your Incrementum library into Plethora. The app will restart when it is done.",
+  "mainLayout.legacyDataFailed": "Migration Failed",
+  "mainLayout.legacyDataMigrated": "Migration Complete",
+  "mainLayout.legacyDataMigratedDesc":
+    "Your Incrementum data was copied to Plethora. The original folder is preserved at {path}.",
+  "mainLayout.legacyDataMigratedDescBackup":
+    "Your Incrementum data was copied to Plethora. The original folder is preserved at {path}; your earlier fresh Plethora database was kept as {backup}.",
   "tabs.continueReading": "Continue Reading",
   "tabs.review": "Review",
   "tabs.rssFeeds": "RSS Feeds",
@@ -3992,6 +4008,16 @@ export const en: Dict = {
   "integrations.attachmentsFolder": "Attachments Folder",
   "integrations.dataviewFolderOptional": "Dataview Folder (Optional)",
   "integrations.saveObsidianConfiguration": "Save Obsidian Configuration",
+  "integrations.migrateVaultIdsTitle": "Migrate Vault Note IDs",
+  "integrations.migrateVaultIdsDesc":
+    "Notes exported by Incrementum carry an incrementum-id frontmatter key. Plethora reads both keys, so this is optional — it rewrites your vault notes to use the new plethora-id key. Your notes are only modified after you confirm, and note bodies are preserved.",
+  "integrations.migrateVaultIdsButton": "Migrate vault ids",
+  "integrations.migrateVaultIdsNeedVault": "Set your Obsidian vault path first.",
+  "integrations.migrateVaultIdsConfirm":
+    "Rewrite incrementum-id/incrementum-type to plethora-id/plethora-type in the frontmatter of notes under {notes}? This modifies files in your vault (bodies are preserved).",
+  "integrations.migrateVaultIdsResult":
+    "Rewrote {rewritten} of {scanned} note(s).",
+  "integrations.migrateVaultIdsFailed": "Vault id migration failed",
   "integrations.aiConversationExport": "AI Conversation Export",
   "integrations.aiConversationExportDesc":
     "You can now export AI assistant conversations directly to your Obsidian vault. Look for the share button on assistant messages or in the conversation header.",

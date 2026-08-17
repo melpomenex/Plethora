@@ -165,7 +165,7 @@ pub async fn extract_epub_content(file_path: &str) -> Result<ExtractedContent> {
     let path = Path::new(file_path);
 
     let mut doc = EpubDoc::new(file_path).map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to open EPUB: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to open EPUB: {}", e))
     })?;
 
     let spine_items = doc.spine.clone();
@@ -240,7 +240,7 @@ pub async fn extract_epub_content(file_path: &str) -> Result<ExtractedContent> {
 /// Extract embedded cover image from an EPUB file as a data URL.
 pub async fn extract_epub_cover_data_url(file_path: &str) -> Result<Option<String>> {
     let mut doc = EpubDoc::new(file_path).map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to open EPUB: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to open EPUB: {}", e))
     })?;
 
     if let Some((cover_bytes, mime)) = doc.get_cover() {
@@ -257,17 +257,17 @@ pub async fn extract_epub_cover_data_url(file_path: &str) -> Result<Option<Strin
 /// Extract a specific chapter from an EPUB file
 pub async fn extract_epub_chapter(file_path: &str, chapter_num: usize) -> Result<EpubChapter> {
     let mut doc = EpubDoc::new(file_path).map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to open EPUB: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to open EPUB: {}", e))
     })?;
     if chapter_num == 0 || chapter_num > doc.spine.len() {
-        return Err(crate::error::IncrementumError::NotFound(format!(
+        return Err(crate::error::PlethoraError::NotFound(format!(
             "Chapter {} not found",
             chapter_num
         )));
     }
 
     let spine_item = doc.spine.get(chapter_num - 1).cloned().ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Chapter {} not found", chapter_num))
+        crate::error::PlethoraError::NotFound(format!("Chapter {} not found", chapter_num))
     })?;
 
     let content = doc
@@ -295,7 +295,7 @@ pub async fn extract_epub_chapter(file_path: &str, chapter_num: usize) -> Result
 /// Get the number of chapters in an EPUB file
 pub async fn get_epub_chapter_count(file_path: &str) -> Result<usize> {
     let doc = EpubDoc::new(file_path).map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to open EPUB: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to open EPUB: {}", e))
     })?;
 
     Ok(doc.spine.len())
@@ -304,7 +304,7 @@ pub async fn get_epub_chapter_count(file_path: &str) -> Result<usize> {
 /// Get the table of contents from an EPUB file
 pub async fn get_epub_toc(file_path: &str) -> Result<Vec<(String, usize)>> {
     let doc = EpubDoc::new(file_path).map_err(|e| {
-        crate::error::IncrementumError::NotFound(format!("Failed to open EPUB: {}", e))
+        crate::error::PlethoraError::NotFound(format!("Failed to open EPUB: {}", e))
     })?;
 
     let mut toc_entries = Vec::new();

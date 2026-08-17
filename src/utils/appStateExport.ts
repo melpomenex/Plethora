@@ -45,9 +45,15 @@ function isLikelyNotFoundError(error: unknown): boolean {
 export const APP_STATE_EXPORT_VERSION = 1;
 
 /**
- * File extension for Incrementum backup files
+ * File extension for legacy Incrementum backup files. Kept (and importable
+ * forever) so pre-rebrand backups keep working — see BRANDING.md.
  */
 export const INCREMENTUM_BACKUP_EXTENSION = ".incrementum";
+
+/**
+ * File extension for Plethora backup files (task 3.5).
+ */
+export const PLETHORA_BACKUP_EXTENSION = ".plethora";
 
 /**
  * Export metadata for identification
@@ -355,7 +361,7 @@ export async function exportAppState(options: ExportOptions): Promise<AppStateEx
   const exportData: AppStateExport = {
     metadata: {
       version: APP_STATE_EXPORT_VERSION,
-      app: "Incrementum",
+      app: "Plethora",
       exportedAt: new Date().toISOString(),
       label,
       includesFiles: includeFiles,
@@ -402,7 +408,7 @@ export function generateExportFilename(label?: string): string {
   const date = new Date().toISOString().split("T")[0];
   const time = new Date().toTimeString().split(":")[0];
   const labelPart = label ? `-${label.replace(/[^a-zA-Z0-9-_]/g, "_")}` : "";
-  return `incrementum-backup${labelPart}-${date}-${time}${INCREMENTUM_BACKUP_EXTENSION}`;
+  return `plethora-backup${labelPart}-${date}-${time}${PLETHORA_BACKUP_EXTENSION}`;
 }
 
 /**
@@ -425,14 +431,15 @@ export async function downloadExport(
     const savePath = await save({
       defaultPath: filename || generateExportFilename(exportData.metadata.label),
       filters: [
-        { name: "Incrementum Backup", extensions: ["json"] },
+        { name: "Plethora Backup", extensions: ["plethora"] },
+        { name: "Legacy Incrementum Backup", extensions: ["incrementum"] },
         { name: "All Files", extensions: ["*"] },
       ],
     });
 
     if (savePath) {
       // Add a header comment to identify the file
-      const fileContent = `// Incrementum Backup File v${APP_STATE_EXPORT_VERSION}\n// Exported: ${new Date().toISOString()}\n// WARNING: This file contains your personal data. Keep it secure.\n\n${json}`;
+      const fileContent = `// Plethora Backup File v${APP_STATE_EXPORT_VERSION}\n// Exported: ${new Date().toISOString()}\n// WARNING: This file contains your personal data. Keep it secure.\n\n${json}`;
       await writeTextFile(savePath, fileContent);
     }
   } else {

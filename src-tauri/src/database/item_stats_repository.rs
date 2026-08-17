@@ -14,7 +14,7 @@
 //! table is already the synced revlog and copying it would fork the truth.
 
 use crate::database::item_activity_repository::parse_stored_timestamp;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::item_stats::{
     median_seconds, retention_curve, IntervalPoint, ItemContentStats, ItemHistoryStats,
     ItemScheduleStats, ItemStatsDetail, ItemStatsEvent, ItemStatsSummary, ItemTimeStats, Metric,
@@ -801,8 +801,8 @@ impl ItemStatsRepository {
     }
 }
 
-fn map_err(what: &'static str) -> impl Fn(sqlx::Error) -> IncrementumError {
-    move |e| IncrementumError::Internal(format!("Failed to read {what}: {e}"))
+fn map_err(what: &'static str) -> impl Fn(sqlx::Error) -> PlethoraError {
+    move |e| PlethoraError::Internal(format!("Failed to read {what}: {e}"))
 }
 
 fn parse_tags(raw: Option<String>) -> Vec<String> {

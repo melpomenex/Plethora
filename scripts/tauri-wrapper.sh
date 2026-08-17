@@ -22,7 +22,7 @@ if [[ "$cmd" == "dev" ]]; then
   if [[ "$(uname -s)" == "Linux" ]]; then
     if [[ -z "${DISPLAY-}" && -z "${WAYLAND_DISPLAY-}" && -z "${MIR_SOCKET-}" ]]; then
       if command -v xvfb-run >/dev/null 2>&1; then
-        export INCREMENTUM_TAURI_XVFB=1
+        export PLETHORA_TAURI_XVFB=1
       else
         cat >&2 <<'EOF'
 No GUI session detected (DISPLAY/WAYLAND_DISPLAY unset).
@@ -44,10 +44,10 @@ EOF
 
   # Start Vite as a direct child of this script so the sandbox allows the bind.
   # If a dev server is already listening on the expected port, reuse it.
-  export INCREMENTUM_TAURI=1
+  export PLETHORA_TAURI=1
   # Avoid macOS Keychain prompts during dev; the app falls back to its encrypted
   # local credential store instead.
-  export INCREMENTUM_DISABLE_KEYCHAIN="${INCREMENTUM_DISABLE_KEYCHAIN:-1}"
+  export PLETHORA_DISABLE_KEYCHAIN="${PLETHORA_DISABLE_KEYCHAIN:-${INCREMENTUM_DISABLE_KEYCHAIN:-1}}"
 
   dev_server_ready() {
     if command -v curl >/dev/null 2>&1; then
@@ -120,7 +120,7 @@ EOF
   export CARGO_INCREMENTAL=0
   export CARGO_PROFILE_DEV_DEBUG=0
 
-  if [[ "${INCREMENTUM_TAURI_XVFB-}" == "1" ]]; then
+  if [[ "${PLETHORA_TAURI_XVFB-}" == "1" ]]; then
     # 24-bit color is required by some GTK/WebKit paths.
     xvfb-run -a -s "-screen 0 1280x720x24" tauri dev "$@"
   else

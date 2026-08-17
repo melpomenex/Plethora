@@ -1,13 +1,13 @@
 /**
  * Layout debug overlay (task 8.5): renders detected blocks, reading-order
  * numbers, kinds, roles, and confidence over a page. Enabled per document
- * via localStorage `incrementum.pdf.reflow.debug` — developer tooling, kept
+ * via localStorage `plethora.pdf.reflow.debug` — developer tooling, kept
  * out of the normal UI.
  */
 import type { PdfCanonicalPage } from "../../types/pdfCanonical";
 import { computeCropSourceRect } from "../../lib/pdf/cropGeometry";
 
-export const PDF_REFLOW_DEBUG_KEY = "incrementum.pdf.reflow.debug";
+export const PDF_REFLOW_DEBUG_KEY = "plethora.pdf.reflow.debug";
 
 export function isPdfReflowDebugEnabled(): boolean {
   if (typeof window === "undefined") return false;

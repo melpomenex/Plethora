@@ -20,7 +20,7 @@
 //! Follows the sub-repository pattern of `document_repository.rs` /
 //! `ai_provenance_repository.rs` (owns a `Pool<Sqlite>` clone).
 
-use crate::error::{IncrementumError as Error, Result};
+use crate::error::{PlethoraError as Error, Result};
 use sqlx::{Pool, Row, Sqlite};
 
 /// Canonical relation types (design D21 / ai-knowledge-relationships spec).

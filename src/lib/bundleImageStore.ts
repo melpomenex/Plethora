@@ -1,5 +1,5 @@
 
-const DB_NAME = 'incrementum-bundle-images';
+const DB_NAME = 'plethora-bundle-images';
 const DB_VERSION = 1;
 const STORE_NAME = 'images';
 

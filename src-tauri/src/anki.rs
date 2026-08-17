@@ -6,7 +6,7 @@
 //! - Actual media files
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::{ItemState, ItemType, LearningItem, MemoryState};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
@@ -139,10 +139,10 @@ fn cloze_text_to_anki(cloze_text: &str, cloze_ranges: &[(usize, usize)]) -> Opti
 /// Parse an .apkg file and extract deck data
 pub async fn parse_apkg(apkg_path: &str) -> Result<Vec<AnkiDeck>> {
     let file = File::open(apkg_path)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot open .apkg file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot open .apkg file: {}", e)))?;
 
     let mut archive = ZipArchive::new(file)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot unzip .apkg file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot unzip .apkg file: {}", e)))?;
 
     parse_apkg_from_archive(&mut archive)
 }
@@ -162,7 +162,7 @@ fn parse_apkg_from_archive<R: Read + Seek>(archive: &mut ZipArchive<R>) -> Resul
     }
 
     best_decks.ok_or_else(|| {
-        IncrementumError::NotFound(
+        PlethoraError::NotFound(
             "No valid collection.anki2 or collection.anki21 found in archive".to_string(),
         )
     })
@@ -247,7 +247,7 @@ fn parse_collection_from_archive<R: Read + Seek>(
 ) -> Result<Vec<AnkiDeck>> {
     let mut collection_file = archive
         .by_name(name)
-        .map_err(|e| IncrementumError::NotFound(format!("{} not found in archive: {}", name, e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("{} not found in archive: {}", name, e)))?;
 
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -259,12 +259,12 @@ fn parse_collection_from_archive<R: Read + Seek>(
         nanos
     ));
     let mut temp_file = File::create(&temp_db_path)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot create temp file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot create temp file: {}", e)))?;
 
     // Zip bomb protection
     const MAX_COLLECTION_SIZE: u64 = 500 * 1024 * 1024;
     if collection_file.size() > MAX_COLLECTION_SIZE {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "Collection file too large ({} bytes)",
             collection_file.size()
         )));
@@ -273,36 +273,36 @@ fn parse_collection_from_archive<R: Read + Seek>(
     let mut buffer = Vec::new();
     collection_file
         .read_to_end(&mut buffer)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot read collection: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot read collection: {}", e)))?;
     temp_file
         .write_all(&buffer)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot write temp file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot write temp file: {}", e)))?;
     drop(temp_file);
 
     // Open SQLite database
     let conn = Connection::open(&temp_db_path)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot open database: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot open database: {}", e)))?;
 
     // Extract models (note types)
     let mut models_stmt = conn
         .prepare("SELECT models FROM col")
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare models query: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot prepare models query: {}", e)))?;
     let models_json: String = models_stmt
         .query_row([], |row| row.get(0))
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot get models: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot get models: {}", e)))?;
 
     let mut decks_stmt = conn
         .prepare("SELECT decks FROM col")
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare decks query: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot prepare decks query: {}", e)))?;
     let decks_json: String = decks_stmt
         .query_row([], |row| row.get(0))
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot get decks: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot get decks: {}", e)))?;
 
     let decks_value: Value = serde_json::from_str(&decks_json)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot parse decks JSON: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot parse decks JSON: {}", e)))?;
 
     let models_value: Value = serde_json::from_str(&models_json)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot parse models JSON: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot parse models JSON: {}", e)))?;
 
     let mut anki_decks = Vec::new();
 
@@ -341,7 +341,7 @@ fn parse_collection_from_archive<R: Read + Seek>(
 pub async fn parse_apkg_from_bytes(apkg_bytes: Vec<u8>) -> Result<Vec<AnkiDeck>> {
     let cursor = Cursor::new(apkg_bytes);
     let mut archive = ZipArchive::new(cursor)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot unzip .apkg file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot unzip .apkg file: {}", e)))?;
 
     parse_apkg_from_archive(&mut archive)
 }
@@ -351,7 +351,7 @@ async fn parse_apkg_from_bytes_with_media(
 ) -> Result<(Vec<AnkiDeck>, HashMap<String, AnkiMediaFile>)> {
     let cursor = Cursor::new(apkg_bytes);
     let mut archive = ZipArchive::new(cursor)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot unzip .apkg file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot unzip .apkg file: {}", e)))?;
     parse_apkg_with_media_from_archive(&mut archive)
 }
 
@@ -365,7 +365,7 @@ fn extract_notes_from_deck(
     let mut stmt = conn.prepare(
         "SELECT id, guid, mid, tags, flds, mod FROM notes WHERE id IN (SELECT DISTINCT nid FROM cards WHERE did = ?1)"
     )
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare notes query: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot prepare notes query: {}", e)))?;
 
     let note_rows = stmt
         .query_map([deck_id], |row| {
@@ -378,11 +378,11 @@ fn extract_notes_from_deck(
                 row.get::<_, i64>(5)?,
             ))
         })
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot query notes: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot query notes: {}", e)))?;
 
     for note_row in note_rows {
         let (id, guid, mid, tags_str, fields_str, timestamp) = note_row
-            .map_err(|e| IncrementumError::NotFound(format!("Cannot parse note row: {}", e)))?;
+            .map_err(|e| PlethoraError::NotFound(format!("Cannot parse note row: {}", e)))?;
 
         // Skip notes that contain the upgrade error message
         // This happens when .apkg files are exported from older Anki versions
@@ -445,7 +445,7 @@ fn extract_cards_from_deck(conn: &Connection, deck_id: i64) -> Result<Vec<AnkiCa
         .prepare(
             "SELECT id, nid, ord, ivl, factor, due, data, reps, lapses FROM cards WHERE did = ?1",
         )
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare cards query: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot prepare cards query: {}", e)))?;
 
     let card_rows = stmt
         .query_map([deck_id], |row| {
@@ -461,11 +461,11 @@ fn extract_cards_from_deck(conn: &Connection, deck_id: i64) -> Result<Vec<AnkiCa
                 row.get::<_, i32>(8)?,
             ))
         })
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot query cards: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot query cards: {}", e)))?;
 
     for card_row in card_rows {
         let (id, note_id, ord, interval, factor, due, data, reps, lapses) = card_row
-            .map_err(|e| IncrementumError::NotFound(format!("Cannot parse card row: {}", e)))?;
+            .map_err(|e| PlethoraError::NotFound(format!("Cannot parse card row: {}", e)))?;
 
         cards.push(AnkiCard {
             id,
@@ -509,7 +509,7 @@ fn extract_revlog_from_deck(conn: &Connection, deck_id: i64) -> Result<Vec<AnkiR
               ORDER BY id";
     let mut stmt = conn
         .prepare(sql)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot prepare revlog query: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot prepare revlog query: {}", e)))?;
 
     let rows = stmt
         .query_map([deck_id], |row| {
@@ -524,11 +524,11 @@ fn extract_revlog_from_deck(conn: &Connection, deck_id: i64) -> Result<Vec<AnkiR
                 row.get::<_, i32>(7)?,
             ))
         })
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot query revlog: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot query revlog: {}", e)))?;
 
     for rev_row in rows {
         let (id, cid, ease, ivl, last_ivl, factor, time_ms, rev_type) = rev_row
-            .map_err(|e| IncrementumError::NotFound(format!("Cannot parse revlog row: {}", e)))?;
+            .map_err(|e| PlethoraError::NotFound(format!("Cannot parse revlog row: {}", e)))?;
 
         // The revlog id is a millisecond timestamp
         revlog.push(AnkiRevLogEntry {
@@ -757,7 +757,7 @@ async fn persist_media_image_asset(
     let mime_type = normalize_image_mime(&media.mime_type, guessed)?;
     let dimensions = image::load_from_memory(media.bytes.as_slice())
         .map_err(|e| {
-            IncrementumError::InvalidInput(format!("Unable to decode image dimensions: {}", e))
+            PlethoraError::InvalidInput(format!("Unable to decode image dimensions: {}", e))
         })?
         .dimensions();
     let sha256 = hex_sha256(media.bytes.as_slice());
@@ -784,7 +784,7 @@ fn normalize_image_mime(existing: &str, guessed: image::ImageFormat) -> Result<S
         image::ImageFormat::Gif => "image/gif",
         image::ImageFormat::WebP => "image/webp",
         _ => {
-            return Err(IncrementumError::InvalidInput(
+            return Err(PlethoraError::InvalidInput(
                 "Unsupported image format".to_string(),
             ))
         }
@@ -883,7 +883,7 @@ pub async fn import_anki_package(apkg_path: String) -> Result<String> {
     let decks = parse_apkg(&apkg_path).await?;
 
     let result = serde_json::to_value(&decks)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot serialize decks: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot serialize decks: {}", e)))?;
 
     Ok(result.to_string())
 }
@@ -894,9 +894,9 @@ pub async fn import_anki_package_to_learning_items(
     repo: State<'_, Repository>,
 ) -> Result<Vec<LearningItem>> {
     let file = File::open(&apkg_path)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot open .apkg file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot open .apkg file: {}", e)))?;
     let mut archive = ZipArchive::new(file)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot unzip .apkg file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot unzip .apkg file: {}", e)))?;
     let (decks, media_map) = parse_apkg_with_media_from_archive(&mut archive)?;
     import_decks_to_learning_items(decks, media_map, &repo).await
 }
@@ -991,17 +991,17 @@ async fn import_decks_to_learning_items(
 #[tauri::command]
 pub fn validate_anki_package(path: String) -> Result<bool> {
     let file = File::open(&path)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot open file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot open file: {}", e)))?;
 
     let archive = ZipArchive::new(file)
-        .map_err(|e| IncrementumError::NotFound(format!("Not a valid .apkg file: {}", e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Not a valid .apkg file: {}", e)))?;
 
     let has_collection = archive
         .file_names()
         .any(|name| name == "collection.anki2" || name == "collection.anki21");
 
     if !has_collection {
-        return Err(IncrementumError::NotFound(
+        return Err(PlethoraError::NotFound(
             "collection.anki2 not found in package".to_string(),
         ));
     }
@@ -1023,7 +1023,7 @@ pub async fn export_deck_as_apkg(
         .collect();
 
     if deck_items.is_empty() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "No cards found for deck '{}'",
             deck_name
         )));
@@ -1053,7 +1053,7 @@ pub async fn export_deck_as_apkg(
 
     {
         let conn = Connection::open(&temp_db_path).map_err(|e| {
-            IncrementumError::Internal(format!("Cannot create export database: {}", e))
+            PlethoraError::Internal(format!("Cannot create export database: {}", e))
         })?;
 
         // Create Anki tables (canonical schema from anki/rslib/src/storage/schema11.sql)
@@ -1132,7 +1132,7 @@ pub async fn export_deck_as_apkg(
             CREATE INDEX ix_notes_csum ON notes (csum);
             "#,
         )
-        .map_err(|e| IncrementumError::Internal(format!("Cannot create tables: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot create tables: {}", e)))?;
 
         let now_ts = Utc::now().timestamp();
 
@@ -1253,7 +1253,7 @@ pub async fn export_deck_as_apkg(
              VALUES (1, ?1, ?2, ?3, 11, 0, 0, 0, ?4, ?5, ?6, ?7, '{}')",
             rusqlite::params![now_ts, now_ts, now_ts, &conf_json, &models_json, &decks_json, &dconf_json],
         )
-        .map_err(|e| IncrementumError::Internal(format!("Cannot insert col: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot insert col: {}", e)))?;
 
         // Insert notes and cards
         let mut card_counter: i64 = 1;
@@ -1365,7 +1365,7 @@ pub async fn export_deck_as_apkg(
                  VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, '', 0, 0, '')",
                 rusqlite::params![note_id, &guid, model_id, now_ts, &tags_str, &flds],
             )
-            .map_err(|e| IncrementumError::Internal(format!("Cannot insert note: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Cannot insert note: {}", e)))?;
 
             let card_data = if let Some(ref ms) = item.memory_state {
                 serde_json::json!({"d": ms.difficulty, "s": ms.stability, "v": "3"}).to_string()
@@ -1410,7 +1410,7 @@ pub async fn export_deck_as_apkg(
                     &card_data,
                 ],
             )
-            .map_err(|e| IncrementumError::Internal(format!("Cannot insert card: {}", e)))?;
+            .map_err(|e| PlethoraError::Internal(format!("Cannot insert card: {}", e)))?;
 
             // Insert revlog entries for this item
             if let Some(entries) = revlog_by_item.get(&item.id) {
@@ -1441,7 +1441,7 @@ pub async fn export_deck_as_apkg(
                             entry.review_type,
                         ],
                     )
-                    .map_err(|e| IncrementumError::Internal(format!("Cannot insert revlog: {}", e)))?;
+                    .map_err(|e| PlethoraError::Internal(format!("Cannot insert revlog: {}", e)))?;
                 }
             }
 
@@ -1451,19 +1451,19 @@ pub async fn export_deck_as_apkg(
 
     // Read the database file and create the .apkg ZIP
     let db_bytes = std::fs::read(&temp_db_path)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot read export database: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot read export database: {}", e)))?;
     let _ = std::fs::remove_file(&temp_db_path);
 
     let output_file = File::create(&output_path)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot create output file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot create output file: {}", e)))?;
     let mut zip = zip::ZipWriter::new(output_file);
     let options =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     zip.start_file("collection.anki2", options)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot write collection: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot write collection: {}", e)))?;
     zip.write_all(&db_bytes)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot write collection data: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot write collection data: {}", e)))?;
 
     let media_json = if media_entries.is_empty() {
         "{}".to_string()
@@ -1476,21 +1476,21 @@ pub async fn export_deck_as_apkg(
         serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
     };
     zip.start_file("media", options)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot write media: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot write media: {}", e)))?;
     zip.write_all(media_json.as_bytes())
-        .map_err(|e| IncrementumError::Internal(format!("Cannot write media data: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot write media data: {}", e)))?;
 
     for (idx, (_name, bytes)) in media_entries.iter().enumerate() {
         zip.start_file(idx.to_string(), options).map_err(|e| {
-            IncrementumError::Internal(format!("Cannot write media file {}: {}", idx, e))
+            PlethoraError::Internal(format!("Cannot write media file {}: {}", idx, e))
         })?;
         zip.write_all(bytes).map_err(|e| {
-            IncrementumError::Internal(format!("Cannot write media file data {}: {}", idx, e))
+            PlethoraError::Internal(format!("Cannot write media file data {}: {}", idx, e))
         })?;
     }
 
     zip.finish()
-        .map_err(|e| IncrementumError::Internal(format!("Cannot finalize zip: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot finalize zip: {}", e)))?;
 
     Ok(format!(
         "Exported {} cards to {}",
@@ -1513,7 +1513,7 @@ pub async fn export_deck_as_csv(
         .collect();
 
     if deck_items.is_empty() {
-        return Err(IncrementumError::NotFound(format!(
+        return Err(PlethoraError::NotFound(format!(
             "No cards found for deck '{}'",
             deck_name
         )));
@@ -1546,7 +1546,7 @@ pub async fn export_deck_as_csv(
 
     let content = lines.join("\n");
     std::fs::write(&output_path, content)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot write CSV file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot write CSV file: {}", e)))?;
 
     Ok(format!(
         "Exported {} cards to {}",
@@ -1563,7 +1563,7 @@ pub async fn export_all_decks_as_apkg(
 ) -> Result<String> {
     let all_items = repo.get_all_learning_items().await?;
     if all_items.is_empty() {
-        return Err(IncrementumError::NotFound(
+        return Err(PlethoraError::NotFound(
             "No learning items found".to_string(),
         ));
     }
@@ -1619,7 +1619,7 @@ pub async fn export_all_decks_as_apkg(
 
     {
         let conn = Connection::open(&temp_db_path).map_err(|e| {
-            IncrementumError::Internal(format!("Cannot create export database: {}", e))
+            PlethoraError::Internal(format!("Cannot create export database: {}", e))
         })?;
 
         // Create tables (canonical schema from anki/rslib/src/storage/schema11.sql)
@@ -1665,7 +1665,7 @@ pub async fn export_all_decks_as_apkg(
             CREATE INDEX ix_notes_csum ON notes (csum);
             "#,
         )
-        .map_err(|e| IncrementumError::Internal(format!("Cannot create tables: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot create tables: {}", e)))?;
 
         let now_ts = Utc::now().timestamp();
         let basic_model_id: i64 = 1;
@@ -1752,7 +1752,7 @@ pub async fn export_all_decks_as_apkg(
              VALUES (1, ?1, ?2, ?3, 11, 0, 0, 0, ?4, ?5, ?6, ?7, '{}')",
             rusqlite::params![now_ts, now_ts, now_ts, &conf_json, &models_json, &decks_json_str, &dconf_json],
         )
-        .map_err(|e| IncrementumError::Internal(format!("Cannot insert col: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot insert col: {}", e)))?;
 
         let mut card_counter: i64 = 1;
         let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1859,7 +1859,7 @@ pub async fn export_all_decks_as_apkg(
                     "INSERT INTO notes (id, guid, mid, mod, usn, tags, flds, sfld, csum, flags, data) \
                      VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, '', 0, 0, '')",
                     rusqlite::params![note_id, &guid, model_id, now_ts, &tags_str, &flds],
-                ).map_err(|e| IncrementumError::Internal(format!("Cannot insert note: {}", e)))?;
+                ).map_err(|e| PlethoraError::Internal(format!("Cannot insert note: {}", e)))?;
 
                 let card_data = if let Some(ref ms) = item.memory_state {
                     serde_json::json!({"d": ms.difficulty, "s": ms.stability, "v": "3"}).to_string()
@@ -1889,7 +1889,7 @@ pub async fn export_all_decks_as_apkg(
                      VALUES (?1, ?2, ?3, 0, ?4, 0, ?5, 0, ?6, ?7, ?8, ?9, ?10, 0, 0, 0, 0, ?11)",
                     rusqlite::params![card_id, note_id, deck_id, now_ts, card_type,
                         due, interval, factor, item.review_count, item.lapses, &card_data],
-                ).map_err(|e| IncrementumError::Internal(format!("Cannot insert card: {}", e)))?;
+                ).map_err(|e| PlethoraError::Internal(format!("Cannot insert card: {}", e)))?;
 
                 if let Some(entries) = revlog_by_item.get(&item.id) {
                     for entry in entries {
@@ -1904,7 +1904,7 @@ pub async fn export_all_decks_as_apkg(
                                 entry.last_interval_days.map(|l| l.round() as i32).unwrap_or(0),
                                 (entry.ease_factor * 1000.0).round() as i32,
                                 entry.time_ms, entry.review_type],
-                        ).map_err(|e| IncrementumError::Internal(format!("Cannot insert revlog: {}", e)))?;
+                        ).map_err(|e| PlethoraError::Internal(format!("Cannot insert revlog: {}", e)))?;
                     }
                 }
 
@@ -1914,19 +1914,19 @@ pub async fn export_all_decks_as_apkg(
     }
 
     let db_bytes = std::fs::read(&temp_db_path)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot read export database: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot read export database: {}", e)))?;
     let _ = std::fs::remove_file(&temp_db_path);
 
     let output_file = File::create(&output_path)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot create output file: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot create output file: {}", e)))?;
     let mut zip = zip::ZipWriter::new(output_file);
     let options =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     zip.start_file("collection.anki2", options)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot write collection: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot write collection: {}", e)))?;
     zip.write_all(&db_bytes)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot write collection data: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot write collection data: {}", e)))?;
 
     let media_json = if media_entries.is_empty() {
         "{}".to_string()
@@ -1939,21 +1939,21 @@ pub async fn export_all_decks_as_apkg(
         serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
     };
     zip.start_file("media", options)
-        .map_err(|e| IncrementumError::Internal(format!("Cannot write media: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot write media: {}", e)))?;
     zip.write_all(media_json.as_bytes())
-        .map_err(|e| IncrementumError::Internal(format!("Cannot write media data: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot write media data: {}", e)))?;
 
     for (idx, (_name, bytes)) in media_entries.iter().enumerate() {
         zip.start_file(idx.to_string(), options).map_err(|e| {
-            IncrementumError::Internal(format!("Cannot write media file {}: {}", idx, e))
+            PlethoraError::Internal(format!("Cannot write media file {}: {}", idx, e))
         })?;
         zip.write_all(bytes).map_err(|e| {
-            IncrementumError::Internal(format!("Cannot write media file data {}: {}", idx, e))
+            PlethoraError::Internal(format!("Cannot write media file data {}: {}", idx, e))
         })?;
     }
 
     zip.finish()
-        .map_err(|e| IncrementumError::Internal(format!("Cannot finalize zip: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Cannot finalize zip: {}", e)))?;
 
     Ok(format!(
         "Exported {} cards across {} decks to {}",

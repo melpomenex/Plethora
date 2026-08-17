@@ -1,4 +1,5 @@
 import { isPWA, isTauri } from '../lib/tauri';
+import { migratedGetItem } from '../lib/brandMigration';
 
 /**
  * Shared Sound Service
@@ -330,7 +331,7 @@ export function playTimerComplete(volume = 1): void {
  */
 export function playFeedback(type: FeedbackType, volume = 1): void {
   try {
-    const raw = localStorage.getItem('incrementum-settings');
+    const raw = migratedGetItem('plethora-settings');
     if (raw) {
       const parsed = JSON.parse(raw);
       const { notifications } = parsed.state?.settings || {};
@@ -354,7 +355,7 @@ export function playFeedback(type: FeedbackType, volume = 1): void {
  */
 export function playNotificationGatedFeedback(type: FeedbackType): void {
   try {
-    const raw = localStorage.getItem('incrementum-settings');
+    const raw = migratedGetItem('plethora-settings');
     if (!raw) return;
 
     const parsed = JSON.parse(raw);
@@ -378,7 +379,7 @@ export function playNotificationGatedFeedback(type: FeedbackType): void {
 export function playTrainLikeSound(volume = 1): void {
   void (async () => {
     try {
-      const raw = localStorage.getItem('incrementum-settings');
+      const raw = migratedGetItem('plethora-settings');
       if (raw) {
         const parsed = JSON.parse(raw);
         const { notifications } = parsed.state?.settings || {};
@@ -420,7 +421,7 @@ export function playTrainLikeSound(volume = 1): void {
 export function playTrainDislikeSound(volume = 1): void {
   void (async () => {
     try {
-      const raw = localStorage.getItem('incrementum-settings');
+      const raw = migratedGetItem('plethora-settings');
       if (raw) {
         const parsed = JSON.parse(raw);
         const { notifications } = parsed.state?.settings || {};
@@ -457,7 +458,7 @@ export function playTrainDislikeSound(volume = 1): void {
  */
 export function playNotificationSound(): void {
   try {
-    const raw = localStorage.getItem('incrementum-settings');
+    const raw = migratedGetItem('plethora-settings');
     if (!raw) return;
     const parsed = JSON.parse(raw);
     const { notifications } = parsed.state?.settings || {};

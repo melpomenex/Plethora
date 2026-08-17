@@ -16,7 +16,7 @@ use crate::ai::{
 use crate::commands::ai_key_store;
 use crate::commands::Result;
 use crate::database::Repository;
-use crate::error::IncrementumError;
+use crate::error::PlethoraError;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
@@ -49,19 +49,19 @@ pub fn load_ai_config_preferences(app_handle: &AppHandle) -> Option<AIConfig> {
 
 fn save_ai_config_preferences(app_handle: &AppHandle, config: &AIConfig) -> Result<()> {
     let config_dir = app_handle.path().app_config_dir().map_err(|error| {
-        IncrementumError::Internal(format!("Failed to resolve AI config directory: {}", error))
+        PlethoraError::Internal(format!("Failed to resolve AI config directory: {}", error))
     })?;
     std::fs::create_dir_all(&config_dir).map_err(|error| {
-        IncrementumError::Internal(format!("Failed to create AI config directory: {}", error))
+        PlethoraError::Internal(format!("Failed to create AI config directory: {}", error))
     })?;
 
     let mut preferences = config.clone();
     preferences.api_keys = Default::default();
     let serialized = serde_json::to_string_pretty(&preferences).map_err(|error| {
-        IncrementumError::Internal(format!("Failed to serialize AI preferences: {}", error))
+        PlethoraError::Internal(format!("Failed to serialize AI preferences: {}", error))
     })?;
     std::fs::write(config_dir.join("ai_config.json"), serialized).map_err(|error| {
-        IncrementumError::Internal(format!("Failed to save AI preferences: {}", error))
+        PlethoraError::Internal(format!("Failed to save AI preferences: {}", error))
     })
 }
 
@@ -70,7 +70,7 @@ fn get_ai_config_clone(state: &State<'_, AIState>) -> Result<AIConfig> {
     let guard = state.config.lock().unwrap();
     guard
         .as_ref()
-        .ok_or_else(|| IncrementumError::Internal("AI configuration not set".to_string()))
+        .ok_or_else(|| PlethoraError::Internal("AI configuration not set".to_string()))
         .cloned()
 }
 
@@ -107,7 +107,7 @@ pub async fn get_ai_config(state: State<'_, AIState>) -> Result<Option<serde_jso
     };
 
     let mut config_map = serde_json::to_value(config)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to serialize AI config: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to serialize AI config: {}", e)))?;
 
     if let Some(obj) = config_map.as_object_mut() {
         if let Some(api_keys) = obj.get_mut("api_keys").and_then(|v| v.as_object_mut()) {
@@ -215,7 +215,7 @@ pub async fn set_api_key(
     match provider_lower.as_str() {
         "openai" | "anthropic" | "openrouter" | "brave" => {}
         _ => {
-            return Err(IncrementumError::InvalidInput(format!(
+            return Err(PlethoraError::InvalidInput(format!(
                 "Unknown provider: {}",
                 provider
             )))
@@ -250,7 +250,7 @@ pub async fn get_masked_api_key(
     match provider_lower.as_str() {
         "openai" | "anthropic" | "openrouter" | "brave" => {}
         _ => {
-            return Err(IncrementumError::InvalidInput(format!(
+            return Err(PlethoraError::InvalidInput(format!(
                 "Unknown provider: {}",
                 provider
             )))
@@ -270,7 +270,7 @@ pub async fn remove_api_key(
     match provider_lower.as_str() {
         "openai" | "anthropic" | "openrouter" | "brave" => {}
         _ => {
-            return Err(IncrementumError::InvalidInput(format!(
+            return Err(PlethoraError::InvalidInput(format!(
                 "Unknown provider: {}",
                 provider
             )))
@@ -305,7 +305,7 @@ pub async fn generate_flashcards_from_extract(
     let extract = repo
         .get_extract(&extract_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Extract {} not found", extract_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Extract {} not found", extract_id)))?;
 
     // Get AI configuration (clones and drops mutex guard)
     let config = get_ai_config_clone(&ai_state)?;
@@ -316,7 +316,7 @@ pub async fn generate_flashcards_from_extract(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
 
     // Generate flashcards
     let generator = FlashcardGenerator::new(provider);
@@ -345,7 +345,7 @@ pub async fn generate_flashcards_from_content(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
     let generator = FlashcardGenerator::new(provider);
 
     let options = FlashcardGenerationOptions {
@@ -376,7 +376,7 @@ pub async fn answer_question(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
     let qa = QuestionAnswerer::new(provider);
 
     let answer = qa.answer_with_context(&question, &context).await?;
@@ -394,7 +394,7 @@ pub async fn answer_about_extract(
     let extract = repo
         .get_extract(&extract_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Extract {} not found", extract_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Extract {} not found", extract_id)))?;
 
     let config = get_ai_config_clone(&ai_state)?;
 
@@ -404,7 +404,7 @@ pub async fn answer_about_extract(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
     let qa = QuestionAnswerer::new(provider);
 
     let answer = qa.answer_about_extract(&extract.content, &question).await?;
@@ -426,7 +426,7 @@ pub async fn summarize_content(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
     let summarizer = Summarizer::new(provider);
 
     let summary = summarizer.summarize(&content, max_words).await?;
@@ -448,7 +448,7 @@ pub async fn extract_key_points(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
     let summarizer = Summarizer::new(provider);
 
     let points = summarizer.extract_key_points(&content, count).await?;
@@ -466,7 +466,7 @@ pub async fn generate_title(content: String, ai_state: State<'_, AIState>) -> Re
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
     let summarizer = Summarizer::new(provider);
 
     let title = summarizer.generate_title(&content).await?;
@@ -488,7 +488,7 @@ pub async fn simplify_content(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
     let summarizer = Summarizer::new(provider);
 
     let simplification_level = match level.to_lowercase().as_str() {
@@ -497,7 +497,7 @@ pub async fn simplify_content(
         "college" => crate::ai::summarizer::SimplificationLevel::College,
         "expert" => crate::ai::summarizer::SimplificationLevel::Expert,
         _ => {
-            return Err(IncrementumError::InvalidInput(format!(
+            return Err(PlethoraError::InvalidInput(format!(
                 "Unknown simplification level: {}",
                 level
             )))
@@ -523,7 +523,7 @@ pub async fn generate_questions(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
     let qa = QuestionAnswerer::new(provider);
 
     let questions = qa.generate_questions(&content, count).await?;
@@ -537,7 +537,7 @@ pub async fn list_ollama_models(base_url: String) -> Result<Vec<String>> {
     provider
         .list_models()
         .await
-        .map_err(|e| IncrementumError::Internal(format!("Failed to list Ollama models: {}", e)))
+        .map_err(|e| PlethoraError::Internal(format!("Failed to list Ollama models: {}", e)))
 }
 
 /// Test AI connection
@@ -554,10 +554,10 @@ pub async fn test_ai_connection(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
 
     if !provider.is_available() {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Provider {:?} is not available",
             provider_type
         )));
@@ -577,7 +577,7 @@ pub async fn test_ai_connection(
     let response = provider
         .chat_completion(&request)
         .await
-        .map_err(|e| IncrementumError::Internal(format!("AI connection test failed: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("AI connection test failed: {}", e)))?;
 
     Ok(response.content)
 }
@@ -593,7 +593,7 @@ pub async fn generate_progressive_summaries(
     let mut extract = repo
         .get_extract(&extract_id)
         .await?
-        .ok_or_else(|| IncrementumError::NotFound(format!("Extract {} not found", extract_id)))?;
+        .ok_or_else(|| PlethoraError::NotFound(format!("Extract {} not found", extract_id)))?;
 
     if let Some(ref summaries) = extract.progressive_summaries {
         if !summaries.is_empty() {
@@ -609,13 +609,13 @@ pub async fn generate_progressive_summaries(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
 
     let summarizer = Summarizer::new(provider);
 
     let max_level = extract.max_disclosure_level;
     if max_level <= 0 {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Progressive disclosure is not enabled for this extract".to_string(),
         ));
     }
@@ -628,7 +628,7 @@ pub async fn generate_progressive_summaries(
         .progressive_summary(&extract.content, &levels)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to generate progressive summaries: {}", e))
+            PlethoraError::Internal(format!("Failed to generate progressive summaries: {}", e))
         })?;
 
     let entries: Vec<crate::models::extract::ProgressiveSummaryEntry> = summaries
@@ -655,11 +655,11 @@ pub async fn get_memory_content(app: tauri::AppHandle) -> Result<String> {
     let app_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get app data dir: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get app data dir: {}", e)))?;
 
     let memories_dir = app_dir.join("memories");
     std::fs::create_dir_all(&memories_dir).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create memories directory: {}", e))
+        PlethoraError::Internal(format!("Failed to create memories directory: {}", e))
     })?;
 
     let memory_file = memories_dir.join("MEMORY.md");
@@ -674,12 +674,12 @@ pub async fn get_memory_content(app: tauri::AppHandle) -> Result<String> {
         - (No goals recorded yet)\n";
 
         std::fs::write(&memory_file, default_content).map_err(|e| {
-            IncrementumError::Internal(format!("Failed to initialize MEMORY.md: {}", e))
+            PlethoraError::Internal(format!("Failed to initialize MEMORY.md: {}", e))
         })?;
     }
 
     let content = std::fs::read_to_string(&memory_file)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to read MEMORY.md: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to read MEMORY.md: {}", e)))?;
 
     Ok(content)
 }
@@ -691,16 +691,16 @@ pub async fn save_memory_content(content: String, app: tauri::AppHandle) -> Resu
     let app_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| IncrementumError::Internal(format!("Failed to get app data dir: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to get app data dir: {}", e)))?;
 
     let memories_dir = app_dir.join("memories");
     std::fs::create_dir_all(&memories_dir).map_err(|e| {
-        IncrementumError::Internal(format!("Failed to create memories directory: {}", e))
+        PlethoraError::Internal(format!("Failed to create memories directory: {}", e))
     })?;
 
     let memory_file = memories_dir.join("MEMORY.md");
     std::fs::write(&memory_file, content)
-        .map_err(|e| IncrementumError::Internal(format!("Failed to save MEMORY.md: {}", e)))?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to save MEMORY.md: {}", e)))?;
 
     Ok(())
 }
@@ -757,7 +757,7 @@ pub async fn update_memory_from_chat(
         &config.models,
         &config.local_settings,
     )
-    .map_err(IncrementumError::Internal)?;
+    .map_err(PlethoraError::Internal)?;
 
     if !provider.is_available() {
         return Ok(()); // Silently fail if AI provider is not available
@@ -829,14 +829,14 @@ pub async fn brave_web_search(
     let api_key = match key_store.get_key("brave").await {
         Ok(Some(key)) => key,
         _ => {
-            return Err(IncrementumError::InvalidInput(
+            return Err(PlethoraError::InvalidInput(
                 "Brave Search API Key not configured in Settings".to_string(),
             ))
         }
     };
 
     if api_key.trim().is_empty() {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Brave Search API Key is empty".to_string(),
         ));
     }
@@ -850,20 +850,20 @@ pub async fn brave_web_search(
         .send()
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Brave Search HTTP request failed: {}", e))
+            PlethoraError::Internal(format!("Brave Search HTTP request failed: {}", e))
         })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let err_text = response.text().await.unwrap_or_default();
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Brave Search API returned error status {}: {}",
             status, err_text
         )));
     }
 
     let search_res: BraveWebResponse = response.json().await.map_err(|e| {
-        IncrementumError::Internal(format!("Failed to parse Brave Search JSON response: {}", e))
+        PlethoraError::Internal(format!("Failed to parse Brave Search JSON response: {}", e))
     })?;
 
     let mut results = Vec::new();

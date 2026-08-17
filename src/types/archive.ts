@@ -1,7 +1,9 @@
 export type CollectionExportScope = "current" | "all";
 
 export interface CollectionArchiveManifest {
-  archiveType: "incrementum-collection-export";
+  /** `plethora-collection-export` is current; `incrementum-collection-export`
+ * is the legacy marker and stays importable forever. */
+  archiveType: "plethora-collection-export" | "incrementum-collection-export";
   version: "1.0";
   exportedAt: string;
   scope: CollectionExportScope;

@@ -1,13 +1,13 @@
 /**
  * TypeScript bridge to the native Android TTS plugin.
  *
- * The native plugin (`incrementum-android-tts`) owns the entire native
+ * The native plugin (`plethora-android-tts`) owns the entire native
  * pipeline: sherpa-onnx inference, AudioTrack playback, audio focus,
  * lifecycle, model downloads, and the System-TTS fallback. No PCM crosses the
  * Tauri IPC — the webview only receives the small JSON events defined here.
  *
  * Commands are scoped under the plugin name:
- *   `plugin:incrementum-android-tts|<command>`
+ *   `plugin:plethora-android-tts|<command>`
  * mirroring how every other Tauri plugin is invoked from this codebase.
  *
  * Every call is a no-op (returning a safe empty/`available:false` value) off
@@ -18,7 +18,7 @@
 import { isNativeMobile, isTauri, invokeCommand } from "../../../lib/tauri";
 
 /** Plugin command prefix used by `invokeCommand`. */
-const PLUGIN = "plugin:incrementum-android-tts";
+const PLUGIN = "plugin:plethora-android-tts";
 
 /** Whether the native Android TTS plugin is usable in this environment. */
 export function isAndroidTtsAvailable(): boolean {

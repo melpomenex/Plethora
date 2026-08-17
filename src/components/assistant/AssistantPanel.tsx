@@ -32,7 +32,7 @@ import {
 import { compressImage, readFileAsDataUrl } from "../../utils/imageCompression";
 import { supportsVision } from "../../utils/visionCapability";
 import { chatWithContext, type LLMMessage, type LLMMessageContentPart } from "../../api/llm";
-import { callIncrementumMCPTool, getIncrementumMCPTools, type MCPTool } from "../../api/mcp";
+import { callAppMCPTool, getAppMCPTools, type MCPTool } from "../../api/mcp";
 import { renderMarkdown } from "../../utils/markdown";
 import { useDocumentStore, useSettingsStore, useLLMProvidersStore, useReviewStore, useTabsStore } from "../../stores";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
@@ -487,7 +487,7 @@ export function AssistantPanel({
 
   // Open the Gear tab to AI panel directly
   const handleOpenSettingsToAI = () => {
-    localStorage.setItem("incrementum_settings_initial_tab", "ai");
+    localStorage.setItem("plethora_settings_initial_tab", "ai");
     
     const tabId = useTabsStore.getState().addTab({
       title: "Settings",
@@ -713,11 +713,11 @@ export function AssistantPanel({
       // Don't overwrite a dirty input draft with the remote draft.
       if (!isInputFocused) setInput(stored?.input ?? "");
     };
-    window.addEventListener("incrementum:synced-conversation", handler);
-    window.addEventListener("incrementum:synced-conversation-deleted", handler);
+    window.addEventListener("plethora:synced-conversation", handler);
+    window.addEventListener("plethora:synced-conversation-deleted", handler);
     return () => {
-      window.removeEventListener("incrementum:synced-conversation", handler);
-      window.removeEventListener("incrementum:synced-conversation-deleted", handler);
+      window.removeEventListener("plethora:synced-conversation", handler);
+      window.removeEventListener("plethora:synced-conversation-deleted", handler);
     };
   }, [isLoading, isInputFocused, input]);
 
@@ -734,7 +734,7 @@ export function AssistantPanel({
 
   useEffect(() => {
     let isActive = true;
-    getIncrementumMCPTools()
+    getAppMCPTools()
       .then((tools) => {
         if (isActive) {
           setAvailableTools(tools);
@@ -1668,7 +1668,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       updateToolCall(messageId, index, { parameters });
 
       try {
-        const result = await callIncrementumMCPTool(call.name, parameters);
+        const result = await callAppMCPTool(call.name, parameters);
         // Check if the MCP tool itself reported an error (e.g. DB write failure)
         if (result.isError) {
           console.warn("[Assistant] Tool reported error:", call.name, result);
@@ -1826,8 +1826,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
   const openChatCard = (artifact: ChatFlashcardArtifact) => {
     if (!artifact.persistedCardId) return;
-    sessionStorage.setItem("incrementum:pending-flashcard-id", artifact.persistedCardId);
-    window.dispatchEvent(new CustomEvent("incrementum:open-flashcard", {
+    sessionStorage.setItem("plethora:pending-flashcard-id", artifact.persistedCardId);
+    window.dispatchEvent(new CustomEvent("plethora:open-flashcard", {
       detail: { cardId: artifact.persistedCardId, artifact },
     }));
   };
@@ -1884,7 +1884,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         call.parameters,
         await resolveDocumentTitleForCards(),
       );
-      const result = await callIncrementumMCPTool(call.name, parameters);
+      const result = await callAppMCPTool(call.name, parameters);
       updateToolCall(messageId, artifact.callIndex, {
         parameters,
         status: result.isError ? "error" : "success",

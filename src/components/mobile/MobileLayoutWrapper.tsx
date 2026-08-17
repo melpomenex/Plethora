@@ -68,9 +68,9 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
     const handleSystemBack = (event: Event) => {
       if (requestApplicationBack()) event.preventDefault();
     };
-    window.addEventListener("incrementum:system-back", handleSystemBack);
+    window.addEventListener("plethora:system-back", handleSystemBack);
     return () =>
-      window.removeEventListener("incrementum:system-back", handleSystemBack);
+      window.removeEventListener("plethora:system-back", handleSystemBack);
   }, []);
 
   // Desktop (and wide tablets in landscape) render the full tabbed interface.

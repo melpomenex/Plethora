@@ -93,8 +93,9 @@ export function validateExportFile(data: unknown): { valid: boolean; error?: str
     }
   }
 
-  if (exportData.metadata.app !== "Incrementum") {
-    return { valid: false, error: "Invalid export file: not an Incrementum backup" };
+  // Legacy Incrementum backups stay importable forever (task 3.5).
+  if (exportData.metadata.app !== "Plethora" && exportData.metadata.app !== "Incrementum") {
+    return { valid: false, error: "Invalid export file: not a Plethora/Incrementum backup" };
   }
 
   return { valid: true, metadata: exportData.metadata };

@@ -6,7 +6,7 @@
  * Uses sessionStorage for persistence across refreshes.
  */
 
-const SESSION_KEY = 'incrementum-queue-session';
+const SESSION_KEY = 'plethora-queue-session';
 
 export interface SessionViewedItem {
   id: string;

@@ -37,6 +37,22 @@ export const de: Dict = {
   "mainLayout.sharedLinkAdded": "Geteilter Link wurde Ihrer Warteschlange hinzugefügt.",
   "mainLayout.open": "Öffnen",
   "mainLayout.importFailed": "Import fehlgeschlagen",
+  "mainLayout.legacyDataTitle": "Incrementum-Daten gefunden",
+  "mainLayout.legacyDataMigrate": "Meine Daten kopieren",
+  "mainLayout.legacyDataDecline": "Neu beginnen",
+  "mainLayout.legacyDataPrompt":
+    "Plethora hat auf diesem Computer eine vorhandene Incrementum-Bibliothek gefunden. Möchten Sie Ihre Dokumente, Wiederholungsverlauf, Designs und API-Schlüssel jetzt nach Plethora kopieren?",
+  "mainLayout.legacyDataLegacyKept":
+    "Ihr ursprünglicher Incrementum-Ordner wird nicht verändert. Wählen Sie „OK“, um Ihre Daten zu kopieren, oder „Abbrechen“, um neu zu beginnen.",
+  "mainLayout.legacyDataMigrating": "Ihre Daten werden migriert...",
+  "mainLayout.legacyDataMigratingDesc":
+    "Ihre Incrementum-Bibliothek wird nach Plethora kopiert. Die App startet danach neu.",
+  "mainLayout.legacyDataFailed": "Migration fehlgeschlagen",
+  "mainLayout.legacyDataMigrated": "Migration abgeschlossen",
+  "mainLayout.legacyDataMigratedDesc":
+    "Ihre Incrementum-Daten wurden nach Plethora kopiert. Der Originalordner bleibt unter {path} erhalten.",
+  "mainLayout.legacyDataMigratedDescBackup":
+    "Ihre Incrementum-Daten wurden nach Plethora kopiert. Der Originalordner bleibt unter {path} erhalten; Ihre frühere frische Plethora-Datenbank wurde als {backup} gesichert.",
   "tabs.continueReading": "Lesen fortsetzen",
   "tabs.review": "Wiederholung",
   "tabs.rssFeeds": "RSS-Feeds",
@@ -1580,6 +1596,16 @@ export const de: Dict = {
   "integrations.saveAnkiConfiguration": "Anki-Konfiguration speichern",
   "integrations.saveCookies": "Cookies speichern",
   "integrations.saveObsidianConfiguration": "Obsidian-Konfiguration speichern",
+  "integrations.migrateVaultIdsTitle": "Vault-Notiz-IDs migrieren",
+  "integrations.migrateVaultIdsDesc":
+    "Von Incrementum exportierte Notizen tragen den Frontmatter-Schlüssel incrementum-id. Plethora liest beide Schlüssel, daher ist dies optional: Es schreibt Ihre Notizen auf den neuen Schlüssel plethora-id um. Notizen werden erst nach Ihrer Bestätigung geändert, die Inhalte bleiben erhalten.",
+  "integrations.migrateVaultIdsButton": "Vault-IDs migrieren",
+  "integrations.migrateVaultIdsNeedVault": "Legen Sie zuerst Ihren Obsidian-Vault-Pfad fest.",
+  "integrations.migrateVaultIdsConfirm":
+    "incrementum-id/incrementum-type im Frontmatter der Notizen unter {notes} zu plethora-id/plethora-type umschreiben? Dies ändert Dateien in Ihrem Vault (Inhalte bleiben erhalten).",
+  "integrations.migrateVaultIdsResult":
+    "{rewritten} von {scanned} Notiz(en) umgeschrieben.",
+  "integrations.migrateVaultIdsFailed": "Migration der Vault-IDs fehlgeschlagen",
   "integrations.selectObsidianVaultFolder": "Obsidian-Vault-Ordner auswählen",
   "integrations.selectWorkflowDesc": "Wähle einen KI-Workflow, um loszulegen",
   "integrations.startServer": "Server starten",

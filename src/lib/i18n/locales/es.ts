@@ -37,6 +37,22 @@ export const es: Dict = {
   "mainLayout.sharedLinkAdded": "Enlace compartido añadido a su cola.",
   "mainLayout.open": "Abrir",
   "mainLayout.importFailed": "Importación fallida",
+  "mainLayout.legacyDataTitle": "Datos de Incrementum encontrados",
+  "mainLayout.legacyDataMigrate": "Copiar mis datos",
+  "mainLayout.legacyDataDecline": "Empezar de cero",
+  "mainLayout.legacyDataPrompt":
+    "Plethora encontró una biblioteca de Incrementum en este equipo. ¿Desea copiar ahora sus documentos, historial de repaso, temas y claves de API a Plethora?",
+  "mainLayout.legacyDataLegacyKept":
+    "Su carpeta original de Incrementum no se modificará. Elija Aceptar para copiar sus datos, o Cancelar para empezar de cero.",
+  "mainLayout.legacyDataMigrating": "Migrando sus datos...",
+  "mainLayout.legacyDataMigratingDesc":
+    "Copiando su biblioteca de Incrementum a Plethora. La aplicación se reiniciará al terminar.",
+  "mainLayout.legacyDataFailed": "Error de migración",
+  "mainLayout.legacyDataMigrated": "Migración completada",
+  "mainLayout.legacyDataMigratedDesc":
+    "Sus datos de Incrementum se copiaron a Plethora. La carpeta original se conserva en {path}.",
+  "mainLayout.legacyDataMigratedDescBackup":
+    "Sus datos de Incrementum se copiaron a Plethora. La carpeta original se conserva en {path}; su base de datos anterior de Plethora se guardó como {backup}.",
   "tabs.continueReading": "Continuar lectura",
   "tabs.review": "Repaso",
   "tabs.rssFeeds": "Fuentes RSS",
@@ -1585,6 +1601,16 @@ export const es: Dict = {
   "integrations.saveAnkiConfiguration": "Guardar configuración de Anki",
   "integrations.saveCookies": "Guardar cookies",
   "integrations.saveObsidianConfiguration": "Guardar configuración de Obsidian",
+  "integrations.migrateVaultIdsTitle": "Migrar IDs de notas del repositorio",
+  "integrations.migrateVaultIdsDesc":
+    "Las notas exportadas por Incrementum llevan la clave incrementum-id en su frontmatter. Plethora lee ambas claves, por lo que esto es opcional: reescribe sus notas para usar la nueva clave plethora-id. Las notas solo se modifican tras su confirmación y los cuerpos se conservan.",
+  "integrations.migrateVaultIdsButton": "Migrar IDs del repositorio",
+  "integrations.migrateVaultIdsNeedVault": "Configure primero la ruta de su repositorio Obsidian.",
+  "integrations.migrateVaultIdsConfirm":
+    "¿Reescribir incrementum-id/incrementum-type como plethora-id/plethora-type en el frontmatter de las notas bajo {notes}? Esto modifica archivos de su repositorio (los cuerpos se conservan).",
+  "integrations.migrateVaultIdsResult":
+    "Se reescribieron {rewritten} de {scanned} nota(s).",
+  "integrations.migrateVaultIdsFailed": "La migración de IDs del repositorio falló",
   "integrations.selectObsidianVaultFolder": "Seleccionar carpeta del vault de Obsidian",
   "integrations.selectWorkflowDesc": "Selecciona un flujo de IA para empezar",
   "integrations.startServer": "Iniciar servidor",

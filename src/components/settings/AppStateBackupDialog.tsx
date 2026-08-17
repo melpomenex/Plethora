@@ -257,7 +257,7 @@ export function AppStateBackupDialog({ isOpen, onClose }: AppStateBackupDialogPr
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".incrementum,.json,application/json"
+                accept=".plethora,.incrementum,.json,application/json"
                 onChange={handleFileSelect}
                 className="hidden"
               />

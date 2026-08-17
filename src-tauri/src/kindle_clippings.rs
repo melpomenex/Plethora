@@ -15,7 +15,7 @@ use sqlx::Row;
 use tauri::State;
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::{Document, Extract, FileType};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -178,17 +178,17 @@ fn decode_clippings_bytes(bytes: &[u8]) -> String {
 /// Read a file trying UTF-8 first, falling back to Latin-1.
 fn read_file_bytes(path: &str) -> Result<String> {
     let bytes = fs::read(path)
-        .map_err(|e| IncrementumError::NotFound(format!("Cannot read file '{}': {}", path, e)))?;
+        .map_err(|e| PlethoraError::NotFound(format!("Cannot read file '{}': {}", path, e)))?;
     Ok(decode_clippings_bytes(&bytes))
 }
 
 /// Read and decode a `My Clippings.txt` file from disk. Public so the generic
 /// document import path can decode a detected clippings file with the exact
 /// same UTF-8 → Latin-1 fallback this module uses internally. Returns
-/// [`IncrementumError::NotFound`] on read failure.
+/// [`PlethoraError::NotFound`] on read failure.
 pub fn read_kindle_text(path: &std::path::Path) -> Result<String> {
     let bytes = fs::read(path).map_err(|e| {
-        IncrementumError::NotFound(format!("Cannot read file '{}': {}", path.display(), e))
+        PlethoraError::NotFound(format!("Cannot read file '{}': {}", path.display(), e))
     })?;
     Ok(decode_clippings_bytes(&bytes))
 }
@@ -401,7 +401,7 @@ fn parse_clippings_raw_from_text(text: &str) -> Result<(Vec<KindleClipping>, Vec
         .collect();
 
     if entries.is_empty() {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "File does not appear to be a Kindle clippings file (no entries found)".to_string(),
         ));
     }
@@ -496,7 +496,7 @@ fn parse_clippings_raw_from_text(text: &str) -> Result<(Vec<KindleClipping>, Vec
     }
 
     if clippings.is_empty() {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "No importable clippings found in file".to_string(),
         ));
     }
@@ -566,7 +566,7 @@ pub fn parse_kindle_clippings_from_text(
         .collect();
 
     if importable_books.is_empty() {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "File contains only bookmarks and no importable highlights or notes".to_string(),
         ));
     }

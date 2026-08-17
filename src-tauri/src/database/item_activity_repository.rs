@@ -9,7 +9,7 @@
 //!    records seconds the frontend actually counted; a crash therefore loses
 //!    at most one flush interval and can never inflate a total.
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::models::item_activity::{ActivityItemType, ActivitySurface, ItemActivityEvent};
 use chrono::{DateTime, Duration, Utc};
 use sqlx::{Pool, Sqlite};
@@ -61,7 +61,7 @@ impl ItemActivityRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to record item activity: {}", e))
+            PlethoraError::Internal(format!("Failed to record item activity: {}", e))
         })?;
 
         Ok(())
@@ -97,7 +97,7 @@ impl ItemActivityRepository {
             .execute(&self.pool)
             .await
             .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to accumulate item time: {}", e))
+                PlethoraError::Internal(format!("Failed to accumulate item time: {}", e))
             })?;
 
         Ok(())
@@ -140,7 +140,7 @@ impl ItemActivityRepository {
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to look up open activity row: {}", e))
+            PlethoraError::Internal(format!("Failed to look up open activity row: {}", e))
         })?;
 
         match open_row {
@@ -156,7 +156,7 @@ impl ItemActivityRepository {
                 .execute(&self.pool)
                 .await
                 .map_err(|e| {
-                    IncrementumError::Internal(format!("Failed to extend activity row: {}", e))
+                    PlethoraError::Internal(format!("Failed to extend activity row: {}", e))
                 })?;
             }
             None => {
@@ -179,7 +179,7 @@ impl ItemActivityRepository {
                 .execute(&self.pool)
                 .await
                 .map_err(|e| {
-                    IncrementumError::Internal(format!("Failed to open activity row: {}", e))
+                    PlethoraError::Internal(format!("Failed to open activity row: {}", e))
                 })?;
             }
         }
@@ -211,7 +211,7 @@ impl ItemActivityRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to heartbeat reading session: {}", e))
+            PlethoraError::Internal(format!("Failed to heartbeat reading session: {}", e))
         })?;
 
         Ok(result.rows_affected() > 0)
@@ -237,7 +237,7 @@ impl ItemActivityRepository {
         .execute(&self.pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to close stale reading sessions: {}", e))
+            PlethoraError::Internal(format!("Failed to close stale reading sessions: {}", e))
         })?;
 
         Ok(result.rows_affected())
@@ -269,7 +269,7 @@ impl ItemActivityRepository {
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| {
-            IncrementumError::Internal(format!("Failed to read last document progress: {}", e))
+            PlethoraError::Internal(format!("Failed to read last document progress: {}", e))
         })?;
 
         Ok(row.and_then(|(progress,)| progress))
@@ -292,7 +292,7 @@ impl ItemActivityRepository {
             .fetch_optional(&self.pool)
             .await
             .map_err(|e| {
-                IncrementumError::Internal(format!("Failed to read item total time: {}", e))
+                PlethoraError::Internal(format!("Failed to read item total time: {}", e))
             })?;
 
         Ok(row.and_then(|(total,)| total))

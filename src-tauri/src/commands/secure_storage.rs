@@ -12,7 +12,7 @@
 //! auditable). A missing entry returns `Ok(None)` so the TS layer can model
 //! "no cached key" cleanly.
 
-use crate::error::IncrementumError;
+use crate::error::PlethoraError;
 use crate::error::Result;
 use crate::utils::keychain::keychain_enabled;
 
@@ -43,7 +43,7 @@ pub async fn secure_storage_set(service: String, account: String, value: String)
             .map_err(|e| keyring_err("secure_storage_set", e))
     })
     .await
-    .map_err(|e| IncrementumError::Internal(format!("secure_storage_set: task join error: {e}")))?
+    .map_err(|e| PlethoraError::Internal(format!("secure_storage_set: task join error: {e}")))?
 }
 
 /// Read the base64 value for `(service, account)` from the OS keychain.
@@ -64,7 +64,7 @@ pub async fn secure_storage_get(service: String, account: String) -> Result<Opti
         }
     })
     .await
-    .map_err(|e| IncrementumError::Internal(format!("secure_storage_get: task join error: {e}")))?
+    .map_err(|e| PlethoraError::Internal(format!("secure_storage_get: task join error: {e}")))?
 }
 
 /// Remove the `(service, account)` credential. Missing entries are not an
@@ -85,10 +85,10 @@ pub async fn secure_storage_clear(service: String, account: String) -> Result<()
     })
     .await
     .map_err(|e| {
-        IncrementumError::Internal(format!("secure_storage_clear: task join error: {e}"))
+        PlethoraError::Internal(format!("secure_storage_clear: task join error: {e}"))
     })?
 }
 
-fn keyring_err(ctx: &str, e: keyring::Error) -> IncrementumError {
-    IncrementumError::Internal(format!("{ctx}: keyring error: {e}"))
+fn keyring_err(ctx: &str, e: keyring::Error) -> PlethoraError {
+    PlethoraError::Internal(format!("{ctx}: keyring error: {e}"))
 }

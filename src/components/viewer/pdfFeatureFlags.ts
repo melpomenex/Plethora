@@ -3,15 +3,15 @@ export const PDF_FEATURE_KEYS = {
   // read_pdf_document_range command). Enabled by default in the Tauri runtime
   // on desktop and mobile alike (design D10); the whole-file path remains as
   // an explicit fallback.
-  nativePdfRangeSource: "incrementum.feature.nativePdfRangeSource",
+  nativePdfRangeSource: "plethora.feature.nativePdfRangeSource",
   // Legacy key from the mobile-only rollout. Read as a fallback so a user who
   // disabled the flag before the rename keeps it disabled after.
-  legacyNativeMobileRangeSource: "incrementum.feature.nativeMobilePdfRangeSource",
-  semanticReflow: "incrementum.feature.pdfSemanticReflow",
+  legacyNativeMobileRangeSource: "plethora.feature.nativeMobilePdfRangeSource",
+  semanticReflow: "plethora.feature.pdfSemanticReflow",
   // Canonical Rust model (v2): hybrid analysis cache + Original-view
   // canonical selection snapping. Ships off; the reflow *view* stays gated
   // separately by `semanticReflow`.
-  canonicalPdfModel: "incrementum.feature.pdfCanonicalModel",
+  canonicalPdfModel: "plethora.feature.pdfCanonicalModel",
 } as const;
 
 export type PdfFeature = keyof typeof PDF_FEATURE_KEYS;

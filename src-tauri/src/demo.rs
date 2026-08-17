@@ -3,7 +3,7 @@
 //! This module handles automatic import of demo content on first run.
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -30,7 +30,7 @@ pub fn get_demo_content_dir() -> PathBuf {
 
     // If we're in development, look for demo/ in project root
     // If we're in production (Tauri app), look in resources
-    if path.ends_with("incrementum-tauri") || path.ends_with("src-tauri") {
+    if path.ends_with("incrementum-tauri") || path.ends_with("plethora-tauri") || path.ends_with("src-tauri") {
         path = path.parent().map(|p| p.to_path_buf()).unwrap_or(path);
     }
 
@@ -61,13 +61,13 @@ pub fn get_demo_apkg_files() -> Result<Vec<PathBuf>> {
     }
 
     let entries = fs::read_dir(&apkg_dir).map_err(|e| {
-        IncrementumError::NotFound(format!("Cannot read demo apkg directory: {}", e))
+        PlethoraError::NotFound(format!("Cannot read demo apkg directory: {}", e))
     })?;
 
     let mut apkg_files = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|e| {
-            IncrementumError::NotFound(format!("Cannot read directory entry: {}", e))
+            PlethoraError::NotFound(format!("Cannot read directory entry: {}", e))
         })?;
         let path = entry.path();
 
@@ -89,13 +89,13 @@ pub fn get_demo_book_files() -> Result<Vec<PathBuf>> {
     }
 
     let entries = fs::read_dir(&books_dir).map_err(|e| {
-        IncrementumError::NotFound(format!("Cannot read demo books directory: {}", e))
+        PlethoraError::NotFound(format!("Cannot read demo books directory: {}", e))
     })?;
 
     let mut book_files = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|e| {
-            IncrementumError::NotFound(format!("Cannot read directory entry: {}", e))
+            PlethoraError::NotFound(format!("Cannot read directory entry: {}", e))
         })?;
         let path = entry.path();
 

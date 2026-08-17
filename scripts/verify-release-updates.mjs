@@ -16,13 +16,14 @@
  *
  * Usage:
  *   GITHUB_TOKEN=… node scripts/verify-release-updates.mjs \
- *     --repo melpomenex/Incrementum --tag v2.6.2 \
+ *     --repo melpomenex/Plethora --tag v2.6.2 \
  *     [--pubkey-config src-tauri/tauri.conf.json]
  *
  * Exit codes: 0 all platforms verified; 1 any failure; 2 usage error.
  */
 
 import { createWriteStream } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -83,6 +84,58 @@ function printUsageAndExit() {
   process.exit(2);
 }
 
+/**
+ * Verify every platform entry of an updater `latest.json` manifest against
+ * its artifact bytes. Exported so the self-test (scripts/__tests__) can run
+ * it against locally-fabricated Plethora artifacts without touching the
+ * network (rebrand task 5.4).
+ *
+ * `download(url, destination)` fetches the artifact; tests inject a local
+ * file copier. `digests` maps asset name -> `sha256:<hex>` (may be empty).
+ * Returns the list of failure strings (empty = every platform verified).
+ */
+export async function verifyManifestPlatforms({
+  manifest,
+  platforms,
+  pubkey,
+  digests,
+  download,
+  workDir,
+}) {
+  const failures = [];
+  for (const platform of platforms) {
+    const entry = manifest.platforms?.[platform];
+    if (!entry?.url || !entry?.signature) {
+      failures.push(
+        `${platform}: latest.json has no complete entry (url/signature missing) — this platform cannot self-update`,
+      );
+      continue;
+    }
+    const assetName = decodeURIComponent(basename(new URL(entry.url).pathname));
+    const artifactPath = join(workDir, assetName);
+    process.stdout.write(`${platform}: downloading ${assetName} …\n`);
+    try {
+      await download(entry.url, artifactPath);
+      await verifyUpdateSignature({
+        artifactPath,
+        signature: entry.signature,
+        pubkey,
+      });
+      const expectedDigest = digests.get(assetName);
+      if (expectedDigest) {
+        await checkArtifactDigest(artifactPath, expectedDigest);
+        console.log(`${platform}: signature valid, digest matches API record`);
+      } else {
+        console.log(`${platform}: signature valid (no API digest to compare)`);
+      }
+    } catch (err) {
+      const detail = err instanceof VerificationError ? err.message : String(err);
+      failures.push(`${platform}: ${detail}`);
+    }
+  }
+  return failures;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const readArg = (name) => {
@@ -107,38 +160,15 @@ async function main() {
   const workDir = mkdtempSync(join(tmpdir(), "verify-release-updates-"));
   try {
     const digests = await apiAssetDigests(repo, tag, token);
-
-    for (const platform of REQUIRED_PLATFORMS) {
-      const entry = manifest.platforms?.[platform];
-      if (!entry?.url || !entry?.signature) {
-        failures.push(
-          `${platform}: latest.json has no complete entry (url/signature missing) — this platform cannot self-update`,
-        );
-        continue;
-      }
-      const assetName = decodeURIComponent(basename(new URL(entry.url).pathname));
-      const artifactPath = join(workDir, assetName);
-      process.stdout.write(`${platform}: downloading ${assetName} …\n`);
-      try {
-        await downloadToFile(entry.url, artifactPath);
-        await verifyUpdateSignature({
-          artifactPath,
-          signature: entry.signature,
-          pubkey,
-        });
-        const expectedDigest = digests.get(assetName);
-        if (expectedDigest) {
-          await checkArtifactDigest(artifactPath, expectedDigest);
-          console.log(`${platform}: signature valid, digest matches API record`);
-        } else {
-          console.log(`${platform}: signature valid (no API digest to compare)`);
-        }
-      } catch (err) {
-        const detail =
-          err instanceof VerificationError ? err.message : String(err);
-        failures.push(`${platform}: ${detail}`);
-      }
-    }
+    const failuresFromManifest = await verifyManifestPlatforms({
+      manifest,
+      platforms: REQUIRED_PLATFORMS,
+      pubkey,
+      digests,
+      download: (url, destination) => downloadToFile(url, destination),
+      workDir,
+    });
+    failures.push(...failuresFromManifest);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
@@ -154,4 +184,8 @@ async function main() {
   console.log("\nverify-release OK — all platform update chains verified.");
 }
 
-await main();
+// Run only as a CLI entrypoint (the self-test imports the module for its
+// exported logic without triggering main).
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  await main();
+}

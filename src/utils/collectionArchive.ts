@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { invokeCommand, isTauri } from "../lib/tauri";
+import { migratedGetItem } from "../lib/brandMigration";
 import * as db from "../lib/database";
 import { buildAnkiApkg } from "./ankiExport";
 import type { Document, Extract, LearningItem } from "../types/document";
@@ -130,7 +131,7 @@ export async function buildCollectionArchive(options: {
   const apkgBytes = await buildAnkiApkg(scopedLearningItems, { deckName });
   zip.file("anki/flashcards.apkg", apkgBytes);
 
-  const settingsRaw = localStorage.getItem("incrementum-settings");
+  const settingsRaw = migratedGetItem("plethora-settings");
   const settings = settingsRaw ? JSON.parse(settingsRaw) : null;
 
   const localStorageDump = collectLocalStorage();
@@ -172,7 +173,7 @@ export async function buildCollectionArchive(options: {
     : null;
 
   const manifest: CollectionArchiveManifest = {
-    archiveType: "incrementum-collection-export",
+    archiveType: "plethora-collection-export",
     version: "1.0",
     exportedAt: new Date().toISOString(),
     scope: options.scope,
@@ -186,7 +187,7 @@ export async function buildCollectionArchive(options: {
   const blob = await zip.generateAsync({ type: "blob" });
   const date = new Date().toISOString().split("T")[0];
   const scopeLabel = options.scope === "all" ? "all" : "collection";
-  const filename = `incrementum-${scopeLabel}-export-${date}.zip`;
+  const filename = `plethora-${scopeLabel}-export-${date}.zip`;
 
   return { blob, filename };
 }
@@ -199,7 +200,11 @@ export async function parseCollectionArchive(file: File): Promise<ParsedCollecti
     throw new Error("Archive manifest not found.");
   }
   const manifest = JSON.parse(manifestRaw) as CollectionArchiveManifest;
-  if (manifest.archiveType !== "incrementum-collection-export") {
+  if (
+    manifest.archiveType !== "plethora-collection-export" &&
+    // Legacy archives exported by Incrementum stay importable forever.
+    manifest.archiveType !== "incrementum-collection-export"
+  ) {
     throw new Error("Unsupported archive type.");
   }
   const payloadRaw = await zip.file("data/payload.json")?.async("string");

@@ -14,8 +14,8 @@ interface AuthResponse {
 export type AuthUser = AuthResponse['user'];
 
 // Storage keys
-const TOKEN_KEY = 'incrementum_auth_token';
-const USER_KEY = 'incrementum_user';
+const TOKEN_KEY = 'plethora_auth_token';
+const USER_KEY = 'plethora_user';
 
 /**
  * Get stored auth token
@@ -105,7 +105,7 @@ export async function login(email: string, password: string): Promise<AuthRespon
 export function logout(): void {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
-    localStorage.removeItem('incrementum_last_sync_version');
+    localStorage.removeItem('plethora_last_sync_version');
 }
 
 /**

@@ -153,7 +153,7 @@ impl AnnaArchiveClient {
             return Ok(vec![]);
         }
 
-        Err(crate::error::IncrementumError::Internal(format!(
+        Err(crate::error::PlethoraError::Internal(format!(
             "Failed to search books after trying all mirrors. Last error: {}",
             last_error
                 .as_ref()
@@ -165,18 +165,18 @@ impl AnnaArchiveClient {
     /// Fetch search results from a URL
     async fn fetch_search_results(&self, url: &str) -> Result<Vec<BookSearchResult>> {
         let response = self.http_client.get(url).send().await.map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Network error: {}", e))
+            crate::error::PlethoraError::Internal(format!("Network error: {}", e))
         })?;
 
         if !response.status().is_success() {
-            return Err(crate::error::IncrementumError::Internal(format!(
+            return Err(crate::error::PlethoraError::Internal(format!(
                 "HTTP error: {}",
                 response.status()
             )));
         }
 
         let html = response.text().await.map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to read response: {}", e))
+            crate::error::PlethoraError::Internal(format!("Failed to read response: {}", e))
         })?;
 
         self.parse_annas_archive_results(&html)
@@ -471,7 +471,7 @@ fn get_download_script_path() -> Result<std::path::PathBuf> {
         }
     }
 
-    Err(crate::error::IncrementumError::Internal(
+    Err(crate::error::PlethoraError::Internal(
         "Anna's Archive download script not found".to_string(),
     ))
 }
@@ -493,7 +493,7 @@ fn find_python3() -> Result<std::path::PathBuf> {
         }
     }
 
-    Err(crate::error::IncrementumError::Internal(
+    Err(crate::error::PlethoraError::Internal(
         "Python 3 not found. Install Python 3 to use Anna's Archive downloads.".to_string(),
     ))
 }
@@ -533,7 +533,7 @@ pub async fn download_book(
     tokio::fs::create_dir_all(&download_dir)
         .await
         .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!(
+            crate::error::PlethoraError::Internal(format!(
                 "Failed to create download directory: {}",
                 e
             ))
@@ -566,10 +566,10 @@ pub async fn download_book(
     )
     .await
     .map_err(|_| {
-        crate::error::IncrementumError::Internal("Download timed out after 5 minutes".to_string())
+        crate::error::PlethoraError::Internal("Download timed out after 5 minutes".to_string())
     })?
     .map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to run download script: {}", e))
+        crate::error::PlethoraError::Internal(format!("Failed to run download script: {}", e))
     })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -586,11 +586,11 @@ pub async fn download_book(
         } else {
             "Download failed with no output".to_string()
         };
-        return Err(crate::error::IncrementumError::Internal(error_msg));
+        return Err(crate::error::PlethoraError::Internal(error_msg));
     }
 
     let result: serde_json::Value = serde_json::from_str(&stdout).map_err(|e| {
-        crate::error::IncrementumError::Internal(format!(
+        crate::error::PlethoraError::Internal(format!(
             "Failed to parse download result: {}. Output: {}",
             e,
             stdout.chars().take(200).collect::<String>()
@@ -616,7 +616,7 @@ pub async fn download_book(
             _ => error_msg.to_string(),
         };
 
-        Err(crate::error::IncrementumError::Internal(message))
+        Err(crate::error::PlethoraError::Internal(message))
     }
 }
 

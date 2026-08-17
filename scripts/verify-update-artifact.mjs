@@ -31,8 +31,8 @@
  * Usage:
  *   node scripts/verify-update-artifact.mjs \
  *     --pubkey-config src-tauri/tauri.conf.json \
- *     --artifact src-tauri/target/release/bundle/appimage/Incrementum_2.6.2_amd64.AppImage \
- *     --sig      src-tauri/target/release/bundle/appimage/Incrementum_2.6.2_amd64.AppImage.sig \
+ *     --artifact src-tauri/target/release/bundle/appimage/Plethora_2.6.2_amd64.AppImage \
+ *     --sig      src-tauri/target/release/bundle/appimage/Plethora_2.6.2_amd64.AppImage.sig \
  *     [--check-digest sha256:<hex>]
  *
  * `--signature <string>` may replace `--sig` to verify a manifest signature

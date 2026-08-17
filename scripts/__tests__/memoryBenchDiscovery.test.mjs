@@ -39,7 +39,7 @@ function makeTree(root) {
   writeProcTree(root, {
     1: { status: statusFile("systemd", 0, 1) }, // unrelated kernel/user process
     100: {
-      status: statusFile("incrementum-tauri", 1, 500),
+      status: statusFile("plethora-tauri", 1, 500),
       marker: true, // the launched app
     },
     101: {

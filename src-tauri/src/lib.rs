@@ -17,6 +17,7 @@ mod error;
 mod generator;
 mod integrations;
 mod kindle_clippings;
+mod legacy_data;
 mod mcp;
 mod models;
 mod notebooklm;
@@ -125,6 +126,15 @@ pub enum StartupNotice {
     /// External file-level sync left SQLite conflict/corrupt siblings beside
     /// the live database. The files are preserved; the frontend only warns.
     DatabaseIntegrityWarning { artifacts: Vec<String> },
+    /// A legacy Incrementum app-data directory was found and a migration is
+    /// available. The frontend offers a localized consent dialog (task 3.1).
+    LegacyDataAvailable { legacy_path: String },
+    /// The legacy Incrementum app-data migration completed; the legacy
+    /// directory is preserved untouched at `legacy_path`.
+    LegacyDataMigrated {
+        legacy_path: String,
+        backup_db: Option<String>,
+    },
 }
 
 mod startup_notice {
@@ -171,7 +181,7 @@ fn startup_log_path(app: &tauri::AppHandle) -> std::path::PathBuf {
     if let Ok(app_dir) = app.path().app_data_dir() {
         app_dir.join("logs").join("startup.log")
     } else {
-        std::env::temp_dir().join("incrementum-startup.log")
+        std::env::temp_dir().join("plethora-startup.log")
     }
 }
 
@@ -212,7 +222,14 @@ fn detect_database_integrity_artifacts(app: &tauri::AppHandle, app_dir: &std::pa
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_default();
-        if name.contains(".sync-conflict-") || name.contains(".corrupt-") {
+        // `.sync-conflict-` matches Syncthing conflict siblings; `.corrupt.`
+        // matches this app's own quarantine naming under BOTH the legacy
+        // `incrementum.db.corrupt.*` and current `plethora.db.corrupt.*`
+        // stems (task 3.1/3.2 compatibility).
+        if name.contains(".sync-conflict-")
+            || name.contains(".corrupt-")
+            || name.contains(".corrupt.")
+        {
             let metadata = match entry.metadata() {
                 Ok(metadata) => metadata,
                 Err(_) => continue,
@@ -378,7 +395,7 @@ async fn download_update_apk(
     use std::io::Write;
 
     let client = reqwest::Client::builder()
-        .user_agent("incrementum-updater")
+        .user_agent("plethora-updater")
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
@@ -436,6 +453,57 @@ fn consume_startup_notice(app_handle: tauri::AppHandle) -> Option<StartupNotice>
     startup_notice::take(&app_handle)
 }
 
+/// Run the one-time Incrementum → Plethora app-data migration after the user
+/// consented in the frontend dialog. Closes the live database pool, copies the
+/// legacy tree in (never moving or deleting anything from it), sets the
+/// current database aside as a `.pre-migration-backup`, and returns a report.
+/// The frontend relaunches the app immediately after this succeeds so all
+/// services re-open the migrated database.
+#[tauri::command]
+async fn migrate_legacy_data(
+    app: tauri::AppHandle,
+    repo: tauri::State<'_, database::Repository>,
+) -> std::result::Result<serde_json::Value, String> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = (app, repo);
+        return Err("Legacy data migration is desktop-only".to_string());
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let legacy_dir = legacy_data::legacy_app_data_dir(&app_dir);
+        // Close the pool first so no connection writes through the file set
+        // while it is being replaced.
+        repo.pool().close().await;
+        let report = tauri::async_runtime::spawn_blocking(move || {
+            legacy_data::perform_migration(&app_dir, &legacy_dir)
+        })
+        .await
+        .map_err(|e| format!("migration task failed: {e}"))?
+        .map_err(|e| format!("migration failed: {e:#}"))?;
+        serde_json::to_value(&report).map_err(|e| e.to_string())
+    }
+}
+
+/// Record that the user declined the one-time legacy-data migration; the
+/// offer will not be repeated. The legacy directory is left untouched either
+/// way.
+#[tauri::command]
+fn decline_legacy_data_migration(app: tauri::AppHandle) -> std::result::Result<(), String> {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = app;
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        legacy_data::mark_declined(&app_dir);
+        Ok(())
+    }
+}
+
 #[tauri::command]
 async fn restore_local_db_backup(
     app: tauri::AppHandle,
@@ -443,7 +511,7 @@ async fn restore_local_db_backup(
     backup_path: String,
 ) -> std::result::Result<(), String> {
     let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let db_path = app_dir.join("incrementum.db");
+    let db_path = app_dir.join(database::connection::DB_FILE_NAME);
 
     // Close the connection pool to avoid lock conflicts
     let pool = repo.pool().clone();
@@ -543,7 +611,7 @@ pub fn run() {
 
     // EARLY LOG: Entry point
     let _ = (|| -> anyhow::Result<()> {
-        let log_path = std::env::temp_dir().join("incrementum-startup.log");
+        let log_path = std::env::temp_dir().join("plethora-startup.log");
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -567,7 +635,7 @@ pub fn run() {
 
     // EARLY LOG: After dotenv
     let _ = (|| -> anyhow::Result<()> {
-        let log_path = std::env::temp_dir().join("incrementum-startup.log");
+        let log_path = std::env::temp_dir().join("plethora-startup.log");
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -594,7 +662,7 @@ pub fn run() {
 
     // EARLY LOG: Before chrono
     let _ = (|| -> anyhow::Result<()> {
-        let log_path = std::env::temp_dir().join("incrementum-startup.log");
+        let log_path = std::env::temp_dir().join("plethora-startup.log");
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -609,7 +677,7 @@ pub fn run() {
 
     // Early log for debugging startup crashes
     let _ = (|| -> anyhow::Result<()> {
-        let log_path = std::env::temp_dir().join("incrementum-startup.log");
+        let log_path = std::env::temp_dir().join("plethora-startup.log");
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -633,20 +701,29 @@ pub fn run() {
         });
 
         if clear_requested {
-            let mut state_file = None;
+            // Clear the state under the CURRENT identifier first, then the
+            // legacy `com.incrementum.app` one (kept so pre-rebrand installs
+            // are covered too).
+            let mut candidates: Vec<std::path::PathBuf> = Vec::new();
             if cfg!(target_os = "macos") {
                 if let Some(data_dir) = dirs::data_dir() {
-                    state_file = Some(
-                        data_dir.join("Application Support/com.incrementum.app/.window-state.json"),
+                    candidates.push(
+                        data_dir.join("com.plethora.app/.window-state.json"),
+                    );
+                    candidates.push(
+                        data_dir.join("com.incrementum.app/.window-state.json"),
                     );
                 }
             } else {
                 if let Some(config_dir) = dirs::config_dir() {
-                    state_file = Some(config_dir.join("com.incrementum.app/.window-state.json"));
+                    candidates.push(config_dir.join("com.plethora.app/.window-state.json"));
+                    candidates.push(
+                        config_dir.join("com.incrementum.app/.window-state.json"),
+                    );
                 }
             }
 
-            if let Some(path) = state_file {
+            for path in candidates {
                 if path.exists() {
                     let _ = std::fs::remove_file(&path);
                 }
@@ -702,19 +779,19 @@ pub fn run() {
         // Desktop uses a native folder dialog + walkdir; Android uses SAF
         // (ACTION_OPEN_DOCUMENT_TREE) and iOS uses UIDocumentPickerViewController
         // in folder mode, staging files into app-private storage.
-        .plugin(incrementum_folder_import::init())
+        .plugin(plethora_folder_import::init())
         // On-device TTS for Android: native sherpa-onnx inference (KittenTTS
         // Micro / Kokoro-82M) with AudioTrack playback, audio focus, lifecycle,
         // model downloads, and System-TTS fallback — all owned by the Kotlin
         // plugin. No PCM crosses the Tauri IPC. Desktop commands return an
         // Android-only error; Pocket TTS is the desktop local option, untouched.
-        .plugin(incrementum_android_tts::init())
+        .plugin(plethora_android_tts::init())
         // On-device generative AI for Android: ML Kit GenAI (Gemini Nano via
         // AICore) for capability detection, summarization, and free-form
         // prompting. Off Android the status command reports
         // `platform_unsupported` and inference returns a typed error, so the
         // frontend falls back to the configured cloud provider unchanged.
-        .plugin(incrementum_android_genai::init());
+        .plugin(plethora_android_genai::init());
 
     // Updater + process (relaunch after install) are desktop-only.
     // The plugin reads its config from the `plugins.updater` block in
@@ -781,10 +858,10 @@ pub fn run() {
                     use tauri::menu::Submenu;
                     let app_submenu = Submenu::with_items(
                         app,
-                        "Incrementum",
+                        "Plethora",
                         true,
                         &[
-                            &PredefinedMenuItem::about(app, Some("About Incrementum"), None)?,
+                            &PredefinedMenuItem::about(app, Some("About Plethora"), None)?,
                             &PredefinedMenuItem::separator(app)?,
                             &MenuItem::with_id(
                                 app,
@@ -794,9 +871,9 @@ pub fn run() {
                                 None::<&str>,
                             )?,
                             &PredefinedMenuItem::separator(app)?,
-                            &PredefinedMenuItem::hide(app, Some("Hide Incrementum"))?,
+                            &PredefinedMenuItem::hide(app, Some("Hide Plethora"))?,
                             &PredefinedMenuItem::separator(app)?,
-                            &PredefinedMenuItem::quit(app, Some("Quit Incrementum"))?,
+                            &PredefinedMenuItem::quit(app, Some("Quit Plethora"))?,
                         ],
                     )?;
                     menu.append(&app_submenu)?;
@@ -945,11 +1022,46 @@ pub fn run() {
 
                 log_startup(&app_handle, "startup: app data dir ready");
 
+                // One-time legacy Incrementum → Plethora data migration
+                // (task 3.1, desktop only). Detection arms a pending marker
+                // BEFORE the fresh database makes the directory non-empty;
+                // the consent dialog itself lives in the frontend so it can
+                // be localized (see MainLayout).
+                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                {
+                    if let Some(legacy_dir) = legacy_data::detect_pending_migration(&app_dir) {
+                        log_startup(
+                            &app_handle,
+                            &format!(
+                                "startup: legacy data available at {}",
+                                legacy_dir.display()
+                            ),
+                        );
+                        startup_notice::set(
+                            &app_handle,
+                            StartupNotice::LegacyDataAvailable {
+                                legacy_path: legacy_dir.display().to_string(),
+                            },
+                        );
+                    } else if let Some(report) =
+                        legacy_data::take_migration_completion_notice(&app_dir)
+                    {
+                        log_startup(&app_handle, "startup: legacy data migration completed");
+                        startup_notice::set(
+                            &app_handle,
+                            StartupNotice::LegacyDataMigrated {
+                                legacy_path: report.legacy_dir,
+                                backup_db: report.backup_db,
+                            },
+                        );
+                    }
+                }
+
                 // Never mutate SQLite siblings created by an external file
                 // sync tool; preserve them and surface a dismissible notice.
                 detect_database_integrity_artifacts(&app_handle, &app_dir);
 
-                let db_path = app_dir.join("incrementum.db");
+                let db_path = database::connection::resolve_database_path(&app_dir);
 
                 let (db, db_outcome) = Database::open_or_recover(db_path)
                     .await
@@ -981,7 +1093,12 @@ pub fn run() {
                 } else if matches!(db_outcome, database::connection::OpenOutcome::CreatedFresh) {
                     #[cfg(target_os = "android")]
                     {
+                        // Current Plethora location first; the legacy
+                        // Incrementum paths stay watched so pre-rebrand
+                        // auto-backups are still offered (task 3.9).
                         let paths = [
+                            "/storage/emulated/0/Download/Plethora/Plethora_Backup_Auto.db",
+                            "/sdcard/Download/Plethora/Plethora_Backup_Auto.db",
                             "/storage/emulated/0/Download/Incrementum/Incrementum_Backup_Auto.db",
                             "/sdcard/Download/Incrementum/Incrementum_Backup_Auto.db",
                         ];
@@ -1042,9 +1159,19 @@ pub fn run() {
                 }
 
                 // Initialize cloud auth provider and AI key store (managed immediately so commands can access them)
-                let auth_store = cloud::auth_store::AuthStore::new(app_dir.clone());
+                let legacy_store_dir = {
+                    let legacy = legacy_data::legacy_app_data_dir(&app_dir);
+                    if legacy.is_dir() {
+                        Some(legacy)
+                    } else {
+                        None
+                    }
+                };
+                let auth_store =
+                    cloud::auth_store::AuthStore::new(app_dir.clone(), legacy_store_dir.clone());
                 let cloud_auth_provider = cloud::auth_store::CloudAuthProvider::new();
-                let ai_key_store = commands::ai_key_store::AIKeyStore::new(app_dir.clone());
+                let ai_key_store =
+                    commands::ai_key_store::AIKeyStore::new(app_dir.clone(), legacy_store_dir);
 
                 app.manage(cloud_auth_provider.clone());
                 app.manage(auth_store.clone());
@@ -1076,10 +1203,10 @@ pub fn run() {
                     ai_learning::embeddings_backend::install_on_device_embedder(std::sync::Arc::new(
                         move |texts: &[String], normalize: bool, kind: &str| {
                             let plugin_kind = match kind {
-                                "query" => incrementum_android_genai::EmbeddingKind::Query,
-                                _ => incrementum_android_genai::EmbeddingKind::Document,
+                                "query" => plethora_android_genai::EmbeddingKind::Query,
+                                _ => plethora_android_genai::EmbeddingKind::Document,
                             };
-                            incrementum_android_genai::embed_texts_via_app(
+                            plethora_android_genai::embed_texts_via_app(
                                 &bridge_app,
                                 texts.to_vec(),
                                 normalize,
@@ -1219,7 +1346,7 @@ pub fn run() {
                         feature = "devtools",
                         not(any(target_os = "ios", target_os = "android"))
                     ))]
-                    if std::env::var("INCREMENTUM_OPEN_DEVTOOLS").is_ok() {
+                    if crate::utils::keychain::env_or_legacy("PLETHORA_OPEN_DEVTOOLS").is_some() {
                         window.open_devtools();
                     }
                     tracing::info!("Webview ready at {:?}", window.url());
@@ -1253,6 +1380,8 @@ pub fn run() {
             download_update_apk,
             updater_bundle_type,
             consume_startup_notice,
+            migrate_legacy_data,
+            decline_legacy_data_migration,
             restore_local_db_backup,
             apply_theme_vibrancy,
             commands::get_documents,
@@ -1562,6 +1691,7 @@ pub fn run() {
             integrations::import_from_obsidian,
             integrations::sync_to_obsidian,
             integrations::sync_from_obsidian,
+            integrations::migrate_obsidian_vault_ids,
             integrations::sync_to_logseq,
             integrations::sync_from_logseq,
             integrations::delete_from_obsidian,
@@ -1721,6 +1851,9 @@ pub fn run() {
             commands::mcp::mcp_update_server,
             commands::mcp::mcp_list_tools,
             commands::mcp::mcp_call_tool,
+            commands::mcp::mcp_get_app_tools,
+            commands::mcp::mcp_call_app_tool,
+            // Deprecated pre-rebrand aliases — removed after one release.
             commands::mcp::mcp_get_incrementum_tools,
             commands::mcp::mcp_call_incrementum_tool,
             commands::mcp::mcp_get_server_tools,

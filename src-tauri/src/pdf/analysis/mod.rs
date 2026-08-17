@@ -24,7 +24,7 @@ pub use crate::pdf::coordinates::{self, PdfRect};
 pub use raster::{PageInkMask, PageRaster};
 pub use words::TextItemInput;
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::pdf::model::{
     self, PdfCanonicalBlock, PdfCanonicalBlockKind, PdfCanonicalClassification,
     PdfCanonicalDirection, PdfCanonicalLine, PdfCanonicalPage, PdfCanonicalPageState,
@@ -98,7 +98,7 @@ struct DraftGroup {
 
 pub fn analyze_page(request: &PageAnalysisRequest) -> Result<PdfCanonicalPage> {
     if request.page_number == 0 {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "PDF page numbers start at 1".into(),
         ));
     }
@@ -111,7 +111,7 @@ pub fn analyze_page(request: &PageAnalysisRequest) -> Result<PdfCanonicalPage> {
             request.page_height,
         )?),
         (Some(_), _) => {
-            return Err(IncrementumError::InvalidInput(
+            return Err(PlethoraError::InvalidInput(
                 "rasterScale must be positive when a raster is supplied".into(),
             ));
         }

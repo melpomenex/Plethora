@@ -10,7 +10,7 @@
 //! This module absorbs the v1 opaque-JSON cache (`commands/pdf_reflow_cache.rs`)
 //! with typed pages; the v1 commands stay registered until phase 10 cleanup.
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -52,7 +52,7 @@ impl PdfReflowCache {
             .app_cache_dir()
             .map(|path| path.join("incrementum").join("pdf-reflow-v2"))
             .map_err(|error| {
-                IncrementumError::Internal(format!("Failed to resolve PDF cache: {error}"))
+                PlethoraError::Internal(format!("Failed to resolve PDF cache: {error}"))
             })?;
         Ok(Self { root })
     }
@@ -86,7 +86,7 @@ impl PdfReflowCache {
 
     fn ensure_page_number(page_number: u32) -> Result<()> {
         if page_number == 0 {
-            return Err(IncrementumError::InvalidInput(
+            return Err(PlethoraError::InvalidInput(
                 "PDF page numbers start at 1".into(),
             ));
         }
@@ -151,7 +151,7 @@ impl PdfReflowCache {
     ) -> Result<()> {
         Self::ensure_page_number(page.page_number)?;
         if page.schema_version != schema_version || page.engine_version != engine_version {
-            return Err(IncrementumError::InvalidInput(format!(
+            return Err(PlethoraError::InvalidInput(format!(
                 "Page stamped with {}/{} does not match cache key {}/{}",
                 page.schema_version, page.engine_version, schema_version, engine_version
             )));
@@ -172,7 +172,7 @@ impl PdfReflowCache {
         bytes: &[u8],
     ) -> Result<String> {
         if bytes.is_empty() {
-            return Err(IncrementumError::InvalidInput(
+            return Err(PlethoraError::InvalidInput(
                 "PDF reflow assets must not be empty".into(),
             ));
         }
@@ -193,7 +193,7 @@ impl PdfReflowCache {
         asset_id: &str,
     ) -> Result<Option<Vec<u8>>> {
         if !is_hash_id(asset_id) {
-            return Err(IncrementumError::InvalidInput(
+            return Err(PlethoraError::InvalidInput(
                 "Asset ids must be 64-character hex hashes".into(),
             ));
         }
@@ -227,7 +227,7 @@ impl PdfReflowCache {
         })
         .await
         .map_err(|error| {
-            IncrementumError::Internal(format!("PDF cache cleanup failed: {error}"))
+            PlethoraError::Internal(format!("PDF cache cleanup failed: {error}"))
         })??;
         Ok(())
     }
@@ -236,13 +236,13 @@ impl PdfReflowCache {
 async fn write_bytes_atomic(path: &Path, bytes: &[u8], extension: &str) -> Result<()> {
     let parent = path
         .parent()
-        .ok_or_else(|| IncrementumError::InvalidInput("Invalid PDF cache path".into()))?;
+        .ok_or_else(|| PlethoraError::InvalidInput("Invalid PDF cache path".into()))?;
     tokio::fs::create_dir_all(parent).await?;
     let temp = path.with_extension(format!("{extension}.tmp-{}", uuid::Uuid::new_v4()));
     tokio::fs::write(&temp, bytes).await?;
     if let Err(error) = tokio::fs::rename(&temp, path).await {
         let _ = tokio::fs::remove_file(&temp).await;
-        return Err(IncrementumError::Io(error));
+        return Err(PlethoraError::Io(error));
     }
     Ok(())
 }

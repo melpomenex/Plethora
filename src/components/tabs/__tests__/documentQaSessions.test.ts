@@ -342,6 +342,6 @@ describe("STORAGE_KEYS constants", () => {
   });
 
   it("exposes the legacy key", () => {
-    expect(LEGACY_STORAGE_KEYS.state).toBe("incrementum-document-qa");
+    expect(LEGACY_STORAGE_KEYS.state).toBe("plethora-document-qa");
   });
 });

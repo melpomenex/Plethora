@@ -59,6 +59,22 @@ export const zh: Dict = {
   "mainLayout.sharedLinkAdded": "分享链接已添加到您的队列。",
   "mainLayout.open": "打开",
   "mainLayout.importFailed": "导入失败",
+  "mainLayout.legacyDataTitle": "发现 Incrementum 数据",
+  "mainLayout.legacyDataMigrate": "复制我的数据",
+  "mainLayout.legacyDataDecline": "从空白开始",
+  "mainLayout.legacyDataPrompt":
+    "Plethora 在此电脑上发现了已有的 Incrementum 资料库。是否现在将您的文档、复习历史、主题和 API 密钥复制到 Plethora？",
+  "mainLayout.legacyDataLegacyKept":
+    "原始 Incrementum 文件夹不会被修改。选择“确定”复制数据，选择“取消”则从空白开始。",
+  "mainLayout.legacyDataMigrating": "正在迁移您的数据……",
+  "mainLayout.legacyDataMigratingDesc":
+    "正在将您的 Incrementum 资料库复制到 Plethora。完成后应用将自动重启。",
+  "mainLayout.legacyDataFailed": "迁移失败",
+  "mainLayout.legacyDataMigrated": "迁移完成",
+  "mainLayout.legacyDataMigratedDesc":
+    "您的 Incrementum 数据已复制到 Plethora。原始文件夹保留在 {path}。",
+  "mainLayout.legacyDataMigratedDescBackup":
+    "您的 Incrementum 数据已复制到 Plethora。原始文件夹保留在 {path}；您之前新建的 Plethora 数据库已保存为 {backup}。",
   "tabs.continueReading": "继续阅读",
   "tabs.review": "复习",
   "tabs.rssFeeds": "RSS 订阅源",
@@ -1797,6 +1813,16 @@ export const zh: Dict = {
   "integrations.saveAnkiConfiguration": "保存 Anki 配置",
   "integrations.saveCookies": "保存 Cookie",
   "integrations.saveObsidianConfiguration": "保存 Obsidian 配置",
+  "integrations.migrateVaultIdsTitle": "迁移仓库笔记 ID",
+  "integrations.migrateVaultIdsDesc":
+    "由 Incrementum 导出的笔记带有 incrementum-id 前置元数据键。Plethora 可以同时读取两种键，因此本操作是可选的——它会把仓库笔记改写为新的 plethora-id 键。仅在您确认后才会修改笔记，且正文内容保持不变。",
+  "integrations.migrateVaultIdsButton": "迁移仓库 ID",
+  "integrations.migrateVaultIdsNeedVault": "请先设置 Obsidian 仓库路径。",
+  "integrations.migrateVaultIdsConfirm":
+    "将 {notes} 下笔记前置元数据中的 incrementum-id/incrementum-type 改写为 plethora-id/plethora-type？这会修改仓库中的文件（正文保持不变）。",
+  "integrations.migrateVaultIdsResult":
+    "已改写 {scanned} 篇笔记中的 {rewritten} 篇。",
+  "integrations.migrateVaultIdsFailed": "仓库 ID 迁移失败",
   "integrations.selectObsidianVaultFolder": "选择 Obsidian 笔记库文件夹",
   "integrations.selectWorkflowDesc": "选择一个 AI 工作流开始使用",
   "integrations.startServer": "启动服务器",

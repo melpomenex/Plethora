@@ -1,13 +1,13 @@
 [package]
-name = "incrementum-tauri"
+name = "plethora-tauri"
 version = "2.7.0"
-description = "Incrementum - Incremental Reading and Spaced Repetition"
-authors = ["Incrementum Team"]
+description = "Plethora - Incremental Reading and Spaced Repetition"
+authors = ["Plethora Team"]
 edition = "2021"
-default-run = "incrementum-tauri"
+default-run = "plethora-tauri"
 
 [lib]
-name = "incrementum_tauri_lib"
+name = "plethora_tauri_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -49,22 +49,22 @@ log = "0.4"
 # On desktop it opens a native folder dialog + walkdir scan; on Android it uses
 # SAF (ACTION_OPEN_DOCUMENT_TREE) and on iOS a UIDocumentPickerViewController in
 # folder mode, staging files into app-private storage so the path-based import
-# pipeline can read them. See plugins/folder-import/.
-incrementum-folder-import = { path = "plugins/folder-import" }
+# pipeline can read them. See plugins/plethora-folder-import/.
+plethora-folder-import = { path = "plugins/plethora-folder-import" }
 # In-repo mobile plugin for on-device TTS on Android via sherpa-onnx
 # (KittenTTS Micro / Kokoro-82M). The Rust side is a thin shim that registers
 # the Android plugin; the Kotlin side owns inference, AudioTrack playback, audio
 # focus, lifecycle, model downloads, and the System-TTS fallback. No PCM crosses
 # the Tauri IPC. On desktop every command returns an Android-only error and
-# Pocket TTS is used instead. See plugins/android-tts/.
-incrementum-android-tts = { path = "plugins/android-tts" }
+# Pocket TTS is used instead. See plugins/plethora-android-tts/.
+plethora-android-tts = { path = "plugins/plethora-android-tts" }
 # In-repo Android plugin for on-device generative AI via ML Kit GenAI (Gemini
 # Nano through the system AICore service). The Rust side is a thin shim that
 # registers the Kotlin plugin; the Kotlin side owns the ML Kit clients, their
 # lifetime, and error classification. On every non-Android target the status
 # command reports `platform_unsupported` and inference returns a typed error, so
-# callers fall back to the configured cloud provider. See plugins/android-genai/.
-incrementum-android-genai = { path = "plugins/android-genai" }
+# callers fall back to the configured cloud provider. See plugins/plethora-android-genai/.
+plethora-android-genai = { path = "plugins/plethora-android-genai" }
 window-vibrancy = "0.6.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

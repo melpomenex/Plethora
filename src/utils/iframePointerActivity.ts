@@ -15,7 +15,7 @@
  * `mousemove`, so global mousemove consumers that read coordinates (assistant
  * panel dragging, resize handles) never see a bogus (0, 0) event.
  */
-export const IFRAME_POINTER_ACTIVITY_EVENT = "incrementum:iframe-pointer-activity";
+export const IFRAME_POINTER_ACTIVITY_EVENT = "plethora:iframe-pointer-activity";
 
 export type IframePointerActivityKind = "pointer" | "touch";
 

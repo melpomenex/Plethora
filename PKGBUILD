@@ -30,7 +30,7 @@ package() {
   cd "$srcdir"
 
   # Install the binary
-  install -Dm755 "src-tauri/target/x86_64-unknown-linux-gnu/release/incrementum-tauri" "$pkgdir/usr/bin/plethora"
+  install -Dm755 "src-tauri/target/x86_64-unknown-linux-gnu/release/plethora-tauri" "$pkgdir/usr/bin/plethora"
 
   # Install desktop file
   install -Dm644 "plethora.desktop" "$pkgdir/usr/share/applications/plethora.desktop"

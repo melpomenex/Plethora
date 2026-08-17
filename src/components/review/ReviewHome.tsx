@@ -176,7 +176,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
         void loadDeckStats();
       }, 400);
     };
-    const events = ["incrementum:synced-card", "incrementum:synced-card-deleted"];
+    const events = ["plethora:synced-card", "plethora:synced-card-deleted"];
     for (const ev of events) window.addEventListener(ev, schedule);
     return () => {
       if (t) clearTimeout(t);

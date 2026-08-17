@@ -274,7 +274,7 @@ pub async fn update_annotation(
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         }),
-        None => Err(crate::error::IncrementumError::NotFound("Annotation not found".to_string())),
+        None => Err(crate::error::PlethoraError::NotFound("Annotation not found".to_string())),
     }
 }
 
@@ -340,7 +340,7 @@ pub async fn update_rss_folder(
 
     match repo::get_folder_by_id(&repo, &id).await? {
         Some(folder) => Ok(folder),
-        None => Err(crate::error::IncrementumError::NotFound("Folder not found".to_string())),
+        None => Err(crate::error::PlethoraError::NotFound("Folder not found".to_string())),
     }
 }
 

@@ -13,6 +13,7 @@
  */
 
 import { isPWA } from '../lib/tauri';
+import { migratedGetItem } from '../lib/brandMigration';
 import { getQueueStats } from '../api/queue';
 
 const SYNC_TAG = 'check-due-cards';
@@ -119,7 +120,7 @@ export async function unsubscribeFromPush(): Promise<boolean> {
  */
 async function storePrefsForSW(): Promise<void> {
   try {
-    const raw = localStorage.getItem('incrementum-settings');
+    const raw = migratedGetItem('plethora-settings');
     if (!raw) return;
 
     const parsed = JSON.parse(raw);
@@ -174,7 +175,7 @@ export async function storeDueCountForSW(count: number): Promise<void> {
  */
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('incrementum-sw', 1);
+    const request = indexedDB.open('plethora-sw', 1);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains('preferences')) {

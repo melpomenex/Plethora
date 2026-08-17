@@ -550,7 +550,7 @@ export interface StagedFolderFile {
  *
  * Returns an empty array if the user cancels or the folder has no supported files.
  *
- * Uses the in-repo `incrementum-folder-import` Tauri plugin. In browser/PWA
+ * Uses the in-repo `plethora-folder-import` Tauri plugin. In browser/PWA
  * mode (no Tauri backend) this is unavailable and resolves to an empty array.
  */
 export async function pickFolderDocuments(
@@ -562,7 +562,7 @@ export async function pickFolderDocuments(
     return [];
   }
   return await invokeCommand<StagedFolderFile[]>(
-    "plugin:incrementum-folder-import|pick_folder_documents",
+    "plugin:plethora-folder-import|pick_folder_documents",
     { extensions: extensions ?? null }
   );
 }
@@ -585,7 +585,7 @@ export async function pickFilesMobile(
     return [];
   }
   return await invokeCommand<StagedFolderFile[]>(
-    "plugin:incrementum-folder-import|pick_files",
+    "plugin:plethora-folder-import|pick_files",
     {
       extensions: options?.extensions ?? null,
       multiple: options?.multiple ?? false,

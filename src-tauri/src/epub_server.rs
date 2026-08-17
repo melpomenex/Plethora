@@ -323,7 +323,7 @@ mod tests {
     }
 
     fn temp_epub(bytes: &[u8]) -> (std::path::PathBuf, std::path::PathBuf) {
-        let root = std::env::temp_dir().join(format!("incrementum-epub-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("plethora-epub-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create test root");
         let path = root.join("fixture.epub");
         fs::write(&path, bytes).expect("write test epub");
@@ -465,7 +465,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_file_returns_not_found() {
-        let root = std::env::temp_dir().join(format!("incrementum-epub-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("plethora-epub-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create test root");
         let path = root.join("missing.epub");
         let app = Router::new()
@@ -492,13 +492,13 @@ mod tests {
         // A temp file whose canonical path is NOT under the "allowed root"
         // we register with the test state.
         let outside_root =
-            std::env::temp_dir().join(format!("incrementum-epub-outside-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("plethora-epub-outside-{}", Uuid::new_v4()));
         fs::create_dir_all(&outside_root).expect("create outside root");
         let outside_file = outside_root.join("elsewhere.epub");
         fs::write(&outside_file, b"hidden").expect("write outside file");
 
         let allowed_root =
-            std::env::temp_dir().join(format!("incrementum-epub-allowed-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("plethora-epub-allowed-{}", Uuid::new_v4()));
         fs::create_dir_all(&allowed_root).expect("create allowed root");
 
         let app = Router::new()
@@ -524,7 +524,7 @@ mod tests {
 
     #[tokio::test]
     async fn large_file_response_keeps_streaming_body_lazy() {
-        let root = std::env::temp_dir().join(format!("incrementum-epub-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("plethora-epub-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create test root");
         let path = root.join("large-fixture.epub");
         let large_size = 64 * 1024 * 1024;

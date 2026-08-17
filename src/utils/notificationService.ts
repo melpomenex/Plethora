@@ -4,6 +4,7 @@
  */
 
 import { isTauri, invokeCommand } from "../lib/tauri";
+import { migratedGetItem } from "../lib/brandMigration";
 import { playNotificationSound as _playNotificationSound } from "./soundService";
 
 export type NotificationPermission = "granted" | "denied" | "default";
@@ -139,7 +140,7 @@ async function sendTauriNotification(
         priority: "Normal",
         icon: options.icon,
         image: null,
-        action: options.data?.url ? `incrementum://${options.data.url}` : null,
+        action: options.data?.url ? `plethora://${options.data.url}` : null,
         created_at: new Date().toISOString(),
         read: false,
         ttl: 3600,
@@ -268,7 +269,7 @@ export function getScheduledNotifications(): ScheduledNotification[] {
  */
 function isInQuietHours(): boolean {
   // Get quiet hours from settings (stored in localStorage for simplicity)
-  const settings = localStorage.getItem("incrementum-settings");
+  const settings = migratedGetItem("plethora-settings");
   if (!settings) return false;
 
   try {

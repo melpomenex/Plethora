@@ -9,7 +9,7 @@ use std::time::Duration;
 use tauri::State;
 
 use crate::database::Repository;
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 
 const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 const REGISTRY_THUMBNAIL_MAX_DIMENSION: u32 = 256;
@@ -45,7 +45,7 @@ pub async fn ingest_image_asset(
     let bytes = general_purpose::STANDARD
         .decode(base64_data.as_bytes())
         .map_err(|e| {
-            IncrementumError::InvalidInput(format!("Invalid base64 image payload: {}", e))
+            PlethoraError::InvalidInput(format!("Invalid base64 image payload: {}", e))
         })?;
 
     ingest_image_bytes(bytes, mime_type, file_name, repo.inner()).await
@@ -74,10 +74,10 @@ pub async fn ingest_image_asset_from_path_inner(
     repo: &Repository,
 ) -> Result<ImageAssetDto> {
     let bytes = tokio::fs::read(file_path).await.map_err(|e| {
-        IncrementumError::NotFound(format!("Failed to read image file {file_path}: {e}"))
+        PlethoraError::NotFound(format!("Failed to read image file {file_path}: {e}"))
     })?;
     if bytes.is_empty() {
-        return Err(IncrementumError::InvalidInput(format!(
+        return Err(PlethoraError::InvalidInput(format!(
             "Image file is empty: {file_path}"
         )));
     }
@@ -92,14 +92,14 @@ pub async fn ingest_remote_image_asset(
     repo: State<'_, Repository>,
 ) -> Result<ImageAssetDto> {
     let parsed = reqwest::Url::parse(&image_url)
-        .map_err(|error| IncrementumError::InvalidInput(format!("Invalid image URL: {error}")))?;
+        .map_err(|error| PlethoraError::InvalidInput(format!("Invalid image URL: {error}")))?;
     if !matches!(parsed.scheme(), "http" | "https") {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Remote images must use HTTP or HTTPS".to_string(),
         ));
     }
     crate::security::validate_url_not_private(parsed.as_str()).map_err(|error| {
-        IncrementumError::InvalidInput(format!("Image URL is not allowed: {error}"))
+        PlethoraError::InvalidInput(format!("Image URL is not allowed: {error}"))
     })?;
     let referrer = validated_image_referrer(referrer_url.as_deref(), &parsed)?;
 
@@ -123,7 +123,7 @@ pub async fn ingest_remote_image_asset(
         }))
         .build()
         .map_err(|error| {
-            IncrementumError::Internal(format!("Failed to create image HTTP client: {error}"))
+            PlethoraError::Internal(format!("Failed to create image HTTP client: {error}"))
         })?;
 
     let response = client
@@ -137,16 +137,16 @@ pub async fn ingest_remote_image_asset(
         .send()
         .await
         .map_err(|error| {
-            IncrementumError::Internal(format!("Failed to download remote image: {error}"))
+            PlethoraError::Internal(format!("Failed to download remote image: {error}"))
         })?;
     if !response.status().is_success() {
-        return Err(IncrementumError::Internal(format!(
+        return Err(PlethoraError::Internal(format!(
             "Remote image returned HTTP {}",
             response.status()
         )));
     }
     crate::security::validate_url_not_private(response.url().as_str()).map_err(|error| {
-        IncrementumError::InvalidInput(format!("Image redirect is not allowed: {error}"))
+        PlethoraError::InvalidInput(format!("Image redirect is not allowed: {error}"))
     })?;
     if response
         .content_length()
@@ -174,7 +174,7 @@ pub async fn ingest_remote_image_asset(
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            IncrementumError::Internal(format!("Failed while downloading remote image: {error}"))
+            PlethoraError::Internal(format!("Failed while downloading remote image: {error}"))
         })?;
         if bytes.len().saturating_add(chunk.len()) > MAX_IMAGE_BYTES {
             return Err(image_too_large_error());
@@ -191,15 +191,15 @@ fn validated_image_referrer(
 ) -> Result<reqwest::Url> {
     if let Some(requested) = requested_referrer.filter(|value| !value.trim().is_empty()) {
         let parsed = reqwest::Url::parse(requested).map_err(|error| {
-            IncrementumError::InvalidInput(format!("Invalid article referrer URL: {error}"))
+            PlethoraError::InvalidInput(format!("Invalid article referrer URL: {error}"))
         })?;
         if !matches!(parsed.scheme(), "http" | "https") {
-            return Err(IncrementumError::InvalidInput(
+            return Err(PlethoraError::InvalidInput(
                 "Article referrer must use HTTP or HTTPS".to_string(),
             ));
         }
         crate::security::validate_url_not_private(parsed.as_str()).map_err(|error| {
-            IncrementumError::InvalidInput(format!("Article referrer is not allowed: {error}"))
+            PlethoraError::InvalidInput(format!("Article referrer is not allowed: {error}"))
         })?;
         return Ok(parsed);
     }
@@ -218,7 +218,7 @@ async fn ingest_image_bytes(
     repo: &Repository,
 ) -> Result<ImageAssetDto> {
     if bytes.is_empty() {
-        return Err(IncrementumError::InvalidInput(
+        return Err(PlethoraError::InvalidInput(
             "Image payload is empty".to_string(),
         ));
     }
@@ -228,12 +228,12 @@ async fn ingest_image_bytes(
     }
 
     let guessed = image::guess_format(&bytes)
-        .map_err(|_| IncrementumError::InvalidInput("Unsupported image format".to_string()))?;
+        .map_err(|_| PlethoraError::InvalidInput("Unsupported image format".to_string()))?;
     let normalized_mime = normalize_mime(mime_type.as_deref(), guessed)?;
 
     let dimensions = image::load_from_memory(&bytes)
         .map_err(|e| {
-            IncrementumError::InvalidInput(format!("Unable to decode image dimensions: {}", e))
+            PlethoraError::InvalidInput(format!("Unable to decode image dimensions: {}", e))
         })?
         .dimensions();
 
@@ -252,8 +252,8 @@ async fn ingest_image_bytes(
     Ok(to_dto(asset))
 }
 
-fn image_too_large_error() -> IncrementumError {
-    IncrementumError::InvalidInput(format!(
+fn image_too_large_error() -> PlethoraError {
+    PlethoraError::InvalidInput(format!(
         "Image exceeds max size of {} bytes",
         MAX_IMAGE_BYTES
     ))
@@ -287,25 +287,25 @@ pub async fn rename_image_asset(
 ) -> Result<ImageAssetDto> {
     let trimmed = file_name.trim();
     if trimmed.is_empty() {
-        return Err(crate::error::IncrementumError::Internal(
+        return Err(crate::error::PlethoraError::Internal(
             "Image name cannot be empty".to_string(),
         ));
     }
     if trimmed.chars().count() > 200 {
-        return Err(crate::error::IncrementumError::Internal(
+        return Err(crate::error::PlethoraError::Internal(
             "Image name is too long (max 200 characters)".to_string(),
         ));
     }
 
     if !repo.rename_image_asset(&asset_id, trimmed).await? {
-        return Err(crate::error::IncrementumError::NotFound(format!(
+        return Err(crate::error::PlethoraError::NotFound(format!(
             "Image asset {}",
             asset_id
         )));
     }
 
     let asset = repo.get_image_asset(&asset_id).await?.ok_or_else(|| {
-        crate::error::IncrementumError::NotFound(format!("Image asset {}", asset_id))
+        crate::error::PlethoraError::NotFound(format!("Image asset {}", asset_id))
     })?;
     Ok(to_dto(asset))
 }
@@ -401,7 +401,7 @@ fn normalize_mime(requested: Option<&str>, guessed: image::ImageFormat) -> Resul
         image::ImageFormat::Gif => "image/gif",
         image::ImageFormat::WebP => "image/webp",
         _ => {
-            return Err(IncrementumError::InvalidInput(
+            return Err(PlethoraError::InvalidInput(
                 "Unsupported image format".to_string(),
             ))
         }

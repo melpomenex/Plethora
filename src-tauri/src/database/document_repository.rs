@@ -381,7 +381,7 @@ impl DocumentRepository {
                 let html_content: Option<String> = r.try_get("html_content").ok();
                 Ok((content, html_content))
             }
-            None => Err(crate::error::IncrementumError::NotFound(format!("Document {}", id))),
+            None => Err(crate::error::PlethoraError::NotFound(format!("Document {}", id))),
         }
     }
 
@@ -431,7 +431,7 @@ impl DocumentRepository {
 
         self.get_document(id)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
+            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
     }
 
     /// Update document cover image
@@ -551,7 +551,7 @@ impl DocumentRepository {
 
         self.get_document(id)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
+            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
     }
 
     /// Update document dismissed status
@@ -574,7 +574,7 @@ impl DocumentRepository {
 
         self.get_document(id)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
+            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
     }
 
     /// Update document reading progress
@@ -610,7 +610,7 @@ impl DocumentRepository {
 
         self.get_document(id)
             .await?
-            .ok_or_else(|| crate::error::IncrementumError::NotFound(format!("Document {}", id)))
+            .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
     }
 
     /// Update document scheduling fields

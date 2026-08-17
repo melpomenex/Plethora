@@ -2,7 +2,7 @@ import { invokeCommand, isTauri } from "../lib/tauri";
 import type { AlignmentResult } from "../types/alignment";
 
 function cacheKey(audioDocId: string, epubDocId: string): string {
-  return `incrementum:alignment:${audioDocId}:${epubDocId}`;
+  return `plethora:alignment:${audioDocId}:${epubDocId}`;
 }
 
 export async function cacheAlignment(result: AlignmentResult): Promise<void> {

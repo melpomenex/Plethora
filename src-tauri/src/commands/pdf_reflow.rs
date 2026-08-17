@@ -11,7 +11,7 @@ use base64::Engine as _;
 use serde::Deserialize;
 use tauri::{ipc::Response, AppHandle};
 
-use crate::error::{IncrementumError, Result};
+use crate::error::{PlethoraError, Result};
 use crate::pdf::analysis::{self, PageAnalysisRequest, TextItemInput};
 use crate::pdf::cache::PdfReflowCache;
 use crate::pdf::model::PdfCanonicalPage;
@@ -52,7 +52,7 @@ pub async fn pdf_reflow_analyze_page(input: PdfReflowAnalyzeInput) -> Result<Pdf
             base64::engine::general_purpose::STANDARD
                 .decode(encoded)
                 .map_err(|error| {
-                    IncrementumError::InvalidInput(format!(
+                    PlethoraError::InvalidInput(format!(
                         "Analysis raster is not valid base64: {error}"
                     ))
                 })?,
@@ -71,14 +71,14 @@ pub async fn pdf_reflow_analyze_page(input: PdfReflowAnalyzeInput) -> Result<Pdf
     let _permit = ANALYZE_PERMIT
         .acquire()
         .await
-        .map_err(|error| IncrementumError::Internal(format!("Analysis worker closed: {error}")))?;
+        .map_err(|error| PlethoraError::Internal(format!("Analysis worker closed: {error}")))?;
     let result = tokio::time::timeout(
         ANALYZE_TIMEOUT,
         tokio::task::spawn_blocking(move || analysis::analyze_page(&request)),
     )
     .await
-    .map_err(|_| IncrementumError::Internal("PDF page analysis timed out".into()))?
-    .map_err(|error| IncrementumError::Internal(format!("Analysis task failed: {error}")))??;
+    .map_err(|_| PlethoraError::Internal("PDF page analysis timed out".into()))?
+    .map_err(|error| PlethoraError::Internal(format!("Analysis task failed: {error}")))??;
     drop(_permit);
     Ok(result)
 }
@@ -136,7 +136,7 @@ pub async fn pdf_reflow_put_asset(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(image_base64.as_bytes())
         .map_err(|error| {
-            crate::error::IncrementumError::InvalidInput(format!(
+            crate::error::PlethoraError::InvalidInput(format!(
                 "PDF reflow asset is not valid base64: {error}"
             ))
         })?;
@@ -229,7 +229,7 @@ pub async fn pdf_reflow_build_graphical_fallback(
     let png = base64::engine::general_purpose::STANDARD
         .decode(raster_png_base64.as_bytes())
         .map_err(|error| {
-            IncrementumError::InvalidInput(format!("Fallback raster is not valid base64: {error}"))
+            PlethoraError::InvalidInput(format!("Fallback raster is not valid base64: {error}"))
         })?;
     let raster = crate::pdf::analysis::raster::PageRaster::from_png(
         &png,

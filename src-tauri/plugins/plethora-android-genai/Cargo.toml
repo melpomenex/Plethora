@@ -1,0 +1,16 @@
+[package]
+name = "plethora-android-genai"
+version = "0.1.0"
+description = "Tauri plugin for on-device generative AI on Android via ML Kit GenAI (Gemini Nano / AICore)"
+authors = ["Plethora Team"]
+edition = "2021"
+links = "plethora-android-genai"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "=2.11.0", features = ["unstable"] }
+serde = "1"
+serde_json = "1"
+thiserror = "1"

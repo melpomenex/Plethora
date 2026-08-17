@@ -37,6 +37,22 @@ export const ja: Dict = {
   "mainLayout.sharedLinkAdded": "共有リンクをキューに追加しました。",
   "mainLayout.open": "開く",
   "mainLayout.importFailed": "インポート失敗",
+  "mainLayout.legacyDataTitle": "Incrementum のデータが見つかりました",
+  "mainLayout.legacyDataMigrate": "データをコピー",
+  "mainLayout.legacyDataDecline": "新しく始める",
+  "mainLayout.legacyDataPrompt":
+    "このコンピュータに既存の Incrementum ライブラリが見つかりました。ドキュメント・復習履歴・テーマ・API キーを今すぐ Plethora にコピーしますか？",
+  "mainLayout.legacyDataLegacyKept":
+    "元の Incrementum フォルダは変更されません。データをコピーするには「OK」を、新しく始めるには「キャンセル」を選択してください。",
+  "mainLayout.legacyDataMigrating": "データを移行しています...",
+  "mainLayout.legacyDataMigratingDesc":
+    "Incrementum ライブラリを Plethora にコピーしています。完了するとアプリが再起動します。",
+  "mainLayout.legacyDataFailed": "移行に失敗しました",
+  "mainLayout.legacyDataMigrated": "移行が完了しました",
+  "mainLayout.legacyDataMigratedDesc":
+    "Incrementum のデータを Plethora にコピーしました。元のフォルダは {path} にそのまま残っています。",
+  "mainLayout.legacyDataMigratedDescBackup":
+    "Incrementum のデータを Plethora にコピーしました。元のフォルダは {path} にそのまま残っています。以前作成した Plethora データベースは {backup} として保存されました。",
   "tabs.continueReading": "読書を続ける",
   "tabs.review": "復習",
   "tabs.rssFeeds": "RSSフィード",
@@ -1568,6 +1584,16 @@ export const ja: Dict = {
   "integrations.saveAnkiConfiguration": "Anki 設定を保存",
   "integrations.saveCookies": "Cookie を保存",
   "integrations.saveObsidianConfiguration": "Obsidian 設定を保存",
+  "integrations.migrateVaultIdsTitle": "vault ノート ID の移行",
+  "integrations.migrateVaultIdsDesc":
+    "Incrementum がエクスポートしたノートには frontmatter キー incrementum-id が付いています。Plethora は両方のキーを読み込めるためこの操作は任意です。ノートを新しい plethora-id キーに書き換えます。確認後にのみノートを変更し、本文は保持されます。",
+  "integrations.migrateVaultIdsButton": "vault ID を移行",
+  "integrations.migrateVaultIdsNeedVault": "先に Obsidian vault のパスを設定してください。",
+  "integrations.migrateVaultIdsConfirm":
+    "{notes} 配下のノートの frontmatter の incrementum-id/incrementum-type を plethora-id/plethora-type に書き換えますか？vault 内のファイルが変更されます（本文は保持されます）。",
+  "integrations.migrateVaultIdsResult":
+    "{scanned} 件中 {rewritten} 件のノートを書き換えました。",
+  "integrations.migrateVaultIdsFailed": "vault ID の移行に失敗しました",
   "integrations.selectObsidianVaultFolder": "Obsidian Vault フォルダを選択",
   "integrations.selectWorkflowDesc": "AI ワークフローを選択して開始",
   "integrations.startServer": "サーバーを開始",

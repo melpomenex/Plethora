@@ -129,7 +129,7 @@ export function registerShareListener(
 
   if (typeof window !== "undefined") {
     window.addEventListener(
-      "incrementum-native-share",
+      "plethora-native-share",
       handleNativeShare as EventListener
     );
     window.addEventListener(
@@ -140,7 +140,7 @@ export function registerShareListener(
 
   if (isTauri()) {
     invokeCommand<ShareTargetResult>(
-      "plugin:incrementum-folder-import|register_share_listener"
+      "plugin:plethora-folder-import|register_share_listener"
     )
       .then((res) => {
         if (res?.batches && Array.isArray(res.batches)) {
@@ -165,7 +165,7 @@ export function registerShareListener(
   return () => {
     if (typeof window !== "undefined") {
       window.removeEventListener(
-        "incrementum-native-share",
+        "plethora-native-share",
         handleNativeShare as EventListener
       );
       window.removeEventListener(
