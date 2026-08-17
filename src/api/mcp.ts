@@ -112,21 +112,40 @@ export async function callMCPTool(
 }
 
 /**
- * Get Incrementum's built-in MCP tools
+ * Get the app's built-in MCP tools
  */
-export async function getIncrementumMCPTools(): Promise<MCPTool[]> {
-  return await invokeCommand<MCPTool[]>("mcp_get_incrementum_tools");
+export async function getAppMCPTools(): Promise<MCPTool[]> {
+  return await invokeCommand<MCPTool[]>("mcp_get_app_tools");
 }
 
 /**
- * Call an Incrementum MCP tool
+ * Call an app MCP tool
+ */
+export async function callAppMCPTool(
+  toolName: string,
+  args: Record<string, unknown>
+): Promise<MCPToolCallResult> {
+  return await invokeCommand<MCPToolCallResult>("mcp_call_app_tool", {
+    toolName,
+    arguments: args,
+  });
+}
+
+/**
+ * @deprecated Pre-rebrand alias of {@link getAppMCPTools}; kept for one
+ * release so external integrations keep compiling.
+ */
+export async function getIncrementumMCPTools(): Promise<MCPTool[]> {
+  return getAppMCPTools();
+}
+
+/**
+ * @deprecated Pre-rebrand alias of {@link callAppMCPTool}; kept for one
+ * release so external integrations keep compiling.
  */
 export async function callIncrementumMCPTool(
   toolName: string,
   args: Record<string, unknown>
 ): Promise<MCPToolCallResult> {
-  return await invokeCommand<MCPToolCallResult>("mcp_call_incrementum_tool", {
-    toolName,
-    arguments: args,
-  });
+  return callAppMCPTool(toolName, args);
 }
