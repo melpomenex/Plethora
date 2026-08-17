@@ -165,6 +165,28 @@ describe("brand inventory: user-visible surfaces say Plethora", () => {
       );
     });
   });
+
+  describe("in-app handbook (bundled via ?raw imports — user-visible)", () => {
+    // Exemptions: the legacy `.incrementum` backup extension and the
+    // `incrementum-backup-*` filename prefix the exporter still emits
+    // (both renamed in Phase B task 3.5), and functional
+    // github.com/melpomenex/incrementum-tauri links.
+    const stripExemptions = (md: string): string =>
+      md
+        .replace(/\.incrementum/g, "")
+        .replace(/incrementum-backup/g, "")
+        .replace(/incrementum-tauri/g, "")
+        .replace(/melpomenex\/Incrementum/g, "");
+
+    it.each(["USER_HANDBOOK.md", "USER_HANDBOOK.zh.md", "USER_HANDBOOK.ja.md", "USER_HANDBOOK.es.md", "USER_HANDBOOK.de.md", "USER_HANDBOOK.fr.md"])(
+      "%s carries no old-brand strings outside retained-legacy exemptions",
+      (file) => {
+        const md = read(join("docs", file));
+        expect(stripExemptions(md)).not.toMatch(/incrementum|inkrementum|インクリメンタム/i);
+        expect(md).toMatch(/Plethora/);
+      }
+    );
+  });
 });
 
 describe("brand inventory: icon registry (source of truth in BRANDING.md)", () => {
