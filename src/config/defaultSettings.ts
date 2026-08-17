@@ -16,7 +16,7 @@ export const defaultSettings: Settings = {
   },
 
   interface: {
-    theme: 'super-game-bro',
+    theme: 'biolume-abyss',
     denseMode: false,
     compactDocumentsView: false,
     toolbarIconSize: 24,
