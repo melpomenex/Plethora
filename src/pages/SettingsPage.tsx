@@ -338,7 +338,7 @@ function AboutSettings() {
 
   return (
     <div className="p-6 max-w-2xl">
-      <h3 className="text-lg font-semibold text-foreground mb-4">{t("settings.aboutIncrementum")}</h3>
+      <h3 className="text-lg font-semibold text-foreground mb-4">{t("settings.aboutPlethora")}</h3>
 
       <div className="bg-card border border-border rounded p-6 text-center">
         <div className="text-5xl mb-4">📚</div>

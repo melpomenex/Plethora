@@ -253,7 +253,7 @@ export function NotebookLMPage() {
   const handleSyncToIncrementum = (items: ImportPreviewItem[]) => {
     toast.success(
       t("notebooklm.synced"),
-      t("notebooklm.syncedToIncrementum", { count: items.length })
+      t("notebooklm.syncedToPlethora", { count: items.length })
     );
   };
 
