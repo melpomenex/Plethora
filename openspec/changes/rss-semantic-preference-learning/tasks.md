@@ -23,4 +23,4 @@
 
 ## 5. Validation
 
-- [ ] 5.1 `cargo test` (rss + algorithms), `npm run test:run` new/updated suites, `npm run bench:check` for ranking-path perf
+- [x] 5.1 `cargo test` (rss + algorithms), `npm run test:run` new/updated suites, `npm run bench:check` for ranking-path perf
