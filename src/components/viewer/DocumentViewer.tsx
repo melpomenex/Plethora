@@ -2690,6 +2690,22 @@ export function DocumentViewer({
     currentDocument && currentDocument.id === documentId
       ? currentDocument.filePath
       : undefined;
+  // Stable descriptor for the local-video player: an inline object literal here
+  // would change identity on every viewer re-render, making the player's
+  // useMemo-derived candidate array look new each time and churning its
+  // source-resolution effect for content-identical sources.
+  const localVideoSource = useMemo(
+    () =>
+      mediaSource
+        ? {
+            src: mediaSource.src,
+            mimeType: mediaSource.mimeType,
+            strategy: mediaSource.strategy,
+            alreadyPlayable: true,
+          }
+        : null,
+    [mediaSource],
+  );
   useEffect(() => {
     if (!isTabActive) return;
     if (!documentId || !openFilePath) return;
@@ -7262,12 +7278,7 @@ export function DocumentViewer({
           mediaSource ? (
             <div className="h-full w-full bg-black">
               <LocalVideoPlayer
-                src={{
-                  src: mediaSource.src,
-                  mimeType: mediaSource.mimeType,
-                  strategy: mediaSource.strategy,
-                  alreadyPlayable: true,
-                }}
+                src={localVideoSource!}
                 documentId={currentDocument.id}
                 title={currentDocument.title}
                 className="h-full w-full"
