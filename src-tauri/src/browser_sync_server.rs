@@ -2519,6 +2519,7 @@ async fn handle_ai_status(State(state): State<ServerState>) -> Response {
                 LLMProviderType::Anthropic => Some(config.models.anthropic_model.clone()),
                 LLMProviderType::OpenRouter => Some(config.models.openrouter_model.clone()),
                 LLMProviderType::Ollama => Some(config.models.ollama_model.clone()),
+                LLMProviderType::DeepSeek => Some(config.models.deepseek_model.clone()),
             };
 
             AIStatusResponse {

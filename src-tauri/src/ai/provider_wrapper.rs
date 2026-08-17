@@ -15,6 +15,8 @@ pub enum AIProvider {
     Anthropic(AnthropicProvider),
     OpenRouter(OpenRouterProvider),
     Ollama(OllamaProvider),
+    /// DeepSeek, an OpenAI-compatible endpoint reached through OpenAIProvider.
+    DeepSeek(OpenAIProvider),
     #[cfg(test)]
     Mock(Box<dyn LLMProvider>),
 }
@@ -27,6 +29,7 @@ impl std::fmt::Debug for AIProvider {
             AIProvider::Anthropic(p) => f.debug_tuple("Anthropic").field(p).finish(),
             AIProvider::OpenRouter(p) => f.debug_tuple("OpenRouter").field(p).finish(),
             AIProvider::Ollama(p) => f.debug_tuple("Ollama").field(p).finish(),
+            AIProvider::DeepSeek(p) => f.debug_tuple("DeepSeek").field(p).finish(),
             #[cfg(test)]
             AIProvider::Mock(_) => f.debug_tuple("Mock").finish(),
         }
@@ -41,6 +44,7 @@ impl AIProvider {
             AIProvider::Anthropic(_) => LLMProviderType::Anthropic,
             AIProvider::OpenRouter(_) => LLMProviderType::OpenRouter,
             AIProvider::Ollama(_) => LLMProviderType::Ollama,
+            AIProvider::DeepSeek(_) => LLMProviderType::DeepSeek,
             #[cfg(test)]
             AIProvider::Mock(provider) => provider.provider_type(),
         }
@@ -56,6 +60,7 @@ impl AIProvider {
             AIProvider::Anthropic(provider) => provider.chat_completion(request).await,
             AIProvider::OpenRouter(provider) => provider.chat_completion(request).await,
             AIProvider::Ollama(provider) => provider.chat_completion(request).await,
+            AIProvider::DeepSeek(provider) => provider.chat_completion(request).await,
             #[cfg(test)]
             AIProvider::Mock(provider) => provider.chat_completion(request).await,
         }
@@ -68,6 +73,7 @@ impl AIProvider {
             AIProvider::Anthropic(provider) => provider.is_available(),
             AIProvider::OpenRouter(provider) => provider.is_available(),
             AIProvider::Ollama(provider) => provider.is_available(),
+            AIProvider::DeepSeek(provider) => provider.is_available(),
             #[cfg(test)]
             AIProvider::Mock(provider) => provider.is_available(),
         }
@@ -80,6 +86,7 @@ impl AIProvider {
             AIProvider::Anthropic(provider) => provider.model_name(),
             AIProvider::OpenRouter(provider) => provider.model_name(),
             AIProvider::Ollama(provider) => provider.model_name(),
+            AIProvider::DeepSeek(provider) => provider.model_name(),
             #[cfg(test)]
             AIProvider::Mock(_) => "mock",
         }
@@ -130,6 +137,18 @@ impl AIProvider {
                 local_settings.ollama_base_url.clone(),
                 models.ollama_model.clone(),
             ))),
+            LLMProviderType::DeepSeek => {
+                let api_key = api_keys
+                    .deepseek
+                    .as_ref()
+                    .ok_or("DeepSeek API key not set")?
+                    .clone();
+                Ok(AIProvider::DeepSeek(OpenAIProvider::with_base_url(
+                    api_key,
+                    models.deepseek_model.clone(),
+                    "https://api.deepseek.com/v1".to_string(),
+                )))
+            }
         }
     }
 }
@@ -141,6 +160,11 @@ pub struct APIKeys {
     pub anthropic: Option<String>,
     pub openrouter: Option<String>,
     pub brave: Option<String>,
+    pub deepseek: Option<String>,
+}
+
+fn default_deepseek_model() -> String {
+    "deepseek-chat".to_string()
 }
 
 /// Model preferences
@@ -150,6 +174,8 @@ pub struct ModelPreferences {
     pub anthropic_model: String,
     pub openrouter_model: String,
     pub ollama_model: String,
+    #[serde(default = "default_deepseek_model")]
+    pub deepseek_model: String,
 }
 
 /// Local LLM settings
@@ -165,6 +191,7 @@ impl Default for ModelPreferences {
             anthropic_model: "claude-3-5-sonnet-20241022".to_string(),
             openrouter_model: "anthropic/claude-3.5-sonnet".to_string(),
             ollama_model: "llama3.2".to_string(),
+            deepseek_model: default_deepseek_model(),
         }
     }
 }

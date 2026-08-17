@@ -8,6 +8,7 @@ export enum LLMProviderType {
   Anthropic = "Anthropic",
   OpenRouter = "OpenRouter",
   Ollama = "Ollama",
+  DeepSeek = "DeepSeek",
 }
 
 /**
@@ -28,6 +29,7 @@ export interface APIKeys {
   anthropic?: string;
   openrouter?: string;
   brave?: string;
+  deepseek?: string;
 }
 
 /**
@@ -38,6 +40,7 @@ export interface ModelPreferences {
   anthropic_model: string;
   openrouter_model: string;
   ollama_model: string;
+  deepseek_model?: string;
   temperature: number;
   max_tokens: number;
 }
