@@ -421,7 +421,7 @@ export function LocalVideoPlayer({
     } catch (error) {
       console.error('[LocalVideoPlayer] Failed to load position:', error);
     }
-  }, [documentId, mediaType, src]);
+  }, [documentId, mediaType]);
 
   const mapTranscriptSegments = useCallback((segments: Array<{ time: number; text: string }>): TranscriptSegment[] => {
     if (!segments || segments.length === 0) return [];
@@ -551,10 +551,18 @@ export function LocalVideoPlayer({
     return () => {
       cancelled = true;
     };
+    // Keyed on `sourceKey` (a stable string derived from the candidates'
+    // contents), NOT `normalizedSources`: callers commonly pass an inline
+    // descriptor object, so the array's identity changes on every parent
+    // re-render. Re-running the probe cycle on each of those re-renders fires
+    // a burst of setState calls from the effect phase, which React counts as
+    // nested updates — enough parent re-renders in one flush and the player
+    // trips "Maximum update depth exceeded" (and resets playback state while
+    // it's at it). Content-equal candidate arrays need no re-probe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     formatSourceFailureMessage,
     mediaType,
-    normalizedSources,
     resetResolvedPlaybackState,
     sourceKey,
     sourceRetryNonce,
