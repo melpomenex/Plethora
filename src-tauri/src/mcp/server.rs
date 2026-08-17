@@ -20,7 +20,7 @@ impl MCPServer {
     pub fn new(repository: Arc<Repository>) -> Self {
         Self {
             info: MCPServerInfo {
-                name: "Incrementum".to_string(),
+                name: "Plethora".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 protocol_version: "2025-06-18".to_string(),
             },

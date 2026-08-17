@@ -101,7 +101,7 @@ impl MCPClient {
                     "prompts": {}
                 },
                 "clientInfo": {
-                    "name": "Incrementum",
+                    "name": "Plethora",
                     "version": env!("CARGO_PKG_VERSION")
                 }
             })),

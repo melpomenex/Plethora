@@ -53,7 +53,7 @@ docker run --rm \
 # Copy the final binary to the project directory for easy access
 echo ""
 echo "Copying binary to project directory..."
-cp -f "$CARGO_TARGET_DIR/x86_64-pc-windows-gnu/release/incrementum.exe" "$FINAL_OUTPUT_DIR/" 2>/dev/null || echo "Note: incrementum.exe not found (build may have failed)"
+cp -f "$CARGO_TARGET_DIR/x86_64-pc-windows-gnu/release/plethora.exe" "$FINAL_OUTPUT_DIR/" 2>/dev/null || echo "Note: plethora.exe not found (build may have failed)"
 
 echo ""
 echo "Done!"

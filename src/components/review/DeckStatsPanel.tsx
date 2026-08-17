@@ -14,6 +14,7 @@ import {
 import type { LearningItem } from "../../api/learning-items";
 import type { StudyDeck } from "../../types/study-decks";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { schedulerLabel } from "../../lib/schedulerCatalog";
 import { useDocumentStore } from "../../stores/documentStore";
 
 interface DeckStatsPanelProps {
@@ -55,10 +56,10 @@ function StatRow({ label, value, color, onClick }: { label: string; value: strin
 }
 
 const ALGO_NAMES: Record<string, string> = {
-  fsrs: "FSRS-6",
-  sm2: "SM-2",
-  sm18: "SM-18",
-  sm20: "SM-20",
+  fsrs: schedulerLabel("fsrs"),
+  sm2: schedulerLabel("sm2"),
+  sm18: schedulerLabel("sm18"),
+  sm20: schedulerLabel("sm20"),
 };
 
 export function DeckStatsPanel({

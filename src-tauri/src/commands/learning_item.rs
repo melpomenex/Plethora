@@ -629,7 +629,7 @@ pub async fn export_mnemosyne(
     let target = output_path.unwrap_or_else(|| {
         std::env::temp_dir()
             .join(format!(
-                "incrementum-mnemosyne-{}.txt",
+                "plethora-mnemosyne-{}.txt",
                 chrono::Utc::now().timestamp()
             ))
             .to_string_lossy()

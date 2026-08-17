@@ -79,7 +79,15 @@ use super::helpers::clamp;
 pub const ARENA_DEFAULT_WEIGHTS: [f64; 5] = [6.0, 14.0, 45.0, 25.0, 10.0];
 
 /// The five competitors, in item-struct slot order (+0x73/+0x77/+0x7b/+0x83/+0x8b).
-pub const ARENA_MODEL_NAMES: [&str; 5] = ["SM-2", "SM-15", "SM-19", "SM-20", "FSRS"];
+/// Display names for the five competitors (product naming; slot order is the
+/// persisted contract — see `ArenaModelId::label()`).
+pub const ARENA_MODEL_NAMES: [&str; 5] = [
+    "Plethora Classic",
+    "Classic 15",
+    "Classic 19",
+    "Plethora Precision",
+    "FSRS",
+];
 
 // === `FUN_00af40d0` constants — all [BIN], byte-extracted ===
 /// Learning rate (`_DAT_00af44c8`). Multiplied into the clamped adjustment

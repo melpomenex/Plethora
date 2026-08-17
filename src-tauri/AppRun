@@ -31,4 +31,4 @@ export GST_AUDIOSINK="${GST_AUDIOSINK:-autoaudiosink}"
 export AUDIOSINK="${AUDIOSINK:-autoaudiosink}"
 
 # === Run Application ===
-exec "$APPDIR/usr/bin/incrementum-tauri" "$@"
+exec "$APPDIR/usr/bin/plethora-tauri" "$@"

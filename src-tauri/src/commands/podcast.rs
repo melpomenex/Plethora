@@ -953,7 +953,7 @@ pub struct SaveSegmentInput {
 pub async fn resolve_podcast_audio_url(url: String) -> Result<String> {
     let client = reqwest::Client::builder()
         // Mirror a browser-ish UA so CDN edge nodes don't block the HEAD.
-        .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Incrementum")
+        .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Plethora")
         .build()
         .map_err(|e| PlethoraError::Internal(format!("Failed to build HTTP client: {}", e)))?;
     // Use GET (not HEAD): some podcast CDNs respond 405/404 to HEAD but 200 to
@@ -1004,7 +1004,7 @@ pub async fn split_audio_for_groq_mobile(
     url: String,
 ) -> Result<Vec<MobileAudioChunk>> {
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Incrementum")
+        .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Plethora")
         .build()
         .map_err(|e| PlethoraError::Internal(format!("Failed to build HTTP client: {}", e)))?;
     split_audio_for_groq_mobile_inner(&app_handle, &client, &url).await
@@ -1319,7 +1319,7 @@ pub async fn transcribe_podcast_groq_chunks(
 ) -> Result<Vec<GroqChunkSegment>> {
     let model = groq_model.unwrap_or_else(|| "whisper-large-v3-turbo".to_string());
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Incrementum")
+        .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Plethora")
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| PlethoraError::Internal(format!("HTTP client build failed: {}", e)))?;
@@ -1502,7 +1502,7 @@ pub async fn transcribe_audio_file_groq(
 ) -> Result<i64> {
     let model = groq_model.unwrap_or_else(|| "whisper-large-v3-turbo".to_string());
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Incrementum")
+        .user_agent("Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Plethora")
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| PlethoraError::Internal(format!("HTTP client build failed: {}", e)))?;

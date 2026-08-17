@@ -156,7 +156,7 @@ export function NotebookLMLoginPanel({ onAuthChange }: NotebookLMLoginPanelProps
                 <div>
                   <h4 className="font-medium text-red-900 dark:text-red-100">CLI Not Found</h4>
                   <p className="text-sm text-red-700 dark:text-red-300 mt-1">
-                    Incrementum couldn't find a NotebookLM CLI on PATH.
+                    Plethora couldn't find a NotebookLM CLI on PATH.
                   </p>
                 </div>
               </div>
@@ -171,7 +171,7 @@ export function NotebookLMLoginPanel({ onAuthChange }: NotebookLMLoginPanelProps
             </button>
 
             <p className="text-xs text-muted-foreground">
-              Incrementum will prepare a private NotebookLM runtime automatically, then open your browser for Google sign-in.
+              Plethora will prepare a private NotebookLM runtime automatically, then open your browser for Google sign-in.
             </p>
 
             <details className="text-xs text-muted-foreground">

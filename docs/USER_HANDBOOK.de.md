@@ -12,7 +12,7 @@ Plethora ist eine leistungsstarke Lernanwendung, die zwei bewährte Techniken ko
 
 **Inkrementelles Lesen** – Verarbeiten Sie große Informationsmengen im Laufe der Zeit in kleinen, überschaubaren Blöcken. Anstatt Artikel von Anfang bis Ende zu lesen, extrahieren Sie wichtige Punkte und bauen nach und nach Verständnis auf.
 
-**Abgeteilte Wiederholungen** – Überprüfen Sie das Material in wissenschaftlich optimierten Abständen, um die Erinnerung zu maximieren. Algorithmen wie FSRS-6 und SM-18 sagen voraus, wann Sie etwas vergessen werden und planen Überprüfungen rechtzeitig ein.
+**Abgeteilte Wiederholungen** – Überprüfen Sie das Material in wissenschaftlich optimierten Abständen, um die Erinnerung zu maximieren. Algorithmen wie FSRS-6 und Plethora Adaptive sagen voraus, wann Sie etwas vergessen werden und planen Überprüfungen rechtzeitig ein.
 
 ### Schlüsselkonzepte
 
@@ -42,7 +42,7 @@ Wenn Sie Plethora zum ersten Mal starten, sehen Sie das **Dashboard** mit vier H
    - Probieren Sie „Modern Dark“ oder „Material You“ für einen modernen Look
 
 2. **Überprüfungseinstellungen konfigurieren** – Einstellungen → Lernen → Algorithmus
-   - **Algorithmus**: FSRS-6 (empfohlen), SM-18 oder SM-2
+   - **Algorithmus**: FSRS-6 (empfohlen), Plethora Adaptive oder Plethora Classic
    - **Gewünschte Erinnerung**: 90 % (Standard) – legt fest, wie gut Sie sich erinnern möchten
    - **Lernen pro Tag**: 20–50 Elemente empfohlen für Anfänger
 
@@ -159,7 +159,7 @@ Die Datei sollte ein flaches Objekt sein, das den Fragetext den Kartendaten zuor
 
 **Hinweise:**
 - Jede „.json“-Datei erstellt ein Deck. Der Deckname stammt aus dem Feld „deck_name“.
-- Importierte Karten verwenden standardmäßig den SM-2-Algorithmus. Sie können den Algorithmus nach dem Import wechseln.
+- Importierte Karten verwenden standardmäßig den Plethora Classic-Algorithmus. Sie können den Algorithmus nach dem Import wechseln.
 - Wenn Sie dieselbe Datei zweimal löschen, entstehen keine Duplikate – vorhandene Karten werden übersprungen.
 - Karten mit der Markierung „known_pile: true“ werden als gesperrt importiert.
 
@@ -225,15 +225,15 @@ Die Datei sollte ein flaches Objekt sein, das den Fragetext den Kartendaten zuor
 - **Schwierigkeit**: Wie schwer der Gegenstand für Sie ist (Skala 1-10)
 - **Retrieverability**: Aktuelle Wahrscheinlichkeit des Rückrufs (0-100 %)
 
-### SM-18 verstehen
+### Plethora Adaptive verstehen
 
-**SM-18** (SuperMemo 18) ist der vorherige Algorithmus aus der SuperMemo-Familie. Er stellt eine bedeutende Weiterentwicklung gegenüber SM-2 dar und führt eine Speicherstabilitätsmodellierung und einen datengesteuerten Ansatz zur Intervallberechnung ein.
+**Plethora Adaptive** (SuperMemo 18) ist der vorherige Algorithmus aus der SuperMemo-Familie. Er stellt eine bedeutende Weiterentwicklung gegenüber Plethora Classic dar und führt eine Speicherstabilitätsmodellierung und einen datengesteuerten Ansatz zur Intervallberechnung ein.
 
-SM-18:
+Plethora Adaptive:
 
 1. **Modelle, die exponentiell vergessen: Verwendet die Formel „R = 0,9^(t/S)“, um die Wiederauffindbarkeit zu berechnen – die Wahrscheinlichkeit, dass Sie sich an einen Gegenstand zum Zeitpunkt „t“ angesichts seiner Stabilität „S“ erinnern
 2. **Verfolgt den Schwierigkeitsgrad unabhängig**: Behält einen Schwierigkeitswert „D ∈ [0, 1]“ für jedes Element bei, der mithilfe einer Formel für den nachlaufenden Durchschnitt aktualisiert wird, die mit jeder Wiederholung reaktionsfähiger wird
-3. **Verwendet eine 3D-SInc-Matrix**: Sucht den Stabilitätssteigerungsfaktor aus einer 21×21×21-Matrix nach, indiziert nach gruppierter Schwierigkeit, Stabilität und Wiederauffindbarkeit – das ist der Kern der Intelligenz von SM-18
+3. **Verwendet eine 3D-SInc-Matrix**: Sucht den Stabilitätssteigerungsfaktor aus einer 21×21×21-Matrix nach, indiziert nach gruppierter Schwierigkeit, Stabilität und Wiederauffindbarkeit – das ist der Kern der Intelligenz von Plethora Adaptive
 4. **Geht mit Fehlern elegant um**: Reduziert bei einem Fehler die Stabilität um den Faktor 0,87 (weiter dividiert durch die akkumulierten Fehler) und setzt den Wiederholungszähler zurück, behält aber die Schwierigkeitsschätzung bei
 5. **Berechnet Intervalle aus der Stabilität**: Leitet das nächste Überprüfungsintervall aus dem gewünschten Aufbewahrungsziel ab: „Intervall = S × ln(1-FI) / ln(0,9)“.
 
@@ -244,24 +244,24 @@ SM-18:
 - **SInc**: Der aus der Matrix mit 9.261 Einträgen ermittelte Stabilitätssteigerungsfaktor – wie stark die Stabilität nach jeder erfolgreichen Überprüfung zunimmt
 - **Fehler**: Anzahl der Fehler, die die zukünftige Stabilität bei nachfolgenden Fehlern beeinträchtigen
 
-### SM-20 verstehen
+### Plethora Precision verstehen
 
-Die **SM-20**-Option von Plethora ist die **Algorithm Arena** – eine rückentwickelte Portierung von „sm20.exe“ von SuperMemo, die auf jeder Karteikarte **fünf** Algorithmen mit räumlicher Wiederholung parallel ausführt und ihre Vorhersagen in einem Zeitplan zusammenfasst. Die fünf Konkurrenten mit den Standardmischungsgewichten, bei denen sie beginnen:
+Die **Plethora Precision**-Option von Plethora ist die **Algorithm Arena** – eine rückentwickelte Portierung von „sm20.exe“ von SuperMemo, die auf jeder Karteikarte **fünf** Algorithmen mit räumlicher Wiederholung parallel ausführt und ihre Vorhersagen in einem Zeitplan zusammenfasst. Die fünf Konkurrenten mit den Standardmischungsgewichten, bei denen sie beginnen:
 
 | Steckplatz | Modell | Standardgewicht | Wie lernt man? |
 |------|-------|---------------:|-------------|
-| 1 | **SM-2** | 6% | Behoben |
-| 2 | **SM-15** | 14 % | Kontinuierlich, bei jeder Bewertung |
-| 3 | **SM-19** | 45 % | Kontinuierlich, bei jeder Bewertung |
-| 4 | **SM-20** (der 35-Parameter-„M4“-Vergessenskurven-Kernel) | 25 % | Bei Bedarf über die Schaltfläche „Optimieren“ |
+| 1 | **Plethora Classic** | 6% | Behoben |
+| 2 | **Plethora Classic 15** | 14 % | Kontinuierlich, bei jeder Bewertung |
+| 3 | **Classic 19** | 45 % | Kontinuierlich, bei jeder Bewertung |
+| 4 | **Plethora Precision** (der 35-Parameter-„M4“-Vergessenskurven-Kernel) | 25 % | Bei Bedarf über die Schaltfläche „Optimieren“ |
 | 5 | **FSRS** | 10 % | Bei Bedarf über die Schaltfläche „Optimieren“ |
 
 **So funktioniert die Mischung.** Jedes Modell erstellt unabhängig eine Stabilitätsschätzung für die Karte; Die Arena nimmt einen gewichteten Durchschnitt und leitet daraus das nächste Intervall ab. Die Gewichte sind nicht festgelegt – sie passen sich Ihnen an. Jedes Mal, wenn Sie eine Karte überprüfen, deren vorherige Überprüfung mindestens einen Tag zurückliegt, vergleicht die Arena die *vorherige* Vorhersage jedes Modells mit dem, was tatsächlich passiert ist (Sie haben sich daran erinnert oder vergessen) und verschiebt die Gewichtungen in Richtung derjenigen Modelle, die Sie am besten vorhergesagt haben. Kein Modell wird jemals vollständig eliminiert, sodass sich ein langsamer Starter erholen kann.
 
 **Zwei Möglichkeiten, wie es lernt:**
 
-1. **Automatisch bei jeder Überprüfung** – der SM-15-Optimierer und die SM-19-Matrizen werden sofort aktualisiert und die Mischungsgewichte verschieben sich. Dies beginnt mit Ihrer allerersten Bewertung. Sie können es unter Einstellungen → Lernen ansehen: Das Feld **Arena-Gewichtungen** zeigt den aktuellen Prozentsatz jedes Modells und, sobald Sie genügend Bewertungen erhalten haben, eine **R-Metrik** (wie viel besser die gemischte Vorhersage abschneidet als SM-19 allein).
-2. **Bei Bedarf, wenn Sie auf „Optimieren“ klicken – zwei der fünf Konkurrenten (der SM-20-Kernel und FSRS) können an Ihren persönlichen Bewertungsverlauf angepasst werden. Diese Anpassungen werden durch eine Mindestdatenmenge (ungefähr mehrere Hundert Bewertungen im Abstand von einem Tag) und eine aufgeschobene Validierungsprüfung gesteuert: Eine Anpassung wird nur dann akzeptiert, wenn sie die gelieferten Standardwerte für Bewertungen, die die Anpassung nicht gesehen hat, tatsächlich übertrifft. Bis dahin melden die Schaltflächen „Optimieren“ „Noch nicht genügend Überprüfungsverlauf“ und diese beiden Modelle verwenden weiterhin ihre Standardparameter.
+1. **Automatisch bei jeder Überprüfung** – der Plethora Classic 15-Optimierer und die Classic 19-Matrizen werden sofort aktualisiert und die Mischungsgewichte verschieben sich. Dies beginnt mit Ihrer allerersten Bewertung. Sie können es unter Einstellungen → Lernen ansehen: Das Feld **Arena-Gewichtungen** zeigt den aktuellen Prozentsatz jedes Modells und, sobald Sie genügend Bewertungen erhalten haben, eine **R-Metrik** (wie viel besser die gemischte Vorhersage abschneidet als Classic 19 allein).
+2. **Bei Bedarf, wenn Sie auf „Optimieren“ klicken – zwei der fünf Konkurrenten (der Plethora Precision-Kernel und FSRS) können an Ihren persönlichen Bewertungsverlauf angepasst werden. Diese Anpassungen werden durch eine Mindestdatenmenge (ungefähr mehrere Hundert Bewertungen im Abstand von einem Tag) und eine aufgeschobene Validierungsprüfung gesteuert: Eine Anpassung wird nur dann akzeptiert, wenn sie die gelieferten Standardwerte für Bewertungen, die die Anpassung nicht gesehen hat, tatsächlich übertrifft. Bis dahin melden die Schaltflächen „Optimieren“ „Noch nicht genügend Überprüfungsverlauf“ und diese beiden Modelle verwenden weiterhin ihre Standardparameter.
 
 **Warum es möglicherweise heißt, dass das Training noch nicht begonnen hat.** Nur Bewertungen, die mindestens **einen Tag auseinander liegen**, tragen ein Signal – erste Bewertungen und erneute Bewertungen am selben Tag sagen der Arena nichts (jedes Modell sagt richtig voraus, dass Sie sich daran erinnern werden), daher zählen sie nicht zur Gesamtpunktzahl. Wenn Sie nur eine Handvoll Karten haben, müssen Sie damit rechnen, dass die Arena-Gewichtungen in der Nähe ihrer Standardwerte bleiben und die R-Metrik verborgen bleibt, bis diese Karten in Tagesintervallen zurückkommen. Dies ist zu erwarten und kein Fehler.
 
@@ -269,23 +269,23 @@ Die **SM-20**-Option von Plethora ist die **Algorithm Arena** – eine rückentw
 - **Stabilität (S)**: Die Schätzung jedes Modells, wie lange der Speicher bestehen bleibt (Tage); Die Arena vereint diese.
 - **Schwierigkeit (D)**: Die Item-Schwierigkeitsschätzung jedes Modells.
 - **Arena-Gewichte**: Die Live-Mischungsprozentsätze pro Modell, angezeigt in den Lerneinstellungen.
-- **R-Metrik**: Relative Verbesserung der Mischung gegenüber SM-19 allein, berechnet über einen abnehmenden Zeitraum Ihrer Bewertungen.
+- **R-Metrik**: Relative Verbesserung der Mischung gegenüber Classic 19 allein, berechnet über einen abnehmenden Zeitraum Ihrer Bewertungen.
 
-**Wie sich SM-20 von FSRS-6 unterscheidet:**
+**Wie sich Plethora Precision von FSRS-6 unterscheidet:**
 - FSRS-6 ist ein einzelner, ausgereifter Produktionsplaner und bleibt der empfohlene Standard.
-- SM-20 ist ein experimentelles Ensemble, das fünf Algorithmen gegeneinander antreten lässt und Ihre eigenen Daten die Mischung bestimmen lässt. Es ist komplexer und erfordert mehr Rezensionen zur Personalisierung, kann jedoch jedes einzelne Modell übertreffen, wenn es genug von Ihrer Geschichte hat, aus der es lernen kann.
+- Plethora Precision ist ein experimentelles Ensemble, das fünf Algorithmen gegeneinander antreten lässt und Ihre eigenen Daten die Mischung bestimmen lässt. Es ist komplexer und erfordert mehr Rezensionen zur Personalisierung, kann jedoch jedes einzelne Modell übertreffen, wenn es genug von Ihrer Geschichte hat, aus der es lernen kann.
 
-#### Auswahl eines Speicherhorizonts nach einer SM-20-Rezension
+#### Auswahl eines Speicherhorizonts nach einer Plethora Precision-Rezension
 
 Wählen Sie unter **Einstellungen → Lernen → Algorithmus-Arena → Nach jeder Bewertung** aus, wie viele Planungsdetails Sie wünschen:
 
 - **Den Fluss beibehalten (empfohlen)** legt die gewichtete Auswahl von Arena sofort fest und geht zur nächsten Karte über. Dies ist die Standardeinstellung.
 - **Show the Arena** pausiert nach einer berechtigten Bewertung und öffnet den **Memory Horizon**, wobei Ihre Antwort weiterhin sichtbar ist, während die fünf Modelle anzeigen, wo sie die nächste Bewertung platzieren würden.
 
-Die gleiche kompakte Auswahl erscheint unterhalb der sechs SM-20-Bewertungssteuerungen, sodass die nächste Bewertung einen anderen Modus verwenden kann, ohne die Rezension zu verlassen. In beiden Modi werden dieselben fünf Sammlungsmodelle ausgeführt und trainiert. Diese Einstellung ändert sich nur unabhängig davon, ob Sie die endgültige Intervallauswahl treffen. Der Entscheidungsschritt bleibt auf normale SM-20-Lernkartenüberprüfungen beschränkt; Das Lesen von Dokumenten, der Cram-Modus, andere Algorithmen und der **Pure SM-20 Mode** behalten ihren bestehenden direkten Planungsablauf bei.
+Die gleiche kompakte Auswahl erscheint unterhalb der sechs Plethora Precision-Bewertungssteuerungen, sodass die nächste Bewertung einen anderen Modus verwenden kann, ohne die Rezension zu verlassen. In beiden Modi werden dieselben fünf Sammlungsmodelle ausgeführt und trainiert. Diese Einstellung ändert sich nur unabhängig davon, ob Sie die endgültige Intervallauswahl treffen. Der Entscheidungsschritt bleibt auf normale Plethora Precision-Lernkartenüberprüfungen beschränkt; Das Lesen von Dokumenten, der Cram-Modus, andere Algorithmen und der **Pure Plethora Precision Mode** behalten ihren bestehenden direkten Planungsablauf bei.
 
 - **Arena Pick** ist standardmäßig ausgewählt. Es handelt sich um die gewichtete Empfehlung und ist in der Regel die beste Wahl, wenn die Arena entscheiden soll.
-- Mit **SM-2, SM-15, SM-19, SM-20 und FSRS** können Sie sich für diesen Test bewusst an den genauen Vorschlag eines Modells halten. Die Wahl eines solchen Modells verleiht diesem Modell kein zusätzliches Stimmgewicht; Zukünftige Gewichte lernen weiterhin nur aus der Vorhersagegenauigkeit.
+- Mit **Plethora Classic, Plethora Classic 15, Classic 19, Plethora Precision und FSRS** können Sie sich für diesen Test bewusst an den genauen Vorschlag eines Modells halten. Die Wahl eines solchen Modells verleiht diesem Modell kein zusätzliches Stimmgewicht; Zukünftige Gewichte lernen weiterhin nur aus der Vorhersagegenauigkeit.
 - **Benutzerdefiniert** akzeptiert einen Betrag und eine Einheit oder eine Position auf der logarithmischen Zeitlinse. Die angezeigten Grenzen schützen vor ungültigen Zeitplänen und das genaue Fälligkeitsdatum wird aktualisiert, bevor Sie es bestätigen.
 - **Warum dieses Intervall** die Vorschläge, aktuellen Gewichte und das Arena-Sortiment erweitert. Der Bereich ist das von den fünf Modellen vorgeschlagene früheste bis späteste Intervall, kein Unsicherheits- oder Konfidenzintervall.
 
@@ -296,7 +296,7 @@ Tastatursteuerung bei geöffnetem Memory Horizon:
 | Schlüssel | Aktion |
 |-----|--------|
 | `←` / `→` | Vorschläge in zeitlicher Reihenfolge erkunden |
-| `1`–`5` | Wählen Sie SM-2, SM-15, SM-19, SM-20 oder FSRS |
+| `1`–`5` | Wählen Sie Plethora Classic, Plethora Classic 15, Classic 19, Plethora Precision oder FSRS |
 | „A“ | Wählen Sie Arena-Auswahl |
 | „M“ | Wählen Sie Benutzerdefiniert |
 | „Enter“ oder „Leertaste“ | Bestätigen Sie den angezeigten Zeitplan |
@@ -306,11 +306,11 @@ Bei der freihändigen Audioüberprüfung bestätigt Plethora automatisch die Are
 
 ### Dokumentleseplan (inkrementelles Lesen)
 
-Die oben genannten Algorithmen (FSRS-6, SM-18, SM-20) sind **Lernkarten**-Planer – sie trainieren auf Fragen und Antworten, Lückentexten und einfachen Karten, wobei das Ziel eine langfristige Erinnerung ist. **Dokumente** (die Artikel, Aufsätze und Passagen, die Sie über inkrementelles Lesen lesen) werden von einem **separaten** Planer mit einem anderen Ziel geplant: Inhalte in regelmäßiger Rotation zu halten, anstatt die langfristige Aufbewahrung einer einzelnen Tatsache zu maximieren.
+Die oben genannten Algorithmen (FSRS-6, Plethora Adaptive, Plethora Precision) sind **Lernkarten**-Planer – sie trainieren auf Fragen und Antworten, Lückentexten und einfachen Karten, wobei das Ziel eine langfristige Erinnerung ist. **Dokumente** (die Artikel, Aufsätze und Passagen, die Sie über inkrementelles Lesen lesen) werden von einem **separaten** Planer mit einem anderen Ziel geplant: Inhalte in regelmäßiger Rotation zu halten, anstatt die langfristige Aufbewahrung einer einzelnen Tatsache zu maximieren.
 
 **Zwei Planer, nicht einer.** Dies ist die größte Quelle der Verwirrung:
 
-- **Lernkarten** → FSRS-6 / SM-18 / SM-20 (Ihre Wahl in den Lerneinstellungen) → schreibt in den Überprüfungsverlauf, der diese Algorithmen trainiert.
+- **Lernkarten** → FSRS-6 / Plethora Adaptive / Plethora Precision (Ihre Wahl in den Lerneinstellungen) → schreibt in den Überprüfungsverlauf, der diese Algorithmen trainiert.
 - **Dokumente** → der **Inkrementelle Leseplaner** (oder seine **Engaging**-Variante) → wird separat verfolgt und **füttert die Lernkartenalgorithmen überhaupt nicht.**
 
 Die Bewertung eines Dokuments mit „Erneut“ / „Schwer“ / „Gut“ / „Einfach“ sieht genauso aus wie die Bewertung einer Karteikarte – es werden dieselben vier Schaltflächen angezeigt – aber die Bewertung erfolgt an einer anderen Stelle und erzeugt kurze, vorhersehbare Intervalle:
@@ -326,7 +326,7 @@ Die Dokumentintervalle sind auf ungefähr **30 Tage** begrenzt, sodass das Mater
 
 **Der Engaging Scheduler.** Wenn Sie Dokumente aus der Warteschlange lesen, verwendet Plethora die Variante *Engaging*, die Neuheiten, Sortenausgleich und Serendipity über die Basisintervalle legt, damit Ihre Lesesitzungen abwechslungsreich und interessant bleiben. Diese Engagement-Funktionen wirken sich darauf aus, *welches* Dokument als nächstes erscheint, nicht auf die zugrunde liegende Intervallberechnung.
 
-**Praktische Erkenntnis.** Viel inkrementelles Lesen zählt **nicht** für das „Training“ von SM-20 oder FSRS – diese Algorithmen sehen nur Lernkartenbewertungen. Wenn Sie möchten, dass sie personalisiert werden, benötigen Sie Lernkarten, die im Tagesabstand überprüft werden. (Aus diesem Grund kann im SM-20-Bereich in den Lerneinstellungen „0 Punkte“ angezeigt werden, auch wenn Sie die ganze Woche über Dokumente gelesen haben.) Unter [SM-20 verstehen](#understanding-sm-20) erfahren Sie, was zählt und was nicht.
+**Praktische Erkenntnis.** Viel inkrementelles Lesen zählt **nicht** für das „Training“ von Plethora Precision oder FSRS – diese Algorithmen sehen nur Lernkartenbewertungen. Wenn Sie möchten, dass sie personalisiert werden, benötigen Sie Lernkarten, die im Tagesabstand überprüft werden. (Aus diesem Grund kann im Plethora Precision-Bereich in den Lerneinstellungen „0 Punkte“ angezeigt werden, auch wenn Sie die ganze Woche über Dokumente gelesen haben.) Unter [Plethora Precision verstehen](#understanding-sm-20) erfahren Sie, was zählt und was nicht.
 
 ### Bewertungssystem
 
@@ -726,7 +726,7 @@ Erstellen Sie benutzerdefinierte Warteschlangen mit Filtern:
 
 Tag-Aware Scheduling fügt der Überprüfungswarteschlange semantische Intelligenz hinzu.
 Wenn in den Einstellungen aktiviert, führt TAS zwei Nachbearbeitungsdurchgänge durch
-Ihre fälligen Posten, ohne die zugrunde liegenden SM-20/FSRS-Intervalle zu ändern:
+Ihre fälligen Posten, ohne die zugrunde liegenden Plethora Precision/FSRS-Intervalle zu ändern:
 
 - **Voraussetzungs-Gating**: Blockiert Elemente, deren Tag-Voraussetzungen nicht erfüllt sind
   hat den konfigurierten Reifeschwellenwert erreicht.  Grundlegendes Material ist
@@ -808,7 +808,7 @@ Für diese Tags wird Interferenz-Jitter angewendet.
 
 #### Tag-Reife
 
-Ein Tag ist für einen Artikel **ausgereift**, wenn die SM-20/FSRS-Stabilität dieses Artikels vorliegt
+Ein Tag ist für einen Artikel **ausgereift**, wenn die Plethora Precision/FSRS-Stabilität dieses Artikels vorliegt
 erfüllt oder überschreitet den „maturityThreshold“ des Tags (Standard 0,8).  Die
 Das Gesamtreifeverhältnis beträgt „matureCount / itemCount“.
 
@@ -867,7 +867,7 @@ Das Analytics-Dashboard bietet umfassende Einblicke:
 - Karten nach Typ (Lernkarte, Lückentext usw.)
 - Neue vs. ausgereifte Karten
 
-**Algorithmusmetriken (FSRS/SM-18):**
+**Algorithmusmetriken (FSRS/Plethora Adaptive):**
 - Durchschnittliche Stabilität
 - Durchschnittlicher Schwierigkeitsgrad
 - Voraussichtliche Aufbewahrung
@@ -962,20 +962,20 @@ Plethora unterstützt vier Planungsalgorithmen. Wählen Sie diejenige, die am be
 - Sagt Zeiten des Vergessens voraus
 - Bessere Bindung mit weniger Bewertungen
 
-**SM-20 (SuperMemo 20):**
+**Plethora Precision (SuperMemo 20):**
 - Fortschrittlichster Algorithmus, rückentwickelt von sm20.exe über Ghidra
-- Verwendet die V4-Intervallformel (SM-20 richtig); Die SM-19-Planung ist über den separaten „sm2“-Algorithmus verfügbar
+- Verwendet die V4-Intervallformel (Plethora Precision richtig); Die Classic 19-Planung ist über den separaten „sm2“-Algorithmus verfügbar
 - Durch die Bayes'sche Glättung werden optimale Intervalle aus Ihren tatsächlichen Überprüfungsdaten ermittelt
 - Baut im Laufe der Zeit Wissen über persistente 21×21×21-Intervall-/Zählmatrizen auf
 
-**SM-18 (SuperMemo 18):**
+**Plethora Adaptive (SuperMemo 18):**
 - Neuester SuperMemo-Algorithmus, rückentwickelt von der Originalanwendung
 - Verwendet eine 3D-SInc-Suchmatrix (Stabilitätssteigerung) für Schwierigkeit, Stabilität und Wiederauffindbarkeit
 - Explizite Schwierigkeitsverfolgung mit nachlaufenden Durchschnittsaktualisierungen
 - Exponentielles Vergessenskurvenmodell: „R = 0,9^(t/S)“.
 - Ausgeklügelte Fehlerbehandlung mit ausfallabhängiger Stabilitätsreduzierung
 
-**SM-2 (klassisch):**
+**Plethora Classic (klassisch):**
 - Traditioneller SuperMemo 2-Algorithmus (öffentlich dokumentiert)
 - Einfacher, vorhersehbar
 - Weitere Bewertungen erforderlich

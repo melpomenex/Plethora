@@ -14,6 +14,12 @@ import {
   type SM20ArenaStats,
 } from "../../api/review";
 import { CANONICAL_FSRS_PARAMETER_LENGTH } from "../../utils/fsrsParameters";
+import {
+  ARENA_MODEL_LABELS,
+  SELECTABLE_SCHEDULERS,
+  schedulerDescriptionKey,
+  schedulerLabel,
+} from "../../lib/schedulerCatalog";
 import { NumericInput } from "../common";
 import { AlgorithmArenaModeControl } from "../review/AlgorithmArenaModeControl";
 import { tourAnchor } from "../onboarding/tour/anchors";
@@ -81,19 +87,14 @@ export function LearningSettings() {
               {...tourAnchor("reviewAlgorithmSetting")}
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
             >
-              <option value="fsrs">FSRS-6 (Recommended)</option>
-              <option value="sm18">SM-18</option>
-              <option value="sm20">SM-20</option>
-              <option value="sm2">SM-2</option>
+              {SELECTABLE_SCHEDULERS.map((scheduler) => (
+                <option key={scheduler.id} value={scheduler.id}>
+                  {scheduler.id === "fsrs" ? `${scheduler.label} (Recommended)` : scheduler.label}
+                </option>
+              ))}
             </select>
             <p className="text-xs text-muted-foreground mt-1">
-              {settings.learning.algorithm === "fsrs"
-                ? "Free Spaced Repetition Scheduler — optimal retention-based scheduling"
-                : settings.learning.algorithm === "sm18"
-                ? "SM-18 — uses stability increase matrix for interval calculation"
-                : settings.learning.algorithm === "sm20"
-                ? "SM-20 compatibility scheduler with a fully local, diagnostic recall optimizer"
-                : `SM-${settings.learning.algorithm.toUpperCase().replace("SM", "")}`}
+              {t(schedulerDescriptionKey(settings.learning.algorithm))}
             </p>
           </div>
 
@@ -102,10 +103,11 @@ export function LearningSettings() {
               <div>
                 <h4 className="font-medium text-foreground">Algorithm Arena</h4>
                 <p className="text-xs text-muted-foreground mt-1">
-                  SuperMemo 20 runs five algorithms in parallel — SM-2, SM-15, SM-19,
-                  SM-20 and FSRS — and shifts weight toward whichever predicts your
-                  recall best. SM-15 and SM-19 learn automatically on every review;
-                  SM-20 and FSRS can additionally be fitted to your review history below.
+                  Plethora Precision runs five scheduling models in parallel — Plethora
+                  Classic, Classic 15, Classic 19, Plethora Precision and FSRS — and
+                  shifts weight toward whichever predicts your recall best. The Classic
+                  baselines learn automatically on every review; Precision and FSRS can
+                  additionally be fitted to your review history below.
                 </p>
               </div>
 
@@ -113,8 +115,8 @@ export function LearningSettings() {
 
               <div className="border-t border-border pt-3">
                 <SettingToggle
-                  label="Pure SM-20 Mode (M4 kernel only)"
-                  description="Bypasses the Algorithm Arena blend to schedule with the pure SM-20 M4 model alone. Arena scoring and weights adaptation continue in the background so you can compare their performance."
+                  label={`Pure ${schedulerLabel("sm20")} Mode (M4 kernel only)`}
+                  description="Bypasses the Algorithm Arena blend to schedule with the pure Precision M4 model alone. Arena scoring and weights adaptation continue in the background so you can compare their performance."
                   checked={settings.learning.sm20PureM4}
                   onChange={(checked) =>
                     updateSettings({
@@ -136,8 +138,8 @@ export function LearningSettings() {
                       <div key={name} className="bg-muted/50 rounded-md py-1.5">
                         <div className="text-muted-foreground">
                           {name}
-                          {(name === "FSRS" && arenaStats.fsrs_optimized) ||
-                          (name === "SM-20" && arenaStats.m4_optimized)
+                          {(name === ARENA_MODEL_LABELS.fsrs && arenaStats.fsrs_optimized) ||
+                          (name === ARENA_MODEL_LABELS.sm20 && arenaStats.m4_optimized)
                             ? " ★"
                             : ""}
                         </div>
@@ -149,16 +151,16 @@ export function LearningSettings() {
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {arenaStats.r_metric != null
-                      ? `R-Metric: ${arenaStats.r_metric >= 0 ? "+" : ""}${arenaStats.r_metric.toFixed(1)}% vs SM-19 alone · ${arenaStats.total_scored} scored reviews`
+                      ? `R-Metric: ${arenaStats.r_metric >= 0 ? "+" : ""}${arenaStats.r_metric.toFixed(1)}% vs ${ARENA_MODEL_LABELS.sm19} alone · ${arenaStats.total_scored} scored reviews`
                       : `Weights adapt as reviews accumulate (${arenaStats.total_scored} scored so far; ★ = personalized parameters active).`}
                   </div>
                 </div>
               )}
 
               <div className="text-xs text-muted-foreground">
-                SM-15 optimizer: {sm20Status?.m2_optimizer_initialized ? "initialized" : "fresh (will initialize on first review)"}
+                {ARENA_MODEL_LABELS.sm15} optimizer: {sm20Status?.m2_optimizer_initialized ? "initialized" : "fresh (will initialize on first review)"}
                 {sm20Status?.m3_matrix_cells_populated != null
-                  ? ` · SM-19 matrix cells: ${sm20Status.m3_matrix_cells_populated}/${sm20Status.m3_matrix_total_cells ?? 9261}`
+                  ? ` · ${ARENA_MODEL_LABELS.sm19} matrix cells: ${sm20Status.m3_matrix_cells_populated}/${sm20Status.m3_matrix_total_cells ?? 9261}`
                   : ""}
               </div>
 
@@ -191,7 +193,7 @@ export function LearningSettings() {
                       setSm20OptMessage(result.message);
                       await refreshArena();
                     } catch (error) {
-                      setSm20OptMessage(error instanceof Error ? error.message : "SM-20 optimization failed");
+                      setSm20OptMessage(error instanceof Error ? error.message : `${schedulerLabel("sm20")} optimization failed`);
                     } finally {
                       setSm20OptRunning(null);
                     }
@@ -199,7 +201,7 @@ export function LearningSettings() {
                   disabled={sm20OptRunning !== null}
                   className="px-3 py-2 rounded-md border border-border text-sm text-foreground disabled:opacity-50"
                 >
-                  {sm20OptRunning === "m4" ? "Optimizing SM-20…" : "Optimize SM-20 parameters"}
+                  {sm20OptRunning === "m4" ? `Optimizing ${schedulerLabel("sm20")}…` : `Optimize ${schedulerLabel("sm20")} parameters`}
                 </button>
                 <button
                   onClick={async () => {

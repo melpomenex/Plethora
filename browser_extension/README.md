@@ -1,11 +1,11 @@
-# Incrementum Browser Extension
+# Plethora Browser Extension
 
-A powerful browser extension that seamlessly integrates with Incrementum to capture, extract, and manage web content with AI-powered features.
+A powerful browser extension that seamlessly integrates with Plethora to capture, extract, and manage web content with AI-powered features.
 
 ## 🚀 Features
 
 ### 📄 Content Capture
-- **Save Current Tab**: Instantly save the current page to Incrementum
+- **Save Current Tab**: Instantly save the current page to Plethora
 - **Save All Tabs**: Batch save all open tabs at once
 - **Save with Content**: Capture full page content including HTML
 - **Bookmark Sync**: Automatically sync browser bookmarks
@@ -25,7 +25,7 @@ A powerful browser extension that seamlessly integrates with Incrementum to capt
 ### 🤖 AI Integration
 - **AI-Powered Summaries**: Generate intelligent summaries of web pages
 - **Multiple AI Providers**: Support for OpenAI, Claude, Gemini, and OpenRouter
-- **Automatic API Detection**: Uses Incrementum's configured AI settings
+- **Automatic API Detection**: Uses Plethora's configured AI settings
 - **Smart Content Analysis**: Contextual understanding for better summaries
 
 ### ⌨️ Keyboard Shortcuts
@@ -49,8 +49,8 @@ A powerful browser extension that seamlessly integrates with Incrementum to capt
 ## 📦 Installation
 
 ### Prerequisites
-1. **Incrementum Application**: Must be running with browser sync enabled
-2. **API Keys**: Optional, for AI summary features (configured in Incrementum)
+1. **Plethora Application**: Must be running with browser sync enabled
+2. **API Keys**: Optional, for AI summary features (configured in Plethora)
 
 ### Installation Steps
 
@@ -83,20 +83,20 @@ A powerful browser extension that seamlessly integrates with Incrementum to capt
    - Select the `browser_extension` folder
 
 #### Verify Installation
-- Look for the Incrementum icon in your browser toolbar
+- Look for the Plethora icon in your browser toolbar
 - Click the icon to open the popup
 - Check that the status shows "Connected"
 
 ## 🔧 Configuration
 
-### Incrementum Setup
-1. **Start Incrementum**: Ensure the main application is running
+### Plethora Setup
+1. **Start Plethora**: Ensure the main application is running
 2. **Enable Browser Sync**: Go to Settings → Browser Sync → Enable
 3. **Configure AI** (Optional): Set up API keys in Settings → AI for summary features
 
 ### Extension Settings
-- **Server Port**: Default is 8766 (matches Incrementum default)
-- **Auto-Connect**: Extension automatically connects to Incrementum
+- **Server Port**: Default is 8766 (matches Plethora default)
+- **Auto-Connect**: Extension automatically connects to Plethora
 - **Permissions**: Grant necessary permissions when prompted
 
 ## 📖 Usage Guide
@@ -106,7 +106,7 @@ A powerful browser extension that seamlessly integrates with Incrementum to capt
 #### Save Current Page
 1. **Method 1**: Click extension icon → "Save Current Tab"
 2. **Method 2**: Use keyboard shortcut `Ctrl+Shift+S`
-3. **Method 3**: Right-click on page → "Save to Incrementum"
+3. **Method 3**: Right-click on page → "Save to Plethora"
 
 #### Save Multiple Tabs
 1. Click extension icon → "Save All Tabs"
@@ -137,17 +137,17 @@ A powerful browser extension that seamlessly integrates with Incrementum to capt
 1. **Navigate** to the page you want to summarize
 2. **Click extension icon** → "Generate Summary"
 3. **Wait for processing** (may take 10-30 seconds)
-4. **Check Incrementum** for the generated summary document
+4. **Check Plethora** for the generated summary document
 
 #### Requirements
-- **API Key**: Must be configured in Incrementum settings
+- **API Key**: Must be configured in Plethora settings
 - **Supported Providers**: OpenAI, Claude, Gemini, OpenRouter
 - **Content Length**: Works best with substantial content
 
 ### Context Menu Features
 
 #### Available Options
-- **Save to Incrementum**: Save current page
+- **Save to Plethora**: Save current page
 - **Save page with content**: Save with full HTML content
 - **Create Extract**: Extract selected text (when text is selected)
 - **Toggle Extract Mode**: Enable/disable extract mode
@@ -161,7 +161,7 @@ A powerful browser extension that seamlessly integrates with Incrementum to capt
 ## 🔧 Management Interface
 
 ### Accessing Management
-1. **Open Incrementum** main application
+1. **Open Plethora** main application
 2. **Navigate** to Browser Sync tab
 3. **View synced items** in the management interface
 
@@ -210,12 +210,12 @@ Use the included `test.html` file to verify all functionality:
 - [ ] Extract mode can be toggled on/off
 - [ ] Visual indicator appears when active
 - [ ] Text selection creates extracts
-- [ ] Extracts appear in Incrementum
+- [ ] Extracts appear in Plethora
 - [ ] Highlights are visible and persistent
 
 #### AI Features
 - [ ] AI summary generation works
-- [ ] Summaries are saved to Incrementum
+- [ ] Summaries are saved to Plethora
 - [ ] API key is detected automatically
 - [ ] Error handling for missing API keys
 
@@ -238,8 +238,8 @@ Use the included `test.html` file to verify all functionality:
 ### Connection Issues
 
 #### "Disconnected" Status
-1. **Check Incrementum**: Ensure main application is running
-2. **Browser Sync**: Verify browser sync is enabled in Incrementum settings
+1. **Check Plethora**: Ensure main application is running
+2. **Browser Sync**: Verify browser sync is enabled in Plethora settings
 3. **Port Configuration**: Check that port 8766 is not blocked
 4. **Restart Extension**: Disable and re-enable the extension
 
@@ -257,7 +257,7 @@ Use the included `test.html` file to verify all functionality:
 4. **Page Compatibility**: Some pages may block content scripts
 
 #### AI Summaries Failing
-1. **API Key**: Verify API key is configured in Incrementum
+1. **API Key**: Verify API key is configured in Plethora
 2. **Provider**: Check that the AI provider is supported
 3. **Content Length**: Ensure page has sufficient content
 4. **Rate Limits**: Check if API rate limits are exceeded
@@ -272,7 +272,7 @@ Use the included `test.html` file to verify all functionality:
 #### Slow Saving
 1. **Content Size**: Large pages take longer to process
 2. **Network**: Check internet connection speed
-3. **Incrementum Load**: High system load may slow processing
+3. **Plethora Load**: High system load may slow processing
 
 #### Memory Usage
 1. **Tab Count**: Many open tabs increase memory usage
@@ -283,7 +283,7 @@ Use the included `test.html` file to verify all functionality:
 
 ### Data Handling
 - **Local Processing**: Most processing happens locally
-- **Secure Connection**: Uses localhost connection to Incrementum
+- **Secure Connection**: Uses localhost connection to Plethora
 - **No External Servers**: Data doesn't leave your system (except for AI APIs)
 
 ### Permissions
@@ -321,7 +321,7 @@ browser_extension/
 - Modal interfaces
 
 #### Background Script (`background.js`)
-- API communication with Incrementum
+- API communication with Plethora
 - Context menu management
 - Tab and bookmark handling
 - AI summary generation
@@ -385,7 +385,7 @@ The extension communicates with the BrowserSyncServer which provides:
 
 ### Bug Reports
 1. **Check existing issues** before creating new ones
-2. **Provide details**: Browser version, Incrementum version, steps to reproduce
+2. **Provide details**: Browser version, Plethora version, steps to reproduce
 3. **Include logs**: Check browser console for errors
 
 ### Feature Requests
@@ -401,7 +401,7 @@ The extension communicates with the BrowserSyncServer which provides:
 
 ## 📄 License
 
-This project is part of the Incrementum knowledge management system. See the main project license for details.
+This project is part of the Plethora knowledge management system. See the main project license for details.
 
 ## 🆘 Support
 
@@ -412,7 +412,7 @@ This project is part of the Incrementum knowledge management system. See the mai
 4. **Community**: Join discussions in project forums
 
 ### Common Solutions
-- **Connection problems**: Restart Incrementum and extension
+- **Connection problems**: Restart Plethora and extension
 - **Permission issues**: Check Chrome extension permissions
 - **Feature not working**: Verify prerequisites are met
 - **Performance issues**: Restart browser or reduce tab count

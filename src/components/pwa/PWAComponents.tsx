@@ -162,7 +162,7 @@ export function PWAInstallPrompt({
               <DeviceMobile className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">Install Incrementum</h3>
+              <h3 className="text-sm font-semibold text-foreground">Install Plethora</h3>
               <p className="text-xs text-muted-foreground">Use it like an app on your phone</p>
             </div>
           </div>
@@ -178,7 +178,7 @@ export function PWAInstallPrompt({
 
         <div className="p-4">
           <p className="text-sm text-muted-foreground mb-4">
-            Add Incrementum to your home screen for a faster launch, full-screen reading, and offline access.
+            Add Plethora to your home screen for a faster launch, full-screen reading, and offline access.
           </p>
 
           <button

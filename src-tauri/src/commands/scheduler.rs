@@ -26,7 +26,7 @@ pub async fn scheduler_init(
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-    let db_path = app_dir.join("incrementum.db");
+    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
 
     // Load scheduler config from persisted settings; fall back to defaults.
     let config = load_scheduler_config(&repo).await;
@@ -142,7 +142,7 @@ pub async fn scheduler_trigger_backup(
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-    let db_path = app_dir.join("incrementum.db");
+    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
 
     let db = Database::from_pool(repo.pool().clone());
     let manager = BackupManager::new(db, db_path).map_err(|e| e.to_string())?;

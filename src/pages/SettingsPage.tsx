@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { APP_VERSION } from "../utils/constants";
+import { LEGACY_SELECTABLE_SCHEDULERS } from "../lib/schedulerCatalog";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useCollectionStore } from "../stores/collectionStore";
 import { UserProfilePanel } from "../components/settings/UserProfilePanel";
@@ -244,13 +245,11 @@ function GeneralSettings() {
                 onChange={(e) => updateSettings({ learning: { ...settings.learning, algorithm: e.target.value as typeof settings.learning.algorithm } })}
                 className="px-3 py-1.5 bg-background border border-border rounded text-sm"
               >
-                <option value="fsrs">{t("settings.fsrs6Recommended")}</option>
-                <option value="sm18">{t("settingsLegacy.supermemo18")}</option>
-                <option value="sm20">SM-20</option>
-                <option value="sm15">{t("settingsLegacy.supermemo15")}</option>
-                <option value="sm8">{t("settingsLegacy.supermemo8")}</option>
-                <option value="sm5">{t("settingsLegacy.supermemo5")}</option>
-                <option value="sm2">{t("settingsLegacy.supermemo2")}</option>
+                {LEGACY_SELECTABLE_SCHEDULERS.map((scheduler) => (
+                  <option key={scheduler.id} value={scheduler.id}>
+                    {scheduler.id === "fsrs" ? t("settings.fsrs6Recommended") : scheduler.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex items-center justify-between">
@@ -342,7 +341,7 @@ function AboutSettings() {
 
       <div className="bg-card border border-border rounded p-6 text-center">
         <div className="text-5xl mb-4">📚</div>
-        <h2 className="text-2xl font-bold text-foreground mb-2">Incrementum</h2>
+        <h2 className="text-2xl font-bold text-foreground mb-2">Plethora</h2>
         <p className="text-sm text-foreground-secondary mb-4">
           {t("settings.version")} {APP_VERSION}
         </p>
@@ -351,28 +350,12 @@ function AboutSettings() {
         </p>
         <div className="flex justify-center gap-4 text-sm">
           <a
-            href="https://github.com/incrementum"
+            href="https://github.com/melpomenex/Incrementum"
             target="_blank"
             rel="noopener noreferrer"
             className="text-primary-600 hover:underline"
           >
             {t("settings.github")}
-          </a>
-          <a
-            href="https://docs.incrementum.app"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary-600 hover:underline"
-          >
-            {t("settings.documentation")}
-          </a>
-          <a
-            href="https://discord.gg/incrementum"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary-600 hover:underline"
-          >
-            {t("settings.discord")}
           </a>
         </div>
       </div>

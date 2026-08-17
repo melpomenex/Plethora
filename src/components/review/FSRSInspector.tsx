@@ -26,6 +26,7 @@ import type { LearningItem } from "../../api/review";
 import { parseSm18State, sm18Retrievability, type SM18State } from "../../lib/sm18";
 import { parseSm20State, sm20Retrievability, type SM20State } from "../../lib/sm20";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { schedulerLabel } from "../../lib/schedulerCatalog";
 
 interface FSRSInspectorProps {
   card: LearningItem | null;
@@ -209,7 +210,11 @@ export function FSRSInspector({ card, isOpen, onClose }: FSRSInspectorProps) {
       )
     : (card.memory_state as any)?.retrievability ?? 0;
 
-  const inspectorTitle = isSm18 ? "SM18 Inspector" : isSm20 ? "SM20 Inspector" : "FSRS-6 Inspector";
+  const inspectorTitle = isSm18
+    ? `${schedulerLabel("sm18")} Inspector`
+    : isSm20
+      ? `${schedulerLabel("sm20")} Inspector`
+      : `${schedulerLabel("fsrs")} Inspector`;
 
   // Calculate forget curve data
   const curveDays = [0, 1, 3, 7, 14, 30, 60, 90];
