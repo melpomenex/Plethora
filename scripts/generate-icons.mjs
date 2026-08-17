@@ -132,13 +132,27 @@ function main() {
 
     const densities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
     for (const density of densities) {
-      for (const name of ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']) {
-        copyIfPresent(
-          join(platformOut, 'android', `mipmap-${density}`, name),
-          join(androidResDir, `mipmap-${density}`, name),
-          `android ${density}`
-        );
-      }
+      copyIfPresent(
+        join(platformOut, 'android', `mipmap-${density}`, 'ic_launcher_foreground.png'),
+        join(androidResDir, `mipmap-${density}`, 'ic_launcher_foreground.png'),
+        `android ${density}`
+      );
+    }
+
+    // Legacy (non-adaptive) launcher icons at the exact density-bucket sizes
+    // (48/72/96/144/192). The pinned `tauri icon` release emits 49px for hdpi;
+    // this repo historically shipped the exact bucket sizes, so render them
+    // explicitly from the square master (white background baked in).
+    const launcherSizes = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+    const launcherOut = join(work, 'android-launcher');
+    runTauriIcon(
+      [MASTER_SVG, '-o', launcherOut, '-p', Object.values(launcherSizes).join(',')],
+      'android launcher sizes'
+    );
+    for (const [density, size] of Object.entries(launcherSizes)) {
+      const generated = join(launcherOut, `${size}x${size}.png`);
+      copyIfPresent(generated, join(androidResDir, `mipmap-${density}`, 'ic_launcher.png'), `android ${density} launcher`);
+      copyIfPresent(generated, join(androidResDir, `mipmap-${density}`, 'ic_launcher_round.png'), `android ${density} launcher round`);
     }
 
     // --- 2. PWA sizes (any purpose) ---
