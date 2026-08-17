@@ -1359,6 +1359,105 @@ pub struct FetchedUrlContent {
     pub file_path: String,
     pub file_name: String,
     pub content_type: String,
+    /// Final URL after redirects (article-import pipeline: canonicalization
+    /// and relative-URL resolution base). `None` for pre-pipeline callers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub final_url: Option<String>,
+    /// HTTP status of the final response (2xx here; errors surface as
+    /// command errors carrying the status in the message).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    /// Content type from the response headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_content_type: Option<String>,
+    /// Number of redirects followed to reach the final response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redirect_hops: Option<u32>,
+}
+
+/// Maximum response body accepted by `fetch_url_content`. Larger responses
+/// are rejected with a typed error before the whole body is buffered.
+const FETCH_MAX_BYTES: usize = 15 * 1024 * 1024;
+/// Redirect hops beyond this are treated as a loop and the fetch fails.
+const MAX_REDIRECT_HOPS: usize = 10;
+
+/// Download core shared by `fetch_url_content` and the unit tests (tests hit a
+/// local listener, so the SSRF guard — applied in the command — stays out).
+///
+/// Enforces the redirect-hop cap and the response-size cap while streaming the
+/// body, and returns `(bytes, final_url, status, header_content_type, hops)`.
+async fn download_with_caps(
+    url: &str,
+) -> std::result::Result<(Vec<u8>, String, u16, String, u32), String> {
+    let hops = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let counter = hops.clone();
+    let redirect_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .user_agent("Incrementum/1.0 (https://incrementum.app)")
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            counter.store(
+                attempt.previous().len() as u32,
+                std::sync::atomic::Ordering::SeqCst,
+            );
+            if attempt.previous().len() > MAX_REDIRECT_HOPS {
+                attempt.error("too many redirects")
+            } else {
+                attempt.follow()
+            }
+        }))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let mut response = redirect_client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch URL: {}", e))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("HTTP error: {}", status));
+    }
+
+    if let Some(len) = response.content_length() {
+        if len as usize > FETCH_MAX_BYTES {
+            return Err(format!(
+                "RESPONSE_TOO_LARGE: content-length {} exceeds limit of {} bytes",
+                len, FETCH_MAX_BYTES
+            ));
+        }
+    }
+
+    let final_url = response.url().to_string();
+    let header_content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|ct| ct.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    // Stream the body so a lying/absent content-length cannot OOM the app.
+    use futures::StreamExt;
+    let mut body: Vec<u8> = Vec::with_capacity(64 * 1024);
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Failed to download content: {}", e))?;
+        if body.len() + chunk.len() > FETCH_MAX_BYTES {
+            return Err(format!(
+                "RESPONSE_TOO_LARGE: body exceeded limit of {} bytes",
+                FETCH_MAX_BYTES
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok((
+        body,
+        final_url,
+        status.as_u16(),
+        header_content_type,
+        hops.load(std::sync::atomic::Ordering::SeqCst),
+    ))
 }
 
 /// Result from converting PDF to HTML
@@ -1558,7 +1657,9 @@ pub async fn fetch_web_page_preview(url: String) -> Result<serde_json::Value> {
 }
 
 /// Fetch content from a URL and save it to a temporary location
-/// Used for Arxiv PDF downloads and URL-based imports
+/// Used for Arxiv PDF downloads and URL-based imports, and by the article
+/// import pipeline (which additionally consumes `final_url`/`status`/
+/// `header_content_type`/`redirect_hops`).
 #[tauri::command]
 pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
     use reqwest;
@@ -1606,40 +1707,17 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
     let unique_filename = format!("{}-{}", timestamp, file_name);
     let file_path = download_dir.join(&unique_filename);
 
-    // Download the file
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .user_agent("Incrementum/1.0 (https://incrementum.app)")
-        .build()
-        .map_err(|e| {
-            crate::error::IncrementumError::Internal(format!("Failed to create HTTP client: {}", e))
-        })?;
-
-    let response = client.get(&url).send().await.map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to fetch URL: {}", e))
-    })?;
-
-    if !response.status().is_success() {
-        return Err(crate::error::IncrementumError::Internal(format!(
-            "HTTP error: {}",
-            response.status()
-        )));
-    }
+    // Download the file (client construction, redirect policy, and size cap
+    // all live in download_with_caps)
+    let (bytes, final_url, status, header_content_type, redirect_hops) = download_with_caps(&url)
+        .await
+        .map_err(crate::error::IncrementumError::Internal)?;
 
     let final_content_type = if content_type == "unknown" {
-        response
-            .headers()
-            .get("content-type")
-            .and_then(|ct| ct.to_str().ok())
-            .unwrap_or("")
-            .to_string()
+        header_content_type.clone()
     } else {
         content_type.to_string()
     };
-
-    let bytes = response.bytes().await.map_err(|e| {
-        crate::error::IncrementumError::Internal(format!("Failed to download content: {}", e))
-    })?;
 
     std::fs::write(&file_path, &bytes).map_err(|e| {
         crate::error::IncrementumError::Internal(format!("Failed to save downloaded file: {}", e))
@@ -1649,7 +1727,241 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
         file_path: file_path.to_string_lossy().to_string(),
         file_name,
         content_type: final_content_type,
+        final_url: Some(final_url),
+        status: Some(status),
+        header_content_type: Some(header_content_type),
+        redirect_hops: Some(redirect_hops),
     })
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Article import: pipeline persistence + dedupe (design D10)
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Persist a pipeline-imported article: content + metadata (with webArticle
+/// provenance) + canonical source_url + cover image in one UPDATE.
+#[tauri::command]
+pub async fn update_web_article(
+    id: String,
+    content: String,
+    metadata: DocumentMetadata,
+    source_url: Option<String>,
+    cover_image_url: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<Document> {
+    repo.update_web_article(
+        &id,
+        &content,
+        &metadata,
+        source_url.as_deref(),
+        cover_image_url.as_deref(),
+    )
+    .await?;
+    repo.get_document(&id)
+        .await?
+        .ok_or_else(|| IncrementumError::NotFound(format!("Document {}", id)))
+}
+
+/// Canonical-URL dedupe lookup: earliest document id with this source_url.
+#[tauri::command]
+pub async fn find_document_id_by_source_url(
+    source_url: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<String>> {
+    repo.find_document_id_by_source_url(&source_url).await
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Article import: raw-source snapshots (design D10)
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Raw HTML beyond this size is not snapshotted (reported as skipped).
+const SNAPSHOT_MAX_BYTES: u64 = 5 * 1024 * 1024;
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSnapshotResult {
+    /// False when the snapshot was skipped (oversize / unreadable source).
+    pub stored: bool,
+    pub skipped_reason: Option<String>,
+    pub path: Option<String>,
+    pub sha256: Option<String>,
+    pub raw_bytes: Option<u64>,
+    pub gzip_bytes: Option<u64>,
+}
+
+fn source_snapshot_dir(app: &tauri::AppHandle) -> Result<PathBuf> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| IncrementumError::Internal(format!("Failed to resolve app data dir: {}", e)))?
+        .join("source-snapshots");
+    std::fs::create_dir_all(&dir).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to create source-snapshots dir: {}", e))
+    })?;
+    Ok(dir)
+}
+
+/// Keep only `[A-Za-z0-9_-]` in a document id for use as a file name;
+/// anything else collapses to a hex digest so a hostile id can never escape
+/// the snapshot directory.
+fn safe_snapshot_stem(document_id: &str) -> String {
+    let cleaned: String = document_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if cleaned.len() >= 8 && cleaned == document_id {
+        cleaned
+    } else {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(document_id.as_bytes());
+        format!("doc-{:x}", hasher.finalize())
+    }
+}
+
+/// Testable core: gzip `raw` into `dir/{document_id}.html.gz` and return the
+/// destination path, sha256 of the raw bytes, and the compressed size.
+fn write_snapshot_to_dir(
+    dir: &Path,
+    document_id: &str,
+    raw: &[u8],
+) -> Result<(PathBuf, String, u64)> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+
+    let dest = dir.join(format!("{}.html.gz", safe_snapshot_stem(document_id)));
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(raw)
+        .map_err(|e| IncrementumError::Internal(format!("Failed to compress snapshot: {}", e)))?;
+    let compressed = encoder.finish().map_err(|e| {
+        IncrementumError::Internal(format!("Failed to finish snapshot gzip: {}", e))
+    })?;
+    std::fs::write(&dest, &compressed)
+        .map_err(|e| IncrementumError::Internal(format!("Failed to write snapshot file: {}", e)))?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(raw);
+    let sha = format!("{:x}", hasher.finalize());
+    Ok((dest, sha, compressed.len() as u64))
+}
+
+/// Store a gzip snapshot of a fetched page's raw HTML for future
+/// re-extraction. The bytes are read from the temp file `fetch_url_content`
+/// already wrote — no multi-MB payload crosses the (JSON, on Android) IPC.
+#[tauri::command]
+pub async fn store_source_snapshot(
+    app: tauri::AppHandle,
+    document_id: String,
+    source_path: String,
+) -> Result<SourceSnapshotResult> {
+    let dir = source_snapshot_dir(&app)?;
+    store_source_snapshot_to_dir(&dir, &document_id, &source_path)
+}
+
+fn store_source_snapshot_to_dir(
+    dir: &Path,
+    document_id: &str,
+    source_path: &str,
+) -> Result<SourceSnapshotResult> {
+    let path = Path::new(source_path);
+    let raw_len = match std::fs::metadata(path) {
+        Ok(meta) => meta.len(),
+        Err(e) => {
+            return Ok(SourceSnapshotResult {
+                stored: false,
+                skipped_reason: Some(format!("source file unreadable: {}", e)),
+                path: None,
+                sha256: None,
+                raw_bytes: None,
+                gzip_bytes: None,
+            });
+        }
+    };
+    if raw_len > SNAPSHOT_MAX_BYTES {
+        return Ok(SourceSnapshotResult {
+            stored: false,
+            skipped_reason: Some(format!(
+                "raw source {} bytes exceeds snapshot cap of {} bytes",
+                raw_len, SNAPSHOT_MAX_BYTES
+            )),
+            path: None,
+            sha256: None,
+            raw_bytes: Some(raw_len),
+            gzip_bytes: None,
+        });
+    }
+
+    let raw = std::fs::read(path).map_err(|e| {
+        IncrementumError::Internal(format!("Failed to read source for snapshot: {}", e))
+    })?;
+    let (dest, sha, gzip_len) = write_snapshot_to_dir(dir, document_id, &raw)?;
+    Ok(SourceSnapshotResult {
+        stored: true,
+        skipped_reason: None,
+        path: Some(dest.to_string_lossy().to_string()),
+        sha256: Some(sha),
+        raw_bytes: Some(raw.len() as u64),
+        gzip_bytes: Some(gzip_len),
+    })
+}
+
+/// Delete the snapshots of specific documents (retention setting off,
+/// document deleted).
+#[tauri::command]
+pub async fn delete_source_snapshots(
+    app: tauri::AppHandle,
+    document_ids: Vec<String>,
+) -> Result<u32> {
+    let dir = source_snapshot_dir(&app)?;
+    let mut removed = 0u32;
+    for id in &document_ids {
+        let dest = dir.join(format!("{}.html.gz", safe_snapshot_stem(id)));
+        if dest.exists() && std::fs::remove_file(&dest).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+/// Remove snapshots older than `max_age_days` (retention cleanup pass).
+#[tauri::command]
+pub async fn cleanup_source_snapshots(app: tauri::AppHandle, max_age_days: i64) -> Result<u32> {
+    let dir = source_snapshot_dir(&app)?;
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days.max(0));
+    Ok(cleanup_snapshots_in_dir(&dir, cutoff.timestamp()))
+}
+
+fn cleanup_snapshots_in_dir(dir: &Path, cutoff_unix_secs: i64) -> u32 {
+    let mut removed = 0u32;
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return 0,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("gz") {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata() {
+            let modified = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            if modified < cutoff_unix_secs {
+                if std::fs::remove_file(&path).is_ok() {
+                    removed += 1;
+                }
+            }
+        }
+    }
+    removed
 }
 
 #[cfg(test)]
@@ -1760,5 +2072,292 @@ mod browser_import_recovery_tests {
         // Below the minimum total length: never flagged, even if single-line.
         assert!(!content_is_flattened(Some("short single-line note")));
         assert!(!content_is_flattened(None));
+    }
+}
+
+#[cfg(test)]
+mod article_import_backend_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    /// One scripted HTTP response: status line, extra headers, body.
+    struct TestResponse {
+        status: &'static str,
+        headers: Vec<String>,
+        body: Vec<u8>,
+        /// When set, emit this Content-Length instead of the body length
+        /// (server-lying-header tests).
+        content_length_override: Option<u64>,
+        /// Emit no Content-Length at all (EOF-delimited body streaming).
+        no_content_length: bool,
+    }
+
+    impl TestResponse {
+        fn ok(body: &str) -> Self {
+            TestResponse {
+                status: "200 OK",
+                headers: vec!["Content-Type: text/html; charset=utf-8".to_string()],
+                body: body.as_bytes().to_vec(),
+                content_length_override: None,
+                no_content_length: false,
+            }
+        }
+        fn redirect(location: &str) -> Self {
+            TestResponse {
+                status: "302 Found",
+                headers: vec![format!("Location: {}", location)],
+                body: Vec::new(),
+                content_length_override: None,
+                no_content_length: false,
+            }
+        }
+    }
+
+    /// Minimal hermetic HTTP/1.1 server: routes by path via `handler`,
+    /// serving up to `max_requests` requests on the listener thread.
+    fn spawn_test_server<F>(handler: F, max_requests: usize) -> String
+    where
+        F: Fn(&str) -> TestResponse + Send + Sync + 'static,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let addr = listener.local_addr().expect("local addr");
+        let handler = std::sync::Arc::new(handler);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(max_requests) {
+                let mut stream = match stream {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let mut buf = [0u8; 8192];
+                // Read until end of headers (tests never send a body).
+                let mut raw = Vec::new();
+                loop {
+                    match stream.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            raw.extend_from_slice(&buf[..n]);
+                            if raw.windows(4).any(|w| w == b"\r\n\r\n") || raw.len() > 65536 {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                let request = String::from_utf8_lossy(&raw).to_string();
+                let path = request.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let resp = handler(&path);
+                let mut out = format!("HTTP/1.1 {}\r\n", resp.status);
+                for h in &resp.headers {
+                    out.push_str(h);
+                    out.push_str("\r\n");
+                }
+                if !resp.no_content_length {
+                    let len = resp
+                        .content_length_override
+                        .unwrap_or(resp.body.len() as u64);
+                    out.push_str(&format!("Content-Length: {}\r\n", len));
+                }
+                out.push_str("Connection: close\r\n\r\n");
+                let _ = stream.write_all(out.as_bytes());
+                let _ = stream.write_all(&resp.body);
+                let _ = stream.flush();
+            }
+        });
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn download_resolves_redirects_and_counts_hops() {
+        let base = spawn_test_server(
+            |path| {
+                if path == "/start" {
+                    TestResponse::redirect("/middle")
+                } else if path == "/middle" {
+                    TestResponse::redirect("/final")
+                } else {
+                    TestResponse::ok("<html><body>final page</body></html>")
+                }
+            },
+            3,
+        );
+        let (bytes, final_url, status, content_type, hops) =
+            download_with_caps(&format!("{}/start", base))
+                .await
+                .expect("download");
+        assert!(final_url.ends_with("/final"), "final url: {}", final_url);
+        assert_eq!(status, 200);
+        assert_eq!(hops, 2);
+        assert!(content_type.starts_with("text/html"));
+        assert!(String::from_utf8(bytes).unwrap().contains("final page"));
+    }
+
+    #[tokio::test]
+    async fn download_rejects_http_error_status() {
+        let base = spawn_test_server(
+            |_path| TestResponse {
+                status: "403 Forbidden",
+                headers: vec!["Content-Type: text/html".to_string()],
+                body: b"<html>paywall</html>".to_vec(),
+                content_length_override: None,
+                no_content_length: false,
+            },
+            1,
+        );
+        let err = download_with_caps(&base).await.expect_err("must fail");
+        assert!(err.contains("HTTP error: 403"), "error was: {}", err);
+    }
+
+    #[tokio::test]
+    async fn download_rejects_oversized_content_length() {
+        let base = spawn_test_server(
+            |_path| TestResponse {
+                status: "200 OK",
+                headers: vec!["Content-Type: application/octet-stream".to_string()],
+                body: Vec::new(),
+                // Server lies with an oversized Content-Length up front.
+                content_length_override: Some(FETCH_MAX_BYTES as u64 + 1),
+                no_content_length: false,
+            },
+            1,
+        );
+        let err = download_with_caps(&base).await.expect_err("must fail");
+        assert!(err.contains("RESPONSE_TOO_LARGE"), "error was: {}", err);
+    }
+
+    #[tokio::test]
+    async fn download_enforces_streamed_size_cap_without_content_length() {
+        // 15 MB + 1 KB streamed with NO content-length header (EOF-delimited),
+        // so only the running body cap can catch it.
+        let oversize_body = vec![b'x'; FETCH_MAX_BYTES + 1024];
+        let base = spawn_test_server(
+            move |_path| TestResponse {
+                status: "200 OK",
+                headers: vec!["Content-Type: application/octet-stream".to_string()],
+                body: oversize_body.clone(),
+                content_length_override: None,
+                no_content_length: true,
+            },
+            1,
+        );
+        let err = download_with_caps(&base).await.expect_err("must fail");
+        assert!(err.contains("RESPONSE_TOO_LARGE"), "error was: {}", err);
+    }
+
+    fn unique_temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "incrementum-test-{}-{}-{}",
+            tag,
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn snapshot_round_trip_digest_and_gzip() {
+        let dir = unique_temp_dir("snapshot");
+        let src_dir = unique_temp_dir("snapshot-src");
+        // Large enough that gzip overhead can't dominate — real pages compress.
+        let paragraph = "<p>The quick brown fox jumps over the lazy dog and keeps running through the meadow.</p>\n";
+        let raw = format!(
+            "<html><body><h1>Hello</h1>{}</body></html>",
+            paragraph.repeat(600)
+        )
+        .into_bytes();
+        let src = src_dir.join("raw.html");
+        std::fs::write(&src, &raw).expect("write raw");
+
+        let result =
+            store_source_snapshot_to_dir(&dir, "doc-abc-123", src.to_str().unwrap()).expect("ok");
+        assert!(result.stored);
+        assert_eq!(result.raw_bytes, Some(raw.len() as u64));
+        assert!(result.gzip_bytes.unwrap() > 0);
+        assert!(result.gzip_bytes.unwrap() < raw.len() as u64);
+
+        let dest = PathBuf::from(result.path.clone().unwrap());
+        assert!(dest.exists(), "snapshot written to {:?}", dest);
+        assert!(dest.to_string_lossy().contains("doc-abc-123.html.gz"));
+
+        // Digest matches sha256 of the raw bytes.
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&raw);
+        assert_eq!(result.sha256.unwrap(), format!("{:x}", hasher.finalize()));
+
+        // Decompress and compare — round-trip integrity.
+        let compressed = std::fs::read(&dest).expect("read snapshot");
+        let mut decoder = flate2::read::GzDecoder::new(&compressed[..]);
+        let mut round_tripped = Vec::new();
+        decoder.read_to_end(&mut round_tripped).expect("gunzip");
+        assert_eq!(round_tripped, raw);
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&src_dir).ok();
+    }
+
+    #[test]
+    fn snapshot_skips_oversize_source() {
+        let dir = unique_temp_dir("snapshot-skip");
+        let src_dir = unique_temp_dir("snapshot-skip-src");
+        let src = src_dir.join("big.html");
+        std::fs::write(&src, vec![b'a'; 5 * 1024 * 1024 + 1]).expect("write big");
+
+        let result =
+            store_source_snapshot_to_dir(&dir, "doc-big", src.to_str().unwrap()).expect("ok");
+        assert!(!result.stored);
+        assert!(result
+            .skipped_reason
+            .unwrap()
+            .contains("exceeds snapshot cap"));
+        assert_eq!(result.raw_bytes, Some(5 * 1024 * 1024 as u64 + 1));
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&src_dir).ok();
+    }
+
+    #[test]
+    fn snapshot_rejects_hostile_document_ids() {
+        let stem = safe_snapshot_stem("../../etc/passwd");
+        assert!(!stem.contains('/'));
+        assert!(!stem.contains(".."));
+        assert!(stem.starts_with("doc-"));
+        // Plain uuid-like ids pass through untouched.
+        assert_eq!(safe_snapshot_stem("01234567-abcd"), "01234567-abcd");
+    }
+
+    #[test]
+    fn cleanup_removes_only_stale_snapshots() {
+        let dir = unique_temp_dir("snapshot-cleanup");
+        let src_dir = unique_temp_dir("snapshot-cleanup-src");
+        let src = src_dir.join("raw.html");
+        std::fs::write(&src, b"<html></html>").expect("write raw");
+
+        let fresh = store_source_snapshot_to_dir(&dir, "fresh-doc", src.to_str().unwrap())
+            .expect("ok")
+            .path
+            .unwrap();
+        let stale = store_source_snapshot_to_dir(&dir, "stale-doc", src.to_str().unwrap())
+            .expect("ok")
+            .path
+            .unwrap();
+
+        // Age the stale snapshot by 200 days.
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(200 * 86_400);
+        let f = std::fs::File::options()
+            .write(true)
+            .open(&stale)
+            .expect("open");
+        f.set_times(std::fs::FileTimes::new().set_modified(old))
+            .expect("set mtime");
+
+        let removed = cleanup_snapshots_in_dir(&dir, chrono::Utc::now().timestamp());
+        assert_eq!(removed, 1);
+        assert!(!PathBuf::from(&stale).exists());
+        assert!(PathBuf::from(&fresh).exists());
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&src_dir).ok();
     }
 }

@@ -1,0 +1,14 @@
+{
+  "title": "The Numbers, In Rows",
+  "minWords": 130,
+  "mustContain": [
+    "Spending by category, 2026",
+    "Operations",
+    "Reading the table",
+    "1,350"
+  ],
+  "mustNotContain": [
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium"
+}

@@ -1,6 +1,28 @@
 import { Dict, en } from "./en";
 
 export const zh: Dict = {
+
+  // Web Article Import dialog pipeline states (overhaul-web-article-import)
+  "webImport.stageFetching": "正在获取页面…",
+  "webImport.stageExtracting": "正在提取文章（Defuddle + Readability）…",
+  "webImport.stageRenderedFallback": "正在渲染页面以重试提取…",
+  "webImport.stageNormalizing": "正在整理文章…",
+  "webImport.pipelineFailed": "文章导入失败",
+  "webImport.importFullPage": "仍然导入整个页面",
+  "webImport.importFullPageDesc": "存储经过安全处理的整个页面，并明确标记为原始回退——不是干净的文章。",
+
+  // Web Article Import typed failures (overhaul-web-article-import)
+  "shareImport.error.invalid_url": "这看起来不是可分享的网页文章链接。",
+  "shareImport.error.network_failed": "无法访问该页面，请检查网络后重试。",
+  "shareImport.error.http_error": "网站对该地址返回了错误。",
+  "shareImport.error.auth_required": "该页面需要登录或订阅，无法在此阅读。",
+  "shareImport.error.empty_content": "页面没有返回可用内容。",
+  "shareImport.error.no_candidates": "未能从该页面中识别出文章内容。",
+  "shareImport.error.low_confidence": "无法可靠提取该页面的文章内容。",
+  "shareImport.error.rendered_unavailable": "该页面需要完整渲染，当前环境暂不支持。",
+  "shareImport.error.rendered_failed": "页面渲染失败，无法提取。",
+  "shareImport.error.sanitization_degenerate": "安全过滤移除了几乎全部内容，未导入该页面。",
+  "shareImport.error.canceled": "导入已取消。",
   ...en,
   "nav.continue": "继续阅读",
   "nav.dashboard": "仪表盘",
@@ -2979,6 +3001,8 @@ export const zh: Dict = {
   "settingsDocs.pdfDocuments": "PDF 文档",
   "settingsDocs.preserveImages": "保留网页导入中的图片",
   "settingsDocs.preserveImagesDesc": "保留导入网页中的图片（如仅需文字可禁用）",
+  "settingsDocs.keepRawSource": "保留原始页面快照",
+  "settingsDocs.keepRawSourceDesc": "为每篇导入文章保存原始 HTML 的压缩副本，以便日后重新提取。快照保留 180 天，不包含在云备份中（恢复后文章保留、快照丢失）；关闭此选项会删除现有快照。",
   "settingsDocs.segmentationDesc": "如何将文档拆分为摘录",
   "settingsDocs.segmentationMethod": "分段方法",
   "settingsDocs.semantic": "语义（AI 驱动）",

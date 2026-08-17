@@ -1,0 +1,13 @@
+{
+  "title": "Reporting That Needs Readers",
+  "minWords": 320,
+  "mustContain": [
+    "Why it matters"
+  ],
+  "mustNotContain": [
+    "Donate today",
+    "Donate now",
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium"
+}

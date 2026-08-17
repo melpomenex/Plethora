@@ -1,0 +1,19 @@
+{
+  "title": "Traditional Desk Covers a Slow-Moving Story",
+  "authors": [
+    "Amara Tradewell"
+  ],
+  "publishedAtContains": "2026-08-01",
+  "siteName": "The Traditional Desk",
+  "minWords": 350,
+  "mustContain": [
+    "The numbers"
+  ],
+  "mustNotContain": [
+    "Sign up for our free newsletter",
+    "We Recommend",
+    "All rights reserved",
+    "Sitemap"
+  ],
+  "confidenceAtLeast": "medium"
+}

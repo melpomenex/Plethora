@@ -217,6 +217,14 @@ interface DocumentSettings {
   autoProcessOnImport: boolean;
   detectDuplicates: boolean;
   webImportPreserveImages: boolean;
+  /**
+   * Keep gzip snapshots of fetched article HTML (source-snapshots/*.html.gz)
+   * for future re-extraction. Default ON. Turning it OFF deletes every
+   * existing snapshot and skips storing new ones; articles themselves are
+   * unaffected. Snapshots live outside the cloud-backup documents folder:
+   * re-extraction works on-device, but restores lose snapshots.
+   */
+  webImportKeepRawSource: boolean;
   pdfSettings: PDFSettings;
   epubSettings: EPUBSettings;
   htmlSettings: HTMLSettings;
@@ -604,6 +612,13 @@ interface FeatureFlags {
   aiSocraticTutor: boolean;
   /** Phase 7: constrained library agent (read-only + proposals) */
   aiAgent: boolean;
+  /**
+   * Selection-interaction controller v2 (OpenSpec
+   * `overhaul-reader-selection-ux`): stability-gated selection UI, anchored
+   * action bar, snapshot-owned action lifecycle. Ships dark; rollback =
+   * disable the flag (old paths remain until the flag is removed).
+   */
+  selectionInteractionV2: boolean;
 }
 
 /**
@@ -717,6 +732,7 @@ export const defaultSettings: Settings = {
     autoProcessOnImport: false,
     detectDuplicates: true,
     webImportPreserveImages: true,
+    webImportKeepRawSource: true,
     pdfSettings: {
       defaultZoom: 1.0,
       twoPageSpread: false,
@@ -924,6 +940,7 @@ export const defaultSettings: Settings = {
     aiExtractWorthiness: true,
     aiSocraticTutor: true,
     aiAgent: true,
+    selectionInteractionV2: false,
   },
   audioReviewMode: {
     enabled: false,

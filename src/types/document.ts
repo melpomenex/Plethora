@@ -62,6 +62,43 @@ export interface Document {
   firstReviewedAt?: string;
 }
 
+/** Provenance recorded for imports through the canonical Web Article Import
+ *  Pipeline (overhaul-web-article-import). Additive: pre-pipeline documents
+ *  simply lack `webArticle`, and older clients restoring a DB that contains
+ *  it ignore the unknown JSON. */
+export interface WebArticleProvenance {
+  originalUrl: string;
+  canonicalUrl?: string;
+  resolvedUrl: string;
+  /** 'defuddle' | 'readability' | 'rendered-defuddle' | 'rendered-readability'
+   *  | 'site:<domain>' | 'raw-fallback' | future engines. */
+  extractor: string;
+  extractionScore: number;
+  extractionConfidence: 'high' | 'medium' | 'low' | string;
+  extractionVersion: number;
+  importedAt: string;
+  renderedFallbackUsed?: boolean;
+  renderFallbackReason?: string;
+  failureReason?: string;
+  sourceSnapshot?: {
+    path: string;
+    sha256: string;
+    rawBytes: number;
+    gzipBytes: number;
+  };
+  /** Bounded per-candidate diagnostics (engine/score/confidence/words/…). */
+  candidates?: Array<{
+    engine: string;
+    score: number;
+    confidence: string;
+    words: number;
+    paragraphs: number;
+    images: number;
+  }>;
+  /** Full pipeline diagnostics (stage timings, fetch info, warnings). */
+  diagnostics?: unknown;
+}
+
 export interface DocumentMetadata {
   author?: string;
   subject?: string;
@@ -78,6 +115,8 @@ export interface DocumentMetadata {
   source?: string;
   url?: string;
   originalUrl?: string;
+  /** Article-pipeline provenance (see WebArticleProvenance). */
+  webArticle?: WebArticleProvenance;
   fetchedAt?: string;
   siteName?: string;
   image?: string;

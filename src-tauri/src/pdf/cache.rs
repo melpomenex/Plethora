@@ -368,7 +368,13 @@ mod tests {
             .unwrap();
         // Still readable under its own (stale) key...
         assert!(cache
-            .get_page("doc-1", "identity", PDF_CANONICAL_SCHEMA_VERSION, "rust-hybrid-v2", 3)
+            .get_page(
+                "doc-1",
+                "identity",
+                PDF_CANONICAL_SCHEMA_VERSION,
+                "rust-hybrid-v2",
+                3
+            )
             .await
             .unwrap()
             .is_some());

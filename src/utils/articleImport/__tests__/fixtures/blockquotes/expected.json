@@ -1,0 +1,14 @@
+{
+  "title": "What They Said, At Length",
+  "minWords": 150,
+  "mustContain": [
+    "The first long quotation",
+    "The second long quotation",
+    "The third quotation",
+    "Context"
+  ],
+  "mustNotContain": [
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium"
+}

@@ -56,6 +56,22 @@ class InstallApkOptions {
   var filePath: String? = null
 }
 
+@InvokeArg
+class CaptureRenderedDomOptions {
+  var url: String? = null
+  var timeoutMs: Int? = null
+}
+
+/**
+ * Result of an offscreen rendered-DOM capture, serialized back to Rust.
+ * Field names must match the Rust `CaptureOutcome` camelCase struct.
+ */
+data class CaptureOutcome(
+  val html: String,
+  val finalUrl: String,
+  val durationMs: Long,
+)
+
 /**
  * One staged file, serialized back to Rust as JSON. Field names must match the
  * Rust `StagedFile` struct (camelCase via serde rename_all = "camelCase"):
@@ -75,6 +91,14 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
     private var pendingUrl: String? = null
     private val pendingBatches = mutableListOf<JSObject>()
     private var isFrontendReady: Boolean = false
+
+    /** Single-flight queue for rendered-DOM captures: one capture WebView at
+     *  a time so concurrent imports never stack multiple WebViews. */
+    private val captureSerialExecutor by lazy {
+      java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "inc-article-capture").apply { isDaemon = true }
+      }
+    }
 
     fun handleSharedUrl(url: String) {
       val view = webView
@@ -471,6 +495,181 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
 
   private fun uniqueDest(importRoot: File, relativePath: String): File {
     return Companion.uniqueDest(importRoot, relativePath)
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Rendered-DOM capture for the article-import fallback (offscreen WebView)
+  // ────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Capture a page's rendered DOM with a bare offscreen WebView.
+   *
+   * This WebView is NOT the Tauri webview and has no bridge/IPC — remote JS
+   * gets zero Incrementum access. Stability detection mirrors the shared
+   * script (stabilityScript.ts): wait for page load, sample
+   * (nodes|textLen|images) every 250 ms via evaluateJavascript, capture after
+   * 750 ms of no change, bounded by a 6 s post-load cap and the overall
+   * timeout. The WebView is removed and destroyed in a guaranteed path on
+   * success, failure, and timeout alike. Cancellation: the frontend aborts
+   * by ignoring the result; the timeout here bounds the WebView's lifetime.
+   */
+  @Command
+  fun captureRenderedDom(invoke: Invoke) {
+    val args = try {
+      invoke.parseArgs(CaptureRenderedDomOptions::class.java)
+    } catch (ex: Exception) {
+      return invoke.reject("UNAVAILABLE: bad arguments: ${ex.message}")
+    }
+    val targetUrl = args.url ?: return invoke.reject("UNAVAILABLE: url is required")
+    val timeoutMs = (args.timeoutMs ?: 20000).coerceIn(1000, 20000)
+
+    captureSerialExecutor.execute {
+      val latch = java.util.concurrent.CountDownLatch(1)
+      val handler = android.os.Handler(android.os.Looper.getMainLooper())
+      val startedAt = android.os.SystemClock.elapsedRealtime()
+
+      handler.post {
+        var webView: android.webkit.WebView? = null
+        var finished = false
+        var settled = false
+        var lastSample: String? = null
+        var stableSince = 0L
+        var loadedAt = 0L
+
+        fun finish(block: () -> Unit) {
+          if (settled) return
+          settled = true
+          handler.removeCallbacksAndMessages(null)
+          try {
+            block()
+          } finally {
+            webView?.let { view ->
+              (view.parent as? android.view.ViewGroup)?.removeView(view)
+              try {
+                view.destroy()
+              } catch (ignored: Exception) {
+              }
+            }
+            latch.countDown()
+          }
+        }
+
+        try {
+          webView = android.webkit.WebView(activity).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.loadsImagesAutomatically = true
+            settings.mediaPlaybackRequiresUserGesture = true
+            layoutParams = android.view.ViewGroup.LayoutParams(1, 1)
+            alpha = 0f
+          }
+          (activity.window.decorView as? android.view.ViewGroup)?.addView(webView)
+            ?: run {
+              finish { invoke.reject("UNAVAILABLE: no decor view to attach capture WebView") }
+              return@post
+            }
+
+          val sampler = object : Runnable {
+            override fun run() {
+              if (settled) return
+              val view = webView ?: return
+              val now = android.os.SystemClock.elapsedRealtime()
+              if (now - startedAt >= timeoutMs) {
+                finish { invoke.reject("TIMEOUT: capture budget exceeded") }
+                return
+              }
+              if (loadedAt > 0L && now - loadedAt > 6000L) {
+                // Stabilization cap: proceed with the DOM as it stands.
+                captureNow(view)
+                return
+              }
+              view.evaluateJavascript(
+                "(function(){try{return document.getElementsByTagName('*').length+'|'+(document.body?(document.body.innerText||'').length:0)+'|'+document.images.length}catch(e){return 'err'}})()"
+              ) { value ->
+                if (settled) return@evaluateJavascript
+                if (value == lastSample) {
+                  if (stableSince != 0L && android.os.SystemClock.elapsedRealtime() - stableSince >= 750L) {
+                    captureNow(view)
+                    return@evaluateJavascript
+                  }
+                } else {
+                  lastSample = value
+                  stableSince = android.os.SystemClock.elapsedRealtime()
+                }
+                handler.postDelayed(this, 250L)
+              }
+            }
+
+            fun captureNow(view: android.webkit.WebView) {
+              view.evaluateJavascript(
+                "(function(){try{return location.href+'\\n'+'<!doctype html>'+document.documentElement.outerHTML}catch(e){return ''}})()"
+              ) { encoded ->
+                val payload = unquoteJsonString(encoded)
+                if (payload.isNullOrBlank()) {
+                  finish { invoke.reject("CAPTURE_FAILED: empty DOM capture") }
+                } else {
+                  val newline = payload.indexOf('\n')
+                  val finalUrl = if (newline > 0) payload.substring(0, newline) else targetUrl
+                  val html = if (newline > 0) payload.substring(newline + 1) else payload
+                  val duration = android.os.SystemClock.elapsedRealtime() - startedAt
+                  finish {
+                    val res = JSObject()
+                    res.put("html", html)
+                    res.put("finalUrl", finalUrl)
+                    res.put("durationMs", duration)
+                    invoke.resolve(res)
+                  }
+                }
+              }
+            }
+          }
+
+          webView.webViewClient = object : android.webkit.WebViewClient() {
+            override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+              if (finished || settled) return
+              finished = true
+              loadedAt = android.os.SystemClock.elapsedRealtime()
+              handler.postDelayed(sampler, 250L)
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onReceivedError(
+              view: android.webkit.WebView?,
+              errorCode: Int,
+              description: String?,
+              failingUrl: String?
+            ) {
+              if (failingUrl == targetUrl || failingUrl == view?.url) {
+                finish { invoke.reject("CAPTURE_FAILED: $description") }
+              }
+            }
+          }
+
+          webView.loadUrl(targetUrl)
+
+          // Overall timeout watchdog.
+          handler.postDelayed({
+            finish { invoke.reject("TIMEOUT: capture budget exceeded") }
+          }, timeoutMs.toLong())
+        } catch (ex: Exception) {
+          finish { invoke.reject("CAPTURE_FAILED: ${ex.message}") }
+        }
+      }
+
+      // The executor thread waits so captures stay strictly single-flight.
+      latch.await(timeoutMs + 2000L, java.util.concurrent.TimeUnit.MILLISECONDS)
+    }
+  }
+
+  /** evaluateJavascript returns a JSON string literal (or null); decode it. */
+  private fun unquoteJsonString(encoded: String?): String? {
+    if (encoded == null) return null
+    return try {
+      val token = org.json.JSONTokener(encoded).nextValue()
+      token?.toString()
+    } catch (ex: Exception) {
+      encoded
+    }
   }
 
   @Command

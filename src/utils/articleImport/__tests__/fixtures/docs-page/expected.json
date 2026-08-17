@@ -1,0 +1,14 @@
+{
+  "title": "Configuration",
+  "minWords": 220,
+  "mustContain": [
+    "Advanced",
+    "Sets the processing mode",
+    "[general]"
+  ],
+  "mustNotContain": [
+    "FAQ",
+    "© 2026 ToolDocs"
+  ],
+  "confidenceAtLeast": "medium"
+}

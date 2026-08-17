@@ -426,6 +426,13 @@ interface PDFViewerProps {
   /** While true the floating selection popup stays hidden — the host's context
    *  menu supersedes it, and the popup returns when this flips back false. */
   selectionPopupSuppressed?: boolean;
+  /**
+   * Selection-interaction invalidation port (V2, overhaul-reader-selection-ux):
+   * fired when reflow relayout (typography slider changes), reflow
+   * regeneration / OCR page replacement, or mobile mode switches invalidate
+   * selection geometry. The host forwards it to the selection controller.
+   */
+  onSelectionContextInvalidated?: (reason: string) => void;
 }
 
 type PdfSearchMatch = {
@@ -487,6 +494,7 @@ export function PDFViewer({
   onVimRuntimeChange,
   onContextMenu,
   selectionPopupSuppressed = false,
+  onSelectionContextInvalidated,
 }: PDFViewerProps) {
   const { t } = useI18n();
 
@@ -502,6 +510,15 @@ export function PDFViewer({
   const [pdfSourceIdentity, setPdfSourceIdentity] = useState<{ identity: string; fingerprint: string } | null>(null);
   const [reflowDocument, setReflowDocument] = useState<PdfReflowDocument | null>(null);
   const [mobilePdfMode, setMobilePdfMode] = useState<"fixed" | "reflow">("fixed");
+  // V2: fixed ↔ reflow switches invalidate selection geometry (the reflowed
+  // representation and the fixed text layer are different DOM).
+  const lastMobilePdfModeRef = useRef<"fixed" | "reflow">("fixed");
+  useEffect(() => {
+    if (lastMobilePdfModeRef.current !== mobilePdfMode) {
+      lastMobilePdfModeRef.current = mobilePdfMode;
+      onSelectionContextInvalidated?.("view-mode-changed");
+    }
+  }, [mobilePdfMode, onSelectionContextInvalidated]);
   const reflowCacheRef = useRef(createBrowserPdfReflowCache());
   const reflowSchedulerRef = useRef<PdfReflowScheduler | null>(null);
   // Canonical (v2) pipeline: activates on every form factor when both flags
@@ -532,7 +549,12 @@ export function PDFViewer({
       savePdfMobilePreferences(documentId, next);
       return next;
     });
-  }, [documentId]);
+    // V2: reflow typography changes (font size/line height/margins/family)
+    // re-flow the word-span DOM and invalidate selection geometry.
+    if (Object.keys(updates).some((key) => key.startsWith("reflow"))) {
+      onSelectionContextInvalidated?.("reflow-relayout");
+    }
+  }, [documentId, onSelectionContextInvalidated]);
   const [outline, setOutline] = useState<any[]>([]);
   const [flatOutline, setFlatOutline] = useState<{ title: string; dest: any; pageNumber: number }[]>([]);
   const [showTOC, setShowTOC] = useState(false);
@@ -1811,8 +1833,12 @@ export function PDFViewer({
         engineVersion: PDF_CANONICAL_ENGINE_VERSION,
       },
     });
-    if (result) setCanonicalPages((prev) => new Map(prev).set(page.pageNumber, result));
-  }, [documentId, pdf, pdfSourceIdentity]);
+    if (result) {
+      setCanonicalPages((prev) => new Map(prev).set(page.pageNumber, result));
+      // V2: OCR replaces the page's word-span DOM under any live selection.
+      onSelectionContextInvalidated?.("ocr-page-replaced");
+    }
+  }, [documentId, pdf, pdfSourceIdentity, onSelectionContextInvalidated]);
 
   const handleCanonicalGraphicalFallback = useCallback(async (page: PdfCanonicalPage) => {
     if (!pdf || !pdfSourceIdentity) return;

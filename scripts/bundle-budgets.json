@@ -1,5 +1,5 @@
 {
-  "_comment": "Post-optimization actuals + headroom. Updated for add-ondevice-ai-learning-system (Phases 0-7: task router, providers, schemas, diagnostics, learn-this, occlusion assist, semantic memory / RAG, active recall, answer assessment, knowledge graph / prerequisites, Socratic tutor, autonomous learning agent). Entry actual ~2674 KB.",
+  "_comment": "Post-optimization actuals + headroom. Updated for add-ondevice-ai-learning-system (entry ~2674 KB). overhaul-web-article-import: defuddle + @mozilla/readability ship as the article-vendor chunk (355 KB min / 104 KB gzip) loaded only via cached dynamic import() on the first URL import \u2014 app startup never executes them (guarded by scripts/__tests__/article-import-startup-imports.test.mjs), so the entry budget is unchanged; entry measured 2600 KB after integration.",
   "entryChunkBytes": 3000000,
   "pdfWorkerAssetCount": 1,
   "totalDistBytes": 30000000

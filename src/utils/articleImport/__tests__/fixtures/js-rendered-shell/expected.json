@@ -1,0 +1,18 @@
+{
+  "title": "Hydrated Story Emerges at Runtime",
+  "authors": [
+    "Hydra Tion"
+  ],
+  "publishedAtContains": "2026-08-10",
+  "siteName": "Reactive Daily",
+  "minWords": 400,
+  "mustContain": [
+    "How it renders"
+  ],
+  "mustNotContain": [
+    "Loading Reactive Daily"
+  ],
+  "expectedExtractorPrefix": "rendered-",
+  "renderedFallbackRequired": true,
+  "confidenceAtLeast": "medium"
+}

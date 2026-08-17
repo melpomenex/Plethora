@@ -1,0 +1,19 @@
+{
+  "title": "A Photo Essay in Three Frames",
+  "minWords": 150,
+  "mustContain": [
+    "Frame one",
+    "Frame two",
+    "Frame three"
+  ],
+  "mustNotContain": [
+    "All rights reserved"
+  ],
+  "minImages": 3,
+  "expectedFigureCaptions": [
+    "the harbor at first light",
+    "the market at noon",
+    "the last ferry"
+  ],
+  "confidenceAtLeast": "medium"
+}

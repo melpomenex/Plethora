@@ -1,0 +1,6 @@
+{
+  "expectsFailure": "low_confidence",
+  "mustNotContain": [
+    "Loading Reactive Daily"
+  ]
+}

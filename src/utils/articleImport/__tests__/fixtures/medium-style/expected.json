@@ -1,0 +1,24 @@
+{
+  "title": "What I Learned Rebuilding Everything",
+  "authors": [
+    "Med Wellwrite"
+  ],
+  "publishedAtContains": "2026-06-30",
+  "siteName": "Medium",
+  "minWords": 400,
+  "mustContain": [
+    "Lesson one",
+    "Lesson two"
+  ],
+  "mustNotContain": [
+    "Become a member",
+    "More from Medium",
+    "8 min read",
+    "Clap"
+  ],
+  "expectedFigureCaptions": [
+    "The first diagram from the rebuild."
+  ],
+  "minImages": 1,
+  "confidenceAtLeast": "medium"
+}

@@ -1,0 +1,25 @@
+{
+  "title": "Pictures That Arrive Late",
+  "minWords": 200,
+  "mustContain": [
+    "Why sites do this"
+  ],
+  "mustNotContain": [
+    "All rights reserved"
+  ],
+  "mustContainImageUrls": [
+    "https://cdn.lazy.example.com/media/cover.jpg",
+    "https://cdn.lazy.example.com/media/inline.jpg",
+    "https://cdn.lazy.example.com/media/gallery.jpg"
+  ],
+  "mustNotContainImageUrls": [
+    "placeholder.gif",
+    "data:image/gif"
+  ],
+  "expectedFigureCaptions": [
+    "loaded lazily",
+    "data-lazy-src attribute",
+    "behind data-original"
+  ],
+  "confidenceAtLeast": "medium"
+}

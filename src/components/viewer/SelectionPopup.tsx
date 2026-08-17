@@ -12,6 +12,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { ChatDots, Copy, Highlighter } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
+import { placeAnchoredBar } from "./selectionInteraction/geometry";
 
 export type HighlightColor = "yellow" | "green" | "blue" | "pink" | "purple";
 
@@ -97,7 +98,9 @@ export async function copySelectionTextToClipboard(text: string): Promise<boolea
 
 /**
  * Calculate the optimal position for the popup.
- * Positions the popup centered above the selection.
+ * Delegates to the shared anchored-placement helper (overhaul-reader-selection-
+ * ux task 5.2): above the selection → below it → nearest safe region, always
+ * clamped inside the viewport. Behavioral no-op vs the previous inline math.
  */
 function calculatePopupPosition(
   selectionRect: DOMRect | null,
@@ -108,28 +111,17 @@ function calculatePopupPosition(
     return { top: 0, left: 0 };
   }
 
-  const gap = 8; // Gap between selection and popup
-
-  // Default: position above selection, centered
-  let top = selectionRect.top - popupHeight - gap;
-  let left = selectionRect.left + (selectionRect.width - popupWidth) / 2;
-
-  // If popup would go above viewport, position below selection
-  if (top < 0) {
-    top = selectionRect.bottom + gap;
-  }
-
-  // Ensure popup stays within viewport horizontally
-  const viewportWidth = window.innerWidth;
-  const viewportPadding = 8;
-
-  if (left < viewportPadding) {
-    left = viewportPadding;
-  } else if (left + popupWidth > viewportWidth - viewportPadding) {
-    left = viewportWidth - popupWidth - viewportPadding;
-  }
-
-  return { top, left };
+  const placement = placeAnchoredBar(
+    {
+      left: selectionRect.left,
+      top: selectionRect.top,
+      width: selectionRect.width,
+      height: selectionRect.height,
+    },
+    { width: popupWidth, height: popupHeight },
+    { width: window.innerWidth, height: window.innerHeight },
+  );
+  return { top: placement.top, left: placement.left };
 }
 
 /**

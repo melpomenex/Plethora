@@ -1,0 +1,14 @@
+{
+  "title": "An Article Behind a Consent Modal",
+  "minWords": 330,
+  "mustContain": [
+    "Further reading notes"
+  ],
+  "mustNotContain": [
+    "Your privacy choices",
+    "Accept all",
+    "Privacy Manager",
+    "cookies"
+  ],
+  "confidenceAtLeast": "medium"
+}

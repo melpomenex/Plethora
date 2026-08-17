@@ -150,6 +150,13 @@ pub struct DocumentMetadata {
     pub source: Option<String>,
     pub fetched_at: Option<DateTime<Utc>>,
     pub site_name: Option<String>,
+    /// Provenance for imports through the canonical Web Article Import
+    /// Pipeline (engine, score, confidence, URLs, snapshot reference,
+    /// bounded candidate diagnostics). Kept as raw JSON: the pipeline owns
+    /// the shape in TypeScript; older clients restoring a DB containing it
+    /// ignore the unknown field, and older records simply lack it.
+    #[serde(default)]
+    pub web_article: Option<serde_json::Value>,
     pub browser_import_mode: Option<String>,
     pub article_html: Option<String>,
     pub extracted_images: Option<Vec<DocumentImageAsset>>,

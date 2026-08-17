@@ -11,6 +11,7 @@ from the frontend.
 - `allow-backup-db-to-downloads`
 - `allow-register-share-listener`
 - `allow-get-pending-shares`
+- `allow-capture-rendered-dom`
 
 ## Permission Table
 
@@ -43,6 +44,32 @@ Enables the backup_db_to_downloads command without any pre-configured scope.
 <td>
 
 Denies the backup_db_to_downloads command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-folder-import:allow-capture-rendered-dom`
+
+</td>
+<td>
+
+Enables the capture_rendered_dom command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`incrementum-folder-import:deny-capture-rendered-dom`
+
+</td>
+<td>
+
+Denies the capture_rendered_dom command without any pre-configured scope.
 
 </td>
 </tr>

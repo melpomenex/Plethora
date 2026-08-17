@@ -2780,6 +2780,8 @@ export const ja: Dict = {
   "settingsDocs.preserveImages": "Web インポートで画像を保持",
   "settingsDocs.preserveImagesDesc":
     "インポートした Web ページの画像を保持（テキストのみ読書の場合は無効）",
+  "settingsDocs.keepRawSource": "元ページのスナップショットを保持",
+  "settingsDocs.keepRawSourceDesc": "インポートした記事の元 HTML を圧縮コピーとして保存し、後で再抽出できるようにします。スナップショットは 180 日保持され、クラウドバックアップには含まれません（復元時は記事は残りスナップショットは失われます）。オフにすると既存のスナップショットを削除します。",
   "settingsDocs.segmentationDesc": "ドキュメントの分割方法",
   "settingsDocs.segmentationMethod": "セグメンテーション方法",
   "settingsDocs.semantic": "セマンティック（AI 搭載）",

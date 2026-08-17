@@ -1,0 +1,34 @@
+{
+  "title": "The Trumps' Crypto Project Just Got One Step Closer to Becoming a Bank",
+  "authors": [
+    "Sophie Hurwitz"
+  ],
+  "publishedAtContains": "2026-08-15",
+  "siteName": "Mother Jones",
+  "minWords": 500,
+  "mustContain": [
+    "What the filing says",
+    "The history here"
+  ],
+  "mustNotContain": [
+    "Skip to main content",
+    "Share on Facebook",
+    "Donate",
+    "Subscribe",
+    "Related",
+    "We Recommend",
+    "Latest",
+    "Sign up for our free newsletter",
+    "Get our award-winning magazine",
+    "Privacy Manager",
+    "We see you're using an ad blocker",
+    "One quick request",
+    "All rights reserved"
+  ],
+  "expectedFigureCaptions": [
+    "Illustration: Mother Jones"
+  ],
+  "minImages": 1,
+  "noSiteSpecific": true,
+  "confidenceAtLeast": "medium"
+}

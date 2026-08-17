@@ -55,9 +55,7 @@ import {
 } from "../../lib/ai/passageAI";
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
 import { TutorSheet } from "../tutor/TutorSheet";
-import { openLibrarySource } from "../../utils/openLibrarySource";
-
-export type SelectionAiAction = "explain" | "summarize" | "simplify" | "keyTerms" | "ask";
+import { openLibrarySource } from "../../utils/openLibrarySource";export type SelectionAiAction = "explain" | "summarize" | "simplify" | "keyTerms" | "ask";
 
 /** Document context for the "Learn this" proposal (task 2.3). */
 export interface LearnThisContext {
@@ -91,6 +89,12 @@ export interface SelectionActionsSheetProps {
   onCreateExtractFromResult?: (text: string) => void;
   /** Document context for the "Learn this" action (task 2.3). */
   learnThis?: LearnThisContext;
+  /**
+   * Operation identity from the selection controller (V2): completions are
+   * reported through `onSettled` so the controller can reject stale ones.
+   */
+  operationId?: string;
+  onSettled?: (operationId: string, outcome: "success" | "failure") => void;
 }
 
 const PREVIEW_CHARS = 180;
@@ -188,6 +192,8 @@ export function SelectionActionsSheet({
   onCreateExtract,
   onCreateExtractFromResult,
   learnThis,
+  operationId,
+  onSettled,
 }: SelectionActionsSheetProps) {
   const { t } = useI18n();
   const ai = useAiAvailability("prompt");
@@ -305,14 +311,16 @@ export function SelectionActionsSheet({
           setResult(res);
           setOutput(res.text);
           setRunning(false);
+          if (operationId) onSettled?.(operationId, "success");
         })
         .catch((err) => {
           if (controller.signal.aborted) return;
           setError(toOnDeviceAiError(err).message || String(err));
           setRunning(false);
+          if (operationId) onSettled?.(operationId, "failure");
         });
     },
-    [question, sourcePassage]
+    [question, sourcePassage, operationId, onSettled],
   );
 
   const startPrerequisites = useCallback(() => {
@@ -718,7 +726,17 @@ export function SelectionActionsSheet({
         )}
 
         {mode === "result" && (
-          <div className="px-4 pb-4 space-y-3">
+          <div className="px-4 pb-4 space-y-3" aria-busy={running}>
+            {/* Polite announcements: loading → success/failure (a11y task 3.6). */}
+            <div aria-live="polite" className="sr-only">
+              {running
+                ? t("selectionBar.loadingAnnouncement")
+                : error
+                  ? t("selectionBar.errorAnnouncement")
+                  : result
+                    ? t("selectionBar.resultAnnouncement")
+                    : ""}
+            </div>
             <div className="flex items-center gap-2">
               <button
                 className="p-1 -ml-1 text-muted-foreground"

@@ -1,0 +1,19 @@
+{
+  "url": "https://en.wikipedia.org/wiki/Incremental_reading",
+  "title": "Incremental reading",
+  "siteName": "Wikipedia",
+  "minWords": 350,
+  "mustContain": [
+    "History",
+    "Method",
+    "Example scheduling parameters"
+  ],
+  "mustNotContain": [
+    "Navigation box",
+    "Categories:",
+    "About Wikipedia",
+    "Contact",
+    "Reference one"
+  ],
+  "confidenceAtLeast": "medium"
+}

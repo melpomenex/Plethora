@@ -8,11 +8,155 @@ import { openKindleImportDialog } from "./kindleImportDialogStore";
 import { useSettingsStore } from "./settingsStore";
 import { useCollectionStore } from "./collectionStore";
 import { importFromUrl as importFromUrlUtil, importFromArxiv as importFromArxivUtil } from "../utils/documentImport";
+import { importArticle } from "../utils/articleImport/importPipeline";
+import type { ArticleImportOutcome } from "../utils/articleImport/importPipeline";
+import { importRawFallbackPage } from "../utils/articleImport/rawFallback";
+import { ArticleImportError } from "../utils/articleImport/errors";
+import { normalizeArticleUrl } from "../utils/articleImport/urlNormalizer";
+import { EXTRACTOR_VERSION, SNAPSHOT_MAX_AGE_DAYS } from "../utils/articleImport/extractor-config";
+import type { WebArticleProvenance } from "../types/document";
 import { resolveImportCategory } from "../utils/importCategory";
 import { listen, isTauri, isNativeMobile } from "../lib/tauri";
 import { useToastStore, ToastType } from "../components/common/Toast";
 import { emitFeedback } from "../lib/feedback";
 import { enrichAudiobookDocument, isAudiobookFile } from "../api/audiobooks";
+
+// ──────────────────────────────────────────────────────────────────────────
+// Web Article Import Pipeline support (overhaul-web-article-import)
+// ──────────────────────────────────────────────────────────────────────────
+
+/** In-flight URL imports keyed by normalized URL so rapid re-shares coalesce
+ *  instead of racing to create duplicate documents. */
+const inflightUrlImports = new Map<string, Promise<Document>>();
+
+/** One snapshot-retention sweep per session (180-day cap). */
+let snapshotRetentionSwept = false;
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "web";
+  }
+}
+
+/** True when the URL points at a direct file (legacy non-article path). */
+function isDirectFileUrl(url: string): boolean {
+  try {
+    const path = new URL(url).pathname;
+    return /\.(pdf|epub|md|markdown|txt|html?)$/i.test(path);
+  } catch {
+    return false;
+  }
+}
+
+/** Persist a pipeline (or raw-fallback) article outcome as an Incrementum
+ *  document: create → snapshot → single web-article UPDATE (content +
+ *  metadata + canonical source_url + cover) → tags/category/priority. */
+async function persistWebArticleOutcome(
+  outcome: ArticleImportOutcome,
+  options: { extraTags?: string[]; rawFallback?: boolean } = {}
+): Promise<Document> {
+  const { article, diagnostics } = outcome;
+  const hostname = hostnameOf(outcome.canonicalUrl);
+  const now = new Date().toISOString();
+
+  const provenance: WebArticleProvenance = {
+    originalUrl: diagnostics.originalUrl,
+    canonicalUrl: outcome.canonicalUrl,
+    resolvedUrl: outcome.resolvedUrl,
+    extractor: options.rawFallback
+      ? "raw-fallback"
+      : (diagnostics.selected?.engine ?? "unknown"),
+    extractionScore: options.rawFallback ? 0 : (diagnostics.selected?.score ?? 0),
+    extractionConfidence: options.rawFallback ? "low" : (diagnostics.selected?.confidence ?? "low"),
+    extractionVersion: EXTRACTOR_VERSION,
+    importedAt: now,
+    renderedFallbackUsed: diagnostics.renderedFallbackUsed,
+    renderFallbackReason: diagnostics.renderedFallbackReason,
+    failureReason: diagnostics.failureReason,
+    candidates: diagnostics.candidates,
+    diagnostics: {
+      originalUrl: diagnostics.originalUrl,
+      canonicalUrl: diagnostics.canonicalUrl,
+      resolvedUrl: diagnostics.resolvedUrl,
+      fetch: diagnostics.fetch,
+      candidates: diagnostics.candidates,
+      selected: diagnostics.selected,
+      renderedFallbackUsed: diagnostics.renderedFallbackUsed,
+      renderedFallbackReason: diagnostics.renderedFallbackReason,
+      normalizationWarnings: diagnostics.normalizationWarnings,
+      sanitization: diagnostics.sanitization,
+      finalTextChars: diagnostics.finalTextChars,
+      finalImageCount: diagnostics.finalImageCount,
+      timings: diagnostics.timings,
+      failureReason: diagnostics.failureReason,
+    },
+  };
+
+  const collectionId = useCollectionStore.getState().activeCollectionId;
+  const doc = await documentsApi.createDocument(
+    article.title || `Web Content - ${hostname}`,
+    outcome.canonicalUrl,
+    "html",
+    collectionId
+  );
+
+  // Raw-source snapshot (retention setting; skip silently off-platform).
+  const keepRaw = useSettingsStore.getState().settings.documents.webImportKeepRawSource;
+  if (keepRaw && outcome.rawFilePath) {
+    try {
+      const snapshot = await documentsApi.storeSourceSnapshot(doc.id, outcome.rawFilePath);
+      if (snapshot?.stored && snapshot.path && snapshot.sha256) {
+        provenance.sourceSnapshot = {
+          path: snapshot.path,
+          sha256: snapshot.sha256,
+          rawBytes: snapshot.rawBytes ?? 0,
+          gzipBytes: snapshot.gzipBytes ?? 0,
+        };
+      } else if (snapshot?.skippedReason) {
+        diagnostics.normalizationWarnings.push(`snapshot skipped: ${snapshot.skippedReason}`);
+      }
+    } catch (e) {
+      console.warn("[documentStore] source snapshot failed (non-fatal)", e);
+    }
+  }
+
+  const metadata = {
+    source: diagnostics.originalUrl,
+    fetchedAt: now,
+    language: article.language ?? "en",
+    author: article.byline,
+    siteName: article.siteName ?? hostname,
+    image: article.heroImage,
+    fetchMethod: "direct" as const,
+    wordCount: article.stats.words,
+    readingTime: Math.ceil(article.stats.words / 250),
+    webArticle: provenance,
+  };
+
+  const updated = await documentsApi.updateWebArticle(
+    doc.id,
+    article.contentHtml,
+    metadata,
+    outcome.canonicalUrl,
+    article.heroImage
+  );
+
+  const tags = Array.from(
+    new Set(["web-import", ...(hostname && hostname !== "web" ? [hostname] : []), ...(options.extraTags ?? [])])
+  );
+  const finalDoc = await documentsApi.updateDocument(updated.id, {
+    ...updated,
+    tags,
+    category: "Web Import",
+    prioritySlider: 50,
+    priorityScore: 5,
+  } as Document);
+
+  return finalDoc;
+}
+
 
 /**
  * Apply the user's default-category setting to a freshly imported document
@@ -162,7 +306,25 @@ interface DocumentState {
   importGenericFile: (filePath: string) => Promise<Document>;
   importGenericFiles: (filePaths: string[]) => Promise<Document[]>;
   importFromFolder: () => Promise<Document[]>;
-  importFromUrl: (url: string) => Promise<Document>;
+  importFromUrl: (
+    url: string,
+    options?: {
+      /** Abort the pipeline (dialog cancel / superseded share). */
+      signal?: AbortSignal;
+      /** Pipeline progress events for UI states. */
+      onProgress?: (progress: { stage: string; detail?: string }) => void;
+    }
+  ) => Promise<Document>;
+  /**
+   * "Import full page anyway" escape hatch (dialog): stores the sanitized
+   * full page as extractor `raw-fallback` with a visible inc-raw-notice.
+   */
+  importRawPageFromUrl: (
+    url: string,
+    options?: { signal?: AbortSignal; extraTags?: string[] }
+  ) => Promise<Document>;
+  /** Delete every stored raw-source snapshot (retention setting off). */
+  deleteAllSourceSnapshots: () => Promise<number>;
   importFromArxiv: (arxivIdOrUrl: string, format?: 'pdf' | 'html') => Promise<Document>;
   openFilePickerAndImport: () => Promise<Document[]>;
   segmentDocument: (documentId: string, fileType?: string) => Promise<number>;
@@ -778,70 +940,204 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }
   },
 
-  importFromUrl: async (url) => {
+  importFromUrl: async (url, options) => {
     set({ isImporting: true, error: null, importProgress: { current: 0, total: 1, fileName: `Fetching ${url}...` } });
 
-    try {
-      // Use existing utility to fetch and create document data
-      const docData = await importFromUrlUtil(url, { preserveImages: true });
-
-      const collectionId = useCollectionStore.getState().activeCollectionId;
-      const doc = await documentsApi.createDocument(
-        docData.title,
-        docData.filePath,
-        docData.fileType,
-        collectionId
-      );
-
-      // Prepare full update with all document data including FSRS fields
-      const fullUpdate: Partial<Document> = {
-        content: docData.content,
-        tags: docData.tags,
-        category: docData.category,
-        metadata: docData.metadata,
-        priorityRating: docData.priorityRating,
-        prioritySlider: docData.prioritySlider,
-        priorityScore: docData.priorityScore,
-        // FSRS fields - new documents start fresh
-        nextReadingDate: docData.nextReadingDate,
-        stability: docData.stability,
-        difficulty: docData.difficulty,
-        reps: docData.reps,
-        totalTimeSpent: docData.totalTimeSpent,
-      };
-
-      // Persist content separately for Tauri (update_document doesn't store content)
-      if (docData.content && docData.content.trim().length > 0) {
-        try {
-          const updatedContentDoc = await documentsApi.updateDocumentContent(doc.id, docData.content);
-          Object.assign(doc, updatedContentDoc);
-        } catch (contentError) {
-          console.warn("[DocumentStore] Failed to persist document content:", contentError);
-        }
-      }
-
+    // Direct-file URLs (pdf/epub/md/txt/html files) keep the legacy
+    // non-article path; everything else runs the Web Article Import Pipeline.
+    if (isDirectFileUrl(url)) {
       try {
-        const updatedDoc = await documentsApi.updateDocument(doc.id, fullUpdate as Document);
-        Object.assign(doc, updatedDoc);
-      } catch (updateError) {
-        console.warn('[DocumentStore] Failed to update document fully:', updateError);
+        const docData = await importFromUrlUtil(url, { preserveImages: true });
+
+        const collectionId = useCollectionStore.getState().activeCollectionId;
+        const doc = await documentsApi.createDocument(
+          docData.title,
+          docData.filePath,
+          docData.fileType,
+          collectionId
+        );
+
+        const fullUpdate: Partial<Document> = {
+          content: docData.content,
+          tags: docData.tags,
+          category: docData.category,
+          metadata: docData.metadata,
+          priorityRating: docData.priorityRating,
+          prioritySlider: docData.prioritySlider,
+          priorityScore: docData.priorityScore,
+          nextReadingDate: docData.nextReadingDate,
+          stability: docData.stability,
+          difficulty: docData.difficulty,
+          reps: docData.reps,
+          totalTimeSpent: docData.totalTimeSpent,
+        };
+
+        if (docData.content && docData.content.trim().length > 0) {
+          try {
+            const updatedContentDoc = await documentsApi.updateDocumentContent(doc.id, docData.content);
+            Object.assign(doc, updatedContentDoc);
+          } catch (contentError) {
+            console.warn("[DocumentStore] Failed to persist document content:", contentError);
+          }
+        }
+
+        try {
+          const updatedDoc = await documentsApi.updateDocument(doc.id, fullUpdate as Document);
+          Object.assign(doc, updatedDoc);
+        } catch (updateError) {
+          console.warn('[DocumentStore] Failed to update document fully:', updateError);
+        }
+
+        set((state) => ({
+          documents: [...state.documents, doc],
+          isImporting: false,
+          importProgress: { current: 1, total: 1, fileName: docData.title }
+        }));
+
+        return doc;
+      } catch (error) {
+        console.error('[DocumentStore] Direct-file import failed:', error);
+        set({
+          error: error instanceof Error ? error.message : 'Failed to import from URL',
+          isImporting: false,
+          importProgress: { current: 0, total: 0 }
+        });
+        throw error;
       }
+    }
+
+    // ── Article pipeline path ────────────────────────────────────────────
+    const normalized = normalizeArticleUrl(url);
+    const dedupeKey = normalized.valid ? normalized.normalized : url;
+
+    // Coalesce rapid re-shares of the same URL into one import.
+    const inflight = inflightUrlImports.get(dedupeKey);
+    if (inflight) {
+      return inflight;
+    }
+
+    // Canonical-URL dedupe: surface the existing document instead of a dupe.
+    const surfaceExisting = async (): Promise<Document | null> => {
+      try {
+        const existingId = await documentsApi.findDocumentIdBySourceUrl(dedupeKey);
+        if (existingId) {
+          const existing = await documentsApi.getDocument(existingId);
+          if (existing) return existing;
+        }
+      } catch (e) {
+        console.warn("[DocumentStore] dedupe lookup failed (non-fatal)", e);
+      }
+      return null;
+    };
+
+    // Register the in-flight promise BEFORE any await so a rapid re-share
+    // coalesces even while the pre-create dedupe lookup is still running.
+    const promise = (async (): Promise<Document> => {
+      const preExisting = await surfaceExisting();
+      if (preExisting) {
+        set({ isImporting: false, importProgress: { current: 1, total: 1, fileName: preExisting.title } });
+        return preExisting;
+      }
+
+      // Session-lazy snapshot retention sweep (180 days).
+      if (!snapshotRetentionSwept && isTauri()) {
+        snapshotRetentionSwept = true;
+        void documentsApi
+          .cleanupSourceSnapshots(SNAPSHOT_MAX_AGE_DAYS)
+          .catch((e) => console.warn("[documentStore] snapshot retention sweep failed", e));
+      }
+
+      set({ importProgress: { current: 0, total: 1, fileName: `Extracting article from ${hostnameOf(url)}...` } });
+      const outcome = await importArticle(url, {
+        signal: options?.signal,
+        onProgress: options?.onProgress,
+      });
+
+      // Post-fetch dedupe: the canonical URL is authoritative once known.
+      try {
+        const canonicalId = await documentsApi.findDocumentIdBySourceUrl(outcome.canonicalUrl);
+        if (canonicalId) {
+          const existing = await documentsApi.getDocument(canonicalId);
+          if (existing) return existing;
+        }
+      } catch (e) {
+        console.warn("[DocumentStore] canonical dedupe lookup failed (non-fatal)", e);
+      }
+
+      const doc = await persistWebArticleOutcome(outcome);
 
       set((state) => ({
         documents: [...state.documents, doc],
-        isImporting: false,
-        importProgress: { current: 1, total: 1, fileName: docData.title }
+        importProgress: { current: 1, total: 1, fileName: doc.title }
       }));
-
       return doc;
+    })();
+    inflightUrlImports.set(dedupeKey, promise);
+
+    try {
+      return await promise;
     } catch (error) {
-      console.error('[DocumentStore] Import failed:', error);
+      console.error('[DocumentStore] Article import failed:', error);
       set({
-        error: error instanceof Error ? error.message : 'Failed to import from URL',
+        error:
+          error instanceof ArticleImportError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : 'Failed to import from URL',
         isImporting: false,
         importProgress: { current: 0, total: 0 }
       });
       throw error;
+    } finally {
+      inflightUrlImports.delete(dedupeKey);
+      set({ isImporting: false });
+    }
+  },
+
+  importRawPageFromUrl: async (url, options) => {
+    // The explicitly-labeled "Import full page anyway" escape hatch: store
+    // the sanitized full page marked extractor `raw-fallback` with a visible
+    // in-document notice. Never auto-invoked by the pipeline.
+    set({ isImporting: true, error: null, importProgress: { current: 0, total: 1, fileName: `Fetching ${url}...` } });
+    try {
+      const outcome = await importRawFallbackPage(url, { signal: options?.signal });
+      const doc = await persistWebArticleOutcome(outcome, {
+        extraTags: options?.extraTags,
+        rawFallback: true,
+      });
+      set((state) => ({
+        documents: [...state.documents, doc],
+        isImporting: false,
+        importProgress: { current: 1, total: 1, fileName: doc.title }
+      }));
+      return doc;
+    } catch (error) {
+      console.error('[DocumentStore] Raw page import failed:', error);
+      set({
+        error: error instanceof Error ? error.message : 'Failed to import page',
+        isImporting: false,
+        importProgress: { current: 0, total: 0 }
+      });
+      throw error;
+    }
+  },
+
+  deleteAllSourceSnapshots: async () => {
+    // Retention setting turned off: remove every existing snapshot. Articles
+    // are untouched; only the re-extraction source is dropped.
+    const { documents } = get();
+    const ids = documents
+      .map((d) => d.metadata?.webArticle?.sourceSnapshot?.path)
+      .filter((p): p is string => typeof p === "string")
+      .map((path) => path.split("/").pop()?.replace(/\.html\.gz$/, "") ?? "")
+      .filter((id) => id.length > 0);
+    if (ids.length === 0) return 0;
+    try {
+      return await documentsApi.deleteSourceSnapshots(ids);
+    } catch (e) {
+      console.warn("[documentStore] snapshot deletion failed", e);
+      return 0;
     }
   },
 

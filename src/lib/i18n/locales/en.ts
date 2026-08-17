@@ -1,6 +1,28 @@
 export type Dict = Record<string, string>;
 
 export const en: Dict = {
+
+  // Web Article Import dialog pipeline states (overhaul-web-article-import)
+  "webImport.stageFetching": "Fetching page…",
+  "webImport.stageExtracting": "Extracting article (Defuddle + Readability)…",
+  "webImport.stageRenderedFallback": "Rendering the page to retry extraction…",
+  "webImport.stageNormalizing": "Preparing article…",
+  "webImport.pipelineFailed": "Article import failed",
+  "webImport.importFullPage": "Import full page anyway",
+  "webImport.importFullPageDesc": "Stores the whole sanitized page, clearly marked as a raw fallback — not a clean article.",
+
+  // Web Article Import typed failures (overhaul-web-article-import)
+  "shareImport.error.invalid_url": "This doesn't look like a shareable web article address.",
+  "shareImport.error.network_failed": "The page could not be reached. Check your connection and retry.",
+  "shareImport.error.http_error": "The site returned an error for this address.",
+  "shareImport.error.auth_required": "This page requires a login or subscription, so its article can't be read here.",
+  "shareImport.error.empty_content": "The page returned no usable content.",
+  "shareImport.error.no_candidates": "No article content could be identified on this page.",
+  "shareImport.error.low_confidence": "The article on this page could not be extracted reliably.",
+  "shareImport.error.rendered_unavailable": "This page needs full rendering, which isn't available here right now.",
+  "shareImport.error.rendered_failed": "The page could not be rendered for extraction.",
+  "shareImport.error.sanitization_degenerate": "Almost all content was removed by security filtering — the page was not imported.",
+  "shareImport.error.canceled": "Import canceled.",
   "nav.continue": "Continue Reading",
   "nav.dashboard": "Dashboard",
   "nav.documents": "Documents",
@@ -2874,6 +2896,8 @@ export const en: Dict = {
   "settingsDocs.preserveImages": "Preserve images in web imports",
   "settingsDocs.preserveImagesDesc":
     "Keep images from imported web pages (disable for text-only reading)",
+  "settingsDocs.keepRawSource": "Keep raw page snapshots",
+  "settingsDocs.keepRawSourceDesc": "Store a compressed copy of each imported article\u2019s original HTML so it can be re-extracted later. Snapshots are kept 180 days, are excluded from cloud backups (restores lose snapshots but keep articles), and turning this off deletes existing ones.",
   "settingsDocs.pdfDocuments": "PDF Documents",
   "settingsDocs.defaultZoom": "Default Zoom Level",
   "settingsDocs.twoPageSpread": "Two-page spread",
@@ -5981,4 +6005,12 @@ export const en: Dict = {
   "selectionSheet.error": "That did not work: {message}",
   "selectionSheet.downloadModel": "Download on-device model",
   "selectionSheet.modelDownloading": "Downloading model…",
+
+  // Selection action bar (anchored touch toolbar)
+  "selectionBar.toolbarLabel": "Selection actions",
+  "selectionBar.more": "More actions",
+  "selectionBar.ask": "Ask",
+  "selectionBar.loadingAnnouncement": "Working on your selection…",
+  "selectionBar.resultAnnouncement": "Result ready",
+  "selectionBar.errorAnnouncement": "The action failed",
 };

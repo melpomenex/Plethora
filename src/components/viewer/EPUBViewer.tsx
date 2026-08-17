@@ -200,6 +200,22 @@ interface EPUBViewerProps {
   onBack?: () => void;
   embedded?: boolean;
   onVimRuntimeChange?: (runtime: EpubVimRuntime | null) => void;
+  /**
+   * Selection-interaction controller bridge (V2, overhaul-reader-selection-ux):
+   * when present, selection activity inside the EPUB iframes is registered
+   * here instead of notifying the parent immediately per event — the
+   * controller owns suppression/settle phases. `invalidate` fires on chapter
+   * turns, typography changes, and book close so stale anchored UI dies.
+   */
+  selectionInteractionBridge?: {
+    register: (entry: {
+      doc: globalThis.Document;
+      win?: Window | null;
+      offset?: () => { x: number; y: number } | null;
+      buildSelectionContext?: (range: Range, selection: Selection) => unknown;
+    }) => () => void;
+    invalidate: (reason: string) => void;
+  };
 }
 
 export function EPUBViewer({
@@ -231,6 +247,7 @@ export function EPUBViewer({
   onBack,
   embedded = false,
   onVimRuntimeChange,
+  selectionInteractionBridge,
 }: EPUBViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -335,6 +352,11 @@ export function EPUBViewer({
   onContextTextChangeRef.current = onContextTextChange;
   const onSelectionChangeRef = useRef(onSelectionChange);
   onSelectionChangeRef.current = onSelectionChange;
+  const selectionInteractionBridgeRef = useRef(selectionInteractionBridge);
+  selectionInteractionBridgeRef.current = selectionInteractionBridge;
+  // Detachers for content-document bridge registrations (V2): cleared when
+  // the rendition tears down so dead iframes drop out of the controller.
+  const bridgeDetachersRef = useRef(new Set<() => void>());
   const onContextMenuRef = useRef(onContextMenu);
   onContextMenuRef.current = onContextMenu;
   const onProgressChangeRef = useRef(onProgressChange);
@@ -633,6 +655,9 @@ export function EPUBViewer({
     } catch {
       // Ignore if contents are not ready yet
     }
+    // V2: typography/resize changes invalidate selection geometry — anchored
+    // UI must reposition from fresh geometry or dismiss, never stay stale.
+    selectionInteractionBridgeRef.current?.invalidate("epub-theme-changed");
   }, [applyContentOverrides, rendition]);
 
   const updateFontSize = useCallback((newSize: number) => {
@@ -1039,7 +1064,51 @@ export function EPUBViewer({
 
             // Now inject our consistent styling
             applyContentOverrides(contents);
-            const selectionHandler = () => handleSelectionChange(contents);
+
+            // Selection wiring (overhaul-reader-selection-ux):
+            //  - V2 bridge present: register this content document with the
+            //    controller. Selection activity drives selecting/settling in
+            //    the machine; text+CFI are captured at settle. This listener
+            //    then only maintains the local tap-zone guard — no parent
+            //    notification per event, so handle drags cost nothing.
+            //  - Legacy: notify the parent immediately (no settling) — the
+            //    old contract the pre-V2 DocumentViewer gates on.
+            const bridge = selectionInteractionBridgeRef.current;
+            if (bridge) {
+              const detach = bridge.register({
+                doc: contents.document,
+                win: contents.window,
+                // Iframe-local → app-viewport transform (the context-menu
+                // bridging pattern from the mouseover handler above).
+                offset: () => {
+                  const frame = contents.window?.frameElement as HTMLElement | null | undefined;
+                  if (!frame || typeof frame.getBoundingClientRect !== "function") return null;
+                  const frameRect = frame.getBoundingClientRect();
+                  return { x: frameRect.left, y: frameRect.top };
+                },
+                buildSelectionContext: (range: Range) => {
+                  try {
+                    const cfi = contents.cfiFromRange?.(range);
+                    const text = contents.window?.getSelection()?.toString().trim() ?? "";
+                    if (!cfi) return null;
+                    return {
+                      type: "epub",
+                      documentId: documentId ?? "",
+                      cfiRange: String(cfi),
+                      selectedText: text,
+                    } satisfies EpubSelectionContext;
+                  } catch {
+                    return null;
+                  }
+                },
+              });
+              bridgeDetachersRef.current.add(detach);
+            }
+            const selectionHandler = () => {
+              const selection = contents.window.getSelection();
+              selectionActiveRef.current = Boolean(selection?.toString().trim());
+              if (!bridge) handleSelectionChange(contents);
+            };
             contents.document.addEventListener("selectionchange", selectionHandler);
             contents.document.addEventListener("mouseup", selectionHandler);
             contents.document.addEventListener("touchend", selectionHandler);
@@ -1442,6 +1511,15 @@ export function EPUBViewer({
             if (!mounted) return;
             vimRuntimeListeners.forEach((listener) => listener({ kind: "geometry", spineIndex: location.start?.index }));
 
+            // V2 (overhaul-reader-selection-ux): a chapter/page turn ends the
+            // current reading context — dismiss anchored selection UI, abort
+            // in-flight ops, and clear stale CFI refs so nothing re-surfaces
+            // over the new page.
+            try {
+              selectionInteractionBridgeRef.current?.invalidate("epub-relocated");
+              lastEpubSelectionContextRef.current = null;
+            } catch { /* bridge teardown race — ignore */ }
+
             // Enforce spine boundaries (must be immediate — correctness)
             const currentSpineIndex = location.start?.index;
             if (typeof currentSpineIndex === 'number') {
@@ -1536,6 +1614,13 @@ export function EPUBViewer({
 
     return () => {
       mounted = false;
+      // V2: book close ends the reading context — detach iframe bridges and
+      // invalidate (aborts in-flight selection actions, clears stale CFI refs).
+      for (const detach of bridgeDetachersRef.current) {
+        try { detach(); } catch { /* already torn down */ }
+      }
+      bridgeDetachersRef.current = new Set();
+      try { selectionInteractionBridgeRef.current?.invalidate("epub-closed"); } catch { /* ignore */ }
       if (savePositionTimer) {
         clearTimeout(savePositionTimer);
       }

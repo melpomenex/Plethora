@@ -136,7 +136,13 @@ import { IFRAME_POINTER_ACTIVITY_EVENT } from "../utils/iframePointerActivity";
 import {
   SelectionActionsSheet,
   passageAroundSelection,
+  type SelectionAiAction,
 } from "../components/viewer/SelectionActionsSheet";
+import { useSelectionInteraction } from "../components/viewer/selectionInteraction/useSelectionInteraction";
+import {
+  SelectionActionBar,
+  type SelectionBarAction,
+} from "../components/viewer/selectionInteraction/SelectionActionBar";
 
 /**
  * Default item types for a Scroll Mode tab whose `data` carries no
@@ -1793,6 +1799,48 @@ export function QueueScrollPage() {
   // Rendered item (actual document being rendered)
   const renderedItem = scrollItems[renderedIndex];
 
+  // V2 (overhaul-reader-selection-ux task 6.2): the shared controller owns the
+  // mobile RSS selection lifecycle — stability-gated anchored bar, snapshot-
+  // owned AI runs. The legacy selectionchange effect below stays for rollback.
+  const selectionV2 =
+    useSettingsStore((s) => s.settings.features.selectionInteractionV2) &&
+    isMobile &&
+    renderedItem?.type === "rss";
+  const [selectionBarOverflowOpen, setSelectionBarOverflowOpen] = useState(false);
+  const [pendingAiAction, setPendingAiAction] = useState<{
+    action: SelectionAiAction;
+    text: string;
+    passage: string;
+  } | null>(null);
+  const selectionController = useSelectionInteraction({
+    surface: "rss",
+    documentId: renderedItem?.id ?? null,
+    enabled: selectionV2,
+    onReady: (sel) => {
+      setRssSelectedText(sel.text);
+    },
+    onInvalidate: () => {
+      setPendingAiAction(null);
+      setSelectionBarOverflowOpen(false);
+    },
+  });
+  useEffect(() => {
+    if (!selectionV2 || !rssContentRef.current) return;
+    return selectionController.registerContentRoot(rssContentRef.current);
+  }, [selectionV2, selectionController, renderedItem?.id]);
+
+  const handleSelectionBarAction = (action: SelectionBarAction) => {
+    const snapshot = selectionController.captureForAction();
+    if (!snapshot) return;
+    if (action === "extract") {
+      setRssSelectedText(snapshot.text);
+      void handleCreateRssExtract(snapshot.text);
+      selectionController.dismiss();
+      return;
+    }
+    setPendingAiAction({ action, text: snapshot.text, passage: snapshot.passage });
+  };
+
   // When a podcast episode is the rendered queue item, ensure it has a real
   // Document row so extracts taken from its transcript persist correctly.
   // importPodcastEpisodeAsDocument is idempotent (returns the existing doc if
@@ -1840,6 +1888,9 @@ export function QueueScrollPage() {
 
   // Mobile PWA: Handle text selection for RSS content
   useEffect(() => {
+    // V2 (overhaul-reader-selection-ux task 6.2): the shared controller owns
+    // this path while the flag is on; the listeners below are the rollback.
+    if (selectionV2) return;
     if (!isMobile) return;
     if (renderedItem?.type !== "rss") return;
 
@@ -1919,7 +1970,7 @@ export function QueueScrollPage() {
         cancelAnimationFrame(rafId);
       }
     };
-  }, [isMobile, renderedItem?.type]);
+  }, [isMobile, renderedItem?.type, selectionV2]);
 
   const detailsTarget = useMemo<ItemDetailsTarget | null>(() => {
     if (!currentItem) return null;
@@ -4440,15 +4491,56 @@ export function QueueScrollPage() {
       )}
 
       {/* Mobile: bottom sheet of actions for the current article selection. */}
+      {/* V2: anchored selection bar for settled RSS selections (task 6.2). */}
+      <SelectionActionBar
+        placement={
+          selectionV2 && selectionController.phase === "ready"
+            ? selectionController.placement
+            : null
+        }
+        onAction={handleSelectionBarAction}
+        onOverflow={() => setSelectionBarOverflowOpen(true)}
+        onDismiss={() => selectionController.dismiss({ suppressCurrentText: true })}
+        onMeasure={selectionController.registerBarSize}
+      />
+
       <SelectionActionsSheet
-        open={Boolean(isMobile && renderedItem?.type === "rss" && mobileRssSelection.showButton)}
-        text={mobileRssSelection.text}
-        passage={mobileRssSelection.passage}
+        open={
+          selectionV2
+            ? selectionBarOverflowOpen ||
+              selectionController.phase === "actionRunning" ||
+              selectionController.phase === "resultVisible"
+            : Boolean(isMobile && renderedItem?.type === "rss" && mobileRssSelection.showButton)
+        }
+        text={pendingAiAction?.text || (selectionV2 ? selectionController.readySelection?.text : "") || mobileRssSelection.text}
+        passage={pendingAiAction?.passage || (selectionV2 ? selectionController.readySelection?.passage : "") || mobileRssSelection.passage}
+        initialAction={pendingAiAction?.action}
+        operationId={selectionV2 ? selectionController.capturedAction?.operationId : undefined}
+        onSettled={
+          selectionV2
+            ? (operationId, outcome) => selectionController.notifyActionSettled(operationId, outcome)
+            : undefined
+        }
         onClose={() => {
+          if (selectionV2) {
+            setPendingAiAction(null);
+            setSelectionBarOverflowOpen(false);
+            selectionController.dismiss({ suppressCurrentText: true });
+            return;
+          }
           setMobileRssSelection(prev => ({ ...prev, showButton: false }));
           clearRssTextSelection();
         }}
-        onCreateExtract={() => void handleMobileRssExtract()}
+        onCreateExtract={() =>
+          void (selectionV2
+            ? (() => {
+                const snapshot = selectionController.captureForAction();
+                if (!snapshot) return Promise.resolve();
+                setRssSelectedText(snapshot.text);
+                return handleCreateRssExtract(snapshot.text);
+              })()
+            : handleMobileRssExtract())
+        }
         onCreateExtractFromResult={(resultText) => void handleCreateRssExtract(resultText)}
       />
 

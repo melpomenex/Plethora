@@ -1,0 +1,16 @@
+{
+  "title": "On Small Tools",
+  "authors": [
+    "Bloggy Person"
+  ],
+  "minWords": 300,
+  "mustContain": [
+    "A worked example",
+    "small-tool"
+  ],
+  "mustNotContain": [
+    "RSS",
+    "Archive"
+  ],
+  "confidenceAtLeast": "medium"
+}

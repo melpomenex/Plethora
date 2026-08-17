@@ -1,0 +1,18 @@
+{
+  "title": "Notes on Slow Systems",
+  "authors": [
+    "Sub Stackwell"
+  ],
+  "publishedAtContains": "2026-07-20",
+  "siteName": "Slow Systems Weekly",
+  "minWords": 450,
+  "mustContain": [
+    "Why slow wins"
+  ],
+  "mustNotContain": [
+    "Join 40,000 readers",
+    "Leave a comment",
+    "Subscribe now"
+  ],
+  "confidenceAtLeast": "medium"
+}

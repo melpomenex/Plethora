@@ -260,6 +260,63 @@ mod commands {
         }
     }
 
+    /// Rendered-DOM capture outcome from the Android offscreen WebView.
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RenderedDomCaptureOutcome {
+        pub html: String,
+        pub final_url: String,
+        pub duration_ms: u64,
+    }
+
+    /// Capture a page's rendered DOM via the native offscreen WebView
+    /// (article-import rendered fallback). The capture WebView is bare — no
+    /// Tauri bridge — so the loaded page has zero Incrementum access.
+    /// Rejection messages carry typed prefixes (UNAVAILABLE/TIMEOUT/
+    /// CAPTURE_FAILED) that the frontend maps onto failure codes.
+    #[tauri::command]
+    pub async fn capture_rendered_dom(
+        state: State<'_, FolderImport>,
+        url: String,
+        timeout_ms: Option<u64>,
+    ) -> Result<RenderedDomCaptureOutcome, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let res: serde_json::Value = state
+                .handle
+                .run_mobile_plugin(
+                    "captureRenderedDom",
+                    serde_json::json!({ "url": url, "timeoutMs": timeout_ms.unwrap_or(20_000) }),
+                )
+                .map_err(|e| Error::Message(format!("CAPTURE_FAILED: {}", e)))?;
+            let html = res
+                .get("html")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if html.trim().is_empty() {
+                return Err(Error::Message("CAPTURE_FAILED: empty DOM capture".to_string()));
+            }
+            Ok(RenderedDomCaptureOutcome {
+                final_url: res
+                    .get("finalUrl")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&url)
+                    .to_string(),
+                duration_ms: res.get("durationMs").and_then(|v| v.as_u64()).unwrap_or(0),
+                html,
+            })
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, url, timeout_ms);
+            Err(Error::Message(
+                "UNAVAILABLE: this plugin capture is Android-only; desktop uses the app capture_rendered_dom command"
+                    .to_string(),
+            ))
+        }
+    }
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct SharedPayloadItem {
@@ -525,7 +582,8 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::install_apk,
             commands::backup_db_to_downloads,
             commands::register_share_listener,
-            commands::get_pending_shares
+            commands::get_pending_shares,
+            commands::capture_rendered_dom
         ])
         .setup(|app, api| {
             let folder_import = init_mobile(app.app_handle(), api)?;

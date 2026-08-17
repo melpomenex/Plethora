@@ -1,0 +1,17 @@
+{
+  "title": "A Metadata-First Article",
+  "authors": [
+    "Jay Sonne-Eldee",
+    "Co Authorson"
+  ],
+  "publishedAtContains": "2026-04-01",
+  "siteName": "Schema First Media",
+  "minWords": 300,
+  "mustContain": [
+    "Why structured data helps"
+  ],
+  "mustNotContain": [
+    "All rights reserved"
+  ],
+  "confidenceAtLeast": "medium"
+}
